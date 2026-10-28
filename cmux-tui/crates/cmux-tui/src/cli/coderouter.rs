@@ -588,6 +588,7 @@ fn read_hidden_line(prompt: &str) -> std::io::Result<String> {
     stderr.flush()?;
     // SAFETY: termios is plain data; tcgetattr fills it for fd 0.
     let mut original: libc::termios = unsafe { std::mem::zeroed() };
+    // SAFETY: tcgetattr writes one termios into `original`, a live local.
     let has_terminal = unsafe { libc::tcgetattr(libc::STDIN_FILENO, &mut original) } == 0;
     if has_terminal {
         let mut hidden = original;

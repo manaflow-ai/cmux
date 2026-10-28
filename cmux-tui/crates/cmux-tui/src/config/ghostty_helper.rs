@@ -137,6 +137,8 @@ pub(super) fn terminate_ghostty_helper_child_with_reaped_signal(
 ) -> mpsc::Receiver<()> {
     #[cfg(unix)]
     let descendant_groups = ghostty_helper_descendant_process_groups(child.id() as libc::pid_t);
+    // SAFETY: killpg takes no pointer and has no memory-safety precondition; the groups are the
+    // helper's own and its descendants' read from the process table above.
     #[cfg(unix)]
     unsafe {
         for group in descendant_groups {

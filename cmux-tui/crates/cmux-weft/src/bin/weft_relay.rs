@@ -4,6 +4,8 @@
 //! authority, standard base64), `FLY_REGION` or `WEFT_REGION`, `PORT`
 //! (default 8080).
 
+#![forbid(unsafe_code)]
+
 use anyhow::Context;
 use cmux_weft::relay::{RelayConfig, serve_relay};
 

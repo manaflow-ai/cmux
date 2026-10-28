@@ -170,15 +170,10 @@ fn folder(value: Option<&Value>) -> Option<String> {
         Some(rest) => {
             // `file:///c%3A/x` on Windows: drop the slash before a drive letter.
             let decoded = percent_decode(rest);
-            let bytes = decoded.as_bytes();
-            if bytes.len() >= 3
-                && bytes[0] == b'/'
-                && bytes[2] == b':'
-                && bytes[1].is_ascii_alphabetic()
-            {
-                decoded[1..].to_owned()
-            } else {
-                decoded
+            let drive_path = matches!(decoded.as_bytes(), [b'/', drive, b':', ..] if drive.is_ascii_alphabetic());
+            match decoded.strip_prefix('/') {
+                Some(path) if drive_path => path.to_owned(),
+                _ => decoded,
             }
         }
         None => raw.to_owned(),
@@ -187,24 +182,49 @@ fn folder(value: Option<&Value>) -> Option<String> {
 }
 
 fn percent_decode(text: &str) -> String {
-    let bytes = text.as_bytes();
-    let mut out = Vec::with_capacity(bytes.len());
-    let mut at = 0;
-    while at < bytes.len() {
-        if bytes[at] == b'%'
-            && let (Some(high), Some(low)) =
-                (bytes.get(at + 1).and_then(hex), bytes.get(at + 2).and_then(hex))
+    let mut rest = text.as_bytes();
+    let mut out = Vec::with_capacity(rest.len());
+    while let Some((&byte, tail)) = rest.split_first() {
+        if byte == b'%'
+            && let [high, low, after @ ..] = tail
+            && let (Some(high), Some(low)) = (hex(high), hex(low))
         {
             out.push(high * 16 + low);
-            at += 3;
+            rest = after;
             continue;
         }
-        out.push(bytes[at]);
-        at += 1;
+        out.push(byte);
+        rest = tail;
     }
     String::from_utf8_lossy(&out).into_owned()
 }
 
 fn hex(byte: &u8) -> Option<u8> {
     char::from(*byte).to_digit(16).and_then(|digit| u8::try_from(digit).ok())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn percent_decode_keeps_bad_and_cut_escapes() {
+        assert_eq!(percent_decode("a%20b%2Fc"), "a b/c");
+        assert_eq!(percent_decode("100%"), "100%");
+        assert_eq!(percent_decode("%4"), "%4");
+        assert_eq!(percent_decode("%zz%41"), "%zzA");
+        assert_eq!(percent_decode("é%C3%A9"), "éé");
+    }
+
+    #[test]
+    fn folder_reads_paths_and_file_uris() {
+        let folder_of = |text: &str| folder(Some(&Value::String(text.to_owned())));
+        assert_eq!(folder_of("/work/app"), Some("/work/app".to_owned()));
+        assert_eq!(folder_of("file:///work/my%20app"), Some("/work/my app".to_owned()));
+        assert_eq!(folder_of("file:///c%3A/x"), Some("c:/x".to_owned()));
+        assert_eq!(folder_of("file:///1:/x"), Some("/1:/x".to_owned()));
+        assert_eq!(folder_of("file:///"), Some("/".to_owned()));
+        assert_eq!(folder_of("file://"), None);
+        assert_eq!(folder_of("  "), None);
+    }
 }

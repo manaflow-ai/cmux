@@ -19,9 +19,13 @@ import Darwin
 /// let window = VisibilityNode(root: "window", own: .visible)
 /// let workspace = VisibilityNode("workspace", own: .hidden, parent: window)
 /// let token = workspace.subscribe(owner: "Sidebar.rows") { visibility in rows.apply(visibility) }
-/// workspace.deferUntilVisible(key: "appearance") { [weak view] in view?.applyAppearance() }
+/// workspace.deferAppearance(owner: "Strip") { [weak view] in view?.applyAppearance() }
 /// workspace.set(.visible) // token is notified once, then the appearance body runs
 /// ```
+///
+/// A view hidden in AppKit forwards it and nothing else (recipe R-hide): `viewDidHide` calls
+/// `node.set(.hidden)`, `viewDidUnhide` calls `node.set(.visible)`, and work a hidden view skips waits in
+/// ``deferUntilVisible(key:_:)`` under a key, so a show runs each kind of work once.
 ///
 /// Subscribers are told only when ``effective`` flips, after the whole subtree has its new state,
 /// parents before children. Hold the ``VisibilitySubscription``: releasing it ends the
@@ -32,7 +36,8 @@ import Darwin
 /// `WebContents::IncrementCapturerCount(size, stay_hidden, stay_awake)`
 /// (content/public/browser/web_contents.h) keeps a hidden page rendering. While a vote holds a node,
 /// the node and its own-shown subtree render (``wantsFrames``): frame clients tick, view
-/// observations apply and the node's task queues run. A `stayHidden` vote leaves ``effective``,
+/// observations apply, the node's task queues run and its deferred view work
+/// (``deferUntilVisible(key:_:)``) runs. A `stayHidden` vote leaves ``effective``,
 /// page visibility and the hidden timer alignment as they are; any other vote makes the node
 /// ``Visibility/visible``.
 @MainActor public final class VisibilityNode {
@@ -67,7 +72,7 @@ import Darwin
 
     /// Whether this node renders: it is ``Visibility/visible``, or a capture vote holds it
     /// (``isCaptured``: a screenshot, a screencast or screen share sees it while it is hidden).
-    /// Frame clients, view observations and the node's task queues follow it.
+    /// Frame clients, view observations, the node's task queues and its deferred work follow it.
     public var wantsFrames: Bool { isVisible || isCaptured }
 
     /// How many times a propagation recomputed this node (tests prove a flip visits only what can change).
@@ -75,6 +80,8 @@ import Darwin
 
     private let isRoot: Bool
     let uptime: Uptime
+    /// The counts a root was made with (``workCounts``); nil on a child.
+    private let rootWorkCounts: VisibilityWorkCounts?
     /// Children whose own state is visible or occluded: the ones a parent flip can change.
     private var shownChildren: [ObjectIdentifier: WeakNode] = [:]
     /// Children whose own state is hidden: always hidden, never visited by a parent flip.
@@ -99,7 +106,8 @@ import Darwin
     var nextVoteID: UInt64 = 0
     /// Counts changes of ``notified``: a delivery stops when a subscriber's change started a newer one.
     private var notifyGeneration = 0
-    private var deferred: [(key: AnyHashable, work: @MainActor () -> Void)] = []
+    /// Work waiting for the node to reach `from` (``deferUntilVisible(key:_:)``, ``deferUntilShown(key:_:)``).
+    private var deferred: [(key: AnyHashable, from: Visibility, work: @MainActor () -> Void)] = []
     var mediaPlaying = false
     var mediaStoppedAt: Duration?
     /// The task queues made on this node (``queue(_:owner:on:)``), told of every flip and freeze.
@@ -114,8 +122,11 @@ import Darwin
     ///   - name: The name diagnostics show.
     ///   - own: The starting state.
     ///   - uptime: The clock for ``hiddenSince`` and ``mediaActiveWithin(_:)``.
-    public init(root name: String, own: Visibility, uptime: @escaping Uptime = VisibilityNode.systemUptime) {
+    ///   - workCounts: Where the tree's nodes count their work (``workCounts``); nil counts nothing.
+    public init(root name: String, own: Visibility, uptime: @escaping Uptime = VisibilityNode.systemUptime,
+                workCounts: VisibilityWorkCounts? = nil) {
         self.name = name
+        self.rootWorkCounts = workCounts
         self.own = own
         self.effective = own
         self.notified = own
@@ -144,6 +155,7 @@ import Darwin
         self.notifiedRendering = effective == .visible || captured
         self.isRoot = false
         self.uptime = parent.uptime
+        self.rootWorkCounts = nil
         self.hiddenSince = effective == .visible ? nil : parent.uptime()
         self.hiddenStateSince = effective == .hidden ? parent.uptime() : nil
         self.parent = parent
@@ -251,18 +263,65 @@ import Darwin
         return subscription
     }
 
-    /// Runs `work` now when this node is visible; otherwise once, when it next becomes visible.
-    /// A later call with the same `key` replaces pending work, so a hidden node runs each key once.
+    /// Runs `work` now when this node renders (``wantsFrames``: it is visible, or a capture vote
+    /// holds it); otherwise once, when it next renders. A later call with the same `key` replaces
+    /// pending work, so a hidden node runs each key once. The work is view work (the R-appear and
+    /// R-hide recipes), and a capture draws the views, so it runs for a capture as a view
+    /// observation applies for one.
     ///
     /// The node holds `work` until it runs: capture the node and its owner weakly.
     public func deferUntilVisible(key: some Hashable, _ work: @escaping @MainActor () -> Void) {
-        if isVisible { work(); return }
-        let key = AnyHashable(key)
+        hold(work, until: .visible, key: AnyHashable(key))
+    }
+
+    /// Runs `work` now when this node is not hidden (visible or occluded) or renders (``wantsFrames``);
+    /// otherwise once, when it next is. For layout work: an occluded node keeps its layout ready
+    /// (``Visibility/occluded``), so its sizes apply while it is covered, and a capture draws the views at
+    /// their sizes. Keys are shared with ``deferUntilVisible(key:_:)``: a later call with the same `key`
+    /// replaces pending work.
+    ///
+    /// The node holds `work` until it runs: capture the node and its owner weakly.
+    public func deferUntilShown(key: some Hashable, _ work: @escaping @MainActor () -> Void) {
+        hold(work, until: .occluded, key: AnyHashable(key))
+    }
+
+    private func hold(_ work: @escaping @MainActor () -> Void, until from: Visibility, key: AnyHashable) {
+        if reaches(from) { work(); return }
         if let index = deferred.firstIndex(where: { $0.key == key }) {
-            deferred[index].work = work
+            deferred[index] = (key: key, from: from, work: work)
         } else {
-            deferred.append((key: key, work: work))
+            deferred.append((key: key, from: from, work: work))
         }
+    }
+
+    /// Re-applies `owner`'s appearance (recipe R-appear): now when this node is visible, else once when
+    /// it next shows, however many theme, contrast or scale changes came meanwhile. A
+    /// `viewDidChangeEffectiveAppearance` body that does more than set layer colors (measures text,
+    /// rebuilds layers, lays out) goes through it, so a theme flip costs what is on screen; a hidden
+    /// `RenderWidgetHostImpl` likewise sends its visual properties once, in `WasShown`
+    /// (content/browser/renderer_host/render_widget_host_impl.cc). Each run counts in
+    /// ``VisibilityWorkCounts/appearanceApplies``.
+    ///
+    /// - Parameters:
+    ///   - owner: The view's name; one pending body per owner on this node.
+    ///   - apply: The appearance body. The node holds it until it runs: capture the view weakly.
+    public func deferAppearance(owner: String, _ apply: @escaping @MainActor () -> Void) {
+        deferUntilVisible(key: AppearanceKey(owner: owner)) { [weak self] in
+            self?.workCounts?.appearanceApplies &+= 1
+            apply()
+        }
+    }
+
+    /// Where this node counts its work: its root's counts (``init(root:own:uptime:workCounts:)``), read
+    /// when the work runs, so a node moved to another tree counts there. Nil while detached.
+    public var workCounts: VisibilityWorkCounts? {
+        var node = self
+        while let parent = node.parent { node = parent }
+        return node.rootWorkCounts
+    }
+
+    private struct AppearanceKey: Hashable {
+        let owner: String
     }
 
     /// Drops the pending work for `key`, if any.
@@ -271,7 +330,7 @@ import Darwin
         deferred.removeAll { $0.key == key }
     }
 
-    /// The number of keys waiting for this node to become visible.
+    /// The number of keys waiting for this node to become visible (or, for ``deferUntilShown(key:_:)``, not hidden).
     public var deferredCount: Int { deferred.count }
 
     /// The live subscriptions to this node's flips, exemption changes and rendering changes (tests).
@@ -341,7 +400,9 @@ import Darwin
                 guard renderingGeneration == generation else { return }
                 subscription.onFlip(effective)
             }
+            guard renderingGeneration == generation else { return }
         }
+        runDeferredIfReached()
         guard isCaptured != notifiedCaptured else { return }
         notifiedCaptured = isCaptured
         notifyExemption()
@@ -361,12 +422,22 @@ import Darwin
             subscription.onFlip(value)
         }
         guard notifyGeneration == generation else { return }
-        if value == .visible { runDeferred() }
+        runDeferredIfReached()
     }
 
-    private func runDeferred() {
-        while isVisible, !deferred.isEmpty {
-            deferred.removeFirst().work()
+    /// Whether deferred work waiting for `from` runs now: the node renders (``wantsFrames``: visible, or a
+    /// capture vote holds it), or its state is at least `from`.
+    private func reaches(_ from: Visibility) -> Bool {
+        wantsFrames || effective >= from
+    }
+
+    /// Runs, in the order they were deferred, the bodies this node's state now reaches (a body that hides it
+    /// again leaves the rest for the next time it reaches them: each pick reads the state again). It follows
+    /// the node's state now, not whether that changed: a subscriber can defer work while the node is hidden
+    /// and show it again inside the same pass.
+    private func runDeferredIfReached() {
+        while let index = deferred.firstIndex(where: { reaches($0.from) }) {
+            deferred.remove(at: index).work()
         }
     }
 

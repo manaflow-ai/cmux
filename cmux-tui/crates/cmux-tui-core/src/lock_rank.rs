@@ -1,8 +1,9 @@
 //! Debug-build lock ranks (lockdep style) for the mux and surface locks.
 //!
 //! Order, outer first: workspace registry -> journal writer -> registry
-//! connection -> `Mux::state` -> Kitty limits request -> PTY geometry ->
-//! terminal -> PTY runtime -> Kitty limits -> attach taps -> leaf. A thread may acquire a ranked lock only when its rank is
+//! connection -> `Mux::state` -> PTY input turn -> Kitty limits request ->
+//! PTY geometry -> terminal -> PTY runtime -> Kitty limits -> attach taps ->
+//! leaf. A thread may acquire a ranked lock only when its rank is
 //! after every rank the thread already holds. A blocking acquisition at a rank
 //! equal to or before a held rank panics in debug and test builds and names
 //! both locks, so every test, Testbox gate and debug dogfood build checks the
@@ -44,6 +45,15 @@ pub(crate) enum LockRank {
     RegistryConnection,
     /// `Mux::state`.
     MuxState,
+    /// Not a mutex: a terminal's input turn, taken from its
+    /// `pty_input_fifo::PtyInputFifo` and held for one whole input (a `send` with
+    /// its paste and Return, an INPUT frame, an image paste, a clear-history
+    /// key). The write it holds the turn for takes the terminal (a paste's
+    /// bracketed mode) and the runtime lock, so it ranks before both. It
+    /// ranks after `Mux::state`, so an input turn never takes the registry or
+    /// the state lock: a turn can wait behind a write the child does not
+    /// read, and nothing daemon-wide may wait with it.
+    PtyInput,
     /// `PtyTerminalRuntime::kitty_limits_request`, held for a whole Kitty
     /// limits request, including the runtime, terminal and taps it takes.
     KittyLimitsRequest,
@@ -83,6 +93,10 @@ mod held {
     static NEXT_ID: AtomicU64 = AtomicU64::new(1);
 
     #[track_caller]
+    #[allow(
+        clippy::panic,
+        reason = "INVARIANT: the debug and test lock-order DCHECK; release builds compile it out"
+    )]
     pub(super) fn check(rank: LockRank, name: &'static str) {
         let violation = HELD.with(|held| {
             held.borrow()
@@ -97,7 +111,7 @@ mod held {
             panic!(
                 "lock order violation: acquiring {name} ({rank:?}) while this thread holds \
                  {held_name} ({held_rank:?}); the order is workspace.registry > journal.writer > \
-                 registry.connection > mux.state > pty.kitty_limits_request > \
+                 registry.connection > mux.state > pty.input > pty.kitty_limits_request > \
                  pty.geometry > pty.term > pty.runtime > pty.kitty_graphics_limits > \
                  pty.taps > leaf (see PtyTerminalRuntime)"
             );
@@ -125,6 +139,15 @@ mod held {
         );
     }
 
+    /// `work` must not run while this thread holds `rank`.
+    #[track_caller]
+    pub(super) fn assert_not_held(rank: LockRank, work: &'static str) {
+        let held_name = HELD.with(|held| {
+            held.borrow().iter().find(|entry| entry.rank == rank).map(|entry| entry.name)
+        });
+        debug_assert!(held_name.is_none(), "{work} ran while this thread holds {held_name:?}");
+    }
+
     pub(super) fn pop(id: u64) {
         // Guards may drop out of order, and during thread teardown.
         let _ = HELD.try_with(|held| {
@@ -134,6 +157,18 @@ mod held {
             }
         });
     }
+}
+
+/// Debug and test builds: panic when this thread holds `rank` (`work` names
+/// what must run outside it, as the mux event fan-out runs outside
+/// `Mux::state`). Release builds compile it out.
+#[track_caller]
+#[inline]
+pub(crate) fn debug_assert_rank_not_held(rank: LockRank, work: &'static str) {
+    #[cfg(debug_assertions)]
+    held::assert_not_held(rank, work);
+    #[cfg(not(debug_assertions))]
+    let _ = (rank, work);
 }
 
 /// The last rank whose holds are counted in every build: lock admission

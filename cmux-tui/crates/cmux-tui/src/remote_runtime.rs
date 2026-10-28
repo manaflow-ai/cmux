@@ -209,8 +209,14 @@ fn remote_runtime_worker_count() -> usize {
 }
 
 fn build_remote_runtime(thread_name: &str) -> anyhow::Result<tokio::runtime::Runtime> {
-    let mut builder = tokio::runtime::Builder::new_multi_thread();
-    builder.worker_threads(remote_runtime_worker_count()).thread_name(thread_name).enable_all();
+    // Remote clients' terminal traffic and requests run here: the person
+    // waits on them.
+    let mut builder = cmux_threads::tokio::builder(
+        thread_name,
+        cmux_threads::ThreadQos::UserInitiated,
+        cmux_threads::tokio::Flavor::MultiThread,
+    );
+    builder.worker_threads(remote_runtime_worker_count());
     crate::owner_start::poll_watch_lab::instrument(&mut builder);
     builder.build().context("could not start remote Tokio runtime")
 }
@@ -650,7 +656,8 @@ pub fn start_client_runtime(options: ClientRuntimeOptions) -> anyhow::Result<Cli
         .spawn(move || {
             let runtime = build_remote_runtime("cmux-remote-client-worker")
                 .context("could not start remote client Tokio runtime")?;
-            let result = runtime.block_on(run_client(options, shutdown_rx, ready_tx));
+            let result =
+                cmux_threads::tokio::block_on(&runtime, run_client(options, shutdown_rx, ready_tx));
             runtime.shutdown_timeout(REMOTE_RUNTIME_SHUTDOWN_TIMEOUT);
             finished_tx.send_replace(true);
             result
@@ -700,6 +707,7 @@ impl Drop for OwnerFileLock {
     fn drop(&mut self) {
         use std::os::fd::AsRawFd;
 
+        // SAFETY: `self.file` is open until this drop returns and flock takes no pointer.
         unsafe {
             libc::flock(self.file.as_raw_fd(), libc::LOCK_UN);
         }
@@ -1686,7 +1694,7 @@ fn open_owner_lock_file(path: &Path, what: &str) -> anyhow::Result<fs::File> {
     if !metadata.is_file() {
         return Err(anyhow!("{what} {} is not a regular file", path.display()));
     }
-    if metadata.uid() != unsafe { libc::geteuid() } {
+    if metadata.uid() != cmux_tui_core::platform::effective_uid() {
         return Err(anyhow!("{what} {} is not owned by the effective user", path.display()));
     }
     if metadata.permissions().mode() & 0o077 != 0 {
@@ -1707,6 +1715,7 @@ async fn acquire_client_socket_lock(
     use std::os::fd::AsRawFd;
 
     loop {
+        // SAFETY: `file` is open for the call and flock takes no pointer.
         if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
             return Ok(OwnerFileLock { file });
         }
@@ -1736,7 +1745,7 @@ async fn acquire_client_socket_lock(
 fn prepare_client_socket_directory(path: &Path) -> anyhow::Result<()> {
     ensure_secure_directory(path, DirectoryAccess::OwnerControlled)?;
     let metadata = cmux_blocking::fs::symlink_metadata(path)?;
-    validate_client_socket_directory(path, &metadata, unsafe { libc::geteuid() })
+    validate_client_socket_directory(path, &metadata, cmux_tui_core::platform::effective_uid())
 }
 
 #[cfg(unix)]
@@ -1772,7 +1781,9 @@ fn validate_client_socket_directory(
 pub(crate) fn unix_socket_path_fits(path: &Path) -> bool {
     use std::os::unix::ffi::OsStrExt;
 
-    let capacity = unsafe { std::mem::zeroed::<libc::sockaddr_un>() }.sun_path.len();
+    // `sun_path` is the last field of `sockaddr_un` on Linux and macOS.
+    let capacity =
+        size_of::<libc::sockaddr_un>() - std::mem::offset_of!(libc::sockaddr_un, sun_path);
     path.as_os_str().as_bytes().len() < capacity
 }
 
@@ -1794,7 +1805,7 @@ fn client_socket_path_in(
     if unix_socket_path_fits(&candidate) {
         return Ok(candidate);
     }
-    let prefix = format!("cmux-r-{}", unsafe { libc::geteuid() });
+    let prefix = format!("cmux-r-{}", cmux_tui_core::platform::effective_uid());
     let name =
         format!("{}.sock", base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(session.0));
     let preferred_base = runtime.unwrap_or(shared_tmp);
@@ -1913,6 +1924,7 @@ fn lock_socket_directory_record(record: &Path) -> anyhow::Result<OwnerFileLock> 
     let path = record.with_file_name(format!("{SOCKET_DIRECTORY_RECORD}.lock"));
     let file = open_owner_lock_file(&path, "socket directory record lock")?;
     loop {
+        // SAFETY: `file` is open for the call and flock takes no pointer.
         if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) } == 0 {
             return Ok(OwnerFileLock { file });
         }
@@ -2046,7 +2058,7 @@ fn daemon_runtime_socket_paths_in(
 
     // Every client of this session computes the same paths from `state`, so
     // a fallback directory is recorded there for them to find.
-    let prefix = format!("cmux-rd-{}", unsafe { libc::geteuid() });
+    let prefix = format!("cmux-rd-{}", cmux_tui_core::platform::effective_uid());
     let runtime = private_socket_directory(
         shared_tmp,
         &prefix,
@@ -2089,16 +2101,19 @@ fn start_daemon_runtime_with_timeout(
             // every return path including a failed runtime build.
             let _finished = FinishedSignal(thread_finished);
             let runtime = build_remote_runtime("cmux-remote-daemon-worker")?;
-            let result = runtime.block_on(run_daemon(
-                mux_socket,
-                options,
-                state_dir,
-                link_socket,
-                admin_socket,
-                shutdown_rx,
-                owner_shutdown,
-                ready_tx,
-            ));
+            let result = cmux_threads::tokio::block_on(
+                &runtime,
+                run_daemon(
+                    mux_socket,
+                    options,
+                    state_dir,
+                    link_socket,
+                    admin_socket,
+                    shutdown_rx,
+                    owner_shutdown,
+                    ready_tx,
+                ),
+            );
             runtime.shutdown_timeout(REMOTE_RUNTIME_SHUTDOWN_TIMEOUT);
             result
         })
@@ -3334,6 +3349,14 @@ mod tests {
 
     #[cfg(unix)]
     mod initial_route_budget;
+
+    /// flock(2) on a test's own lock file: 0, or -1 with errno set.
+    #[cfg(unix)]
+    fn flock(file: &fs::File, operation: libc::c_int) -> libc::c_int {
+        use std::os::fd::AsRawFd as _;
+        // SAFETY: `file` is open for the call and flock takes no pointer.
+        unsafe { libc::flock(file.as_raw_fd(), operation) }
+    }
 
     fn instrumented_test_timeout(timeout: Duration) -> Duration {
         let scale = std::env::var("CMUX_TEST_TIMEOUT_SCALE")
@@ -4695,7 +4718,6 @@ mod tests {
     #[test]
     fn client_startup_timeout_returns_while_the_socket_path_lock_is_held() {
         use std::fs::OpenOptions;
-        use std::os::fd::AsRawFd;
         use std::os::unix::fs::OpenOptionsExt;
 
         let directory = tempfile::tempdir_in("/tmp").unwrap();
@@ -4736,7 +4758,7 @@ mod tests {
             .mode(0o600)
             .open(client_socket_lock_path(&local_socket).unwrap())
             .unwrap();
-        assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX) }, 0);
+        assert_eq!(flock(&lock, libc::LOCK_EX), 0);
 
         let ssh = SshProviderConfig::default();
         let client_state = directory.path().join("client-state");
@@ -4770,7 +4792,7 @@ mod tests {
         });
 
         let completed_while_locked = done_rx.recv_timeout(Duration::from_millis(500)).is_ok();
-        assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_UN) }, 0);
+        assert_eq!(flock(&lock, libc::LOCK_UN), 0);
         if !completed_while_locked {
             done_rx
                 .recv_timeout(Duration::from_secs(3))
@@ -4790,7 +4812,6 @@ mod tests {
     #[test]
     fn daemon_startup_timeout_returns_while_the_identity_path_lock_is_held() {
         use std::fs::OpenOptions;
-        use std::os::fd::AsRawFd;
         use std::os::unix::fs::OpenOptionsExt;
 
         let directory = tempfile::tempdir_in("/tmp").unwrap();
@@ -4807,7 +4828,7 @@ mod tests {
             .mode(0o600)
             .open(auth_state.join("identity.json.lock"))
             .unwrap();
-        assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX) }, 0);
+        assert_eq!(flock(&lock, libc::LOCK_EX), 0);
 
         let mux_socket = directory.path().join("missing-mux.sock");
         let (done_tx, done_rx) = mpsc::sync_channel(1);
@@ -4835,7 +4856,7 @@ mod tests {
         });
 
         let completed_while_locked = done_rx.recv_timeout(Duration::from_millis(500)).is_ok();
-        assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_UN) }, 0);
+        assert_eq!(flock(&lock, libc::LOCK_UN), 0);
         if !completed_while_locked {
             done_rx
                 .recv_timeout(Duration::from_secs(3))
@@ -4926,7 +4947,6 @@ mod tests {
     #[test]
     fn daemon_startup_retries_a_predecessors_auth_state_lease() {
         use std::fs::OpenOptions;
-        use std::os::fd::AsRawFd;
         use std::os::unix::fs::OpenOptionsExt;
 
         let directory = tempfile::tempdir_in("/tmp").unwrap();
@@ -4947,7 +4967,7 @@ mod tests {
             .mode(0o600)
             .open(auth_state.join("devices.json.lock"))
             .unwrap();
-        assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX) }, 0);
+        assert_eq!(flock(&lock, libc::LOCK_EX), 0);
 
         let mux_socket = directory.path().join("missing-mux.sock");
         let (done_tx, done_rx) = mpsc::sync_channel(1);
@@ -4975,7 +4995,7 @@ mod tests {
         });
 
         let early = done_rx.recv_timeout(Duration::from_millis(200));
-        assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_UN) }, 0);
+        assert_eq!(flock(&lock, libc::LOCK_UN), 0);
         let finished_while_locked = early.is_ok();
         let result = match early {
             Ok(result) => result,
@@ -5001,7 +5021,6 @@ mod tests {
     #[tokio::test]
     async fn daemon_auth_handoff_retry_stops_at_its_deadline() {
         use std::fs::OpenOptions;
-        use std::os::fd::AsRawFd;
         use std::os::unix::fs::OpenOptionsExt;
 
         let directory = tempfile::tempdir().unwrap();
@@ -5015,7 +5034,7 @@ mod tests {
             .mode(0o600)
             .open(auth_state.join("devices.json.lock"))
             .unwrap();
-        assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX) }, 0);
+        assert_eq!(flock(&lock, libc::LOCK_EX), 0);
         let (_shutdown_tx, mut shutdown_rx) = watch::channel(false);
         let started = tokio::time::Instant::now();
 
@@ -5029,7 +5048,7 @@ mod tests {
         .unwrap_err()
         .to_string();
 
-        assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_UN) }, 0);
+        assert_eq!(flock(&lock, libc::LOCK_UN), 0);
         assert!(error.contains("still owned"), "{error}");
         assert!(
             started.elapsed() < Duration::from_secs(1),
@@ -5041,7 +5060,6 @@ mod tests {
     #[tokio::test]
     async fn daemon_auth_handoff_retry_observes_startup_cancellation() {
         use std::fs::OpenOptions;
-        use std::os::fd::AsRawFd;
         use std::os::unix::fs::OpenOptionsExt;
 
         let directory = tempfile::tempdir().unwrap();
@@ -5055,7 +5073,7 @@ mod tests {
             .mode(0o600)
             .open(auth_state.join("devices.json.lock"))
             .unwrap();
-        assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX) }, 0);
+        assert_eq!(flock(&lock, libc::LOCK_EX), 0);
         let (shutdown_tx, mut shutdown_rx) = watch::channel(false);
         let retry = tokio::spawn(async move {
             load_daemon_auth_during_handoff(
@@ -5077,7 +5095,7 @@ mod tests {
             .unwrap_err()
             .to_string();
 
-        assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_UN) }, 0);
+        assert_eq!(flock(&lock, libc::LOCK_UN), 0);
         assert!(error.contains("cancelled"), "{error}");
     }
 
@@ -5113,7 +5131,7 @@ mod tests {
         assert_ne!(first.1, first.2);
         for parent in [first.1.parent().unwrap(), first.2.parent().unwrap()] {
             let metadata = fs::symlink_metadata(parent).unwrap();
-            assert_eq!(metadata.uid(), unsafe { libc::geteuid() });
+            assert_eq!(metadata.uid(), cmux_tui_core::platform::effective_uid());
             assert_eq!(metadata.permissions().mode() & 0o077, 0);
         }
     }
@@ -5569,6 +5587,7 @@ mod tests {
                     true
                 }
                 Err(_) => {
+                    // SAFETY: kill takes no pointer and has no memory-safety precondition.
                     unsafe {
                         libc::kill(pid, libc::SIGKILL);
                     }
@@ -5586,9 +5605,11 @@ mod tests {
 
         let deadline =
             std::time::Instant::now() + instrumented_test_timeout(Duration::from_secs(2));
+        // SAFETY: kill takes no pointer; signal 0 only checks that the process exists.
         while unsafe { libc::kill(pid, 0) } == 0 && std::time::Instant::now() < deadline {
             thread::sleep(Duration::from_millis(10));
         }
+        // SAFETY: kill takes no pointer; signal 0 only checks that the process exists.
         assert_eq!(unsafe { libc::kill(pid, 0) }, -1, "cancelled SSH child is still alive");
         assert_eq!(std::io::Error::last_os_error().raw_os_error(), Some(libc::ESRCH));
         daemon.shutdown().unwrap();
@@ -6527,13 +6548,13 @@ mod tests {
         prepare_client_socket(&parent.join("mux.sock")).await.unwrap();
 
         let metadata = fs::symlink_metadata(parent).unwrap();
-        assert_eq!(metadata.uid(), unsafe { libc::geteuid() });
+        assert_eq!(metadata.uid(), cmux_tui_core::platform::effective_uid());
         assert_eq!(metadata.permissions().mode() & 0o077, 0);
 
         let lock_metadata = fs::symlink_metadata(directory.path().join("private/mux.sock.lock"))
             .expect("client socket preparation did not persist its ownership lock");
         assert!(lock_metadata.is_file());
-        assert_eq!(lock_metadata.uid(), unsafe { libc::geteuid() });
+        assert_eq!(lock_metadata.uid(), cmux_tui_core::platform::effective_uid());
         assert_eq!(lock_metadata.permissions().mode() & 0o077, 0);
         assert_eq!(lock_metadata.nlink(), 1);
     }
@@ -6556,7 +6577,6 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn stale_client_socket_takeover_waits_for_the_path_lock() {
         use std::fs::OpenOptions;
-        use std::os::fd::AsRawFd;
         use std::os::unix::fs::OpenOptionsExt;
 
         let directory = tempfile::tempdir().unwrap();
@@ -6573,7 +6593,7 @@ mod tests {
             .mode(0o600)
             .open(lock_path)
             .unwrap();
-        assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX) }, 0);
+        assert_eq!(flock(&lock, libc::LOCK_EX), 0);
 
         let contender_path = path.clone();
         let mut contender = tokio::spawn(async move {
@@ -6584,7 +6604,7 @@ mod tests {
             "stale-socket takeover ignored the per-path ownership lock"
         );
 
-        assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_UN) }, 0);
+        assert_eq!(flock(&lock, libc::LOCK_UN), 0);
         let lease = tokio::time::timeout(Duration::from_secs(1), contender)
             .await
             .expect("client socket takeover stayed blocked after the path lock was released")
@@ -6692,7 +6712,8 @@ mod tests {
         let shared_tmp = root.path().to_path_buf();
         let decoy = root.path().join("decoy");
         fs::create_dir(&decoy).unwrap();
-        let squatted = shared_tmp.join(format!("cmux-r-{}", unsafe { libc::geteuid() }));
+        let squatted =
+            shared_tmp.join(format!("cmux-r-{}", cmux_tui_core::platform::effective_uid()));
         symlink(&decoy, &squatted).unwrap();
         let state = root.path().join("x".repeat(160));
         let session = SessionId([7; 16]);
@@ -6710,7 +6731,7 @@ mod tests {
         assert!(directory.starts_with(&shared_tmp));
         let metadata = fs::symlink_metadata(directory).unwrap();
         assert!(metadata.is_dir());
-        assert_eq!(metadata.uid(), unsafe { libc::geteuid() });
+        assert_eq!(metadata.uid(), cmux_tui_core::platform::effective_uid());
         assert_eq!(metadata.permissions().mode() & 0o777, 0o700);
         assert_eq!(client_socket_path_in(&state, session, None, &shared_tmp).unwrap(), socket);
         assert!(fs::read_dir(&decoy).unwrap().next().is_none());
@@ -6730,7 +6751,8 @@ mod tests {
         let shared_tmp = root.path().to_path_buf();
         let decoy = root.path().join("decoy");
         fs::create_dir(&decoy).unwrap();
-        let squatted = shared_tmp.join(format!("cmux-rd-{}", unsafe { libc::geteuid() }));
+        let squatted =
+            shared_tmp.join(format!("cmux-rd-{}", cmux_tui_core::platform::effective_uid()));
         symlink(&decoy, &squatted).unwrap();
         let state = root.path().join("state").join("sessions").join("session");
 
@@ -6744,7 +6766,7 @@ mod tests {
         assert!(unix_socket_path_fits(&link) && unix_socket_path_fits(&admin));
         let metadata = fs::symlink_metadata(directory).unwrap();
         assert!(metadata.is_dir());
-        assert_eq!(metadata.uid(), unsafe { libc::geteuid() });
+        assert_eq!(metadata.uid(), cmux_tui_core::platform::effective_uid());
         assert_eq!(metadata.permissions().mode() & 0o777, 0o700);
         assert_eq!(
             daemon_runtime_socket_paths_in(&state, None, &shared_tmp).unwrap(),

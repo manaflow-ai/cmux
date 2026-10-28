@@ -192,14 +192,17 @@ fn install_path(identity: &Value) -> Option<String> {
 
 /// This client's pinned Linux build and its SHA-256.
 fn pinned_payload() -> Result<(PathBuf, String), Failed> {
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(|e| Failed::new("machine_update_failed", e.to_string()))?;
-    match runtime.block_on(cmux_remote::pinned_linux_payload(
-        CLOUD_ARCH,
-        cmux_build_identity::BUILD_IDENTITY,
-    )) {
+    let runtime = cmux_threads::tokio::builder(
+        "machine-update",
+        cmux_threads::ThreadQos::UserInitiated,
+        cmux_threads::tokio::Flavor::CurrentThread,
+    )
+    .build()
+    .map_err(|e| Failed::new("machine_update_failed", e.to_string()))?;
+    match cmux_threads::tokio::block_on(
+        &runtime,
+        cmux_remote::pinned_linux_payload(CLOUD_ARCH, cmux_build_identity::BUILD_IDENTITY),
+    ) {
         Ok(Some((path, sha256))) if apply::is_sha256(&sha256) => Ok((path, sha256)),
         Ok(Some(_)) => {
             Err(Failed::new("machine_update_payload_rejected", "the pinned checksum is malformed"))

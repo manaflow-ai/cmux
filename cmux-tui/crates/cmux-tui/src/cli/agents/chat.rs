@@ -199,9 +199,9 @@ fn session_workspace_keys(global: &GlobalArgs) -> Result<HashSet<String>, CallFa
 
 /// The caller's own chat: the acpmux session acpmux started it in.
 fn own_chat() -> Option<String> {
-    ["CMUX_AGENT_SESSION", "ACPMUX_SESSION_ID"]
-        .into_iter()
-        .find_map(|name| std::env::var(name).ok().filter(|value| !value.trim().is_empty()))
+    ["CMUX_AGENT_SESSION", "ACPMUX_SESSION_ID"].into_iter().find_map(|name| {
+        super::super::caller_env::var(name).filter(|value| !value.trim().is_empty())
+    })
 }
 
 fn send(
@@ -605,7 +605,8 @@ mod acp {
     /// The id and `_acpmux/info` of the session `key` names.
     pub(super) fn lookup(key: &str) -> Result<(String, Value), String> {
         block_on(async {
-            let client = acpmux::deliver::connect().await?;
+            let client =
+                acpmux::deliver::connect_as(crate::cli::caller_env::acpmux_caller()).await?;
             let (id, _name) = acpmux::deliver::resolve_session(&client, key).await?;
             let info =
                 client.request(acpmux::rpc::method::MUX_INFO, json!({"sessionId": id})).await?;
@@ -616,7 +617,8 @@ mod acp {
     /// One page of the session's events after `after_seq`.
     pub(super) fn events(session: &str, after_seq: u64, limit: u64) -> Result<Value, String> {
         block_on(async {
-            let client = acpmux::deliver::connect().await?;
+            let client =
+                acpmux::deliver::connect_as(crate::cli::caller_env::acpmux_caller()).await?;
             client
                 .request(
                     acpmux::rpc::method::MUX_EVENTS,

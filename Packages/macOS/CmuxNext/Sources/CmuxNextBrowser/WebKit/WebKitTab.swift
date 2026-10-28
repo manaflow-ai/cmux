@@ -1,4 +1,7 @@
 public import AppKit
+#if DEBUG || CMUX_BENCH_HOOKS
+import CmuxNextInput
+#endif
 import CmuxNextWakeups
 public import Foundation
 public import Observation
@@ -65,6 +68,8 @@ public final class WebKitTab: NSObject, BrowserTab {
     @ObservationIgnored var formResubmission = WebKitFormResubmission()
     /// Chrome's automatic-downloads rule for this page (WebKitTab+AutomaticDownloads).
     @ObservationIgnored public private(set) lazy var automaticDownloads = makeAutomaticDownloadGate()
+    /// The WebContent process the main frame last committed in; nil before then and once it ended (WebKitTab+Processes).
+    @ObservationIgnored var committedContentProcess: Int32?
     /// The site of the page that started the current main-frame navigation.
     @ObservationIgnored var navigationSourceSite: String?
     /// The video the main frame's newest navigation asks for, when it may become the player
@@ -85,6 +90,9 @@ public final class WebKitTab: NSObject, BrowserTab {
     /// Bounds how long the theme color stands in for a committed document
     /// (`pageDidCommit`).
     @ObservationIgnored let pageBaseHold: MainDeadline
+    /// WebKit draws a background behind the document (`setDrawsPageBackground`): false on a blank or
+    /// New Tab page and while a committed document has not painted.
+    @ObservationIgnored var drawsPageBackground = true
     /// The app's main-thread scheduler (the engine's): this tab's main-thread follow-ups are classed tasks on it.
     @ObservationIgnored let mainWork: MainWorkScheduler
     /// The tab's node (``adoptNode(_:)``); nil (a page no pane shows: tests, fixtures) counts as visible.
@@ -92,6 +100,11 @@ public final class WebKitTab: NSObject, BrowserTab {
     /// The daemon's resolved emulation (`WebKitTab+DeviceEmulation`) and the user agent to restore after it.
     @ObservationIgnored public internal(set) var deviceEmulation: BrowserEmulation?
     @ObservationIgnored var userAgentBeforeEmulation: String?
+    /// The site of the page its process runs (``WebKitProcessReuse``): the first URL's until a document commits, then
+    /// the committed one's. Nil with the reuse off, or for a page with no site.
+    @ObservationIgnored var processSite: WebKitProcessReuse.Site?
+    /// The tab whose process this one joined when it was made (``WebKitProcessReuse``); nil: its own process.
+    @ObservationIgnored weak var processAnchor: WebKitTab?
 
     init(configuration: BrowserTabConfiguration, webViewConfiguration: WKWebViewConfiguration, engine: WebKitEngine,
          openedByPage: Bool = false) {
@@ -104,9 +117,10 @@ public final class WebKitTab: NSObject, BrowserTab {
         pageBaseHold = MainDeadline(owner: "browser.pageBase", workClass: .visible, scheduler: engine.deadlines)
         let webView = WebKitWebView(frame: .zero, configuration: webViewConfiguration)
         self.webView = webView
-        container = WebKitPageContainer(page: webView)
+        container = WebKitPageContainer(page: webView, visibility: WebKitPageVisibility(followsContent: engine.hidesHiddenTabs))
         super.init()
         inspectorWatch.attach(webView: webView, container: container, events: engine.appEvents)
+        container.needsPageBackdrop = { [weak self] in self?.samplePageBackdrop() }
 
         webView.owner = self
         webView.navigationDelegate = self
@@ -130,6 +144,9 @@ public final class WebKitTab: NSObject, BrowserTab {
         WebKitPasskeyInstaller.install(self, into: controller)
         WebKitNotificationBridge.install(on: self, into: controller)
         WebKitFirstPaintHandler.install(on: self, into: controller)
+        #if DEBUG || CMUX_BENCH_HOOKS
+        engine.pageInputTiming?.install(into: controller)
+        #endif
         observeWebView()
         if configuration.zoom != 1 {
             setZoom(configuration.zoom)
@@ -178,9 +195,6 @@ public final class WebKitTab: NSObject, BrowserTab {
             window.makeFirstResponder(nil)
         }
     }
-
-    /// WebKit draws in-view and throttles hidden views itself.
-    public func setContentVisible(_ visible: Bool) {}
 
     // MARK: Snapshot, script, find
 
@@ -321,6 +335,7 @@ public final class WebKitTab: NSObject, BrowserTab {
         machine.apply(event)
         let audible = machine.state.media?.isAudible == true
         if audible != isAudible { isAudible = audible }
+        container.visibility.playsMedia = machine.state.media?.keepsPageShown(tabMuted: machine.state.isAudioMuted) == true
         for observer in navigationObservers.values { observer(event) }
         if machine.state.faviconURL != previousFavicon {
             faviconURLDidChange()
@@ -376,6 +391,20 @@ public final class WebKitTab: NSObject, BrowserTab {
             completion(response)
         }
         if let prompt { pendingPrompts.append(prompt) }
+    }
+
+    /// A document committed: its site is now the one this tab's process holds (WebKit swaps the process of a
+    /// cross-site navigation), so same-site reuse matches on it.
+    func processSiteCommitted() {
+        guard let reuse = engine?.processReuse else { return }
+        processSite = reuse.site(of: webView.url)
+    }
+
+    /// Its WebContent process ended: it holds no site and no longer runs in the process it joined; its next load
+    /// starts a process of its own.
+    func processSiteEnded() {
+        processSite = nil
+        processAnchor = nil
     }
 
     func emit(_ intent: BrowserTabIntent) {
