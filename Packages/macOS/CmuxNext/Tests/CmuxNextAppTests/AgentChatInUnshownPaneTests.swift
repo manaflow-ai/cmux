@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+@testable import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextControl
 import CmuxNextDaemon
@@ -87,11 +88,13 @@ struct AgentChatInUnshownPaneTests {
             try await PasswordManagerRouteTests.until({ pane.pane.tabs.contains { !before.contains($0.id) } },
                                                       report: { "tabs did not grow from \(before)" })
             let created = try #require(pane.pane.tabs.first { !before.contains($0.id) })
-            try await PasswordManagerRouteTests.until({
-                services.agentTabs.existingView(created.id)?.model.hasHandshake == true
-            }, report: { "new chat did not complete its handshake" })
-            #expect(services.agentTabs.existingView(created.id)?.model.handshakeCwd == "/tmp",
-                    "created chat handshake cwd was \(String(describing: services.agentTabs.existingView(created.id)?.model.handshakeCwd))")
+            // Automation keeps the tab unselected. Instantiate its actual page and ask the
+            // same ready request as the webview; existingView alone never mounts an unseen tab.
+            let view = try #require(services.agentTabs.view(for: created.id))
+            let reply = await view.model.respond(to: AgentPaneRequest(body: ["method": "ready"]))
+            let handshake = try #require(reply["value"] as? [String: Any], "\(reply)")
+            #expect(handshake["cwd"] as? String == "/tmp")
+            #expect(view.model.handshakeCwd == "/tmp")
         }
     }
 
@@ -107,11 +110,13 @@ struct AgentChatInUnshownPaneTests {
             try await PasswordManagerRouteTests.until({ pane.pane.tabs.contains { !before.contains($0.id) } },
                                                       report: { "tabs did not grow from \(before)" })
             let created = try #require(pane.pane.tabs.first { !before.contains($0.id) })
-            try await PasswordManagerRouteTests.until({
-                services.agentTabs.existingView(created.id)?.model.hasHandshake == true
-            }, report: { "new chat did not complete its handshake" })
-            #expect(services.agentTabs.existingView(created.id)?.model.handshakeCwd == "/tmp",
-                    "created chat handshake cwd was \(String(describing: services.agentTabs.existingView(created.id)?.model.handshakeCwd))")
+            // Automation keeps the tab unselected. Instantiate its actual page and ask the
+            // same ready request as the webview; existingView alone never mounts an unseen tab.
+            let view = try #require(services.agentTabs.view(for: created.id))
+            let reply = await view.model.respond(to: AgentPaneRequest(body: ["method": "ready"]))
+            let handshake = try #require(reply["value"] as? [String: Any], "\(reply)")
+            #expect(handshake["cwd"] as? String == "/tmp")
+            #expect(view.model.handshakeCwd == "/tmp")
         }
     }
 
