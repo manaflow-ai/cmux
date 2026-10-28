@@ -53,7 +53,31 @@ assert int(sys.argv[2]) != 0, 'canceled-input discriminator unexpectedly passed 
 assert len(re.findall(r"^\(fail\).*a no-op upward gesture", log, re.M)) == 2, log[-4000:]
 PYRED
 rm -f "$red_log"
+# Absolute Home/End targets discard a prior fractional origin, unlike relative arrow keys.
+minimap="$repo_root/webviews/src/agent-session/acpmux/chatMinimap/ChatMinimap.tsx"
+saved_minimap=$(mktemp /tmp/cmux-anchor-minimap.XXXXXXXX)
+cp "$minimap" "$saved_minimap"
+restore_minimap() { cp "$saved_minimap" "$minimap"; rm -f "$saved_minimap"; }
+trap restore_minimap EXIT
+git show ebb38fe7eadafb72485bcb023120b2b8a9e91e3c:webviews/src/agent-session/acpmux/chatMinimap/ChatMinimap.tsx > "$minimap"
+red_log=$(mktemp /tmp/cmux-anchor-minimap-red.XXXXXXXX)
+red_status=0
+(cd "$repo_root/webviews" && bun test test/chat-minimap.test.tsx \
+  --test-name-pattern 'absolute minimap keys') > "$red_log" 2>&1 || red_status=$?
+cat "$red_log"
+restore_minimap
+trap - EXIT
+python3 - "$red_log" "$red_status" <<'PYRED'
+from pathlib import Path
+import re
+import sys
+log = re.sub(r"\x1b\[[0-9;]*m", "", Path(sys.argv[1]).read_text())
+assert int(sys.argv[2]) != 0, 'absolute-key discriminator unexpectedly passed old source'
+assert len(re.findall(r"^\(fail\).*absolute minimap keys", log, re.M)) == 1, log[-4000:]
+PYRED
+rm -f "$red_log"
 cd "$repo_root/webviews"
+bun test test/chat-minimap.test.tsx --test-name-pattern 'absolute minimap keys'
 bun test test/transcript-row-renders.test.tsx \
   src/agent-session/acpmux/conversation/scrollAnchorOrigin.test.ts \
   src/agent-session/acpmux/conversation/scrollCoordinates.test.ts \
