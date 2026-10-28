@@ -35,24 +35,34 @@ final class AppLockController {
     /// Checks the owner (Face ID, else the passcode). `nil`: no passcode on this
     /// device, so nothing can check the owner and the lock cannot hold.
     @ObservationIgnored var authenticate: @MainActor () -> (@MainActor () async -> Bool)? = AppLockController.deviceOwner
+    /// The first `setEnabled` has told the notification router and the reply buttons.
+    @ObservationIgnored private var published = false
 
+    /// Side-effect-free: `AppLock` builds one on every body pass and SwiftUI
+    /// keeps only the first, so a write here from a discarded copy would undo
+    /// an unlock (issue 25687). The kept one publishes in `setEnabled`.
     init(enabled: Bool) {
         self.enabled = enabled
         locked = enabled
         asksOnActivate = enabled
-        NotificationRouter.shared.appLocked = enabled
-        PushReplies.shared.setRequireFaceID(enabled)
     }
 
     /// What the lock window shows: the lock, or the privacy cover while inactive.
     var covered: Bool { locked || (enabled && inactive) }
 
+    /// The setting, on appear and on every change (`AppLock`).
     func setEnabled(_ on: Bool) {
-        guard on != enabled else { return }
-        enabled = on
+        guard on != enabled || !published else { return }
+        if on != enabled {
+            enabled = on
+            // Turning it off unlocks; turning it on locks from the next background.
+            if !on { locked = false }
+        }
+        if !published {
+            published = true
+            NotificationRouter.shared.appLocked = locked
+        }
         PushReplies.shared.setRequireFaceID(on)
-        // Turning it off unlocks; turning it on locks from the next background.
-        if !on { locked = false }
         update()
     }
 
@@ -171,7 +181,7 @@ struct AppLock: ViewModifier {
     func body(content: Content) -> some View {
         content
             .background(SceneReader { controller.attach($0) })
-            .onChange(of: enabled) { _, on in controller.setEnabled(on) }
+            .onChange(of: enabled, initial: true) { _, on in controller.setEnabled(on) }
     }
 }
 
