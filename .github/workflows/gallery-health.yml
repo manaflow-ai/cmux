@@ -158,6 +158,8 @@ jobs:
         env:
           EVENT: ${{ github.event_name }}
           BASE_SHA: ${{ steps.resolve.outputs.base_sha }}
+          # health.ts renders only on CI or a VM; without this it stops before it writes a verdict.
+          CMUX_GALLERY_IN_VM: "1"
         run: |
           set -euo pipefail
           classify="$RUNNER_TEMP/test_reds.py"
@@ -182,9 +184,15 @@ jobs:
           bun scripts/gallery/manifest.ts --frame component --entries "$entries" --out "$RUNNER_TEMP/base-manifest.json"
           CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/base-gallery" bun run gallery:build
           cd "$GITHUB_WORKSPACE/scripts/gallery-matrix"
-          # Red on the base is the point here; its verdict is read from health.json below.
+          # Red on the base is the point here: its exit says so, and its verdict is read from health.json
+          # below. A replay that wrote no health.json gave no verdict, and says so here.
+          rc=0
           bun health.ts --manifest "$RUNNER_TEMP/base-manifest.json" --gallery-dir "$RUNNER_TEMP/base-gallery" \
-            --output-dir "$RUNNER_TEMP/health/base" || true
+            --output-dir "$RUNNER_TEMP/health/base" || rc=$?
+          if [ ! -s "$RUNNER_TEMP/health/base/health.json" ]; then
+            echo "::error::the base replay of $entries wrote no health.json (health.ts exited $rc): no base verdict, so nothing is excused"
+            exit 1
+          fi
           rc=0
           python3 "$classify" gallery --head "$head" --base "$RUNNER_TEMP/health/base/health.json" \
             --base-name "base ${BASE_SHA:0:12}" --annotate | tee "$RUNNER_TEMP/verdict.txt" || rc=$?

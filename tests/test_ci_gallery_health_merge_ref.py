@@ -85,6 +85,24 @@ class GalleryHealthBaseReds(unittest.TestCase):
         self.assertIn('--entries "$entries"', run)
         self.assertIn("bun health.ts", run)
 
+    def test_every_health_run_may_render(self) -> None:
+        # health.ts refuses to render without CMUX_GALLERY_IN_VM=1 and writes no verdict; the base replay
+        # first ran without it, so no base result ever existed and every red failed (review of #27100).
+        workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        job_env = workflow["jobs"]["health"].get("env") or {}
+        runs = [entry for entry in steps() if "bun health.ts" in str(entry.get("run", ""))]
+        self.assertEqual(len(runs), 2)
+        for entry in runs:
+            env = {**job_env, **(entry.get("env") or {})}
+            self.assertEqual(str(env.get("CMUX_GALLERY_IN_VM")), "1", entry.get("name"))
+
+    def test_a_base_replay_with_no_verdict_fails_loudly(self) -> None:
+        run = step("Judge the red states against the base")["run"]
+        replay = run[run.index("bun health.ts"):]
+        self.assertNotIn("|| true", replay.split("\n", 2)[0] + replay.split("\n", 2)[1])
+        self.assertIn('[ ! -s "$RUNNER_TEMP/health/base/health.json" ]', run)
+        self.assertLess(run.index('[ ! -s "$RUNNER_TEMP/health/base/health.json" ]'), run.index("--base \"$RUNNER_TEMP/health/base/health.json\""))
+
     def test_one_classifier_judges_it_and_fails_closed(self) -> None:
         run = step("Judge the red states against the base")["run"]
         self.assertIn("scripts/ci/test_reds.py", run)
