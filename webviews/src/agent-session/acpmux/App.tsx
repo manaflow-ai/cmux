@@ -10,7 +10,6 @@ import React, {
   useReducer,
   useRef,
   useState,
-  startTransition,
   useSyncExternalStore,
 } from "react";
 import { AnsweredBy, AuthorChip } from "./multiplayer/Faces";
@@ -51,7 +50,14 @@ import {
   SteerWaitingActions,
   type QueuedMessageActionsValue,
 } from "./conversation/QueuedMessageCard";
-import { AcpmuxDirectClient, type AcpmuxHostConfig, harnessBlock, type HarnessBlock, isTrustRefusal } from "./direct";
+import {
+  AcpmuxDirectClient,
+  nextFrame,
+  type AcpmuxHostConfig,
+  harnessBlock,
+  type HarnessBlock,
+  isTrustRefusal,
+} from "./direct";
 import { postNative } from "./native";
 import { NativeError } from "./nativeError";
 import { errorMessage } from "./transportErrors";
@@ -121,6 +127,7 @@ import { createAcpmuxDebug, type AcpmuxDebug } from "./debug";
 import { pageAction } from "./automation";
 import { acpWire } from "./wire";
 import { acpmuxPerf, type MountedSpan } from "./perf";
+import { keepHandoff, snapshotFrames } from "./snapshotFrames";
 import { followTrace } from "./followTrace";
 import { ScrollPacing } from "./pacing";
 import { AdaptiveRenderRate, reportScrollPacing } from "./renderPacing";
@@ -7067,6 +7074,7 @@ function AcpmuxPane() {
       if (composerHandle.current) composerHandle.current.restore(text, attachments);
       else heldBack.current = [...(heldBack.current ?? []), { text, attachments }];
     };
+    const presentation = snapshotFrames(nextFrame, (next) => setSnapshot((current) => keepHandoff(current, next)));
     const connectHost = async () => {
       // A Restart acpmux in flight: the old daemon is still there until it stops, and the restart
       // asks again itself when it ends. A timer queued before it, or set while it runs, asks nothing.
@@ -7243,16 +7251,7 @@ function AcpmuxPane() {
                 showsNewTabRef.current,
               );
             }
-            setSnapshot((previous) => {
-              if (
-                next.canHandoff &&
-                !next.handoff?.ready &&
-                next.sessionId === previous.sessionId &&
-                previous.handoff?.record
-              )
-                return { ...next, handoff: { ...next.handoff, record: previous.handoff.record } };
-              return next;
-            });
+            presentation.push(next);
           },
           () => {
             // The daemon went away. Ask Swift again: a restarted daemon has a new port and token.
@@ -8001,6 +8000,7 @@ function AcpmuxPane() {
     void connectHost();
     return () => {
       cancelled = true;
+      presentation.stop();
       window.removeEventListener(NEW_TAB_CLOSE_EVENT, discardUnsent);
       harnessSwitch.disconnect();
       setStartModeSource(undefined);
@@ -8450,15 +8450,6 @@ function AcpmuxPane() {
     }
   }, []);
   /// The classic page's chat: a terminal or browser tab opens through `newTabPageSubmit`.
-  // Leave the New Tab after the current frame paints. Mounting a full chat (catalog, transcript and
-  // composer) is intentionally outside the Send event's first-paint budget; keeping the page for one
-  // frame also preserves the visible field while the host accepts the prompt.
-  const leaveNewTabAfterPaint = useCallback(() => {
-    const leave = () => startTransition(() => setNewTab(undefined));
-    if (typeof window.requestAnimationFrame === "function")
-      window.requestAnimationFrame(() => window.setTimeout(leave, 0));
-    else window.setTimeout(leave, 0);
-  }, []);
   const chatFromNewTab = (text: string, cwd?: string, attachments: ComposerAttachment[] = [], chat?: NewTabChat) => {
     const inherited = newTab?.cwd;
     const start = (folder?: string) =>
@@ -8466,7 +8457,7 @@ function AcpmuxPane() {
         // Keep the New Tab on screen while the host confirms a picked folder. Clearing it before
         // that async handoff mounted the empty chat hero for a frame, then replaced it again when
         // the first prompt landed.
-        leaveNewTabAfterPaint();
+        setNewTab(undefined);
         // A chat on another machine starts only with a send (cx-k21v): with no text, the folder
         // waits for the first send.
         if (folder && !text && directClient.current?.startsOnSend) {
@@ -9895,7 +9886,7 @@ function AcpmuxPane() {
                   chatCwd: startFolder,
                   requestFolder,
                   startsHere: () => !directClient.current?.startsOnSend,
-                  leave: leaveNewTabAfterPaint,
+                  leave: () => setNewTab(undefined),
                   selectSession,
                   showAllChats,
                   runShell: (command, cwd) => {
