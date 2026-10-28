@@ -25,6 +25,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Condvar, Mutex, OnceLock};
 
 use crate::panic_free::RecoverPoison;
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 
 use super::super::TerminalHostRecord;
 use super::records::write_record_deferring_dir_sync;
@@ -40,7 +41,13 @@ fn mirror() -> &'static Mirror {
     MIRROR.get_or_init(|| {
         // A recovery mirror no request waits on: utility (p04-input-084).
         let qos = crate::thread_qos::ThreadType::Utility.qos();
-        let spawned = cmux_threads::spawn("terminal-host-record-mirror", qos, run);
+        let spawned = supervised::spawn_at(
+            "terminal-host-record-mirror",
+            qos,
+            Fatal,
+            ShutdownBehavior::Continue,
+            run,
+        );
         if let Err(error) = spawned {
             eprintln!("cmux-tui: host record mirror writer did not start: {error}");
         }

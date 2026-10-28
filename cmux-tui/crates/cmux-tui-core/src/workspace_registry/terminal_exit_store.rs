@@ -167,13 +167,15 @@ impl WorkspaceRegistry {
         replaces: Option<&TerminalExit>,
     ) -> anyhow::Result<(RegistryTerminal, u64, u64, bool, Option<u64>)> {
         anyhow::ensure!(observed.is_valid(), "terminal exit outcome is invalid");
-        if let Some((patch, changes, _)) = topology {
-            validate_resource_patch(patch)?;
-            anyhow::ensure!(
-                changes.is_array(),
-                "terminal exit topology changes must be a JSON array"
-            );
-        }
+        let topology_changes = match topology {
+            Some((patch, changes, _)) => {
+                validate_resource_patch(patch)?;
+                changes.as_array().ok_or_else(|| {
+                    anyhow::anyhow!("terminal exit topology changes must be a JSON array")
+                })?
+            }
+            None => &[][..],
+        };
         let db = self.connection.get();
         let tx = db.unchecked_transaction()?;
         let mut terminal = read_terminal(&tx, terminal_id)?
@@ -264,14 +266,13 @@ impl WorkspaceRegistry {
             "id": public_id,
             "value": terminal_snapshot,
         })];
-        if let Some((_, topology_changes, _)) = topology {
-            for change in topology_changes.as_array().expect("validated topology changes") {
-                let mut change = change.as_object().cloned().ok_or_else(|| {
-                    anyhow::anyhow!("terminal exit topology change is not an object")
-                })?;
-                change.insert("sequence".to_string(), Value::from(changes.len()));
-                changes.push(Value::Object(change));
-            }
+        for change in topology_changes {
+            let mut change = change
+                .as_object()
+                .cloned()
+                .ok_or_else(|| anyhow::anyhow!("terminal exit topology change is not an object"))?;
+            change.insert("sequence".to_string(), Value::from(changes.len()));
+            changes.push(Value::Object(change));
         }
         let changes = Value::Array(changes);
         let mutation = WorkspaceMutation::daemon_local("cmux-tui-runtime");

@@ -38,6 +38,7 @@
 //! on `exec`, and `cmux_pty` resets these dispositions and the signal mask
 //! before it execs the shell.
 
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use cmux_threads::checked::fs as files;
 use std::io::Write;
 use std::os::unix::fs::OpenOptionsExt;
@@ -297,7 +298,7 @@ pub(crate) fn install() -> anyhow::Result<()> {
     }
     let (reader, writer) = cloexec_pipe()?;
     WAKE_WRITER.store(writer, Ordering::Release);
-    std::thread::Builder::new().name("terminal-host-signals".into()).spawn(move || {
+    supervised::spawn("terminal-host-signals", Fatal, ShutdownBehavior::Continue, move || {
         let mut buffer = [0u8; 64];
         loop {
             // SAFETY: reader is owned by this thread for the process lifetime.

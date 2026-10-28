@@ -404,3 +404,15 @@ fn agent_projections_survive_terminal_tombstones() {
     assert_eq!(tombstoned.notifications.len(), 1);
     assert_eq!(tombstoned.notifications[0].terminal_id, None);
 }
+
+/// A stored color that is six bytes but not six ASCII digits is an error,
+/// never a slice through a UTF-8 character (`a`, `é`, `é`, `z` is six bytes).
+#[test]
+fn stored_color_with_a_multibyte_character_is_an_error() {
+    for value in ["#aééz", "#ééé", "#12345", "#1234567", "123456", "#gggggg"] {
+        let error = parse_rgb(value).unwrap_err();
+        assert!(format!("{error:#}").contains("must use #rrggbb"), "{value}: {error:#}");
+    }
+    let color = parse_rgb("#0a1B2c").unwrap();
+    assert_eq!((color.r, color.g, color.b), (0x0a, 0x1b, 0x2c));
+}

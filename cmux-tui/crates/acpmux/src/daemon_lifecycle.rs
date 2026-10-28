@@ -326,7 +326,8 @@ impl OwnerApp {
     pub async fn exited(self) {
         let Some(pid) = self.pid else { return std::future::pending().await };
         let (done, exit) = tokio::sync::oneshot::channel::<()>();
-        let watch = std::thread::Builder::new().name("acpmux-owner-exit".into()).spawn(move || {
+        // Scoped to this wait: a panic in the thread drops `done`, which ends the wait below.
+        let watch = crate::supervised::scoped_thread("acpmux-owner-exit", move || {
             if wait_for_process_exit(pid) {
                 let _ = done.send(());
             }

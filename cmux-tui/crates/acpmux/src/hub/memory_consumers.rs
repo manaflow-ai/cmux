@@ -16,6 +16,7 @@
 use super::{Hub, Session, prompt_ledger};
 use crate::memory::{inline_bytes, string_bytes};
 use crate::store::SessionStatus;
+use crate::supervised::{Fatal, ShutdownBehavior};
 use cmux_memory::{MemoryConsumer, PressureLevel, Registration, Retention};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, PoisonError, Weak};
@@ -219,15 +220,29 @@ impl Hub {
                         if !lists.is_empty() {
                             emptied.store(true, Ordering::Relaxed);
                             drop(lists);
-                            runtime.spawn(async move { hub.announce_harnesses().await });
+                            let _on_runtime = runtime.enter();
+                            let announced = hub.clone();
+                            hub.supervise(
+                                "hub.memory-announce",
+                                Fatal,
+                                ShutdownBehavior::Skip,
+                                async move { announced.announce_harnesses().await },
+                            );
                         }
                     }
                     PressureLevel::Normal if emptied.swap(false, Ordering::Relaxed) => {
-                        runtime.spawn(async move {
-                            if hub.load_live_cache().await {
-                                hub.announce_harnesses().await;
-                            }
-                        });
+                        let _on_runtime = runtime.enter();
+                        let refilled = hub.clone();
+                        hub.supervise(
+                            "hub.memory-refill",
+                            Fatal,
+                            ShutdownBehavior::Skip,
+                            async move {
+                                if refilled.load_live_cache().await {
+                                    refilled.announce_harnesses().await;
+                                }
+                            },
+                        );
                     }
                     _ => {}
                 }

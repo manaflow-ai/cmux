@@ -111,7 +111,7 @@ fn run_terminal_resource_wait(
         .transpose()?;
     let check = || -> Result<String, ResourceError> {
         surface
-            .try_with_terminal(|terminal| terminal.viewport_text())
+            .try_with_terminal(|terminal| terminal.active_text())
             .map_err(resource_wait_runtime_error)?
             .map_err(resource_wait_runtime_error)
     };
@@ -251,7 +251,7 @@ pub(super) fn start_resource_wait(
     let worker_mux = mux.clone();
     let worker_canceled = canceled.clone();
     let worker_id = id.clone();
-    let spawn = mux.request_qos().spawn_helper("mux-resource-terminal-wait", None, move || {
+    let spawn = mux.request_qos().spawn_helper("mux-resource-terminal-wait", move || {
         let _registration = ResourceWaitWorkerGuard {
             mux: worker_mux.clone(),
             client,
