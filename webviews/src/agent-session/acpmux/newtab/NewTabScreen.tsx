@@ -569,17 +569,14 @@ export function NewTabScreen(props: Props) {
   const { plainFooter, spellChecking } = useComposerSettings();
   // The quiet row's labels step down with the composer's width, as the chat's (composerRowFit.ts).
   const foot = useRef<HTMLDivElement>(null);
-  // Claude Code's split (Leo 2026-10-19, "the claude code style composer on the first dot ... the
-  // existing composer on the second one"): with the plain footer on, every template but Default
-  // (the page's second dot) draws the chat composer's split, the mode, model and effort in a quiet
-  // row under the box. Default keeps the chips in the box, as before the split.
-  // Codex's look (the page's second dot, composerLook.ts) keeps them in the box's row too.
+  // The model picker uses one footer position in every New Tab template and composer look.
   const look = useComposerLook();
-  // Either look draws the chat composer's box (Cards too, its strip Codex's tray); only the plain
-  // footer off keeps Cards' pill.
-  const chatBox = plainFooter && props.chips !== undefined && template !== "default";
-  const split = chatBox && look === "claude";
-  useRowFit(foot, split);
+  const split = props.chips !== undefined;
+  // Folder/computer keep their look-specific placement: Claude's one row, Codex's tray. The footer
+  // row exists only with the chips, so without them the strip stays above the box.
+  const locationInFooter = split && plainFooter && look === "claude" && template !== "default";
+  // Footer look and template can change while this screen stays mounted.
+  useRowFit(foot, `${split}:${plainFooter}:${look}`);
   // A press outside an open chip menu only closes it (menuPressGuard.ts).
   useMenuPressGuard();
   const pushed = useDeviceChats();
@@ -1113,7 +1110,7 @@ export function NewTabScreen(props: Props) {
   const chooser = useRef<HTMLInputElement>(null);
   /// The Cards template (u2851): the field is a pill of its own and the chips sit under it. The
   /// split draws the chat composer's box instead.
-  const pill = template === "cards" && !chatBox;
+  const pill = template === "cards" && !split;
 
   const attachmentPicker = (
     <>
@@ -1296,6 +1293,7 @@ export function NewTabScreen(props: Props) {
       )}
       {allChats && props.loadChatsPage && props.onOpenChat && (
         <AllChatsList
+          scrollParent=".nt-screen"
           load={props.loadChatsPage}
           onOpen={props.onOpenChat}
           active={activeCards.map((card) => ({
@@ -1333,7 +1331,7 @@ export function NewTabScreen(props: Props) {
           </output>
         )}
         {/* Above the box: the project strip (Cards draws it under the field). */}
-        {!pill && !split && <div className="nt-above">{folderStrip}</div>}
+        {!pill && !locationInFooter && <div className="nt-above">{folderStrip}</div>}
         <div ref={setBox} className="ui-glass ui-glass-floats nt-box">
           {commandsOpen && (
             <SlashMenu
@@ -1350,47 +1348,48 @@ export function NewTabScreen(props: Props) {
           {/* oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- A pointer convenience only: the input inside is the control and takes the keyboard itself. */}
           <div className="nt-input" onMouseDown={focusFromRow}>
             {split && attachmentPicker}
-            {shell ? (
-              <span className="nt-shell-glyph" aria-hidden="true">
-                !
-              </span>
-            ) : (
-              sections.prompt && (
-                <span className="nt-prompt-glyph" aria-hidden="true">
-                  &gt;
+            <div className="nt-field-slot">
+              {(shell || sections.prompt) && (
+                <span
+                  className={shell ? "nt-input-glyph nt-shell-glyph" : "nt-input-glyph nt-prompt-glyph"}
+                  aria-hidden="true"
+                >
+                  {shell ? "!" : ">"}
                 </span>
-              )
-            )}
-            {/* A textarea, not a one-line input (Austin: a typed draft was cut to its first line): a long
+              )}
+              {/* A textarea, not a one-line input (Austin: a typed draft was cut to its first line): a long
               draft wraps and the field grows with it up to its cap (screen.css), then scrolls. Return
               still sends; every line break is one the draft brought in (a paste). */}
-            <textarea
-              ref={field}
-              className="nt-field"
-              {...{ [WEB_SWAP_KEPT_TEXT]: "" }}
-              rows={1}
-              data-focus-ring="none"
-              aria-label={shell ? t("composer.shell") : placeholder}
-              placeholder={shell ? t("composer.shellPlaceholder") : dictating ? t("dictation.listening") : placeholder}
-              data-dictation-listening={dictating && !shell ? "" : undefined}
-              value={text}
-              aria-controls={commandsOpen ? "acpmux-slash-menu" : "nt-rows"}
-              aria-activedescendant={
-                commandsOpen ? `acpmux-slash-${commandIndex}` : rows[current] ? `nt-row-${current}` : undefined
-              }
-              spellCheck={spellChecking && !shell}
-              autoCapitalize="off"
-              autoCorrect="off"
-              onChange={(event) => edit(event.target.value)}
-              onKeyDown={keyDown}
-              onMouseDown={() => setDismissed(undefined)}
-              onCompositionStart={() => {
-                composing.current = true;
-              }}
-              onCompositionEnd={() => {
-                composing.current = false;
-              }}
-            />
+              <textarea
+                ref={field}
+                className="nt-field"
+                {...{ [WEB_SWAP_KEPT_TEXT]: "" }}
+                rows={1}
+                data-focus-ring="none"
+                aria-label={shell ? t("composer.shell") : placeholder}
+                placeholder={
+                  shell ? t("composer.shellPlaceholder") : dictating ? t("dictation.listening") : placeholder
+                }
+                data-dictation-listening={dictating && !shell ? "" : undefined}
+                value={text}
+                aria-controls={commandsOpen ? "acpmux-slash-menu" : "nt-rows"}
+                aria-activedescendant={
+                  commandsOpen ? `acpmux-slash-${commandIndex}` : rows[current] ? `nt-row-${current}` : undefined
+                }
+                spellCheck={spellChecking && !shell}
+                autoCapitalize="off"
+                autoCorrect="off"
+                onChange={(event) => edit(event.target.value)}
+                onKeyDown={keyDown}
+                onMouseDown={() => setDismissed(undefined)}
+                onCompositionStart={() => {
+                  composing.current = true;
+                }}
+                onCompositionEnd={() => {
+                  composing.current = false;
+                }}
+              />
+            </div>
             {/* Claude Code's split: the mode, model and effort went to the quiet row under the box, so
               the mic and Send end the field's row and the empty box is one line tall, as the chat
               composer's (Leo 2026-10-22: "it's also 2 lines tall for some reason"). */}
@@ -1424,8 +1423,8 @@ export function NewTabScreen(props: Props) {
             the box keeps the prompt, the mic and Send (Leo: "one single row"). */}
         {split && Chips && (
           <div className="nt-foot" onPointerDownCapture={touch}>
-            <ComposerFoot ref={foot}>
-              {folderStrip}
+            <ComposerFoot ref={foot} plain={plainFooter}>
+              {locationInFooter && folderStrip}
               <Chips snapshot={chipSnapshot} {...(chatFolder ? { cwd: chatFolder } : {})} />
             </ComposerFoot>
           </div>
@@ -1540,7 +1539,7 @@ export function NewTabScreen(props: Props) {
           <>
             {/* Claude Code desktop's new-session screen (Leo 2026-10-19): the free space over the
                 composer holds, centered, the environment card and the suggested actions card, then the
-                recent chats; it scrolls on its own, so nothing in it ever moves the composer. */}
+                recent chats; the whole page scrolls together when its content exceeds the pane. */}
             <div className="nt-stage">
               {/* Minimal keeps its headline over the stage when widgets are on (Default has none). */}
               {headline}

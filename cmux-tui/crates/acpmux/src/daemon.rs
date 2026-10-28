@@ -359,7 +359,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     })));
     // Agents outlive this daemon unless the user opts out for this release.
     // `ACPMUX_IDLE_CHILD_SECS`: how long an unused session harness lives
-    // (default 300; 0 keeps every harness running).
+    // (default 120, `hub::IDLE_CHILD`; 0 keeps every harness running).
     if let Some(secs) =
         std::env::var("ACPMUX_IDLE_CHILD_SECS").ok().and_then(|v| v.parse::<u64>().ok())
     {
@@ -547,6 +547,15 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         _ = shutdown => {}
     }
     tracing::info!("shutting down");
+    // A node a person started closes with the daemon; its saved login stays.
+    // The controller is made here if no request made it (it holds no node
+    // until a start), so a start racing this shutdown is refused either way.
+    #[cfg(all(unix, feature = "tailnet"))]
+    match tokio::time::timeout(SHUTDOWN_BUDGET, hub.tailnet_controller().shutdown()).await {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => tracing::warn!("embedded tailnet close: {error}"),
+        Err(_) => tracing::warn!("embedded tailnet did not close within {SHUTDOWN_BUDGET:?}"),
+    }
     hub.stop_idle_reaper();
     // New clients get "connection refused" instead of a dying daemon.
     let _ = std::fs::remove_file(socket_path());

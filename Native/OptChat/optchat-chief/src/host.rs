@@ -780,11 +780,11 @@ fn start(
     let engine_choice = env("OPTCHAT_CHIEF_ENGINE");
     // Section 9's subagents run on this harness (default the Chief's).
     let mut sub_harness = sub_set.clone().unwrap_or_else(|| harness.clone());
-    // The monitoring trace (trace.rs); OPTCHAT_TRACE_FULL=1 adds whole texts.
-    let trace = match crate::trace::Trace::open(
-        &paths.traces,
-        env("OPTCHAT_TRACE_FULL").as_deref() == Some("1"),
-    ) {
+    // The monitoring trace (trace.rs); OPTCHAT_TRACE_FULL=1 or the Chief's
+    // `trace.full` setting adds whole texts (the app passes no OPTCHAT_ env).
+    let trace_full = env("OPTCHAT_TRACE_FULL").as_deref() == Some("1")
+        || crate::chief_settings::ChiefSettings::load(&paths.root.join("settings.json")).trace_full;
+    let trace = match crate::trace::Trace::open(&paths.traces, trace_full) {
         Ok(trace) => trace,
         Err(e) => {
             log(format!(

@@ -1,5 +1,5 @@
 // l10n-allow-file: gallery fixtures (sample chat actions), not shipped UI.
-import { createElement } from "react";
+import { createElement, Fragment } from "react";
 import type { ReactNode } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { Play, PlayContext } from "../../../gallery/play";
@@ -9,6 +9,7 @@ import { PanelToggle } from "./PanelToggle";
 import type { QuickAction } from "./quickActions";
 
 type HeaderToolsProps = {
+  treatment?: { size: number; gap: number };
   onTerminal: (mode: "toggle" | "open") => void;
   onSplitDown?: (mode: "toggle" | "open") => void;
   onBrowser: (mode: "toggle" | "open") => void;
@@ -117,9 +118,24 @@ const groupedControls: Play = async (ctx) => {
   const lefts = tools.map((button) => button.getBoundingClientRect().left);
   if (lefts.slice(1).some((left, index) => Math.round(left - lefts[index]!) !== 26))
     throw new Error("header buttons are not on one 26px pitch");
-  const glyphs = new Set(tools.map((button) => button.querySelector("svg")?.getAttribute("width")));
+  const glyphs = new Set(tools.map((button) => button.querySelector("[data-icon]")?.getBoundingClientRect().width));
   if (glyphs.size !== 1) throw new Error(`header glyphs come in several sizes: ${[...glyphs].join(", ")}`);
 };
+
+// Three complete treatments, kept in the gallery. Only the compact treatment ships; alternatives
+// change fixture geometry rather than adding another product preference or toolbar row.
+const groupTreatment =
+  (size: number, gap: number): Play =>
+  async (ctx) => {
+    const tools = ctx.document.querySelector<HTMLElement>(".acpmux-header-tools")!;
+    if (ctx.document.defaultView!.getComputedStyle(tools).gap !== `${gap}px`)
+      throw new Error("the group must render at its selected spacing");
+    for (const button of tools.querySelectorAll<HTMLElement>(".acpmux-header-tool")) {
+      const box = button.getBoundingClientRect();
+      if (box.width !== size || box.height !== size) throw new Error("the buttons must render at their selected size");
+    }
+    await ctx.hover({ role: "button", name: "Terminal" });
+  };
 
 // Plain icons (Leo 2026-10-25: "why do the icons have their own background border situation instead of
 // just being, you know, good"): with the right-side panel and Terminal's split open, Terminal hovered
@@ -324,6 +340,7 @@ export default componentEntry<HeaderToolsProps>({
   anchors: [{ selector: ".acpmux-header-tools" }],
   covers: [
     "agent-session/acpmux/header/ChatHeaderTools.tsx#ChatHeaderTools",
+    "agent-session/acpmux/header/HeaderIcon.tsx#HeaderIcon",
     "agent-session/acpmux/header/PullRequestChip.tsx#PullRequestChip",
     "agent-session/acpmux/header/PullRequestMerge.tsx#PullRequestMerge",
     "agent-session/acpmux/header/WorktreePill.tsx#WorktreePill",
@@ -331,7 +348,23 @@ export default componentEntry<HeaderToolsProps>({
     "agent-session/acpmux/header/WorktreeRemove.tsx#WorktreeRemove",
     "agent-session/acpmux/header/PanelToggle.tsx#PanelToggle",
   ],
-  load: () => import("./ChatHeaderTools").then((module) => module.ChatHeaderTools),
+  load: () =>
+    import("./ChatHeaderTools").then(
+      (module) =>
+        ({ treatment, ...props }: HeaderToolsProps) =>
+          createElement(
+            Fragment,
+            null,
+            treatment
+              ? createElement(
+                  "style",
+                  null,
+                  `.acpmux-header-tools,.acpmux-header-tool-group{gap:${treatment.gap}px}.acpmux-header-tools .acpmux-header-tool{width:${treatment.size}px;height:${treatment.size}px}`,
+                )
+              : null,
+            createElement(module.ChatHeaderTools, props),
+          ),
+    ),
   // The pane's own stylesheets, as the app ships them (build-agent-pane-web.sh): its theme variables,
   // the shared popup surface, then the header's rules. With header.css alone every popup was
   // see-through in the gallery and the "Continue in" submenu bug did not show as it does in the app.
@@ -351,6 +384,39 @@ export default componentEntry<HeaderToolsProps>({
     },
   },
   variants: {
+    "unified-compact": {
+      note: "Chosen: one 24px target on a 26px pitch, 16px SF Symbols in the app, overflow last. The selected panel glyph uses accent ink; only the hovered button changes its hover ink. Fits the shared 28px tab row.",
+      props: {
+        ...base,
+        hasChanges: true,
+        onChanges: () => undefined,
+        summary: panelToggle(true),
+        treatment: { size: 24, gap: 2 },
+      },
+      play: groupTreatment(24, 2),
+    },
+    "unified-roomy": {
+      note: "Alternative: 28px targets on a 32px pitch. Easier to acquire, but consumes more tab-strip room and pushes narrow panes into a separate header sooner.",
+      props: {
+        ...base,
+        hasChanges: true,
+        onChanges: () => undefined,
+        summary: panelToggle(true),
+        treatment: { size: 28, gap: 4 },
+      },
+      play: groupTreatment(28, 4),
+    },
+    "unified-tight": {
+      note: "Alternative: 24px targets without gaps. Saves width, but leaves less separation for adjacent terminal and browser actions.",
+      props: {
+        ...base,
+        hasChanges: true,
+        onChanges: () => undefined,
+        summary: panelToggle(true),
+        treatment: { size: 24, gap: 0 },
+      },
+      play: groupTreatment(24, 0),
+    },
     idle: {
       note: "The complete tab header: Terminal, Browser, summary, and chat actions (New tab, Files and Split Down are in it).",
       props: base,

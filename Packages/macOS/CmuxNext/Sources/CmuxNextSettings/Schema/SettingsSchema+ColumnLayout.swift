@@ -15,7 +15,8 @@ nonisolated enum ColumnLayoutSettingsSchema {
                     SettingChoice(SplitSizing.even.rawValue, SettingsText.keyed("settings.choice.splitEven", "Even")),
                     SettingChoice(SplitSizing.halve.rawValue, SettingsText.keyed("settings.choice.splitHalve", "Halve the Pane")),
                 ]),
-                default: .string(ColumnLayoutSettings.splitSizingFallback.rawValue), keywords: ["split", "equal", "size"]
+                default: .string(ColumnLayoutSettings.splitSizingFallback.rawValue),
+                keywords: ["split", "equal", "size", "autobalance", "balance", "equalize"]
             ),
             SettingDescriptor(
                 ColumnLayoutSettings.newColumnWidthPath, section: .general, group: columns,
