@@ -69,6 +69,7 @@ CAPS = {"pane": 64, "window": 50, "screen": 100, "profile": 50, "chief": 20}
 # own cap). A growth beyond fixed + per_item * N is a LEAK.
 TOLERANCES = {
     "orphans": (0, 0),                     # processes that carry this run's marker: none may outlive the close
+    "marked": (0, 0),                      # the run's jobs and servers, under a terminal or not: 0 after every close
     "zombies": (0, 0),
     "processes.app": (0, 0),
     "processes.terminal": (0, 0),          # terminal hosts, holders and their shells
@@ -134,7 +135,10 @@ def group_of(kind):
 
 def flatten(sample):
     """The resources TOLERANCES names, from a sample."""
-    flat = {"orphans": len(sample.get("orphans") or []), "zombies": len(sample.get("zombies") or [])}
+    flat = {"orphans": len(sample.get("orphans") or []), "zombies": len(sample.get("zombies") or []),
+            "marked": sample.get("marked")}
+    if flat["marked"] is None:
+        del flat["marked"]
     for group, entry in (sample.get("groups") or {}).items():
         flat[f"processes.{group}"] = entry.get("count", 0)
         for key in ("fds", "threads", "footprint_mb"):
@@ -380,6 +384,9 @@ class Harness:
             entry["fds"] += fd_count(pid) or 0
         sample = {"label": label, "time": round(time.time(), 1), "groups": groups,
                   "orphans": orphans_of(table, self.marker, set(tag), os.getpid()),
+                  # every process this run started in a terminal (jobs and servers), wherever it hangs: at the peak it
+                  # proves the jobs ran, so 0 orphans after the close means they ended, not that they never started
+                  "marked": len([p for p in marker_pids(table, self.marker) if p != os.getpid()]),
                   "zombies": zombies_of(table, set(tag))}
         memory = self.rpc("debug.memory", timeout=60)
         if isinstance(memory, dict) and not memory.get("error"):
