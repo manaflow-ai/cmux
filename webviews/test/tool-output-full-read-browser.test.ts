@@ -75,7 +75,11 @@ await requireBrowserLane("tool-output-full-read-browser.test.ts", async () => {
         node.ownerDocument.scrollingElement!.scrollTop = 0;
       });
       await body.hover();
-      expect(await page.evaluate(() => (document.scrollingElement?.scrollHeight ?? 0) > (document.scrollingElement?.clientHeight ?? 0))).toBe(true);
+      expect(
+        await page.evaluate(
+          () => (document.scrollingElement?.scrollHeight ?? 0) > (document.scrollingElement?.clientHeight ?? 0),
+        ),
+      ).toBe(true);
       await page.mouse.wheel(0, 240);
       await page.waitForFunction(() => (document.querySelector(".cv-tool-output__markdown")?.scrollTop ?? 0) > 0);
       expect(await page.evaluate(() => document.scrollingElement?.scrollTop ?? 0)).toBe(0);
