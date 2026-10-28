@@ -232,6 +232,34 @@ describe("PlatformMachines (workerd)", { timeout: 60_000 }, () => {
     expect(await rpc.pause(c, id)).toMatchObject({ ok: true, value: { state: "paused" } })
     expect(await rpc.resume(c, id)).toMatchObject({ ok: true, value: { id, state: "running", shape: target } })
     expect(await stub.fakeControl({})).toMatchObject({ creates: 1, resizes: 1, pauses: 1, starts: 1 })
+    // A completed create journal must not hide a later resume from the disable fence.
+    expect(await rpc.pause(c, id)).toMatchObject({ ok: true })
+    await inDO(stub, async instance => {
+      const original = instance.driverFor.bind(instance)
+      instance.platformResumeDriver = original
+      instance.driverFor = async (...args: Array<unknown>) => {
+        const driver = await original(...args)
+        if (driver) {
+          const power = driver.power.bind(driver)
+          driver.power = async (...powerArgs: Array<unknown>) => {
+            if (powerArgs[2] === "start") throw new Error("transient start failure")
+            return power(...powerArgs)
+          }
+        }
+        return driver
+      }
+    })
+    expect(await rpc.resume(c, id)).toMatchObject({ ok: false, retryable: true })
+    await inDO(stub, async instance => {
+      instance.driverFor = instance.platformResumeDriver
+      const original = instance.platformHost.bind(instance)
+      instance.platformHost = (team: string) => { const host = original(team); return { ...host, providerInfo: () => ({ ...host.providerInfo(), available: false }) } }
+    })
+    await stub.fakeControl({ advance_ms: 10_000 })
+    await fireAlarm(stub)
+    expect(await stub.fakeControl({})).toMatchObject({ creates: 1, deletes: 0, starts: 1 })
+    const owner = { identity: `user:${c.user}`, kind: "session" as const, user: c.user, team: c.team }
+    expect((await stub.readOp(c.team, owner, "cloud.machine.get", { machine: id })).value).toMatchObject({ status: "paused" })
   })
 
   it("refuses an image larger than the offer and durably removes its VM", async () => {
@@ -272,6 +300,23 @@ describe("PlatformMachines (workerd)", { timeout: 60_000 }, () => {
     expect(await rpc.destroy(c, forked.value.id)).toMatchObject({ ok: true })
     expect(await rpc.fork(c, machine, name)).toMatchObject({ ok: false, code: "cloud.machine.not_found", retryable: false })
     expect(await stub.fakeControl({})).toMatchObject({ creates: 2 })
+    const fresh = await bootAndBind(c)
+    await inDO(stub, async instance => {
+      const original = instance.platformHost.bind(instance)
+      let member = true
+      instance.platformHost = (team: string) => {
+        const host = original(team)
+        return { ...host, mayUse: async () => member, submit: async (principal: unknown, f: { op: string }) => {
+          const result = await host.submit(principal, f)
+          if (f.op === "cloud.snapshot.create") member = false
+          return result
+        } }
+      }
+    })
+    expect(await rpc.fork(c, fresh.machine, nameOf())).toMatchObject({ ok: false, retryable: false })
+    await stub.fakeControl({ advance_ms: 10_000 })
+    await fireAlarm(stub)
+    expect(await stub.fakeControl({})).toMatchObject({ creates: 3, snapshots: [] })
   })
 
   it("retries temporary snapshot retirement in the alarm after the caller disappears", async () => {
@@ -298,6 +343,21 @@ describe("PlatformMachines (workerd)", { timeout: 60_000 }, () => {
     await fireAlarm(stub)
     expect(await stub.fakeControl({})).toMatchObject({ creates: 1, deletes: 1, vms: [] })
     expect(await rpc.create(c, name, target)).toMatchObject({ ok: false, code: "cloud.platform.provision_failed", retryable: false })
+    await inDO(stub, async instance => {
+      const original = instance.driverFor.bind(instance)
+      instance.platformExpiryDriver = original
+      instance.driverFor = async (...args: Array<unknown>) => {
+        const driver = await original(...args)
+        if (driver) driver.ensure = async () => { throw new Error("transient create failure") }
+        return driver
+      }
+    })
+    expect(await rpc.create(c, nameOf(), { vcpu: 2, memGiB: 4, diskGiB: 16 })).toMatchObject({ ok: true, value: { state: "starting" } })
+    await inDO(stub, async instance => { instance.driverFor = instance.platformExpiryDriver })
+    await stub.fakeControl({ advance_ms: 16 * 60_000 })
+    await fireAlarm(stub)
+    // Provider remains enabled, but an expired create is fenced before its retry can allocate.
+    expect(await stub.fakeControl({})).toMatchObject({ creates: 1, deletes: 1, vms: [] })
   })
 
   it("retires a capture completed after its fork deadline without a client retry", async () => {
@@ -563,7 +623,25 @@ describe("PlatformMachines (workerd)", { timeout: 60_000 }, () => {
     expect(await stub.fakeControl({})).toMatchObject({ creates: 4, deletes: 4, resizes: 0, vms: [] })
     await inDO(stub, async instance => {
       expect(instance.platformTestHost(c.team).ledger(`platform:${c.user}|platform-machine:${resizeName}:resize`)).toMatchObject({ state: "cancelled" })
+      instance.platformHost = instance.platformTestHost
+      const original = instance.platformTestDriver
+      instance.driverFor = async (...args: Array<unknown>) => {
+        const driver = await original(...args)
+        if (driver) driver.resize = async () => { throw new Error("transient resize failure") }
+        return driver
+      }
     })
+    const expires = await rpc.create(c, nameOf(), { vcpu: 4, memGiB: 8, diskGiB: 32 })
+    expect(expires).toMatchObject({ ok: true })
+    const expiryFile = await bindFile(stub, expires.value.id)
+    const expiryBind = await bindBody(c, expires.value.id, expiryFile.json.bind_token)
+    expect(await stub.bindMachine(c.team, expiryBind.body)).toMatchObject({ ok: true })
+    await stub.fakeControl({ advance_ms: 10_000 })
+    await fireAlarm(stub)
+    await inDO(stub, async instance => { instance.driverFor = instance.platformTestDriver })
+    await stub.fakeControl({ advance_ms: 16 * 60_000 })
+    await fireAlarm(stub)
+    expect(await stub.fakeControl({})).toMatchObject({ creates: 5, deletes: 5, resizes: 0, vms: [] })
   })
 
   it("is not reachable over HTTP", async () => {
