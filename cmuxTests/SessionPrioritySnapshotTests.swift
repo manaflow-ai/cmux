@@ -144,7 +144,7 @@ struct SessionPrioritySnapshotTests {
             SidebarStatusEntry(
                 key: SessionPriorityStatusRow.key,
                 value: "Urgent · Normal · high · applied",
-                icon: "bolt.fill",
+                icon: "hare.fill",
                 priority: SessionPriorityStatusRow.priority
             ),
             key: SessionPriorityStatusRow.key,

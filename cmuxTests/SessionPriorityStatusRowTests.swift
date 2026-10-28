@@ -37,7 +37,7 @@ struct SessionPriorityStatusRowTests {
         #expect(entry.value == expected)
         #expect(entry.key == "session_priority")
         #expect(entry.priority == 50)
-        #expect(entry.icon == "bolt.fill")
+        #expect(entry.icon == "hare.fill")
         #expect(entry.color == nil)
         #expect(entry.helpText == nil)
         #expect(row(tier: .slow, difficulty: .easy, target: nil).icon == "tortoise.fill")
