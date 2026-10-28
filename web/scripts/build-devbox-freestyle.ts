@@ -371,9 +371,9 @@ try {
   // Cache seeds cover root and the work user (uid 1000).
   await step("cmux-etc", "mkdir -p /etc/cmux /etc/skel");
   // agent-config.sh keeps a caller's model-plane env only on an `owner` record (an absent or
-  // team record is shared), and the agent-config and agent-hooks checks below prove that owner path before
-  // /etc/cmux/model-plane.env exists. So the bake holds `owner` until those checks, then
-  // writes the `team` record every machine boots with (vm-kind-default).
+  // team record is shared). The agent-config and agent-hooks checks below prove
+  // that owner path before /etc/cmux/model-plane.env exists. The bake holds
+  // `owner` through both checks, then writes the `team` boot default.
   await step("vm-kind-bake-owner", "echo owner > /etc/cmux/vm-kind && chmod 0644 /etc/cmux/vm-kind");
   await put("cmux-bashrc", "/etc/cmux/bashrc");
   await put("cmux-prompt.bash", "/etc/cmux/prompt.bash");
