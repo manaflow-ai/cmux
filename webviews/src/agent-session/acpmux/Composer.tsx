@@ -15,6 +15,7 @@ import { ComposerContext } from "./ComposerContext";
 import { showsLocationRow } from "./locationRow";
 import { createUnsentDraftThrottle, type UnsentDraftThrottle } from "./unsentDraftThrottle";
 import { ComposerQueue } from "./ComposerQueue";
+import { settleQueuedEditWrites } from "./queuedEditDrafts";
 import { ownQueue } from "./conversation/queuedMessages";
 import {
   ArrowUpIcon,
@@ -677,7 +678,7 @@ export function Composer({
         }
         const unsent = unsentDraft.current;
         if (unsent) unsent.push(typed);
-        await Promise.all([unsent?.settle(), settlePendingDraftWrites()]);
+        await Promise.all([unsent?.settle(), settlePendingDraftWrites(), settleQueuedEditWrites()]);
       },
       wake(state) {
         const back = state.attachments ?? [];
@@ -1705,6 +1706,7 @@ export function Composer({
         // One per chat: a chat's long queue keeps its fold, open or closed, as you switch chats.
         key={snapshot.summary?.sessionId || sessionId}
         chat={snapshot.summary?.sessionId || sessionId}
+        ready={snapshot.chatRead === true}
         queue={snapshot.queue}
         paused={snapshot.summary?.queuePaused === true}
         {...(pauseReason ? { pauseReason } : {})}
