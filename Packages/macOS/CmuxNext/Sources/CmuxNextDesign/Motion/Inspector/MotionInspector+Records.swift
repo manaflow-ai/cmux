@@ -153,7 +153,7 @@ extension MotionInspector {
         case let keyframes as CAKeyframeAnimation: name = "keyframes(\(keyframes.values?.count ?? 0))"
         case let transition as CATransition: name = "transition.\(transition.type.rawValue)"
         case is CAAnimationGroup: name = "group"
-        default: name = timingName(animation.timingFunction)
+        default: name = Self.timingName(animation.timingFunction)
         }
         return .timed(seconds: animation.duration, name: name)
     }
