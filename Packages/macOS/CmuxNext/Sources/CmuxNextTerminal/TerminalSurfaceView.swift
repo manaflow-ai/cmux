@@ -1,6 +1,6 @@
 public import AppKit
 public import CmuxNextDesign
-import CmuxNextInput
+public import CmuxNextInput
 import CmuxNextTerminalGeometry
 import CmuxNextTrace
 import CmuxNextWakeups
@@ -18,7 +18,7 @@ import QuartzCore
 ///
 /// Created and owned by ``TerminalSession``; embed ``TerminalSession/view``,
 /// not this view directly.
-public final class TerminalSurfaceView: NSView {
+public final class TerminalSurfaceView: NSView, KeyEquivalentOwningSurface {
     // MARK: State
 
     /// SAFETY: the view's live surface: made in `init`, freed only in `deinit`, and never
