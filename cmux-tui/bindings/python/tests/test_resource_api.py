@@ -332,6 +332,42 @@ class ResourceApiTests(unittest.TestCase):
                 connection.send({"value": "reused"}, timeout=1)
                 self.assertEqual(connection.recv(), {"value": "reused"})
 
+    def test_pre_write_mutation_timeout_is_conclusive(self) -> None:
+        for asynchronous in (False, True):
+            with self.subTest(asynchronous=asynchronous):
+                observed = []
+
+                def handler(connection, _index):
+                    for request in frames(connection):
+                        observed.append(request["operation"])
+                        ok(connection, request, {
+                            "alive": True,
+                            "cursor": {"generation": "generation-a", "revision": "1"},
+                        })
+
+                with UnixJsonServer(handler) as server:
+                    if asynchronous:
+                        async def exercise():
+                            async with cmux.aio.Client(server.path, timeout=2) as client:
+                                with client._sync._connection._wire._send_lock:
+                                    with self.assertRaises(cmux.TimeoutError):
+                                        await client.session(SESSION).terminal(TERMINAL).write(
+                                            "not sent", request_options=RequestOptions(timeout=0.05)
+                                        )
+                                self.assertTrue((await client.session(SESSION).ping()).alive)
+                        asyncio.run(exercise())
+                    else:
+                        with Client(server.path, timeout=2) as client:
+                            with client._connection._wire._send_lock:
+                                with self.assertRaises(cmux.TimeoutError):
+                                    client.with_request_options(
+                                        RequestOptions(timeout=0.05),
+                                        client.session(SESSION).terminal(TERMINAL).write,
+                                        "not sent",
+                                    )
+                            self.assertTrue(client.session(SESSION).ping().alive)
+                self.assertEqual(observed, ["session.ping"])
+
     def test_public_models_export_journal_append_result(self) -> None:
         self.assertIn("JournalAppendResult", cmux.__all__)
 
