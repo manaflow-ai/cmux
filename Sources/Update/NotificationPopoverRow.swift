@@ -72,6 +72,8 @@ struct NotificationPopoverRow: View, Equatable {
                 ShortcutHintPill(text: shortcutHint, fontSize: 10, emphasis: 1.05)
                     .padding(.trailing, 10)
                     .shortcutHintTransition()
+                    // Decorative: a click on the hint must reach the row's Button underneath.
+                    .allowsHitTesting(false)
                     .accessibilityHidden(true)
             }
         }
