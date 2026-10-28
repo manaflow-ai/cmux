@@ -47,7 +47,8 @@ export function retryModelSections(
   _harness = "",
   top?: readonly string[],
 ): RetrySections {
-  const isCurrent = (model: RetryModel) => model.id === current || model.release === current;
+  const isCurrent = (model: RetryModel) =>
+    typeof current === "string" && current.length > 0 && (model.id === current || model.release === current);
   const unique = uniqueRetryModels(models, current).filter((model) => isCurrent(model) || !model.unavailable);
   // A running model can be temporarily unavailable to the probe while still being the only
   // valid checked choice for this turn. Treat just that row as available for grouping; App.tsx

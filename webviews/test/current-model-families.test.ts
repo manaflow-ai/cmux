@@ -119,3 +119,18 @@ test("Retry keeps the running unavailable model and excludes unavailable alterna
   expect(ids(sections.latest)).toContain("gpt-6-astra");
   expect(ids(sections.latest)).not.toContain("gpt-6.1-terra");
 });
+
+for (const harness of ["Codex", "Codex profile"]) {
+  test(`Retry excludes unavailable ${harness} alternatives when no model is running`, () => {
+    const sections = retryModelSections(
+      [
+        { id: "gpt-6.1-sol", name: "GPT-6.1 Sol", unavailable: "account unavailable" },
+        { id: "gpt-6-astra", name: "GPT-6 Astra" },
+      ],
+      undefined,
+      harness,
+    );
+    expect(ids(sections.latest)).toEqual(["gpt-6-astra"]);
+    expect(ids(sections.latest)).not.toContain("gpt-6.1-sol");
+  });
+}

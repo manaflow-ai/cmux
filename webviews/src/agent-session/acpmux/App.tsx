@@ -5584,11 +5584,13 @@ function AcpmuxPane() {
   const retryHarness = pickerCatalog.harnesses.find(
     (entry) => entry.acpmuxHarness === snapshot.summary?.harness || entry.id === snapshot.summary?.harness,
   );
+  const runningModel = snapshot.summary?.model;
+  const hasRunningModel = typeof runningModel === "string" && runningModel.length > 0;
   // Named as the composer's picker names them (its short name under its harness, "Opus 5.5").
   const retryModelsKey = (retryHarness?.models ?? [])
     .filter(
       (model) =>
-        (!model.unavailable || model.id === snapshot.summary?.model || model.release === snapshot.summary?.model) &&
+        (!model.unavailable || (hasRunningModel && (model.id === runningModel || model.release === runningModel))) &&
         !isDefaultChoice(model),
     )
     .map(
