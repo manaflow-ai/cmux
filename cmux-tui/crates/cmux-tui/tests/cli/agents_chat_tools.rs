@@ -344,6 +344,10 @@ fn an_agent_prompts_another_chat_and_reads_its_reply_over_mcp() {
     assert_eq!(calls[0]["text"], "", "{next}");
     assert_eq!(calls[0]["tool"]["kind"], "read", "{next}");
     assert_eq!(calls[0]["tool"]["status"], "completed", "{next}");
+    let answers = items_of(later, "assistant");
+    assert_eq!(answers.len(), 2, "a tool boundary keeps the preceding answer: {next}");
+    assert_eq!(answers[0]["text"], "partial", "{next}");
+    assert_eq!(answers[1]["text"], "partial answer", "{next}");
 }
 
 #[test]
@@ -963,6 +967,44 @@ fn latest_code_block_is_available_over_cli_and_mcp() {
         assert_eq!(page["items"], json!([]), "{page}");
         assert!(page["next_after"].as_u64() >= before["next_after"].as_u64());
         assert!(!page.to_string().contains(&key));
+    }
+    // The harness retries an identified answer. Both reads must remove
+    // the old answer and still find the
+    // previous turn's code when the replacement answer contains no code.
+    let prompted = Acp::connect(&daemon).call(
+        "session/prompt",
+        json!({"sessionId": holder,
+            "prompt": [{"type": "text", "text": "codex-retry"}]}),
+    );
+    assert!(prompted.get("error").is_none(), "{prompted}");
+    read_until(
+        &daemon,
+        &reader,
+        json!({"target": holder, "after": before["next_after"]}),
+        |items| items.iter().any(|item| item["role"] == "turn_end"),
+    );
+    let (status, cli) = agents_chat(
+        &daemon,
+        Some(&reader),
+        &["read", &holder, "--after", &cursor, "--last-code-block"],
+    );
+    assert_eq!(status, Some(0), "{cli}");
+    let (_, replies) = mcp(
+        &daemon,
+        &reader,
+        &[(
+            "agents_chat_read",
+            json!({"target": holder, "after": before["next_after"], "last_code_block": true}),
+        )],
+    );
+    assert_eq!(replies[0]["isError"], false, "{replies:?}");
+    for page in [&cli, &replies[0]["structuredContent"]] {
+        let items = page["items"].as_array().unwrap();
+        let answers = items_of(items, "assistant");
+        assert_eq!(answers.len(), 1, "only the replacement answer remains: {page}");
+        assert_eq!(answers[0]["text"], "partial answer", "{page}");
+        assert_eq!(page["last_code_block"], with_code["last_code_block"], "{page}");
+        assert_eq!(page["has_more"], false, "{page}");
     }
     let elsewhere = chat(&daemon, None);
     let (status, outside) =

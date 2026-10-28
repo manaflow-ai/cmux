@@ -74,7 +74,9 @@ pub(super) fn from_transcript(transcript: &Transcript, more: bool) -> Option<Val
         .rev()
         // The first item may start before the oldest page we have. Do not
         // parse a suffix of Markdown as a new answer. Wait for its boundary.
-        .filter(|(index, item)| item.role == "assistant" && (!more || *index > 0))
+        .filter(|(index, item)| {
+            !item.superseded && item.role == "assistant" && (!more || *index > 0)
+        })
         .find_map(|(_, item)| extract(&visible_text(&item.text, false)))
 }
 

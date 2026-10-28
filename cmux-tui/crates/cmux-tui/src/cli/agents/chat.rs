@@ -442,7 +442,8 @@ fn load(
             cursor = cursor.max(event["seq"].as_u64().unwrap_or(cursor));
         }
         more = page["hasMore"] == true && !events.is_empty();
-        let ready = transcript.items.iter().filter(|item| item.id > after).count();
+        let ready =
+            transcript.items.iter().filter(|item| !item.superseded && item.id > after).count();
         let full = ready > limit || transcript.text_bytes > MAX_READ_TEXT_BYTES;
         // A tool call the read returns holds `next_after` until its turn
         // ends, so the read loads on to that turn end (or the newest event,
@@ -464,6 +465,9 @@ struct Item {
     role: &'static str,
     text: String,
     extra: Map<String, Value>,
+    message_id: Option<String>,
+    // Keep indices stable: tool updates and turn completion refer to them.
+    superseded: bool,
 }
 
 impl Item {
@@ -518,6 +522,7 @@ struct Transcript {
     /// The last `turn_end` item; a tool call before it is finished.
     last_turn_end: Option<usize>,
     text_bytes: usize,
+    superseded_messages: HashSet<String>,
 }
 
 impl Transcript {
@@ -566,6 +571,13 @@ impl Transcript {
                     extra.insert("status".into(), json!(status));
                     self.push(seq, "turn_end", String::new(), extra);
                 }
+                "message_superseded" => {
+                    if let Some(id) =
+                        msg.get("oldMessageId").and_then(Value::as_str).filter(|id| !id.is_empty())
+                    {
+                        self.supersede(id);
+                    }
+                }
                 _ => {}
             },
             Some("in") if !kind.ends_with(".replay") && msg["method"] == "session/update" => {
@@ -586,13 +598,38 @@ impl Transcript {
         match update["sessionUpdate"].as_str().unwrap_or_default() {
             "agent_message_chunk" => {
                 let text = update["content"]["text"].as_str().unwrap_or_default();
+                let message_id =
+                    update.get("messageId").and_then(Value::as_str).filter(|id| !id.is_empty());
+                if message_id.is_some_and(|id| self.superseded_messages.contains(id)) {
+                    return;
+                }
+                // A new identified message is a new Markdown document, even
+                // without an intervening tool call. Anonymous chunks retain
+                // the older harnesses' streaming behavior and known identity.
+                if let Some(id) = message_id
+                    && self
+                        .open_text
+                        .and_then(|index| self.items.get(index))
+                        .and_then(|item| item.message_id.as_deref())
+                        .is_some_and(|open_id| open_id != id)
+                {
+                    self.open_text = None;
+                }
                 match self.open_text {
                     Some(index) => {
-                        self.text_bytes += text.len();
-                        self.items[index].text.push_str(text);
+                        if let Some(item) = self.items.get_mut(index) {
+                            self.text_bytes += text.len();
+                            item.text.push_str(text);
+                            if item.message_id.is_none() {
+                                item.message_id = message_id.map(str::to_owned);
+                            }
+                        }
                     }
                     None => {
                         self.push(seq, "assistant", text.to_owned(), Map::new());
+                        if let Some(item) = self.items.last_mut() {
+                            item.message_id = message_id.map(str::to_owned);
+                        }
                         self.open_text = Some(self.items.len() - 1);
                     }
                 }
@@ -627,7 +664,23 @@ impl Transcript {
         if role == "turn_end" {
             self.last_turn_end = Some(self.items.len());
         }
-        self.items.push(Item { id, role, text, extra });
+        self.items.push(Item { id, role, text, extra, message_id: None, superseded: false });
+    }
+
+    fn supersede(&mut self, id: &str) {
+        if !self.superseded_messages.insert(id.to_owned()) {
+            return;
+        }
+        for (index, item) in self.items.iter_mut().enumerate() {
+            if item.role == "assistant" && item.message_id.as_deref() == Some(id) {
+                item.superseded = true;
+                self.text_bytes -= item.text.len();
+                item.text.clear();
+                if self.open_text == Some(index) {
+                    self.open_text = None;
+                }
+            }
+        }
     }
 
     /// Whether item `index` is finished: an answer once another item
@@ -661,7 +714,9 @@ impl Transcript {
     fn returned(&self, after: u64, limit: usize) -> Vec<usize> {
         let mut indices = Vec::new();
         let mut bytes = 0;
-        for (index, item) in self.items.iter().enumerate().filter(|(_, item)| item.id > after) {
+        for (index, item) in
+            self.items.iter().enumerate().filter(|(_, item)| !item.superseded && item.id > after)
+        {
             if indices.len() == limit || (!indices.is_empty() && bytes > MAX_READ_TEXT_BYTES) {
                 break;
             }
@@ -677,7 +732,8 @@ impl Transcript {
     /// item read is finished and returned, it moves to `scanned`, the last
     /// event read, so a long run of events with no item is not read again.
     fn page(&self, chat: &str, after: u64, limit: usize, more_events: bool, scanned: u64) -> Value {
-        let candidates = self.items.iter().filter(|item| item.id > after).count();
+        let candidates =
+            self.items.iter().filter(|item| !item.superseded && item.id > after).count();
         let returned = self.returned(after, limit);
         let mut items = Vec::new();
         let mut next_after = after;
