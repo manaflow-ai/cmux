@@ -22,7 +22,7 @@ red was other tests. A job-level comparison hid a real crash. So:
     test_reds.py classify --head HEAD.log [--base BASE.log] [--job NAME] [--base-name feat-cmux-next] [--json]
 
 prints one line per reason and exits 0 when the job's red is the base's, 1 when it is the head's own and 2 when
-the log runs no tests (not a test red: the caller judges it as before).
+the log names no failing test, crash or cut-short run (not a test red: the caller judges it as before).
 """
 from __future__ import annotations
 
@@ -225,17 +225,17 @@ def read(log: str | None) -> Result:
 
 
 def classify(head_log: str | None, base_log: str | None, job: str = "", base: str = "the base") -> Verdict | None:
-    """The head job's red judged per test against the base job's log; None when the head ran no tests."""
+    """The head job's red judged per test against the base job's log; None when the head's log names no failing
+    test, crash or cut-short run (a lint or compile red: the caller judges it as before)."""
     head = read(head_log)
-    if not head.ran and not head.truncated:
-        return None
     if head_log is None:
         return Verdict(True, [f"{job or 'the job'}: its log could not be read, so no test can be compared with {base}"])
+    if not head.failed and not head.crashes and not head.truncated:
+        # Its tests (if any) passed: the red is a lint, compile or other step the caller judges as before.
+        return None
     reasons = list(head.crashes)
     if head.truncated:
         reasons.append(f"{job or 'the job'}: per-test results are not whole ({head.truncated[0]})")
-    if not head.failed and not reasons:
-        reasons.append(f"{job or 'the job'}: red with no failing test named, so nothing to compare with {base}")
     seen = read(base_log).failed if base_log is not None else set()
     new = sorted(head.failed - seen)
     if base_log is None and head.failed:
@@ -262,7 +262,7 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(None if verdict is None else
                          {"own": verdict.own, "reasons": verdict.reasons, "shared": verdict.shared}))
     elif verdict is None:
-        print("not a test red: the log runs no tests")
+        print("not a test red: the log names no failing test, crash or cut-short run")
     elif verdict.own:
         print("own red: " + "\n  ".join([""] + verdict.reasons).lstrip("\n "))
     else:

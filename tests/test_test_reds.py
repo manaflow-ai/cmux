@@ -85,6 +85,10 @@ class PerTest(unittest.TestCase):
     def test_a_job_that_runs_no_tests_is_not_judged_here(self):
         self.assertIsNone(reds.classify(log("error: cannot find 'x' in scope"), log("error: cannot find 'x' in scope")))
 
+    def test_a_lint_red_beside_passing_unit_tests_is_not_judged_here(self):
+        lint = log("Ran 26 tests in 0.003s", "OK", "##[error]Localizable.xcstrings:key: missing uk")
+        self.assertIsNone(reds.classify(lint, lint))
+
     def test_crash_words_in_source_listings_and_passing_test_names_are_not_crashes(self):
         quiet = log("[12/40] Compiling CmuxNextHome CrashReporter.swift", " 3 | /// A caught signal returns to its "
                     "default action", "✔ Test aCrashEndsTheApp() passed after 0.1 seconds.", failed("a()"), SUMMARY)
