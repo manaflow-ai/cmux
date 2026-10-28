@@ -30,6 +30,7 @@ function evidence(p95 = 20): any {
       {
         id,
         engine: "chromium",
+        metricType: "target_painted",
         latencyMs: { p50: 10, p95, max: p95 },
         samples: [{ work: 1 }],
         errors: [],
@@ -37,6 +38,7 @@ function evidence(p95 = 20): any {
         reactCommits: 1,
         idle: { sampleDurationMs: 1000, cpuDurationMs: 20, cpuPercent: 2, wakeups: null },
         framesSummary: { count: 1, dropped: 0, maxGapMs: 10 },
+        unsupportedReasons: { wakeups: "wakeups unavailable; context switches are not wakeups" },
       },
     ],
   };
@@ -96,4 +98,30 @@ test("report includes the PR number, exact heads, and worst-case row", () => {
   expect(report).toContain("PR #1234");
   expect(report).toContain(source.head);
   expect(report).toContain(id);
+});
+
+test("drag target paint and frame cadence remain distinct accepted metric types", () => {
+  const candidate = evidence();
+  candidate.results[0].metricType = "drag_target_painted";
+  candidate.results[0].adapterRuns = [
+    {
+      status: "complete",
+      observations: [
+        {
+          status: "painted",
+          latencyMs: 12,
+          inputAt: 10,
+          targetPaintAt: 22,
+          raw: { releaseToPaintMs: 3, lastMoveToPaintMs: 5, alreadyPaintedBeforeRelease: false },
+        },
+      ],
+      frameGaps: [8],
+      longTasks: [],
+      reactCommits: 1,
+      unsupportedReasons: {},
+    },
+  ];
+  expect(validateEvidence(candidate, baseline(), budget, { expectedHead: source.head }).ok).toBe(true);
+  candidate.results[0].metricType = "frame_time";
+  expect(validateEvidence(candidate, baseline(), budget, { expectedHead: source.head }).ok).toBe(true);
 });
