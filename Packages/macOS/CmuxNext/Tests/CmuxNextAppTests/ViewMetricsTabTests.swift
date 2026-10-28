@@ -12,18 +12,21 @@ import Testing
 /// until the file is written; the run is never counted as waiting.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct ViewMetricsTabTests {
-    /// View Metrics bound with its feature on (the launch's features may have it off).
+    /// Where the tests write metrics.json, never the build's folder.
+    static let folder = FileManager.default.temporaryDirectory.appending(path: "view-metrics-\(UUID().uuidString)", directoryHint: .isDirectory)
+
+    /// View Metrics bound with its feature on (the launch's features may have it off), writing to ``folder``.
     static func bindMetrics(_ services: AppServices) {
         services.features = FeatureList(registry: FeatureRegistry(), channel: .dev,
                                         overrides: FeatureOverrides(environmentEnabled: ["metricsView"]))
-        HangReportsHandlers.bind(into: services.registry, context: AppActionContext(services: services))
+        HangReportsHandlers.bind(into: services.registry, context: AppActionContext(services: services), metricsFolder: folder)
     }
 
     /// The same, with a metrics write that always fails.
     static func bindFailingMetrics(_ services: AppServices) {
         services.features = FeatureList(registry: FeatureRegistry(), channel: .dev,
                                         overrides: FeatureOverrides(environmentEnabled: ["metricsView"]))
-        HangReportsHandlers.bind(into: services.registry, context: AppActionContext(services: services),
+        HangReportsHandlers.bind(into: services.registry, context: AppActionContext(services: services), metricsFolder: folder,
                                  writeMetrics: { _ in throw Refused() })
     }
 
@@ -70,12 +73,12 @@ struct ViewMetricsTabTests {
             var failures: [String] = []
             for task in work { if let failure = await task.value { failures.append(failure.message) } }
             #expect(failures.joined(separator: " | ").contains("the test refused the metrics write"), "the failure was not reported: \(failures)")
-            // The tab's page waits for the write: the gate is its provider's, or the service's until the page is made.
-            let pages = services.viewers.editorPages
-            let file = try #require(pages.tabs[key]?.file)
-            let ready = try #require(pages.pendingWrites[file] ?? pages.tabs[key]?.provider?.ready, "the tab's read does not wait for the write")
-            let reason = await ready()
-            #expect(reason?.contains("the test refused the metrics write") == true, "the tab's page would not fail with the write's reason: \(reason ?? "nil")")
+            // The tab's page (what it loads) fails with the write's reason.
+            switch try await Self.readPage(services, key) {
+            case .success: Issue.record("the failed write's page read a file")
+            case .failure(let error):
+                #expect(error.message.contains("the test refused the metrics write"), "the page's error is not the write's reason: \(error.message)")
+            }
         }
     }
     /// The tab's page (its `cmux.editor.config`, what the page loads), once the pane made it.

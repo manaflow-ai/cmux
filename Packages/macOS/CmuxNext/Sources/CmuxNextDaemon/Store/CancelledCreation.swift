@@ -59,8 +59,13 @@ import Foundation
             guard let surface = entry.createdSurface ?? entry.replySurface, let hidden = hideTab(surface, in: store) else { return nil }
             return .hiddenTab(hidden)
         case .splitPane(_, _, _, let provisional):
-            guard let pane = daemonPane(provisional, in: store), let screen = store.screen(containing: pane.handle),
-                  let index = screen.panes.firstIndex(where: { $0 === pane }) else { return nil }
+            guard let pane = daemonPane(provisional, in: store) else {
+                // Split Browser's tab is in a pane not minted for the split (the target, before
+                // `move-tab-to-split`): it alone is hidden there (``ProvisionalTab/held(_:surface:in:)``).
+                guard let surface = entry.createdSurface ?? entry.replySurface, let hidden = hideTab(surface, in: store) else { return nil }
+                return .hiddenTab(hidden)
+            }
+            guard let screen = store.screen(containing: pane.handle), let index = screen.panes.firstIndex(where: { $0 === pane }) else { return nil }
             let layout = screen.layout, columns = screen.columns
             // A tree the pane is the whole of (it would leave no pane) keeps it shown until the close.
             guard let unsplit = removing(pane.handle, from: layout) else { return nil }

@@ -14,7 +14,8 @@ import Foundation
 /// the run's turn and loads the file once it is written.
 enum HangReportsHandlers {
     /// `writeMetrics` writes the metrics JSON to a file (blocking: it runs on the files lane); tests make it fail.
-    static func bind(into registry: ActionRegistry, context: AppActionContext,
+    /// `metricsFolder` replaces the build's folder (tests write to a temporary one).
+    static func bind(into registry: ActionRegistry, context: AppActionContext, metricsFolder: URL? = nil,
                      writeMetrics: @escaping @Sendable (URL) throws -> Void = { try MetricsSnapshot().blockingWrite(to: $0) }) {
         registry.bind("diagnostics.viewHangReport", run: { invocation in
             guard let controller = AppProcessRoot.shared.hangReports, controller.isAvailable else {
@@ -29,9 +30,12 @@ enum HangReportsHandlers {
         registry.bindEffect("diagnostics.viewMetrics", unavailable: { metricsOn ? nil : MetricsSnapshot.featureOffReason }, effect: { invocation in
             let target = invocation.target == nil ? services.windows.active?.focusedPane : context.paneController(invocation)
             guard let pane = target ?? services.windows.active?.focusedPane else { return .refused(FilePageStrings.noPane) }
-            let file = SidebarSnapshotFile.buildDirectory(launch: launch).appending(path: "Metrics/metrics.json")
+            // The folder (which exists) resolved, so the path is the same before and after the write: the tab
+            // keys its file by it (`/var` and `/private/var` are one tab, a second run selects it).
+            let folder = (metricsFolder ?? SidebarSnapshotFile.buildDirectory(launch: launch)).standardizedFileURL.resolvingSymlinksInPath()
+            let file = folder.appending(path: "Metrics/metrics.json")
             // The viewer tab opens in this turn, its page loading until the file is written; a failed
-            // write fails the page with its reason, and the registry reports it.
+            // write fails the page (its Retry reads again) and the registry's notice names the reason.
             let written = OneShot<String?>()
             services.viewers.editorPages.open(file, in: pane, focus: true, ready: {
                 // Only a closed tab's read is cancelled, so the cancel's reason is never shown.

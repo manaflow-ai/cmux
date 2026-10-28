@@ -83,6 +83,11 @@ extension CancelledCreation {
             // closed only once the daemon names it for this transaction: a wrong guess never
             // closes another create's tab.
             if case .createTab = entry.kind, !entry.createdConfirmed, entry.replySurface == nil { continue }
+            // So is Split Browser's tab guessed in the split's target pane, until the open's reply names it
+            // (``ProvisionalTab/held(_:surface:in:)``); a split's own daemon pane is its own by public id.
+            if case .splitPane = entry.kind, !entry.createdConfirmed, entry.replySurface == nil, entry.createdSurface != nil {
+                if case .hiddenPane? = entry.undo {} else { continue }
+            }
             guard let surface = closeSurface(entry) else { continue }
             store.intentLog.noteCloseRequested(entry.transaction)
             store.intentLog.closeCancelled?(entry.transaction, surface)

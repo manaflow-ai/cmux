@@ -251,6 +251,21 @@ struct IntentLog {
         entries.modifyFirst(where: { $0.transaction == transaction }) { $0.replySurface = surface }
     }
 
+    /// Split Browser's open named its tab `surface` (``ProvisionalTab/held(_:surface:in:)``): the split's
+    /// tab, held by surface and closed by a cancel, and no longer another create's guess.
+    mutating func noteHeld(_ transaction: ClientTransactionID, surface: SurfaceID) {
+        entries = entries.map { entry in
+            var entry = entry
+            if entry.transaction == transaction {
+                entry.createdSurface = surface
+                entry.replySurface = surface
+            } else if entry.createdSurface == surface, !entry.createdConfirmed {
+                entry.createdSurface = nil
+            }
+            return entry
+        }
+    }
+
     /// `confirmed`: the daemon named `transaction` with `surface`; a guess elsewhere that named
     /// the same surface is dropped (that create's own echo or reply will name its tab).
     mutating func noteCreated(_ transaction: ClientTransactionID, surface: SurfaceID, confirmed: Bool = true) {

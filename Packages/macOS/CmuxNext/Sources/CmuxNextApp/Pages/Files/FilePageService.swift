@@ -175,8 +175,12 @@ final class FilePageService: InternalPageProvider {
         let key = show(in: pane, focus: focus, placed: placed, tab) { key in
             self.file(key) == real
         }
-        // A page that already showed the file reloads it when it changes (its file watch).
-        if tabs[key]?.provider != nil { pendingWrites[real] = nil }
+        // A tab whose page is made already (a second View Metrics): its page waits for this write and reloads.
+        if let ready, let provider = tabs[key]?.provider {
+            pendingWrites[real] = nil
+            provider.ready = ready
+            tabs[key]?.page?.reload()
+        }
         if let reveal { revealAt(reveal, in: key) }
         // The user opened a file a tab already shows (perhaps one an agent opened): it is theirs now.
         if userChose {

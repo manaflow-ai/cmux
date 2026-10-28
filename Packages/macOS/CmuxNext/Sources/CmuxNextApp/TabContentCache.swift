@@ -330,7 +330,10 @@ final class TabContentCache {
         goneTabs.track(key, in: browserTabs.daemon(for: tab).store) { [weak self] in self?.release($0) }
         if let entry = browsers[key] { return entry }
         // The stand-in's page and chrome move to it, in the apply that shows it: nothing is rebuilt or reloaded.
-        if let standIn = standInSuccessors.removeValue(forKey: tab.surface), moveBrowser(standIn, to: tab), let entry = browsers[key] { return entry }
+        if let standIn = standInSuccessors.removeValue(forKey: tab.surface) {
+            createTabs.rekey(standIn, to: key) // the daemon's tab waits for the stand-in's first frame
+            if moveBrowser(standIn, to: tab), let entry = browsers[key] { return entry }
+        }
         if pageRequests.claimCloseOnArrival(tab.surface) {
             // Its page closed before the tab appeared (BrowserPageRequests): the tab closes after this presentation.
             mainWork.post(.visible, owner: "TabContentCache.closeOnArrival") { [weak self] in self?.pageRequests.closeTab(key) }
@@ -563,6 +566,7 @@ final class TabContentCache {
         if displacing { createTabs.released(key) }
         if let owner = ledger.remove(key), displacing { presenters[owner]?.value?.surfaceWasDisplaced(key) }
         applyLifecycle(lifecycle.send(.removed(key)))
+        if !standInSuccessors.isEmpty { standInSuccessors = standInSuccessors.filter { $0.value != key } } // a stand-in gone first: its tab makes its own page
         pendingMounts[key] = nil; framedStandIns.remove(key); pendingBrowsers.remove(key); awaitingRead.remove(key); launchDeferredNodes[key] = nil
         hibernation?.forget(key); pageLifecycle?.remove(key)
         agentMarks.forget(key)

@@ -165,14 +165,14 @@ public struct ProvisionalTab: Sendable, Hashable {
     /// pane of its own; that pane then takes the provisional pane's place in one apply
     /// (``ProvisionalSplit/heldTabPlaced(_:in:)``). Neither the open nor the move names the split's
     /// public ids, so the tab is held by its surface. A refused move rejects the intent: the tab
-    /// shows where it is.
+    /// shows where it is. The reply names the tab, so it is no other create's guess (an older Cmd-T
+    /// of the pane gives it up), and a split the person closed first closes it.
     @MainActor public static func held(_ transaction: ClientTransactionID, surface: SurfaceID, in store: DaemonStore) {
         guard store.intentLog.contains(transaction) else { return }
-        store.intentLog.noteCreated(transaction, surface: surface, confirmed: false)
-        // The tab may show already (its raw `tab-added` came before the reply and named no create).
-        if store.tabsBySurface[surface] != nil, !store.overlayLifted, store.applyDepth == 0 {
-            store.withOverlayLifted(writer: "split tab held") {}
-        }
+        store.intentLog.noteHeld(transaction, surface: surface)
+        // The tab may show already, or hide under another create's guess: shown again with the split's hold.
+        if !store.overlayLifted, store.applyDepth == 0 { store.withOverlayLifted(writer: "split tab held") {} }
+        CancelledCreation.requestCloses(in: store)
     }
 
     /// A terminal tab whose host id a pending terminal create chose (``terminal(_:cwd:)``) is that
