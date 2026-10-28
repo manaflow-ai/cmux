@@ -28,7 +28,11 @@ public nonisolated enum BrowserPromptKind: Hashable, Sendable {
     case textInput(message: String, defaultText: String?)
     /// HTTP authentication (Basic, Digest, NTLM): a user name and password
     /// for `host` (`realm` is the server's text, when it sends one).
-    case credentials(host: String, realm: String?)
+    /// `isSecure` false: the login goes to the server without encryption
+    /// (plain http), and the dialog says so. `failedBefore`: the server
+    /// refused the last login, and the dialog says so. `user`: the user name
+    /// of that refused login, filled in again (Chrome's login dialog).
+    case credentials(host: String, realm: String?, isSecure: Bool = true, failedBefore: Bool = false, user: String? = nil)
     /// A link to another app (`BrowserExternalApps`): open `scheme` links in
     /// the app named `app`? Answered `.allowOnce` (Open), `.allow` (Open,
     /// always for the site) or `.cancel`.

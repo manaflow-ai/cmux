@@ -145,7 +145,8 @@ import Testing
         }
         let (disposition, _) = await answer(challenge)
 
-        #expect(disposition == .cancelAuthenticationChallenge)
+        // Cancel goes on without a login: the server's 401 page loads (HTTPSignInDialogTests).
+        #expect(disposition == .rejectProtectionSpace)
         #expect(asked)
         #expect(keychain.calls.map(\.name) == ["list"])
         #expect(keychain.calls.allSatisfy { !$0.onMain && $0.onSystemLane })

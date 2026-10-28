@@ -27,7 +27,10 @@ extension WebKitTab: BrowserCertificateBypassing {
             completionHandler(.cancelAuthenticationChallenge, nil)
         case .askCredentials:
             WebKitHTTPSignIn(memory: engine?.httpSignInMemory(for: profileID), key: BrowserHTTPCredentialKey(profile: profileID, space: space),
-                             failures: challenge.previousFailureCount, space: space, lanes: engine?.stores.lanes) { [weak self] kind, origin, done in
+                             failures: challenge.previousFailureCount, space: space,
+                             // After a refused try, WebKit proposes the login the tab just sent: its user name only.
+                             refusedUser: challenge.previousFailureCount > 0 ? challenge.proposedCredential?.user : nil,
+                             lanes: engine?.stores.lanes) { [weak self] kind, origin, done in
                 guard let self else { return done(.cancel) }
                 self.enqueuePrompt(kind, origin: origin, completion: done)
             }.run(completionHandler)

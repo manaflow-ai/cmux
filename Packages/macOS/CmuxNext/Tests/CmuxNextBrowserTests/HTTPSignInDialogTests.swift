@@ -15,11 +15,11 @@ import Testing
     }
 
     /// The dialog the tab shows for one challenge, and the challenge's answer after `response`.
-    private func ask(_ space: URLProtectionSpace, failures: Int,
+    private func ask(_ space: URLProtectionSpace, failures: Int, refusedUser: String? = nil,
                      response: BrowserPromptResponse) async -> (spec: CmuxDialogSpec?, disposition: URLSession.AuthChallengeDisposition) {
         var shown: CmuxDialogSpec?
         let signIn = WebKitHTTPSignIn(memory: nil, key: BrowserHTTPCredentialKey(profile: profile, space: space), failures: failures,
-                                      space: space, lanes: nil) { kind, origin, done in
+                                      space: space, refusedUser: refusedUser, lanes: nil) { kind, origin, done in
             let prompt = BrowserPrompt(kind: kind, origin: origin) { _ in }
             shown = BrowserPromptDialogs.spec(for: prompt)
             done(response)
@@ -30,8 +30,8 @@ import Testing
         return (shown, disposition)
     }
 
-    private func expected(secure: Bool, failed: Bool) -> CmuxDialogSpec {
-        BrowserHTTPAuth.spec(host: "intranet.example", realm: "staff", isSecure: secure, failedBefore: failed, user: nil)
+    private func expected(secure: Bool, failed: Bool, user: String? = nil) -> CmuxDialogSpec {
+        BrowserHTTPAuth.spec(host: "intranet.example", realm: "staff", isSecure: secure, failedBefore: failed, user: user)
     }
 
     @Test func aPlainHTTPServerWarnsThatThePasswordIsNotEncrypted() async {
@@ -55,5 +55,25 @@ import Testing
         let (_, disposition) = await ask(space(NSURLProtectionSpaceHTTPS), failures: 0, response: .cancel)
         #expect(disposition == .rejectProtectionSpace)
     }
-}
 
+    @Test func aSecondAskFillsInTheRefusedUserName() async {
+        let (spec, _) = await ask(space(NSURLProtectionSpaceHTTPS), failures: 1, refusedUser: "ada", response: .cancel)
+        #expect(spec == expected(secure: true, failed: true, user: "ada"))
+    }
+
+    /// A first ask never fills in a user name WebKit proposes: it may come from a system store the person did
+    /// not choose for this tab (and an incognito tab must not read).
+    @Test func aFirstAskFillsInNoUserName() async {
+        let (spec, _) = await ask(space(NSURLProtectionSpaceHTTPS), failures: 0, refusedUser: "ada", response: .cancel)
+        #expect(spec == expected(secure: true, failed: false))
+    }
+
+    @Test func anHTTPSProxyIsSecureAndAnHTTPProxyIsNot() {
+        let https = URLProtectionSpace(proxyHost: "proxy.example", port: 443, type: NSURLProtectionSpaceHTTPSProxy, realm: nil,
+                                       authenticationMethod: NSURLAuthenticationMethodHTTPBasic)
+        let http = URLProtectionSpace(proxyHost: "proxy.example", port: 8080, type: NSURLProtectionSpaceHTTPProxy, realm: nil,
+                                      authenticationMethod: NSURLAuthenticationMethodHTTPBasic)
+        #expect(BrowserHTTPAuth.isSecure(https))
+        #expect(!BrowserHTTPAuth.isSecure(http))
+    }
+}

@@ -53,8 +53,8 @@ final class BrowserPromptDialogs {
         switch prompt.kind {
         case .permission, .openExternalApp, .savePassword, .verificationOffer:
             return nil
-        case .credentials(let host, let realm):
-            return BrowserHTTPAuth.spec(host: host, realm: realm, isSecure: true, failedBefore: false, user: nil)
+        case .credentials(let host, let realm, let isSecure, let failedBefore, let user):
+            return BrowserHTTPAuth.spec(host: host, realm: realm, isSecure: isSecure, failedBefore: failedBefore, user: user)
         case .alert(let message):
             return CmuxDialogSpec(title: title, lines: [message], buttons: [ok], identifier: identifier)
         case .confirm(let message):

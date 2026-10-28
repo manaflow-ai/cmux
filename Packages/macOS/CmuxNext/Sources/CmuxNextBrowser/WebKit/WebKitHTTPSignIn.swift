@@ -13,6 +13,9 @@ struct WebKitHTTPSignIn {
     let key: BrowserHTTPCredentialKey
     let failures: Int
     let space: URLProtectionSpace
+    /// The user name of the login the server refused last (`failures` > 0), filled in again; nil asks with an
+    /// empty field.
+    var refusedUser: String?
     /// The App's lanes (``BrowserSharedStores/lanes``).
     let lanes: (any MayBlockRunner)?
     /// The tab's prompt queue (`WebKitTab.enqueuePrompt`).
@@ -43,14 +46,16 @@ struct WebKitHTTPSignIn {
 
     private func askUser(_ completionHandler: @escaping @MainActor (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
         let memory = memory, key = key, failures = failures, lanes = lanes
-        let kind = BrowserPromptKind.credentials(host: space.host, realm: space.realm.flatMap { $0.isEmpty ? nil : $0 })
+        let kind = BrowserPromptKind.credentials(host: space.host, realm: space.realm.flatMap { $0.isEmpty ? nil : $0 },
+                                                 isSecure: BrowserHTTPAuth.isSecure(space), failedBefore: failures > 0,
+                                                 user: failures > 0 ? refusedUser.flatMap { $0.isEmpty ? nil : $0 } : nil)
         ask(kind, space.host) { response in
             if let memory, let change = memory.change(after: response, failures: failures) {
                 memory.apply(change, for: key)
                 if let lanes { Self.write(change, in: memory, key: key, on: lanes) }
             }
             guard let credential = BrowserHTTPAuth.urlCredential(for: response) else {
-                return completionHandler(.cancelAuthenticationChallenge, nil)
+                return completionHandler(BrowserHTTPAuth.cancelDisposition, nil)
             }
             completionHandler(.useCredential, credential)
         }

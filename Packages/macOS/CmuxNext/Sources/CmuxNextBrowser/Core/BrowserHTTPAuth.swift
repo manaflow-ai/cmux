@@ -5,12 +5,23 @@ import Foundation
 /// that blocks only the asking tab and names the server. Engine-neutral: the
 /// WebKit tab uses it (before, WebKit's default handling had no UI and
 /// sign-in failed silently), and the CEF auth handler is to use it too.
-/// Cancel lets the server's 401 page load. Nothing is remembered past this
+/// Cancel lets the server's 401 page load (`cancelDisposition`). Nothing is remembered past this
 /// app session unless the user checks "Remember password"; then the tab
 /// saves it in cmux's Keychain store (`BrowserHTTPCredentialStore`).
 enum BrowserHTTPAuth {
     static let methods: Set<String> = [NSURLAuthenticationMethodHTTPBasic, NSURLAuthenticationMethodHTTPDigest,
                                        NSURLAuthenticationMethodNTLM, NSURLAuthenticationMethodDefault]
+
+    /// The answer to a challenge the person cancelled: go on without a login, so the server's own 401 page
+    /// loads, as in Chrome and Safari. `.cancelAuthenticationChallenge` would cancel the whole navigation and
+    /// leave the tab on the old page with no word of why.
+    static let cancelDisposition = URLSession.AuthChallengeDisposition.rejectProtectionSpace
+
+    /// Whether a login for `space` goes to the server encrypted: an https server, or an https proxy.
+    static func isSecure(_ space: URLProtectionSpace) -> Bool {
+        if space.isProxy() { return space.proxyType == NSURLProtectionSpaceHTTPSProxy }
+        return space.protocol?.lowercased() == NSURLProtectionSpaceHTTPS
+    }
 
     static func spec(host: String, realm: String?, isSecure: Bool, failedBefore: Bool, user: String?) -> CmuxDialogSpec {
         var lines = [String(localized: "browser.auth.message", defaultValue: "The server asks for a user name and password.", bundle: .module)]

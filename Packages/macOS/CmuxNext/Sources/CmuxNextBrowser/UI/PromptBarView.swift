@@ -189,9 +189,9 @@ final class PromptBarView: ChromeFrameView {
             inputField.isHidden = false
             addButton(Strings.cancel, prominent: false, response: .cancel)
             addButton(Strings.ok, prominent: true, response: nil)
-        case .credentials(let host, let realm):
+        case .credentials(let host, let realm, _, _, let user):
             messageLabel.stringValue = realm.map { Strings.authPromptRealm(host: host, realm: $0) } ?? Strings.authPrompt(host: host)
-            userField.stringValue = ""
+            userField.stringValue = user ?? ""
             passwordField.stringValue = ""
             userField.isHidden = false
             passwordField.isHidden = false
