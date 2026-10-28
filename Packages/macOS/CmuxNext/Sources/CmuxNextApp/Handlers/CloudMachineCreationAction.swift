@@ -32,24 +32,12 @@ struct CloudMachineCreationAction {
             guard actionOrigin == .user else {
                 return .refused(CloudStrings.signInFirst)
             }
-            let expected = signedOutCreation.reserve()
-            return .waiting(.network) {
-                let resumed = await withTaskCancellationHandler {
-                    await signedOutCreation.perform(expected: expected, signIn: { await cloud.auth.signIn() }) {
-                        guard cloud.isSignedIn, cloud.unavailableReason == nil else { return }
-                        // Keep the original destination even if another window became
-                        // active; closing it cancels the deferred creation.
-                        if let window, context.services.windows.controller(for: window.id) == nil { return }
-                        start()
-                    }
-                } onCancel: {
-                    Task { @MainActor in signedOutCreation.cancel(expected: expected) }
-                }
-                // Hosted sign-in cancellation is an expected no-op, like the
-                // standalone sign-in action; the coordinator has consumed the
-                // pending intent and will not replay it.
-                _ = resumed
-                return nil
+            return signedOutCreation.effect(signIn: { await cloud.auth.signIn() }) {
+                guard cloud.isSignedIn, cloud.unavailableReason == nil else { return }
+                // Keep the original destination even if another window became
+                // active; closing it cancels the deferred creation.
+                if let window, context.services.windows.controller(for: window.id) == nil { return }
+                start()
             }
         }
         assert(bound, "newCloudMachine is not in the action catalog")

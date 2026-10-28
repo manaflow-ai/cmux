@@ -1,3 +1,5 @@
+import CmuxNextActions
+
 /// Owns one person-initiated creation while hosted Cloud sign-in is pending.
 /// Replacement, sign-out, and policy changes invalidate the previous generation.
 @MainActor
@@ -29,6 +31,21 @@ final class CloudSignedOutCreationContinuation {
         return generation
     }
 
+    func effect(signIn: @escaping @MainActor () async -> Bool,
+                resume: @escaping @MainActor () -> Void) -> ActionEffect {
+        let expected = reserve()
+        // action-wait-allow: hosted authentication must succeed before provisioning; the registry owns this wait.
+        return .waiting(.network) {
+            let resumed = await withTaskCancellationHandler {
+                await self.perform(expected: expected, signIn: signIn, resume: resume)
+            } onCancel: {
+                // task-owner: a one-shot cancellation hop invalidates only this generation.
+                Task { @MainActor in self.cancel(expected: expected) }
+            }
+            return resumed ? nil : ActionWorkFailure(refusal: .unavailable, reason: CloudStrings.signInFirst)
+        }
+    }
+
     /// Completes a reserved sign-in. The registry owns cancellation of this
     /// operation; a stale generation can never replay the captured creation.
     @discardableResult
@@ -37,6 +54,10 @@ final class CloudSignedOutCreationContinuation {
         signIn: @escaping @MainActor () async -> Bool,
         resume: @escaping @MainActor () -> Void
     ) async -> Bool {
+        guard pendingGeneration == expected, generation == expected, !Task.isCancelled else {
+            cancel(expected: expected)
+            return false
+        }
         let succeeded = await signIn()
         guard pendingGeneration == expected, generation == expected else { return false }
         pendingGeneration = nil

@@ -1,4 +1,5 @@
 @testable import CmuxNextApp
+import CmuxNextActions
 import CmuxNextCloudUI
 import CmuxNextCompat
 import Testing
@@ -91,6 +92,53 @@ private final class CloudSignInTestGate {
 
 @MainActor @Suite(.timeLimit(.minutes(1)))
 struct CloudSignedOutCreationContinuationTests {
+    @Test func registryOwnsSignInAndReportsFailure() async throws {
+        let handoff = CloudSignedOutCreationContinuation()
+        let registry = ActionRegistry(catalog: [ActionDescriptor(id: "test.create", title: "Create", category: .other)])
+        var signIns = 0, resumes = 0
+        registry.bindEffect("test.create") { _ in
+            handoff.effect(signIn: { signIns += 1; return false }, resume: { resumes += 1 })
+        }
+        let work = registry.capturingWork { registry.perform("test.create") }
+        #expect(signIns == 0)
+        #expect(work.count == 1)
+        #expect(registry.waitingRuns["test.create"]?[.network] == 1)
+        let pending = try #require(work.first)
+        #expect(await pending.value != nil)
+        #expect(signIns == 1)
+        #expect(resumes == 0)
+        #expect(!handoff.isPending)
+    }
+
+    @Test func cancelledRegistryWorkReportsFailureAndNeverReplays() async throws {
+        let handoff = CloudSignedOutCreationContinuation()
+        let registry = ActionRegistry(catalog: [ActionDescriptor(id: "test.create", title: "Create", category: .other)])
+        let gate = CloudSignInTestGate()
+        var resumes = 0
+        registry.bindEffect("test.create") { _ in
+            handoff.effect(signIn: { await gate.wait() }, resume: { resumes += 1 })
+        }
+        let pending = try #require(registry.capturingWork { registry.perform("test.create") }.first)
+        await gate.waitUntilRequested()
+        pending.cancel()
+        gate.resolve(true)
+        #expect(await pending.value != nil)
+        #expect(resumes == 0)
+        #expect(!handoff.isPending)
+    }
+
+    @Test func replacedReservationNeverStartsAuthentication() async {
+        let handoff = CloudSignedOutCreationContinuation()
+        let old = handoff.reserve()
+        _ = handoff.reserve()
+        var signIns = 0
+        let resumed = await handoff.perform(expected: old, signIn: { signIns += 1; return true }, resume: {})
+        #expect(!resumed)
+        #expect(signIns == 0)
+        #expect(handoff.isPending)
+        handoff.cancel()
+    }
+
     @Test func resumesTheCapturedIntentOnce() async {
         let handoff = CloudSignedOutCreationContinuation()
         let gate = CloudSignInTestGate()
