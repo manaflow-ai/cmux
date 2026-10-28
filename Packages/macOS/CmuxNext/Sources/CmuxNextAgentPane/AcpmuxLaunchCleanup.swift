@@ -4,6 +4,12 @@ import Foundation
 nonisolated struct AcpmuxLaunchCleanup {
     let environment: AcpmuxEnvironment
 
+    init(environment: AcpmuxEnvironment, launchToken: String? = nil) {
+        self.environment = environment
+        self.launchToken = launchToken
+    }
+    let launchToken: String?
+
     @concurrent func end(_ sessions: [String], waitForShutdown: Bool = false) async -> Set<String> {
         guard !environment.isAttached else { return Set(sessions) }
         do {
@@ -33,7 +39,7 @@ nonisolated struct AcpmuxLaunchCleanup {
                 group.addTask {
                     do {
                         try Task.checkCancellation()
-                        try await environment.warmStopSession(id: session)
+                        try await environment.warmStopSession(id: session, launchToken: launchToken)
                         return session
                     } catch { return nil }
                 }

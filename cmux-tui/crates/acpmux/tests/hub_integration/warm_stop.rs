@@ -21,7 +21,7 @@ async fn warm_stop_drains_a_pending_load_and_allows_a_later_warm() {
     hub.detach_child(&session).await;
     let warmer = {
         let (hub, id) = (hub.clone(), id.clone());
-        tokio::spawn(async move { hub.warm_sessions_report(&[id], 1, false, true).await })
+        tokio::spawn(async move { hub.warm_sessions_report(&[id], 1, false, true, None).await })
     };
     tokio::time::timeout(Duration::from_secs(20), async {
         while !hub

@@ -669,7 +669,8 @@ async fn dispatch_request(
         let id = str_param(&params, "sessionId")
             .filter(|id| !id.is_empty())
             .ok_or_else(|| RpcError::invalid_params("sessionId is required"))?;
-        return Ok(hub.warm_stop(id).await);
+        let launch_token = params.get("launchToken").and_then(Value::as_str);
+        return Ok(hub.warm_stop(id, launch_token).await);
     }
     // A session that lives on a peer (`peer_forward.rs`).
     if let Some(reply) = super::peer_forward::forward(hub, conn, m, &params).await {
@@ -1415,7 +1416,15 @@ async fn dispatch_request(
                 super::remote_guard::control_of(conn.origin, conn.auth, &params),
                 &params,
             );
-            let (warmed, failed) = hub.warm_sessions_report(&requested, limit, web, owner).await;
+            let (warmed, failed) = hub
+                .warm_sessions_report(
+                    &requested,
+                    limit,
+                    web,
+                    owner,
+                    params.get("launchToken").and_then(Value::as_str),
+                )
+                .await;
             Ok(json!({"warmed": warmed, "failed": failed}))
         }
         method::MUX_PREWARM => {

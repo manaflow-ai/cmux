@@ -4,6 +4,7 @@ import os
 /// Sends one warm RPC per session and records exactly the sessions Quit must account for.
 actor AcpmuxLaunchWarm {
     private var requested = Set<String>()
+    private let launchToken = UUID().uuidString
     var hasRequests: Bool { !requested.isEmpty }
 
     private let call: @Sendable (String, [String: any Sendable]) async throws -> Bool
@@ -28,7 +29,7 @@ actor AcpmuxLaunchWarm {
             // Record before dispatch: a cancelled/lost reply can still have started this chat.
             requested.insert(session)
             do {
-                let succeeded = try await call(socket, ["sessionIds": [session], "limit": 1])
+                let succeeded = try await call(socket, ["sessionIds": [session], "limit": 1, "launchToken": launchToken])
                 if !succeeded { failed.append(session) }
             } catch {
                 // Capability refusal happens before dispatch, so it cannot have started a chat.
@@ -46,7 +47,7 @@ actor AcpmuxLaunchWarm {
 
     /// Quit retries only unresolved targets; other sessions on a shared daemon are never ended.
     func end(environment: AcpmuxEnvironment, waitForShutdown: Bool = false) async -> AcpmuxQuit.EndResult {
-        await end { await AcpmuxLaunchCleanup(environment: environment).end($0, waitForShutdown: waitForShutdown) }
+        await end { await AcpmuxLaunchCleanup(environment: environment, launchToken: launchToken).end($0, waitForShutdown: waitForShutdown) }
     }
 
     func end(ending: @Sendable ([String]) async -> Set<String>) async -> AcpmuxQuit.EndResult {

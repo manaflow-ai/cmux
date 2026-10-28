@@ -157,7 +157,7 @@ async fn warm_stop_drains_a_start_without_reopening_a_newer_close() {
     };
     let stop = {
         let (hub, id) = (hub.clone(), session.id.clone());
-        tokio::spawn(async move { hub.warm_stop(&id).await })
+        tokio::spawn(async move { hub.warm_stop(&id, None).await })
     };
     tokio::time::timeout(std::time::Duration::from_secs(5), async {
         while session.stops.load(Ordering::SeqCst) == asked {
@@ -182,7 +182,7 @@ async fn warm_stop_waits_for_hibernation_and_clears_its_wake_state() {
     let (hub, session) = chat().await;
     let before = session.stops.load(Ordering::SeqCst);
     let idle_pass = session.harness_use.write().await;
-    let mut stopping = Box::pin(hub.warm_stop(&session.id));
+    let mut stopping = Box::pin(hub.warm_stop(&session.id, None));
     assert!(futures::poll!(stopping.as_mut()).is_pending());
     assert_eq!(session.stops.load(Ordering::SeqCst), before, "stop ran during the idle pass");
     session.hibernated_at.store(1, Ordering::SeqCst);

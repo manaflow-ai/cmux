@@ -896,6 +896,8 @@ impl Hub {
             child: Mutex::new(None),
             spawn_lock: Mutex::new(()),
             harness_use: RwLock::new(()),
+            launch_warm_token: StdMutex::new(None),
+            launch_warm_invalidated: AtomicBool::new(false),
             idle_refusal_logged: AtomicU64::new(0),
             append_lock: StdMutex::new(()),
             loading: AtomicBool::new(false),

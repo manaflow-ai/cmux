@@ -18,8 +18,10 @@ extension AcpmuxEnvironment {
     }
 
     /// Stops a launch-restored agent while preserving its resumable Idle session.
-    public nonisolated func warmStopSession(id: String, deadline: Duration = .seconds(5)) async throws {
+    public nonisolated func warmStopSession(id: String, launchToken: String? = nil, deadline: Duration = .seconds(5)) async throws {
+        var params: [String: any Sendable] = ["sessionId": id]
+        if let launchToken { params["launchToken"] = launchToken }
         _ = try await AcpmuxStatusClient.call(socketPath: socketPath, method: "_acpmux/warm_stop",
-                                              params: ["sessionId": id], deadline: deadline, requiredFeature: "launchWarm")
+                                              params: params, deadline: deadline, requiredFeature: "launchWarm")
     }
 }

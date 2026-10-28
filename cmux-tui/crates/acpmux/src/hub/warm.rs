@@ -17,7 +17,7 @@ impl Hub {
         web: bool,
         owner: bool,
     ) -> Vec<Value> {
-        self.warm_sessions_report(requested, limit, web, owner).await.0
+        self.warm_sessions_report(requested, limit, web, owner, None).await.0
     }
 
     /// The same warm operation with explicit agent-start failures. Intentional trust/protected
@@ -28,6 +28,7 @@ impl Hub {
         limit: usize,
         web: bool,
         owner: bool,
+        launch_token: Option<&str>,
     ) -> (Vec<Value>, Vec<Value>) {
         // `sessions()` is newest first already; filtering keeps that order.
         let candidates: Vec<_> = if requested.is_empty() {
@@ -48,6 +49,18 @@ impl Hub {
         let mut warmed = Vec::new();
         let mut failed = Vec::new();
         for session in candidates {
+            if let Some(token) = launch_token {
+                let mut current = session.launch_warm_token.lock().unwrap();
+                if session.launch_warm_invalidated.load(Ordering::SeqCst) {
+                    *current = Some(token.to_owned());
+                    session.launch_warm_invalidated.store(false, Ordering::SeqCst);
+                } else if current.as_deref().is_some_and(|value| value != token) {
+                    failed.push(json!({"sessionId": session.id, "error": {"code": -32800, "message": "stale launch warm"}}));
+                    continue;
+                } else if current.is_none() {
+                    *current = Some(token.to_owned());
+                }
+            }
             // An explicit Stop before the census is an intentional skip; do not reopen it.
             if session.status() == SessionStatus::Closed || session.closing.load(Ordering::SeqCst) {
                 continue;
@@ -88,7 +101,7 @@ impl Hub {
     /// Stop exactly one launch-restored session on this daemon. Missing IDs have already
     /// stopped; names and prefixes deliberately select nothing. The server requires a local
     /// Unix connection before calling this, so a peer cannot stop this host's agents.
-    pub async fn warm_stop(&self, id: &str) -> Value {
+    pub async fn warm_stop(&self, id: &str, launch_token: Option<&str>) -> Value {
         let session = self
             .sessions
             .lock()
@@ -100,6 +113,11 @@ impl Hub {
         };
         // An idle pass finishes marking hibernation before this stop; none starts during it.
         let _using = session.harness_use.read().await;
+        if let Some(current) = session.launch_warm_token.lock().unwrap().as_deref() {
+            if launch_token.is_none() || launch_token == Some(current) {
+                session.launch_warm_invalidated.store(true, Ordering::SeqCst);
+            }
+        }
         let closed = session.status() == SessionStatus::Closed;
         let stops = session.stops.fetch_add(1, Ordering::SeqCst) + 1;
         session.closing.store(true, Ordering::SeqCst);

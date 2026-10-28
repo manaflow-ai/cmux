@@ -571,7 +571,7 @@ async fn launch_warm_reports_an_explicit_stop_during_start() {
     let warmer = {
         let hub = hub.clone();
         let id = id.clone();
-        tokio::spawn(async move { hub.warm_sessions_report(&[id], 1, false, true).await })
+        tokio::spawn(async move { hub.warm_sessions_report(&[id], 1, false, true, None).await })
     };
     let deadline = std::time::Instant::now() + Duration::from_secs(20);
     while !hub
