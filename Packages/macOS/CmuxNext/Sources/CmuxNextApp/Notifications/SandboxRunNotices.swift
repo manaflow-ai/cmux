@@ -19,6 +19,9 @@ final class SandboxRunNotices {
     let follower: SandboxRunFollower
     private weak var services: AppServices?
     private var account: Task<Void, Never>?
+    /// Attempts whose tab answered before its Run ended (``AgentPaneSandboxRuns/settle(key:snapshot:)``):
+    /// that page may still show the old answer, so a click opens the Run's card in a new tab (bounded).
+    private var settled: [String] = []
 
     init(services: AppServices, follower: SandboxRunFollower? = nil) {
         self.services = services
@@ -43,13 +46,20 @@ final class SandboxRunNotices {
         follower.stop()
     }
 
-    /// A send's Run `id`, followed here; answers its terminal snapshot.
-    func follow(id: String, task: String, key: String, team: String?) async throws -> Data {
-        guard let user = services?.cloud.auth.user?.id else { throw CloudAPIError.notSignedIn }
+    /// A send's Run `id`, created under `user`'s session, followed here; answers its terminal snapshot.
+    /// A Run whose account is no longer the signed-in one is not followed (``SandboxRunFollower/follow(_:)``).
+    func follow(id: String, task: String, key: String, user: String, team: String?) async throws -> Data {
+        guard services?.cloud.auth.user?.id == user else { throw CloudAPIError.timedOut("/api/runs/\(id)") }
         return try await follower.follow(SandboxRunRecord(id: id, task: task, key: key, user: user, team: team, started: Date()))
     }
 
     func ended(_ end: SandboxRunEnd) {
+        let snapshot = (try? JSONSerialization.jsonObject(with: end.snapshot)) as? [String: Any] ?? [:]
+        let views = services.map { Array($0.agentTabs.views.values) } ?? []
+        for view in views where view.model.sandboxRuns.settle(key: end.record.key, snapshot: snapshot) {
+            settled.append(end.record.key)
+            if settled.count > SandboxRunFollower.limit { settled.removeFirst() }
+        }
         post(end)
     }
 
@@ -59,7 +69,8 @@ final class SandboxRunNotices {
         guard let center = services?.notifications else { return }
         var arrival = NotificationPolicy.Arrival(source: .agent)
         arrival.appActive = NSApp.isActive
-        arrival.paneIsViewed = tab(holding: end.record.key).map { center.isViewed($0) } ?? false
+        // A tab whose page still shows the send's earlier answer (``settled``) doesn't show the end.
+        arrival.paneIsViewed = !settled.contains(end.record.key) && (tab(holding: end.record.key).map { center.isViewed($0) } ?? false)
         arrival.soundEvent = end.outcome == .succeeded ? .finished : end.outcome == .cancelled ? .message : .error
         let components = Calendar.current.dateComponents([.hour, .minute], from: Date())
         arrival.minuteOfDay = (components.hour ?? 0) * 60 + (components.minute ?? 0)
@@ -100,7 +111,7 @@ final class SandboxRunNotices {
         // The follower keeps the ended Runs (bounded) across a relaunch, so a banner left in
         // Notification Center still opens its card.
         guard let services, let run = follower.endedRun(String(banner.dropFirst(Self.bannerPrefix.count))) else { return true }
-        if let key = tab(holding: run.key), let tab = NotificationCenterService.tab(id: key, in: services.daemon.store) {
+        if !settled.contains(run.key), let key = tab(holding: run.key), let tab = NotificationCenterService.tab(id: key, in: services.daemon.store) {
             services.notifications.open(surface: tab.surface)
             return true
         }

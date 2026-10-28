@@ -49,6 +49,7 @@ public final class SandboxRunFollower {
         if let data = defaults.data(forKey: Self.defaultsKey), let saved = try? JSONDecoder().decode(Saved.self, from: data) {
             records = Dictionary(saved.following.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
             ended = saved.ended
+            cancelledHere = saved.cancelled ?? []
         }
     }
 
@@ -79,6 +80,8 @@ public final class SandboxRunFollower {
     /// snapshot. An error of a wait (or a 200 that is no Run snapshot) answers this call with
     /// `timedOut`, as the send's own poll did, while the follow goes on for the notification.
     public func follow(_ record: SandboxRunRecord) async throws -> Data {
+        // Another account signed in since the create: its session can't read this Run, and must not hear of it.
+        if let user, record.user != user { throw CloudAPIError.timedOut("/api/runs/\(record.id)") }
         if records[record.id] == nil, endedRun(record.id) == nil {
             records[record.id] = record
             trim()
@@ -100,11 +103,13 @@ public final class SandboxRunFollower {
         }
     }
 
-    /// This app asked the server to cancel Run `id` (the person's own action): it ends silently.
+    /// This app asked the server to cancel Run `id` (the person's own action): it ends silently, also
+    /// when the note comes before the Run's follow, or the app quits before the end.
     public func noteCancel(_ id: String) {
         guard !cancelledHere.contains(id) else { return }
         cancelledHere.append(id)
         if cancelledHere.count > Self.limit { cancelledHere.removeFirst(cancelledHere.count - Self.limit) }
+        save()
     }
 
     /// Ends every poll (the app quits); the saved Runs stay for the next launch.
@@ -192,13 +197,15 @@ public final class SandboxRunFollower {
     }
 
     private func save() {
-        let saved = Saved(following: following, ended: ended)
+        let saved = Saved(following: following, ended: ended, cancelled: cancelledHere)
         if let data = try? JSONEncoder().encode(saved) { defaults.set(data, forKey: Self.defaultsKey) }
     }
 
     private nonisolated struct Saved: Codable {
         var following: [SandboxRunRecord]
         var ended: [SandboxRunEnded]
+        /// Runs this app asked to cancel (``noteCancel(_:)``): a quit before their end keeps them silent.
+        var cancelled: [String]?
     }
 
     /// The part of a final snapshot the Run's card needs: its receipt.

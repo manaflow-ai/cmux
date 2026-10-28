@@ -1,6 +1,6 @@
-import CmuxNextAgentPane
+@testable import CmuxNextAgentPane
 @testable import CmuxNextApp
-import CmuxNextCloud
+@testable import CmuxNextCloud
 import Foundation
 import Testing
 
@@ -121,6 +121,47 @@ struct SandboxRunNoticeTests {
         follower.noteCancel("r1")
         _ = try await follower.follow(record("r1"))
         #expect(ends.all.isEmpty)
+    }
+
+    @Test func aCancelNotedBeforeAQuitStaysSilentAfterTheRelaunch() async throws {
+        let server = Server()
+        await server.script("r1", [.success(Self.running)])
+        let defaults = try defaults()
+        let (first, _) = follower(server, defaults: defaults)
+        let r1 = record()
+        let send = Task { try await first.follow(r1) }
+        while !first.isPolling("r1") { await Task.yield() }
+        first.noteCancel("r1")
+        first.stop()
+        _ = try? await send.value
+        await server.script("r1", [.success(Self.cancelled)])
+        let (relaunched, ends) = follower(server, defaults: defaults)
+        relaunched.account("u1")
+        while !relaunched.following.isEmpty { await Task.yield() }
+        #expect(ends.all.isEmpty)
+    }
+
+    @Test func aRunOfAnotherAccountIsNotFollowed() async throws {
+        let server = Server()
+        await server.script("r1", [.success(Self.succeeded)])
+        let (follower, ends) = follower(server, defaults: try defaults())
+        follower.account("u2")
+        await #expect(throws: CloudAPIError.timedOut("/api/runs/r1")) { try await follower.follow(record(user: "u1")) }
+        #expect(follower.following.isEmpty)
+        #expect(ends.all.isEmpty)
+        #expect(await server.calls.isEmpty)
+    }
+
+    @Test func aSendThatAnsweredBeforeItsRunEndedTakesTheReceipt() async throws {
+        let runs = AgentPaneSandboxRuns()
+        _ = await runs.run(task: "Fix it", key: "key-r1") { AgentPaneReply.failure(code: "timeout", message: "timeout") }
+        let snapshot = try #require(try JSONSerialization.jsonObject(with: Data(Self.succeeded.utf8)) as? [String: Any])
+        #expect(!runs.settle(key: "other", snapshot: snapshot))
+        #expect(runs.settle(key: "key-r1", snapshot: snapshot))
+        // Settled once: a receipt is never replaced.
+        #expect(!runs.settle(key: "key-r1", snapshot: snapshot))
+        let value = (await runs.state(wait: false))["value"] as? [String: Any]
+        #expect(((value?["reply"] as? [String: Any])?["value"] as? [String: Any])?["receipt"] != nil)
     }
 
     @Test func aBodyThatIsNoRunSnapshotIsNeverAnEnd() {

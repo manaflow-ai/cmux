@@ -18,6 +18,16 @@ public final class AgentPaneSandboxRuns {
     /// Whether this pane's send, running or ended, is attempt `key`.
     public func holds(key: String) -> Bool { running?.key == key || last?.key == key }
 
+    /// Attempt `key`'s Run ended after this pane's send answered without its receipt (a lost wait,
+    /// the send's deadline): its reply becomes the receipt, which the page shows at its next read.
+    /// True when the reply changed, so the page may still show the old answer.
+    @discardableResult
+    public func settle(key: String, snapshot: [String: Any]) -> Bool {
+        guard let last, last.key == key, last.reply["ok"] as? Bool != true else { return false }
+        self.last = (last.task, key, AgentPaneReply.sandbox(snapshot: snapshot))
+        return true
+    }
+
     /// A send that ended elsewhere, shown by this new pane as its own (``AgentPaneSeedSource/sandboxResult``):
     /// the page reads it with `sandbox.state`, and the tab's one send is spent. A pane that holds a send keeps it.
     func restore(task: String, key: String, snapshot: [String: Any]) {
