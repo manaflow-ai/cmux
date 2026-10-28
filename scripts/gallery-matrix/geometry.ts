@@ -12,7 +12,7 @@ export type GeometryKind = "web" | "native";
 
 export type GeometryStyle = {
   fontSize?: number;
-  fontWeight?: number | string;
+  fontWeight?: number;
   lineHeight?: number | string;
   /** Measured text baseline in the same coordinate space as rect.y. */
   baseline?: number;
@@ -136,6 +136,7 @@ export function parseArtifact(value: unknown, file = "artifact"): GeometryArtifa
     if (element.kind === "native" && element.source === "dom-rect") throw new Error(`${file}: native element ${element.id} must use ax-frame or view-frame source`);
     const style = element.style;
     if (style !== undefined && (!style || typeof style !== "object")) throw new Error(`${file}: element ${element.id} style must be an object`);
+    if (style && (style as GeometryStyle).fontWeight !== undefined && !finite((style as GeometryStyle).fontWeight)) throw new Error(`${file}: element ${element.id} fontWeight must be a finite number`);
     if (element.hoverRect !== undefined && !rectValid(element.hoverRect)) throw new Error(`${file}: element ${element.id} hoverRect is invalid`);
     for (const flag of ["control", "secondary", "menuOpen"]) {
       if (element[flag] !== undefined && typeof element[flag] !== "boolean") throw new Error(`${file}: element ${element.id} ${flag} must be a boolean`);
@@ -167,7 +168,7 @@ export function parseConfig(value: unknown, file = "geometry config"): GeometryC
     if (rule.kind === "inset" && (!["left", "top", "right", "bottom"].includes(rule.edge) || !rule.containerGroup)) throw new Error(`${file}: invalid inset`);
     if (rule.kind === "style-token" && !["borderRadius", "gap"].includes(rule.property)) throw new Error(`${file}: invalid property`);
     if (!["peer-alignment", "peer-size", "spacing", "inset", "style-token", "text-baseline", "secondary-text", "hover-control-only", "required-source"].includes(rule.kind)) throw new Error(`${file}: unknown rule kind ${String((rule as { kind?: unknown }).kind)}`);
-    if ((rule.kind === "spacing" || rule.kind === "inset" || rule.kind === "style-token") && (!Array.isArray(rule.tokensPx) || rule.tokensPx.length === 0 || rule.tokensPx.some((token) => !finite(token) || token <= 0))) throw new Error(`${file}: ${rule.kind} rule ${rule.id} needs positive tokensPx`);
+    if ((rule.kind === "spacing" || rule.kind === "inset" || rule.kind === "style-token") && (!Array.isArray(rule.tokensPx) || rule.tokensPx.length === 0 || rule.tokensPx.some((token) => !finite(token) || token < 0))) throw new Error(`${file}: ${rule.kind} rule ${rule.id} needs non-negative tokensPx`);
     if (rule.kind === "secondary-text" && (!Array.isArray(rule.colors) || rule.colors.length === 0 || !Array.isArray(rule.weights) || rule.weights.length === 0)) throw new Error(`${file}: secondary-text rule ${rule.id} needs colors and weights`);
     if (rule.kind === "required-source" && !["dom-rect", "ax-frame", "view-frame"].includes(rule.requiredSource)) throw new Error(`${file}: required-source rule ${rule.id} has invalid source`);
   }
@@ -278,7 +279,7 @@ function lintRule(findings: GeometryFinding[], rule: GeometryRule, artifact: Geo
       const weight = element.style?.fontWeight;
       if (!element.secondary) {
         pushFinding(findings, rule, artifact, [element.id], `secondary text marker is missing`);
-      } else if (color === undefined || !rule.colors.includes(color) || weight === undefined || !rule.weights.map(String).includes(String(weight))) {
+      } else if (color === undefined || !rule.colors.includes(color) || !finite(weight) || !rule.weights.map(String).includes(String(weight))) {
         pushFinding(findings, rule, artifact, [element.id], `secondary text weight/colour is outside the declared palette`);
       }
     }
