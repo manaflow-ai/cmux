@@ -11,8 +11,9 @@
 //! The wait runs on a work item, as a sized browser attach's does
 //! (connection_frame.rs): the connection's next request answers meanwhile,
 //! and no other connection waits. The item holds no mux, state or registry
-//! lock while it waits. A detach of the same client's view that comes
-//! meanwhile cancels the attach, so it never attaches after that detach.
+//! lock while it waits. A `cancel-stream` of the stream it opens that comes
+//! meanwhile (the app's view went away) cancels the attach, so it never opens
+//! that stream after the cancel.
 //! Each waiting attach holds a System lane `will_block` slot, so at most a
 //! few wait at once (`RESTORE_ATTACH_WAITS`); past that an attach runs at
 //! once, as before.
@@ -78,13 +79,13 @@ pub(super) fn adopting_target(mux: &Arc<Mux>, client: u64, cmd: &Command) -> Opt
         }
         (None, None) => None,
     }?;
-    let token = mux.begin_restore_attach(client, params.surface)?;
+    let token = mux.begin_restore_attach(client, params.stream)?;
     Some(RestoreAttach { host_id, token, mux: Arc::downgrade(mux) })
 }
 
 /// Answers `cmd`, an attach [`adopting_target`] made `wait` for, from a work
-/// item that first promotes and waits for that terminal's adoption. A detach
-/// of the same view that came meanwhile cancels it. Returns whether the
+/// item that first promotes and waits for that terminal's adoption. A
+/// `cancel-stream` of its stream that came meanwhile cancels it. Returns whether the
 /// connection stays open.
 pub(super) fn start(
     mux: &Arc<Mux>,
@@ -108,7 +109,7 @@ pub(super) fn start(
             });
             let result = if wait.cancelled() {
                 Err(anyhow::anyhow!(
-                    "attach_cancelled: a detach of this view came while the attach waited"
+                    "attach_cancelled: its stream was cancelled while the attach waited"
                 ))
             } else {
                 handle_command_with_cancellation(&worker_mux, client, cmd, &worker_writer, None)
