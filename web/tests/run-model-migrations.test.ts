@@ -112,7 +112,7 @@ async function snapshotRows(pool: PgPool) {
   return snapshot;
 }
 
-/** Every row from `before` is still there with the same values in the columns it had. */
+/** Every row from `before` is still there with the same values in the columns it had. Columns the migrations add are checked by the cases themselves. */
 function expectRowsKept(before: Awaited<ReturnType<typeof snapshotRows>>, after: Awaited<ReturnType<typeof snapshotRows>>) {
   for (const table of rowTables) {
     expect(Object.keys(after[table]).sort()).toEqual(Object.keys(before[table]).sort());
@@ -213,6 +213,9 @@ describe("Run model migrations on main's three starting shapes", () => {
     expect(await rows(pool, "select lease_generation from run_attempts")).toEqual([{ lease_generation: 0 }, { lease_generation: 0 }, { lease_generation: 0 }]);
     expect(await rows(pool, "select media_type, uri, metadata from run_artifacts")).toEqual([{ media_type: "application/json", uri: "inline://cmux-run-artifact", metadata: {} }]);
     expect(await rows(pool, "select environment from runs order by id")).toEqual([{ environment: "persistent" }, { environment: "persistent" }]);
+    // runtime_persistence fills the cloud_runtimes columns it adds, once: a runtime with no machine is released at its creation time.
+    expect(await rows(pool, "select lifecycle_state::text, released_at = created_at as released_at_created, lease_generation from cloud_runtimes"))
+      .toEqual([{ lifecycle_state: "released", released_at_created: true, lease_generation: 0 }]);
     // main's inserts, which name none of next's columns, still pass.
     await pool.query(`insert into run_attempts (run_id, ordinal, variant) values ('${ids(11)}', 1, '{}');
       insert into run_artifacts (run_id, attempt_id, name, digest, payload, size_bytes) values ('${ids(11)}', '${ids(22)}', 'x', '${digest("c")}', '{}', 2)`);
