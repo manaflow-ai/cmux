@@ -315,10 +315,11 @@ fn repeated_transcript_construction_has_bounded_peak_memory() {
                 let id = format!("01a15900-0000-7000-8000-{:012x}", i + 1);
                 let session = home.join("sessions").join(&id);
                 private_dir(&session.join("events"));
-                let meta = json!({"schema": "acpmux.session.v1", "id": id,
+                let meta = json!({"schema": "acpmux.session.v1", "id": id, "name": format!("fixture-{i}"),
                     "harness": "noload", "cwd": dir, "status": status,
                     "agentSessionId": "saved-agent", "createdAt": 1, "updatedAt": 1,
                     "lastSeq": if i == 0 {513} else {1}, "eventCount": if i == 0 {513} else {1}});
+                serde_json::from_value::<acpmux::store::SessionMeta>(meta.clone()).unwrap();
                 std::fs::write(session.join("session.json"), meta.to_string()).unwrap();
                 set_private(&session.join("session.json"));
                 let path = session.join("events/000001.ndjson");
@@ -358,7 +359,7 @@ fn repeated_transcript_construction_has_bounded_peak_memory() {
             let mut rpc = Rpc::connect(&socket);
             rpc.call("initialize", json!({"protocolVersion": 1}));
             // Synchronize loading without a list or a background probe workload.
-            rpc.call("_acpmux/status", json!({}));
+            assert_eq!(rpc.call("_acpmux/status", json!({}))["sessions"], retained + 1);
             let (rss0, _, cpu0) = transcript_cost(child.id());
             peak_kb(child.id(), true);
             for _ in 0..3 {
