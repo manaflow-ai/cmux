@@ -137,11 +137,14 @@ async function openPane(): Promise<{
   socket: FakeAcpmux;
   client: AcpmuxDirectClient;
   snapshots: () => number;
+  sessionLists: () => number;
   latest: () => any;
 }> {
   const socket = new FakeAcpmux();
   let count = 0;
   let latest: any;
+  const seenLists = new WeakSet<object>();
+  let sessionLists = 0;
   const client = await AcpmuxDirectClient.connect(
     {
       protocolVersion: 1,
@@ -154,6 +157,10 @@ async function openPane(): Promise<{
       if (message?.type === "snapshot") {
         count += 1;
         latest = message;
+        if (!seenLists.has(message.sessions)) {
+          seenLists.add(message.sessions);
+          sessionLists += 1;
+        }
       }
     },
     undefined,
@@ -164,7 +171,7 @@ async function openPane(): Promise<{
     await new Promise((resolve) => setTimeout(resolve, 0));
     flushFrames();
   }
-  return { socket, client, snapshots: () => count, latest: () => latest };
+  return { socket, client, snapshots: () => count, sessionLists: () => sessionLists, latest: () => latest };
 }
 
 /// One change of each of `chats` other running chats, as acpmux sends them.
@@ -318,6 +325,30 @@ test("streaming snapshots reuse the list while unread changes still publish", as
     flushFrames();
     expect(latest().sessions.find((session: any) => session.sessionId === SELECTED).unread).toBe(false);
     expect(unread.find((session: any) => session.sessionId === SELECTED).unread).toBe(true);
+  } finally {
+    client.close();
+  }
+});
+
+test("bench: sidebar list allocations across 200 streaming frames", async () => {
+  const { socket, client, snapshots, sessionLists } = await openPane();
+  try {
+    const before = { snapshots: snapshots(), lists: sessionLists() };
+    const started = performance.now();
+    for (let n = 1; n <= 200; n++) {
+      socket.notify("session/update", {
+        sessionId: SELECTED,
+        _meta: { acpmux: { seq: transcript.length + n, at: 2_000_000 + n } },
+        update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "next " } },
+      });
+      flushFrames();
+    }
+    const elapsed = performance.now() - started;
+    const drawn = snapshots() - before.snapshots;
+    console.log(
+      `streaming-list bench: ${drawn} snapshots, ${sessionLists() - before.lists} new lists, ${elapsed.toFixed(1)} ms in the client`,
+    );
+    expect(drawn).toBe(200);
   } finally {
     client.close();
   }
