@@ -48,6 +48,7 @@ public struct RunawaySessionSelector: Equatable, Sendable {
     ) -> RunawaySessionSelection? {
         guard aggregateBytes > 0, thresholdBytes > 0 else { return nil }
         let processes = census.processes(onTTYDevice: ttyDevice)
+        guard processes.allSatisfy(\.memoryIsAvailable) else { return nil }
         let memoryBytes = processes.reduce(Int64(0)) { saturatingAdd($0, max(0, $1.memoryBytes)) }
         guard memoryBytes >= thresholdBytes,
               Double(memoryBytes) >= Double(aggregateBytes) * dominanceFraction,

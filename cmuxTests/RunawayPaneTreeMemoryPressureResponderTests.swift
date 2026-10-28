@@ -176,7 +176,7 @@ struct RunawayPaneTreeMemoryPressureResponderTests {
         graceElapses: Bool = true,
         stillEnabledAfterGrace: Bool = true
     ) async -> [RunawayPaneTreeTarget] {
-        let resampled = resampledAggregate ?? MemoryPressureAggregatePolicy.default.evaluate(
+        let resampled = resampledAggregate ?? knownAggregate ?? MemoryPressureAggregatePolicy.default.evaluate(
             sample: .unavailable(sampledAt: Date())
         )
         return await RunawayPaneTreeMemoryPressureResponder.evaluate(
@@ -200,17 +200,13 @@ struct RunawayPaneTreeMemoryPressureResponderTests {
         recorder: SignalRecorder
     ) -> RunawayPaneTreeMemoryPressureResponder {
         let paneDescriptor = descriptor()
+        let currentAggregate = critical
         return RunawayPaneTreeMemoryPressureResponder(
             isEnabled: { isEnabled },
             paneProvider: { [paneDescriptor] },
             thresholdBytes: { Self.threshold },
             snapshotProvider: { snapshots.next() },
-            aggregateProvider: { _ in
-                Issue.record("a known aggregate must not be re-sampled")
-                return MemoryPressureAggregatePolicy.default.evaluate(
-                    sample: .unavailable(sampledAt: Date())
-                )
-            },
+            aggregateProvider: { _ in currentAggregate },
             signalProcessGroup: { recorder.record($0, $1) },
             waitForGraceDeadline: { true },
             ttyDevice: Self.ttyDevice,

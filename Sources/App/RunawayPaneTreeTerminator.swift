@@ -47,7 +47,7 @@ struct RunawayPaneTreeTerminator: Sendable {
         ttyDevice: Int64,
         census initialCensus: RunawaySessionCensus,
         selector: RunawaySessionSelector,
-        shouldTerminate: @Sendable () async -> Bool = { true },
+        shouldTerminate: @Sendable (RunawaySessionCensus) async -> Bool = { _ in true },
         shouldEscalate: @Sendable () async -> Bool = { true }
     ) async -> Bool {
         guard !processGroupIDs.isEmpty,
@@ -56,7 +56,7 @@ struct RunawayPaneTreeTerminator: Sendable {
               beforeTerm.sessionIdentifier(ttyDevice: ttyDevice, appProcessID: selector.appProcessID) == initialSession else { return false }
         let eligible = selector.signallableProcessGroupIDs(ttyDevice: ttyDevice, in: beforeTerm) ?? []
         let continuing = beforeTerm.continuingProcessGroupIDs(eligible, since: initialCensus)
-        guard await shouldTerminate(), !Task.isCancelled else { return false }
+        guard await shouldTerminate(beforeTerm), !Task.isCancelled else { return false }
         let signalled = processGroupIDs.filter {
             continuing.contains($0) && signalProcessGroup($0, SIGTERM)
         }

@@ -241,7 +241,8 @@ final class RunawayPaneWarningCenter {
                 ttyDevice: $0.ttyDevice,
                 memoryBytes: $0.memoryBytes,
                 processCount: $0.processCount,
-                dominantProcessID: nil
+                dominantProcessID: nil,
+                memoryIsComplete: $0.memoryIsComplete
             )
         }
         let newlyWarned = tracker.ingest(usages, unavailableKeys: unavailableKeys, policy: policy)
@@ -321,7 +322,8 @@ final class RunawayPaneWarningCenter {
                 processCount: usage.processCount,
                 memoryBytes: usage.memoryBytes,
                 canStop: !signallableGroups.isEmpty,
-                sessionIdentifier: census.sessionIdentifier(ttyDevice: device, appProcessID: selector.appProcessID)
+                sessionIdentifier: census.sessionIdentifier(ttyDevice: device, appProcessID: selector.appProcessID),
+                memoryIsComplete: usage.memoryIsComplete
             )
         }
         return Measurement(warnings: measured, unavailableKeys: unavailableKeys, recoveredKeys: recoveredKeys)
@@ -354,7 +356,7 @@ final class RunawayPaneWarningCenter {
             ttyDevice: ttyDevice,
             census: census,
             selector: selector,
-            shouldTerminate: isPaneLive,
+            shouldTerminate: { _ in await isPaneLive() },
             shouldEscalate: isPaneLive
         )
     }

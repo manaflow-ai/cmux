@@ -13,6 +13,8 @@ public struct RunawaySessionProcess: Equatable, Sendable {
     public let ttyDevice: Int64?
     /// The physical-footprint bytes.
     public let memoryBytes: Int64
+    /// Whether the process's memory could be measured in this census.
+    public let memoryIsAvailable: Bool
     /// The start time in microseconds, when known. With `pid` it names one
     /// process for its whole life, since pids are reused.
     public let startMicroseconds: Int64?
@@ -25,7 +27,8 @@ public struct RunawaySessionProcess: Equatable, Sendable {
         processGroupID: Int?,
         ttyDevice: Int64?,
         memoryBytes: Int64,
-        startMicroseconds: Int64? = nil
+        startMicroseconds: Int64? = nil,
+        memoryIsAvailable: Bool = true
     ) {
         self.pid = pid
         self.parentPID = parentPID
@@ -34,5 +37,6 @@ public struct RunawaySessionProcess: Equatable, Sendable {
         self.ttyDevice = ttyDevice
         self.memoryBytes = memoryBytes
         self.startMicroseconds = startMicroseconds
+        self.memoryIsAvailable = memoryIsAvailable
     }
 }

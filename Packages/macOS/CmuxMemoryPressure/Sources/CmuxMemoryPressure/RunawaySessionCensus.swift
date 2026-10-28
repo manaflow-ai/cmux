@@ -107,7 +107,8 @@ extension RunawaySessionCensus {
             ttyDevice: ttyDevice,
             memoryBytes: memoryBytes,
             processCount: processes.count,
-            dominantProcessID: dominantProcessID
+            dominantProcessID: dominantProcessID,
+            memoryIsComplete: processes.allSatisfy(\.memoryIsAvailable)
         )
     }
 

@@ -25,7 +25,7 @@ public struct RunawaySessionWarningPolicy: Equatable, Sendable {
 
     /// Whether a warned session fell below the clear level on both measures.
     public func hasCleared(_ usage: RunawaySessionUsage) -> Bool {
-        Double(usage.memoryBytes) < Double(memoryThresholdBytes) * clearFraction &&
+        usage.memoryIsComplete && Double(usage.memoryBytes) < Double(memoryThresholdBytes) * clearFraction &&
             Double(usage.processCount) < Double(processCountThreshold) * clearFraction
     }
 }

@@ -146,7 +146,7 @@ struct RunawayPaneTreeTerminatorTests {
         )
         let stopped = await terminator.terminate(
             processGroupIDs: [300], ttyDevice: tty, census: initial, selector: selector,
-            shouldTerminate: { false }
+            shouldTerminate: { _ in false }
         )
         #expect(!stopped)
         #expect(signals.recorded.isEmpty)
@@ -194,6 +194,7 @@ struct RunawayPaneTreeTerminatorTests {
                 await MainActor.run { state.panes = [] }
                 return current
             },
+            aggregateProvider: { _ in aggregate },
             signalProcessGroup: signals.send, waitForGraceDeadline: { true },
             ttyDevice: { _ in device }, appProcessID: 50, appProcessGroupID: 50
         )
@@ -205,6 +206,33 @@ struct RunawayPaneTreeTerminatorTests {
             severity: .critical, physicalFootprintBytes: nil, aggregateMemoryPressure: aggregate, sampledAt: Date()
         ))
         await responder.evaluationTask?.value
+        #expect(signals.recorded.isEmpty)
+    }
+
+    @Test
+    func cachedCriticalAggregateCannotAuthorizeRecoveredPressure() async throws {
+        let current = snapshot()
+        let aggregate = MemoryPressureAggregatePolicy.default.evaluate(sample: MemoryPressureAggregateSample(
+            source: .coalition, aggregateBytes: 60, physicalMemoryBytes: 64, availableMemoryBytes: 1,
+            processCount: 3, missingProcessCount: 0, missingReason: nil, sampledAt: Date()
+        ))
+        let recovered = MemoryPressureAggregatePolicy.default.evaluate(sample: MemoryPressureAggregateSample(
+            source: .coalition, aggregateBytes: 30, physicalMemoryBytes: 64, availableMemoryBytes: 32,
+            processCount: 3, missingProcessCount: 0, missingReason: nil, sampledAt: Date()
+        ))
+        #expect(recovered.severity == .normal)
+        let signals = TerminationSignals()
+        let device = tty
+        let targets = await RunawayPaneTreeMemoryPressureResponder.evaluate(
+            descriptors: [PaneMemoryDescriptor(
+                workspaceId: UUID(), panelId: UUID(), workspaceTitle: "work", paneTitle: "job",
+                ttyName: "/dev/ttys003", foregroundPID: 300
+            )],
+            selector: selector, knownAggregate: aggregate, sampledAt: Date(), snapshotProvider: { current },
+            aggregateProvider: { _ in recovered }, signalProcessGroup: signals.send,
+            waitForGraceDeadline: { true }, ttyDevice: { _ in device }
+        )
+        #expect(targets.isEmpty)
         #expect(signals.recorded.isEmpty)
     }
 }

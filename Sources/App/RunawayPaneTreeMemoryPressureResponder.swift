@@ -190,7 +190,7 @@ final class RunawayPaneTreeMemoryPressureResponder: MemoryPressureResponder {
         knownAggregate: MemoryPressureAggregateSnapshot?,
         sampledAt: Date,
         snapshotProvider: @escaping SnapshotProvider,
-        aggregateProvider: AggregateProvider,
+        aggregateProvider: @escaping AggregateProvider,
         signalProcessGroup: @escaping ProcessGroupSignaller,
         waitForGraceDeadline: @escaping GraceDeadline,
         ttyDevice: TTYDeviceResolver,
@@ -233,11 +233,20 @@ final class RunawayPaneTreeMemoryPressureResponder: MemoryPressureResponder {
                 ttyDevice: target.selection.ttyDevice,
                 census: census,
                 selector: selector,
-                shouldTerminate: {
+                shouldTerminate: { currentCensus in
+                    // The monitor's aggregate may be cached. A new critical
+                    // sample and the revalidated pane must authorize this action.
+                    let current = await aggregateProvider(.now)
+                    guard authorizesTermination(current), let bytes = current.aggregateBytes,
+                          let selection = selector.selection(
+                            ttyDevice: target.selection.ttyDevice, in: currentCensus, aggregateBytes: bytes
+                          ), Set(target.selection.processGroupIDs).isSubset(of: selection.processGroupIDs) else { return false }
                     guard await shouldTerminate() else { return false }
                     return await isTargetLive(target)
                 },
                 shouldEscalate: {
+                    let current = await aggregateProvider(.now)
+                    guard authorizesTermination(current) else { return false }
                     guard await shouldEscalate() else { return false }
                     return await isTargetLive(target)
                 }

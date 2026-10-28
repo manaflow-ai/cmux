@@ -17,7 +17,8 @@ extension CmuxTopProcessSnapshot {
                     memoryBytes: process.memoryBytes,
                     startMicroseconds: process.processIdentity.map {
                         $0.startSeconds &* 1_000_000 &+ $0.startMicroseconds
-                    }
+                    },
+                    memoryIsAvailable: includesResources && process.memorySource != .unavailable
                 )
             }
         )

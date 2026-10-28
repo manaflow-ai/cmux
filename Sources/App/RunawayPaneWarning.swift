@@ -16,6 +16,7 @@ struct RunawayPaneWarning: Equatable, Identifiable, Sendable {
     var canStop: Bool
     /// The session root's PID and birth time distinguish TTY-device reuse.
     var sessionIdentifier: String? = nil
+    var memoryIsComplete: Bool = true
 
     var id: PaneMemoryPaneKey { key }
     var workspaceId: UUID { key.workspaceId }
@@ -39,7 +40,7 @@ struct RunawayPaneWarning: Equatable, Identifiable, Sendable {
     /// "next dev · Processes: 3,574 · Memory: 31 GB".
     var detailText: String {
         let processes = processCount.formatted()
-        let memory = ByteCountFormatter.string(fromByteCount: memoryBytes, countStyle: .memory)
+        let memory = (memoryIsComplete ? "" : "≥") + ByteCountFormatter.string(fromByteCount: memoryBytes, countStyle: .memory)
         guard !command.isEmpty else {
             return String.localizedStringWithFormat(
                 String(
