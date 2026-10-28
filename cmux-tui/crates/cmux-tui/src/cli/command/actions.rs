@@ -1052,8 +1052,13 @@ impl ActionSpec {
 
     /// One usage line: the path, its required flags, and `[OPTIONS]` when it
     /// has optional ones.
+    /// Options go before ` -- `, which forwards everything after it.
     pub(in crate::cli) fn usage(&self, program: &str) -> String {
-        let mut line = format!("{program} {}", self.path);
+        let (path, forwarded) = match self.path.split_once(" -- ") {
+            Some((path, forwarded)) => (path, Some(forwarded)),
+            None => (self.path, None),
+        };
+        let mut line = format!("{program} {path}");
         let options = self.all_options();
         for option in options.iter().filter(|option| option.required) {
             line.push_str(&format!(" --{}", option.name));
@@ -1064,6 +1069,10 @@ impl ActionSpec {
         }
         if options.iter().any(|option| !option.required) {
             line.push_str(" [OPTIONS]");
+        }
+        if let Some(forwarded) = forwarded {
+            line.push_str(" -- ");
+            line.push_str(forwarded);
         }
         line
     }
@@ -1257,6 +1266,12 @@ mod tests {
             .unwrap()
             .help("cmux");
         assert!(create.contains("--correlation-key <key>"));
+        let run = ACTIONS.iter().find(|action| action.path == "pane <selector> run -- <argv...>");
+        assert_eq!(
+            run.unwrap().usage("cmux"),
+            "cmux pane <selector> run [OPTIONS] -- <argv...>",
+            "options after -- would be forwarded to the command"
+        );
         let list = ACTIONS.iter().find(|action| action.path == "tab list").unwrap().help("cmux");
         assert_eq!(list, "USAGE\n  cmux tab list\n\nList tabs.\n");
     }

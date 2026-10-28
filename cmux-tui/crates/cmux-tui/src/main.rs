@@ -3093,7 +3093,12 @@ pub(crate) fn wake_headless() {
 }
 
 fn usage_exit(msg: &str) -> ! {
-    crate::client_log::stderr_log!("startup", "cmux: {msg}\n\n{}", usage());
+    let program = cli::program_name();
+    crate::client_log::stderr_log!(
+        "startup",
+        "{program}: {msg}\n\n{}",
+        cli::with_program_name(&usage(), &program)
+    );
     client_log::exit(2);
 }
 

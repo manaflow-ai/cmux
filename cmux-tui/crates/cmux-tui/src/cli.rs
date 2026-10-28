@@ -191,8 +191,18 @@ pub(crate) fn with_program_name<'a>(text: &'a str, program: &str) -> Cow<'a, str
             .unwrap_or_default();
         out.push_str(label);
         let body = &body[label.len()..];
+        // A command continues with an argument (`tab`, `<scope>`, `[OPTIONS]`,
+        // `--help`) or ends; prose continues with a capitalized word.
+        let command = |rest: &str| {
+            rest.is_empty()
+                || rest.starts_with('\n')
+                || rest
+                    .strip_prefix(' ')
+                    .and_then(|rest| rest.chars().next())
+                    .is_some_and(|next| !next.is_uppercase())
+        };
         let body = match body.strip_prefix("cmux") {
-            Some(rest) if rest.is_empty() || rest.starts_with([' ', '\n']) => {
+            Some(rest) if command(rest) => {
                 out.push_str(program);
                 rest
             }
@@ -987,11 +997,13 @@ mod tests {
     #[test]
     fn help_commands_use_the_program_name_and_prose_keeps_cmux() {
         let help = "cmux - terminal multiplexer\n\nUSAGE\n  cmux tab list\n  cmux\n\
-                    USAGE: cmux remote trust\nRun `cmux tab --help`; cmux.protocol/2 and cmux-tui stay.\n";
+                    USAGE: cmux remote trust\nRun `cmux tab --help`; cmux.protocol/2 and cmux-tui stay.\n\
+                    \x20 cmux Cloud machine prose stays.\n";
         assert_eq!(
             with_program_name(help, "cmux-tui"),
             "cmux-tui - terminal multiplexer\n\nUSAGE\n  cmux-tui tab list\n  cmux-tui\n\
-             USAGE: cmux-tui remote trust\nRun `cmux-tui tab --help`; cmux.protocol/2 and cmux-tui stay.\n"
+             USAGE: cmux-tui remote trust\nRun `cmux-tui tab --help`; cmux.protocol/2 and cmux-tui stay.\n\
+             \x20 cmux Cloud machine prose stays.\n"
         );
         assert!(matches!(with_program_name(help, "cmux"), Cow::Borrowed(_)));
     }
@@ -1034,6 +1046,23 @@ mod tests {
                 failure.error
             );
         }
+    }
+
+    #[test]
+    fn forwarded_server_start_does_not_hide_an_unknown_flag() {
+        let Err(failure) = parse(&strings(&[
+            "workspace",
+            "current",
+            "run",
+            "--bogus",
+            "--",
+            "cmux",
+            "server",
+            "start",
+        ])) else {
+            panic!("an unknown flag must fail");
+        };
+        assert!(failure.error.0.starts_with("unknown flag --bogus"), "{}", failure.error);
     }
 
     #[test]

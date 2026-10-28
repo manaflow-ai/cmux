@@ -170,7 +170,14 @@ pub(super) fn parse(args: &[String]) -> Result<CommandPlan, UsageError> {
         Ok(tokens) => tokens,
         // Startup options before `server start` are not resource flags; say
         // where they go instead of naming the first one as unknown.
-        Err(_) if args.windows(2).any(|pair| pair[0] == "server" && pair[1] == "start") => {
+        Err(_)
+            if args
+                .iter()
+                .take_while(|arg| *arg != "--")
+                .collect::<Vec<_>>()
+                .windows(2)
+                .any(|pair| pair[0] == "server" && pair[1] == "start") =>
+        {
             return Err(UsageError::new(
                 crate::localization::catalog().local_server.start_options_after_action,
             ));
@@ -2923,7 +2930,7 @@ pub(super) fn run_agent_hooks(global: GlobalArgs, plan: crate::agent_hook_instal
 pub(super) fn run_provider_authority(global: GlobalArgs, plan: ProviderAuthorityPlan) -> i32 {
     let output = global.output;
     let Some(socket) = global.socket else {
-        eprintln!("cmux: provider authority install requires --socket");
+        eprintln!("{}: provider authority install requires --socket", crate::cli::program_name());
         return 2;
     };
     #[cfg(target_os = "linux")]
