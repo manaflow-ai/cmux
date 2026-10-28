@@ -124,7 +124,7 @@ fn unfinished_tools(records: &[EventRecord]) -> (Vec<UnfinishedTool>, usize) {
             note_unfinished_tool(&mut open, &mut omitted, update);
         }
     }
-    (open, usize::from(omitted))
+    (open, if omitted { 1 } else { 0 })
 }
 
 /// The text the agent gets: the cut turn's prompt, then what was steered into it.
@@ -263,7 +263,7 @@ impl Hub {
         }
         let msg = json!({"promptId": root, "attempt": attempt, "turnId": turn_id, "delayMs": 0, "reason": "daemon_restart"});
         self.append(session, "mux", "auto_resume_scheduled", msg);
-        let text = continue_text(&prompts, &unfinished, usize::from(omitted_tools));
+        let text = continue_text(&prompts, &unfinished, if omitted_tools { 1 } else { 0 });
         let provenance = json!({"kind": "auto_resume", "reason": "daemon_restart", "promptId": root, "attempt": attempt, "turnId": turn_id});
         let control = if raised_to_web { "web" } else { control.as_deref().unwrap_or("web") };
         let mut blocks = vec![json!({"type": "text", "text": text})];
