@@ -4922,6 +4922,7 @@ export class AcpmuxDirectClient {
     // A Retry keeps the id its prompt first went with, named or not: acpmux may hold that copy.
     if (this.handoffTurn && !steer && !namesHandoffTurn(promptId) && !this.retriedPrompts.has(promptId)) {
       const generation = this.selectionGeneration;
+      let named: number | undefined;
       const asking = this.handoffAsks.get(sessionId);
       if (asking?.generation === generation) await asking.ask;
       else if (!(shown === sessionId && (this.turnOpen || this.queue.length > 0))) {
@@ -4935,13 +4936,14 @@ export class AcpmuxDirectClient {
         }
         // A turn this page already sent a prompt under is that prompt's, even while the store has not
         // heard it run yet; a turn the app opened after the wait ran out is named (nothing ran under it).
-        if (turn !== undefined && turn > (this.handoffTurnsSent.get(sessionId) ?? 0)) {
-          this.handoffTurnsSent.set(sessionId, turn);
-          promptId = handoffPromptId(turn, promptId);
-        }
+        if (turn !== undefined && turn > (this.handoffTurnsSent.get(sessionId) ?? 0)) named = turn;
       }
       if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId)
         throw new Error(translate("error.notOpen"));
+      if (named !== undefined) {
+        this.handoffTurnsSent.set(sessionId, named);
+        promptId = handoffPromptId(named, promptId);
+      }
     }
     // A paste sent as its own block shows in the bubble as acpmux's echo will have it (pastedText.ts).
     const supportsAudio = takesAudio(this.summary?.agentCapabilities?.promptCapabilities, this.summary?.configOptions);
