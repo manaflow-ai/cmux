@@ -5,7 +5,7 @@ import ObjectiveC
 import QuartzCore
 import Testing
 
-/// RenderStats (p03-rendering-001): render work counted per owner class only while armed, for the
+/// RenderStats: render work counted per owner class only while armed, for the
 /// counting benches (`debug.frames` with `render: true`, `debug.damage`), and RenderFrameLog, its
 /// per-frame view for `debug.frames`. One serialized suite: the hooks are process-wide.
 @MainActor
@@ -429,10 +429,10 @@ import Testing
         #expect(hookedIMPs() == original)
     }
 
-    /// A producer that presents its own frames (a terminal renderer, p03-rendering-093).
+    /// A producer that presents its own frames (a terminal renderer).
     nonisolated final class PresentingProducer: NSObject {}
 
-    /// p03-rendering-093: frames a producer presents itself, off the main thread and through no `setContents:`,
+    /// Frames a producer presents itself, off the main thread and through no `setContents:`,
     /// count as contents sets of their owner only while the stats count, from many threads without a data race
     /// (run under TSan: `swift test --sanitize=thread`).
     @Test func presentedFramesCountAsContentsSetsOfTheirOwnerWhileCounting() async {

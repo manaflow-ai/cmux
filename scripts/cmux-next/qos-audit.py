@@ -66,13 +66,16 @@ failed, else 1 when a finding is open, else 0. Findings:
   interactive-outside-closed-list
                      a cmux thread at user-interactive whose name is not in threading-model.md's "Closed
                      user-interactive list"
-  ui-connection      a reader thread (mux-conn, mux-remote-conn, mux-ws-conn) of the person's connection whose
-                     desired or kernel class is not user-interactive, or a request thread (mux-control-dispatch,
-                     mux-surface-control) of it not at user-initiated; `unseen`: the app's daemon has no
-                     connection of the verified app. The person's connection is judged from the facts its
-                     `server-threads` row gives (origin `user`, or `agent` from the verified app's process), not
-                     from the class the daemon gave it.
-  automation-class   a connection thread of an automation connection (every other) that does not rest at utility
+  ui-connection      a reader thread (mux-remote-conn, mux-ws-conn) of the person's connection whose desired or
+                     kernel class is not user-interactive, or a request thread (mux-control-dispatch,
+                     mux-surface-control) of it not at user-initiated; `lines`: the person's local connection
+                     (no thread of its own, p01-process-203: its lines run on the sequenced pool) whose lines do
+                     not run at user-interactive (`server-threads` `connections[].lines_qos`); `unseen`: the
+                     app's daemon has no connection of the verified app. The person's connection is judged from
+                     the facts `server-threads` gives (origin `user`, or `agent` from the verified app's
+                     process), not from the class the daemon gave it.
+  automation-class   a connection thread of an automation connection (every other) that does not rest at utility,
+                     or (`lines`) an automation connection whose lines do not run at utility
   queue-problem      a checked queue whose QoS or target differs from its row; undeclared-queue: a checked
                      queue no row declares; queue-log-overflow: queues the log could not record
   task-role          the process task role was not read (macOS)
@@ -91,10 +94,13 @@ TASK_PREFIX = "p02-threads-R-qos"
 INTERACTIVE = "user-interactive"
 USER_INITIATED = "user-initiated"
 UTILITY = "utility"
-# The daemon's per-connection threads (server/listen.rs, remote_entry.rs, websocket_listener.rs,
-# server/connection_scheduler.rs): they rest at the connection's class under daemonRequestQos
-# (server/connection_qos.rs `ConnectionClass::qos`).
+# The daemon's per-connection threads (remote_entry.rs, websocket_listener.rs, server/connection_scheduler.rs):
+# they rest at the connection's class under daemonRequestQos (server/connection_qos.rs `ConnectionClass::qos`).
+# A local connection holds none: `server-threads` `connections` gives the class its lines run
+# at. `mux-conn` stays for daemons before it.
 READER_THREADS = ("mux-conn", "mux-remote-conn", "mux-ws-conn")
+# The name a connection's lines are filed under (`server-threads` `connections[].lines_qos`).
+LINES = "lines"
 REQUEST_THREADS = ("mux-control-dispatch", "mux-surface-control")
 CONNECTION_THREADS = READER_THREADS + REQUEST_THREADS
 RUN3_PARTS = ("run3_visible", "run3_hidden_workspaces", "run3_hidden")
@@ -262,15 +268,14 @@ def daemon_row_qos(row):
     return row.get("effective")
 
 
-def connection_kinds(rows):
-    """{client: "person" or "automation"} of each connection a `server-threads` row names, from its facts the
-    way server/connection_qos.rs `ConnectionClass::of` classes it: a remote lane is automation, origin `user`
-    (the verified app) is the person's, origin `agent` from a verified app's process is the person's, every other
-    is automation. The daemon's own `class` is not read, so a connection it classed wrongly is judged by what it
-    is."""
+def connection_kinds(rows, lines=()):
+    """{client: "person" or "automation"} of each connection a `server-threads` thread row or `connections` row
+    (`lines`) names, from its facts the way server/connection_qos.rs `ConnectionClass::of` classes it: a remote
+    lane is automation, origin `user` (the verified app) is the person's, origin `agent` from a verified app's
+    process is the person's, every other is automation. The daemon's own `class` is not read, so a connection it
+    classed wrongly is judged by what it is."""
     connections = {}
-    for row in rows:
-        connection = row.get("connection")
+    for connection in [row.get("connection") for row in rows] + list(lines):
         if isinstance(connection, dict) and connection.get("client") is not None and connection.get("transport"):
             connections[connection["client"]] = connection
     app_pids = {c.get("peer_pid") for c in connections.values()
@@ -287,10 +292,11 @@ def connection_kinds(rows):
 
 
 def connection_qos_wanted(kind, name):
-    """The class a connection thread `name` of a `kind` connection rests at (ConnectionClass::qos)."""
+    """The class a connection thread `name` (or a connection's `lines`) of a `kind` connection rests at
+    (ConnectionClass::qos)."""
     if kind == "automation":
         return UTILITY
-    return INTERACTIVE if name in READER_THREADS else USER_INITIATED
+    return INTERACTIVE if name in READER_THREADS or name == LINES else USER_INITIATED
 
 
 def main_thread_id(tids, pid, mac):
@@ -312,7 +318,19 @@ def daemon_findings(snapshot, os_threads, phase, closed, automation_only=False, 
     seen = set() if seen is None else seen
     found = []
     rows = snapshot["threads"]
-    kinds = connection_kinds(rows)
+    lines = [row for row in snapshot.get("connections") or [] if isinstance(row, dict)]
+    kinds = connection_kinds(rows, lines)
+    for connection in lines:
+        kind = kinds.get(connection.get("client"))
+        if kind is None:
+            continue
+        seen.add(kind)
+        wanted = connection_qos_wanted(kind, LINES)
+        if connection.get("lines_qos") != wanted:
+            found.append(finding("daemon", "ui-connection" if kind == "person" else "automation-class", LINES,
+                                 phase, f"{kind} connection {connection['client']} ({connection.get('transport')}, "
+                                 f"origin {connection.get('origin')}, classed {connection.get('class')}): its "
+                                 f"lines run at {connection.get('lines_qos')}, not {wanted}", connection))
     for row in rows:
         name = generic_name(row.get("name"))
         evidence = {key: row.get(key) for key in ("name", "tid", "declared", "desired", "effective",

@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, hash_map};
 use std::fmt;
 use std::io;
 use std::net::SocketAddr;
@@ -35,6 +35,7 @@ pub use crate::crypto::{
 use crate::identity::{AuthDatabase, IdentityError};
 use crate::link::{FrameLink, LaneMuxLink, LinkError, LinkRoute};
 use crate::observability::{ConnectionState, ServerConnectionSnapshot};
+use crate::per_lane::PerLane;
 use crate::provider::AxumWebSocketLink;
 use crate::session::{ReceivedFrame, ReliableSession, SessionError, SessionLimits};
 #[cfg(unix)]
@@ -114,6 +115,12 @@ pub struct DaemonSessionPolicy {
     pub resume_lease: Duration,
 }
 
+// The default policy is one `validate` accepts, so `RemoteDaemon::new` skips it.
+const _: () = assert!(
+    !DEFAULT_RESUME_LEASE.is_zero()
+        && DEFAULT_RESUME_LEASE.as_nanos() <= MAX_RESUME_LEASE.as_nanos()
+);
+
 impl Default for DaemonSessionPolicy {
     fn default() -> Self {
         Self { resume_lease: DEFAULT_RESUME_LEASE }
@@ -151,7 +158,7 @@ pub struct ServerConnection {
     close_requested: Notify,
     lifecycle: Mutex<ServerLifecycle>,
     diagnostics: StdMutex<ServerDiagnostics>,
-    lane_sends: [Mutex<()>; 4],
+    lane_sends: PerLane<Mutex<()>>,
     closed: AtomicBool,
     close_state: watch::Sender<ServerCloseState>,
 }
@@ -255,10 +262,17 @@ impl Drop for PendingLinkExpiryTask {
     }
 }
 
+/// The generation whose transport was lost and the instant its resume lease
+/// ends. Both are set and cleared together, so one value holds them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ResumeWindow {
+    generation: u64,
+    deadline: Instant,
+}
+
 #[derive(Debug)]
 struct ServerLifecycle {
-    disconnected_generation: Option<u64>,
-    resume_deadline: Option<Instant>,
+    resume_window: Option<ResumeWindow>,
     resume_expiry_task: Option<ResumeExpiryTask>,
     lane_bindings: Vec<Vec<Lane>>,
 }
@@ -314,8 +328,7 @@ impl ServerConnection {
             changed: Notify::new(),
             close_requested: Notify::new(),
             lifecycle: Mutex::new(ServerLifecycle {
-                disconnected_generation: None,
-                resume_deadline: None,
+                resume_window: None,
                 resume_expiry_task: None,
                 lane_bindings: lane_bindings.clone(),
             }),
@@ -325,7 +338,7 @@ impl ServerConnection {
                 resume_deadline: None,
                 lane_bindings,
             }),
-            lane_sends: std::array::from_fn(|_| Mutex::new(())),
+            lane_sends: PerLane::from_fn(|_| Mutex::new(())),
             closed: AtomicBool::new(false),
             close_state,
         })
@@ -375,7 +388,7 @@ impl ServerConnection {
         payload: Bytes,
         flags: FrameFlags,
     ) -> Result<u64, DaemonError> {
-        let _lane_send = self.lane_sends[lane as usize].lock().await;
+        let _lane_send = self.lane_sends.get(lane).lock().await;
         loop {
             if self.closed.load(Ordering::Acquire) {
                 return Err(DaemonError::Closed);
@@ -503,22 +516,24 @@ impl ServerConnection {
                 actual: current.generation(),
             });
         }
-        if lifecycle.disconnected_generation.is_none() {
-            let owner = self.owner.upgrade().ok_or(DaemonError::Closed)?;
-            let connection = self.self_weak.upgrade().ok_or(DaemonError::Closed)?;
-            let deadline = Instant::now() + owner.policy.resume_lease;
-            lifecycle.disconnected_generation = Some(expected_generation);
-            lifecycle.resume_deadline = Some(deadline);
-            lifecycle.resume_expiry_task =
-                Some(owner.schedule_resume_expiry(connection, expected_generation, deadline));
-            let mut diagnostics =
-                self.diagnostics.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            diagnostics.state = ConnectionState::Reconnecting;
-            diagnostics.resume_deadline = Some(deadline);
-        }
+        let deadline = match lifecycle.resume_window {
+            Some(window) => window.deadline,
+            None => {
+                let owner = self.owner.upgrade().ok_or(DaemonError::Closed)?;
+                let connection = self.self_weak.upgrade().ok_or(DaemonError::Closed)?;
+                let deadline = Instant::now() + owner.policy.resume_lease;
+                lifecycle.resume_window =
+                    Some(ResumeWindow { generation: expected_generation, deadline });
+                lifecycle.resume_expiry_task =
+                    Some(owner.schedule_resume_expiry(connection, expected_generation, deadline));
+                let mut diagnostics =
+                    self.diagnostics.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                diagnostics.state = ConnectionState::Reconnecting;
+                diagnostics.resume_deadline = Some(deadline);
+                deadline
+            }
+        };
         let reconnecting = current.clone();
-        let deadline =
-            lifecycle.resume_deadline.expect("a reconnecting generation always has a deadline");
         let remaining = deadline.saturating_duration_since(Instant::now());
         if remaining.is_zero() {
             return Err(DaemonError::Closed);
@@ -540,8 +555,7 @@ impl ServerConnection {
         let generation = next.generation();
         let previous = std::mem::replace(&mut *current, next);
         drop(lifecycle.resume_expiry_task.take());
-        lifecycle.disconnected_generation = None;
-        lifecycle.resume_deadline = None;
+        lifecycle.resume_window = None;
         lifecycle.lane_bindings = lane_bindings;
         self.generation.send_replace(generation);
         {
@@ -575,12 +589,11 @@ impl ServerConnection {
         let mut lifecycle = self.lifecycle.lock().await;
         if self.closed.load(Ordering::Acquire)
             || self.current_generation() != generation
-            || lifecycle.disconnected_generation == Some(generation)
+            || lifecycle.resume_window.is_some_and(|window| window.generation == generation)
         {
             return;
         }
-        lifecycle.disconnected_generation = Some(generation);
-        lifecycle.resume_deadline = Some(deadline);
+        lifecycle.resume_window = Some(ResumeWindow { generation, deadline });
         drop(
             lifecycle
                 .resume_expiry_task
@@ -595,8 +608,7 @@ impl ServerConnection {
     async fn claim_resume_expiry(&self, generation: u64, deadline: Instant) -> bool {
         let mut lifecycle = self.lifecycle.lock().await;
         if self.closed.load(Ordering::Acquire)
-            || lifecycle.disconnected_generation != Some(generation)
-            || lifecycle.resume_deadline != Some(deadline)
+            || lifecycle.resume_window != Some(ResumeWindow { generation, deadline })
         {
             return false;
         }
@@ -634,7 +646,7 @@ impl ServerConnection {
         let mut lifecycle = self.lifecycle.lock().await;
         if let Some(expected) = disconnected_generation
             && (self.closed.load(Ordering::Acquire)
-                || lifecycle.disconnected_generation != Some(expected)
+                || lifecycle.resume_window.map(|window| window.generation) != Some(expected)
                 || self.current_generation() != expected)
         {
             return false;
@@ -644,8 +656,7 @@ impl ServerConnection {
             self.close_requested.notify_waiters();
         }
         drop(lifecycle.resume_expiry_task.take());
-        lifecycle.disconnected_generation = None;
-        lifecycle.resume_deadline = None;
+        lifecycle.resume_window = None;
         {
             let mut diagnostics =
                 self.diagnostics.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -782,8 +793,7 @@ impl RemoteDaemon {
         auth: Arc<AuthDatabase>,
         limits: SessionLimits,
     ) -> (Arc<Self>, mpsc::Receiver<Arc<ServerConnection>>) {
-        Self::with_policy(auth, limits, DaemonSessionPolicy::default())
-            .expect("the default daemon session policy is valid")
+        Self::with_valid_policy(auth, limits, DaemonSessionPolicy::default())
     }
 
     pub fn with_policy(
@@ -791,7 +801,14 @@ impl RemoteDaemon {
         limits: SessionLimits,
         policy: DaemonSessionPolicy,
     ) -> Result<(Arc<Self>, mpsc::Receiver<Arc<ServerConnection>>), DaemonError> {
-        let policy = policy.validate()?;
+        Ok(Self::with_valid_policy(auth, limits, policy.validate()?))
+    }
+
+    fn with_valid_policy(
+        auth: Arc<AuthDatabase>,
+        limits: SessionLimits,
+        policy: DaemonSessionPolicy,
+    ) -> (Arc<Self>, mpsc::Receiver<Arc<ServerConnection>>) {
         let (accepted_tx, accepted_rx) = mpsc::channel(64);
         let daemon = Arc::new(Self {
             auth,
@@ -808,7 +825,7 @@ impl RemoteDaemon {
             revocation_monitor: StdMutex::new(None),
         });
         daemon.spawn_revocation_monitor();
-        Ok((daemon, accepted_rx))
+        (daemon, accepted_rx)
     }
 
     pub fn auth(&self) -> &Arc<AuthDatabase> {
@@ -890,18 +907,28 @@ impl RemoteDaemon {
         for pending in expired {
             close_pending_links(Some(pending)).await;
         }
-        let (base_generation, daemon_resume) = match &existing {
+        // An existing client travels with the generation it had when this
+        // link was admitted, so the reconnect below compares against it.
+        let (existing, daemon_resume) = match existing {
             Some(connection) => {
                 if connection.closed.load(Ordering::Acquire) {
                     return Err(DaemonError::Closed);
                 }
-                let current = connection.session.read().await;
-                let expected =
-                    current.generation().checked_add(1).ok_or(DaemonError::GenerationExhausted)?;
-                if accepted.generation < expected {
-                    return Err(DaemonError::Generation { expected, actual: accepted.generation });
-                }
-                (Some(current.generation()), current.resume_cursors())
+                let (base_generation, resume) = {
+                    let current = connection.session.read().await;
+                    let expected = current
+                        .generation()
+                        .checked_add(1)
+                        .ok_or(DaemonError::GenerationExhausted)?;
+                    if accepted.generation < expected {
+                        return Err(DaemonError::Generation {
+                            expected,
+                            actual: accepted.generation,
+                        });
+                    }
+                    (current.generation(), current.resume_cursors())
+                };
+                (Some((connection, base_generation)), resume)
             }
             None => {
                 if accepted.generation != 0 {
@@ -920,9 +947,9 @@ impl RemoteDaemon {
         let pending_key = (key.clone(), accepted.generation, accepted.connection_attempt);
         let mut state = self.state.lock().await;
         let registry_matches = match (&existing, state.clients.get(&key)) {
-            (Some(expected), Some(actual)) => {
+            (Some((expected, base_generation)), Some(actual)) => {
                 Arc::ptr_eq(expected, actual)
-                    && base_generation == Some(actual.current_generation())
+                    && *base_generation == actual.current_generation()
                     && !actual.closed.load(Ordering::Acquire)
             }
             (None, None) => true,
@@ -962,18 +989,22 @@ impl RemoteDaemon {
             }
         }
         let mut created_pending_group = false;
-        let pending = state.pending.entry(pending_key.clone()).or_insert_with(|| {
-            created_pending_group = true;
-            PendingLinks {
-                created_at: now,
-                expiry_task: None,
-                routes: Vec::new(),
-                assigned: BTreeSet::new(),
-                client_resume: accepted.resume.clone(),
-                grant_generation: accepted.grant.revocation_generation,
-                service_authority: accepted.grant.authority.clone(),
+        let mut pending_entry = match state.pending.entry(pending_key.clone()) {
+            hash_map::Entry::Occupied(entry) => entry,
+            hash_map::Entry::Vacant(entry) => {
+                created_pending_group = true;
+                entry.insert_entry(PendingLinks {
+                    created_at: now,
+                    expiry_task: None,
+                    routes: Vec::new(),
+                    assigned: BTreeSet::new(),
+                    client_resume: accepted.resume.clone(),
+                    grant_generation: accepted.grant.revocation_generation,
+                    service_authority: accepted.grant.authority.clone(),
+                })
             }
-        });
+        };
+        let pending = pending_entry.get_mut();
         for lane in &accepted.lanes {
             let lane_was_new = pending.assigned.insert(*lane);
             debug_assert!(lane_was_new);
@@ -989,7 +1020,7 @@ impl RemoteDaemon {
         if pending.assigned.iter().copied().ne(Lane::ALL) {
             return Err(DaemonError::Protocol("physical links did not cover every lane".into()));
         }
-        let mut pending = state.pending.remove(&pending_key).expect("pending entry exists");
+        let mut pending = pending_entry.remove();
         drop(pending.expiry_task.take());
         drop(state);
         let mut lane_bindings =
@@ -1008,8 +1039,7 @@ impl RemoteDaemon {
             )));
         }
 
-        let (connection, is_new) = if let Some(connection) = existing {
-            let expected_generation = base_generation.expect("an existing client has a generation");
+        let (connection, is_new) = if let Some((connection, expected_generation)) = existing {
             let rejected_mux = mux.clone();
             if let Err(error) = self
                 .reconnect_registered_client(
@@ -1334,6 +1364,11 @@ impl Listener for LimitedTcpListener {
 
     async fn accept(&mut self) -> (Self::Io, Self::Addr) {
         loop {
+            #[allow(
+                clippy::expect_used,
+                reason = "INVARIANT: the admission semaphore is private to this listener and \
+                          nothing closes it"
+            )]
             let permit = self
                 .permits
                 .clone()
@@ -1426,10 +1461,9 @@ impl DirectWebSocketServer {
         if let Some(shutdown) = self.shutdown.take() {
             let _ = shutdown.send(());
         }
-        self.task
-            .take()
-            .expect("WebSocket server task is present")
-            .await
+        // Only this method takes the task, and it consumes the server.
+        let Some(task) = self.task.take() else { return Ok(()) };
+        task.await
             .map_err(|error| {
                 DaemonError::Protocol(format!("WebSocket server task failed: {error}"))
             })?

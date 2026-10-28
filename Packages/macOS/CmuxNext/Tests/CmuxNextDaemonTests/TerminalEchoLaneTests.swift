@@ -3,7 +3,7 @@ import Foundation
 import Testing
 @testable import CmuxNextDaemon
 
-/// The terminal echo lane (p04-input-083): once the view names its output lane, live output goes from the attach
+/// The terminal echo lane: once the view names its output lane, live output goes from the attach
 /// reader thread straight to it (``TerminalEchoRouter``), with no AsyncStream, task or pool thread between, in order
 /// with every record still on the stream (one marker sequence), held back by the lane's capacity on the reader
 /// thread, and nothing accepted is lost when the link detaches.

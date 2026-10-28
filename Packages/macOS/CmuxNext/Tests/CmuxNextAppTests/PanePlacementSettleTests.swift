@@ -4,7 +4,7 @@ import CmuxNextDesign
 import CmuxNextWakeups
 import Testing
 
-/// Content that follows its pane's place in the window (a page's glass lens, chrome-parity p03-rendering-037)
+/// Content that follows its pane's place in the window (a page's glass lens)
 /// hears a finished move once, never per frame: a strip camera that only moves the panes (no layout spring, so
 /// no `PaneMotionSettling`) still ends in one `PanePlacementFollowing` call. A layout spring's start says whether
 /// the host's frame is already at rest: only on the render server (`PaneHostView.placeAtRest`).

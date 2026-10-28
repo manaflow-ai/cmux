@@ -43,7 +43,7 @@ nonisolated extension Signposter {
         case key = 5
         /// An edit command from a key equivalent (copy, cut, paste, select all, undo, redo).
         case edit = 10
-        /// An IME composition or commit (marked text, inserted text; task p01-process-043).
+        /// An IME composition or commit (marked text, inserted text).
         case ime = 11
 
         /// Whether the frame's time is a keystroke's: the keystroke-timing gate (task 128) drops its instant.

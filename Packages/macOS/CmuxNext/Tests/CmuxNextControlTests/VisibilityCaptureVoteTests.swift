@@ -2,7 +2,7 @@ import CmuxNextWakeups
 import Observation
 import Testing
 
-/// Capture votes on the visibility tree (VisibilityNode+Capture.swift, p06-scheduler-211), after
+/// Capture votes on the visibility tree (VisibilityNode+Capture.swift), after
 /// Chromium's `WebContents::IncrementCapturerCount(size, stay_hidden, stay_awake)`: a voted hidden
 /// node renders (its frame clients tick, its view observations apply, its task queues run), a
 /// `stayHidden` vote keeps page visibility and the timer alignment hidden, and the last release gives
@@ -55,7 +55,7 @@ import Testing
         rig.stop()
     }
 
-    /// p06-scheduler-161: deferred view work (the R-appear and R-hide recipes: a theme recolor, a bar
+    /// Deferred view work (the R-appear and R-hide recipes: a theme recolor, a bar
     /// reload) runs for a capture as a view observation applies for one, so a screenshot of a hidden
     /// tab never shows a stale theme; page visibility stays hidden.
     @Test func aVotedHiddenNodeRunsItsDeferredViewWork() {

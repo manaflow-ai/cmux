@@ -68,8 +68,7 @@ public struct BrowserSourceRegistry: Sendable, Codable, Equatable {
 
     /// Reads and decodes the checked-in `browser-sources.json`. A missing or broken resource gives an empty
     /// registry (nothing is detected) and logs; the validation test keeps the file decodable. A file read:
-    /// call it on a lane (``BrowserSourceRegistryInstall/load(on:)``), never in a static initializer
-    /// (p02-threads-122).
+    /// call it on a lane (``BrowserSourceRegistryInstall/load(on:)``), never in a static initializer.
     public static func loadBundled() -> BrowserSourceRegistry {
         let empty = BrowserSourceRegistry(schemaVersion: 1, engines: [:], browsers: [])
         #if CMUX_NO_BROWSER_DATA_IMPORT

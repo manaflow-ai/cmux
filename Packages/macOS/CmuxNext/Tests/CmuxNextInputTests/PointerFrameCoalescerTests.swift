@@ -5,7 +5,7 @@ import CmuxNextWakeups
 import CmuxNextWakeupsTestSupport
 import Testing
 
-/// A window's pointer consumers on its one FrameInputCoalescer (p04-input-030; Chromium's
+/// A window's pointer consumers on its one FrameInputCoalescer (Chromium's
 /// main_thread_event_queue.cc): leading edge at once, one merged trailing delivery per run at the tick,
 /// in the input stage before the frame clients; discrete input flushes first; the fallback delivers
 /// only while the link does not run; a closed window drops its input; an idle window holds no client,
@@ -95,7 +95,7 @@ struct PointerFrameCoalescerTests {
         rig.coalescer.invalidate()
     }
 
-    /// A frame-timed consumer (p04-input-040) gets the frame each delivery is drawn in: the frame tick's
+    /// A frame-timed consumer gets the frame each delivery is drawn in: the frame tick's
     /// time and refresh interval for the trailing delivery (Chromium's `DispatchRafAlignedInput(frame_time)`),
     /// the newest event's own time for a delivery that goes out at once (the leading edge, a flush).
     @Test func aFrameTimedConsumerGetsTheTicksTimeAtTheFrameAndTheEventsTimeAtOnce() throws {
@@ -232,7 +232,7 @@ struct PointerFrameCoalescerTests {
     }
 
     /// The trailing delivery runs in the window's input stage, before the frame's springs and drivers,
-    /// and a client it wakes ticks in the same frame (p04-input-032; Blink dispatches rAF-aligned input
+    /// and a client it wakes ticks in the same frame (Blink dispatches rAF-aligned input
     /// before the frame's rAF, `WidgetBase::BeginMainFrame`): a drag whose ghost settled shows the
     /// frame's move at this vsync, not the next.
     @Test func theTrailingDeliveryRunsBeforeTheFrameAndWakesItsClientsThisFrame() {

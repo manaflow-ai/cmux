@@ -96,7 +96,7 @@ enum TopPages {
     }
 }
 
-/// Classic Home follows the top pages' discard policy (p07-memory-023). Its record names the shown
+/// Classic Home follows the top pages' discard policy. Its record names the shown
 /// conversation, whose composer draft the store keeps (`HomeStore.draft(for:)`), the list's search
 /// and the list's scroll. The transcript opens again at its newest message, as opening any
 /// conversation does: it pages its messages in, so a raw offset would not point at the same place.

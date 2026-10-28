@@ -17,6 +17,7 @@ use std::collections::BTreeSet;
 use crate::Actor;
 use crate::mux::tab_strip::StripRequest;
 use crate::mux::*;
+use crate::panic_free::RecoverPoison;
 use crate::state::commit::{StateEffects, state_not_found};
 use crate::state::prelude::*;
 use crate::state::screen_state_store::{
@@ -227,7 +228,8 @@ impl Mux {
                     state
                         .pane_of(surface)
                         .and_then(|pane| state.screen_of(pane))
-                        .map(|(workspace, _)| state.workspaces[workspace].key.clone())
+                        .and_then(|(workspace, _)| state.workspaces.get(workspace))
+                        .map(|workspace| workspace.key.clone())
                 };
                 for (surface, runtime) in &projected.surfaces {
                     let (Some(before), Some(after)) =
@@ -284,7 +286,7 @@ impl Mux {
         )?;
         if !commit.replayed {
             {
-                let registry = self.workspace_registry.lock().unwrap();
+                let registry = self.workspace_registry.lock().recover_poison();
                 self.reload_presentation(&registry)?;
             }
             for (surface, _, key) in retarget {

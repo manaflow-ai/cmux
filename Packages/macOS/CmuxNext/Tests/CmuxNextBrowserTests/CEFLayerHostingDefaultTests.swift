@@ -4,11 +4,11 @@ import CmuxNextDesign
 import Foundation
 import Testing
 
-/// Layer hosting's default (p03-rendering-050). The feature `cefLayerHosting` hosts a pane's page only where the
+/// Layer hosting's default. The feature `cefLayerHosting` hosts a pane's page only where the
 /// app makes every Track A call for the fork (the resize fence, embedder visibility); no fork API alone turns it on.
 /// On a fork that hosts only a tab's page, DevTools and popup windows keep their own window (each kind on a fork
 /// that hosts it is `CEFWidgetHostingTests`), and `debug.cef` counts why a page did not host. Only features decide
-/// in the app (p12-perf-process-100): the Debug tunable `browserResize.layerHosting` reaches it only as the
+/// in the app: the Debug tunable `browserResize.layerHosting` reaches it only as the
 /// feature's local override, resolved at launch; the benches' arm `cefLayerHostingEveryPage` and a test's
 /// `override` seam host every page window from API 26.
 @MainActor

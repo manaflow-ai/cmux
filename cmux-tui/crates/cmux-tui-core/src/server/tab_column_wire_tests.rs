@@ -1,5 +1,5 @@
-//! The lines the macOS app sends for its Layout and TabMove requests reach the daemon as sent
-//! (p05-ipc-038). spec/fixtures/layout-tab-move-requests/lines.json records them before their
+//! The lines the macOS app sends for its Layout and TabMove requests reach the daemon as sent.
+//! Spec/fixtures/layout-tab-move-requests/lines.json records them before their
 //! migration to the generated `<Name>Request` types; LayoutTabMoveRequestWireGoldenTests
 //! (CmuxNextDaemonTests) proves the app encodes exactly these lines. Here every line goes through
 //! the server's own `Request` parse, and the fullest lines read back field by field. Chromium keeps

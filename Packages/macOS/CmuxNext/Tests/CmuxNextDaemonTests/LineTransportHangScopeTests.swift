@@ -8,9 +8,11 @@ import Testing
 /// (plans/cmux-next/chrome-parity/p02-threads.md, task 017). A fixture bridge sends one event, waits
 /// for a line from the app, sends a second and exits. The counts are read at close, after the reader
 /// saw EOF: two lines give exactly two scopes and none still open, where a scope around `read(2)`
-/// would give a third enter (the read that saw EOF) or a scope left open. The app's one line goes out in
-/// one `daemon.write` scope on the writer's drain queue (p09-observability-069). Each event's handler and
-/// the close run on the connection's decode lane (p05-ipc-144), each in one `daemon.decode` scope.
+/// would give a third enter (the read that saw EOF) or a scope left open. The app's one line, sent from the
+/// decode lane's worker thread to an idle writer, goes out inline on that thread: no drain step,
+/// so no `daemon.write` scope (p09-observability-069 scopes each drain step; SocketWriterHangScopeTests).
+/// Each event's handler and the close run on the connection's decode lane, each in one
+/// `daemon.decode` scope.
 @Suite(.timeLimit(.minutes(1))) struct LineTransportHangScopeTests {
     enum Seen: Sendable {
         case event(name: String, open: [ScopeStackHangWatch.Scope])
@@ -61,7 +63,7 @@ import Testing
         #expect(open.isEmpty, "the close ran on the lane while the reader was still in a line")
         #expect(hangs.entered("daemon.decode") == 3, "two events and the close")
         #expect(hangs.lanes == ["daemon.write", "daemon.line", "daemon.decode"])
-        #expect(hangs.entered("daemon.write") == 1, "the app's one line was not one drain step")
+        #expect(hangs.entered("daemon.write") == 0, "the app's one line to an idle writer took a drain step")
     }
 }
 

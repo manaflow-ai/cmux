@@ -89,6 +89,7 @@
     case CMUX_SHIM_SUBFRAME_RENDERER:
     case CMUX_SHIM_LOCK:
     case CMUX_SHIM_WINDOW_REQUEST_RESULT:
+    case CMUX_SHIM_FRAME_RENDERERS:
       return true;
   }
   return false;
@@ -313,6 +314,7 @@ class Client : public CefClient,
   // beforeunload only; alert, confirm and prompt keep Chromium's dialogs.
   CefRefPtr<CefJSDialogHandler> GetJSDialogHandler() override { return this; }
   CefRefPtr<CefDragHandler> GetDragHandler() override { return this; }
+  // The renderers of the page's frames (SUBFRAME_RENDERER, FRAME_RENDERERS).
   CefRefPtr<CefFrameHandler> GetFrameHandler() override { return this; }
   // File choosers go to the host app (shim_file_dialog.mm).
   CefRefPtr<CefDialogHandler> GetDialogHandler() override { return FileDialogHandlerInstance(); }
@@ -340,12 +342,22 @@ class Client : public CefClient,
 
   // Which renderer hosts each frame but the main one (SUBFRAME_RENDERER), so the app knows the pages a
   // renderer's crash leaves a sad frame in. A frame back from the back-forward cache attaches again.
+  // The same changes refresh the tab's renderer set (FRAME_RENDERERS): a frame's renderer is known once
+  // it attaches; it leaves at its end, its renderer's end or a cross-process navigation, whose new frame
+  // attaches. The main frame's swap comes as OnMainFrameChanged. Chrome's task manager follows the same
+  // changes (RenderFrameCreated, RenderFrameDeleted, RenderFrameHostChanged; web_contents_task_provider.cc).
   void OnFrameAttached(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, bool) override {
     EmitSubframeRenderer(browser, frame, 1);
+    NoteFrameRenderersChanged(browser->GetIdentifier());
   }
 
   void OnFrameDetached(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame) override {
     EmitSubframeRenderer(browser, frame, 0);
+    NoteFrameRenderersChanged(browser->GetIdentifier());
+  }
+
+  void OnMainFrameChanged(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame>, CefRefPtr<CefFrame>) override {
+    NoteFrameRenderersChanged(browser->GetIdentifier());
   }
 
   // MARK: Drags
@@ -679,6 +691,7 @@ class Client : public CefClient,
     ForgetOwnBackground(id);
     ForgetDevTools(id);
     ForgetPopups(id);
+    ForgetFrameRenderers(id);
     Emit(CMUX_SHIM_BEFORE_CLOSE, id);
   }
 
@@ -766,7 +779,7 @@ class Client : public CefClient,
 
   // In process: cmux's key router first (key_fn). The Chromium Host passes
   // no key_fn: cmux decided in CmuxApplication.sendEvent before it sent the
-  // key, so the host never asks cmux before the page (p01-process-030).
+  // key, so the host never asks cmux before the page.
   bool OnPreKeyEvent(CefRefPtr<CefBrowser> browser, const CefKeyEvent& event, CefEventHandle os_event,
                      bool*) override {
     if (event.type == KEYEVENT_RAWKEYDOWN && os_event) {

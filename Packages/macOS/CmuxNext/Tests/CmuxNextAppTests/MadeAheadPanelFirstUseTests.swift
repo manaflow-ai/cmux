@@ -4,10 +4,10 @@ import CmuxNextWakeups
 import CmuxNextWakeupsTestSupport
 import Testing
 
-/// Feature `memoryOpenPanelOnFirstUse` (p07-memory-062, MQ-PROC): the file picker's panel service is not a process at
+/// Feature `memoryOpenPanelOnFirstUse` (MQ-PROC): the file picker's panel service is not a process at
 /// Home idle. The launch's afterStartup post and every agent chat or Home view that reaches a window call
 /// `warmWhenIdle()`; on first use none of them makes a panel. The first click makes it, it is kept for later clicks,
-/// and the App's overlay page planner (p07-memory-086, ``OverlayPagePlannerRig``) releases it once unused, or at
+/// and the App's overlay page planner (``OverlayPagePlannerRig``) releases it once unused, or at
 /// warning pressure, at a look where no sheet shows it. The panels stand in for `NSOpenPanel`, which this test host
 /// cannot make without its view service.
 @MainActor

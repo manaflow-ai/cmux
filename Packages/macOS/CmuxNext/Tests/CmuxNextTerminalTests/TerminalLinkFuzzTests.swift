@@ -4,7 +4,7 @@ import CmuxNextCompat
 import Foundation
 import Testing
 
-/// Terminal links from program output (p10-stability-030): the rows a program wrapped a URL over,
+/// Terminal links from program output: the rows a program wrapped a URL over,
 /// the text Ghostty hands over to open (OSC 8 or link detection), and the link filter's cache of
 /// file checks. Any output keeps each contract and never traps. Seeded property tests on
 /// CmuxFuzzSupport (long mode: CMUX_FUZZ_SECONDS); the URL pieces follow Chromium's
@@ -31,7 +31,7 @@ nonisolated struct TerminalLinkFuzzTests {
 
     /// One input of a property its first choice picks, replayed from bytes: the two properties that
     /// need no view (``openURL(_:)`` needs the main actor and AppKit). Darwin only for now:
-    /// CmuxNextTerminal imports AppKit, so the Linux libFuzzer targets (p10-stability-182) skip this
+    /// CmuxNextTerminal imports AppKit, so the Linux libFuzzer targets skip this
     /// suite unless they build TerminalWrappedLink.swift, which needs only Foundation, on its own.
     static func oneInput(_ data: Data) throws {
         var rng = FuzzRNG(replaying: data)

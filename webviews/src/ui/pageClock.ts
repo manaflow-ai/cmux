@@ -1,4 +1,4 @@
-// One clock per page for every label that shows the time or an elapsed time (p14-energy-060).
+// One clock per page for every label that shows the time or an elapsed time.
 //
 // Each granularity (a second, a minute) runs at most one setTimeout chain per page, however many
 // labels read it, and each wake lands on the wall-clock boundary of its period, so all labels on the

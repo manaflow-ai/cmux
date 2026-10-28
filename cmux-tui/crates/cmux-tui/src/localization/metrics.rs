@@ -1,5 +1,5 @@
 //! `metrics` strings of the CLI catalog (English and Japanese): `cmux metrics`
-//! (cli/metrics.rs, p09-observability-065).
+//! (cli/metrics.rs).
 
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct MetricsMessages {

@@ -48,20 +48,24 @@ extension AppControl {
         service?.router.register([
             .async("debug.page") { [weak services] call in await DebugPages.handle(call.params, services: services) },
             // Every page, spare and Chromium helper process: state, keep reasons, pids and what reached
-            // hidden pages (p13-webui-001; keys in WebUICensus). `reset: true` zeroes the counters after
+            // hidden pages (keys in WebUICensus). `reset: true` zeroes the counters after
             // the read. The page walk runs in the automation work class, the helpers' argv off the main actor.
             .mainActor("debug.webui") { [weak services] call in
-                guard let census = AppControl.webUICensus(services, reset: call.params["reset"]?.boolValue == true) else { return .value(.null) }
-                return .followUp { await census.report { AppControl.webUIHelpers() } }
+                guard let services, let census = AppControl.webUICensus(services, reset: call.params["reset"]?.boolValue == true) else { return .value(.null) }
+                let parent = services.cache.chromium.helperParent
+                return .followUp { await census.report { AppControl.webUIHelpers(of: parent) } }
             },
         ])
         #endif
     }
 
     #if DEBUG || CMUX_BENCH_HOOKS
-    /// The app's Chromium helpers as `debug.webui` rows (reads each new child's argv: off the main actor).
-    nonisolated static func webUIHelpers() -> [WebUICensus.Helper] {
-        ChromiumHelperProcess.list().map { WebUICensus.Helper(pid: $0.pid, kind: $0.kind.name, rendererClientID: $0.kind.rendererClientID) }
+    /// The children of `parent` (the app, or the Chromium Host: `ChromiumEngineSlot.helperParent`) as `debug.webui`
+    /// rows. Reads each new child's argv: off the main actor.
+    nonisolated static func webUIHelpers(of parent: pid_t?) -> [WebUICensus.Helper] {
+        ChromiumHelperProcess.list(parent: parent).map {
+            WebUICensus.Helper(pid: $0.pid, kind: $0.kind.name, rendererClientID: $0.kind.rendererClientID)
+        }
     }
 
     /// `debug.webui`'s main-actor half: every page, spare and Chromium browser tab now; `reset`
@@ -213,7 +217,7 @@ enum DebugPages {
     }
 }
 
-/// The oracle's `webviews` facet (p15-oracle-215): each page a person can reach (in a tab or a window, never a
+/// The oracle's `webviews` facet: each page a person can reach (in a tab or a window, never a
 /// parked spare) answers `cmux.page.oracle.state`, placed by the page or agent tab whose view holds it.
 extension AppServices {
     /// How long the facet waits for the pages' answers (they are asked together, so one deadline in all).

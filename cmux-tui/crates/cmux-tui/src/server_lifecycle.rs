@@ -1,4 +1,4 @@
-//! A leftover headless owner exits (p07-memory-063, behind the default-off
+//! A leftover headless owner exits (behind the default-off
 //! `leftoverDaemonIdleExit` feature in `schemas/features/features.d`).
 //!
 //! With the feature on, a headless owner stops once it has had, for

@@ -3,7 +3,7 @@ import AppKit
 import CmuxNextWakeups
 import Testing
 
-/// The one source of window visibility (p06-scheduler-022): the window node follows occlusion and
+/// The one source of window visibility: the window node follows occlusion and
 /// miniaturize through WindowEvents, under the app node that follows a hidden app and sleeping
 /// displays through AppEvents; WindowDrawPolicy applies the same rule to AppKit's live state.
 @MainActor @Suite(.timeLimit(.minutes(1))) struct WindowVisibilitySourceTests {

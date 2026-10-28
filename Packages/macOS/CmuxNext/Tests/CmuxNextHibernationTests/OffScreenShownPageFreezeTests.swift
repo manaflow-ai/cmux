@@ -2,7 +2,7 @@ import CmuxNextHibernation
 import CmuxNextSettings
 import Testing
 
-/// p07-memory-097, feature `offScreenWindowPageFreeze`: the page an off-screen window shows (the window's active tab)
+/// Feature `offScreenWindowPageFreeze`: the page an off-screen window shows (the window's active tab)
 /// freezes at once when its tab follows no visibility node, and never otherwise; hidden pages are unchanged.
 @Suite struct OffScreenShownPageFreezeTests {
     let setting = BrowserHibernationSetting(mode: .minutes(60), freezeSeconds: 600)

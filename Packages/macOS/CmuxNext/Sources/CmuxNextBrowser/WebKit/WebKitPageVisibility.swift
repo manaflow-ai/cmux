@@ -1,6 +1,6 @@
 import WebKit
 
-/// Whether a WebKit browser tab's web view is hidden to WebKit (p14-energy-059, feature `webkitHiddenTabs`).
+/// Whether a WebKit browser tab's web view is hidden to WebKit (feature `webkitHiddenTabs`).
 ///
 /// WebKit's `IsVisible` activity state is `-[NSView isHiddenOrHasHiddenAncestor]` of the web view in a visible
 /// window (`PageClientImpl::isViewVisible`, Source/WebKit/UIProcess/mac/PageClientImplMac.mm), so the web view's

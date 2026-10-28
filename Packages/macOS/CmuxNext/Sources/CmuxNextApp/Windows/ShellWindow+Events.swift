@@ -126,8 +126,8 @@ extension ShellWindow: TextInputStageHosting {
     var textInputStage: TextInputStage? { (windowController as? WindowController)?.services.inputLatency.textInput }
 }
 
-/// Overlays draw in the window's own top layer while no page child window shows (feature `overlayTopLayer`,
-/// p03-rendering-052), read when the overlay host is made. A modal there keeps the keys it had in the panel:
+/// Overlays draw in the window's own top layer while no page child window shows (feature `overlayTopLayer`),
+/// read when the overlay host is made. A modal there keeps the keys it had in the panel:
 /// the window routes keys as a panel over itself while ``overlayHasKeyboard`` holds (`KeyRouter.focus(for:)`),
 /// and a field editor's Tab cycles inside the modal.
 extension ShellWindow: OverlayTopLayerHosting {

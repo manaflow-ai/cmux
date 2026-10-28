@@ -7,10 +7,10 @@ import CmuxNextWakeups
 import Testing
 
 /// A screen tab dragged out of the screen bar hears its events through one input tap intercept that
-/// lives for the drag only (p04-input-015): Escape, the press after a lost release and the app going
+/// lives for the drag only: Escape, the press after a lost release and the app going
 /// inactive return it to its slot, each end runs once, and no end (nor a session the bar drops
 /// mid-drag) leaves an intercept. With feature `pointerFrameDrags` its moves light the sidebar on a
-/// frame interval's first move and once at the frame (p04-input-032).
+/// frame interval's first move and once at the frame.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(1)))
 struct ScreenDragSessionTests {
     /// How often the session told the bar it ended.

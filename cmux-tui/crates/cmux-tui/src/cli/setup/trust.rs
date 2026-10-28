@@ -21,6 +21,7 @@ use acpmux::trust::{self, Level, Paths};
 use serde_json::{Value, json};
 
 use super::{Outcome, Refusal};
+use crate::cli::json_fields::JsonFields;
 
 const TASK: &str = "trust";
 
@@ -39,9 +40,9 @@ pub(super) fn run(args: &[String]) -> Result<Outcome, Refusal> {
     let wanted = (request.level != Level::Unknown).then_some(request.level);
     // The folder whose record answers for this one, when it is not this
     // folder's own, and the level it holds.
-    let via = current["via"].as_str().map(str::to_owned);
+    let via = current.field("via").as_str().map(str::to_owned);
     let held = match via {
-        Some(_) => current["level"].as_str().and_then(Level::parse),
+        Some(_) => current.field("level").as_str().and_then(Level::parse),
         None => before,
     };
     // Forgetting an inherited answer forgets it where it was made; anything
@@ -67,22 +68,22 @@ pub(super) fn run(args: &[String]) -> Result<Outcome, Refusal> {
         "user_action": Value::Null,
     });
     if held == wanted {
-        report["state"] = json!("ok");
-        report["after"] = report["before"].clone();
+        report.insert("state", json!("ok"));
+        report.insert("after", report.field("before").clone());
         return Ok(Outcome { report, failed: false });
     }
-    report["written"] = json!(written);
+    report.insert("written", json!(written));
     if request.dry_run {
-        report["state"] = json!("planned");
-        report["undo"] = json!(undo);
+        report.insert("state", json!("planned"));
+        report.insert("undo", json!(undo));
         return Ok(Outcome { report, failed: false });
     }
     let through = write(&paths, &written, request.level)?;
     let after = read(&paths, &folder)?;
-    report["state"] = json!("changed");
-    report["after"] = after;
-    report["through"] = json!(through);
-    report["undo"] = json!(undo);
+    report.insert("state", json!("changed"));
+    report.insert("after", after);
+    report.insert("through", json!(through));
+    report.insert("undo", json!(undo));
     Ok(Outcome { report, failed: false })
 }
 
@@ -94,7 +95,7 @@ pub(super) fn status() -> Result<Value, Refusal> {
     let folder = trust::normalize_cwd(&here.to_string_lossy()).map_err(Refusal::Usage)?;
     let recorded = recorded(&paths, &folder)?;
     let answer = read(&paths, &folder)?;
-    let level = answer["level"].as_str().unwrap_or("unknown").to_owned();
+    let level = answer.field("level").as_str().unwrap_or("unknown").to_owned();
     Ok(json!({
         "task": TASK,
         "state": if level == "unknown" { "needs_setup" } else { "ok" },

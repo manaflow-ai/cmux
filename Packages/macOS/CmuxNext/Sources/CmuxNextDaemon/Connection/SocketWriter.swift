@@ -9,15 +9,21 @@ import Foundation
 /// not read its socket (a Unix socket buffers only a few KB, so a burst of
 /// commands to a busy daemon filled it).
 ///
-/// The owner of CmuxNextIPC's ``FrameWriter`` over the socket (p05-ipc-055):
-/// writes append to the writer's priority FIFOs and return at once; its private
-/// serial queue drains them, input before control before bulk, call order within
-/// a priority. Only that queue's thread ever waits on the socket. Past `limit`
-/// queued bytes a write fails with ``FrameWriter/Failure/backlog(queued:)``.
+/// The owner of CmuxNextIPC's ``FrameWriter`` over the socket:
+/// a write from off the main thread to an idle writer (nothing of its own or a
+/// higher priority waiting, no send in flight) goes to the socket on the caller's
+/// thread with a send that never waits, and the drain queue is not woken
+/// (Mojo's `ChannelPosix::Write`). Every other write, and every write
+/// from the main thread, appends to the writer's priority FIFOs and returns at
+/// once; its private serial queue drains them, input before control before bulk,
+/// call order within a priority. Only that queue's thread ever waits on the
+/// socket. Past `limit` queued bytes a write fails with
+/// ``FrameWriter/Failure/backlog(queued:)``.
 ///
 /// Each drain step (one send) is one `daemon.write` hang scope of ``writeHangDeadline``; a write waiting in
-/// the FIFOs is in none. Chrome watches each IO-thread task the same way (base/threading/hang_watcher.h,
-/// `WatchHangsInScope` per task of `ThreadControllerWithMessagePumpImpl`).
+/// the FIFOs is in none, and so is an inline send: it never waits for the socket, so it cannot hang. Chrome
+/// watches each IO-thread task the same way (base/threading/hang_watcher.h, `WatchHangsInScope` per task of
+/// `ThreadControllerWithMessagePumpImpl`).
 final class SocketWriter: Sendable {
     /// One drain step's budget: a jank past it, a hang dump 2 s later. A step sends at most 64 KiB or one
     /// bulk chunk, so a send stuck this long means the daemon stopped reading its socket.
@@ -66,6 +72,9 @@ final class SocketWriter: Sendable {
 
     /// Bytes waiting for the socket (diagnostics, tests).
     var queuedBytes: Int { writer.queuedBytes }
+
+    /// Times a write woke the drain queue (``FrameWriter/queueHops``; tests).
+    var queueHops: Int { writer.queueHops }
 
     /// Stops writing; queued bytes are dropped. The owner shuts the
     /// descriptor down, which also ends a write in progress.

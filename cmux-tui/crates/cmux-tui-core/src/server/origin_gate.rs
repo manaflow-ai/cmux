@@ -31,7 +31,7 @@ pub(super) fn handle_resource_line(
     span: &mut RequestSpan<'_>,
 ) -> bool {
     // The gate runs on the connection's control sequence, never on its
-    // reader (p05-ipc-086): an owner lookup here must not delay a read.
+    // reader: an owner lookup here must not delay a read.
     debug_assert_off_reader();
     let mut envelope = match envelope {
         Ok(envelope) => envelope,
@@ -416,19 +416,20 @@ pub(super) fn close_page_stream(mux: &Mux, client: u64, stream: std::num::NonZer
     state.clients.get_mut(&client).is_some_and(|record| record.origin.close_page_stream(stream))
 }
 
-/// The accepted peer's kernel identity: its process key, whether it runs in
-/// one of this session's terminals, whether it is this build's bundled
-/// phone host, and its process class.
+/// The accepted peer's kernel identity: its process key and audit token,
+/// whether it runs in one of this session's terminals, whether it is this
+/// build's bundled phone host, and its process class.
 ///
 /// [`AcceptedPeer::resolve`] reads the peer's executable (procfs on Linux,
 /// the audit token on macOS) and canonicalizes paths, which may block. A
-/// connection's reader resolves it as its setup, before it disallows
-/// blocking (`spawn_connection_reader`), as Chromium does file work in a
-/// `MayBlock` task and never on a thread that serves messages
-/// (p02-threads 309). A blocking call there stalls only that connection,
-/// before its first message.
+/// connection resolves it on a `Files` work item before its session opens
+/// (server/line_session.rs), as Chromium does file work in a `MayBlock` task
+/// and never on a thread that serves messages (p02-threads 309).
 pub(super) struct AcceptedPeer {
-    peer_key: Option<String>,
+    /// `token:<pid>.<pid version>` (request-origin.md peer_key).
+    pub(super) key: Option<String>,
+    /// The audit token (prover A); macOS only.
+    pub(super) token: Option<cmux_link::app_caller::PeerToken>,
     local_peer: LocalPeer,
     mobile_host: bool,
     peer_process: PeerProcess,
@@ -472,21 +473,20 @@ impl AcceptedPeer {
             let _ = peer_uid;
             PeerProcess::Unverified
         };
-        AcceptedPeer { peer_key, local_peer, mobile_host, peer_process }
+        Self { key: peer_key, token: peer_token, local_peer, mobile_host, peer_process }
     }
 }
 
 /// Records the accepted peer's identity on `client`, before a legacy client
-/// can skip hello. Memory only: the identity was resolved before the reader
-/// disallowed blocking.
-pub(super) fn set_peer_identity_at_accept(mux: &Mux, client: u64, peer: AcceptedPeer) {
-    let AcceptedPeer { peer_key, local_peer, mobile_host, peer_process } = peer;
+/// can skip hello. Memory only: the identity was resolved off the request
+/// path.
+pub(super) fn set_peer_identity_at_accept(mux: &Mux, client: u64, peer: &AcceptedPeer) {
     let mut state = mux.control_clients.state.lock().recover_poison();
     if let Some(record) = state.clients.get_mut(&client) {
-        record.origin.peer_key = peer_key;
-        record.origin.local_peer = local_peer;
-        record.origin.mobile_host = mobile_host;
-        record.origin.peer_process = peer_process;
+        record.origin.peer_key = peer.key.clone();
+        record.origin.local_peer = peer.local_peer.clone();
+        record.origin.mobile_host = peer.mobile_host;
+        record.origin.peer_process = peer.peer_process;
     }
     drop(state);
     // The peer is known now: a connection of the daemon's own journal plugin

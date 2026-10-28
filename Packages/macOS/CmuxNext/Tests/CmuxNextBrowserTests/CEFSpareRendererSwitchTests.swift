@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import CmuxNextBrowser
 
-/// p13-webui-020: Home had a Chromium spare renderer with no browser tab open (made for the pages
+/// Home had a Chromium spare renderer with no browser tab open (made for the pages
 /// profile or an extension background page), and every page open replaced the browser profile's
 /// spare. With the default-off feature `chromiumSpareAfterFirstTab` the browser process starts with
 /// the fork's policy switch (a profile gets a spare only after one of its browser tabs navigated);
@@ -29,7 +29,7 @@ import Testing
         #expect(!arguments.contains { $0.hasPrefix("cmux-spare-renderer") }, "\(arguments)")
     }
 
-    /// p01-process-086: the Chromium Host builds no spare window and relies on content's spare
+    /// The Chromium Host builds no spare window and relies on content's spare
     /// RenderProcessHost, which Chrome desktop keeps at all times only under site-per-process
     /// (`RenderProcessHostImpl::IsSpareProcessKeptAtAllTimes`): no switch cmux passes turns site
     /// isolation or the spare off, with the spare policy on or off.

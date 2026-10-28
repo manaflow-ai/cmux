@@ -24,6 +24,7 @@ dependencies = [
  "cmux-panic-log",
  "cmux-sdk",
  "cmux-server-core",
+ "cmux-threads",
  "cmux-trace",
  "cmux-tui-platform",
  "cmux-unix-socket",
@@ -1004,7 +1005,9 @@ name = "cmux-browser-host"
 version = "1.0.0"
 dependencies = [
  "chacha20poly1305",
+ "cmux-link",
  "cmux-panic-log",
+ "cmux-threads",
  "cmux-trace",
  "getrandom 0.3.4",
  "hmac",
@@ -1013,6 +1016,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha1",
+ "sha2 0.10.9",
  "url",
 ]
 
@@ -1255,6 +1259,7 @@ dependencies = [
  "cmux-panic-log",
  "cmux-server",
  "cmux-server-core",
+ "cmux-threads",
  "flate2",
  "libc",
  "proptest",
@@ -1634,6 +1639,7 @@ name = "cmux-tasks"
 version = "0.1.0"
 dependencies = [
  "cmux-tasks-core",
+ "cmux-threads",
  "fs4",
  "getrandom 0.3.4",
  "proptest",
@@ -1797,6 +1803,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "base64",
+ "cmux-threads",
  "serde_json",
  "tungstenite",
 ]

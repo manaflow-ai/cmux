@@ -27,6 +27,7 @@ use tokio::sync::mpsc;
 
 use crate::cli::output::print_json;
 use crate::client::Client;
+use crate::no_panic::JsonExt;
 use crate::rpc::method;
 
 #[derive(Subcommand, Debug, PartialEq, Eq)]
@@ -108,7 +109,7 @@ pub async fn run(cmd: ProcessCmd, json_out: bool) -> Result<()> {
         ProcessCmd::Background { session, tool_call } => {
             let mut params = json!({"sessionId": session});
             if let Some(tool) = tool_call {
-                params["toolCallId"] = json!(tool);
+                params.set("toolCallId", json!(tool));
             }
             let v = client.request(method::MUX_PROCESS_BACKGROUND, params).await?;
             if json_out {
@@ -597,11 +598,9 @@ fn local_time(ms: u64) -> String {
     let days = t.div_euclid(86_400);
     let rem = t.rem_euclid(86_400);
     let (_, month, day) = civil(days);
-    const MONTHS: [&str; 12] =
-        ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
     format!(
         "{} {} {:02}:{:02}:{:02}",
-        MONTHS[(month - 1) as usize],
+        month_name(month),
         day,
         rem / 3600,
         (rem % 3600) / 60,
@@ -627,6 +626,17 @@ fn local_offset(_secs: i64) -> i64 {
 }
 
 /// Days since 1970-01-01 as (year, month, day) (Howard Hinnant's algorithm).
+/// `Jan` .. `Dec` for a month of [`civil`].
+#[allow(
+    clippy::indexing_slicing,
+    reason = "INVARIANT: civil() returns a month in 1..=12, so month - 1 indexes the 12 names"
+)]
+fn month_name(month: i64) -> &'static str {
+    const MONTHS: [&str; 12] =
+        ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    MONTHS[(month - 1) as usize]
+}
+
 fn civil(days: i64) -> (i64, i64, i64) {
     let z = days + 719_468;
     let era = z.div_euclid(146_097);
@@ -670,17 +680,21 @@ impl Keys {
         let (tx, rx) = mpsc::channel(16);
         // A thread: a blocking read of stdin that ends with the process. One that cannot
         // start leaves `rx` closed: no keys.
-        let _ = crate::supervised::scoped_thread("acpmux-keys", move || {
-            let mut byte = [0u8; 1];
-            let mut stdin = std::io::stdin();
-            while let Ok(1) = stdin.read(&mut byte) {
-                if let Some(key) = Input::of(byte[0])
-                    && tx.blocking_send(key).is_err()
-                {
-                    break;
+        let _ = crate::supervised::scoped_thread(
+            "acpmux-keys",
+            cmux_threads::ThreadQos::UserInitiated,
+            move || {
+                let mut byte = [0u8; 1];
+                let mut stdin = std::io::stdin();
+                while let Ok(1) = stdin.read(&mut byte) {
+                    if let Some(key) = Input::of(byte[0])
+                        && tx.blocking_send(key).is_err()
+                    {
+                        break;
+                    }
                 }
-            }
-        });
+            },
+        );
         Some((Keys { saved }, rx))
     }
 

@@ -218,12 +218,13 @@ inline constexpr uint16_t kOpEvent = 0x8001;  // host -> cmux: one shim event
 inline constexpr uint16_t kOpReply = 0x8002;  // host -> cmux: an async op's result
 inline constexpr uint16_t kOpMirror = 0x8003;  // host -> cmux: a mirror value
 inline constexpr uint16_t kOpAck = 0x8004;  // host -> cmux: a token's op ran
-inline constexpr int kEventKindCount = 66;
-inline constexpr char kShimAbiID[] = "183b298b198b385c17c2812753a8ae86772b4cd78d9f687f56db9260136a3889";
+inline constexpr int kEventKindCount = 68;
+inline constexpr char kShimAbiID[] = "641e57a19bd827069848e7610171deda12fd58f5576ab72b2afae3083a8203b4";
 // Both sides' HELLO carries it: the op ids, classes and wire types of this generation.
-inline constexpr char kWireID[] = "3ec17138f8508529b7b1c105a843a8e60f986ca4a4ec0e02544aa8f75dee4f71";
+inline constexpr char kWireID[] = "d7a832720219ab8c5bf90994fa22b3a1107ac48595eaf77da206a33e4d66fe6e";
 inline constexpr int32_t kMaxRecords = 65536;
 inline constexpr int32_t kMaxOutCapacity = 65536;
+inline constexpr int32_t kMirrorOutCapacity = 64;
 
 // Exports the header does not declare yet (fork API symbols): the host resolves each in its shim,
 // lists the ones it found in the HELLO, and answers an op whose symbol is missing with zero.
@@ -1578,19 +1579,6 @@ inline bool DispatchOp(HostContext& ctx, uint16_t op, uint32_t wire_token, TlvRe
       ctx.Ack(wire_token);
       return true;
     }
-    case kOpRendererClientIds: {
-      const auto arg_browser_id = r.I32();
-      const int32_t arg_out_capacity = r.I32();
-      if (!r.ok() || arg_out_capacity < 0 || arg_out_capacity > kMaxOutCapacity) return false;
-      std::vector<int> arg_out(static_cast<size_t>(arg_out_capacity));
-      if (!r.ok() || !r.AtEnd()) return false;
-      const auto call_result = cmux_shim_renderer_client_ids(ctx.Browser(arg_browser_id), arg_out.data(), static_cast<int>(arg_out_capacity));
-      TlvWriter reply_w;
-      reply_w.I32(call_result);
-      reply_w.I32Array(arg_out.data(), arg_out.size());
-      ctx.Reply(wire_token, reply_w);
-      return true;
-    }
     case kOpSetContextProxy: {
       const std::optional<std::string> arg_profile_cache_path = r.Str();
       const auto arg_port = r.I32();
@@ -2232,6 +2220,19 @@ inline bool ProduceMirror(HostContext& ctx, uint16_t op, TlvReader& r) {
       ctx.PushMirror(kOpPasswordCoreAvailable, key_w, value_w);
       return true;
     }
+    case kOpRendererClientIds: {
+      const auto arg_browser_id = r.I32();
+      std::vector<int> arg_out(static_cast<size_t>(kMirrorOutCapacity));
+      if (!r.ok() || !r.AtEnd()) return false;
+      const auto call_result = cmux_shim_renderer_client_ids(ctx.Browser(arg_browser_id), arg_out.data(), static_cast<int>(kMirrorOutCapacity));
+      TlvWriter key_w;
+      key_w.I32(arg_browser_id);
+      TlvWriter value_w;
+      value_w.I32(call_result);
+      value_w.I32Array(arg_out.data(), arg_out.size());
+      ctx.PushMirror(kOpRendererClientIds, key_w, value_w);
+      return true;
+    }
     case kOpExtLoadLaterSupported: {
       if (!r.ok() || !r.AtEnd()) return false;
       const auto call_result = cmux_shim_ext_load_later_supported();
@@ -2317,6 +2318,12 @@ inline constexpr MirrorRefresh kMirrorRefreshes[] = {
     {-1, -1, kOpPasswordReplaceAvailable},  // attach
     {-1, -1, kOpPasskeysAvailable},  // attach
     {-1, -1, kOpPasswordCoreAvailable},  // attach
+    {2, -1, kOpRendererClientIds},  // CMUX_SHIM_AFTER_CREATED
+    {4, -1, kOpRendererClientIds},  // CMUX_SHIM_ADDRESS
+    {9, -1, kOpRendererClientIds},  // CMUX_SHIM_LOAD_END
+    {23, -1, kOpRendererClientIds},  // CMUX_SHIM_RENDER_TERMINATED
+    {67, -1, kOpRendererClientIds},  // CMUX_SHIM_FRAME_RENDERERS
+    {3, -1, kOpRendererClientIds},  // CMUX_SHIM_BEFORE_CLOSE
     {-1, -1, kOpExtLoadLaterSupported},  // attach
 };
 

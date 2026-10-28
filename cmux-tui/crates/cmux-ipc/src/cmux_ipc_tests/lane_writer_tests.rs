@@ -1,4 +1,4 @@
-//! LaneWriter policy (p05-ipc-052): seeded property tests over random push,
+//! LaneWriter policy: seeded property tests over random push,
 //! pop and lane-change interleavings, plus the shape of chunks, the byte bound
 //! and the coalesce hook. The allocation check is tests/lane_writer_alloc.rs.
 

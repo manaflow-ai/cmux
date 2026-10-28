@@ -3,7 +3,7 @@
 import CmuxNextWakeupsTestSupport
 import Testing
 
-/// Ghostty's wakeup ticks paced to the frame (p03-rendering-119): a stream of wakeups ticks at most once
+/// Ghostty's wakeup ticks paced to the frame: a stream of wakeups ticks at most once
 /// per frame with no hop per wakeup, a quiet spell's first wakeup and a key's echo tick at once (a
 /// wakeup left to the frame before the key too), a mailbox message waits at most one frame, and
 /// `GhosttyRuntime.tick` shows in debug.wakeups.

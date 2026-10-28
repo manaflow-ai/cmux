@@ -8,7 +8,7 @@ import CmuxNextSettings
 import Foundation
 import Testing
 
-/// p07-memory-105: wakes nobody asked for (an agent's or a script's call on a hibernated tab, a neighbor or
+/// Wakes nobody asked for (an agent's or a script's call on a hibernated tab, a neighbor or
 /// hover prewarm) are admitted as Chrome admits background tab loads
 /// (chrome/browser/performance_manager/policies/background_tab_loading_policy.cc): at most
 /// clamp(cores / 2, 1, 4) restore at once, the waiting ones are dropped at warning pressure with a typed

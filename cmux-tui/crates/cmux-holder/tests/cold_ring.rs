@@ -1,4 +1,4 @@
-//! p07-memory-094: a cold terminal's holder ring gives its pages back once
+//! A cold terminal's holder ring gives its pages back once
 //! the daemon acknowledged its output and the prologue is past it, and a
 //! holder crash after that still loses no byte.
 

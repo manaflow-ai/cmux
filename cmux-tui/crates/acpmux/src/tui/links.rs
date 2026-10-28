@@ -78,7 +78,8 @@ pub fn find(text: &str) -> Vec<Link> {
         let lead = tok.len() - tok.trim_start_matches(['(', '[', '{', '"', '\'', '<', '`']).len();
         let t = trim_token(tok);
         if !t.is_empty() && (is_url_start(t) || looks_like_path(t)) {
-            let lead_cols = unicode_width::UnicodeWidthStr::width(&tok[..lead]);
+            let lead_cols =
+                unicode_width::UnicodeWidthStr::width(tok.get(..lead).unwrap_or_default());
             let w = unicode_width::UnicodeWidthStr::width(t);
             out.push(Link {
                 start: start_col + lead_cols,
@@ -110,19 +111,15 @@ pub fn split_line(target: &str) -> (&str, Option<u32>) {
     if is_url_start(target) {
         return (target, None);
     }
-    let mut parts = target.rsplitn(3, ':');
-    let last = parts.next().unwrap_or(target);
-    if let Ok(n) = last.parse::<u32>() {
-        let rest = &target[..target.len() - last.len() - 1];
-        // `path:12:5` → try once more for the line.
-        let mut inner = rest.rsplitn(2, ':');
-        let l2 = inner.next().unwrap_or(rest);
-        if let (Ok(line), Some(p)) = (l2.parse::<u32>(), inner.next()) {
-            return (p, Some(line));
-        }
-        return (rest, Some(n));
+    let Some((rest, last)) = target.rsplit_once(':') else { return (target, None) };
+    let Ok(n) = last.parse::<u32>() else { return (target, None) };
+    // `path:12:5` → try once more for the line.
+    if let Some((path, l2)) = rest.rsplit_once(':')
+        && let Ok(line) = l2.parse::<u32>()
+    {
+        return (path, Some(line));
     }
-    (target, None)
+    (rest, Some(n))
 }
 
 /// Absolute path for a path token, relative to the session's directory.
@@ -191,4 +188,25 @@ pub fn open(target: &str, cwd: &str) -> String {
     }
     let _ = std::process::Command::new(opener).arg(&abs).spawn();
     format!("opened {}", abs.display())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::split_line;
+
+    #[test]
+    fn split_line_reads_path_line_and_col() {
+        assert_eq!(split_line("src/main.rs:12"), ("src/main.rs", Some(12)));
+        assert_eq!(split_line("src/main.rs:12:5"), ("src/main.rs", Some(12)));
+        assert_eq!(split_line("src/main.rs"), ("src/main.rs", None));
+        assert_eq!(split_line("https://x.dev:8080"), ("https://x.dev:8080", None));
+    }
+
+    /// A bare number in a transcript (`42`) is a token with no `:`: it is no
+    /// path and line, never a slice before the start of the text.
+    #[test]
+    fn split_line_takes_a_bare_number_as_no_line() {
+        assert_eq!(split_line("42"), ("42", None));
+        assert_eq!(split_line(":7"), ("", Some(7)));
+    }
 }

@@ -250,7 +250,7 @@ import Testing
         #expect(NowPlayingNeed(card: false, cardHidden: false, newTab: true) == .shown)
     }
 
-    /// p07-memory-061: the adapter (a perl process) starts on the first need, never when the source
+    /// The adapter (a perl process) starts on the first need, never when the source
     /// is made, keeps running through a need that comes back within a minute (no new spawn), and
     /// stops one minute after the last need. The real adapter over a launcher whose spawn only counts.
     @Test func thePerlAdapterStartsOnFirstNeedAndStopsAMinuteAfterTheLast() async throws {
@@ -380,7 +380,7 @@ import Testing
         payload["artworkMimeType"] = "image/jpeg"
         adapter.emit(diff: false, payload)
         // Decoded and drawn off the main actor: the track shows at once, its artwork once ready, as one
-        // visible task on the app's scheduler (the rig's runs at its frames; p06-scheduler-342).
+        // visible task on the app's scheduler (the rig's runs at its frames).
         #expect(source.nowPlaying?.title == "Weightless")
         #expect(source.nowPlaying?.artwork == nil, "the artwork was drawn on the main actor, in the update's turn")
         try await Self.until {

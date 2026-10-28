@@ -26,7 +26,7 @@ enum WorkspaceSetVerbs {
             let services = context.services
             let pane: PaneController? = switch target.kind {
             case .pane: services.windows.controllers.lazy.compactMap { $0.content?.panes.values.first { $0.paneKey == target.id } }.first
-            // view-observation-allow: one MachineTabIndex lookup (p06-scheduler-051) per context read, no observation
+            // view-observation-allow: one MachineTabIndex lookup per context read, no observation
             case .tab: services.locateTab(target.id).flatMap { services.paneController(for: $0.1) }
             default: nil
             }

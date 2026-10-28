@@ -1,7 +1,7 @@
 public import class CmuxNextDesign.LaunchReveal
 public import CmuxNextWakeups
 
-/// The web views of the agent tabs a launch shows before startup completes (p08-startup-042). Each
+/// The web views of the agent tabs a launch shows before startup completes. Each
 /// tab's picture (its page from the last quit) draws first; its view, a `WKWebView` whose first one
 /// also makes the `WKProcessPool` (about 150 ms of main thread), is made only in an afterFirstFrame
 /// post of the launch's ``StartupScheduler``, so before completion these posts are the only makers of

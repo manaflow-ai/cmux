@@ -23,7 +23,7 @@ public protocol ChromiumHostSupervising: AnyObject {
 }
 
 /// A ``ChromiumHostSupervising`` that can end its running host at once, so the next start gets a new
-/// one: the busy banner's Reload Chromium (task p01-process-084), as Chrome's hung page dialog ends
+/// one: the busy banner's Reload Chromium, as Chrome's hung page dialog ends
 /// the renderer that stopped answering (`RenderProcessHost::Shutdown`). A hung UI thread reads no
 /// quit, so this is a kill; the host's end then reaches the runtime as any crash does.
 /// `ChromiumHostSupervisor` conforms (task 080).
@@ -63,6 +63,18 @@ public nonisolated struct ChromiumHostAttachment: Sendable, Equatable {
         self.remoteShim = remoteShim
         self.frameworkLocales = frameworkLocales
         self.resizeFence = resizeFence
+    }
+
+    /// The host's pid, whose children are its Chromium helpers: the process at the other end of the control
+    /// channel (`LOCAL_PEERPID`, the last process that used that end). Read it after the host's hello, which
+    /// the host wrote on its end; nil when the socket cannot say, or names this process.
+    func hostPID() -> pid_t? {
+        var pid: pid_t = 0
+        var size = socklen_t(MemoryLayout<pid_t>.size)
+        // SAFETY: getsockopt writes at most `size` bytes (one pid_t) into `pid` and the size it wrote into `size`;
+        // both are locals.
+        let read = unsafe getsockopt(controlFD, SOL_LOCAL, LOCAL_PEERPID, &pid, &size) == 0
+        return read && pid > 1 && pid != getpid() ? pid : nil
     }
 
     /// Closes every descriptor: the remote shim did not take them.

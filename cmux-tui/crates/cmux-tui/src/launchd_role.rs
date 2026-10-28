@@ -68,7 +68,6 @@ mod tests {
     use super::*;
 
     /// The `com.cmuxterm.host-remote` plist `cmux host enable` wrote before
-    /// p02-threads-234.
     const OLD_HOST_REMOTE: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">

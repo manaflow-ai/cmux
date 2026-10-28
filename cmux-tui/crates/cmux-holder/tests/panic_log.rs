@@ -1,4 +1,4 @@
-//! The holder's panic log (p09-observability-080): with the hook `main`
+//! The holder's panic log: with the hook `main`
 //! installs, a panic appends one line to `holder-panics.jsonl` beside the
 //! socket, through cmux-panic-log's std-only writer, and the previous hook
 //! still runs. Its own test binary, so the process's panic hook touches no

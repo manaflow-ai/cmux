@@ -66,7 +66,7 @@ VIA_DUMP = "\n".join([
     "Chromium Embedded Framework|0x7000|cef_run_loop;cmux DEV.debug.dylib|0x500|$s15CmuxNextBrowser5lightyyF;",
 ]) + "\n"
 
-# The cross-process and loader kinds (probe.c, task p08-startup-084) on the app's main thread: a keychain read and
+# The cross-process and loader kinds (probe.c) on the app's main thread: a keychain read and
 # add, an XPC reply then a fork from one site, a plugin's dlopen, getpwuid_r and a nested run loop's mach receive.
 CROSS_PROCESS_DUMP = "\n".join([
     "#final\t1", "#threads\tmain", "#process\tcmux DEV",
@@ -209,7 +209,7 @@ class ReportSections(unittest.TestCase):
 
     def test_old_fields_are_unchanged(self):
         # by_kind is the only new summary field; every old field keeps its name and value. Rows gain only
-        # cmux_frame and pairs (the filing's inputs, p02-threads-301).
+        # cmux_frame and pairs (the filing's inputs).
         report, markdown = self.run_report([APP_DUMP, DAEMON_DUMP])
         self.assertEqual(set(report["summary"]), {"launches", "dumps", "bad_lines", "calls_timed", "dropped",
                                                   "probe_overhead_ms_estimate", "sections"})

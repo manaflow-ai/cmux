@@ -1,5 +1,5 @@
 // The Chromium Host's side of the control channel
-// (plans/cmux-next/chrome-parity/p01-process.md 3.1-3.2, task p01-process-013):
+// (plans/cmux-next/chrome-parity/p01-process.md 3.1-3.2):
 // every message from cmux becomes one call of the real shim
 // (CEFShim/src/shim_*.mm, linked into the host) through the generated
 // host_dispatch.inc, and every shim event goes back as one EVENT, after the
@@ -50,9 +50,13 @@
 //                                              the value (KeepPageVisibility) and applies
 //                                              it when it detaches the page window, and
 //                                              holds its App Nap activity while a page is
-//                                              shown (host_page_activity.h, task
-//                                              p14-energy-128)
-//   kOpBrowserAccessibilityToken                the generated case; for a browser cmux
+//                                              shown (host_page_activity.h)
+//   kOpProviderLink                             the browser host's provider socket and the
+//                                              relay credential (host_provider_link.h):
+// the host dials its own link
+//                                              and relays the raw DevTools of the pages the
+//                                              browser host attaches, never through cmux
+//   kOpBrowserAccessibilityToken               the generated case; for a browser cmux
 //                                              minted whose creation has not come, held
 //                                              and run once its AFTER_CREATED went out
 //                                              (task 049) and after the ack of the op whose
@@ -88,13 +92,15 @@
 //   kOpReply   reply flag, token, the op's result and out-parameters; for a
 //              password reveal one bytes field, the password, or no field when
 //              the shim found none (or 64 reveals wait already).
-//              That REPLY is the only place the password crosses (task
-//              p01-process-025): no log, trace or counter here names its fields.
+//              That REPLY is the only place the password crosses:
+// no log, trace or counter here names its fields.
 //   kOpTextInputState  a watched browser's text input state, at most once per
 //              display frame (host_text_input.h)
 //   kOpEvent   CMUX_SHIM_COLOR_CHOOSER, _DEVICE_CHOOSER, _DESKTOP_MEDIA: an
 //              installed chooser handler's event, the fork's struct as s1's
 //              bytes (EncodePayloadEvent, host_choosers.h)
+//   kOpEvent   CMUX_SHIM_HELPER_EXIT: one of the host's helpers ended
+//              (host_helper_exits.h)
 //   kOpEvent   CMUX_SHIM_WHEEL_ACK: the fork's ack of one of a page's wheels,
 //              with that wheel's input seq (host_wheel_ack.h); the HELLO lists
 //              kWheelAcksHelloName when the fork has the handler
@@ -127,9 +133,11 @@
 #include "chromium_host_wire.h"
 #include "host_choosers.h"
 #include "host_energy_saver.h"
+#include "host_helper_exits.h"
 #include "host_locks.h"
 #include "host_mirror.h"
 #include "host_page_activity.h"
+#include "host_provider_link.h"
 #include "host_resize.h"
 #include "host_window_request_ids.h"
 #include "host_text_input.h"
@@ -288,6 +296,10 @@ class HostContext {
   // the fork's first ack of that browser after the acks of the wheels sent
   // before it answers it.
   void WheelSent(int chromium_id, uint32_t seq, bool momentum) { wheel_acks_.Sent(chromium_id, seq, momentum); }
+  // One of the host's helpers ended (HelperExitWatcher, handed to the main
+  // thread): CMUX_SHIM_HELPER_EXIT goes to cmux like a shim event, so it
+  // waits behind an op being dispatched as every event does.
+  void HelperExited(const HelperExit& ended);
   // cmux_shim_password_reveal's done; ctx is the reveal's PasswordReveal.
   static void OnPasswordRevealed(void* ctx, const char* password, size_t length);
 
@@ -366,6 +378,15 @@ class HostContext {
   // kLocksHelloName); nullptr takes kOpSetLockHandler and changes nothing.
   void SetLockHandler(SetLockHandlerFn set_lock_handler) { set_lock_handler_ = set_lock_handler; }
 
+  // The provider link (browser_host_main.mm, before Attach, which then lists
+  // kProviderLinkHelloName): kOpProviderLink goes to
+  // `connect`, and the raw DevTools of a page the link relays go to `relays`,
+  // not to cmux (host_provider_link.h). Without it kOpProviderLink changes nothing.
+  void SetProviderLink(AgentRelays* relays, std::function<void(const ProviderLinkConfig&)> connect) {
+    agent_relays_ = relays;
+    connect_provider_link_ = std::move(connect);
+  }
+
   // What the shown page count holds (browser_host_main.mm, before Attach):
   // the count goes to it after each kOpBrowserSetPageVisibility, at each
   // browser's close and once initialize returned; nullptr holds nothing.
@@ -409,7 +430,7 @@ class HostContext {
   bool HandleLayerHosting(const control::Message& message);
   // kOpBrowserSetPageVisibility, before its generated case: keeps cmux's
   // value for the browser, since the fork takes none until the page window
-  // is detached (task p01-process-220), and keeps it for the browser's
+  // is detached, and keeps it for the browser's
   // Chromium window in page_windows_, so a page that shows has the activity
   // before the fork draws it. False past kMaxPageVisibilities.
   bool KeepPageVisibility(const control::Message& message);
@@ -430,6 +451,10 @@ class HostContext {
   bool HandleEnergySaver(const control::Message& message);
   // kOpSetLockHandler: false for a malformed op.
   bool HandleLockHandler(const control::Message& message);
+  // kOpProviderLink: false for a malformed op.
+  bool HandleProviderLink(const control::Message& message);
+  // cmux's kOpDevtoolsWatchEvents with a provider link: false for a malformed op.
+  bool HandleDevToolsWatch(const control::Message& message);
   // Keeps `token`'s size for the next op that opens its view (view_sizes_).
   void RememberViewSize(uint64_t token, int32_t width, int32_t height);
   // Watches `chromium_id`'s text input in the fork: its result (0 refused).
@@ -548,6 +573,9 @@ class HostContext {
   EnergySaverFn energy_saver_ = nullptr;
   bool hang_watch_ = false;
   SetLockHandlerFn set_lock_handler_ = nullptr;
+  // The provider link's relays and its dial (SetProviderLink); nullptr: no link.
+  AgentRelays* agent_relays_ = nullptr;
+  std::function<void(const ProviderLinkConfig&)> connect_provider_link_;
   // Text input watches of minted ids whose creation has not come, by the
   // minted id: the watch tokens Bind arms and answers. Bounded with
   // pending_binds_ (AwaitsCreation).

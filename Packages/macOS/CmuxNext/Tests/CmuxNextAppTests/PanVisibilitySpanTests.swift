@@ -2,7 +2,7 @@ import CoreGraphics
 @testable import CmuxNextLayout
 import Testing
 
-/// `PanVisibilitySpan` (p03-rendering-026): a strip pan inside the span brings no pane into or out of
+/// `PanVisibilitySpan`: a strip pan inside the span brings no pane into or out of
 /// the viewport or the keep-alive band, so the visibility pass it skips would have reported nothing.
 struct PanVisibilitySpanTests {
     private static let viewport = CGRect(x: 0, y: 0, width: 1000, height: 800)

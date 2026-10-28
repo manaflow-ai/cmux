@@ -6,8 +6,8 @@ import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
-/// The shown workspace card re-arms its one deadline whenever its content changes
-/// (p14-energy-057): a command that starts while the card shows a day-old status reads "· 1s",
+/// The shown workspace card re-arms its one deadline whenever its content changes:
+/// a command that starts while the card shows a day-old status reads "· 1s",
 /// so the next deadline is about a second away, not the old content's next hour boundary.
 @MainActor @Suite(.serialized) struct WorkspaceHoverCardRearmTests {
     private static let id = WorkspaceID("ws-rearm")

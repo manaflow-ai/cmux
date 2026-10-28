@@ -7,7 +7,7 @@ import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
-/// p08-startup-040: at launch a restored Chromium tab's page gets its origin from where it shows. One that
+/// At launch a restored Chromium tab's page gets its origin from where it shows. One that
 /// shows is made at once as `.restoreVisible` (its engine starts Chromium after the first frame); one that
 /// does not show is the deferred page (no notice), started by the first of: its tab shows, or startup
 /// completes. With feature `cefLaunchOrigin` off (no launch scheduler in the slot) nothing changes.

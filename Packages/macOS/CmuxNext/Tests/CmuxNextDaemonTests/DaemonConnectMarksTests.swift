@@ -4,7 +4,7 @@ import Foundation
 import Testing
 @testable import CmuxNextDaemon
 
-/// p08-startup-066: the launch's daemon connect milestones (`daemon.connect_started`, `spawned`, `identified`,
+/// The launch's daemon connect milestones (`daemon.connect_started`, `spawned`, `identified`,
 /// `snapshot_received`) go out once each, only while the startup connect runs, and `identified` and
 /// `snapshot_received` only for the connection the startup attaches.
 @Suite(.timeLimit(.minutes(1)))
@@ -73,6 +73,30 @@ struct DaemonConnectMarksTests {
         let marks = DaemonConnectMarks { received.append($0, $1) }
         _ = try await marks.endpointProvider(of: standIn.launcher)()
         #expect(received.names.isEmpty)
+    }
+
+    /// A launch after the app alone ended (`kill -9`) finds the daemon running and reattaches to it
+    /// (`DaemonService.launchAttach`); one whose attempt started a daemon did not.
+    @Test("startedDaemon says whether a startup attempt started the daemon")
+    func startedDaemonFollowsTheSpawn() async throws {
+        let running = try StandIn(ensureStatus: "running")
+        defer { running.remove() }
+        let warm = DaemonConnectMarks()
+        _ = try await warm.endpointProvider(of: running.launcher)()
+        #expect(!warm.startedDaemon, "the launch found the daemon running")
+        let started = try StandIn(ensureStatus: "started")
+        defer { started.remove() }
+        let cold = DaemonConnectMarks()
+        _ = try await cold.endpointProvider(of: started.launcher)()
+        #expect(cold.startedDaemon)
+    }
+
+    @Test("A spawn after the startup connect closed does not make it a started daemon")
+    func spawnAfterCloseIsNotStarted() {
+        let marks = DaemonConnectMarks()
+        marks.close()
+        marks.mark(.spawned)
+        #expect(!marks.startedDaemon)
     }
 
     @Test("A warm launch's later respawn, through the same provider, marks no spawn once the startup attached")

@@ -1,6 +1,6 @@
 import Foundation
 
-// The files TypeEmitter writes (p05-ipc-020): the fixed support files, then one
+// The files TypeEmitter writes: the fixed support files, then one
 // file per named type the `clients: macos` commands reach. CmuxNextWireGenPlugin
 // compiles this same source (its Plugins/CmuxNextWireGenPlugin/WireTypeFiles.swift
 // is a symlink to this file) to declare the build command's outputs, so the files

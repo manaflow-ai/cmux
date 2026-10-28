@@ -3,7 +3,7 @@ import AppKit
 import CmuxNextWakeups
 import Testing
 
-/// p14-energy-059: a tab parked in an agent's render window is told to keep its page shown while it is parked
+/// A tab parked in an agent's render window is told to keep its page shown while it is parked
 /// (`WebKitTab.setKeptRendering`, which shows a page the `webkitHiddenTabs` feature hid), and told so no longer
 /// when the park ends.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(1))) struct AgentRenderWindowsKeepShownTests {

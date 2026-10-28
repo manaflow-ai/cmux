@@ -48,7 +48,8 @@ impl OrderedSession {
         let claim = if relaunch {
             None
         } else {
-            let mut state = self.sidebar_plugin_sync.lock().unwrap();
+            let mut state =
+                self.sidebar_plugin_sync.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let desired = (size, config_generation, state.epoch);
             if state.claimed == Some(desired) || state.applied == Some(desired) {
                 return;
@@ -98,7 +99,8 @@ impl OrderedSession {
     }
 
     pub(in crate::app) fn invalidate_sidebar_plugin_sync(&self) {
-        let mut state = self.sidebar_plugin_sync.lock().unwrap();
+        let mut state =
+            self.sidebar_plugin_sync.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if state.claimed.is_none() && state.applied.is_none() {
             return;
         }

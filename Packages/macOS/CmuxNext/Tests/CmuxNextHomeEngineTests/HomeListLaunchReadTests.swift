@@ -5,7 +5,7 @@ import Foundation
 import os
 import Testing
 
-/// The Home list's launch files (p08-startup-076): the conversations' `HomeCache` and the list's
+/// The Home list's launch files: the conversations' `HomeCache` and the list's
 /// `HomeSidebarLaunchCache`, read together on a `BackgroundWork` files lane, never on the main thread;
 /// `value` is nil while the read runs, so the main thread never waits for it.
 @Suite(.timeLimit(.minutes(1))) struct HomeListLaunchReadTests {

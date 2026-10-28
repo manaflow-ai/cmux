@@ -27,7 +27,7 @@ import IOSurface
 // touching AppKit. A surface's state actions wait in its GhosttyActionMailbox for
 // its window's frame; its discrete actions, clipboard confirms and writes, and
 // close flush that mailbox first, so each runs after the state Ghostty sent
-// before it (p04-input-079).
+// before it.
 
 // Every `userdata` below is what cmux registered for its callback: the runtime's
 // RuntimeCallbackContext's registry token, or a surface's SurfaceBridge, which outlives its surface

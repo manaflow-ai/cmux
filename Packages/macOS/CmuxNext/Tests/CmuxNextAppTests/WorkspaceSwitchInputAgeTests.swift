@@ -9,7 +9,7 @@ import CmuxNextSignposts
 import QuartzCore
 import Testing
 
-/// `switch.workspace`'s input age (p12-perf-process-080): the begin's `arg0` is the age in µs of the input the switch
+/// `switch.workspace`'s input age: the begin's `arg0` is the age in µs of the input the switch
 /// answers, the same input its action run's `action.*` row reads: the key or click being dispatched, a page's click
 /// carried with its request, or the press of the person's action run in progress. A switch nothing a person did in
 /// this app asked for (a socket or CLI `workspace` select) has none (all ones), however recent the last click was.

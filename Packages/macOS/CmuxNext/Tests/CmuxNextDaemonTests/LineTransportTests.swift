@@ -195,7 +195,7 @@ import Testing
 
     /// Each link kind reads and writes at its role's class, read back from the kernel on the reader thread: the
     /// terminal attach link (typed keys and their echo) at user-interactive, the control link (commands, replies,
-    /// automation and sidebar events) one class below, so its churn never shares typing's class (p04-input-059).
+    /// automation and sidebar events) one class below, so its churn never shares typing's class.
     @Test(arguments: [DaemonWireStats.Role.control, .terminalAttach])
     func eachLinkKindReadsAndWritesAtItsClass(role: DaemonWireStats.Role) async throws {
         let typing = role == .terminalAttach

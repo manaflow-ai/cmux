@@ -194,8 +194,7 @@ pub fn glob_regex(pattern: &str) -> Result<regex::Regex, HandError> {
     let chars: Vec<char> = pattern.chars().collect();
     let mut i = 0;
     let mut depth = 0;
-    while i < chars.len() {
-        let c = chars[i];
+    while let Some(&c) = chars.get(i) {
         match c {
             '*' if chars.get(i + 1) == Some(&'*') => {
                 i += 1;

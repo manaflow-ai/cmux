@@ -551,8 +551,8 @@ fn frame_json(
     }
 }
 
-/// One `output` event; `flow` (the key press it echoes,
-/// p09-observability-018) only when it is not 0.
+/// One `output` event; `flow` (the key press it echoes)
+/// only when it is not 0.
 fn output_json(
     surface: SurfaceId,
     output: &[u8],

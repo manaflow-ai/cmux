@@ -1,13 +1,13 @@
 import CmuxNextCompat
 import CmuxNextMetrics
 
-/// The field histogram `key.echo_frame.<route>` (``HistogramID/keyEchoFrame(_:)``, p09-observability-054), from the
+/// The field histogram `key.echo_frame.<route>` (``HistogramID/keyEchoFrame(_:)``), from the
 /// probe's own samples with no CSV, no key flows and no swizzle.
 ///
 /// While no echo sample is open, every ``echoSampleInterval``th key-down opens one, and the probe records as it
 /// does for a CSV until that press closes. The sample is the time from the key-down (the event's timestamp) to the
 /// ``Mark/contents`` of the frame that shows its echo; that mark comes from the Ghostty trace hook's IOSurface
-/// handoff (p09-observability-049), which turns sampling on (``startEchoSampling()``) only when the linked
+/// handoff, which turns sampling on (``startEchoSampling()``) only when the linked
 /// libghostty has the hook, and stays installed while it is on. The route is the
 /// press's surface's (``SurfaceKey/route``). Chrome's latency UKM samples its events the same way, a set kept by a
 /// sampling controller rather than every one (cc/metrics/latency_ukm_reporter.cc).

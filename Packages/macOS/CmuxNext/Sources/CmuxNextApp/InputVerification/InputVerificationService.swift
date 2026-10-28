@@ -32,7 +32,7 @@ final class InputVerificationService {
     private weak var services: AppServices?
 
     /// Configures the journal, subscribes it to the input tap and installs the
-    /// monitor's triggers (the `InputVerification.start` launch post, p08-startup-031).
+    /// monitor's triggers (the `InputVerification.start` launch post).
     /// The no-activate keyboard guard is an NSApp input hook: `AppServices.init`
     /// installs it (`startNoActivateGuard(tap:appEvents:mainWork:work:)`), before the app activates.
     func start(services: AppServices) {
@@ -41,7 +41,7 @@ final class InputVerificationService {
         let tag = services.environment.tag
         journal.configure(InputJournalPolicy.resolve(isDebugBuild: ControlService.isDebugBuild, tag: tag,
                                                      environment: ProcessInfo.processInfo.environment))
-        let monitor = InputInvariantMonitor(tag: tag, deadlines: services.mainDeadlines)
+        let monitor = InputInvariantMonitor(tag: tag, deadlines: services.mainDeadlines, runner: services.work)
         monitor.services = services
         self.monitor = monitor
         journalSubscription = Self.subscribeJournal(journal, to: services.inputTap) { monitor.noteChange() }

@@ -23,11 +23,13 @@ covers yet, each with the WORK.tsv task that adds it.
 
 Output is deterministic: run the script again and the checkout must not change.
 
-Usage: generate.py [--flood-bytes N] [--flood-out PATH] [--oracle-out DIR]
+Usage: generate.py [--flood-bytes N] [--flood-out PATH] [--oracle-out DIR] [--oracle-only]
   --flood-out writes the flood stream (not committed; 100 MB by default) for
   the flood test.
   --oracle-out writes the oracle cases to DIR instead of
   tests/oracle/corpus/terminal; the *.json files already there are removed first.
+  --oracle-only writes only the oracle cases. The oracle cases are not committed:
+  scripts/cmux-next/oracle/corpus_store.py runs this to write them before use.
 """
 from __future__ import annotations
 
@@ -163,7 +165,7 @@ def flood(path: Path, size: int) -> None:
 
 
 # ---------------------------------------------------------------------------
-# The oracle's terminal suite (p15-oracle-101).
+# The oracle's terminal suite.
 #
 # One case: an empty workspace, a terminal of the case's size that runs
 # FEED_SCRIPT on the stream (printf of one argv string, so the bytes reach the
@@ -546,11 +548,14 @@ def main() -> None:
     parser.add_argument("--flood-bytes", type=int, default=100 * 1024 * 1024)
     parser.add_argument("--flood-out", type=Path)
     parser.add_argument("--oracle-out", type=Path, default=ORACLE_DIR)
+    parser.add_argument("--oracle-only", action="store_true",
+                        help="write only the oracle cases (scripts/cmux-next/oracle/corpus_store.py: the suite is not committed)")
     args = parser.parse_args()
     streams, manifest, cases = build()
-    for file, data in streams.items():
-        (HERE / file).write_bytes(data)
-    (HERE / "manifest.json").write_text(manifest)
+    if not args.oracle_only:
+        for file, data in streams.items():
+            (HERE / file).write_bytes(data)
+        (HERE / "manifest.json").write_text(manifest)
     write_oracle(args.oracle_out, cases)
     if args.flood_out:
         flood(args.flood_out, args.flood_bytes)

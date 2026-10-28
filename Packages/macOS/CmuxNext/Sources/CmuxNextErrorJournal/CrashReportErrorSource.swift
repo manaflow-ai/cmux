@@ -31,7 +31,7 @@ public struct CrashReportErrorSource: ErrorHarvestSource {
         harvest(after: cursor)
     }
 
-    /// ``collect(after:)`` as a plain call, for the synchronous fuzz entry (p10-stability-029).
+    /// ``collect(after:)`` as a plain call, for the synchronous fuzz entry.
     /// Reports dated after now (plus ``clockSlack``) wait for their date, so the cursor it
     /// returns is always one ``cursorDate(_:now:)`` accepts on the next harvest.
     func harvest(after cursor: String?) -> ErrorHarvest {

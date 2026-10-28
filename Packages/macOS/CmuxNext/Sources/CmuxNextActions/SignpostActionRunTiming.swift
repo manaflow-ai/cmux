@@ -17,9 +17,9 @@ public struct SignpostActionRunTiming: ActionRunTiming {
     /// The per-action budget the runs are recorded into; nil records none.
     public let monitor: ActionBudgetMonitor?
     /// The app's crash keys: each run sets ``CrashKeySlots/Key/actionID`` for its synchronous work and puts the
-    /// outer value back after it (p10-stability-207); nil sets none.
+    /// outer value back after it; nil sets none.
     public let crashKeys: CrashKeySlots?
-    /// The process's crash-key page (p09-observability-078): each run sets ``CrashKeySlot/actionIndex`` and
+    /// The process's crash-key page: each run sets ``CrashKeySlot/actionIndex`` and
     /// ``CrashKeySlot/actionEntrypoint`` for its synchronous work and puts the outer run's back after it; nil
     /// sets none.
     public let crashKeyPage: CrashKeyPage?

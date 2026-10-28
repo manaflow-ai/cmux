@@ -11,6 +11,10 @@ Client side (the agent's host: the Linux VM or a laptop; nothing builds here):
                                                            (head defaults to HEAD; the default diff, task 112)
     fleet.py diff --switch NAME --ref SHA | --arm launch-config --ref SHA | --engine webkit,chromium --ref SHA
                                                            `oracle.py diff --product app ...` hands its argv here
+A base/head diff builds the base side from overlay.py's plan (p15-oracle-202): head's oracle commits and runner on the
+base, pushed to refs/heads/oracle-overlay/<sha> on --remote (default origin) so the controller can build it, or, when
+they do not apply (or `--v0 REASON`), the base with head's runner and v0 facets (`--facets=v0`) on both sides.
+OUT/overlay.json holds the plan, fleet.json its summary, and `oracle.py diff --overlay` masks what is not comparable.
 Selection: --suite, --filter, --repeat, --retry-limit, --shuffle, --seed, --batch-limit, --config (bench, the
 default, or debug: oracle.py's --build of the run), --dry-run (plan only: the step builds nothing).
 Same-host pairing (p15-oracle-008): in a diff, shard i of the second side runs on the worker shard i of the first
@@ -97,9 +101,10 @@ REPO = HERE.parents[2]
 if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 
-import diff  # noqa: E402  (host_mismatch: the same-host keys, p15-oracle-008)
+import diff  # noqa: E402  (host_mismatch: the same-host keys)
 import oracle  # noqa: E402  (the sibling CLI: merge_runs, write_merged, DEFAULT_RETRY_LIMIT, new_run_id)
-import patch_mutants  # noqa: E402  (the app mutants' header checks, p15-oracle-026)
+import overlay  # noqa: E402  (the base build of a base/head diff)
+import patch_mutants  # noqa: E402  (the app mutants' header checks)
 
 SCRIPT = "scripts/measure/oracle.sh"
 # ci_step.go: measureClass and measureLabel. Every scripts/measure/ step runs alone on a worker that has a console.
@@ -135,7 +140,8 @@ EXIT_OK, EXIT_UNEXPECTED, EXIT_USAGE, EXIT_INCOMPLETE = 0, 1, 2, 3
 
 # The oracle.py run options a step forwards. Values travel as `--name=value` step args; a value the controller's
 # arg pattern refuses (a glob's `*`) travels as `--name-hex=<hex>` and the step decodes it.
-VALUE_OPTIONS = ("suite", "filter", "repeat", "retry-limit", "seed", "batch-limit", "switch", "arm", "engine", "run-id")
+VALUE_OPTIONS = ("suite", "filter", "repeat", "retry-limit", "seed", "batch-limit", "switch", "arm", "engine",
+                 "run-id", "facets")
 FLAG_OPTIONS = ("shuffle",)
 
 
@@ -575,9 +581,12 @@ def merge_side(side: Side, out: Path) -> None:
 
 
 def fleet_record(run_id: str, sides: Sequence[Side], *, comparison: Optional[Dict[str, Any]] = None,
+                 plan: Optional[Dict[str, Any]] = None,
                  mismatched: Optional[Dict[str, List[str]]] = None) -> Dict[str, Any]:
     record: Dict[str, Any] = {"schema": FLEET_SCHEMA, "runId": run_id, "script": SCRIPT, "class": STEP_CLASS,
                               "sides": {}}
+    if plan is not None:
+        record["overlay"] = overlay.summary(plan)
     for side in sides:
         record["sides"][side.label] = {
             "ref": side.ref,
@@ -738,17 +747,20 @@ def cmd_diff(args: argparse.Namespace) -> int:
     # A diff retries like `oracle.py diff`: DEFAULT_RETRY_LIMIT whole-shard and alone retries.
     selection = selection_from(args, retry_default=oracle.DEFAULT_RETRY_LIMIT)
     sides = diff_sides(args)
+    if args.v0 and not args.base:
+        raise UsageError("--v0 goes with --base/--head")
     run_id = run_id_for(args, args.out)
     out = prepare_out(args, run_id)
+    plan = base_plan(args, sides, out) if args.base else None
     for side in sides:
         make_shards(side, run_id=run_id, total=args.shards, selection=selection, out=out)
-    write_fleet(out, fleet_record(run_id, sides))
+    write_fleet(out, fleet_record(run_id, sides, plan=plan))
     first, second = sides
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.shards) as pool:
         list(pool.map(lambda pair: complete_pair(fleet, *pair), zip(first.shards, second.shards)))
     mismatched = pairing_problems(first, second)
     if mismatched:
-        path = write_fleet(out, fleet_record(run_id, sides, mismatched=mismatched))
+        path = write_fleet(out, fleet_record(run_id, sides, plan=plan, mismatched=mismatched))
         print("fleet: host-mismatch: a shard's two sides ran on different hosts, OS versions or displays; "
               "nothing compared")
         for where, fields in sorted(mismatched.items(), key=lambda item: int(item[0].split()[1])):
@@ -763,8 +775,11 @@ def cmd_diff(args: argparse.Namespace) -> int:
         merge_side(side, out)
         print_side(side)
     if not all(side.merged and not side.errors for side in sides):
-        path = write_fleet(out, fleet_record(run_id, sides))
+        path = write_fleet(out, fleet_record(run_id, sides, plan=plan))
         print(f"fleet: incomplete, nothing compared: {path}")
+        if plan is not None and plan["mode"] == "overlay" and first.merged is None:
+            print(f"fleet: the overlay commit {plan['overlaySha']} gave no base receipt; if it does not build, "
+                  "`fleet.py diff ... --v0 'the overlay does not build'` runs both sides on v0 facets")
         return EXIT_INCOMPLETE
     # The comparison's receipt names each side's exact SHA and gitlinks (task 112); oracle.py's --base-run side is
     # the first side, whatever its label.
@@ -772,17 +787,37 @@ def cmd_diff(args: argparse.Namespace) -> int:
     builds.write_text(json.dumps({"base": first.build_record(selection), "head": second.build_record(selection)},
                                  indent=1, sort_keys=True) + "\n", encoding="utf-8")
     argv = ["diff", "--product", "app", "--out", str(out / "compare"), "--builds", str(builds)]
-    # A switch's arm runs get oracle.py's switch verdict: readback, hits and the arm pointers (p15-oracle-111).
+    # A switch's arm runs get oracle.py's switch verdict: readback, hits and the arm pointers.
     argv += ["--switch", args.switch] if args.switch else []
     for side, flag in ((first, "--base-run"), (second, "--head-run")):
         for s in side.shards:
             argv += [flag, str(s.run_dir)]
+    argv += ["--overlay", str(out / "overlay.json")] if plan is not None else []
     argv += ["--json"] if args.json else []
     code = oracle.main(argv)
-    path = write_fleet(out, fleet_record(run_id, sides, comparison={
+    path = write_fleet(out, fleet_record(run_id, sides, plan=plan, comparison={
         "exit": code, "dir": str(out / "compare"), "labels": [first.label, second.label]}))
     print(f"fleet: {path}")
     return code
+
+
+def base_plan(args: argparse.Namespace, sides: Sequence[Side], out: Path) -> Dict[str, Any]:
+    """The base side's build (overlay.py, p15-oracle-202): head's oracle commits and runner on the base, pushed so
+    the controller can build it, or the base with head's runner and v0 facets on both sides. Writes out/overlay.json."""
+    base, head = sides
+    try:
+        plan = overlay.prepare(REPO, base.sha, head.sha, product="app", force_v0=args.v0)
+        plan = overlay.push(REPO, args.remote, plan)
+    except overlay.OverlayError as error:
+        raise UsageError(str(error)) from None
+    (out / "overlay.json").write_text(json.dumps(plan, indent=1, sort_keys=True) + "\n", encoding="utf-8")
+    base.sha = plan["buildSha"]
+    if plan["facets"] == "v0":
+        for side in sides:
+            side.extra = (*side.extra, ("facets", "v0"))
+    print(f"fleet: base {plan['base'][:12]} builds {plan['buildSha'][:12]} ({plan['mode']}, {plan['facets']} facets"
+          f"{'; ' + plan['reason'] if plan.get('reason') else ''})")
+    return plan
 
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -910,6 +945,11 @@ def build_parser() -> argparse.ArgumentParser:
     diff_cmd.add_argument("--engine", help="webkit,chromium: one arm per engine (oracle.py run --engine), engine parity")
     diff_cmd.add_argument("--ref")
     diff_cmd.add_argument("--head-mutant", help="build the head with tests/oracle/mutants/app/<name>.patch applied")
+    diff_cmd.add_argument("--v0", metavar="REASON",
+                          help="with --base/--head: no overlay; both sides run v0 facets (for example: the overlay "
+                               "does not build)")
+    diff_cmd.add_argument("--remote", default="origin",
+                          help="where an overlay commit is pushed (refs/heads/oracle-overlay/<sha>) for the controller")
     add_selection_args(diff_cmd)
     add_client_args(diff_cmd)
     diff_cmd.set_defaults(func=cmd_diff)

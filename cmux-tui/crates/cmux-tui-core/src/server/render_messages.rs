@@ -57,8 +57,8 @@ pub(super) fn write_pending_sequence_json(
     writer.write_all(b"\"")
 }
 
-/// `,"flow":N` of an `output` event that echoes key press `flow`
-/// (p09-observability-018); nothing for 0.
+/// `,"flow":N` of an `output` event that echoes key press `flow`;
+/// nothing for 0.
 pub(super) fn write_output_flow_json(
     writer: &mut BudgetedJsonWriter,
     flow: u64,
@@ -67,6 +67,29 @@ pub(super) fn write_output_flow_json(
         return Ok(());
     }
     write!(writer, ",\"flow\":{flow}")
+}
+
+/// `,"key_stages":{...}` of an `output` event that echoes a key press:
+/// the daemon's receive, the PTY write and the echo's read
+/// ([`crate::input_stages::KeyStages`]) and `sent`, when this event was
+/// encoded, all trace-clock ns (`CLOCK_UPTIME_RAW`, the app's
+/// `NSEvent.timestamp` clock); a stage not reached is 0. `lost`: the presses
+/// the terminal's stage ring dropped so far. Nothing without
+/// stages, or where the trace clock is not the app's. An app that predates
+/// the field ignores it.
+pub(super) fn write_output_key_stages_json(
+    writer: &mut BudgetedJsonWriter,
+    stages: Option<crate::input_stages::KeyStages>,
+    sent_ns: u64,
+) -> std::io::Result<()> {
+    let Some(stages) = stages.filter(|_| crate::input_stages::STAMPS_SHARE_APP_CLOCK) else {
+        return Ok(());
+    };
+    write!(
+        writer,
+        ",\"key_stages\":{{\"received\":{},\"written\":{},\"read\":{},\"sent\":{},\"lost\":{}}}",
+        stages.received_ns, stages.written_ns, stages.read_ns, sent_ns, stages.lost
+    )
 }
 
 fn rgb_hex(color: Rgb) -> String {

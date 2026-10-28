@@ -4,7 +4,7 @@ import Foundation
 @testable import CmuxNextHangReports
 import Testing
 
-/// p10-stability-076: the HangReports sites now written `unsafe` with a SAFETY argument behave as before. The
+/// The HangReports sites now written `unsafe` with a SAFETY argument behave as before. The
 /// dyld resolver finds a loaded image by address and by UUID, and the blocking site id is the same FNV-1a hash
 /// of the kind, the context and each frame's UUID bytes and little-endian offset.
 struct HangReportsUnsafeSitesTests {

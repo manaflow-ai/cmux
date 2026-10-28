@@ -1,8 +1,10 @@
-/// When a launch may show the front window's saved picture (p08-startup-063, section 3C): never with
+/// When a launch may show the front window's saved picture: never with
 /// `launch.savedPicture` off, never after crash recovery (the pictures on disk are from a quit before the crashed
-/// run, not of what it showed), never while the last run may have left incognito workspaces, and never when the
-/// display, scale, appearance, theme, frame, sidebar width or build differ from the window the launch opens. A
-/// changed sidebar or pane layout refuses only that region: it takes today's path while the rest shows.
+/// run, not of what it showed), never after a run that ended with no quit while its daemon kept running (the same
+/// earlier quit's screens, under `relaunchReattach`: `RelaunchReattach.keepsSavedScreens`), never while the last run
+/// may have left incognito workspaces, and never when the display, scale, appearance, theme, frame, sidebar width or
+/// build differ from the window the launch opens. A changed sidebar or pane layout refuses only that region: it takes
+/// today's path while the rest shows.
 ///
 /// Chrome drops a startup capture on the same kinds of change: Android's paint preview is deleted when its version
 /// or URL no longer matches (components/paint_preview/browser/paint_preview_base_service.cc) and is not shown after
@@ -27,15 +29,19 @@ extension WindowPictureStore {
         /// The last run may have left incognito workspaces (`IncognitoWorkspaceLedger.mayHaveLeftovers`: true too
         /// while its read runs or when it could not read the file).
         public var incognitoLeftovers: Bool
+        /// The picture is an earlier quit's screens and the launch reattaches to the newer live ones
+        /// (`!RelaunchReattach.keepsSavedScreens`: the previous run ended with no quit, as after `kill -9`).
+        public var savedScreensStale: Bool
 
-        public init(savedPicture: Bool, recovered: Bool, incognitoLeftovers: Bool) {
+        public init(savedPicture: Bool, recovered: Bool, incognitoLeftovers: Bool, savedScreensStale: Bool = false) {
             (self.savedPicture, self.recovered, self.incognitoLeftovers) = (savedPicture, recovered, incognitoLeftovers)
+            self.savedScreensStale = savedScreensStale
         }
     }
 
     /// Why the launch shows no saved picture.
     public nonisolated enum Refusal: String, Sendable, CaseIterable {
-        case settingOff, crashRecovery, incognitoLeftovers
+        case settingOff, crashRecovery, reattach, incognitoLeftovers
         /// A meta field of the whole picture differs from the window the launch opens (``WindowPictureMeta/Field``).
         case format, window, profile, frame, screen, scale, appearance, theme, sidebarWidth, build
 
@@ -72,6 +78,7 @@ extension WindowPictureStore {
     public nonisolated static func use(_ saved: WindowPictureMeta, for opening: WindowPictureMeta, launch: LaunchFacts) -> LaunchUse {
         if !launch.savedPicture { return .refuse(.settingOff) }
         if launch.recovered { return .refuse(.crashRecovery) }
+        if launch.savedScreensStale { return .refuse(.reattach) }
         if launch.incognitoLeftovers { return .refuse(.incognitoLeftovers) }
         let mismatches = saved.mismatches(opening)
         // In the fields' declared order, so one change always names the same reason.

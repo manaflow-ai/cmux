@@ -276,8 +276,7 @@ impl Options {
         let mut options =
             Self { plan: None, team: None, open: OpenMode::Auto, positionals: Vec::new() };
         let mut index = 0;
-        while index < args.len() {
-            let arg = &args[index];
+        while let Some(arg) = args.get(index) {
             index += 1;
             if arg == "--no-open" {
                 options.open = OpenMode::None;

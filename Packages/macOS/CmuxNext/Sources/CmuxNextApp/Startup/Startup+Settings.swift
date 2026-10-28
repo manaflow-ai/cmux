@@ -55,7 +55,7 @@ extension AppDelegate {
             }
             services.paletteShortcutEditor = PaletteShortcutEditor(services: services, settings: settings)
         }
-        // Neither the first frame nor a page engine reads these (p08-startup-028).
+        // Neither the first frame nor a page engine reads these.
         LaunchServicePosts.browserFollows(historyDaemonSync: { [weak services] in services?.history.startDaemonSync(settings: settings) },
                                           locationTrailScope: { [weak services] in services?.locationTrail.watchScope(settings: settings) }).post(on: order.startup)
         // The file watches and the diagnostic toasts; the launch read is applied above, and the start reloads once.
@@ -84,7 +84,7 @@ extension AppDelegate {
     func registerHomeFeeds(services: AppServices, settings: SettingsController) {
         // Once main's acpmux resolve lands (now, unless its signature check still runs on the system lane): an
         // attached daemon (`CMUX_NEXT_ACPMUX_ATTACH`) keeps its owner's chat settings; a page's chat clicks and All
-        // chats pages work from then; the feeds come after the first frame (p08-startup-027).
+        // chats pages work from then; the feeds come after the first frame.
         QuitAgents.whenResolved(services, owner: "launch.acpmuxChats") { [weak services] acpmux in
             guard let services else { return }
             services.lifetimeFollowers += ChatSettingsPush.start(settings: settings, socketPath: acpmux?.isAttached == true ? nil : acpmux?.socketPath,
@@ -108,7 +108,7 @@ extension AppDelegate {
     /// The control posts (feature `controlSocketEarlyBind`), then after the settle the settings migrations
     /// and, without that feature, the control socket.
     func registerControl(services: AppServices, settings: SettingsController) {
-        // controlSocketEarlyBind: the control posts, after the first frame (p08-startup-019).
+        // controlSocketEarlyBind: the control posts, after the first frame.
         control.postLaunch(socket: controlSocket, order: order, services: services, settings: settings, launch: environment.launch, logger: logger)
         Task {
             await settings.waitForLoad(atLeast: 1); await launchSettle.settled(within: .seconds(4), images: launchImageHold) // without controlSocketEarlyBind, the control socket starts here (cx-z9kz0)

@@ -4,7 +4,7 @@ import Foundation
 import Testing
 @testable import CmuxHomeRender
 
-/// The render caches under the host's memory policy (p07-memory-080): the host sizes them and takes
+/// The render caches under the host's memory policy: the host sizes them and takes
 /// bytes back, the rows on screen always keep what they show, nothing drawn or loaded is thrown away
 /// only to be drawn or loaded again, measurements stay, and a hidden transcript holds no image.
 @MainActor

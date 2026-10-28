@@ -304,7 +304,7 @@ def dc_fields(runs):
                 "n": next((r["n"] for r in rows if r["target"] in expected and r["stage"] == "presented"
                            and r["presentation_source"] == "*" and r["source"] == "signpost"), 0),
                 "presentation_sources": sources, "status": run.get("status"),
-                # webkit-page is judged only on the page's own estimate (p04-input-099); before that it is reported.
+                # webkit-page is judged only on the page's own estimate; before that it is reported.
                 "judged": run["surface"] != "webkit-page" or sources == ["pageEstimated"],
             }
             stalls += (run.get("hangs") or {}).get("count") or 0

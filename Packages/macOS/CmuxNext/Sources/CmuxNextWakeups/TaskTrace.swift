@@ -6,7 +6,7 @@ public import CmuxNextTrace
 /// matching flow-in inside its `task.run` slice, so a trace draws an arrow from each post to its run. Chrome's
 /// `TaskAnnotator` (base/task/common/task_annotator.cc) does this for every `PostTask`: `WillQueueTask` writes the
 /// flow begin with `FROM_HERE`, `RunTask` the flow end inside the `ThreadPool_RunTask` slice. A ``BackgroundWork``
-/// lane item's slice is its lane's (``LaneScheduler``, p02-threads-124), which its ``LaneJob`` puts the flow-in in;
+/// lane item's slice is its lane's (``LaneScheduler``), which its ``LaneJob`` puts the flow-in in;
 /// a main-thread item's slice is the ticket's own (``Ticket/run(priority:_:)``).
 ///
 /// Off (the `task` category is a recording category, never the black box's), a post and a run cost one relaxed
@@ -26,7 +26,8 @@ public import CmuxNextTrace
 /// ticket.run(priority: TaskTrace.code(workClass)) { body() }  // main lane; a lane job calls ticket.arrive()
 /// ```
 public final class TaskTrace: Sendable {
-    /// Where a traced item runs: the `task.run` begin's lane code, a ``BlockingLane``'s `rawValue` or 3 for main.
+    /// Where a traced item runs: the `task.run` begin's lane code: files 0, system 1, cpu 2, main 3, bulk files 4
+    /// (``BlockingLane/bulkFiles``'s `rawValue` is 3, so the lane code is not the raw value).
     public enum Lane: UInt8, Sendable {
         /// ``BlockingLane/files``.
         case files = 0
@@ -36,6 +37,8 @@ public final class TaskTrace: Sendable {
         case cpu = 2
         /// The main thread (a queued control request).
         case main = 3
+        /// ``BlockingLane/bulkFiles``.
+        case bulkFiles = 4
 
         /// The code of a ``BackgroundWork`` lane.
         public init(_ lane: BlockingLane) {
@@ -43,6 +46,7 @@ public final class TaskTrace: Sendable {
             case .files: self = .files
             case .system: self = .system
             case .cpu: self = .cpu
+            case .bulkFiles: self = .bulkFiles
             }
         }
     }

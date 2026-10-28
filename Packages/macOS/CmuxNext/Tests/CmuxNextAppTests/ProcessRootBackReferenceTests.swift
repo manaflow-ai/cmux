@@ -4,7 +4,7 @@ import CmuxNextActions
 import CmuxNextDaemonService
 import Testing
 
-/// p10-stability-091: a service's back-reference to the `AppServices` that owns it does not own it (an owner holds its
+/// A service's back-reference to the `AppServices` that owns it does not own it (an owner holds its
 /// children, a child's back-pointer never keeps its owner, as Chromium's `raw_ptr` back-pointers), and a call that
 /// reaches a service after its services are gone refuses instead of trapping (an `unowned` read traps there).
 @MainActor struct ProcessRootBackReferenceTests {

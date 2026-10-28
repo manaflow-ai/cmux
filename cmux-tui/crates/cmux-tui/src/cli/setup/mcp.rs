@@ -27,6 +27,7 @@ use serde_json::{Value, json};
 use super::super::agents_doctor::{on_path, read_json, read_text, toml_error};
 use super::super::fix_command::quote_arg;
 use super::{Outcome, Refusal};
+use crate::cli::json_fields::JsonFields;
 
 const TASK: &str = "mcp";
 
@@ -259,11 +260,11 @@ pub(super) fn run(args: &[String]) -> Result<Outcome, Refusal> {
                 if user_action.is_null() {
                     user_action = action.clone();
                 }
-                row["user_action"] = action;
+                row.insert("user_action", action);
                 "needs_user"
             }
             Plan::Failed(error) => {
-                row["error"] = json!(error);
+                row.insert("error", json!(error));
                 failed = true;
                 "failed"
             }
@@ -276,20 +277,20 @@ pub(super) fn run(args: &[String]) -> Result<Outcome, Refusal> {
             Plan::Add | Plan::Replace => {
                 match apply(client, &command, found.as_ref().filter(|e| e.name == SERVER)) {
                     Ok(line) => {
-                        row["undo"] = json!(line);
+                        row.insert("undo", json!(line));
                         undo.push(line);
                         changed = true;
                         "changed"
                     }
                     Err(error) => {
-                        row["error"] = json!(error);
+                        row.insert("error", json!(error));
                         failed = true;
                         "failed"
                     }
                 }
             }
         };
-        row["state"] = json!(state);
+        row.insert("state", json!(state));
         rows.push(row);
     }
     // The switch comes first, but only when a harness is there to wire:
@@ -477,11 +478,15 @@ fn run_cli(client: Client, args: &[String]) -> Result<(), String> {
     // never blocks on it.
     let stderr = child.stderr.take().map(|mut pipe| {
         // supervise-allow: reads one CLI's stderr and is joined after the wait; a panic loses only that text.
-        std::thread::spawn(move || {
-            let mut text = String::new();
-            let _ = pipe.read_to_string(&mut text);
-            text
-        })
+        cmux_threads::spawn(
+            "setup-mcp-stderr",
+            cmux_threads::caller_qos(cmux_threads::ThreadQos::Utility),
+            move || {
+                let mut text = String::new();
+                let _ = pipe.read_to_string(&mut text);
+                text
+            },
+        )
     });
     // wakeup-allow: cli-only `cmux setup mcp`'s one bound on the agent CLI; its exit ends the wait first
     let status = match child.wait_timeout(CLI_TIMEOUT) {
@@ -501,8 +506,10 @@ fn run_cli(client: Client, args: &[String]) -> Result<(), String> {
     if status.success() {
         return Ok(());
     }
-    let text =
-        stderr.and_then(|reader| crate::blocking::thread::join(reader).ok()).unwrap_or_default();
+    // A reader that did not start dropped the pipe: no text.
+    let text = stderr
+        .and_then(|reader| crate::blocking::thread::join(reader.ok()?).ok())
+        .unwrap_or_default();
     let text: String = text.trim().chars().take(2000).collect();
     Err(format!("`{line}` failed ({status}): {text}"))
 }

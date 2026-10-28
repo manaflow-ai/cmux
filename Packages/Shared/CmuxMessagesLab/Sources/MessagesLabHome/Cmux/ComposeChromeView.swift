@@ -1,4 +1,4 @@
-// cmux: the compose bar's own controls as layers in one view (p03-rendering-074). Not a vendored file.
+// cmux: the compose bar's own controls as layers in one view. Not a vendored file.
 import AppKit
 
 /// The compose bar's own controls in one NSView: the send button (`ComposeSendButton`), the voice

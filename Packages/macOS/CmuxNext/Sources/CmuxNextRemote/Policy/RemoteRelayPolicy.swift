@@ -69,7 +69,7 @@ public struct RemoteRelayPolicy: Sendable {
     /// which read local state and seed it); `memory` and `discards` cover
     /// the memory diagnostics under any name (`debug.memory`,
     /// `debug.discards`, the daemon's `memory-report`), which read this
-    /// Mac's processes, footprints and tab states (p07-memory-076).
+    /// Mac's processes, footprints and tab states.
     static let neverAllowedWords: Set<String> = ["send", "text", "key", "keys", "input", "paste", "spawn", "respawn", "eval", "exec",
                                                  "run", "script", "command", "url", "link", "navigate", "resume", "launch", "debug",
                                                  "memory", "discards"]

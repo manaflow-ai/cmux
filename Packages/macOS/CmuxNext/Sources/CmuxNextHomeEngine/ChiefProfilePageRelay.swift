@@ -9,7 +9,7 @@ import os
 /// not to the build daemon. Route and confirm only, no profile logic (the owner decides):
 ///
 /// - Every call goes on one `home-channels` page stream of the owner's page-relay connection
-///   (p05-ipc-108, ``PageRelayStream``), so the owner judges it with origin `page:home-channels`
+///   (``PageRelayStream``), so the owner judges it with origin `page:home-channels`
 ///   and that page's allow list (cmux-tui spec/page-router.json). The relay opens no connection
 ///   itself: ``ChiefProfileRelayOwner/pageRelay(socket:)`` is the owner daemon's page relay.
 /// - The stream's epoch (pid, generation, hello id) is the owner check: a stream of another owner
@@ -39,7 +39,7 @@ public final class ChiefProfilePageRelay {
     public nonisolated static let page = "home-channels"
 
     private weak var owner: (any ChiefProfileRelayOwner)?
-    /// Ends the page stream ``PageRelayIdleClose/delay`` after the last call ends (p13-webui-066):
+    /// Ends the page stream ``PageRelayIdleClose/delay`` after the last call ends:
     /// Home and Settings > Agents > Chiefs hold no page-relay client on the owner while nobody uses
     /// the editor, closed or frozen. The editor has no listens; the next call opens a new stream.
     private let idle: PageRelayIdleClose

@@ -1,6 +1,6 @@
 /// How the intents of a ``DaemonStore`` left its log, since the store was made (``DaemonStore/intentTotals``).
 /// The totals only grow: a reader takes two readings and compares the difference (the oracle's `intents`
-/// facet, p15-oracle-040, whose runner diffs two checkpoints as Chromium's `base::HistogramTester` diffs
+/// facet, whose runner diffs two checkpoints as Chromium's `base::HistogramTester` diffs
 /// histogram samples since its creation, base/test/metrics/histogram_tester.h).
 ///
 /// Each intent leaves the log exactly once (``IntentSettlement``), so it counts once: in ``applied`` or in

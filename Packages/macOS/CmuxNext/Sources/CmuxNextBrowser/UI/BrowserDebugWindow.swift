@@ -46,7 +46,7 @@ public final class BrowserDebugWindow: NSObject, BrowserTabDelegate {
         super.init()
         window.title = "cmux-next browser (\(tab.engineKind.rawValue))"
         window.isReleasedWhenClosed = false
-        window.isRestorable = false  // AppKit state restoration is off for every cmux window (p08-startup-087)
+        window.isRestorable = false  // AppKit state restoration is off for every cmux window
         window.install(kind: .browserDebug, content: chrome, scope: .app)
         tab.delegate = self
         if !activate { WindowPlacement.noActivate = true }

@@ -64,7 +64,7 @@ extension NewChatPlacement {
         let services = controller.services
         // The wait reads the tab index again only when it moves; the move starts in one task of the run's completion.
         services.registry.trackWork(owner: "NewChatPlacement.dock", on: services.mainWork) {
-            // view-observation-allow: one MachineTabIndex lookup (p06-scheduler-051) per read
+            // view-observation-allow: one MachineTabIndex lookup per read
             await listed("NewChatPlacement.dock", on: services.mainWork, deadlines: services.mainDeadlines) { services.locateTab(key) }
         } then: { [weak controller] result in
             guard case let .success((tab, pane)?) = result else {
@@ -88,7 +88,7 @@ extension NewChatPlacement {
                                                   leaving source: LayoutPaneID, services: AppServices) {
         services.registry.trackWork(owner: "NewChatPlacement.focusWhenShown", on: services.mainWork) {
             await listed("NewChatPlacement.focusWhenShown", on: services.mainWork, deadlines: services.mainDeadlines) { () -> LayoutPaneID? in
-                // view-observation-allow: one MachineTabIndex lookup (p06-scheduler-051) per read
+                // view-observation-allow: one MachineTabIndex lookup per read
                 guard let model = services.locateTab(key)?.1,
                       let id = services.paneController(for: model)?.layoutPaneID, id != source else { return nil }
                 return id

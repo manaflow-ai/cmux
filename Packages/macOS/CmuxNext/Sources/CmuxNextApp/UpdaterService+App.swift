@@ -20,7 +20,7 @@ extension UpdaterService {
     func wire(sheet: UpdateSheetController, services: AppServices, simulating: @escaping @MainActor @Sendable () -> Bool) {
         presentUpdateUI = { [weak services] in sheet.present(in: services?.windows.active?.window) }
         willRelaunch = { [weak services] in services?.quit.origins.record(.explicit(.keep)) }
-        relaunchBlockers = { [weak self, weak services, activity = UpdateAgentActivity(environment: QuitAgents.environment(services), mainWork: services.mainWork)] in services.map { activity.applying(to: $0.machines.local.currentRelaunchBlockers(quietInput: self?.idleInstallQuiet)) } ?? .daemonUnavailable }
+        relaunchBlockers = { [weak self, weak services, activity = UpdateAgentActivity(environment: QuitAgents.environment(services), mainWork: services.mainWork, runner: services.work)] in services.map { activity.applying(to: $0.machines.local.currentRelaunchBlockers(quietInput: self?.idleInstallQuiet)) } ?? .daemonUnavailable }
         // The click: the windows leave the screen at once (S1); a failed
         // install brings them back.
         let handoff = UpdateWindowHandoff(unsaved: services.quitUnsaved)
@@ -55,7 +55,7 @@ extension UpdaterService {
         #endif
     }
 
-    /// The work behind the wired cards, after startup (the `Updater.attachedWork` launch post, p08-startup-031):
+    /// The work behind the wired cards, after startup (the `Updater.attachedWork` launch post):
     /// the Updated card's change list when its record has none (2026-10-20; a network read), and the
     /// tip's re-pick when cmux becomes active again.
     func startAttachedWork(appEvents: AppEvents) {

@@ -4,7 +4,7 @@ import CmuxNextWakeups
 import Foundation
 import Testing
 
-/// The Labs page's local feature choices (p12-perf-process-096, resolution step 3): read at launch,
+/// The Labs page's local feature choices (resolution step 3): read at launch,
 /// applied by DEV and NIGHTLY only, written for the next launch (about:flags,
 /// components/flags_ui/pref_service_flags_storage.cc).
 /// Run: `swift test --filter FeatureLocalOverridesTests`.

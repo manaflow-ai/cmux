@@ -11,7 +11,7 @@ import Observation
 import Testing
 
 /// The History, BrowserHistory, Feed, Cloud, Server and Screenshots targets' sweep
-/// (plans/cmux-next/chrome-parity/p06-scheduler.md, task p06-scheduler-344, rule 9): one case per migrated owner
+/// (plans/cmux-next/chrome-parity/p06-scheduler.md, rule 9): one case per migrated owner
 /// class. A page's record and history writes follow it as background service observations that still run with no
 /// page on screen, and a record another client moved flushes as automation; every history writer shares the app's
 /// one resign-active observer; a held page's history budget is a visible deadline that the read's answer drops; a

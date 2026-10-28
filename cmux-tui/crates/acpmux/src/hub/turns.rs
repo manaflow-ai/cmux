@@ -2,6 +2,8 @@
 
 use super::exit_reason::explains_exit;
 use super::*;
+use crate::no_panic::JsonExt;
+use crate::no_panic::LockExt;
 use std::sync::atomic::Ordering;
 
 /// ACP v1 does not define a `document` content block. Claude's translator can
@@ -106,7 +108,7 @@ impl Hub {
         };
         let duplicate = |v: Value| json!({"sessionId": session.id, "promptId": prompt_id, "duplicate": true, "queued": false, "turnId": v.pointer("/_meta/acpmux/turnId")});
         let seen = {
-            let mut ledger = session.prompts.lock().unwrap();
+            let mut ledger = session.prompts.lock_or_recover();
             match ledger.iter().find(|(id, _)| *id == prompt_id) {
                 Some((_, outcome)) => Err(outcome.subscribe()),
                 None => {
@@ -126,7 +128,9 @@ impl Hub {
                     .await
                     .map_err(|_| RpcError::internal("the first run of this prompt was dropped"))?
                     .clone()
-                    .expect("waited for an outcome");
+                    .ok_or_else(|| {
+                        RpcError::internal("the first run of this prompt has no outcome")
+                    })?;
                 return result.map(|mut v| {
                     merge_mux_meta(&mut v, json!({"duplicate": true}));
                     v
@@ -140,7 +144,7 @@ impl Hub {
             if let Some(f) = opts.on_accepted.take() {
                 f(duplicate(logged.clone()));
             }
-            let mut ledger = session.prompts.lock().unwrap();
+            let mut ledger = session.prompts.lock_or_recover();
             outcome.send_replace(Some(Ok(logged.clone())));
             prompt_ledger::prune(&mut ledger);
             return Ok(logged);
@@ -159,7 +163,7 @@ impl Hub {
             opts.on_accepted = Some(Box::new(move |_| accepted.store(true, Ordering::SeqCst)));
         }
         let result = self.prompt_unless_held(session, blocks, client, steer, opts).await;
-        let mut ledger = session.prompts.lock().unwrap();
+        let mut ledger = session.prompts.lock_or_recover();
         if !accepted.load(Ordering::SeqCst) {
             ledger.retain(|(id, _)| *id != prompt_id);
         }
@@ -338,7 +342,7 @@ impl Hub {
         };
         let mut blocks = blocks;
         {
-            let mut m = session.meta.lock().unwrap();
+            let mut m = session.meta.lock_or_recover();
             // Another agent's message leaves its sender and words, not its envelope (`prompt_line.rs`).
             let line = super::prompt_line::prompt_line(&text, client, provenance.as_ref());
             m.last_prompt = Some(short_text(&line, 200));
@@ -421,7 +425,7 @@ impl Hub {
         }
         // The forum rules this session was not told yet (`hub/forum.rs`).
         let mut told = self.forum_context(session, pushed.clone(), &mut blocks).await;
-        session.stderr_tail.lock().unwrap().clear();
+        session.stderr_tail.lock_or_recover().clear();
         let turn_seq = self
             .append(
                 session,
@@ -497,7 +501,7 @@ impl Hub {
                 self.detach_child(session).await;
                 *session.turn.lock().unwrap_or_else(|e| e.into_inner()) = turn;
                 self.set_status(session, SessionStatus::Running);
-                session.meta.lock().unwrap().harness = to.clone();
+                session.meta.lock_or_recover().harness = to.clone();
                 self.save_meta(session);
                 let control = session.turn().map_or(control, |t| t.control);
                 let fallback = self.child_for(session).await;
@@ -608,13 +612,13 @@ impl Hub {
         session.queue_moved.notify_waiters();
         // A turn Claude answered is in its store: a respawn resumes it.
         if result.is_ok() {
-            let was_unstored = std::mem::take(&mut session.meta.lock().unwrap().claude_unstored);
+            let was_unstored = std::mem::take(&mut session.meta.lock_or_recover().claude_unstored);
             if was_unstored {
                 self.save_meta(session);
             }
         }
         // Quit Everything already recorded this turn as cancelled.
-        if self.settled_by_shutdown.lock().unwrap().contains(turn_id) {
+        if self.settled_by_shutdown.lock_or_recover().contains(turn_id) {
             return result;
         }
         // acpmux ended a turn whose model said nothing for `stalledTurnEndMs`: it failed.
@@ -630,7 +634,7 @@ impl Hub {
                 || (e.code == -32603 && e.message.len() < 40);
             if bare {
                 let tail: Vec<String> =
-                    session.stderr_tail.lock().unwrap().iter().cloned().collect();
+                    session.stderr_tail.lock_or_recover().iter().cloned().collect();
                 // The last stderr line that says why: not a stack frame, a wrapper tag or a wrapper exit line.
                 if let Some(last) = tail.iter().rev().map(|l| l.trim()).find(|l| explains_exit(l)) {
                     let agent = session.meta().harness;
@@ -641,7 +645,7 @@ impl Hub {
         // A harness that reported a terminal error in-band (Codex
         // `_meta.codex.error` without willRetry) and then ended the turn
         // normally still failed it: answer the prompt with that error.
-        let harness_error = session.stream.lock().unwrap().harness_error.clone();
+        let harness_error = session.stream.lock_or_recover().harness_error.clone();
         let harness_failure = match (&result, &harness_error) {
             (Ok(v), Some(h))
                 if v.get("stopReason").and_then(Value::as_str) != Some("cancelled") =>
@@ -744,7 +748,7 @@ impl Hub {
         self.reset_stream(session);
         // Nobody showing it: the sidebar dot and `wait --until done` see it.
         if !self.shown(session) {
-            session.meta.lock().unwrap().unread = true;
+            session.meta.lock_or_recover().unread = true;
         }
         if session.status() != SessionStatus::Closed {
             let alive = child.is_alive().await;
@@ -809,7 +813,7 @@ impl Hub {
         turn_id: &str,
         e: &RpcError,
     ) {
-        *session.turn.lock().unwrap() = None;
+        *session.turn.lock_or_recover() = None;
         self.append(
             session,
             "mux",
@@ -854,7 +858,7 @@ impl Hub {
             }
         }
         last.insert("endedAt".into(), json!(now_ms()));
-        session.meta.lock().unwrap().last_turn = Some(Value::Object(last));
+        session.meta.lock_or_recover().last_turn = Some(Value::Object(last));
         // Every turn's end passes here once: its parent hears it (`subsession_results.rs`).
         self.subsession_turn_ended(session, turn_result);
     }
@@ -906,7 +910,7 @@ impl Hub {
         if params.is_null() {
             params = json!({});
         }
-        params["sessionId"] = Value::String(sid);
+        params.set("sessionId", Value::String(sid));
         let asked_mode = (m == method::SESSION_SET_MODE)
             .then(|| params.get("modeId").and_then(Value::as_str).map(str::to_owned))
             .flatten();
@@ -917,7 +921,7 @@ impl Hub {
                 // line, as prompt() does, so "agent process closed" says why.
                 if e.message == "agent process closed" {
                     let tail: Vec<String> =
-                        session.stderr_tail.lock().unwrap().iter().cloned().collect();
+                        session.stderr_tail.lock_or_recover().iter().cloned().collect();
                     if let Some(last) =
                         tail.iter().rev().map(|l| l.trim()).find(|l| explains_exit(l))
                     {
@@ -943,7 +947,7 @@ impl Hub {
             }
             method::SESSION_SET_MODEL => {
                 if let Some(models) = res.get("models") {
-                    session.meta.lock().unwrap().models = Some(models.clone());
+                    session.meta.lock_or_recover().models = Some(models.clone());
                 }
             }
             _ => {}
@@ -1044,7 +1048,7 @@ impl Hub {
                     .unwrap_or(false)
         };
         if at_spawn {
-            session.meta.lock().unwrap().model_request = Some(model_id.to_owned());
+            session.meta.lock_or_recover().model_request = Some(model_id.to_owned());
             self.save_meta(session);
             self.detach_child(session).await;
             self.append(session, "mux", "model", json!({"modelId": model_id, "atSpawn": true}));
@@ -1052,21 +1056,12 @@ impl Hub {
             return Ok(json!({}));
         }
         // Prefer the config option named "model" when the agent exposes one.
-        let has_model_option = session
-            .meta()
-            .config_options
-            .as_ref()
-            .and_then(Value::as_array)
-            .map(|opts| opts.iter().any(|o| o.get("id").and_then(Value::as_str) == Some("model")))
-            .unwrap_or(false);
-        if has_model_option {
-            let meta = session.meta();
-            let option = meta
-                .config_options
-                .as_ref()
-                .and_then(Value::as_array)
-                .and_then(|opts| opts.iter().find(|o| o["id"] == "model"))
-                .unwrap();
+        let meta = session.meta();
+        let model_option =
+            meta.config_options.as_ref().and_then(Value::as_array).and_then(|opts| {
+                opts.iter().find(|o| o.get("id").and_then(Value::as_str) == Some("model"))
+            });
+        if let Some(option) = model_option {
             let value = Value::String(
                 crate::model_catalog::resolve(option, model_id)
                     .map_err(RpcError::invalid_params)?,
@@ -1080,7 +1075,7 @@ impl Hub {
         self.append(session, "mux", "model", json!({"modelId": model_id}));
         super::start_defaults::model_applied(session, model_id);
         // The harness runs this model now, also when its reply lists no models.
-        let reported = match session.meta.lock().unwrap().models.as_mut() {
+        let reported = match session.meta.lock_or_recover().models.as_mut() {
             Some(Value::Object(models)) => {
                 models.insert("currentModelId".into(), json!(model_id));
                 true
@@ -1096,15 +1091,14 @@ impl Hub {
     pub async fn rename(&self, session: &Arc<Session>, name: String) -> Result<(), RpcError> {
         if self
             .sessions
-            .lock()
-            .unwrap()
+            .lock_or_recover()
             .values()
             .any(|s| s.id != session.id && s.meta().name == name)
         {
             return Err(RpcError::invalid_params(format!("session name {name:?} is taken")));
         }
         let old = {
-            let mut m = session.meta.lock().unwrap();
+            let mut m = session.meta.lock_or_recover();
             // A chat renamed before it was titled asks no model for a title (`titles.rs`).
             super::titles::title_renamed(&mut m);
             std::mem::replace(&mut m.name, name.clone())
@@ -1148,7 +1142,7 @@ impl Hub {
             // ends the session: end it without its protocol (frozen path).
             self.end_unadopted_host(session).await;
         }
-        *session.turn.lock().unwrap() = None;
+        *session.turn.lock_or_recover() = None;
         // Before the close's event, which sends the cards it owes (`tasks.rs`).
         self.orphan_tasks_of(session, purge);
         self.set_status(session, SessionStatus::Closed);
@@ -1157,7 +1151,7 @@ impl Hub {
         if purge {
             session.purged.store(true, Ordering::SeqCst);
             let replaced = session.replaced.load(Ordering::SeqCst);
-            self.sessions.lock().unwrap().remove(&session.id);
+            self.sessions.lock_or_recover().remove(&session.id);
             // Its temporary folder goes with it (`agent/session_tmp.rs`).
             #[cfg(unix)]
             self.remove_session_tmp(session.id.clone());
@@ -1211,7 +1205,7 @@ impl Hub {
         if let Some(child) = session.child.lock().await.take() {
             child.kill().await;
         }
-        *session.turn.lock().unwrap() = None;
+        *session.turn.lock_or_recover() = None;
         if session.status() != SessionStatus::Closed {
             self.set_status(session, SessionStatus::Idle);
         }

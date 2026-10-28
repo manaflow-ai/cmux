@@ -8,7 +8,7 @@ import CmuxNextLaunch
 import Foundation
 import Testing
 
-/// p08-startup-028: no engine makes a browser tab's page before the browser profiles' launch read is
+/// No engine makes a browser tab's page before the browser profiles' launch read is
 /// done. Before, a restored tab whose record names a deleted profile got a page in that profile's store
 /// (chosen from the empty book), which reopened the store and kept `cleanUpDeletedProfiles` from removing
 /// it. Now the page waits for the read's event, and the read's step makes it, shown in a pane or not.

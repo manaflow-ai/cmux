@@ -9,7 +9,7 @@ import CmuxUpdater
 import Foundation
 import Testing
 
-/// p06-scheduler-301: the managed policy reaches the updater and Cloud auth through a scheduled `automation`
+/// The managed policy reaches the updater and Cloud auth through a scheduled `automation`
 /// observation (`ManagedPolicyBridge`). The app starts the bridge before the first settings load, so the forced
 /// values it applies then must not be cleared by the still empty `managedPolicy`; a profile change after the load
 /// is one automation task, which a pending key goes ahead of (p06-scheduler.md rule 9).

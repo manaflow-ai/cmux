@@ -1,5 +1,5 @@
 import AppKit
-public import CmuxNextCompat
+public import CmuxNextCompatAppKit
 public import Foundation
 public import UniformTypeIdentifiers
 

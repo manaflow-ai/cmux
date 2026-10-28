@@ -1,5 +1,5 @@
 import AppKit
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 import CmuxNextFiles
 
 /// The Files commands: one path per command, used by keys, context menus and

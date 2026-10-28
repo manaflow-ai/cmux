@@ -4,7 +4,7 @@ import CmuxNextActions
 import CmuxNextLaunch
 import Testing
 
-/// p08-startup-092: `AppServices` takes the registry's catalog from the environment's launch build and keeps
+/// `AppServices` takes the registry's catalog from the environment's launch build and keeps
 /// that read as `debug.startup`'s counter values; the launch warm-up thread's build leaves no main-thread wait.
 @MainActor @Suite(.serialized)
 struct ActionCatalogLaunchWiringTests {

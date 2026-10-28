@@ -1,4 +1,4 @@
-//! `_acpmux/memory_limit {level, mode, override}` (p07-memory-109): the cmux
+//! `_acpmux/memory_limit {level, mode, override}`: the cmux
 //! app's memory pressure level reaches acpmux. The cmux daemon relays the
 //! app's `memory.limit` on its agent chat watch's connection, as that watch
 //! connects and on each change (cmux-tui-core `mux/acpmux_energy.rs`).

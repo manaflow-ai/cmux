@@ -229,6 +229,7 @@
 //!   person until then.
 
 use super::*;
+use crate::no_panic::JsonExt;
 
 pub use super::start_gate::{
     CALLER_ENV_KEYS, CALLER_FIELD, CALLER_SOCKET_ENV, CALLER_TOKEN_ENV, START_MODE_FIELD,
@@ -450,7 +451,7 @@ impl PersonGate {
                 .ok_or_else(|| bad("each folder is absolute"))?;
             let mut row =
                 pick(f).ok_or_else(|| bad("each folder pick names a harness and a model"))?;
-            row["folder"] = folder.into();
+            row.set("folder", folder.into());
             kept.push(row);
         }
         out.insert("folders".into(), Value::Array(kept));
@@ -496,7 +497,7 @@ impl PersonGate {
 
     /// This daemon run's id (16 random bytes, lowercase hex).
     pub fn instance(&self) -> &str {
-        self.instance.get_or_init(|| new_nonce()[..32].to_owned())
+        self.instance.get_or_init(random_hex::<16>)
     }
 
     /// Whether `proof` is the person's decision for this exact prompt,
@@ -684,9 +685,18 @@ pub fn decision_proof(
 
 /// A connection's nonce: 32 random bytes as lowercase hex.
 pub fn new_nonce() -> String {
-    let mut bytes = [0u8; 32];
+    random_hex::<32>()
+}
+
+/// `N` random bytes as lowercase hex.
+#[allow(
+    clippy::expect_used,
+    reason = "no OS randomness means no safe challenge or token; Chrome's base/rand_util_posix.cc CHECKs the same"
+)]
+pub fn random_hex<const N: usize>() -> String {
+    let mut bytes = [0u8; N];
     // No randomness means no safe challenge: the daemon cannot serve.
-    getrandom::fill(&mut bytes).expect("the OS random generator for a connection nonce"); // crash-allow: no randomness, no safe challenge
+    getrandom::fill(&mut bytes).expect("the OS random generator for a nonce"); // crash-allow: no randomness, no safe challenge
     cmux_local_auth::frontend_proof::hex(&bytes)
 }
 
@@ -1049,7 +1059,9 @@ impl Hub {
         let Some(pid) = params.get("permissionId").and_then(Value::as_str) else { return false };
         let state = s.permissions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let Some(p) = state.pending.get(pid) else { return false };
-        let offered: Vec<&Value> = p.request["options"]
+        let offered: Vec<&Value> = p
+            .request
+            .field("options")
             .as_array()
             .into_iter()
             .flatten()

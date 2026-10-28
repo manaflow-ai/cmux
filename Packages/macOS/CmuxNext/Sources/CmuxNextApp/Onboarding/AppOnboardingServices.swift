@@ -7,7 +7,7 @@ import CmuxNextDesign
 import CmuxNextOnboarding
 import CmuxNextSettings
 import LocalAuthentication
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 import CmuxNextWakeups
 
 /// `OnboardingServices` over the app for the tool window: the importer

@@ -2,6 +2,7 @@
 //! router that feeds per-surface routes, and runtime shutdown.
 
 use super::*;
+use crate::panic_free::RecoverPoison;
 use crate::supervised::{self, Fatal, ShutdownBehavior};
 
 impl BrowserRuntime {
@@ -181,7 +182,7 @@ impl BrowserRuntime {
 
     pub(super) fn register(&self, target_id: &str, session_id: &str) -> Arc<SurfaceRoute> {
         let route = Arc::new(SurfaceRoute::new());
-        let mut routes = self.routes.lock().unwrap();
+        let mut routes = self.routes.lock().recover_poison();
         if self.closed.load(Ordering::Acquire) {
             drop(routes);
             route.close("browser runtime closed".to_string());
@@ -195,7 +196,7 @@ impl BrowserRuntime {
     pub(super) fn unregister(&self, target_id: &str, session_id: &str) {
         self.client.unregister_frame_epoch(session_id);
         let route = {
-            let mut routes = self.routes.lock().unwrap();
+            let mut routes = self.routes.lock().recover_poison();
             let by_session = routes.by_session.remove(session_id);
             let by_target = routes.by_target.remove(target_id);
             by_session.or(by_target)
@@ -206,7 +207,7 @@ impl BrowserRuntime {
     }
 
     pub(super) fn remove_route(&self, route: &Arc<SurfaceRoute>) {
-        let mut routes = self.routes.lock().unwrap();
+        let mut routes = self.routes.lock().recover_poison();
         routes.by_session.retain(|_, candidate| !Arc::ptr_eq(candidate, route));
         routes.by_target.retain(|_, candidate| !Arc::ptr_eq(candidate, route));
     }
@@ -440,136 +441,199 @@ pub(super) fn start_router(
     runtime: Weak<BrowserRuntime>,
     events: Receiver<CdpEvent>,
 ) -> anyhow::Result<()> {
-    supervised::spawn("browser-runtime-events", Fatal, ShutdownBehavior::Continue, move || {
-        while let Ok(event) = events.recv() {
-            let Some(runtime) = runtime.upgrade() else { break };
-            match event {
-                CdpEvent::ScreencastFrame(frame) => {
-                    let tx = {
-                        runtime.routes.lock().unwrap().by_session.get(&frame.session_id).cloned()
-                    };
-                    if let Some(tx) = tx
-                        && tx.deliver(CdpEvent::ScreencastFrame(frame))
-                    {
-                        runtime.remove_route(&tx);
+    supervised::spawn_at(
+        "browser-runtime-events",
+        cmux_threads::ThreadQos::UserInitiated,
+        Fatal,
+        ShutdownBehavior::Continue,
+        move || {
+            while let Ok(event) = events.recv() {
+                let Some(runtime) = runtime.upgrade() else { break };
+                match event {
+                    CdpEvent::ScreencastFrame(frame) => {
+                        let tx = {
+                            runtime
+                                .routes
+                                .lock()
+                                .recover_poison()
+                                .by_session
+                                .get(&frame.session_id)
+                                .cloned()
+                        };
+                        if let Some(tx) = tx
+                            && tx.deliver(CdpEvent::ScreencastFrame(frame))
+                        {
+                            runtime.remove_route(&tx);
+                        }
                     }
-                }
-                CdpEvent::ScreencastFrameCaptureRequested {
-                    session_id,
-                    frame_id,
-                    loader_id,
-                    request_id,
-                    frame_epoch,
-                    navigation_epoch,
-                } => {
-                    let tx =
-                        { runtime.routes.lock().unwrap().by_session.get(&session_id).cloned() };
-                    if let Some(tx) = tx
-                        && tx.deliver(CdpEvent::ScreencastFrameCaptureRequested {
-                            session_id,
-                            frame_id,
-                            loader_id,
-                            request_id,
-                            frame_epoch,
-                            navigation_epoch,
-                        })
-                    {
-                        runtime.remove_route(&tx);
+                    CdpEvent::ScreencastFrameCaptureRequested {
+                        session_id,
+                        frame_id,
+                        loader_id,
+                        request_id,
+                        frame_epoch,
+                        navigation_epoch,
+                    } => {
+                        let tx = {
+                            runtime
+                                .routes
+                                .lock()
+                                .recover_poison()
+                                .by_session
+                                .get(&session_id)
+                                .cloned()
+                        };
+                        if let Some(tx) = tx
+                            && tx.deliver(CdpEvent::ScreencastFrameCaptureRequested {
+                                session_id,
+                                frame_id,
+                                loader_id,
+                                request_id,
+                                frame_epoch,
+                                navigation_epoch,
+                            })
+                        {
+                            runtime.remove_route(&tx);
+                        }
                     }
-                }
-                CdpEvent::FrameNavigated { params, session_id, frame_epoch } => {
-                    let tx =
-                        { runtime.routes.lock().unwrap().by_session.get(&session_id).cloned() };
-                    if let Some(tx) = tx
-                        && tx.deliver(CdpEvent::FrameNavigated { params, session_id, frame_epoch })
-                    {
-                        runtime.remove_route(&tx);
+                    CdpEvent::FrameNavigated { params, session_id, frame_epoch } => {
+                        let tx = {
+                            runtime
+                                .routes
+                                .lock()
+                                .recover_poison()
+                                .by_session
+                                .get(&session_id)
+                                .cloned()
+                        };
+                        if let Some(tx) = tx
+                            && tx.deliver(CdpEvent::FrameNavigated {
+                                params,
+                                session_id,
+                                frame_epoch,
+                            })
+                        {
+                            runtime.remove_route(&tx);
+                        }
                     }
-                }
-                CdpEvent::DocumentPainted { session_id, frame_id, loader_id, navigation_epoch } => {
-                    let tx =
-                        { runtime.routes.lock().unwrap().by_session.get(&session_id).cloned() };
-                    if let Some(tx) = tx
-                        && tx.deliver(CdpEvent::DocumentPainted {
-                            session_id,
-                            frame_id,
-                            loader_id,
-                            navigation_epoch,
-                        })
-                    {
-                        runtime.remove_route(&tx);
+                    CdpEvent::DocumentPainted {
+                        session_id,
+                        frame_id,
+                        loader_id,
+                        navigation_epoch,
+                    } => {
+                        let tx = {
+                            runtime
+                                .routes
+                                .lock()
+                                .recover_poison()
+                                .by_session
+                                .get(&session_id)
+                                .cloned()
+                        };
+                        if let Some(tx) = tx
+                            && tx.deliver(CdpEvent::DocumentPainted {
+                                session_id,
+                                frame_id,
+                                loader_id,
+                                navigation_epoch,
+                            })
+                        {
+                            runtime.remove_route(&tx);
+                        }
                     }
-                }
-                CdpEvent::NavigatedWithinDocument {
-                    params,
-                    session_id,
-                    frame_id,
-                    loader_id,
-                    frame_epoch,
-                } => {
-                    let tx =
-                        { runtime.routes.lock().unwrap().by_session.get(&session_id).cloned() };
-                    if let Some(tx) = tx
-                        && tx.deliver(CdpEvent::NavigatedWithinDocument {
-                            params,
-                            session_id,
-                            frame_id,
-                            loader_id,
-                            frame_epoch,
-                        })
-                    {
-                        runtime.remove_route(&tx);
+                    CdpEvent::NavigatedWithinDocument {
+                        params,
+                        session_id,
+                        frame_id,
+                        loader_id,
+                        frame_epoch,
+                    } => {
+                        let tx = {
+                            runtime
+                                .routes
+                                .lock()
+                                .recover_poison()
+                                .by_session
+                                .get(&session_id)
+                                .cloned()
+                        };
+                        if let Some(tx) = tx
+                            && tx.deliver(CdpEvent::NavigatedWithinDocument {
+                                params,
+                                session_id,
+                                frame_id,
+                                loader_id,
+                                frame_epoch,
+                            })
+                        {
+                            runtime.remove_route(&tx);
+                        }
                     }
-                }
-                CdpEvent::TargetCreated(created) => {
-                    let tx = created.opener_id.as_ref().and_then(|opener_id| {
-                        runtime.routes.lock().unwrap().by_target.get(opener_id).cloned()
-                    });
-                    if let Some(tx) = tx
-                        && tx.deliver(CdpEvent::TargetCreated(created))
-                    {
-                        runtime.remove_route(&tx);
+                    CdpEvent::TargetCreated(created) => {
+                        let tx = created.opener_id.as_ref().and_then(|opener_id| {
+                            runtime.routes.lock().recover_poison().by_target.get(opener_id).cloned()
+                        });
+                        if let Some(tx) = tx
+                            && tx.deliver(CdpEvent::TargetCreated(created))
+                        {
+                            runtime.remove_route(&tx);
+                        }
                     }
-                }
-                CdpEvent::TargetInfoChanged(info) => {
-                    let tx =
-                        { runtime.routes.lock().unwrap().by_target.get(&info.target_id).cloned() };
-                    if let Some(tx) = tx
-                        && tx.deliver(CdpEvent::TargetInfoChanged(info))
-                    {
-                        runtime.remove_route(&tx);
+                    CdpEvent::TargetInfoChanged(info) => {
+                        let tx = {
+                            runtime
+                                .routes
+                                .lock()
+                                .recover_poison()
+                                .by_target
+                                .get(&info.target_id)
+                                .cloned()
+                        };
+                        if let Some(tx) = tx
+                            && tx.deliver(CdpEvent::TargetInfoChanged(info))
+                        {
+                            runtime.remove_route(&tx);
+                        }
                     }
-                }
-                CdpEvent::Other { method, params, session_id: Some(session_id) } => {
-                    let tx =
-                        { runtime.routes.lock().unwrap().by_session.get(&session_id).cloned() };
-                    if let Some(tx) = tx
-                        && tx.deliver(CdpEvent::Other {
-                            method,
-                            params,
-                            session_id: Some(session_id),
-                        })
-                    {
-                        runtime.remove_route(&tx);
+                    CdpEvent::Other { method, params, session_id: Some(session_id) } => {
+                        let tx = {
+                            runtime
+                                .routes
+                                .lock()
+                                .recover_poison()
+                                .by_session
+                                .get(&session_id)
+                                .cloned()
+                        };
+                        if let Some(tx) = tx
+                            && tx.deliver(CdpEvent::Other {
+                                method,
+                                params,
+                                session_id: Some(session_id),
+                            })
+                        {
+                            runtime.remove_route(&tx);
+                        }
                     }
+                    CdpEvent::Closed(reason) => {
+                        close_browser_runtime(&runtime, reason);
+                        break;
+                    }
+                    CdpEvent::Other { .. } => {}
                 }
-                CdpEvent::Closed(reason) => {
-                    close_browser_runtime(&runtime, reason);
-                    break;
-                }
-                CdpEvent::Other { .. } => {}
             }
-        }
-        if let Some(runtime) = runtime.upgrade() {
-            close_browser_runtime(&runtime, "CDP event channel closed".to_string());
-        }
-    })?;
+            if let Some(runtime) = runtime.upgrade() {
+                close_browser_runtime(&runtime, "CDP event channel closed".to_string());
+            }
+        },
+    )?;
     Ok(())
 }
 
 pub(super) fn close_browser_runtime(runtime: &BrowserRuntime, reason: String) {
     let senders = {
-        let mut routes = runtime.routes.lock().unwrap();
+        let mut routes = runtime.routes.lock().recover_poison();
         runtime.closed.store(true, Ordering::Release);
         let senders = routes.by_session.values().cloned().collect::<Vec<_>>();
         routes.by_session.clear();

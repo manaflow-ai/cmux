@@ -10,7 +10,7 @@ extension CEFTab: BrowserContentVisibilityReporting, BrowserVisibilityFollowing 
     }
 
     /// Whether this tab's page draws over its content view. Host mode: what the pane's page view
-    /// shows (``ChromiumHostPageView/contentVisibility``, task p01-process-220), since the host's
+    /// shows (``ChromiumHostPageView/contentVisibility``), since the host's
     /// page windows are never in cmux. In process: the fork's page window over the view.
     public var contentVisibility: BrowserContentVisibility {
         guard !isClosed else { return .hidden("closed") }
@@ -53,7 +53,7 @@ extension CEFTab: BrowserContentVisibilityReporting, BrowserVisibilityFollowing 
 
     /// Chromium Host: whether this tab's page view (``ChromiumHostPageView/InputTarget/view``) is
     /// `window`'s first responder and its host reports the chords the page leaves unhandled
-    /// (``ChromiumHostPageView/hostReportsUnhandledKeys``, p01-process-030), so the page gets
+    /// (``ChromiumHostPageView/hostReportsUnhandledKeys``), so the page gets
     /// page-ownable keys first.
     public func hostedPageHasKeys(in window: NSWindow) -> Bool {
         guard !isClosed, host.visibleTab === self, let page = host.hostedPageView, page.inputTarget == .view,
@@ -62,7 +62,7 @@ extension CEFTab: BrowserContentVisibilityReporting, BrowserVisibilityFollowing 
     }
 
     /// Chromium Host: whether this tab's page view is `window`'s first responder and its page holds a
-    /// keyboard lock in its fullscreen (``ChromiumHostExclusiveAccess/holdsKeys``, task p01-process-229).
+    /// keyboard lock in its fullscreen (``ChromiumHostExclusiveAccess/holdsKeys``).
     public func hostedPageLocksKeys(in window: NSWindow) -> Bool {
         guard !isClosed, host.visibleTab === self, let page = host.hostedPageView, window.firstResponder === page else { return false }
         return page.exclusiveAccess.holdsKeys

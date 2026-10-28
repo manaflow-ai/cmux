@@ -234,10 +234,14 @@ fn apply_patch(files: Vec<Planned>) -> Result<Value, HandError> {
     let mut order: Vec<PathBuf> = Vec::new();
     for (old, new, f) in &files {
         let source = old.clone().or_else(|| new.clone()).unwrap_or_default();
-        if !current.contains_key(&source) {
-            current.insert(source.clone(), read(&source)?);
-        }
-        let text = current[&source].clone();
+        let text = match current.get(&source) {
+            Some(text) => text.clone(),
+            None => {
+                let text = read(&source)?;
+                current.insert(source.clone(), text.clone());
+                text
+            }
+        };
         let name = source.display().to_string();
         if old.is_some() && text.is_none() {
             return Err(HandError::new("fs.not_found", format!("{name} does not exist")));
@@ -264,7 +268,9 @@ fn apply_patch(files: Vec<Planned>) -> Result<Value, HandError> {
         if !seen.insert(path.clone()) {
             continue;
         }
-        match &current[&path] {
+        // Every path in `order` was inserted into `current` above.
+        let Some(state) = current.get(&path) else { continue };
+        match state {
             Some(text) => {
                 fsops::atomic_write(&path, text)?;
                 result.push(json!({ "path": path, "sha256": fsops::sha256_hex(text.as_bytes()) }));

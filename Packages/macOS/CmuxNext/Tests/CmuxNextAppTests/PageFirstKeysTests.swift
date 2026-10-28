@@ -10,7 +10,7 @@ import Testing
 /// cmux runs its action only when Chromium reports that the page did not handle the key (no
 /// `preventDefault`). Window-level keys (Cmd-T, Cmd-W, Cmd-N, Cmd-L, Cmd-1 to Cmd-9) stay with cmux.
 /// The Chromium Host's pages give the same facts once their host reports unhandled keys
-/// (`CEFTab.hostedPageHasKeys`, p01-process-030).
+/// (`CEFTab.hostedPageHasKeys`).
 @MainActor @Suite struct PageFirstKeysTests {
     nonisolated struct Key: CustomStringConvertible, Sendable {
         var name: String
@@ -90,8 +90,7 @@ import Testing
     }
 
     /// A page's own chord with no cmux action in a browser page (Cmd-K) reaches the page first, so
-    /// its `preventDefault` keeps it; in the Chromium Host it comes back only if left unhandled
-    /// (p01-process-030).
+    /// its `preventDefault` keeps it; in the Chromium Host it comes back only if left unhandled.
     @Test func aPageChordWithNoCmuxActionReachesThePage() throws {
         let decision = try Self.decision(Key(name: "Cmd-K", characters: "k", keyCode: 40), facts: Self.chromium)
         switch decision {

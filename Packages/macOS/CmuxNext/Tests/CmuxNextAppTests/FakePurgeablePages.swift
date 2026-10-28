@@ -1,7 +1,7 @@
 import CmuxNextCompat
 import Foundation
 
-/// Purgeable pages a test empties on demand (the ``PurgeablePages`` seam, p07-memory-107): heap bytes whose
+/// Purgeable pages a test empties on demand (the ``PurgeablePages`` seam): heap bytes whose
 /// volatile state is a flag, emptied by ``purge()`` only while volatile, as memory pressure would.
 nonisolated final class FakePurgeablePages: PurgeablePages {
     private struct State {

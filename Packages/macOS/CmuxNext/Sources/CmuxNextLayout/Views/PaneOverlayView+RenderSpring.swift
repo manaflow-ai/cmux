@@ -3,7 +3,7 @@ import CmuxNextDesign
 import QuartzCore
 
 /// The pane chrome (ring, glow, attention ring, border, dim, focus flash) riding its host's render-server
-/// spring (chrome-parity R2, p03-rendering-029). Core Animation lays sublayers out for the model bounds
+/// spring (chrome-parity R2). Core Animation lays sublayers out for the model bounds
 /// only, at commit, so a ring that leaned on its view's size would show its rest size on a pane still
 /// growing. Here every sublayer that keeps its thickness gets its own spring, and the host adds them to its
 /// own group: one token and one begin time, as cc groups keyframe models that must start together

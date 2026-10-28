@@ -7,7 +7,7 @@ import CmuxNextWakeups
 import Foundation
 import Testing
 
-/// Energy Saver freezes CPU-heavy hidden tabs (p14-energy-039), Chrome's `FreezingPolicy` under battery saver: a
+/// Energy Saver freezes CPU-heavy hidden tabs, Chrome's `FreezingPolicy` under battery saver: a
 /// hidden page at `kFreezingHighCPUProportion` (25 % of one core) or more over its reading window freezes at the
 /// next replan; a quiet page keeps `browser.freezeHiddenTabs`; the freeze probe's reasons (playing media) still keep
 /// a busy page; out of the saver nothing is read and nothing changes. The renderer CPU readings come from the

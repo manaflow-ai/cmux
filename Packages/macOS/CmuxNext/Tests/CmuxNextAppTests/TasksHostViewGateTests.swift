@@ -4,7 +4,7 @@ import CmuxNextTasks
 import CmuxNextWakeups
 import Testing
 
-/// A hidden Tasks tab does no SwiftUI work (p06-scheduler-214): 100 model changes while its node is
+/// A hidden Tasks tab does no SwiftUI work: 100 model changes while its node is
 /// hidden run 0 bodies, and showing it runs 1.
 @MainActor
 struct TasksHostViewGateTests {

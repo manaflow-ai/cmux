@@ -49,7 +49,7 @@ public final class OracleActionTurns: ActionRunObserver {
     }
 }
 
-/// `debug.oracle.recorder` and `debug.oracle.turns` (p15-oracle-032) over the one turn recorder and
+/// `debug.oracle.recorder` and `debug.oracle.turns` over the one turn recorder and
 /// facet list a composition root built. DEV and bench builds only, like ``OracleControl``: a Release
 /// router answers both names `not_allowed`.
 public struct OracleRecorderControl: Sendable {

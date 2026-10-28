@@ -61,7 +61,7 @@ struct HangReportWireFormatTests {
         }
     }
 
-    // MARK: Active seconds and the main-thread histograms (p12-perf-process-043)
+    // MARK: Active seconds and the main-thread histograms
 
     /// `MainTurnHistogram.edgesNanos` (CmuxNextControl): 50 µs times 1.2 per edge, then 10 s.
     static let turnEdgesNanos: [UInt64] = {
@@ -212,10 +212,10 @@ struct HangReportWireFormatTests {
         #expect(fitted.activeSeconds == 5_400)
     }
 
-    // MARK: Field data (p09-observability-063)
+    // MARK: Field data
 
     /// Schema 3 with `histograms[]` (`[index, count]` buckets), `stability{}`, `blackbox[]` and one earlier launch's
-    /// section: the bytes the web decode PR (p09-observability-064) copies to
+    /// section: the bytes the web decode PR copies to
     /// web/tests/fixtures/hang-report-schema3-field-data.json.
     static let golden3FieldData = #"{"app":{"build":"2123456789012","channel":"nightly","version":"0.70.0"},"blackbox":[{"name":"main.turn","phase":"B","process":"app","t_us":0},{"arg0":7,"name":"daemon.request","phase":"E","process":"daemon","t_us":1250}],"counts":{"panes":"6-10","tabs":"31-100","windows":"1","workspaces":"11-30"},"cpuExceptions":[],"day":"2026-10-23","hangs":[],"hardware":{"arch":"arm64","chip":"Apple M4 Pro","cores":14,"memoryGB":48},"histograms":[{"buckets":[[40,12],[41,3]],"count":15,"max":60000000,"name":"key.frame.terminal","sum":21500,"unit":"us"},{"buckets":[[0,2]],"count":2,"max":256,"name":"cef.helper_exit","sum":0,"unit":"enum"}],"installId":"0b8d4a51-6c9e-4f0f-8f53-3c2d7b4f9e20","intervals":[],"launch_sections":[{"histograms":[{"buckets":[[44,1]],"count":1,"max":3600000,"name":"launch.first_frame.cold","sum":420,"unit":"ms"}],"id":"6f1d2c3b-4a59-4e8d-9c7b-0a1b2c3d4e5f","profile":{"build":"2123456780000","build_day":"2026-10-22","channel":"nightly","os":"15.7.4","version":"0.69.0"},"stability":{"launch":1,"unclean_exit":{"crash":1}}}],"metrics":{"hangTime":[],"launchExtended":[],"launchFirstDraw":[],"launchOptimizedFirstDraw":[],"launchResume":[]},"os":{"version":"15.7.4"},"reportId":"5f1c7c1e-2b9b-4a8e-9c62-0f0d2b0b8a11","schema":3,"stability":{"active_seconds":5400,"child_exit":{"daemon":{"clean":1}},"daemon_unresponsive":{"terminal_io":1},"launch":1},"stallHistogram":[]}"#
 
@@ -473,7 +473,7 @@ struct HangReportWireFormatTests {
         #expect((fitted.launchSections?.count ?? 0) + (fitted.histograms?.count ?? 0) < 1 + names.count)
     }
 
-    // MARK: Features (p12-perf-process-151)
+    // MARK: Features
 
     static let features = HangReport.FeatureState(hash: "363b2a8f1f789985", nonDefault: [
         HangReport.FeatureEntry(name: "hangReportsSchema3", state: "on", source: "env"),
@@ -551,7 +551,7 @@ struct HangReportWireFormatTests {
         #expect(capped.features == Array(many.prefix(HangReport.maxFeatures)))
     }
 
-    // MARK: Blocking sites (p12-perf-process-226)
+    // MARK: Blocking sites
 
     /// Two main-thread sites and a pool site, as the detector lists them; only the main thread's are sent.
     static let detectorSites = [

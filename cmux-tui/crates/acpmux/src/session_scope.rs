@@ -35,11 +35,14 @@ pub(crate) fn command(
         return Command::new(program);
     }
     match session.and_then(|id| prefix(id, env)) {
-        Some(prefix) => {
-            let mut cmd = Command::new(&prefix[0]);
-            cmd.args(&prefix[1..]).arg(program);
-            cmd
-        }
+        Some(prefix) => match prefix.split_first() {
+            Some((scope, args)) => {
+                let mut cmd = Command::new(scope);
+                cmd.args(args).arg(program);
+                cmd
+            }
+            None => Command::new(program),
+        },
         None => Command::new(program),
     }
 }
@@ -172,7 +175,7 @@ fn probe(runner: &std::path::Path, properties: &[String], env: &BTreeMap<String,
         match child.try_wait() {
             Ok(Some(status)) => return status.success(),
             Ok(None) if started.elapsed() < PROBE_TIMEOUT => {
-                std::thread::sleep(std::time::Duration::from_millis(20));
+                cmux_threads::checked::sync::sleep(std::time::Duration::from_millis(20));
             }
             _ => {
                 let _ = child.kill();

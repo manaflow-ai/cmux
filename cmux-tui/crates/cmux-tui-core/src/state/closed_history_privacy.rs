@@ -110,17 +110,17 @@ fn normalized(key: &str) -> String {
 /// own UI state, which a reopened tab needs.
 fn is_secret_key(key: &str) -> bool {
     let words = words(key);
-    if words.len() == 1 && matches!(words[0].as_str(), "code" | "key" | "session") {
+    if let [only] = words.as_slice()
+        && matches!(only.as_str(), "code" | "key" | "session")
+    {
         return true;
     }
-    let by_word = words.iter().enumerate().any(|(index, word)| {
-        let before = index.checked_sub(1).map(|previous| words[previous].as_str());
-        match word.as_str() {
-            "token" => !before.is_some_and(|before| CURSOR_WORDS.contains(&before)),
-            "key" => before.is_some_and(|before| KEY_OWNERS.contains(&before)),
-            "id" => before == Some("session"),
-            word => SECRET_WORDS.contains(&word),
-        }
+    let befores = std::iter::once(None).chain(words.iter().map(|word| Some(word.as_str())));
+    let by_word = befores.zip(&words).any(|(before, word)| match word.as_str() {
+        "token" => !before.is_some_and(|before| CURSOR_WORDS.contains(&before)),
+        "key" => before.is_some_and(|before| KEY_OWNERS.contains(&before)),
+        "id" => before == Some("session"),
+        word => SECRET_WORDS.contains(&word),
     });
     let key = normalized(key);
     let cursor = CURSOR_TOKENS.iter().any(|cursor| key.ends_with(cursor));
@@ -155,8 +155,7 @@ fn decode_key(key: &str) -> String {
     let bytes = key.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
     let mut index = 0;
-    while index < bytes.len() {
-        let byte = bytes[index];
+    while let Some(&byte) = bytes.get(index) {
         let escaped = (byte == b'%')
             .then(|| Some((hex(*bytes.get(index + 1)?)?, hex(*bytes.get(index + 2)?)?)))
             .flatten();
@@ -239,13 +238,14 @@ fn strip_url_at(url: &str, nested: bool) -> String {
 /// starts after any run of `/` or `\` behind the scheme, as browsers read
 /// it: `https:user@h` is `https://user@h`.
 fn stripped_base(base: &str) -> String {
-    let Some(colon) = base.find(':') else { return base.to_string() };
-    let slashes = base[colon + 1..].bytes().take_while(|byte| matches!(byte, b'/' | b'\\')).count();
-    let start = colon + 1 + slashes;
-    let end = base[start..].find(['/', '\\']).map_or(base.len(), |at| start + at);
-    let authority = &base[start..end];
-    let host = authority.rfind('@').map_or(authority, |at| &authority[at + 1..]);
-    format!("{}{host}{}", &base[..start], kept_matrix(&base[end..]))
+    let Some((scheme, rest)) = base.split_once(':') else { return base.to_string() };
+    let slashes: String = rest.chars().take_while(|c| matches!(c, '/' | '\\')).collect();
+    let after = rest.trim_start_matches(['/', '\\']);
+    // The path starts at the first separator; the authority is what comes before it.
+    let path = after.trim_start_matches(|c| !matches!(c, '/' | '\\'));
+    let authority = after.split(['/', '\\']).next().unwrap_or_default();
+    let host = authority.rsplit_once('@').map_or(authority, |(_, host)| host);
+    format!("{scheme}:{slashes}{host}{}", kept_matrix(path))
 }
 
 /// `path` without its secret matrix parameters (`/p;jsessionid=X` is
@@ -306,17 +306,9 @@ fn kept_fragment(fragment: &str, nested: bool) -> Option<String> {
 /// stays (`#login`). A kept redirect value is stripped as a URL unless
 /// `nested`.
 fn kept_pairs(part: &str, bare_keys: bool, nested: bool) -> Option<String> {
-    let mut pairs = Vec::new();
-    let mut start = 0;
-    let mut separator = "";
-    for (at, character) in part.char_indices() {
-        if matches!(character, '&' | ';') {
-            pairs.push((separator, &part[start..at]));
-            separator = &part[at..at + 1];
-            start = at + 1;
-        }
-    }
-    pairs.push((separator, &part[start..]));
+    // Each pair after the separator before it (none before the first).
+    let separators = std::iter::once("").chain(part.matches(['&', ';']));
+    let pairs: Vec<(&str, &str)> = separators.zip(part.split(['&', ';'])).collect();
     let mut changed = false;
     let mut kept = Vec::with_capacity(pairs.len());
     for (separator, pair) in pairs {
@@ -355,8 +347,7 @@ fn kept_pair(pair: &str, bare_keys: bool, nested: bool) -> Option<String> {
     let keyed = bare_keys || value.is_some();
     // A `?` in the key starts what reads as a query there: before it is
     // text of its own (`#login`), after it the key of this pair (`code`).
-    if let Some(at) = key.rfind('?') {
-        let (lead, tail) = (&key[..at], &key[at + 1..]);
+    if let Some((lead, tail)) = key.rsplit_once('?') {
         if bare_keys && is_secret_key(&decode_key(lead)) {
             return None;
         }

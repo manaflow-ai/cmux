@@ -4,7 +4,7 @@ import CmuxNextWakeups
 import Foundation
 import Testing
 
-/// p06-scheduler-212: a Chromium tab follows its visibility tree node through the fork's
+/// A Chromium tab follows its visibility tree node through the fork's
 /// `cmux_shim_tab_set_visibility` (fork API 37), as Chrome's tab strip hides a background WebContents
 /// (`WebContentsImpl::UpdateWebContentsVisibility`): the node's hide, show and occlusion reach Chromium in the
 /// node's own turn, a capture keeps a hidden tab painting, and the freeze is the second step after the hide.
@@ -59,7 +59,7 @@ import Testing
         #expect(VisibilitySpy.calls == ["visibility 7 1 0", "visibility 7 2 0", "visibility 7 1 0"])
     }
 
-    /// p07-memory-097: the shown tab of a window that is minimized is hidden to Chromium in the window node's own
+    /// The shown tab of a window that is minimized is hidden to Chromium in the window node's own
     /// turn, with no delay and no DevTools session (the lifecycle call the fork needed before API 37, since
     /// `WasHidden` does nothing for a windowed browser); deminiaturized, it is shown again.
     @Test func aMinimizedWindowHidesItsShownTabAtOnce() throws {
@@ -75,7 +75,7 @@ import Testing
         #expect(VisibilitySpy.calls == ["visibility 7 1 0", "visibility 7 3 0", "visibility 7 1 0"])
     }
 
-    /// p07-memory-097, `offScreenWindowPageFreeze`: below API 37 the shown page of an off-screen window follows no node,
+    /// `offScreenWindowPageFreeze`: below API 37 the shown page of an off-screen window follows no node,
     /// so Chromium still counts it visible; it is hidden and frozen through DevTools, and the thaw goes out at once, so
     /// an agent call after it reaches a live page. A second freeze sends nothing.
     @Test func belowForkAPI37AShownPageInAnOffScreenWindowIsHiddenThenFrozen() throws {

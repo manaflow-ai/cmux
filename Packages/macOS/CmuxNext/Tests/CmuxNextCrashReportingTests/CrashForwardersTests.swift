@@ -3,7 +3,7 @@ import Foundation
 import Testing
 @testable import CmuxNextCrashReporting
 
-/// p08-startup-078: ``CrashForwarders/run()`` does the forwarders' first pass on the calling thread (the launch's
+/// ``CrashForwarders/run()`` does the forwarders' first pass on the calling thread (the launch's
 /// best-effort files lane), so a panic the last run left is sent when it returns, and acpmux is found once, there.
 @Suite struct CrashForwardersTests {
     @Test func runSendsThePreviousRunsPanicOnTheCallingThreadAndFindsAcpmuxOnce() throws {
@@ -17,7 +17,7 @@ import Testing
         #expect(forwarders.acpmuxPanics == nil, "this test's acpmux maker finds no acpmux")
     }
 
-    /// p09-observability-097: a helper crash forwarder that waits for its release (the hang-reports controller's first
+    /// A helper crash forwarder that waits for its release (the hang-reports controller's first
     /// decision) does no pass in ``CrashForwarders/run()`` before it; the other forwarders do theirs.
     @Test func aSystemForwarderThatWaitsForItsReleaseDoesNoPassBeforeIt() throws {
         let dir = try CrashForwardersScratch()

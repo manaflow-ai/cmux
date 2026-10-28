@@ -5,7 +5,7 @@ import Testing
 
 /// ``SpringParameters/excursion(displacement:velocity:)`` bounds the whole way of a spring, past its rest too (a
 /// start with velocity, a bounce), and is no wider than that way: the visibility pass reads it for every pane a
-/// motion carries (p03-rendering-106). The way is sampled with the same closed form the frames step on
+/// motion carries. The way is sampled with the same closed form the frames step on
 /// (`SpringValue.step`, cmux-motion), every 1/960 s for 4 s.
 @MainActor @Suite struct SpringExcursionTests {
     nonisolated struct Case: Sendable, CustomTestStringConvertible {

@@ -3,7 +3,7 @@ import Foundation
 import Testing
 @testable import CmuxNextDaemon
 
-/// The app's daemon features ride every main-connection `client-hello` (p12-perf-process-150), and the
+/// The app's daemon features ride every main-connection `client-hello`, and the
 /// daemon's answer, step 2's over step 1's, is what `features.list` reports. The daemon is a script that
 /// answers like cmux-tui: step 1 reports the kill switch pending, step 2 (proved) applies it.
 struct DaemonFeatureHelloTests {

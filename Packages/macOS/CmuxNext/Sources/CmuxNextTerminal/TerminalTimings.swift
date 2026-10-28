@@ -63,7 +63,7 @@ public struct TerminalTimings {
         report(.nanoseconds(Int64(clamping: elapsed)))
     }
 
-    /// Begins and ends `ghostty_init`'s always-on launch interval (`launch.ghostty_init`, p08-startup-068).
+    /// Begins and ends `ghostty_init`'s always-on launch interval (`launch.ghostty_init`).
     nonisolated static func ghosttyInitBegan() { LaunchSignposts().begin(.ghosttyInit) }
     nonisolated static func ghosttyInitEnded() { LaunchSignposts().end(.ghosttyInit) }
 
@@ -83,11 +83,11 @@ public struct TerminalTimings {
 
     /// Called on the main actor each time a surface was handed terminal
     /// content (a replay or output) from its IO, for the launch's
-    /// "first live terminal frame" mark.
-    public static var onContentApplied: (() -> Void)?
+    /// "first live terminal frame" mark and `launch.visible_terminals_drawn`, which waits for that session's frame.
+    public static var onContentApplied: ((TerminalSession) -> Void)?
 
-    static func contentApplied() {
-        onContentApplied?()
+    static func contentApplied(_ session: TerminalSession) {
+        onContentApplied?(session)
     }
 
     /// Phases of the libghostty runtime's one-time start (`ghostty_init`,
@@ -101,8 +101,8 @@ public struct TerminalTimings {
 }
 
 /// Splits the cost of a runtime's first terminal surface into ``TerminalTimings/RuntimePhase`` phases: the
-/// `ghostty_surface_new` call itself (`launch.first_surface_new`), then the view's setup, first fit and first state
-/// (p08-startup-091). Each phase goes where the runtime's start phases go (`debug.timings`' `ghostty_runtime_ms`, a
+/// `ghostty_surface_new` call itself (`launch.first_surface_new`), then the view's setup, first fit and first state.
+/// Each phase goes where the runtime's start phases go (`debug.timings`' `ghostty_runtime_ms`, a
 /// `stall.ghostty_runtime_phase` event). Only the first surface pays the font discovery and the Metal device's first
 /// use, so later surfaces are not split. One per runtime (``GhosttyRuntime/firstSurfaceSplit``).
 ///

@@ -122,7 +122,7 @@ import CmuxNextInput
         #expect(pill.stepButtons.allSatisfy { $0.isEnabled })
     }
 
-    // MARK: Per-key cost (p04-input-057)
+    // MARK: Per-key cost
 
     /// A key that is not an arrow returns before it reads the window's first responder, so a
     /// plain key does no find pill work.
@@ -201,7 +201,7 @@ import CmuxNextInput
     }
 
     /// Shift-Return in the field goes to the previous match: its Shift comes from the key the window's
-    /// tap dispatched (p04-input-068), not from AppKit's current event, which a run after the key keeps.
+    /// tap dispatched, not from AppKit's current event, which a run after the key keeps.
     @Test func shiftReturnInTheFieldReadsShiftFromTheDispatchedKey() throws {
         let tap = InputEventTap()
         let (pill, window) = try makeWindowedPill(tap: tap)

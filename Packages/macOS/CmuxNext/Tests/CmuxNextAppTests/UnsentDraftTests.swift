@@ -2,6 +2,7 @@
 import Foundation
 import Testing
 @testable import CmuxNextApp
+import CmuxNextWakeups
 
 /// cx-z5vd: a new chat's typed text, from before it has an acpmux session, comes back after a
 /// relaunch. The page's `chat.unsentDraft` reaches the tab's kept drafts on disk, and the next run
@@ -21,7 +22,7 @@ struct UnsentDraftTests {
 
         // This run's drafts, held as the tab store holds them.
         let drafts = AgentUnsentDrafts(file: file)
-        let model = AgentPaneModel(host: MockAgentPaneHost())
+        let model = AgentPaneModel(runner: BackgroundWork(label: "test.agent-pane"), host: MockAgentPaneHost())
         drafts.wire(model) { "tab-1" }
         _ = await model.respond(to: Self.request("chat.unsentDraft", ["text": "compare the two retry policies"]))
 

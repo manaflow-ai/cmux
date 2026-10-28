@@ -1,9 +1,0 @@
-{/* block */ "appearance":{"metrics":{"chromeFontSize":13e0},"backgroundOpacity":2e0,"colorTransition":{"bezierY1":2},/* * */ "interfaceScale":2.25e0},// "quoted"
-"phone":{// a { brace
-"allowConnections":true},"notifications":{"sources":{"cli":{// a { brace
-"dismissal":"click"}}},// "quoted"
-"sidebar":{// a { brace
-"workspaceRow":{"agent":{// url: https://localhost/x
-"pullRequest":1e0},// note
-"mixed":{"secondLineOrder":[1]}}},"updates":{"keepPreviousVersions":5},"browser":{"omnibar":{// "quoted"
-"glass":1.0}},/* * */ "editor":{"autoSave":1},/* block */ "layout":{"scrollAreas":"true"}}

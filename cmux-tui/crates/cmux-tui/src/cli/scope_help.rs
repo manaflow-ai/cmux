@@ -266,17 +266,19 @@ pub(super) fn edit_distance(left: &str, right: &str) -> usize {
     let right = right.chars().collect::<Vec<_>>();
     let mut previous = (0..=right.len()).collect::<Vec<_>>();
     for (row, left) in left.chars().enumerate() {
-        let mut current = vec![row + 1];
-        for (column, right) in right.iter().enumerate() {
-            current.push(
-                (current[column] + 1)
-                    .min(previous[column + 1] + 1)
-                    .min(previous[column] + usize::from(left != *right)),
-            );
+        let mut current = Vec::with_capacity(previous.len());
+        let mut before = row + 1;
+        current.push(before);
+        // `pair` is (previous[column], previous[column + 1]).
+        for (pair, right) in previous.windows(2).zip(&right) {
+            let [diagonal, above] =
+                [pair.first(), pair.get(1)].map(|cost| cost.copied().unwrap_or(0));
+            before = (before + 1).min(above + 1).min(diagonal + usize::from(left != *right));
+            current.push(before);
         }
         previous = current;
     }
-    previous[right.len()]
+    previous.last().copied().unwrap_or(0)
 }
 
 pub(super) const CONVERSATION_HELP: &str = "\

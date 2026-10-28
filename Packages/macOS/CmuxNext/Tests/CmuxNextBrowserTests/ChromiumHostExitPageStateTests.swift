@@ -5,7 +5,7 @@ import Darwin
 import Foundation
 import Testing
 
-/// p08-startup-046: a Chromium host's end maps to the crash state its pages show, as Chrome's
+/// A Chromium host's end maps to the crash state its pages show, as Chrome's
 /// `GetTerminationStatus` (base/process/kill_posix.cc) maps a child's: a clean exit shows nothing,
 /// and a `kill -9` of a real host process is reported as killed while this process runs on.
 @Suite struct ChromiumHostExitPageStateTests {

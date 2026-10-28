@@ -5,7 +5,7 @@ public import CmuxNextSignposts
 /// order; a step posted after the signal runs at once. Nothing polls and nothing waits on main
 /// (p08-startup.md 3A: a step that needs a read that is not done runs on the read's completion event).
 ///
-/// The app's one today is the browser profiles' launch read (p08-startup-028): every browser page
+/// The app's one today is the browser profiles' launch read: every browser page
 /// waits for it, so no page engine starts with a profile chosen before the profiles were read.
 ///
 /// ```swift

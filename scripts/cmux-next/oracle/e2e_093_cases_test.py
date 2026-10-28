@@ -48,7 +48,7 @@ SHA = re.compile(r"^[0-9a-f]{40}$")
 
 # The facets the base build's makeOracleFacets list provides; `debug.oracle.snapshot` adds the router's topology
 # (OracleControl), `debug.oracle.wait_for` does not (AppControl+Barrier passes the list as is). No sidebar
-# (p15-oracle-036) and no switches (p15-oracle-027) provider yet.
+# and no switches provider yet.
 SNAPSHOT_PROVIDED = ("topology", "focus", "layout", "tabs", "overlays", "settings", "intents", "windows", "history",
                      "notifications", "agents", "terminals", "webviews", "ax", "crashes", "liveObjects", "invariants")
 # The provided facets wait_for can wait on: read on the main actor, or with their own change signal.

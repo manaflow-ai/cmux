@@ -60,7 +60,7 @@ import Testing
         #expect(harvest.cursor == "\(inode):12")
     }
 
-    /// p10-stability-095: the log parser cuts its captures by UTF-16 counts from the front (no subscript);
+    /// The log parser cuts its captures by UTF-16 counts from the front (no subscript);
     /// characters outside the Basic Multilingual Plane before and inside a capture come out whole.
     @Test func aLogLineWithWideCharactersParsesWhole() {
         let parser = LogLineParser(source: "acpmux", file: "daemon.log")

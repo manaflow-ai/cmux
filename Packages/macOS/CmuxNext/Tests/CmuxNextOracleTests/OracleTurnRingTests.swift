@@ -2,7 +2,7 @@
 @testable import CmuxNextOracle
 import Testing
 
-/// The recorder's ring (p15-oracle-032): a full ring of 256 keeps the newest, counts what it dropped
+/// The recorder's ring: a full ring of 256 keeps the newest, counts what it dropped
 /// and never reuses a sequence; a reader asks for what came after its last sequence; an entry carries
 /// the facet values for the runner to normalize. Run: `swift test --filter OracleTurnRingTests`.
 struct OracleTurnRingTests {

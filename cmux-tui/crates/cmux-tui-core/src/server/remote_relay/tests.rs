@@ -250,7 +250,7 @@ fn only_the_section_4_commands_pass_the_gate() {
     }
 }
 
-/// p07-memory-076: the memory diagnostics read this machine's processes,
+/// The memory diagnostics read this machine's processes,
 /// footprints and terminals, so no remote frame reaches them under any name or
 /// spelling, and the allowlist can never hold a memory, trace or debug command.
 #[test]

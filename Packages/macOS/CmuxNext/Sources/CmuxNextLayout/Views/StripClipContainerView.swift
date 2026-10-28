@@ -2,7 +2,7 @@ import AppKit
 import CmuxNextDesign
 import QuartzCore
 
-/// The column strip's clip as layer structure (p03-rendering-023): the strip's pane hosts sit in this
+/// The column strip's clip as layer structure: the strip's pane hosts sit in this
 /// view, whose layer masks to its bounds, so one rect clips every strip pane whatever its spring or the
 /// strip's pan does, and no host carries a mask for it. Docked columns are this view's siblings, stacked
 /// above it (`ScreenContentView.rank`). Chrome clips a scroller's contents the same way: a clip node on
@@ -17,7 +17,7 @@ import QuartzCore
 /// Its bounds origin is its frame origin, so a host's frame here is in the screen's coordinates, as it
 /// is directly in the screen: moving a host between the two keeps its frame.
 ///
-/// It is also the strip's motion container (p03-rendering-026): with `motion.renderServer` on, a strip
+/// It is also the strip's motion container: with `motion.renderServer` on, a strip
 /// pan moves its hosts (and the strip's dividers, which then sit here too) with one property of its
 /// layer, the `sublayerTransform` translation, under the fixed clip of its bounds. Not their frames,
 /// and not its bounds: each of those makes AppKit recompute the visible rect, tracking areas and

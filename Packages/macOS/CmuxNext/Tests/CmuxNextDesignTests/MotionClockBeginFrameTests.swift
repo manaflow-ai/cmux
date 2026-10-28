@@ -3,7 +3,7 @@ import CmuxNextWakeups
 import QuartzCore
 import Testing
 
-/// A ``MotionClock`` hands its animators the frame's ``FrameTick`` (BeginFrame args, p03-rendering-012):
+/// A ``MotionClock`` hands its animators the frame's ``FrameTick`` (BeginFrame args):
 /// the clamped elapsed to step by, the time the frame is shown (`targetTimestamp`, where a presented
 /// value is sampled) and the frame's sequence.
 @MainActor @Suite(.timeLimit(.minutes(1))) struct MotionClockBeginFrameTests {

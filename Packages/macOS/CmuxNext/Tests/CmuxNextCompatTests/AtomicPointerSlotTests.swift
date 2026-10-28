@@ -3,7 +3,7 @@ import Darwin
 import Foundation
 import Testing
 
-/// `AtomicPointerSlot` over mmap words and the inlinable `Atomic` operations (p09-observability-093).
+/// `AtomicPointerSlot` over mmap words and the inlinable `Atomic` operations.
 /// Run with `swift test -c release --filter AtomicPointerSlotTests`: the 8-thread tests race real
 /// hardware atomics, and the instruction tests read the -O machine code of a call from this module.
 ///

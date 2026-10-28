@@ -5,7 +5,7 @@ import CmuxNextWakeups
 import Observation
 import Testing
 
-/// The real list tells its row feed what it shows (p06-scheduler-040, feature `sidebarRowsNearViewport`):
+/// The real list tells its row feed what it shows (feature `sidebarRowsNearViewport`):
 /// 400 laid-out rows under a 30-row clip at an unaligned offset arm only the rows on screen, a jump to a
 /// far row draws its current content with no flush pending, and a filter reads every row current.
 @MainActor @Suite(.serialized) struct SidebarListRowWatchTests {

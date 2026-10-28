@@ -33,4 +33,8 @@ public enum InputStage: UInt8, Sendable, Hashable, CaseIterable {
     case echoSent
     /// The frame that shows the input reached the display.
     case presented
+    /// The app parsed the output that echoes a terminal key (its output lane): after
+    /// ``echoSent`` and before ``contentSubmitted`` in time. Declared last, as a new stage takes the next raw
+    /// value; readers order a slot's stages by time.
+    case echoParsed
 }

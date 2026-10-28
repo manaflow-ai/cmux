@@ -8,6 +8,7 @@ use serde_json::{Map, Value, json};
 
 use crate::cli::output::print_json;
 use crate::client::Client;
+use crate::no_panic::JsonExt;
 use crate::rpc::method;
 
 #[derive(Subcommand)]
@@ -68,13 +69,15 @@ pub async fn run(cmd: BeadCmd, json_out: bool) -> Result<()> {
     }
     match cmd {
         BeadCmd::Ls { session: false, .. } => {
-            for s in reply["matches"].as_array().into_iter().flatten() {
+            for s in reply.field("matches").as_array().into_iter().flatten() {
                 let text = |k: &str| s[k].as_str().unwrap_or_default().to_owned();
                 println!("{}  ({}, {})", text("name"), text("host"), text("status"));
             }
         }
-        BeadCmd::Ls { .. } => print_beads(&crate::beads::of_tags(&reply["session"]["tags"])),
-        _ => print_beads(&crate::beads::of_tags(&reply["tags"])),
+        BeadCmd::Ls { .. } => {
+            print_beads(&crate::beads::of_tags(reply.field("session").field("tags")))
+        }
+        _ => print_beads(&crate::beads::of_tags(reply.field("tags"))),
     }
     Ok(())
 }

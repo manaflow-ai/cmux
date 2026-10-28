@@ -7,8 +7,8 @@
 //!
 //! Commands and fields the schema added after the freeze are added to the
 //! frozen family by hand, as the hand-written variant would have declared
-//! them: attach-streams-v1 (p05-ipc-074) `stream` on attach-surface and
-//! snapshot-request, and cancel-stream; set-stream-priority (p05-ipc-142).
+//! them: attach-streams-v1 `stream` on attach-surface and
+//! snapshot-request, and cancel-stream; set-stream-priority.
 //!
 //! Fixture errors must match too, with two wording differences: a line that misses
 //! several required fields may name another of them (the generated fields are
@@ -214,7 +214,7 @@ enum OldTerminalIo {
     CancelStream {
         stream: u16,
     },
-    /// Rank one client-minted attach stream (p05-ipc-142).
+    /// Rank one client-minted attach stream.
     SetStreamPriority {
         stream: u16,
         priority: String,

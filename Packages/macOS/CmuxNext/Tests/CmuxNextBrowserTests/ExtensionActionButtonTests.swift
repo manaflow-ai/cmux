@@ -2,7 +2,7 @@ import AppKit
 @testable import CmuxNextBrowser
 import Testing
 
-/// An extension action's press, drag and release from the button's own mouse events (p04-input-069): before,
+/// An extension action's press, drag and release from the button's own mouse events: before,
 /// `mouseDown` ran a `nextEvent(matching:)` loop that held the main thread until the release. A click runs the
 /// action, a release outside takes it back, and a horizontal drag past 3 pt reorders the pinned buttons.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(1)))
@@ -44,7 +44,7 @@ struct ExtensionActionButtonTests {
         }
     }
 
-    /// p03-rendering-073: the button is the toolbar's square by its intrinsic size, with no constraint of
+    /// The button is the toolbar's square by its intrinsic size, with no constraint of
     /// its own, so the toolbar's row frames it and a pane resized every frame solves none for it.
     @Test func theButtonIsTheToolbarSquareWithoutConstraints() {
         let h = Harness()

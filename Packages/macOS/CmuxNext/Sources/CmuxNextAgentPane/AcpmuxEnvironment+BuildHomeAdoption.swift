@@ -27,8 +27,9 @@ nonisolated enum BuildHomeAdoption {
     /// lock 30 s, two daemon stops of 45 s, a Chief stop of about 60 s, then the clone).
     static let limit: Duration = .seconds(300)
 
-    // task-owner: the process; one adoption per launch, every caller awaits this one run
-    static let run: Task<Void, Never> = Task.detached(priority: .userInitiated) {
+    // task-owner: the process; one adoption per launch, every caller awaits this one run. It only awaits:
+    // the CLI's spawn and output run on AsyncProcess's queues, never on a pool thread.
+    static let run: Task<Void, Never> = Task(priority: .userInitiated) {
         let environment = ProcessInfo.processInfo.environment
         guard applies(bundleID: Bundle.main.bundleIdentifier, environment: environment) else { return }
         // No file check first: a missing CLI fails its start (``adopt(cli:environment:processes:clock:)`` logs it).

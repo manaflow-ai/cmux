@@ -68,7 +68,7 @@ struct ForkApi {
   int (*ext_set_pinned)(int, const char*, int) = nullptr;
   int (*ext_open_options)(int, const char*) = nullptr;
   int (*ext_load_unpacked)(int, const char*) = nullptr;
-  int (*ext_load_command_line_async)(const char*, const char*, void (*)(void*, int), void*) = nullptr;  // p13-webui-055
+  int (*ext_load_command_line_async)(const char*, const char*, void (*)(void*, int), void*) = nullptr;
   char* (*ext_commands)(int) = nullptr;
   int (*ext_command_run)(int, const char*, const char*) = nullptr;
   int (*tab_move_to_window)(int, int, int) = nullptr;
@@ -178,7 +178,7 @@ struct ForkApi {
   // as data, drawn by the app (shim_password_core.mm; suggestion_rows.h).
   int (*browser_set_suggestion_handler)(int, const ForkSuggestionHandler*) = nullptr;
   int (*browser_suggestion_action)(int, int64_t, int, int) = nullptr;
-  // API version 31 (task p01-process-170): IME of a detached page and its
+  // API version 31: IME of a detached page and its
   // composition bounds (shim_helper_host.mm). Used only when `version` >=
   // kDetachedImeForkApi.
   int (*browser_ime_set_composition)(int, const char*, const ForkImeSpan*, int, int, int, int, int) = nullptr;
@@ -186,27 +186,27 @@ struct ForkApi {
   int (*browser_ime_finish_composing)(int) = nullptr;
   int (*browser_ime_cancel)(int) = nullptr;
   int (*browser_composition_bounds_watch)(int, void (*)(void*, int, const void*), void*) = nullptr;
-  // API 38 (p13-webui-017, numbered by the fork train p13-webui-086): its
+  // API 38 (numbered by the fork train p13-webui-086): its
   // presence says the fork honors CMUX_EXTRA_INFO_NO_RENDERER.
   int (*tab_renderer_state)(int) = nullptr;
-  // No API number yet (p14-energy-046; the fork bundle p14-energy-136 numbers
+  // No API number yet (the fork bundle p14-energy-136 numbers
   // it): delayed pump work as absolute run times with Chromium's leeway.
   void (*set_on_schedule_delayed)(void (*)(void*, int64_t, int64_t, int), void*) = nullptr;
   // p14-energy-029 (numbered by the fork bundle p14-energy-136): Energy Saver
   // with cmux's input and own-page exemption.
   void (*set_energy_saver)(bool, const char*) = nullptr;
-  // No API number yet (p14-energy-124; numbered by p14-energy-136): the pid
+  // No API number yet (numbered by p14-energy-136): the pid
   // of the renderer hosting a tab's main frame, 0 while none.
   int (*browser_renderer_pid)(int) = nullptr;
-  // No API number yet (p07-memory-051; the fork train p07-memory-074 numbers
+  // No API number yet (the fork train p07-memory-074 numbers
   // it): cmux's voter in Chromium's MultiSourceMemoryPressureMonitor.
   int (*memory_pressure_vote)(int) = nullptr;
-  // No API number yet (p03-rendering-116; the fork train numbers it): the
+  // No API number yet (the fork train numbers it): the
   // slice of the next CefDoMessageLoopWork call only, in microseconds.
   void (*set_message_loop_time_slice)(int64_t) = nullptr;
 };
 
-// The fork API that has the detached-page IME calls (task p01-process-170).
+// The fork API that has the detached-page IME calls.
 inline constexpr int kDetachedImeForkApi = 31;
 
 }  // namespace cmux_shim
@@ -242,7 +242,7 @@ struct Host {
   cmux_shim_window_request_fn window_request = nullptr;
   cmux_shim_focus_request_fn focus_request = nullptr;
   // Decides Chromium's focus requests when focus_request is null (the
-  // Chromium Host's mode, task p01-process-032).
+  // Chromium Host's mode).
   EmbedderFocusPolicy embedder_focus;
   // The caller's find id of each browser's last cmux_shim_find, which its
   // FIND_RESULT events carry (UI thread).
@@ -293,6 +293,13 @@ void CancelFileDialogs(int browser_id);
 std::map<int, CefRefPtr<CefBrowser>>& browsers();
 CefRefPtr<CefBrowser> BrowserById(int browser_id);
 
+// A frame of browser_id attached to its renderer, left it or became the main
+// frame (CefFrameHandler): FRAME_RENDERERS follows once the task's changes are
+// done, when the renderers of its frames changed (shim_browser.mm,
+// frame_renderers.h). ForgetFrameRenderers at its close. UI thread only.
+void NoteFrameRenderersChanged(int browser_id);
+void ForgetFrameRenderers(int browser_id);
+
 // DevTools protocol traffic of the host (shim_devtools_protocol.mm, UI
 // thread). The next id for a shim-internal call of browser_id (1 ..
 // 2^30 - 1), or 0 when the browser used them all up.
@@ -304,7 +311,7 @@ bool ForwardDevToolsMessage(int browser_id, const void* message, size_t message_
 // The browser closed: drop its watch, raw-send mark and id counter.
 void ForgetDevToolsProtocol(int browser_id);
 
-// Chromium Host only (p01-process-030; shim_client.mm): the host's key frame
+// Chromium Host only (shim_client.mm): the host's key frame
 // applier sends `event` to `browser_id` with this, on the UI thread, in place
 // of CefBrowserHost::SendKeyEvent. `seq` is the kKey frame's input seq
 // (Header::seq). If the page leaves a Command or Control key-down unhandled,
