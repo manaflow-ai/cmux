@@ -75,6 +75,50 @@ const turns = Array.from({ length: 30 }, (_, index) => [
 ]).flat();
 const nextFrame = () => new Promise<void>((resolve) => dom.window.requestAnimationFrame(() => resolve()));
 
+test("a stale queued latest frame reports the live parked state to its parent", async () => {
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  const expanded = new Set<string>();
+  const rows = turnView(turns, expanded);
+  const changes: boolean[] = [];
+  const onFollowingChange = (following: boolean) => changes.push(following);
+  const draw = (shown: AcpmuxRow[]) =>
+    root.render(
+      <VirtualTranscript
+        rows={shown}
+        jumpButton
+        onToggleActivity={() => {}}
+        expanded={expanded}
+        onFollowingChange={onFollowingChange}
+      />,
+    );
+  try {
+    await act(async () => draw(rows));
+    const scroller = dom.window.document.querySelector<HTMLElement>(".acpmux-scroll")!;
+    const spacer = dom.window.document.querySelector<HTMLElement>(".acpmux-spacer")!;
+    Object.defineProperty(scroller, "scrollHeight", {
+      configurable: true,
+      get: () => parseFloat(spacer.style.height),
+    });
+    const latest = scroller.scrollHeight - VIEWPORT;
+    const parked = latest - VIEWPORT;
+    changes.length = 0;
+    await act(async () => {
+      // Queue bottom-follow, then a rail/native default moves the DOM before the queued RAF.
+      scroller.dispatchEvent(new dom.window.Event("scroll"));
+      scroller.scrollTop = parked;
+      await nextFrame();
+    });
+    expect(changes.at(-1)).toBe(false);
+    expect(scroller.scrollTop).toBe(parked);
+    // A later placement uses the same authoritative intent and cannot snap back to the latest row.
+    await act(async () => draw([...rows, row("later-reply", "assistant", "New output below the reader.")]));
+    expect(scroller.scrollTop).toBe(parked);
+    expect(changes.at(-1)).toBe(false);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
 test("scrolled up, a static button above the composer jumps to the latest message while a reply streams", async () => {
   const root = createRoot(dom.window.document.getElementById("root")!);
   const rows = turnView(turns, new Set());
