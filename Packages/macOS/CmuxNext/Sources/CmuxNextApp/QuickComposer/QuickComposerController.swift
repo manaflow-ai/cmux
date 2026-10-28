@@ -43,6 +43,7 @@ final class QuickComposerController {
     private let context: @MainActor () async -> AgentPaneQuickContext?
     /// Where the held chat's session is kept, so a quit does not lose it (`heldSessionKey`).
     private let defaults: UserDefaults
+    private let drafts: AgentPaneQuickDrafts
     static let heldSessionKey = "quickComposer.floatingChatSession"
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.quickComposer")
 
@@ -54,7 +55,8 @@ final class QuickComposerController {
         floating: @escaping () -> Bool = { QuickComposerTunables.floatingChat.value },
         pushState: @escaping (AgentPaneFloatingState, AgentPaneView) -> Void = { AgentPaneFloatingState.push($0, to: $1) },
         context: (@MainActor () async -> AgentPaneQuickContext?)? = nil,
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = .standard,
+        drafts: AgentPaneQuickDrafts? = nil
     ) {
         self.makeChat = makeChat
         self.makeWindow = makeWindow
@@ -64,6 +66,7 @@ final class QuickComposerController {
         self.pushState = pushState
         self.context = context ?? { nil }
         self.defaults = defaults
+        self.drafts = drafts ?? AgentPaneQuickDrafts()
     }
 
     var isShown: Bool { window?.isVisible == true }
@@ -215,12 +218,32 @@ final class QuickComposerController {
             context: { [weak self] in await self?.context() })
         // A held chat that moves to another session (a fork, Continue In) is the one a quit keeps.
         let started = chat.model.onSessionChange
-        chat.model.onSessionChange = { [weak self] session in
+        let wasFresh = chat.model.sessionId == nil
+        chat.model.onUnsentDraft = { [weak self, weak chat] text, attachments in
+            guard let self, let chat, self.chat === chat, chat.model.sessionId == nil else { return }
+            self.drafts.set(text, attachments: attachments)
+        }
+        if wasFresh {
+            // Standalone Quick Composer pages do not pass through AgentTabs.wire.
+            // Give the first handshake the controller's stable text and chips before Send.
+            chat.model.wakeSource = { [weak self] in await self?.drafts.wakeState() }
+        }
+        chat.model.onSessionChange = { [weak self, weak chat] session in
+            if wasFresh, let self, let chat, self.chat === chat { self.drafts.clear() }
             started?(session)
             if let self, self.holdsChat { self.defaults.set(session, forKey: Self.heldSessionKey) }
         }
         self.chat = chat
         return chat
+    }
+
+    /// Saves a fresh panel's live wake state before the app quits. Quick Composer has no tab for
+    /// `AgentPaneRelaunchWake` to enumerate, so its stable store is the quit boundary.
+    func prepareForQuit() async {
+        guard let chat, chat.model.sessionId == nil else { return }
+        let state = await chat.wakeState(limit: .seconds(1))
+        guard self.chat === chat, chat.model.sessionId == nil else { return }
+        await drafts.saveWakeState(state)
     }
 
     private func makeWindowOnce() -> any QuickComposerWindow {

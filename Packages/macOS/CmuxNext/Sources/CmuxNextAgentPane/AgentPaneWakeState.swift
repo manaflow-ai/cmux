@@ -4,10 +4,13 @@ import WebKit
 /// What a chat page holds that acpmux does not (#20162 follow-up): the composer's attachments,
 /// shell mode with its unrun command, and where the transcript rests. A hidden chat whose page
 /// lets go keeps it with its tab, and the page built when it shows again gets it back with its
-/// handshake (`wake`), so it comes back as it was left. The draft's text is acpmux's.
+/// handshake (`wake`), so it comes back as it was left. Session text is acpmux's; a fresh
+/// composer without a session includes its text here too.
 public nonisolated struct AgentPaneWakeState: Codable, Sendable, Equatable {
     /// The composer's chips (`attachments.ts` `ComposerAttachment`), images and files with their contents.
     public var attachments: [Attachment]?
+    /// A fresh composer's text before a session exists; empty records an intentional clear.
+    public var draftText: String?
     /// The composer was in shell mode.
     public var shell: Bool?
     /// Shell mode's command, typed and not run.
@@ -59,8 +62,9 @@ public nonisolated struct AgentPaneWakeState: Codable, Sendable, Equatable {
     }
 
     public init(attachments: [Attachment]? = nil, shell: Bool? = nil, shellText: String? = nil,
-                scrollAnchor: AgentPaneScrollAnchor? = nil, atLatest: Bool? = nil) {
+                scrollAnchor: AgentPaneScrollAnchor? = nil, atLatest: Bool? = nil, draftText: String? = nil) {
         self.attachments = attachments
+        self.draftText = draftText
         self.shell = shell
         self.shellText = shellText
         self.scrollAnchor = scrollAnchor
@@ -69,7 +73,7 @@ public nonisolated struct AgentPaneWakeState: Codable, Sendable, Equatable {
 
     /// Nothing to hand back.
     public var isEmpty: Bool {
-        (attachments ?? []).isEmpty && shell != true && scrollAnchor == nil && atLatest != true
+        draftText == nil && (attachments ?? []).isEmpty && shell != true && scrollAnchor == nil && atLatest != true
     }
 
     /// The page's `pane.wakeState` answer; empty when the page has no such action (an older page)

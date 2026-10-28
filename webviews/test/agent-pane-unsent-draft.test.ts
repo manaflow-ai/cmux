@@ -44,10 +44,10 @@ await requireBrowserLane("agent-pane-unsent-draft.test.ts", async () => {
 
   /// A new chat whose host hands it `draft` (a relaunch's kept text), recording what the page
   /// hands back with `chat.unsentDraft`.
-  async function newChat(draft?: string): Promise<Page> {
+  async function newChat(draft?: string, quick = false): Promise<Page> {
     const page = await browser!.newPage({ viewport: { width: 900, height: 640 } });
     await page.addInitScript(
-      ({ draft }) => {
+      ({ draft, quick }) => {
         const unsent: string[] = [];
         Object.assign(window, {
           unsentDrafts: unsent,
@@ -66,12 +66,31 @@ await requireBrowserLane("agent-pane-unsent-draft.test.ts", async () => {
               protocolVersion: 1,
               transport: "mock",
               newSession: true,
-              ...(draft ? { draft } : {}),
+              ...(quick
+                ? {
+                    surface: "quick",
+                    wake: {
+                      draftText: draft,
+                      attachments: [
+                        {
+                          id: "quick-screenshot",
+                          kind: "image",
+                          name: "Quick screenshot.png",
+                          mimeType: "image/png",
+                          size: 68,
+                          data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+                        },
+                      ],
+                    },
+                  }
+                : draft
+                  ? { draft }
+                  : {}),
             }),
           },
         });
       },
-      { draft },
+      { draft, quick },
     );
     const { port } = vite!.httpServer!.address() as { port: number };
     await page.goto(`http://127.0.0.1:${port}/`);
@@ -93,6 +112,18 @@ await requireBrowserLane("agent-pane-unsent-draft.test.ts", async () => {
   }
 
   describe("unsent draft", () => {
+    test("a fresh Quick Composer restores text and a screenshot before its first Send", async () => {
+      const page = await newChat("saved Quick text", true);
+      const prompt = page.locator(".acpmux-composer-prompt .ProseMirror");
+      await page.getByText("saved Quick text", { exact: true }).waitFor();
+      await page.locator(".acpmux-attachment-image img").waitFor();
+      expect((await prompt.innerText()).trim()).toBe("saved Quick text");
+      await prompt.click();
+      await page.keyboard.press("End");
+      await page.keyboard.type(" after update");
+      expect(await lastUnsent(page, "saved Quick text after update")).toBe("saved Quick text after update");
+      await page.close();
+    });
     test("a new chat hands its typed text to the host", async () => {
       const page = await newChat();
       await page.locator(".acpmux-composer-prompt").click();

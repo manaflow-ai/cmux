@@ -178,6 +178,9 @@ final class QuitCoordinator {
                 // Remote-terminal tabs keep their last screen for the
                 // placeholder after relaunch (data-model.md 1.4).
                 await services.remoteTerminals.saveSnapshots()
+                // The standalone Quick Composer has no AgentTabs row; save its fresh draft at the
+                // same quit boundary before the tab wake state.
+                await services.quickComposer.prepareForQuit()
                 // Agent chats get their composer's chips, shell command and place back at the next
                 // launch (pages are asked at once, each within a second).
                 await services.agentTabs.relaunchWake.save(services.agentTabs.relaunchWakeStates())
