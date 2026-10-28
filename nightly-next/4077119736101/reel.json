@@ -1,0 +1,101 @@
+{
+  "version": 1,
+  "build": "4077119736101",
+  "notes": "notes/4077119736101.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 26986,
+      "title": "CLAUDE.md: a fleet step names its script's own class, not isolated",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26928,
+      "title": "measure: bench=hibernate prints why an idle harness stayed up",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26918,
+      "title": "Agent pane: a Cloud chat's prompt names the hand-off turn the app opened for it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26923,
+      "title": "Swift Linux packages: add CmuxInstallAuthCore",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26913,
+      "title": "Swift Linux packages: add CmuxFeedPushCore",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26927,
+      "title": "ci: a submodule update's positional paths scope the dangling drop, with or without --",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26912,
+      "title": "acpmux: a peer's briefs, steer and report name none of this host's peers",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26911,
+      "title": "test(daemon): wait for the tab before the presence hook, keep hook output",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26904,
+      "title": "ci: drop submodule checkouts whose git dir is gone before a warm submodule update",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26906,
+      "title": "Swift Linux packages: add CMUXAuthCore",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26907,
+      "title": "bench: acpmux-overhead.sh checks its tools first and fetches before= without an origin remote",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26744,
+      "title": "test(cmux NEXT): acpmux unresponsive tests wait on conditions with load-tolerant deadlines",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26905,
+      "title": "Swift Linux packages: add CmuxAgentQuestion",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26895,
+      "title": "acpmux: a peer's dispatch runs here and names none of this host's peers",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26901,
+      "title": "fix(settings): restore explicit policies and hover icon",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
