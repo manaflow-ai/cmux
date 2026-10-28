@@ -2341,6 +2341,7 @@ def skip_superseded_delivery(
     *,
     dry_run: bool,
     max_cancels: int = SUPERSEDED_MAX_CANCELS,
+    now: dt.datetime | None = None,
 ) -> tuple[list[SupersededDecision], int]:
     """Cancel each candidate delivery_workflows.superseded_unstarted() allows, re-reading its jobs first."""
     decisions: list[SupersededDecision] = []
@@ -2383,7 +2384,7 @@ def skip_superseded_delivery(
     for run in candidates:
         run_id = run["id"]
         tip = tip_of(str(run.get("head_branch") or ""))
-        ok, why = superseded_unstarted(run, complete_jobs(jobs_by_run.get(run_id)), runs, jobs_of, tip_sha=tip)
+        ok, why = superseded_unstarted(run, complete_jobs(jobs_by_run.get(run_id)), runs, jobs_of, tip_sha=tip, now=now)
         if not ok and why.startswith("condition 3 fails: no newer"):
             key = (run.get("workflow_id") or run.get("path"), str(run.get("head_branch") or ""))
             if key not in listed and len(listed) < SUPERSEDED_BRANCH_LISTINGS:
@@ -2395,7 +2396,7 @@ def skip_superseded_delivery(
                     listed[key] = []
                     print(f"queue-janitor: runs of {key[1]} for run {run_id}: {error}", file=sys.stderr)
             ok, why = superseded_unstarted(run, complete_jobs(jobs_by_run.get(run_id)), [*runs, *listed.get(key, [])],
-                                           jobs_of, tip_sha=tip)
+                                           jobs_of, tip_sha=tip, now=now)
         if not ok:
             decisions.append(SupersededDecision(run, "keep", why))
             continue
@@ -2437,7 +2438,7 @@ def skip_superseded_delivery(
             decisions.append(SupersededDecision(run, "keep", "on re-read: it changed while its jobs were read"))
             continue
         ok, why = superseded_unstarted(current, jobs, fresh_runs, lambda other: fresh_jobs.get(other.get("id")),
-                                       tip_sha=fresh_tip)
+                                       tip_sha=fresh_tip, now=now)
         if not ok:
             decisions.append(SupersededDecision(run, "keep", f"on re-read: {why}"))
             continue
