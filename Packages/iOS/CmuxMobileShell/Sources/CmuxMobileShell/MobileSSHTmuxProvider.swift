@@ -326,6 +326,7 @@ final class MobileSSHTmuxProvider: MobileSSHWorkspaceProvider, MobileSSHTerminal
             opening[session] = MobileSSHTmuxOpening(id: id, task: task)
         }
         let control = try await task.value
+        try Task.checkCancellation()
         // The workspace can close after adoption but before a waiter resumes.
         guard controls[session] === control, !control.isClosed else { throw CancellationError() }
         return control

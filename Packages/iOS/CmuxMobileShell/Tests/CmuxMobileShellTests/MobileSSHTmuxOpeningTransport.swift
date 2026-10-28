@@ -9,6 +9,7 @@ final class MobileSSHTmuxOpeningTransport: MobileSSHTmuxControlTransport {
     let writes: AsyncStream<Data>
     private let writesContinuation: AsyncStream<Data>.Continuation
     private let respondToWrites: Bool
+    private(set) var didAbort = false
 
     init(respondToWrites: Bool = true) {
         (events, continuation) = AsyncStream.makeStream(of: SSHSessionEvent.self)
@@ -32,12 +33,14 @@ final class MobileSSHTmuxOpeningTransport: MobileSSHTmuxControlTransport {
     }
 
     func abort() {
+        didAbort = true
         continuation.yield(.closed)
         continuation.finish()
         writesContinuation.finish()
     }
 
     func abort(afterWriting data: Data) {
+        didAbort = true
         writesContinuation.yield(data)
         continuation.yield(.closed)
         continuation.finish()

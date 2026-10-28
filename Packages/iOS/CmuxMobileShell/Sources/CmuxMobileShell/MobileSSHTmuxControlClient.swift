@@ -113,6 +113,18 @@ final class MobileSSHTmuxControlClient {
         let grouped = session + groupedSessionMarker + UUID().uuidString.prefix(8).lowercased()
         let command = startCommand(tmux: tmux, session: session, grouped: grouped)
         let channel = try await connection.openSession(environment: ["LANG": "en_US.UTF-8"], start: .exec(command))
+        return try await open(session: session, groupedSessionName: grouped, channel: channel)
+    }
+
+    /// Completes the control handshake over an already-open channel.
+    /// The provider uses the connection overload; this seam keeps handshake
+    /// cancellation testable with a deterministic control transport.
+    static func open(
+        session: String,
+        groupedSessionName: String,
+        channel: any MobileSSHTmuxControlTransport
+    ) async throws -> MobileSSHTmuxControlClient {
+        let grouped = groupedSessionName
         let client = MobileSSHTmuxControlClient(sessionName: session, groupedSessionName: grouped, channel: channel)
         client.startPump()
         // Learn the geometry of every pane before any seed needs it.
@@ -125,6 +137,7 @@ final class MobileSSHTmuxControlClient {
             }
         } catch {
             client.abort()
+            if Task.isCancelled { throw CancellationError() }
             throw error
         }
         for line in lines {

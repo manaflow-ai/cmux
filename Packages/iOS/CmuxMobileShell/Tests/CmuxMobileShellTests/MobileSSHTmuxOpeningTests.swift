@@ -62,6 +62,24 @@ struct MobileSSHTmuxOpeningTests {
         await stale.close()
     }
 
+    @Test func canceledOpenResolvesItsContinuationAndClosesTheChannel() async throws {
+        let transport = MobileSSHTmuxOpeningTransport(respondToWrites: false)
+        let pending = Task {
+            try await MobileSSHTmuxControlClient.open(
+                session: "work",
+                groupedSessionName: "work-cmux-ios-stalled",
+                channel: transport
+            )
+        }
+        var writes = transport.writes.makeAsyncIterator()
+        _ = try #require(await writes.next())
+
+        pending.cancel()
+        let result = await pending.result
+        if case .success = result { Issue.record("A canceled open completed successfully") }
+        #expect(transport.didAbort)
+    }
+
     @Test func abortingAStalledCommandResolvesItsContinuationAndClosesTheChannel() async throws {
         let transport = MobileSSHTmuxOpeningTransport(respondToWrites: false)
         let client = MobileSSHTmuxControlClient(
