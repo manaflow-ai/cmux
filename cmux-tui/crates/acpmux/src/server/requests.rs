@@ -1736,6 +1736,10 @@ async fn dispatch_request(
             let filter = crate::hub::EventFilter::parse(params.get("kinds"))?;
             let event_stream = params.get("eventStream").and_then(Value::as_bool).unwrap_or(false);
             let hidden = params.get("visible") == Some(&Value::Bool(false));
+            // Opening a hibernated chat on screen wakes its agent (`hub/idle.rs`).
+            if !hidden {
+                hub.wake_for(&s, super::trust_gate::for_web(conn.origin, &params), "click");
+            }
             view::attach(
                 hub,
                 conn,
@@ -1775,8 +1779,28 @@ async fn dispatch_request(
             view::detach(hub, conn, &*hub.resolve(session_key(&params)?)?);
             Ok(json!({}))
         }
-        method::MUX_VIEW => view::view(hub, conn, &params),
-        method::MUX_TYPING => view::typing(hub, conn, &params),
+        method::MUX_VIEW => {
+            let done = view::view(hub, conn, &params)?;
+            // Showing a hibernated chat wakes its agent (`hub/idle.rs`).
+            // The person's own view only: an authored one is a collaborator's presence.
+            if params.get("visible").and_then(Value::as_bool) == Some(true)
+                && crate::author::author(&params).ok().flatten().is_none()
+                && let Ok(session) = hub.resolve(session_key(&params)?)
+            {
+                hub.wake_for(&session, super::trust_gate::for_web(conn.origin, &params), "click");
+            }
+            Ok(done)
+        }
+        method::MUX_TYPING => {
+            let done = view::typing(hub, conn, &params)?;
+            // A person typing into a hibernated chat wakes its agent now (`hub/idle.rs`).
+            if params.get("on").and_then(Value::as_bool) == Some(true)
+                && let Ok(session) = hub.resolve(session_key(&params)?)
+            {
+                hub.wake_for(&session, super::trust_gate::for_web(conn.origin, &params), "typing");
+            }
+            Ok(done)
+        }
         method::MUX_MARK_UNREAD => view::mark_unread(hub, &params),
         method::MUX_APP_REPLY => super::app_reply::check(hub, conn, &params),
         method::MUX_HARNESS_INVENTORY_WATCH => super::inventory_watch::handle(hub, conn, &params),
