@@ -46,9 +46,19 @@ INLINE_CODE = re.compile(r"`[^`\n]+`")
 URL = re.compile(r"https?://\S+")
 HEADING = re.compile(r"^\s{0,3}(#{1,6})\s+(.*?)\s*#*\s*$")
 SECTION_TITLE = re.compile(r"^(?:\W*\s*)?performance\b", re.IGNORECASE)
-NO_NUMBERS = re.compile(r"^\s*(?:>\s*)*(?:[-*]\s+)?(?:\*\*)?No perf numbers(?:\*\*)?[ \t]*:[ \t]*(?:\*\*)?[ \t]*\S.{3,}",
+NO_NUMBERS = re.compile(r"^\s*(?:>\s*)*(?:[-*]\s+)?(?:\*\*)?No perf numbers(?:\*\*)?[ \t]*:[ \t]*(?:\*\*)?[ \t]*(?P<why>.*)$",
                         re.IGNORECASE | re.MULTILINE)
-PLACEHOLDER = re.compile(r"^(?:|[-–—?.…]+|n/?a|tbd|todo|xx+|<[^>]*>|\.\.\.)$", re.IGNORECASE)
+# An empty or template cell (a URL autolink such as <https://...> is a real value, not a placeholder).
+PLACEHOLDER = re.compile(r"^(?:|[-–—?.…]+|n/?a|tbd|todo|xx+|<(?!https?://)[^>]*>|\.\.\.)$", re.IGNORECASE)
+
+
+def has_reason(text: str) -> bool:
+    """A `No perf numbers: <why>` line with a real reason: not empty, short, or a placeholder."""
+    for match in NO_NUMBERS.finditer(text):
+        why = re.sub(r"<[^>]*>|[*_`]", "", match.group("why")).strip()
+        if len(why) >= 4 and not PLACEHOLDER.match(why):
+            return True
+    return False
 COLUMNS = ("metric", "before", "after", "delta", "harness")
 
 TEMPLATE = """## Performance
@@ -182,7 +192,7 @@ def check(title: str, body: str, labels: set[str], paths: list[str]) -> tuple[in
     text = section(body)
     if text is None:
         return 1, f"Performance change ({why}) and the description has no `## Performance` section."
-    if NO_NUMBERS.search(text):
+    if has_reason(text):
         return 0, f"Performance change ({why}); its Performance section says why it has no numbers."
     issues = problems(text)
     if issues:

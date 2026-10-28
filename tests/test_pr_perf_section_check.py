@@ -111,6 +111,11 @@ class SectionTests(unittest.TestCase):
         for placeholder in ("TBD", "-", "?", "n/a", "..."):
             self.assertEqual(self.check(COMPLETE.replace("-38%", placeholder))[0], 1, placeholder)
 
+    def test_url_autolink_is_a_value(self):
+        body = COMPLETE.replace("https://github.com/manaflow-ai/cmux/actions/runs/1",
+                                "<https://github.com/manaflow-ai/cmux/actions/runs/1>")
+        self.assertEqual(self.check(body)[0], 0)
+
     def test_header_only_table_fails(self):
         body = "## Performance\n\n| metric | before | after | delta | run |\n| --- | --- | --- | --- | --- |\n"
         self.assertIn("no rows", self.check(body)[1])
@@ -132,6 +137,8 @@ class SectionTests(unittest.TestCase):
         self.assertEqual(self.check("## Performance\n\n" + line + "\n")[0], 0)
         self.assertEqual(self.check(line)[0], 1)
         self.assertEqual(self.check("## Performance\n\nNo perf numbers:\n")[0], 1)
+        for template in ("<why>", "TBD", "<why> ", "**<why>**", "n/a"):
+            self.assertEqual(self.check("## Performance\n\nNo perf numbers: " + template + "\n")[0], 1, template)
         self.assertEqual(self.check("## Performance\n\nsoon\n\n## Testing\n\n" + line)[0], 1)
 
     def test_separator_must_match_the_header(self):
