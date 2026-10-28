@@ -4473,7 +4473,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : true,
+      "default" : false,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.updates",
@@ -6152,7 +6152,10 @@
       "keywords" : [
         "split",
         "equal",
-        "size"
+        "size",
+        "autobalance",
+        "balance",
+        "equalize"
       ],
       "kind" : "choice",
       "page_hidden" : false,
@@ -34168,7 +34171,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "click",
+      "default" : "focus",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.dismissal",

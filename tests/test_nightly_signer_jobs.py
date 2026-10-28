@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
-"""nightly.yml's release-pool signer jobs (signer-*): opt-in, inert, and the
-secrets stay in the release-pool jobs; and verify_appcast_item.py checks the Sparkle
-item against the pinned key.
+"""nightly.yml's release-pool signer jobs (signer-*): opt-in, the macOS signer
+job as their fallback, and the secrets kept in the release-pool jobs; and
+verify_appcast_item.py checks the Sparkle item against the pinned key.
 
-Until a later change hands their output to verification and publication,
-nothing outside the signer jobs may need them or read their artifacts, so a
-failed or skipped pool run can never hold or change what publishes.
+Only signer-dmg, after the DMG is notarized and its appcast checked, hands
+output on, under the names the macOS signer job uses. That job runs whenever
+signer-dmg did not pass, so a failed, skipped or not-opted-in pool run signs as
+before, and exactly one of the two produces what verify-signed-nightly,
+verify-final-dmg-nightly and publish-nightly read. The pool path has one Mac job
+(signer-dmg-image) before that decision; the final DMG's Mac checks run in
+verify-final-dmg-nightly, which publish needs anyway.
 """
 
 from __future__ import annotations
@@ -28,7 +32,7 @@ from nightly_workflow_text import nightly_text  # noqa: E402
 
 WORKFLOW = yaml.safe_load(nightly_text())
 JOBS = WORKFLOW["jobs"]
-SIGNER_JOBS = ("signer-build", "signer-app", "signer-dmg-image", "signer-dmg", "signer-verify")
+SIGNER_JOBS = ("signer-build", "signer-app", "signer-dmg-image", "signer-dmg")
 SECRET_JOBS = {"signer-app", "signer-dmg"}
 VERIFY = ROOT / "scripts/ci/release-signer/verify_appcast_item.py"
 TIP_APPCAST = ROOT / "scripts/ci/tip_appcast_linux.py"
@@ -52,22 +56,62 @@ class Wiring(unittest.TestCase):
                 self.assertTrue(set(needs(JOBS[name])) & set(SIGNER_JOBS), name)
                 self.assertNotIn("always()", str(JOBS[name].get("if", "")))
 
-    def test_nothing_else_needs_them_or_reads_their_artifacts(self):
-        names = set()
-        for name in SIGNER_JOBS:
-            for step in JOBS[name]["steps"]:
-                if "upload-artifact" in str(step.get("uses", "")):
-                    names.add(step["with"]["name"].split("${{")[0])
-        self.assertEqual(names, {"nightly-signer-", "cmux-nightly-next-signer-app-",
-                                 "cmux-nightly-next-signer-unsigned-dmg-", "cmux-nightly-next-signer-variant-"})
+    def test_the_macos_signer_is_the_fallback_and_one_path_hands_on(self):
+        signed = "(needs.build-sign-notarize-nightly.result == 'success' || needs.signer-dmg.result == 'success')"
+        fallback = JOBS["build-sign-notarize-nightly"]
+        self.assertIn("signer-dmg", needs(fallback))
+        self.assertTrue(fallback["if"].startswith("!cancelled() && "))
+        self.assertIn("needs.signer-dmg.result != 'success'", fallback["if"])
+        # Its own status check replaces the implicit success(), so it names every other need's success.
+        for need in needs(fallback):
+            if need != "signer-dmg":
+                self.assertIn(f"needs.{need}.result == 'success'", fallback["if"])
+        for name in ("verify-signed-nightly", "verify-final-dmg-nightly", "publish-nightly"):
+            with self.subTest(job=name):
+                self.assertIn("signer-dmg", needs(JOBS[name]))
+                self.assertIn(signed, JOBS[name]["if"])
+                self.assertNotRegex(JOBS[name]["if"], r"\(needs\.build-sign-notarize-nightly\.result == 'success' &&")
+        self.assertIn("REQUIRE_HELPER_TICKET: ${{ needs.signer-dmg.result == 'success' }}",
+                      yaml.safe_dump(JOBS["verify-signed-nightly"]["env"], width=1000))
+        # A pool run that passed reads as the job's own success in publish's source pick.
+        self.assertIn("(needs.build-sign-notarize-nightly.result == 'success' || needs.signer-dmg.result == 'success') && 'success' || needs.build-sign-notarize-nightly.result",
+                      yaml.safe_dump(JOBS["publish-nightly"], width=1000))
+        # Only signer-dmg is needed outside the signer jobs; the failure report and its close
+        # never need a signer job, so a pool run the fallback covered raises no failure issue.
         for name, job in JOBS.items():
             if name in SIGNER_JOBS:
                 continue
             with self.subTest(job=name):
-                self.assertFalse(set(needs(job)) & set(SIGNER_JOBS))
-                text = yaml.safe_dump(job)
-                for prefix in names:
-                    self.assertNotIn(prefix, text)
+                self.assertLessEqual(set(needs(job)) & set(SIGNER_JOBS), {"signer-dmg"})
+        for name in ("report-nightly-failure", "close-nightly-failure-issue"):
+            self.assertFalse(set(needs(JOBS[name])) & set(SIGNER_JOBS), name)
+
+    def test_signer_dmg_hands_on_only_after_every_check(self):
+        steps = JOBS["signer-dmg"]["steps"]
+        uploads = [i for i, s in enumerate(steps) if "upload-artifact" in str(s.get("uses", ""))]
+        checks = [i for i, s in enumerate(steps) if "run" in s]
+        self.assertTrue(uploads and checks)
+        self.assertGreater(min(uploads), max(checks))
+        names = {steps[i]["with"]["name"] for i in uploads}
+        self.assertEqual(names, {"cmux-nightly-variant-arm64",
+                                 "cmux-${{ needs.decide.outputs.channel }}-signed-app-arm64-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}"})
+        # Never replace what the macOS job uploaded: the verify jobs may already have passed on it, and a
+        # rerun of failed jobs would not run them again on the replacement.
+        for i in uploads:
+            self.assertNotIn("overwrite", steps[i]["with"], steps[i]["with"]["name"])
+        # "Re-run failed jobs" after a pool failure also reruns the jobs that need signer-dmg, even when
+        # they passed: each of their uploads must take the place of its earlier one in this run.
+        for job in ("build-sign-notarize-nightly", "verify-final-dmg-nightly", "publish-nightly"):
+            for step in JOBS[job]["steps"]:
+                name = str((step.get("with") or {}).get("name", ""))
+                if "upload-artifact" not in str(step.get("uses", "")) or "github.run_attempt" in name:
+                    continue
+                self.assertIs(step["with"].get("overwrite"), True, f"{job}: {name}")
+        # The macOS job may replace what a pool run uploaded before it failed.
+        for step in JOBS["build-sign-notarize-nightly"]["steps"]:
+            name = str((step.get("with") or {}).get("name", ""))
+            if "upload-artifact" in str(step.get("uses", "")) and (name.startswith("cmux-nightly-variant-") or "-signed-app-" in name):
+                self.assertIs(step["with"].get("overwrite"), True, name)
 
     def test_secrets_stay_in_the_release_pool_jobs_of_the_release_environment(self):
         for name in SIGNER_JOBS:
@@ -104,15 +148,19 @@ class Wiring(unittest.TestCase):
         for command in ("codesign --verify --deep --strict", "stapler validate", "spctl -a -vv -t exec",
                         "syspolicy_check distribution", "ditto \"$helper\"", "source=Notarized Developer ID"):
             self.assertIn(command, checks)
-        for name in ("signer-dmg-image", "signer-verify"):
-            self.assertIn("signer-apple-checks.sh", yaml.safe_dump(JOBS[name]))
+        self.assertIn("signer-apple-checks.sh", yaml.safe_dump(JOBS["signer-dmg-image"]))
         self.assertIn("verify_appcast_item.py", (ROOT / "scripts/ci/nightly-steps/signer-appcast.sh").read_text())
-        # The Mac job checks the appcast it downloaded, with the workflow commit's verifier.
-        final = next(s for s in JOBS["signer-verify"]["steps"] if s.get("name") == "The appcast's Sparkle signature over the final DMG")
-        self.assertIn(".publish-tooling/scripts/ci/release-signer/verify_appcast_item.py", final["run"])
-        self.assertIn("$NIGHTLY_NEXT_SPARKLE_PUBLIC_KEY", final["run"])
-        # Its output goes through tee, so only pipefail lets a failed check fail the step.
-        self.assertTrue(final["run"].startswith("set -euo pipefail\n"))
+        # The final DMG's Mac checks run in verify-final-dmg-nightly, for a pool-signed DMG only.
+        final = next(s for s in JOBS["verify-final-dmg-nightly"]["steps"]
+                     if s.get("name") == "Apple's checks of a pool-signed DMG and the app in it")
+        self.assertEqual(final["if"], "needs.signer-dmg.result == 'success'")
+        script = (ROOT / "scripts/ci/nightly-steps/signer-final-dmg-checks.sh").read_text()
+        for command in ("set -euo pipefail", "codesign --verify", "-t open", "source=Notarized Developer ID",
+                        "verify_appcast_item.py", "$NIGHTLY_NEXT_SPARKLE_PUBLIC_KEY", "signer-apple-checks.sh"):
+            self.assertIn(command, script)
+        steps = [s.get("name") for s in JOBS["verify-final-dmg-nightly"]["steps"]]
+        self.assertGreater(steps.index(final["name"]), steps.index("Verify final DMG artifact"))
+        self.assertLess(steps.index(final["name"]), steps.index("Upload tested DMG digests"))
         # signer-dmg.sh changes directory, so the tools path must be absolute first.
         dmg = (ROOT / "scripts/ci/nightly-steps/signer-dmg.sh").read_text()
         self.assertLess(dmg.index('TOOLS="$(cd "$TOOLS" && pwd)"'), dmg.index("cd signer-out"))

@@ -1578,19 +1578,39 @@ export function manifestEntryEpoch(entry: Pick<DevboxManifestEntry, "epoch" | "n
  * `baked` and `current` when a main sync brings a new ladder. The desktop
  * sources moved again in 089cd3e3dc92 and 5901bc15bec0 (the codex config
  * merge under a lock) and b5f75830c15f (agent-config.sh bounds that lock's
- * wait), and again with the cmux-machine-health install (the bake steps and
- * the boot script's HOUSEKEEPING_TIMERS), so `current` is their digest.
+ * wait), again with the cmux-machine-health install (the bake steps and
+ * the boot script's HOUSEKEEPING_TIMERS), and again with cmux-vm-kind-sync's
+ * write-only-a-fetched-kind lock and the boot's clone-reset fallback, so
+ * `current` is their digest. The entries live in
+ * services/vms/images/awaiting-rebake.json.
  */
-export const DEVBOX_AWAITING_REBAKE = [
-  {
-    layers: "desktop",
-    schema: 2,
-    baked: "28fce1e49495",
-    current: "c7f978ae71238b86f6907678de05fc212323f91b69a948eea42af71ac5d04bf2",
-  },
-] as const;
+export type DevboxAwaitingRebake = {
+  readonly layers: DevboxImageKind;
+  readonly schema: number;
+  /** First 12 hex of the digest the current defaults recorded. */
+  readonly baked: string;
+  /** This checkout's digest of those layers at `schema`. */
+  readonly current: string;
+};
 
-export type DevboxAwaitingRebake = (typeof DEVBOX_AWAITING_REBAKE)[number];
+/**
+ * Data, not code, so the rebake workflow (cloud-devbox-image-rebake.yml,
+ * `devbox-rebake.ts settle`) can drop the entries its promotion satisfied.
+ */
+export const devboxAwaitingRebakePath = path.join(webRoot, "services/vms/images/awaiting-rebake.json");
+
+export function readDevboxAwaitingRebake(file = devboxAwaitingRebakePath): DevboxAwaitingRebake[] {
+  const rows = JSON.parse(readFileSync(file, "utf8")) as DevboxAwaitingRebake[];
+  if (!Array.isArray(rows)) throw new Error(`${file}: expected a JSON array`);
+  for (const row of rows) {
+    if ((row.layers !== "desktop" && row.layers !== "base") || typeof row.schema !== "number" || !/^[0-9a-f]{12}$/.test(row.baked) || !/^[0-9a-f]{64}$/.test(row.current)) {
+      throw new Error(`${file}: malformed entry ${JSON.stringify(row)}`);
+    }
+  }
+  return rows;
+}
+
+export const DEVBOX_AWAITING_REBAKE: readonly DevboxAwaitingRebake[] = readDevboxAwaitingRebake();
 
 /** Whether a devboxSourceDriftProblems message is the drift `pending` excuses. */
 export function isAwaitingRebake(problem: string, pending: DevboxAwaitingRebake): boolean {
