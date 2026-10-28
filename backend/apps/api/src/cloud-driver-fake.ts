@@ -9,8 +9,8 @@ import { vmTagMetadata, type CloudProvider, type CreateOptions, type EdgeTlsRule
  * `fail_next` makes the next calls fail as retryable (a cut-off call).
  */
 export class FakeCloudDriver implements CloudProvider {
-  /** Like the production provider, except that there is no guest to exec in. */
-  readonly capabilities = { sizing: false, resize: true, snapshot: true, guestExec: false, edgeTls: true }
+  /** Like the production provider. Its guest is scripted (execStdin): the readiness probe, a build start and its poll answer; other commands are refused. */
+  readonly capabilities = { sizing: false, resize: true, snapshot: true, guestExec: true, edgeTls: true }
   constructor(private readonly sql: SqlStore) {
     sql.exec(`CREATE TABLE IF NOT EXISTS cloud_fake_snapshot (slug TEXT PRIMARY KEY, id TEXT NOT NULL, source TEXT NOT NULL)`)
     sql.exec(`CREATE TABLE IF NOT EXISTS cloud_fake_vm (name TEXT PRIMARY KEY, id TEXT NOT NULL UNIQUE, tag TEXT NOT NULL, idle INTEGER, state TEXT NOT NULL DEFAULT 'running', cpu INTEGER NOT NULL DEFAULT 2, memory INTEGER NOT NULL DEFAULT 4096, storage INTEGER NOT NULL DEFAULT 16384, snapshot TEXT)`)
