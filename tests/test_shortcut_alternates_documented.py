@@ -51,7 +51,11 @@ BINDING_DEFS = (
     "shortcutBinding",
     "singleBareFirstStrokeShortcutBinding",
     "bareFirstStrokeShortcutBinding",
+    "numberedFamilyShortcutBinding",
 )
+# The catalogs that declare `shortcutFamily`, i.e. the source of truth for which
+# actions take one key only.
+ACTION_CATALOGS = ROOT / "Packages" / "macOS" / "CmuxNext" / "Sources" / "CmuxNextActions" / "Catalog"
 
 
 def any_branch(document: dict, name: str = "shortcutBinding") -> dict | None:
@@ -60,6 +64,24 @@ def any_branch(document: dict, name: str = "shortcutBinding") -> dict | None:
         if branch.get("required") == ["any"]:
             return branch
     return None
+
+
+def numbered_family_actions() -> set[str]:
+    """Action ids whose descriptor declares a `shortcutFamily`.
+
+    `SettingsApplier` keeps only the first key for any action with a family, so
+    these are the ids whose `any` list may hold at most one. Read from the Swift
+    catalogs, so adding a family action cannot silently escape the rule.
+    """
+    found: set[str] = set()
+    for path in sorted(ACTION_CATALOGS.glob("*.swift")):
+        text = path.read_text()
+        for match in re.finditer(r"shortcutFamily:\s*\.(\w+)", text):
+            # The id of the descriptor this belongs to: the nearest one above it.
+            ids = re.findall(r'id:\s*"([^"]+)"', text[: match.start()])
+            if ids:
+                found.add(ids[-1])
+    return found
 
 
 def is_chord_shape(branch: dict) -> bool:
@@ -268,6 +290,50 @@ class AlternatesValidateTests(unittest.TestCase):
         # A one-item array still has to be a key the action accepts.
         self.assertBinding("nextSurface", {"any": [["j"]]}, valid=False)
 
+    def test_a_numbered_family_takes_one_key(self):
+        """`⌘1…9` is one key, so its `any` list may not hold two.
+
+        `SettingsApplier` reports `a numbered family takes one key; only the
+        first is used` and drops the rest for any action with a
+        `shortcutFamily`, so the schema may not bless two.
+        """
+        for action in ("selectSurfaceByNumber", "selectWorkspaceByNumber", "focusPaneByNumber"):
+            with self.subTest(action=action):
+                self.assertBinding(action, {"any": ["cmd+1", "cmd+2"]}, valid=False)
+                self.assertBinding(action, {"any": ["cmd+1", "ctrl+1", "opt+1"]}, valid=False)
+                # One key in any of its forms, and the unbind forms, still work.
+                self.assertBinding(action, {"any": ["cmd+1"]}, valid=True)
+                self.assertBinding(action, {"any": [["ctrl+b", "1"]]}, valid=True)
+                self.assertBinding(action, {"any": []}, valid=True)
+                self.assertBinding(action, "cmd+1", valid=True)
+                self.assertBinding(action, ["ctrl+b", "1"], valid=True)
+                self.assertBinding(action, None, valid=True)
+        # An action without a family keeps its alternates.
+        self.assertBinding("nextSurface", {"any": ["ctrl+tab", "cmd+]"]}, valid=True)
+
+    def test_every_numbered_family_action_in_the_schema_is_restricted(self):
+        """Adding a family action must not escape the one-key rule."""
+        document = schema()
+        bindings = document["properties"]["shortcuts"]["properties"]["bindings"]
+        families = numbered_family_actions()
+        self.assertIn(
+            "selectSurfaceByNumber", families,
+            "the catalog scan found no numbered families; the `shortcutFamily:` spelling or the "
+            f"catalog path ({ACTION_CATALOGS.relative_to(ROOT)}) changed, so update this test",
+        )
+        bindable = families & set(bindings["propertyNames"]["enum"])
+        restricted = {
+            action for action, entry in bindings.get("properties", {}).items()
+            if entry.get("$ref", "").endswith("numberedFamilyShortcutBindingNullable")
+        }
+        self.assertEqual(
+            restricted, bindable,
+            "every numbered-family action that shortcuts.bindings accepts must use "
+            "numberedFamilyShortcutBindingNullable, and only those. Unrestricted: "
+            f"{sorted(bindable - restricted)}; restricted but not a family: "
+            f"{sorted(restricted - bindable)}",
+        )
+
     def test_the_plain_chord_form_stays_as_wide_as_classic(self):
         """Don't narrow a form classic honours.
 
@@ -377,6 +443,29 @@ class AlternatesDocumentedTests(unittest.TestCase):
             names_the_any_form(SHORTCUTS_SKILL.read_text()),
             "skills/cmux-keyboard-shortcuts/SKILL.md lists the accepted binding values an "
             "agent may write and must name the alternates form",
+        )
+
+    def test_the_chord_rule_in_the_skill_names_the_build_it_applies_to(self):
+        """The skill guides `~/.config/cmux/cmux.json` for classic and NEXT.
+
+        Only cmux NEXT requires Cmd or Ctrl in a chord's first stroke; classic
+        ships bare-first chords (`] f`). A blanket rule either way sends agents
+        to a binding one of the builds refuses, so the chord guidance has to say
+        which build it is talking about.
+        """
+        text = SHORTCUTS_SKILL.read_text()
+        chord_section = text.partition("- Chord:")[2].partition("\n- ")[0]
+        self.assertTrue(chord_section, "the Chord bullet moved; update this test")
+        lowered = chord_section.lower()
+        self.assertIn(
+            "classic", lowered,
+            "the chord rule must say classic takes a wider first stroke (it ships bare-first "
+            f"chords such as `] f`). Got: {chord_section!r}",
+        )
+        self.assertTrue(
+            "next" in lowered,
+            "the chord rule must name cmux NEXT as the build that requires Cmd or Ctrl. Got: "
+            f"{chord_section!r}",
         )
 
     def test_settings_skill_quick_reference_names_the_form(self):

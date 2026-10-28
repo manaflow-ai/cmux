@@ -2683,6 +2683,15 @@
             ]
           },
           "properties": {
+            "selectSurfaceByNumber": {
+              "$ref": "#/$defs/numberedFamilyShortcutBindingNullable"
+            },
+            "selectWorkspaceByNumber": {
+              "$ref": "#/$defs/numberedFamilyShortcutBindingNullable"
+            },
+            "focusPaneByNumber": {
+              "$ref": "#/$defs/numberedFamilyShortcutBindingNullable"
+            },
             "fileExplorerOpenSelection": {
               "$ref": "#/$defs/singleBareFirstStrokeShortcutBindingNullable"
             },
@@ -2861,6 +2870,89 @@
             }
           },
           "description": "Several shortcuts for one action, each a key or a chord. Example: {\"any\": [\"ctrl+tab\", \"cmd+]\"]}."
+        }
+      ]
+    },
+    "numberedFamilyShortcutBinding": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/unboundShortcutBinding",
+          "description": "Unbind this shortcut. Accepted values are an empty string, none, clear, unbound, or disabled."
+        },
+        {
+          "$ref": "#/$defs/shortcutFirstStroke",
+          "description": "Single-stroke shortcut, for example cmd+n or cmd+space."
+        },
+        {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 2,
+          "prefixItems": [
+            {
+              "$ref": "#/$defs/shortcutFirstStroke"
+            },
+            {
+              "$ref": "#/$defs/shortcutStroke"
+            }
+          ],
+          "description": "Chorded shortcut. Example: [\"ctrl+b\", \"c\"]."
+        },
+        {
+          "type": "object",
+          "required": [
+            "any"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "any": {
+              "type": "array",
+              "items": {
+                "oneOf": [
+                  {
+                    "$ref": "#/$defs/shortcutFirstStroke"
+                  },
+                  {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 1,
+                    "prefixItems": [
+                      {
+                        "$ref": "#/$defs/shortcutFirstStroke"
+                      }
+                    ],
+                    "description": "One key written as a one-item array. The parser reads it as a single stroke, not a chord, so the chord rule does not apply."
+                  },
+                  {
+                    "type": "array",
+                    "minItems": 2,
+                    "maxItems": 2,
+                    "prefixItems": [
+                      {
+                        "$ref": "#/$defs/shortcutChordFirstStroke"
+                      },
+                      {
+                        "$ref": "#/$defs/shortcutStroke"
+                      }
+                    ]
+                  }
+                ]
+              },
+              "maxItems": 1
+            }
+          },
+          "description": "A numbered family takes one key, so this list holds at most one (an empty list unbinds). cmux NEXT keeps only the first key and reports the rest as invalid. Example: {\"any\": [\"cmd+opt+1\"]}."
+        }
+      ],
+      "description": "A numbered family's binding (cmd+1 means the whole cmd+1 through cmd+9 family). As shortcutBinding, except that {\"any\": [...]} holds at most one key."
+    },
+    "numberedFamilyShortcutBindingNullable": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/numberedFamilyShortcutBinding"
+        },
+        {
+          "type": "null",
+          "description": "Unbind this shortcut."
         }
       ]
     },
