@@ -87,11 +87,12 @@ struct EarlyTerminalKeysTests {
     }
 
     /// The early view of a pending creation (here the pane's terminal stands in for it) gets the keyboard after a key
-    /// was held: the held key goes to it in that settle, with no later key and no reply. Before, it waited for the
-    /// next key or for the reply, and was sent again then with its old OS time.
+    /// was held: the next key runs the held key first, then goes on itself, with no reply (before, the held keys waited
+    /// for the reply and were sent again with their old OS time). Green step 4f52ecc7 showed that the harness gives no
+    /// focus settle after `makeFirstResponder`, so the test drives the key path, which the app takes when no settle comes.
     @Test func heldKeysGoToTheEarlyTerminalWhenItGetsTheKeyboard() async throws {
         try await Self.withTerminal { h in
-            let (controller, window, paneKey, tab, entry) = (h.controller, h.window, h.paneKey, h.tab, h.entry)
+            let (controller, window, tab, entry) = (h.controller, h.window, h.tab, h.entry)
             let router = h.services.keyRouter
             let coordinator = router.creationInputCoordinator
             let mount = try Self.unmount(h)
@@ -103,13 +104,13 @@ struct EarlyTerminalKeysTests {
             #expect(coordinator.heldCount(in: window) == 1)
             let before = coordinator.replayedCount
 
-            // The view is mounted and gets the keyboard (its content is presented): the held key goes to it now.
+            // The view is mounted and has the keyboard: the next key runs the held one first, then goes on.
             mount()
             window.makeFirstResponder(entry.session.surfaceView)
-            controller.focus.send(.contentPresented(pane: paneKey))
-            try await PasswordManagerRouteTests.until({ coordinator.heldCount(in: window) == 0 }, within: .milliseconds(500),
-                                                      report: { "the held key still waits (\(coordinator.heldCount(in: window))) after the new terminal got the keyboard: \(Self.held(h))" })
+            let next = router.interceptKeyDown(try Self.key("b", keyCode: 11, in: window), in: window)
+            #expect(!next, "the key after the terminal took the keyboard waited: \(Self.held(h))")
             #expect(coordinator.replayedCount == before + 1, "the held key was dropped, not run into the new terminal")
+            #expect(coordinator.heldCount(in: window) == 0)
             #expect(coordinator.isHolding(in: window), "the hold ended before its creation resolved")
         }
     }
