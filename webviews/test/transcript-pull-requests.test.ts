@@ -823,3 +823,21 @@ test("ambiguous create output never invents opened PRs", () => {
   );
   expect(sessionPullRequests(rows)).toEqual([]);
 });
+
+test("title payload URLs are data, not pull request activity or Sources", () => {
+  for (const title of [
+    '--title "https://github.com/acme/app/pull/99"',
+    "--title='https://github.com/acme/app/pull/99'",
+    "-t https://github.com/acme/app/pull/99",
+  ]) {
+    const rows = [
+      activity(
+        [shell(`gh pr create -R acme/app ${title}`, "https://github.com/acme/app/pull/100\n")],
+        1,
+      ),
+    ];
+    expect(refs(rows)).toEqual(["acme/app#100"]);
+    expect(refs(rows)).not.toContain("acme/app#99");
+    expect(sessionSummary(rows).sources.some((source) => source.url?.includes("/99"))).toBe(false);
+  }
+});

@@ -320,3 +320,79 @@ test("message ID changes preserve the preceding reply Sources after completion",
     client.close();
   }
 });
+
+test("running tool metadata refreshes the summary without rescanning output chunks", async () => {
+  const call = {
+    sessionUpdate: "tool_call",
+    toolCallId: "live",
+    title: "Before",
+    kind: "think",
+    status: "in_progress",
+  };
+  const daemon = fakeDaemon(record([["in", "tool_call", update(call)]]));
+  const { client, rows } = await connect(daemon);
+  try {
+    expect(sessionSummary(rows()).subagents).toContainEqual({ id: "live", title: "Before", state: "running" });
+    daemon.push(
+      record(
+        [
+          [
+            "in",
+            "tool_call_update",
+            update({
+              sessionUpdate: "tool_call_update",
+              toolCallId: "live",
+              title: "After",
+              status: "in_progress",
+            }),
+          ],
+        ],
+        2,
+      ),
+    );
+    expect(sessionSummary(rows()).subagents).toContainEqual({ id: "live", title: "After", state: "running" });
+    daemon.push(
+      record(
+        [
+          [
+            "in",
+            "tool_call_update",
+            update({
+              sessionUpdate: "tool_call_update",
+              toolCallId: "live",
+              kind: "execute",
+              title: "npm run dev",
+              rawInput: { command: "npm run dev", description: "Preview", run_in_background: true },
+            }),
+          ],
+        ],
+        3,
+      ),
+    );
+    const summary = sessionSummary(rows());
+    expect(summary.backgroundTasks[0]).toMatchObject({
+      command: "npm run dev",
+      description: "Preview",
+      state: "running",
+    });
+    daemon.push(
+      record(
+        [
+          [
+            "in",
+            "tool_call_update",
+            update({
+              sessionUpdate: "tool_call_update",
+              toolCallId: "live",
+              content: [{ type: "content", content: { type: "text", text: "output" } }],
+            }),
+          ],
+        ],
+        4,
+      ),
+    );
+    expect(sessionSummary(rows())).toBe(summary);
+  } finally {
+    client.close();
+  }
+});
