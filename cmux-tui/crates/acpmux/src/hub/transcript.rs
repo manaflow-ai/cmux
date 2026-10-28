@@ -14,9 +14,7 @@ impl Hub {
             .scan_kinds(&session.id, KINDS, &mut |e: EventRecord| {
                 match e.kind.as_str() {
                     "user_message" => {
-                        if let Some(text) = e.msg.get("text").and_then(Value::as_str) {
-                            transcript.user(text);
-                        }
+                        transcript.user(e.msg.get("text").and_then(Value::as_str));
                     }
                     "agent_message_chunk" => {
                         if let Some(text) = e
@@ -62,10 +60,12 @@ impl TranscriptBuilder {
         }
     }
 
-    fn user(&mut self, text: &str) {
+    fn user(&mut self, text: Option<&str>) {
         self.flush_agent();
-        self.line_prefix("user: ");
-        self.lines.push_str(text);
+        if let Some(text) = text {
+            self.line_prefix("user: ");
+            self.lines.push_str(text);
+        }
     }
 
     fn agent_chunk(&mut self, text: &str) {
@@ -142,6 +142,7 @@ mod tests {
     #[derive(Clone, Copy)]
     enum Event<'a> {
         User(&'a str),
+        UserMissing,
         Agent(&'a str),
         Summary(&'a str),
     }
@@ -162,6 +163,7 @@ mod tests {
                     flush(&mut agent_buf, &mut lines);
                     lines.push(format!("user: {text}"));
                 }
+                Event::UserMissing => flush(&mut agent_buf, &mut lines),
                 Event::Agent(text) => agent_buf.push_str(text),
                 Event::Summary(text) => {
                     agent_buf.clear();
@@ -199,7 +201,8 @@ mod tests {
         let mut builder = TranscriptBuilder::new(max_chars);
         for event in events {
             match event {
-                Event::User(text) => builder.user(text),
+                Event::User(text) => builder.user(Some(text)),
+                Event::UserMissing => builder.user(None),
                 Event::Agent(text) => builder.agent_chunk(text),
                 Event::Summary(text) => builder.compaction_summary(text),
             }
@@ -214,6 +217,7 @@ mod tests {
             (vec![], 0),
             (vec![Event::User("hello")], 100),
             (vec![Event::Agent("  a "), Event::Agent("b  ")], 100),
+            (vec![Event::Agent("answer"), Event::UserMissing], 100),
             (vec![Event::Agent(&long), Event::User("next")], 37),
             (
                 vec![
