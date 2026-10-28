@@ -6,20 +6,23 @@ export const CREATE_VM_REQUEST_TIMEOUT_MS = 45_000;
 
 /** Read a response body without allowing cancellation or timeout to strand a canary. */
 export async function readResponseText(response, { signal, timeoutMs = CREATE_VM_REQUEST_TIMEOUT_MS } = {}) {
-  const body = response.text();
+  const reader = response.body?.getReader?.();
+  const body = reader ? readResponseBody(reader) : response.text();
   body.catch(() => {});
   let timer;
   let abort;
   const stopped = new Promise((_, reject) => {
     abort = () => {
-      const cancellation = response.body?.cancel?.(signal?.reason);
+      const cancellation = reader
+        ? reader.cancel?.(signal?.reason)
+        : response.body?.cancel?.(signal?.reason);
       cancellation?.catch?.(() => {});
       reject(signal?.reason instanceof Error ? signal.reason : new Error("Cloud VM response read aborted"));
     };
     if (signal?.aborted) abort();
     else signal?.addEventListener("abort", abort, { once: true });
     timer = setTimeout(() => {
-      const cancellation = response.body?.cancel?.();
+      const cancellation = reader ? reader.cancel?.() : response.body?.cancel?.();
       cancellation?.catch?.(() => {});
       reject(new Error(`Cloud VM response body exceeded ${timeoutMs} ms`));
     }, timeoutMs);
@@ -29,6 +32,17 @@ export async function readResponseText(response, { signal, timeoutMs = CREATE_VM
   } finally {
     clearTimeout(timer);
     signal?.removeEventListener("abort", abort);
+    reader?.releaseLock?.();
+  }
+}
+
+async function readResponseBody(reader) {
+  const decoder = new TextDecoder();
+  let text = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) return text + decoder.decode();
+    text += decoder.decode(value, { stream: true });
   }
 }
 

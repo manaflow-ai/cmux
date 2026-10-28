@@ -24,7 +24,13 @@ describe("Cloud VM smoke create retry", () => {
     const controller = new AbortController();
     let cancelled = false;
     const response = {
-      body: { cancel: async () => { cancelled = true; } },
+      body: {
+        getReader: () => ({
+          read: () => new Promise(() => {}),
+          cancel: async () => { cancelled = true; },
+          releaseLock: () => {},
+        }),
+      },
       text: () => new Promise<string>(() => {}),
     };
     const pending = readResponseText(response as unknown as Response, { signal: controller.signal, timeoutMs: 1_000 });
