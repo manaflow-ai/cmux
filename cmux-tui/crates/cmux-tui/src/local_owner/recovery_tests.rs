@@ -15,6 +15,7 @@ pub(super) fn owner_spec(socket: PathBuf) -> OwnerSpec {
         term: None,
         initial_host_colors: None,
         terminal_reap_grace: None,
+        exit_with_pid: None,
         install_key: None,
         chief_tools_socket: None,
         chief_brains: None,
