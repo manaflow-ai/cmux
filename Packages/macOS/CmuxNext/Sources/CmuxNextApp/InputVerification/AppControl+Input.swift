@@ -25,7 +25,7 @@ extension AppControl {
                 } else {
                     entries = InputJournal.shared.entries()
                 }
-                return .value(Self.encode(InputReplay(entries).run()))
+                return .value(Self.encode(InputInvariants.replay(entries).run()))
             },
         ])
         #if DEBUG || CMUX_BENCH_HOOKS

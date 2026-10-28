@@ -1,5 +1,5 @@
 import CmuxNextDaemon
-import CmuxNextFocus
+package import CmuxNextFocus
 import Foundation
 
 /// Deterministic replay of an input journal against the pure reducers
@@ -14,7 +14,11 @@ import Foundation
 /// The replay is a value over the entries it is given (the app's ring, a
 /// desync report's journal or a saved file): it reads no journal itself, so
 /// `debug.replay` and an offline replayer give the same `Result` for the
-/// same entries.
+/// same entries and rules.
+///
+/// The key routing (K) rules ask the App's `KeyRouter`, which this module
+/// cannot see, so the caller passes them as `focusRules`; the model (F) and
+/// transition (T) rules run here for every caller.
 package nonisolated struct InputReplay: Sendable {
     package struct Divergence: Hashable, Sendable, Codable {
         package enum Kind: String, Hashable, Sendable, Codable {
@@ -53,11 +57,17 @@ package nonisolated struct InputReplay: Sendable {
         var chunk: UInt8 = 0
     }
 
+    /// Extra rules checked on each focus state a reduction produces, after
+    /// the model and transition rules (the App passes its key routing rules).
+    package typealias FocusRules = @Sendable (_ state: FocusState, _ window: String?) -> [InputViolation]
+
     /// The journal to replay, oldest first.
     package var entries: [InputJournalEntry]
+    package var focusRules: FocusRules
 
-    package init(_ entries: [InputJournalEntry]) {
+    package init(_ entries: [InputJournalEntry], focusRules: @escaping FocusRules = { _, _ in [] }) {
         self.entries = entries
+        self.focusRules = focusRules
     }
 
     /// Reduces every entry in order and reports what it found.
@@ -98,7 +108,8 @@ package nonisolated struct InputReplay: Sendable {
                     diverge(Divergence(kind: .outcome, seq: entry.seq, window: window, event: String(describing: event),
                                        recorded: String(describing: recorded), replayed: String(describing: digest)))
                 }
-                let violations = InputInvariants.step(from: state, event, to: next, window: window)
+                let violations = InputInvariants.reduction(from: state, event, to: next, window: window)
+                    + focusRules(next, window)
                 if !violations.isEmpty {
                     diverge(Divergence(kind: .invariant, seq: entry.seq, window: window, event: String(describing: event),
                                        violations: violations))
@@ -167,5 +178,14 @@ package nonisolated struct InputReplay: Sendable {
         guard event.hasPrefix(prefix) else { return nil }
         let parts = event.dropFirst(prefix.count).split(separator: "x").compactMap { Int($0) }
         return parts.count == 2 ? CellSize(cols: parts[0], rows: parts[1]) : nil
+    }
+}
+
+extension InputInvariants {
+    /// The model and transition checks for one replayed reduction; `InputReplay`
+    /// adds its caller's `focusRules` (the App's key routing rules).
+    nonisolated static func reduction(from old: FocusState, _ event: FocusEvent, to new: FocusState,
+                                      window: String?) -> [InputViolation] {
+        model(new, window: window) + transition(from: old, event, to: new, window: window)
     }
 }

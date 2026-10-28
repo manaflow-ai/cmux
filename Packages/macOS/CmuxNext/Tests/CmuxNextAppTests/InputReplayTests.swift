@@ -54,7 +54,7 @@ struct InputReplayTests {
         let replayed = record.phase
         record.phase = "bogus"
         entries[2].kind = .attach(record)
-        let result = InputReplay(entries).run()
+        let result = InputInvariants.replay(entries).run()
         // The replay reduces events, not recorded phases: only the corrupted step diverges.
         #expect(result.divergences == 1)
         let divergence = try #require(result.firstDivergence)
@@ -64,7 +64,7 @@ struct InputReplayTests {
 
     @Test func attachEventsWithoutTheirStartAreSkipped() {
         let tail = Array(Self.attachJournal().dropFirst())
-        let result = InputReplay(tail).run()
+        let result = InputInvariants.replay(tail).run()
         #expect(result.attachEvents == 0)
         #expect(result.skippedAttachEvents == tail.count)
         #expect(result.firstDivergence == nil)
@@ -72,7 +72,7 @@ struct InputReplayTests {
 
     @Test func terminalsReplayIndependently() {
         let entries = Self.attachJournal(surface: "s1") + Self.attachJournal(surface: "s2")
-        let result = InputReplay(entries).run()
+        let result = InputInvariants.replay(entries).run()
         #expect(result.firstDivergence == nil)
         #expect(result.attachEvents == 2 * Self.attachScript.count)
     }
@@ -119,7 +119,7 @@ struct InputReplayTests {
     }
 
     @Test func focusReplayMatchesItsRecording() throws {
-        let result = InputReplay(try Self.focusJournal()).run()
+        let result = InputInvariants.replay(try Self.focusJournal()).run()
         #expect(result.firstDivergence == nil, "\(String(describing: result.firstDivergence))")
         #expect(result.focusEvents == Self.focusEvents.count)
         #expect(result.windows == ["w"])
@@ -133,7 +133,7 @@ struct InputReplayTests {
         guard case .focus(let event, var digest) = entries[index].kind else { Issue.record("no focusPane entry"); return }
         digest.pane = "p2"
         entries[index].kind = .focus(event, after: digest)
-        let divergence = try #require(InputReplay(entries).run().firstDivergence)
+        let divergence = try #require(InputInvariants.replay(entries).run().firstDivergence)
         #expect(divergence.kind == .outcome)
         #expect(divergence.seq == entries[index].seq)
         #expect(divergence.window == "w")
@@ -141,7 +141,7 @@ struct InputReplayTests {
 
     @Test func focusEventsBeforeTheFirstCheckpointAreSkipped() throws {
         let tail = Array(try Self.focusJournal().dropFirst())
-        let result = InputReplay(tail).run()
+        let result = InputInvariants.replay(tail).run()
         #expect(result.focusEvents == 0)
         #expect(result.skippedFocusEvents == Self.focusEvents.count)
         #expect(result.windows.isEmpty)
@@ -151,9 +151,9 @@ struct InputReplayTests {
     /// same journal gives byte-identical output, run after run.
     @Test func sameEntriesGiveIdenticalOutput() throws {
         let entries = try Self.focusJournal() + Self.attachJournal()
-        let first = try Self.json(InputReplay(entries).run())
+        let first = try Self.json(InputInvariants.replay(entries).run())
         let decoded = try DesyncReport.decoder.decode([Entry].self, from: DesyncReport.encoder.encode(entries))
-        #expect(try Self.json(InputReplay(decoded).run()) == first)
-        #expect(try Self.json(InputReplay(entries).run()) == first)
+        #expect(try Self.json(InputInvariants.replay(decoded).run()) == first)
+        #expect(try Self.json(InputInvariants.replay(entries).run()) == first)
     }
 }

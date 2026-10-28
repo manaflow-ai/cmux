@@ -31,6 +31,11 @@ nonisolated extension InputInvariants {
         return out
     }
 
+    /// The App's rules for `InputReplay`: the routing checks on each replayed state.
+    static func replay(_ entries: [InputJournalEntry]) -> InputReplay {
+        InputReplay(entries) { state, window in routing(state, window: window) }
+    }
+
     /// Model, transition and routing checks for one reduction.
     static func step(from old: FocusState, _ event: FocusEvent, to new: FocusState, window: String? = nil) -> [InputViolation] {
         model(new, window: window) + transition(from: old, event, to: new, window: window) + routing(new, window: window)
