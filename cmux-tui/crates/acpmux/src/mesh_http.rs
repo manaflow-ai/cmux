@@ -1,0 +1,282 @@
+//! The mesh hub over HTTPS (cmux-platform `/v1/mesh`, `openapi.json` 1.3.0), and its config.
+//!
+//! `meshRelay` in config.json turns the relay on: `{"url": "https://...", "tokenCommand":
+//! [...]}`. Unset (the default), the daemon starts no relay. Read at daemon start; a change takes
+//! a restart.
+//!
+//! The hub takes a `Bearer` cmux access token of a team install (a paired daemon or device
+//! install). acpmux mints none itself: `tokenCommand` is the program that does (the install's own
+//! challenge and token flow), run with no arguments of ours and stdin closed. It prints the token
+//! on stdout, bare or as `{"access_token", "expires_at"}` (ms). The token lives only in this
+//! process's memory: never on disk, in a log, in argv or in the environment. It is used until a
+//! minute before `expires_at` or until the hub answers 401, then the command runs again.
+
+use crate::mesh::{Ack, Heartbeat, HeartbeatReply, HubError, InMessage, MeshHub};
+use futures::future::BoxFuture;
+use serde::{Deserialize, Serialize};
+use serde_json::{Value, json};
+use std::time::Duration;
+use zeroize::Zeroizing;
+
+/// `meshRelay` in config.json.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct MeshRelayConfig {
+    /// The hub's origin, `https://` (`http://` only for a loopback address).
+    pub url: String,
+    /// The program that prints a cmux access token, and its own arguments.
+    pub token_command: Vec<String>,
+}
+
+impl MeshRelayConfig {
+    /// The origin without a trailing slash, when it is one the relay may use.
+    pub fn origin(&self) -> Result<String, String> {
+        let url = reqwest::Url::parse(self.url.trim())
+            .map_err(|e| format!("meshRelay.url is no URL: {e}"))?;
+        let loopback = matches!(url.host_str(), Some("127.0.0.1" | "localhost" | "[::1]"));
+        if !(url.scheme() == "https" || (url.scheme() == "http" && loopback)) {
+            return Err("meshRelay.url must be https (http only on a loopback address)".into());
+        }
+        if self.token_command.first().is_none_or(|p| p.trim().is_empty()) {
+            return Err("meshRelay.tokenCommand names no program".into());
+        }
+        Ok(self.url.trim().trim_end_matches('/').to_owned())
+    }
+}
+
+/// The longest wait for the token command.
+const TOKEN_COMMAND_WAIT: Duration = Duration::from_secs(30);
+/// The largest hub answer read.
+const MAX_ANSWER_BYTES: usize = 4 << 20;
+
+/// A token and when it expires (ms since the epoch; 0: unknown, used until a 401).
+type Token = (Zeroizing<String>, u64);
+
+/// The token on the command's stdout: bare, or `{"access_token"|"accessToken", "expires_at"|...}`.
+fn parse_token(stdout: &str) -> Result<Token, String> {
+    let text = stdout.trim();
+    let (token, expires) = match serde_json::from_str::<Value>(text) {
+        Ok(v @ Value::Object(_)) => {
+            let field = |a: &str, b: &str| v.get(a).or_else(|| v.get(b)).cloned();
+            let token =
+                field("access_token", "accessToken").and_then(|t| t.as_str().map(str::to_owned));
+            let expires = field("expires_at", "expiresAt").and_then(|e| e.as_u64()).unwrap_or(0);
+            (token.unwrap_or_default(), expires)
+        }
+        _ => (text.to_owned(), 0),
+    };
+    let token = Zeroizing::new(token);
+    if token.is_empty() || token.len() > 16_384 || !token.bytes().all(|b| b.is_ascii_graphic()) {
+        return Err("the token command printed no token".into());
+    }
+    Ok((token, expires))
+}
+
+pub struct HttpHub {
+    origin: String,
+    command: Vec<String>,
+    http: reqwest::Client,
+    token: tokio::sync::Mutex<Option<Token>>,
+}
+
+impl HttpHub {
+    pub fn new(config: &MeshRelayConfig) -> Result<Self, String> {
+        let origin = config.origin()?;
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let http = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .user_agent(concat!("acpmux/", env!("CARGO_PKG_VERSION")))
+            .build()
+            .map_err(|e| e.to_string())?;
+        Ok(Self { origin, command: config.token_command.clone(), http, token: Default::default() })
+    }
+
+    /// A token: the one held while it is good, else a new one from the command.
+    async fn token(&self, fresh: bool) -> Result<Zeroizing<String>, HubError> {
+        let mut held = self.token.lock().await;
+        let now = crate::store::now_ms();
+        if !fresh
+            && let Some((token, expires)) = held.as_ref()
+            && (*expires == 0 || expires.saturating_sub(60_000) > now)
+        {
+            return Ok(token.clone());
+        }
+        let (program, args) =
+            self.command.split_first().ok_or_else(|| HubError::refused("no token command"))?;
+        let run = tokio::process::Command::new(program)
+            .args(args)
+            .stdin(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .kill_on_drop(true)
+            .output();
+        let out = tokio::time::timeout(TOKEN_COMMAND_WAIT, run)
+            .await
+            .map_err(|_| HubError::unavailable("the token command did not answer in 30 s"))?
+            .map_err(|e| HubError::unavailable(format!("cannot run the token command: {e}")))?;
+        let stdout = Zeroizing::new(String::from_utf8_lossy(&out.stdout).into_owned());
+        if !out.status.success() {
+            return Err(HubError::unavailable(format!(
+                "the token command failed ({})",
+                out.status
+            )));
+        }
+        let token = parse_token(&stdout).map_err(HubError::unavailable)?;
+        *held = Some((token.0.clone(), token.1));
+        Ok(token.0)
+    }
+
+    /// One call, once more with a new token after a 401.
+    async fn call(
+        &self,
+        method: reqwest::Method,
+        path: &str,
+        body: Option<&Value>,
+        wait: Duration,
+    ) -> Result<Value, HubError> {
+        for retry in [false, true] {
+            let token = self.token(retry).await?;
+            let mut request = self
+                .http
+                .request(method.clone(), format!("{}{path}", self.origin))
+                .bearer_auth(token.as_str())
+                .timeout(wait);
+            if let Some(body) = body {
+                request = request.json(body);
+            }
+            let mut response = request
+                .send()
+                .await
+                .map_err(|e| HubError::unavailable(format!("the hub: {}", e.without_url())))?;
+            let status = response.status().as_u16();
+            let mut bytes = Vec::new();
+            while let Some(chunk) = response
+                .chunk()
+                .await
+                .map_err(|e| HubError::unavailable(format!("the hub: {}", e.without_url())))?
+            {
+                if bytes.len() + chunk.len() > MAX_ANSWER_BYTES {
+                    return Err(HubError::unavailable("the hub's answer is too large"));
+                }
+                bytes.extend_from_slice(&chunk);
+            }
+            if status == 401 && !retry {
+                continue;
+            }
+            return answer(status, &bytes);
+        }
+        Err(HubError::unavailable("the hub refused two tokens"))
+    }
+}
+
+/// The hub's answer as a value, or the error it names.
+fn answer(status: u16, bytes: &[u8]) -> Result<Value, HubError> {
+    let body: Value = serde_json::from_slice(bytes).unwrap_or(Value::Null);
+    if (200..300).contains(&status) {
+        return Ok(body);
+    }
+    let code = body.get("code").and_then(Value::as_str).map(str::to_owned);
+    let said = body.get("message").and_then(Value::as_str).unwrap_or("");
+    let mut error = HubError::refused(
+        format!("the hub answered {status} {} {said}", code.as_deref().unwrap_or(""))
+            .trim()
+            .to_owned(),
+    );
+    error.refused = !(status == 408 || status == 429 || status >= 500);
+    error.retry_after =
+        body.get("retryAfterSeconds").and_then(Value::as_u64).map(Duration::from_secs);
+    error.code = code;
+    Err(error)
+}
+
+fn decode<T: serde::de::DeserializeOwned>(value: Value) -> Result<T, HubError> {
+    serde_json::from_value(value)
+        .map_err(|e| HubError::unavailable(format!("the hub's answer: {e}")))
+}
+
+const CALL_WAIT: Duration = Duration::from_secs(30);
+
+impl MeshHub for HttpHub {
+    fn inbox(&self, wait: Duration, max: usize) -> BoxFuture<'_, Result<Vec<InMessage>, HubError>> {
+        Box::pin(async move {
+            let path = format!(
+                "/v1/mesh/inbox?waitSeconds={}&max={}",
+                wait.as_secs().min(25),
+                max.clamp(1, 50)
+            );
+            let inbox = self.call(reqwest::Method::GET, &path, None, wait + CALL_WAIT).await?;
+            decode(inbox.get("messages").cloned().unwrap_or(json!([])))
+        })
+    }
+
+    fn ack<'a>(&'a self, id: &'a str, ack: &'a Ack) -> BoxFuture<'a, Result<(), HubError>> {
+        Box::pin(async move {
+            let body = serde_json::to_value(ack).unwrap_or_default();
+            self.call(
+                reqwest::Method::POST,
+                &format!("/v1/mesh/messages/{id}/ack"),
+                Some(&body),
+                CALL_WAIT,
+            )
+            .await
+            .map(drop)
+        })
+    }
+
+    fn heartbeat<'a>(
+        &'a self,
+        beat: &'a Heartbeat,
+    ) -> BoxFuture<'a, Result<HeartbeatReply, HubError>> {
+        Box::pin(async move {
+            let body = serde_json::to_value(beat).unwrap_or_default();
+            decode(
+                self.call(reqwest::Method::POST, "/v1/mesh/heartbeat", Some(&body), CALL_WAIT)
+                    .await?,
+            )
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_token_is_read_bare_or_from_json_and_nothing_else_passes() {
+        assert_eq!(parse_token("tok.abc\n").unwrap().0.as_str(), "tok.abc");
+        let (token, expires) =
+            parse_token(r#"{"access_token": "t1", "expires_at": 1700000000000}"#).unwrap();
+        assert_eq!((token.as_str(), expires), ("t1", 1_700_000_000_000));
+        assert_eq!(parse_token(r#"{"accessToken": "t2"}"#).unwrap().0.as_str(), "t2");
+        for bad in ["", "  ", "two words", r#"{"token": "x"}"#] {
+            assert!(parse_token(bad).is_err(), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn only_https_or_loopback_http_with_a_token_command_is_used() {
+        let config = |url: &str, cmd: &[&str]| MeshRelayConfig {
+            url: url.into(),
+            token_command: cmd.iter().map(|s| (*s).to_owned()).collect(),
+        };
+        let hub = "https://cmux-platform-development.debussy.workers.dev/";
+        assert_eq!(
+            config(hub, &["mint"]).origin().unwrap(),
+            "https://cmux-platform-development.debussy.workers.dev"
+        );
+        assert!(config("http://127.0.0.1:8787", &["mint"]).origin().is_ok());
+        assert!(config("http://hub.example.com", &["mint"]).origin().is_err());
+        assert!(config(hub, &[]).origin().is_err());
+        assert!(config("not a url", &["mint"]).origin().is_err());
+    }
+
+    #[test]
+    fn the_hubs_refusals_say_whether_to_try_again() {
+        let e = answer(404, br#"{"code": "mesh.unknown_recipient", "message": "no"}"#).unwrap_err();
+        assert!(e.refused && e.code.as_deref() == Some("mesh.unknown_recipient"), "{e:?}");
+        let e =
+            answer(429, br#"{"code": "mesh.rate_limited", "retryAfterSeconds": 7}"#).unwrap_err();
+        assert!(!e.refused && e.retry_after == Some(Duration::from_secs(7)), "{e:?}");
+        assert!(!answer(503, b"").unwrap_err().refused);
+        assert_eq!(answer(200, br#"{"ok": 1}"#).unwrap(), json!({"ok": 1}));
+    }
+}

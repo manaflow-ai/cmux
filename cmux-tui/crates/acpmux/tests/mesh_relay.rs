@@ -1,7 +1,8 @@
 //! The mesh relay against a fake hub (`mesh.rs`, `server/mesh_relay.rs`): a message for a session
 //! here is delivered once and acked with its prompt id, even when the hub leases it again; a
 //! relayed message runs as a peer's and reads none of this host's peers; control messages go to
-//! the hook; and the inbox never calls a failing or impatient hub in a busy loop.
+//! the hook; the heartbeat lists the sessions here; and no loop calls a failing or impatient hub
+//! in a busy loop.
 
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
@@ -11,8 +12,8 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::mesh::{
-    Ack, AckState, ControlHook, HubError, InMessage, Kind, MeshHub, Mode, RefuseControl, Sender,
-    Target,
+    Ack, AckState, ControlHook, Heartbeat, HeartbeatReply, HubError, InMessage, Kind, MeshHub,
+    Mode, RefuseControl, Sender, Target,
 };
 use acpmux::rpc::Message;
 use acpmux::server::mesh_relay::{MeshRelay, RelayOptions, relay_connection};
@@ -41,6 +42,7 @@ fn hub() -> Arc<Hub> {
 
 fn quick() -> RelayOptions {
     RelayOptions {
+        heartbeat_every: Duration::from_millis(200),
         inbox_wait: Duration::from_millis(500),
         min_poll_gap: Duration::from_millis(100),
         backoff_first: Duration::from_millis(100),
@@ -73,6 +75,7 @@ struct State {
     waiting: VecDeque<InMessage>,
     acks: Vec<(String, Ack)>,
     inbox_calls: usize,
+    heartbeats: Vec<Heartbeat>,
 }
 
 impl State {
@@ -146,6 +149,16 @@ impl MeshHub for FakeHub {
         Box::pin(async move {
             self.with(|s| s.acks.push((id.to_owned(), ack.clone())));
             Ok(())
+        })
+    }
+
+    fn heartbeat<'a>(
+        &'a self,
+        beat: &'a Heartbeat,
+    ) -> BoxFuture<'a, Result<HeartbeatReply, HubError>> {
+        Box::pin(async move {
+            self.with(|s| s.heartbeats.push(beat.clone()));
+            Ok(HeartbeatReply { daemon_id: "inst_b".into(), ttl_seconds: 90 })
         })
     }
 }
@@ -281,4 +294,20 @@ async fn a_failing_or_impatient_hub_is_never_called_in_a_busy_loop() {
         // 100 ms apart at the least, backing off to 400 ms when it fails: about 10 at most.
         assert!((1..=15).contains(&calls), "{calls} inbox calls in a second");
     }
+}
+
+#[tokio::test]
+async fn the_heartbeat_lists_the_sessions_here_and_a_stop_empties_them() {
+    let hub = hub();
+    let session = Client::local(&hub).new_session("dep-fleet").await;
+    let fake = Arc::new(FakeHub::default());
+    let relay = MeshRelay::start(&hub, fake.clone(), Arc::new(RefuseControl), quick());
+    fake.until("a heartbeat", |s| !s.heartbeats.is_empty()).await;
+    let rows = fake.with(|s| s.heartbeats[0].sessions.clone());
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!((rows[0].name.as_str(), rows[0].session_id.as_str()), ("dep-fleet", &*session));
+    assert_eq!(rows[0].harness, "fake");
+    relay.stop().await;
+    let last = fake.with(|s| s.heartbeats.last().cloned().unwrap());
+    assert!(last.sessions.is_empty(), "the stop sends an empty heartbeat: {last:?}");
 }
