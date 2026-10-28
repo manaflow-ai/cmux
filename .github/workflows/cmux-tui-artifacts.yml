@@ -2036,8 +2036,11 @@ jobs:
             # Straight from R2, as the uploads go: files.cmux.com served a
             # 31 MB binary at 4-35 KB/s here and the job failed after 20
             # minutes (run 40637082673). The CDN is the fallback, and a
-            # transfer that crawls there is cut and retried.
+            # transfer that crawls there is cut and retried. R2 reads a 31 MB
+            # binary in seconds, so two 90 s attempts per file keep the
+            # fallback well inside the job's 15 minutes.
             fetch_published() {
+              CMUX_R2_UPLOAD_ATTEMPTS=2 CMUX_R2_UPLOAD_RETRY_DELAY=5 CMUX_R2_DOWNLOAD_ATTEMPT_SECONDS=90 \
               python3 scripts/ci/upload-r2-object.py --endpoint-url "$R2_ENDPOINT" --bucket cmux-binaries \
                 --key "$prefix/$1" --download-to "$directory/$1" ||
                 { curl -fsS --proto '=https' --retry 3 --retry-delay 5 --connect-timeout 20 --max-time 300 \
