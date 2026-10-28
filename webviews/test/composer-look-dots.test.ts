@@ -97,6 +97,8 @@ await requireBrowserLane("composer-look-dots.test.ts", async () => {
       { value: "codex", name: "Codex Minimal", checked: false },
     ]);
     expect(await page.$(".nt-composer[data-composer-look]")).toBeNull();
+    expect(await page.$(".nt-composer .nt-box .acpmux-model")).toBeNull();
+    expect(await page.$(".nt-composer .acpmux-composer-foot .acpmux-model")).not.toBeNull();
     expect(await page.$(".nt-create")).toBeNull();
 
     // The second dot: Claude's composer with New terminal, New browser tab and New chat under it.
@@ -107,9 +109,9 @@ await requireBrowserLane("composer-look-dots.test.ts", async () => {
 
     await pickDot(page, ".nt-style", "codex");
     await page.waitForSelector('.nt-composer[data-composer-look="codex"]');
-    // Codex's look: the model in the box's row, no quiet row under the box, no pills.
-    expect(await page.$(".nt-composer .nt-box .acpmux-model")).not.toBeNull();
-    expect(await page.$(".nt-composer .acpmux-composer-foot")).toBeNull();
+    // Codex's look keeps its styling, while the model stays in the same footer as Claude's.
+    expect(await page.$(".nt-composer .nt-box .acpmux-model")).toBeNull();
+    expect(await page.$(".nt-composer .acpmux-composer-foot .acpmux-model")).not.toBeNull();
     await page.waitForFunction(() => !document.querySelector(".nt-create"));
     // Still the Minimal page: the look dot does not change the page's style.
     expect(await page.$(".nt-screen[data-template='minimal'], .nt-screen:not([data-template])")).not.toBeNull();
@@ -181,7 +183,8 @@ await requireBrowserLane("composer-look-dots.test.ts", async () => {
     await open(page, "agent-pane.new-tab", "template-cards");
     await page.waitForSelector('.nt-composer[data-composer-look="codex"] > .nt-above');
     expect(await page.$(".nt-composer .nt-toolbar")).toBeNull();
-    expect(await page.$(".nt-composer .nt-box .acpmux-model")).not.toBeNull();
+    expect(await page.$(".nt-composer .nt-box .acpmux-model")).toBeNull();
+    expect(await page.$(".nt-composer .acpmux-composer-foot .acpmux-model")).not.toBeNull();
     await context.close();
   });
 
@@ -209,9 +212,9 @@ await requireBrowserLane("composer-look-dots.test.ts", async () => {
 
     await pickDot(page, form, "codex");
     await page.waitForSelector(`${form}[data-composer-look="codex"]`);
-    expect(await page.$(`${form} .acpmux-composer-box .acpmux-model`)).not.toBeNull();
-    expect(await page.$(`${form} .acpmux-composer-box .acpmux-access`)).not.toBeNull();
-    expect(await page.$(`${form} .acpmux-composer-foot`)).toBeNull();
+    expect(await page.$(`${form} .acpmux-composer-box .acpmux-model`)).toBeNull();
+    expect(await page.$(`${form} .acpmux-composer-foot .acpmux-model`)).not.toBeNull();
+    expect(await page.$(`${form} .acpmux-composer-foot .acpmux-access`)).not.toBeNull();
 
     // Codex's look: the dots sit in the box's internal dead-space row, shown on hover there; the first dot goes back.
     await page.mouse.move(1, 1);
