@@ -129,7 +129,47 @@ extension HangReport {
         }
 
         /// How far past its budget the first frame came: of two slow launches, a report keeps the one further past.
-        public var overrunMs: Int { firstFrameMs - budgetMs }
+        /// From the clamped first frame and this build's budget, so a saved trace's numbers cannot overflow it.
+        public var overrunMs: Int { Self.clampedMs(firstFrameMs) - Self.firstFrameBudgetMs(temperature) }
+
+        /// The longest time an event names (one day, in microseconds); a larger one is this.
+        public static let maxMicros: UInt64 = UInt64(HistogramBucket.maxMs) * 1_000
+
+        /// This trace with every number in range, as the pending aggregate keeps it (a saved file is untrusted):
+        /// milliseconds in `0...HistogramBucket.maxMs`, this build's budget for its temperature, `dropped` in
+        /// `0...LaunchHistogram.maxCount`, event times at most ``maxMicros`` (a mark lasts 0), and at most
+        /// ``HangReport/maxLaunchTraceEvents`` events (``kept(_:)``), the cut ones counted in `dropped`.
+        public var bounded: LaunchTrace {
+            let kept = Self.kept(events).map { event in
+                Event(startMicros: min(event.startMicros, Self.maxMicros),
+                      durationMicros: event.kind == .mark ? 0 : min(event.durationMicros, Self.maxMicros), kind: event.kind, name: event.name)
+            }
+            return LaunchTrace(temperature: temperature, reason: reason, firstFrameMs: Self.clampedMs(firstFrameMs),
+                               budgetMs: Self.firstFrameBudgetMs(temperature), startupCompleteMs: Self.clampedMs(startupCompleteMs),
+                               dropped: min(max(0, dropped).saturatingAdding(events.count - kept.count), LaunchHistogram.maxCount),
+                               events: kept)
+        }
+
+        /// At most ``HangReport/maxLaunchTraceEvents`` of `events`, by start time: every mark (the launch's milestones,
+        /// the oldest first when there are more), then the longest slices in the room left.
+        public static func kept(_ events: [Event]) -> [Event] {
+            let cap = HangReport.maxLaunchTraceEvents
+            let indexed = Array(events.enumerated())
+            var kept = indexed
+            if indexed.count > cap {
+                let marks = indexed.filter { $0.element.kind == .mark }.prefix(cap)
+                let slices = indexed.filter { $0.element.kind != .mark }
+                    .sorted { ($0.element.durationMicros, $1.offset) > ($1.element.durationMicros, $0.offset) }
+                    .prefix(cap - marks.count)
+                kept = Array(marks) + Array(slices)
+            }
+            return kept.sorted { ($0.element.startMicros, $0.offset) < ($1.element.startMicros, $1.offset) }.map(\.element)
+        }
+
+        /// Whole milliseconds clamped to `0...HistogramBucket.maxMs`.
+        public static func clampedMs(_ ms: Int) -> Int {
+            min(max(0, ms), HistogramBucket.maxMs)
+        }
 
         private enum CodingKeys: String, CodingKey {
             case temperature, reason, dropped, events

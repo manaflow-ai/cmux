@@ -18,12 +18,17 @@ extension StartupTrace {
     /// and counts it. Reports off, the app makes no ring (``forReports(optedIn:processStartNanos:)``): nothing is
     /// allocated and every producer hook stays off.
     ///
+    /// The app makes it in `main()` and shares the producer hooks with the developer trace through
+    /// ``StartupTrace/LaunchRecorders``, so freeing one never stops the other's records:
+    ///
     /// ```swift
     /// let ring = StartupTrace.SlowLaunchRing.forReports(optedIn: consented, processStartNanos: start)  // in main
-    /// let work = BackgroundWork(onRan: ring?.laneJobSink)
-    /// ring?.whenFreed { work.stopReportingRuns() }
+    /// let recorders = StartupTrace.LaunchRecorders(trace: startupTrace, ring: ring)
+    /// let work = BackgroundWork(onRan: recorders.laneJobSink)
+    /// recorders.whenAllStopped { work.stopReportingRuns() }
     /// // at startup_complete:
     /// let launch = ring?.finish(keeping: HangReport.LaunchTrace.exceedsBudget(record))
+    /// let events = launch?.events(adding: startup.log.records)  // off the main thread
     /// ```
     public final class SlowLaunchRing: Sendable {
         /// The ring's size: 32 KiB of records.
@@ -100,6 +105,19 @@ extension StartupTrace {
             let mainThread: UInt64?
             /// Records the ring overwrote before completion.
             public let overwritten: Int
+
+            /// The ring's events and `tasks`, the startup scheduler's records (``StartupTaskLog/records``): each task
+            /// that ran 1 ms or more, a main task or a lane task by where it was posted. The scheduler keeps its own
+            /// log, so its tasks never take the ring's room. Build it off the main thread.
+            public func events(adding tasks: [StartupTaskLog.Record]) -> [Event] {
+                events + tasks.compactMap { task -> Event? in
+                    guard let startNanos = task.startNanos, let durationNanos = task.durationNanos,
+                          durationNanos >= SlowLaunchRing.sliceThresholdNanos else { return nil }
+                    let start = startNanos > processStartNanos ? startNanos - processStartNanos : 0
+                    return Event(kind: task.destination == .main ? .mainTask : .laneTask, name: task.name.description,
+                                 startMicros: start / 1_000, durationMicros: durationNanos / 1_000)
+                }
+            }
 
             /// The events, oldest first.
             public var events: [Event] {

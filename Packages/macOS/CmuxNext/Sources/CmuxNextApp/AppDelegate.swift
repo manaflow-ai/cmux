@@ -31,8 +31,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// The launch load-in, region by region; its last region revealing ends the startup phase's
     /// `launching` (made here, the composition root, and passed by init).
     private let launchReveal: LaunchReveal
-    /// The startup trace `CMUX_TRACE_STARTUP` asked for (nil: none): launch phases record their slices in it.
-    private let startupTrace: StartupTrace?
+    /// The startup trace `CMUX_TRACE_STARTUP` asked for and the Nightly slow-launch ring (each nil when not made): launch
+    /// phases record their slices in them.
+    private let recorders: StartupTrace.LaunchRecorders
     /// The app's daemon wire counters, made in `main` (nil in a release build without field data opt-in).
     private let wireStats: DaemonWireStats?
     /// The launch's feature list from the composition root (``AppServices/launchFeatures(_:)``).
@@ -87,11 +88,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// `watchdog` is the launch's main-thread watchdog, made and started first in `main()`.
     init(environment: AppEnvironment, daemonStart: LaunchRead<DaemonLaunchStart>, wireStats: DaemonWireStats?, features: FeatureList? = nil,
-         startupTrace: StartupTrace? = nil, order: LaunchOrder, watchdog: MainThreadWatchdog, inputTap: InputEventTap,
+         recorders: StartupTrace.LaunchRecorders = StartupTrace.LaunchRecorders(trace: nil, ring: nil), order: LaunchOrder, watchdog: MainThreadWatchdog, inputTap: InputEventTap,
          settingsRead: SettingsController.PendingLaunchRead,
          launchReads: (work: BackgroundWork, images: AgentPaneLaunchImages, frames: TerminalLaunchFrames, wake: AgentPaneRelaunchWake), launchCleanup: LaunchCleanup = LaunchCleanup()) {
         (self.environment, self.launchReads, self.settingsRead) = (environment, launchReads, settingsRead)
-        (self.daemonStart, self.startupTrace) = (daemonStart, startupTrace)
+        (self.daemonStart, self.recorders) = (daemonStart, recorders)
         (self.wireStats, self.features) = (wireStats, features)
         self.launchCleanup = launchCleanup
         self.order = order
@@ -128,8 +129,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         control.attachWatchdog()
         (NSApp as? CmuxApplication)?.inputQueueing = control.watchdog
         DebugTimings.markLaunch("did_finish_launching_start")
-        let launchStart = startupTrace?.uptimeNanos
-        DebugTimings.install(watchdog: control.watchdog, startupTrace: startupTrace)
+        let launchStart = recorders.uptimeNanos
+        DebugTimings.install(watchdog: control.watchdog, recorders: recorders)
         // No system caret bubble over cmux's own native text fields (before any field edits).
         NativeCaretAccessory.install()
         // Every window, shell or auxiliary, opens by one placement rule.
@@ -198,7 +199,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // The restore and visible-page references are the pane refs' (`VisiblePaneRefs.finishRestore`).
         startupReferences.watchUnavailable { [daemon = services.daemon] in daemon.startup.isUnavailable }
         // Hangs, lag spikes and opt-in hang reports (WatchdogReporting); the controller lives with the process.
-        AppProcessRoot.shared.adopt(hangReports: WatchdogReporting.install(control.watchdog, services: services))
+        let hangReports = WatchdogReporting.install(control.watchdog, services: services)
+        AppProcessRoot.shared.adopt(hangReports: hangReports)
+        // The slow-launch ring: freed at startup_complete, its trace kept only for a launch past its p95 budget (p08-startup-111).
+        SlowLaunchReporting(ring: recorders.ring, startup: order.startup, mainWork: order.mainWork, work: services.work) { [weak hangReports] in
+            hangReports?.noteLaunchTrace($0)
+        }.install(sends: hangReports.sendsLaunchTrace)
         services.quit.watchdog = control.watchdog
         // Idle wakeups per inactive minute (p09-observability-059), once the launch's own work is done.
         order.startup.post(.afterStartup, "AppServices.startIdleWakeups", on: .main) { [weak services, control = self.control] in
@@ -348,7 +354,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         order.startup.finishRegistration()
         DebugTimings.markLaunch("did_finish_launching_end")
         DebugTimings.armFirstIdleMark()
-        if let launchStart { startupTrace?.task("did_finish_launching", start: launchStart) }
+        if let launchStart { recorders.task("did_finish_launching", start: launchStart) }
     }
 
     /// cmux-next.json settings and the tagged control socket (`action.list/describe/run`) over the same registry.

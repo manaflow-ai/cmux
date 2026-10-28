@@ -40,6 +40,10 @@ public struct CmuxNextApp {
         let watchdog = MainThreadWatchdog(startupTasks: startupTag, wakeUps: mainWakeUps)
         // CMUX_TRACE_STARTUP: the startup trace's ring, before the first mark (unset: one getenv, no ring).
         let startupTrace = DebugTimings.makeStartupTrace()
+        // Nightly hang reports on (this Mac's consent recorded): the 32 KiB slow-launch ring until startup_complete
+        // (p08-startup-111); otherwise nothing is allocated.
+        let slowLaunchRing = DebugTimings.makeSlowLaunchRing(optedIn: HangReportsController.recordsSlowLaunch())
+        let recorders = StartupTrace.LaunchRecorders(trace: startupTrace, ring: slowLaunchRing)
         DebugTimings.markLaunch("main_start")
         announceBenchHooksBuild()
         // First, while the process has one thread: install the delegating
@@ -93,11 +97,11 @@ public struct CmuxNextApp {
         // The main task board, shared by the lanes (an awaited low item in an input turn is a Debug site) and the budget.
         let mainBoard = MainTaskBoard()
         // The launch's file reads run on these lanes, never on the main thread (p08-startup 033).
-        let work = BackgroundWork(hangs: hangWatch, onRan: startupTrace?.laneJobSink, inputTurns: mainBoard)
+        let work = BackgroundWork(hangs: hangWatch, onRan: recorders.laneJobSink, inputTurns: mainBoard)
         // Idle and best-effort lane work waits for the reveal (Chrome's BeginBestEffortFence; p06-scheduler-204); the order made on it lowers it.
         let fence = LaunchOrder.BestEffortFence(raisingOn: work)
         startupTrace?.start(writingOn: work) // its file is written on work's files lane, never here
-        startupTrace?.whenClosed { work.stopReportingRuns() } // a closed trace costs the lanes nothing
+        recorders.whenAllStopped { work.stopReportingRuns() } // stopped recorders cost the lanes nothing
         // Shells get the launch limit back. Path lookups only: the stores at these paths read and create on first use.
         watchdog.startupStep("main.environment")
         var environment = AppEnvironment.current(openFiles: openFiles)
@@ -284,7 +288,7 @@ public struct CmuxNextApp {
         LaunchThreadCensus.post(on: order.startup) { LaunchMarkSink.shared.writeValue(name: $0, value: $1) } // Debug/bench: threads at the first frame (p08-startup-068)
         if let pictures = environment.windowPictures { order.startup.whenComplete { _ in pictures.dropFront() } } // decoded pictures are large
         let delegate = AppDelegate(environment: environment, daemonStart: daemonStart, wireStats: wireStats, features: features,
-                                   startupTrace: startupTrace, order: order, watchdog: watchdog, inputTap: inputTap, settingsRead: settingsRead,
+                                   recorders: recorders, order: order, watchdog: watchdog, inputTap: inputTap, settingsRead: settingsRead,
                                    launchReads: (work, launchImages, terminalFrames, relaunchWake))
         DebugTimings.markLaunch("main.delegate")
         // Every main run-loop turn is timed and split on the main-thread scheduler's meter (MainTurnMeter).

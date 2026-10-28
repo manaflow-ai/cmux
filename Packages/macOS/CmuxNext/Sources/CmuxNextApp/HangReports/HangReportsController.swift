@@ -73,6 +73,8 @@ final class HangReportsController {
     /// Told each decision of whether reports are on in effect (``AppCrashReporting/hangReportsDecided(_:)``: a
     /// Rust crash's black box goes only then); off at once on a build that never sends.
     private let blackboxConsent: @MainActor (Bool) -> Void
+    /// A slow launch's trace, held until reports are first turned on or off (``noteLaunchTrace(_:)``).
+    let launchTraces = LaunchTraceHandoff()
 
     private struct Asking {
         let settings: SettingsController
@@ -112,10 +114,11 @@ final class HangReportsController {
                               wireSchema: HangReport.WireSchema = .deployed,
                               features: @escaping @Sendable () -> HangReport.FeatureState? = { nil },
                               blockingSites: @escaping @Sendable () -> BlockingDetector.MainThreadRead = { .init() },
+                              sendsLaunchTrace: Bool = false,
                               blackboxConsent: @escaping @MainActor (Bool) -> Void = { _ in },
                               environment: [String: String] = ProcessInfo.processInfo.environment) -> HangReportsController {
         let devOptIn = policy.channel == .dev && environment[devOptInKey] == "1"
-        let mayReport = (policy.channel == .nightly || devOptIn) && !CrashReportingPolicy.isTestProcess(environment)
+        let mayReport = Self.mayReport(channel: policy.channel, environment: environment)
         let managed = ManagedPreferenceLocation.defaultReader(environment: environment)
         let managedDisables: @Sendable () -> Bool = {
             managed.read().forced[CrashReportingPolicy.disableTelemetryPolicyKey]?.boolValue == true
@@ -144,7 +147,7 @@ final class HangReportsController {
                 MainThreadReportLedger.Histograms(edgesNanos: MainTurnHistogram.edgesNanos, turnCounts: watchdog.turnHistogram.snapshot().counts,
                                                   inputQueueingCounts: watchdog.inputQueueHistogram.snapshot().counts)
             }, wireSchema: wireSchema, metricsDirectory: metricsDirectory, rings: rings, features: features,
-            blockingSites: blockingSites)
+            blockingSites: blockingSites, sendsLaunchTrace: sendsLaunchTrace)
         let feed = service.mainThreadLedger.map {
             MainThreadActivityFeed(ledger: $0, input: input, events: events, isActive: NSApp?.isActive ?? false)
         }
@@ -285,6 +288,7 @@ final class HangReportsController {
         if !settingOn { defaults.removeObject(forKey: Self.consentKey) }
         blackboxConsent(on)
         await service.setEnabled(on)
+        launchTraces.decide(on, collector: service.collector)
         // The catalog's Release intervals reach MetricKit only while reports are on.
         SignpostMetricKitMirror.shared.setOn(on)
         if on {

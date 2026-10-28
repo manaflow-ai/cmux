@@ -72,16 +72,17 @@ enum DebugTimings {
         launchCounters.read(atMilestone: name)
         let reading = LaunchSlices.Reading(mark: name, clock: launchClock)
         let endNanos = reading.milestone == nil ? 0 : LaunchMarks.uptimeNanos(of: date, pairedWith: processStart)
-        let (ms, trace, step) = launchMarks.withLock { state -> (Double?, StartupTrace?, LaunchSlices.Step) in
+        let (ms, step, recorders) = launchMarks.withLock { state -> (Double?, LaunchSlices.Step, StartupTrace.LaunchRecorders) in
+            let recorders = StartupTrace.LaunchRecorders(trace: state.marks.trace, ring: state.marks.ring)
             guard let ms = state.marks.record(name, at: date, processStart: processStartDate) else {
-                return (nil, state.marks.trace, LaunchSlices.Step())
+                return (nil, LaunchSlices.Step(), recorders)
             }
-            return (ms, state.marks.trace, state.slices.apply(reading, atUptimeNanos: endNanos))
+            return (ms, state.slices.apply(reading, atUptimeNanos: endNanos), recorders)
         }
         guard let ms else { return }
         step.publish(into: .shared)
         LaunchMarkSink.shared.write(name: name, ms: ms)
-        LaunchMarks.forward(name, at: date, to: trace, pairedWith: processStart)
+        LaunchMarks.forward(name, at: date, to: recorders.trace, ring: recorders.ring, pairedWith: processStart)
         #if DEBUG || CMUX_BENCH_HOOKS
         UpdateHarness.mark("launch.\(name)", at: date)
         #endif
@@ -100,6 +101,16 @@ enum DebugTimings {
         guard let trace = StartupTrace.fromEnvironment(processStartNanos: processStart.uptimeNanos) else { return nil }
         launchMarks.withLock { $0.marks.attach(trace, processStart: processStart) }
         return trace
+    }
+
+    /// The slow-launch ring of a launch whose hang reports are on (`optedIn`, p08-startup-111), attached before the
+    /// first mark (`main`); nil, with nothing allocated, otherwise.
+    nonisolated static func makeSlowLaunchRing(optedIn: Bool) -> StartupTrace.SlowLaunchRing? {
+        guard let ring = StartupTrace.SlowLaunchRing.forReports(optedIn: optedIn, processStartNanos: processStart.uptimeNanos) else {
+            return nil
+        }
+        launchMarks.withLock { $0.marks.attach(ring: ring, processStart: processStart) }
+        return ring
     }
 
     /// Marks `first_page_frame` when `view`, a page just put in a pane (an agent page or an
@@ -132,13 +143,13 @@ enum DebugTimings {
     }
 
     /// - Parameters:
-    ///   - watchdog: Sends main-thread turns over 1 ms to `startupTrace` until it closes.
-    ///   - startupTrace: The launch's startup trace (``makeStartupTrace()``), or nil.
-    static func install(watchdog: MainThreadWatchdog, startupTrace: StartupTrace?) {
-        if let startupTrace {
-            watchdog.setMainTurnSink(minimumNanos: StartupTrace.mainTurnThresholdNanos) { startupTrace.mainTurn(start: $0, end: $1) }
-            // Closed, the trace takes nothing more: the sink comes off and a main turn is one relaxed load again.
-            startupTrace.whenClosed { watchdog.setMainTurnSink(minimumNanos: 0, nil) }
+    ///   - watchdog: Sends main-thread turns over 1 ms to the launch's recorders until every one stopped.
+    ///   - recorders: The launch's startup trace (``makeStartupTrace()``) and slow-launch ring (``makeSlowLaunchRing(optedIn:)``).
+    static func install(watchdog: MainThreadWatchdog, recorders: StartupTrace.LaunchRecorders) {
+        if let sink = recorders.mainTurnSink {
+            watchdog.setMainTurnSink(minimumNanos: StartupTrace.mainTurnThresholdNanos, sink)
+            // Every recorder stopped: the sink comes off and a main turn is one relaxed load again.
+            recorders.whenAllStopped { watchdog.setMainTurnSink(minimumNanos: 0, nil) }
         }
         DaemonLaunchTimings.shared.install { markLaunch($0, at: $1) }
         AgentPaneLaunchTimings.shared.install { markLaunch($0) }

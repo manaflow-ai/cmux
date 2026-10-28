@@ -57,7 +57,8 @@ public nonisolated struct StallAggregate: Codable, Sendable, Equatable {
         threadHangs = try container.decodeIfPresent([HangSample].self, forKey: .threadHangs) ?? []
         launches = try container.decodeIfPresent(LaunchAggregate.self, forKey: .launches) ?? LaunchAggregate()
         blocking = try container.decodeIfPresent([HangSample].self, forKey: .blocking) ?? []
-        launchTrace = try container.decodeIfPresent(HangReport.LaunchTrace.self, forKey: .launchTrace)
+        // Untrusted too: kept in range, so comparing it with a later launch's trace cannot overflow.
+        launchTrace = try container.decodeIfPresent(HangReport.LaunchTrace.self, forKey: .launchTrace)?.bounded
     }
 
     /// Whether nothing was recorded.
@@ -74,10 +75,11 @@ public nonisolated struct StallAggregate: Codable, Sendable, Equatable {
         launches.record(launch)
     }
 
-    /// Keeps `trace` when no launch trace is kept yet or it is further past its budget than the kept one.
+    /// Keeps `trace`, in range (``HangReport/LaunchTrace/bounded``), when no launch trace is kept yet or it is further
+    /// past its budget than the kept one.
     public mutating func keep(launchTrace trace: HangReport.LaunchTrace) {
         guard launchTrace.map({ trace.overrunMs > $0.overrunMs }) ?? true else { return }
-        launchTrace = trace
+        launchTrace = trace.bounded
     }
 
     /// Counts a finished stall of `durationMs`.
