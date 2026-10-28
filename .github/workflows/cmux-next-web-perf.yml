@@ -155,4 +155,4 @@ jobs:
         run: |
           test "${{ steps.measure.outputs.harness_status }}" = 0 || { echo "Chromium harness failed" >&2; exit 1; }
           test -f "$RUNNER_TEMP/web-perf-report.md"
-          grep -q -- '- verdict: **pass**' "$RUNNER_TEMP/web-perf-report.md" || { echo "web perf validator failed" >&2; exit 1; }
+          grep -Fq -- '- verdict: **pass**' "$RUNNER_TEMP/web-perf-report.md" || { echo "web perf validator failed" >&2; exit 1; }
