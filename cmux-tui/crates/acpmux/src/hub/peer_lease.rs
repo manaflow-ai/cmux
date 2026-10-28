@@ -95,6 +95,7 @@ impl Hub {
         };
         let Some(peer) = peer else { return };
         peer.stop();
+        self.note_peer_removed(&peer);
         self.purge_peer_rows(&lease.name);
         tracing::info!(peer = %lease.name, "peer lease ended");
     }

@@ -1,7 +1,9 @@
 import { env } from "cloudflare:workers"
 import { describe, expect, it } from "vitest"
+import { storeVmPlan } from "../src/cloud-vm-plan.ts"
 import { storePlan } from "../src/inference/plan.ts"
 import { inDO, post, testEnv, token } from "./setup/inference-person.ts"
+import { call, mirroredTeam, teamStub } from "./team-stack-support.ts"
 
 /**
  * Cloud machines follow the team's paid plan (plans/cmux-next/paid-product-DESIGN.md): with
@@ -18,13 +20,22 @@ const person = async (subject: string, plan: string | null, entitlements = true)
   const t = await token(subject)
   const ensured = await post("/v1/ops", t, { op: "user.ensure", params: {}, idempotency_key: crypto.randomUUID(), origin: "cli" })
   const team = ensured.value.personal_team as string
-  await inDO(testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(team)), async (i) => storePlan(i.ctx.storage.sql, plan, Date.now()))
+  await inDO(testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(team)), async (i) => {
+    storePlan(i.ctx.storage.sql, plan, Date.now())
+    storeVmPlan(i.ctx.storage.sql, null, Date.now())
+  })
   await cloudStub(team).fakeControl({ entitlements: entitlements ? "on" : "off" })
   return { t, team }
 }
 const create = (t: string, size: { cpu: number; memory_mb: number; disk_mb: number }) =>
   post("/v1/ops", t, { op: "cloud.machine.create", params: { name: "paid box", size }, idempotency_key: crypto.randomUUID(), origin: "user" })
 const planGet = (t: string) => post("/v1/read", t, { op: "cloud.plan.get", params: {} })
+const SMALL = { cpu: 2, memory_mb: 4096, disk_mb: 16384 }
+/** TeamDO's plan copy changes (web billing rewrote cmuxPlan), and CloudDO's own copy (ENTITLEMENT_FRESH_MS) ages out. */
+const planChanges = async (team: string, plan: string | null) => {
+  await inDO(testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(team)), async (i) => storePlan(i.ctx.storage.sql, plan, Date.now()))
+  await cloudStub(team).fakeControl({ advance_ms: 61_000 })
+}
 
 describe("Cloud plan entitlements", { timeout: 60_000 }, () => {
   it("a Pro team creates a 4 vCPU / 8 GB machine and cloud.plan.get names pro and its limits", async () => {
@@ -83,5 +94,47 @@ describe("Cloud plan entitlements", { timeout: 60_000 }, () => {
     expect((await planGet(x.t)).value).toMatchObject({ plan_id: "pro" })
     const r = await create(x.t, { cpu: 4, memory_mb: 8192, disk_mb: 32768 })
     expect(r.ok, JSON.stringify(r)).toBe(true)
+  })
+
+  it("Founders gets Pro's limits", async () => {
+    const x = await person("cloud-ent-founders", "founders")
+    expect((await planGet(x.t)).value).toMatchObject({ plan_id: "founders", upgrade_plan: "max", limits: { max_active: 5, max_saved: 20, memory_options_mb: [4096, 8192, 16384] } })
+    expect((await create(x.t, { cpu: 8, memory_mb: 16384, disk_mb: 65536 })).ok).toBe(true)
+  })
+
+  it("a lapsed plan is dropped at the next read, unlike an outage", async () => {
+    const x = await person("cloud-ent-lapse", "pro")
+    expect((await create(x.t, SMALL)).ok).toBe(true)
+    await planChanges(x.team, null)
+    const r = await create(x.t, SMALL)
+    expect(r.error?.code ?? r.code).toBe("cloud.plan.required")
+    expect(r.error?.details).toMatchObject({ plan: "pro" })
+    expect((await planGet(x.t)).value).toMatchObject({ plan_id: "none", usage: { active: 1 } })
+  })
+
+  it("a downgrade below the machines a team runs keeps them and refuses one more, naming the plan that lifts it", async () => {
+    const x = await person("cloud-ent-downgrade", "pro")
+    for (let i = 0; i < 2; i++) expect((await create(x.t, SMALL)).ok).toBe(true)
+    await planChanges(x.team, "go")
+    expect((await planGet(x.t)).value).toMatchObject({ plan_id: "go", limits: { max_active: 1 }, usage: { active: 2 } })
+    const r = await create(x.t, SMALL)
+    expect(r.error?.code ?? r.code).toBe("cloud.quota.exceeded")
+    expect(r.error?.details).toMatchObject({ plan: "pro", limit: 1, used: 2 })
+    const list = await post("/v1/read", x.t, { op: "cloud.machine.list", params: {} })
+    expect(list.value.machines).toHaveLength(2)
+  })
+
+  it("a shared team uses the team's Team plan, not a member's personal plan", async () => {
+    const t = await mirroredTeam("Cloud Paid Co")
+    await cloudStub(t.team).fakeControl({ entitlements: "on" })
+    const teamPlanGet = async () => (await call(t.token, "/v1/read", { op: "cloud.plan.get", params: {} }, t.team)).body
+    // The member's personal plan does not reach the shared team.
+    const ensured = (await call(t.token, "/v1/ops", { op: "user.ensure", params: {}, idempotency_key: crypto.randomUUID(), origin: "cli" })).body
+    await inDO(testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(ensured.value.personal_team)), async (i) => storePlan(i.ctx.storage.sql, "max", Date.now()))
+    await inDO(teamStub(t.team), async (i) => storeVmPlan(i.ctx.storage.sql, null, Date.now()))
+    expect((await teamPlanGet()).value).toMatchObject({ plan_id: "none" })
+    await inDO(teamStub(t.team), async (i) => storePlan(i.ctx.storage.sql, "team", Date.now()))
+    await cloudStub(t.team).fakeControl({ advance_ms: 61_000 })
+    expect((await teamPlanGet()).value).toMatchObject({ plan_id: "team", upgrade_plan: null, limits: { max_active: 5 } })
   })
 })

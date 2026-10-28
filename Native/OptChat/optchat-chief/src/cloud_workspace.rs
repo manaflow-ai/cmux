@@ -27,7 +27,7 @@ use std::time::{Duration, Instant};
 use serde_json::{Value, json};
 
 /// The sizes `cmux cloud new-machine --size` takes.
-pub const SIZES: [&str; 4] = ["small", "medium", "large", "xlarge"];
+pub use chief_kernel::tools::SIZES;
 
 /// How long a name whose create answered `pending` stays "being made" for
 /// an app that does not list its creates: past the app's own retries of a

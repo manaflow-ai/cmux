@@ -29,14 +29,11 @@
       "refresh-test-compilation-cache": {
         "Clear stale git locks (self-hosted reused workspace)": {"plumbing": true},
         "Prepare admission build paths": {"plumbing": true}, "Select Xcode": {"plumbing": true},
-        "Compute test compilation cache key": {"plumbing": true},
-        "Restore test compilation cache": {"plumbing": true, "note": "local action: restores or saves a cache with actions/cache, WarpBuilds/cache or R2 and reports a receipt; no product check. Re-review this entry if the action gains a check"},
+        "Compute the DerivedData seed fingerprint": {"plumbing": true},
         "Install compilation dependencies": {"plumbing": true},
         "Cache Swift packages": {"plumbing": true, "note": "local action: restores or saves a cache with actions/cache, WarpBuilds/cache or R2 and reports a receipt; no product check. Re-review this entry if the action gains a check"},
         "Sanitize Swift package cache": {"plumbing": true}, "Resolve Swift packages": {"plumbing": true},
-        "Record DerivedData seed inputs": {"plumbing": true}, "Refresh test compilation cache": {"plumbing": true},
-        "Bound test compilation cache size": {"plumbing": true},
-        "Save test compilation cache": {"plumbing": true, "note": "local action: restores or saves a cache with actions/cache, WarpBuilds/cache or R2 and reports a receipt; no product check. Re-review this entry if the action gains a check"},
+        "Record DerivedData seed inputs": {"plumbing": true}, "Build the app-host test product": {"plumbing": true},
         "Collect resolved Swift packages": {"plumbing": true},
         "Save Swift packages": {"plumbing": true, "note": "local action: restores or saves a cache with actions/cache, WarpBuilds/cache or R2 and reports a receipt; no product check. Re-review this entry if the action gains a check"},
         "Bound DerivedData seed size": {"plumbing": true}, "Scope DerivedData seed key": {"plumbing": true},
@@ -203,7 +200,7 @@
         "Apple's checks of the stapled app": {"nightly_only": "Apple's tools on a notarized release build; only a release run has one"},
         "The signed-app checks": {"nightly_only": "the checks build-sign-notarize-nightly runs on its signed app, on the release-pool build"},
         "Build the unsigned DMG": {"nightly_only": "packages the notarized release-pool app with create-dmg, as notarize-nightly-dmg.sh does"}},
-      "signer-dmg": {"Install the signer": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the release signer scripts"}, "Sign, notarize and staple the DMG": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the release signer scripts"}, "Write the appcast": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the release signer scripts"}},
+      "signer-dmg": {"Install the signer": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the release signer scripts"}, "Sign, notarize and staple the DMG": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the release signer scripts"}, "Write the appcast": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the release signer scripts"}, "Start packaging the stapled app for the verify job": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the release signer scripts"}, "Finish packaging the stapled app for the verify job": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the release signer scripts"}},
       "find-nightly-next-recovery": {
         "Wait through GitHub API rate limits in this job's gh calls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly publish-path gh calls wait through a rate limit"},
 
@@ -288,7 +285,8 @@
         "Pick the Blacksmith macOS label with a moving queue": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly signing jobs take a Blacksmith label with a moving queue"},
         "Mint the owned-pool routing token": {"nightly_only": "mints a glaeda-route GitHub App token from GLAEDA_ROUTE_APP_KEY, only on nightly-next push attempt 1; its guard is checked by tests/test_nightly_sign_runner.py"},
         "Mint the routing token without the org permission": {"nightly_only": "mints the glaeda-route GitHub App token with repository administration read only, when the org-permission mint failed on a nightly-next push"},
-        "Pick a free owned Mac for the verify jobs": {"nightly_only": "reads the live owned pool with the routing token through e2e_runner_pool.py --requested auto on nightly-next push attempt 1; its guard and continue-on-error are checked by tests/test_nightly_sign_runner.py, and the picker's tests (test_ci_e2e_runner_pool_auto.py) run only in ci-guards' ci group, which a feat-cmux-next pull request skips"}},
+        "Pick an owned Mac for the verify jobs": {"nightly_only": "reads the live owned pool with the routing token through nightly_build_runner.py verify on nightly-next push and dispatch runs with owned pools on; its guard and continue-on-error are checked by tests/test_nightly_sign_runner.py"},
+        "Write the owned-pool watch marker": {"nightly_only": "writes the owned-pool rescue's watch marker only when a nightly-next dispatch or re-run picked an owned Mac for the verify jobs; its guard is checked by tests/test_nightly_sign_runner.py"}},
       "legacy-identity-target": {
         "Mint the release App token for this job's gh calls": {"nightly_only": "mints release GitHub App token"},
         "Send this job's gh calls as the release App, github.token as the fallback": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly publish jobs send gh calls as the release App first"},

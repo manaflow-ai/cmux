@@ -130,6 +130,8 @@ import PackageDescription
 //     path bar, Quick Look, drag in and out)
 //   CmuxNextCrashReporting -> CmuxSentryReporting, Sentry (crash and exception reports to Sentry:
 //     consent, channel environment, release, scrubbing; no UI, no daemon; cx-urd.58)
+//   CmuxNextTestSupport -> system frameworks only (helpers test targets share, under Tests/; no
+//     product links it)
 //   CmuxNextSessionTransfer -> Design, Settings (Move Sessions from Another cmux Build: the
 //     transferable session and peer values, the picker and the toast text; no AppKit, no daemon;
 //     the App's SessionTransferService discovers peers and moves sessions; cx-yxmkh)
@@ -240,6 +242,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextSignposts",
                 "CmuxNextErrorJournal",
                 "CmuxNextDiff",
+                "CmuxNextDictation",
                 "CmuxNextHome",
                 "CmuxNextHomeEngine",
                 "CmuxNextHostPressure",
@@ -1557,7 +1560,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextBrowserTests",
-            dependencies: ["CmuxNextBrowser", "CmuxNextCompat", "CmuxNextDesign", "CmuxNextRemoteFetch", "CmuxNextWakeups"],
+            dependencies: ["CmuxNextBrowser", "CmuxNextCompat", "CmuxNextDesign", "CmuxNextRemoteFetch", "CmuxNextTestSupport", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         // The WebKit driver for the Rust browser host (plans/cmux-next/browser-host.md).
@@ -1646,6 +1649,13 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextTestExitTrace",
             path: "Tests/Support/CmuxNextTestExitTrace"
         ),
+        // Helpers test targets share, linked into no product: FrameBudgetCalibration, which
+        // scales a main-thread frame budget to the runner a suite runs on.
+        .target(
+            name: "CmuxNextTestSupport",
+            path: "Tests/CmuxNextTestSupport",
+            swiftSettings: uiSwiftSettings
+        ),
         .testTarget(
             name: "CmuxNextAppTests",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
@@ -1711,6 +1721,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextTasks",
                 "CmuxNextTerminalGeometry",
                 "CmuxNextTestExitTrace",
+                "CmuxNextTestSupport",
                 "CmuxNextUpdater",
                 "CmuxNextVSCodeServer",
                 "CmuxNextWakeups",
