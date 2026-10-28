@@ -179,11 +179,12 @@ export function ScrollMap({
   const seek = (y: number, smooth: boolean) => {
     const node = scroller.current;
     if (!node) return;
-    const to = physicalScrollTop(node, scrollTopAt(y, height, layout.totalHeight, node.clientHeight));
+    const to = scrollTopAt(y, height, layout.totalHeight, node.clientHeight);
+    const target = () => physicalScrollTop(node, to);
     if (!smooth || reducedMotion()) {
       stopScroll(node);
-      node.scrollTop = to;
-    } else animateScroll(node, () => to, jumpDuration(to - node.scrollTop), JUMP_CURVE);
+      node.scrollTop = target();
+    } else animateScroll(node, target, jumpDuration(target() - node.scrollTop), JUMP_CURVE);
   };
   const point = (y: number) => {
     const at = keyOf(marks[markAt(marks, y) ?? -1]);

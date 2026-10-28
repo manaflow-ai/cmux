@@ -41,7 +41,11 @@ await requireBrowserLane("transcript-upward-anchor.test.ts", async () => {
 
   test("cold 3k-turn upward wheels preserve the visible row's position", async () => {
     const { port } = vite!.httpServer!.address() as { port: number };
-    const page = await browser!.newPage({ viewport: { width: 900, height: 700 } });
+    const captureDir = process.env.CMUX_SCROLL_CAPTURE_DIR;
+    const page = await browser!.newPage({
+      viewport: { width: 900, height: 700 },
+      ...(captureDir ? { recordVideo: { dir: captureDir, size: { width: 900, height: 700 } } } : {}),
+    });
     try {
       await installPaintedFrames(page);
       await page.goto(`http://127.0.0.1:${port}/test/browser/transcript-fling.html`);
@@ -71,6 +75,12 @@ await requireBrowserLane("transcript-upward-anchor.test.ts", async () => {
       expect(result.maxDrift).toBeLessThanOrEqual(1 / 64);
     } finally {
       await page.close();
+      const video = page.video();
+      if (captureDir && video) {
+        const data = Buffer.from(await Bun.file(await video.path()).arrayBuffer()).toString("base64");
+        for (let at = 0; at < data.length; at += 4096)
+          console.log(`ANCHOR_VIDEO=${JSON.stringify({ engine: engineName, at, data: data.slice(at, at + 4096) })}`);
+      }
     }
   });
 });

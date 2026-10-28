@@ -30,6 +30,7 @@ for engine in webkit chromium; do
       "$label" "$engine" "$(git -C "$source_dir" rev-parse HEAD)" "$(git -C "$source_dir" rev-parse HEAD^{tree})"
     status=0
     (cd "$source_dir/webviews" && CMUX_BROWSER_TESTS=1 CMUX_SCROLL_ENGINE="$engine" \
+      CMUX_SCROLL_CAPTURE_DIR="$base_dir/videos-$label-$engine" \
       bun test test/transcript-upward-anchor.test.ts) > "$log" 2>&1 || status=$?
     cat "$log"
     python3 - "$log" "$label" "$engine" <<'PY'
