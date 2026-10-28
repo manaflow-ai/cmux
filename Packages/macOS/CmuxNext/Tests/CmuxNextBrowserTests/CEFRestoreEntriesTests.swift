@@ -84,6 +84,22 @@ private nonisolated enum EntriesSpy {
         return String(decoding: UnsafeRawBufferPointer(start: pointer, count: length), as: UTF8.self)
     }
 
+    /// Reads `count` `cmux_shim_restore_entry` records (six machine words each) at `entries`.
+    static func record(_ entries: UnsafeRawPointer?, count: Int, current: Int32) -> Int32 {
+        guard let entries else { return 0 }
+        let stride = MemoryLayout<Int>.stride
+        var urls: [String] = [], titles: [String] = []
+        for index in 0..<count {
+            let base = entries.advanced(by: index * 6 * stride)
+            let url = base.load(fromByteOffset: 0, as: Int.self), urlLength = base.load(fromByteOffset: stride, as: Int.self)
+            let title = base.load(fromByteOffset: 2 * stride, as: Int.self), titleLength = base.load(fromByteOffset: 3 * stride, as: Int.self)
+            urls.append(text(UnsafePointer(bitPattern: url), urlLength))
+            titles.append(text(UnsafePointer(bitPattern: title), titleLength))
+        }
+        restored.append(Restore(urls: urls, titles: titles, current: current))
+        return 1
+    }
+
     static func library() throws -> CEFShimLibrary {
         let version: @convention(c) () -> Int32 = { 31 }
         let supported: @convention(c) () -> Int32 = { 1 }
@@ -93,15 +109,7 @@ private nonisolated enum EntriesSpy {
         }
         // cmux_shim_restore_entry: url, url_length, title, title_length, page_state, page_state_length.
         let restore: @convention(c) (Int32, UnsafeRawPointer?, Int32, Int32) -> Int32 = { _, entries, count, current in
-            var urls: [String] = [], titles: [String] = []
-            for index in 0..<Int(count) {
-                let base = entries!.advanced(by: index * 6 * MemoryLayout<Int>.stride)
-                let word = { (field: Int) in base.load(fromByteOffset: field * MemoryLayout<Int>.stride, as: Int.self) }
-                urls.append(text(UnsafePointer(bitPattern: word(0)), word(1)))
-                titles.append(text(UnsafePointer(bitPattern: word(2)), word(3)))
-            }
-            EntriesSpy.restored.append(Restore(urls: urls, titles: titles, current: current))
-            return 1
+            EntriesSpy.record(entries, count: Int(count), current: current)
         }
         let load: @convention(c) (Int32, UnsafePointer<CChar>?) -> Void = { _, url in EntriesSpy.loads.append(url.map { String(cString: $0) } ?? "") }
         let nothing: @convention(c) () -> Int = { 0 }
