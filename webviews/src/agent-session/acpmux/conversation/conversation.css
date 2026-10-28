@@ -4031,7 +4031,6 @@ article.acpmux-row:empty {
 .cv-user__inline-file {
   display: inline-flex;
   align-items: center;
-  gap: var(--acpmux-file-chip-gap, 6px);
   max-width: min(340px, 72vw);
   min-height: var(--cv-line-height);
   margin: 2px 4px;
@@ -4041,5 +4040,6 @@ article.acpmux-row:empty {
   background: var(--agent-control);
   vertical-align: middle;
 }
+.cv-user__inline-file > * + * { margin-inline-start: var(--cv-meta-gap); }
 .cv-user__inline-file-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cv-user__inline-file-note { color: var(--agent-muted); font-size: var(--text-caption); }
