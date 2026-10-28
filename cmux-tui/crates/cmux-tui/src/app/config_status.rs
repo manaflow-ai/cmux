@@ -129,7 +129,9 @@ impl App {
             let events = self.app_events.clone();
             let worker_stop = stop.clone();
             // supervise-allow: owned by App.status_command_workers and stopped with them; a panic ends that one segment's refresh only.
-            match std::thread::Builder::new().name(format!("status-segment-{index}")).spawn(
+            match cmux_threads::spawn(
+                format!("status-segment-{index}"),
+                cmux_threads::ThreadQos::Utility,
                 move || {
                     run_status_segment_loop(StatusSegmentWorker {
                         index,

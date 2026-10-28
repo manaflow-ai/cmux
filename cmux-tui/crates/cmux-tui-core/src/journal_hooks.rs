@@ -1180,7 +1180,7 @@ fn execute_hook_child_portable(
     let (write_result_sender, write_result_receiver) = mpsc::sync_channel(1);
     let writer = match supervised::spawn_at(
         "journal-hook-stdin",
-        cmux_threads::ThreadQos::Utility,
+        cmux_threads::caller_qos(cmux_threads::ThreadQos::Utility),
         Fatal,
         ShutdownBehavior::Continue,
         move || {

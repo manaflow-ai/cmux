@@ -78,8 +78,9 @@ impl Surface {
         let pty = self.as_pty().expect("test reader requires a PTY surface");
         pty.reader_completion.reset();
         let completion = pty.reader_completion.clone();
-        let reader = supervised::spawn(
+        let reader = supervised::spawn_at(
             "test-terminal-reader",
+            cmux_threads::ThreadQos::Utility,
             Fatal,
             ShutdownBehavior::Continue,
             move || {
