@@ -1585,48 +1585,59 @@ impl Brain {
         let Some(record) = self.state.spawns.get(spawn) else {
             return;
         };
-        let Some(conversation) = record
-            .conversation
-            .clone()
-            .or_else(|| self.state.conversation.clone())
-        else {
-            return;
-        };
-        let mut run = match &record.turn {
-            Some(turn) => json!({"id": turn}),
-            None => json!({"id": format!("reports:{spawn}"), "status": "done",
-                "started_at": record.started_ms, "answers": record.answers}),
-        };
-        if record.turn.is_none()
-            && let Some((root, _)) = self.reply_thread(&conversation, &record.answers)
-        {
-            run["thread_root"] = json!(root);
-        }
-        let steps = record
+        let reports: Vec<_> = record
             .subs
             .iter()
-            .filter(|s| s.status == SubStatus::Done)
-            .flat_map(|s| {
-                crate::run::report_notes(
-                    &s.id,
-                    s.session_id.as_deref().unwrap_or(""),
-                    s.run_ms,
-                    s.floor,
-                    s.report.as_deref().unwrap_or(""),
-                )
+            .filter(|sub| sub.status == SubStatus::Done)
+            .filter_map(|sub| {
+                let (conversation, turn) = match &sub.report_run {
+                    Some((conversation, turn)) => (conversation.clone(), Some(turn.clone())),
+                    None => (
+                        record
+                            .conversation
+                            .clone()
+                            .or_else(|| self.state.conversation.clone())?,
+                        record.turn.clone(),
+                    ),
+                };
+                let answers = if sub.answers.is_empty() {
+                    &record.answers
+                } else {
+                    &sub.answers
+                };
+                let mut run = match &turn {
+                    Some(turn) => json!({"id": turn}),
+                    None => json!({"id": format!("reports:{spawn}"), "status": "done",
+                        "started_at": record.started_ms, "answers": answers}),
+                };
+                if turn.is_none()
+                    && let Some((root, _)) = self.reply_thread(&conversation, answers)
+                {
+                    run["thread_root"] = json!(root);
+                }
+                let steps = crate::run::report_notes(
+                    &sub.id,
+                    sub.session_id.as_deref().unwrap_or(""),
+                    sub.run_ms,
+                    sub.floor,
+                    sub.report.as_deref().unwrap_or(""),
+                );
+                Some((conversation, run, steps))
             })
             .collect();
         let Some(daemon) = self.daemon.as_mut() else {
             return;
         };
-        for steps in crate::run::chunks(steps) {
-            if let Err(e) = daemon.run_append(&conversation, run.clone(), steps)
-                && !self.run_failed
-            {
-                self.run_failed = true;
-                (self.log)(&format!(
-                    "appending an agent report failed: {e}; later failures are not logged"
-                ));
+        for (conversation, run, steps) in reports {
+            for steps in crate::run::chunks(steps) {
+                if let Err(e) = daemon.run_append(&conversation, run.clone(), steps)
+                    && !self.run_failed
+                {
+                    self.run_failed = true;
+                    (self.log)(&format!(
+                        "appending an agent report failed: {e}; later failures are not logged"
+                    ));
+                }
             }
         }
     }
@@ -1718,11 +1729,11 @@ impl Brain {
             .as_ref()
             .map(|t| t.answers.clone())
             .unwrap_or_default();
-        if !told_for.is_empty()
-            && let Some(sub) = self.state.sub_mut(id)
-        {
-            sub.answers = told_for;
-        }
+        let report_run = self.state.turn.as_ref().and_then(|turn| {
+            turn.conversation
+                .clone()
+                .map(|conversation| (conversation, turn.key.clone()))
+        });
         if let Some(key) = key
             && let Some(sub) = self.state.sub_mut(id)
         {
@@ -1733,7 +1744,7 @@ impl Brain {
                 .saturating_sub(crate::state::TELL_KEYS_KEPT);
             sub.tell_keys.drain(..over);
         }
-        if hold {
+        let answer = if hold {
             let (status, paused, waiting) = {
                 let sub = self.state.sub_mut(id).expect("checked above");
                 sub.inbox.push(crate::state::InboxMessage {
@@ -1754,12 +1765,22 @@ impl Brain {
             } else {
                 "it is starting; it gets it the moment its session exists".to_owned()
             };
-            return Ok(format!(
+            Ok(format!(
                 "outcome: queued. Queued for delivery to {id} ({waiting} waiting): {why}. You get a note when it is delivered."
-            ));
+            ))
+        } else {
+            self.tell_mode(id, message, queue)
+                .map(|answer| format!("outcome: done. {answer}"))
+        };
+        if answer.is_ok()
+            && !told_for.is_empty()
+            && let Some(sub) = self.state.sub_mut(id)
+        {
+            sub.answers = told_for;
+            sub.report_run = report_run;
+            self.save();
         }
-        self.tell_mode(id, message, queue)
-            .map(|answer| format!("outcome: done. {answer}"))
+        answer
     }
 
     /// `peers` for subagent `caller`: the subagents at work (starting,

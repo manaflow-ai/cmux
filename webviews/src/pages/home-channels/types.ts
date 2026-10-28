@@ -572,7 +572,7 @@ export interface HomeRunChange {
   steps: HomeRunStep[];
 }
 
-/** `cmux.home.runs`: the newest runs of a conversation, or the runs of these reply keys. */
+/** `cmux.home.runs`: runs of these reply keys, or a page of newest runs before `beforeStartedAt`. */
 export interface HomeRunList {
   runs: HomeRun[];
   hasMore: boolean;

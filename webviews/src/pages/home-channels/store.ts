@@ -1043,9 +1043,9 @@ export class HomeChannelsStore {
     return next;
   }
 
-  /** Reads the runs of these messages' replies (agent messages carry their run's key) and, with
-   * `newest`, the conversation's newest runs (live work that has no reply yet). A host without
-   * runs answers nothing: the page shows no run cards. */
+  /** Reads the runs of these messages' replies (agent messages carry their run's key), then pages
+   * run history far enough to include silent runs attached to the messages in this window. A host
+   * without runs answers nothing: the page shows no run cards. */
   private async loadRuns(conversation: string, messages: readonly HomeMessage[], newest: boolean): Promise<void> {
     if (!this.client) return;
     const agents = new Set(
@@ -1057,12 +1057,55 @@ export class HomeChannelsStore {
     try {
       const reads: Promise<HomeRunList>[] = [];
       if (turns.length > 0) reads.push(this.client.call<HomeRunList>(HomeOps.runs, { conversation, turns }));
-      if (newest) reads.push(this.client.call<HomeRunList>(HomeOps.runs, { conversation, limit: 20 }));
+      // `turns` only finds runs that posted a reply. Silent turns (including a tell/report turn)
+      // are selected by their `answers` message id, so walk the owner's run-history cursor until
+      // the oldest message in this window is covered. The owner returns newest-first pages and
+      // accepts `before_started_at`; this also makes loadOlder recover runs beyond the first 20.
+      const messageIds = new Set(messages.map((message) => message.id));
+      const oldestMessageAt = messages.reduce<number | undefined>(
+        (oldest, message) => (oldest === undefined ? message.createdAt : Math.min(oldest, message.createdAt)),
+        undefined,
+      );
+      const history: HomeRun[] = [];
+      let beforeStartedAt: number | undefined;
+      let page = 0;
+      for (;;) {
+        const params: Record<string, unknown> = { conversation, limit: newest && page === 0 ? 20 : 50 };
+        page += 1;
+        if (beforeStartedAt !== undefined) params.beforeStartedAt = beforeStartedAt;
+        const list = await this.client.call<HomeRunList>(HomeOps.runs, params);
+        history.push(...list.runs);
+        const oldestRun = list.runs.reduce<number | undefined>(
+          (oldest, run) => (oldest === undefined ? run.startedAt : Math.min(oldest, run.startedAt)),
+          undefined,
+        );
+        if (!list.hasMore || oldestRun === undefined || (oldestMessageAt !== undefined && oldestRun <= oldestMessageAt))
+          break;
+        // The protocol uses a strict less-than cursor; guard malformed owners that do not move it.
+        if (beforeStartedAt !== undefined && oldestRun >= beforeStartedAt) break;
+        beforeStartedAt = oldestRun;
+      }
       const lists = await Promise.all(reads);
-      const runs = lists.flatMap((list) => list.runs);
-      this.runs.setRuns(runs);
-      // Message rows also survive completed and silent turns, including after a reload.
-      for (const run of runs) void this.loadRunSteps(run);
+      const direct = lists.flatMap((list) => list.runs);
+      const byKey = new Map<string, HomeRun>();
+      for (const run of [...direct, ...history]) byKey.set(`${run.author}\0${run.id}`, run);
+      const runs = [...byKey.values()];
+      // Message rows also survive completed and silent turns, including after a reload. Avoid
+      // fetching every historical run's tool log: only runs answering a loaded question, direct
+      // reply runs, or still-running work can contribute a row to this window.
+      const directKeys = new Set(direct.map((run) => `${run.author}\0${run.id}`));
+      const newestHistory = new Set(history.slice(0, newest ? 20 : 0).map((run) => `${run.author}\0${run.id}`));
+      const relevantRuns = runs.filter((run) => {
+        const relevant =
+          run.status === "running" ||
+          run.answers.some((answer) => messageIds.has(answer)) ||
+          (run.turn !== undefined && turns.includes(run.turn)) ||
+          directKeys.has(`${run.author}\0${run.id}`) ||
+          newestHistory.has(`${run.author}\0${run.id}`);
+        return relevant;
+      });
+      this.runs.setRuns(relevantRuns);
+      for (const run of relevantRuns) void this.loadRunSteps(run);
     } catch {
       // Runs are display only; a host or owner without them shows plain messages.
     }

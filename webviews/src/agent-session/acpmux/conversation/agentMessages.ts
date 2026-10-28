@@ -251,6 +251,13 @@ function receiptWords(text: string, message?: Pick<AgentMessage, "text" | "to">)
 
 /// A send's printed words, read for how far it got.
 function deliveryWords(text: string): Delivery {
+  // Chief's tell tool returns a plain-text outcome rather than JSON. Refusals are
+  // successful tool calls at the transport layer, so the generic empty-output
+  // fallback would otherwise label a cancelled or deleted agent as Sent.
+  const outcome = /^\s*outcome\s*:\s*(queued|done|noop|refused)\b/i.exec(text)?.[1]?.toLowerCase();
+  if (outcome === "refused") return "failed";
+  if (outcome === "queued") return "queued";
+  if (outcome === "done" || outcome === "noop") return "sent";
   if (/^\s*(?:error|failed|failure)\b/im.test(text)) return "failed";
   // "could not be delivered", "wasn't delivered", "failed to deliver", "undeliverable".
   if (
@@ -277,13 +284,13 @@ export function notDeliveredReason(tool: Pick<Tool, "output">): NotDelivered {
     [result.error, result.message, result.reason, result.result].find((part) => typeof part === "string") ?? output;
   const text = String(said);
   if (
-    /\bno (?:such |agent |session )?(?:agent|session|teammate|recipient)\b|\bno_session\b|\b(?:agent|session|recipient|teammate)\b[^.\n]{0,40}\bnot found\b|\bunknown (?:agent|session|recipient|teammate)\b/i.test(
+    /\bno (?:such |agent |session )?(?:agent|session|teammate|recipient)\b|\bno_session\b|\b(?:agent|session|recipient|teammate)\b[^.\n]{0,40}\bnot found\b|\bunknown (?:agent|session|recipient|teammate)\b|\b(?:cloud )?vm\b[^.\n]{0,40}\bdeleted\b/i.test(
       text,
     )
   )
     return "noAgent";
   if (
-    /\b(?:stopped|won['’]t be resumed|not running|no longer running|has exited|exited|was killed|has ended|terminated)\b/i.test(
+    /\b(?:stopped|cancelled|canceled|won['’]t be resumed|not running|no longer running|has exited|exited|was killed|has ended|terminated)\b/i.test(
       text,
     )
   )

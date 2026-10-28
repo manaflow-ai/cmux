@@ -128,7 +128,15 @@ test("a folded Chief run keeps outgoing messages and incoming reports visible", 
       },
     })),
   ];
-  await render(container, <RunCard entry={{ run: { ...run, stepCount: steps.length } as never, steps: steps as never, complete: true }} strings={strings} onOpen={() => {}} onLoad={() => {}} />);
+  await render(
+    container,
+    <RunCard
+      entry={{ run: { ...run, stepCount: steps.length } as never, steps: steps as never, complete: true }}
+      strings={strings}
+      onOpen={() => {}}
+      onLoad={() => {}}
+    />,
+  );
   expect(container.querySelector(".lg-run-toggle")?.getAttribute("aria-expanded")).toBe("false");
   expect(container.querySelectorAll(".cv-agentmsg").length).toBe(2);
   expect(container.textContent).toContain("Verified the result.");
@@ -181,7 +189,6 @@ test("a completed silent Chief run exposes messages beside its question after lo
   book.noteMessages([{ conversation: "c1", author: "chief", clientMessageId: "t1" } as never]);
   expect(book.liveFor(question)).toHaveLength(0);
 });
-
 
 test("a newer run summary invalidates loaded steps so missed reports can be restored", async () => {
   const { RunBook } = await import("../src/pages/home-channels/runs");

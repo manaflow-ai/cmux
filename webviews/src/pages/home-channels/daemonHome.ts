@@ -821,7 +821,11 @@ export class DaemonHomeClient implements PageClient {
         );
         const request: Json = { conversation: id };
         if (turns.length > 0) request.turns = turns.slice(0, 200);
-        else request.limit = Math.min(bounded(params.limit, 50), 200);
+        else {
+          request.limit = Math.min(bounded(params.limit, 50), 200);
+          if (typeof params.beforeStartedAt === "number" && Number.isFinite(params.beforeStartedAt))
+            request.before_started_at = Math.max(0, Math.floor(params.beforeStartedAt));
+        }
         const found = await this.read("conversation-runs", id, request);
         return {
           runs: ((found.runs as Json[] | undefined) ?? []).map(run),
@@ -1069,16 +1073,34 @@ export class DaemonHomeClient implements PageClient {
       .map((participant) => participant.id)
       .slice(0, 8);
     const limit = Math.min(bounded(params.limit, 20), 100);
+    const beforeStartedAt =
+      typeof params.beforeStartedAt === "number" && Number.isFinite(params.beforeStartedAt)
+        ? Math.max(0, Math.floor(params.beforeStartedAt))
+        : undefined;
     const lists = await Promise.all(
       agents.map((agent) =>
         this.cloud
-          .read("cloud-conversation-runs", { conversation: id, agent, limit })
-          .then((found) => ((found.runs as Json[] | undefined) ?? []).map(run))
-          .catch(() => [] as HomeRun[]),
+          .read("cloud-conversation-runs", {
+            conversation: id,
+            agent,
+            limit,
+            ...(beforeStartedAt === undefined ? {} : { before_started_at: beforeStartedAt }),
+          })
+          .then((found) => ({
+            runs: ((found.runs as Json[] | undefined) ?? []).map(run),
+            hasMore: found.has_more === true,
+          }))
+          .catch(() => ({ runs: [] as HomeRun[], hasMore: false })),
       ),
     );
-    const runs = lists.flat().sort((a, b) => b.startedAt - a.startedAt);
-    return { runs, hasMore: false };
+    const merged = lists.flatMap((list) => list.runs).sort((a, b) => b.startedAt - a.startedAt);
+    // Each agent is paged independently. Merge one global page for the Home client and preserve
+    // either upstream cursor as `hasMore`; the next `before_started_at` request advances every
+    // agent together, so no owner is treated as complete early.
+    return {
+      runs: merged.slice(0, limit),
+      hasMore: lists.some((list) => list.hasMore) || merged.length > limit,
+    };
   }
 
   /** A channel of the local user and known local participants (the Chief when none is named);

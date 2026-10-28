@@ -212,3 +212,78 @@ fn an_inbound_report_is_a_note_on_its_originating_run_after_that_turn_ends() {
         );
     }
 }
+
+#[test]
+fn a_followup_report_stays_with_the_new_assignment_in_another_conversation() {
+    let mut h = Harness::new(report_script());
+    h.connect();
+    h.say("user_local", "Please coordinate the original work.");
+    h.settle();
+    delivered_report(&mut h);
+    h.settle();
+    let old_notes = h.owner.lock().unwrap().run_steps.len();
+    let session = sub_session(&h).expect("the existing agent");
+    let prompts = h.agents.inner.lock().unwrap().prompts.len();
+    h.agents.hold(true);
+    h.add_side("conv_followup", "user_followup");
+    let question = h.post_side("conv_followup", "user_followup", "Now check the follow-up.");
+    h.wake(&[("conv_followup", question.seq)]);
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while h.agents.inner.lock().unwrap().prompts.len() == prompts {
+        assert!(
+            Instant::now() < deadline,
+            "the follow-up Chief turn did not start"
+        );
+        h.step();
+    }
+    let saved = optchat_chief::state::StateFile::new(&h.dir.path().join("host.json"))
+        .attach(h.chat.clone())
+        .load();
+    let turn = saved.turn.expect("the held Chief turn").key;
+    let (tx, rx) = std::sync::mpsc::channel();
+    h.brain.step(Input::Tell {
+        id: "a1".into(),
+        message: "SHOW-TASK follow-up report".into(),
+        key: None,
+        queue: false,
+        reply: tx,
+    });
+    assert!(
+        rx.recv_timeout(Duration::from_secs(2))
+            .unwrap()
+            .unwrap()
+            .starts_with("outcome: done")
+    );
+    h.agents.hold(false);
+    h.agents.release();
+    h.settle();
+    h.brain
+        .step(Input::from(AgentEvent::SessionChanged(idle(&session))));
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        let found = h
+            .owner
+            .lock()
+            .unwrap()
+            .run_steps
+            .iter()
+            .skip(old_notes)
+            .any(|(conversation, run, steps)| {
+                conversation == "conv_followup"
+                    && run["id"] == turn
+                    && steps.iter().any(|step| {
+                        step["kind"] == "note" && step["text"] == format!("[a1] {REPORT}")
+                    })
+            });
+        if found {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the report did not follow its new assignment"
+        );
+        if let Ok(input) = h.rx.recv_timeout(Duration::from_millis(20)) {
+            h.brain.step(input);
+        }
+    }
+}

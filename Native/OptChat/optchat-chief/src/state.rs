@@ -421,6 +421,10 @@ pub struct SubRecord {
     /// Empty: the spawn's own (`SpawnRecord::answers`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub answers: Vec<String>,
+    /// The (conversation, run) that last assigned this agent work with `tell`.
+    /// None keeps the original spawn's route for older saved records.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub report_run: Option<(String, String)>,
     /// When its session last changed (ms since the epoch): stuck detection.
     #[serde(default, skip_serializing_if = "is_zero_u64")]
     pub active_ms: u64,
