@@ -3907,7 +3907,7 @@ function resumeUntilRunning(
     if (!resume) return;
     if (vm.billingPlanId === "go") {
       const usage = yield* Effect.tryPromise({ try: () => getGoVmUsage(vm.userId), catch: (cause) => new VmBillingError({ operation: "go_runtime", cause }) });
-      if (usage && usage.remainingSeconds <= 0) return yield* Effect.fail(new VmUsageLimitExceededError({ includedHours: 40, usedHours: 40 }));
+      if (usage && usage.remainingSeconds <= 0) return yield* Effect.fail(new VmUsageLimitExceededError({ includedHours: GO_INCLUDED_VM_HOURS, usedHours: GO_INCLUDED_VM_HOURS }));
       yield* setRuntimeBudget(providers, vm, providerVmId, usage?.remainingSeconds ?? null);
     } else {
       yield* requirePlanBudget(vm.billingPlanId, vm.userId, null);

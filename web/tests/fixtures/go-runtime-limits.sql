@@ -36,7 +36,7 @@ BEGIN
     rejected := constraint_seen='cmux_go_saved_limit';
   END;
   IF NOT rejected THEN RAISE EXCEPTION 'saved cap failed'; END IF;
-  UPDATE cloud_vm_runtime_intervals SET started_at=now()-interval '81 hours', ended_at=now() WHERE vm_id=first_id;
+  UPDATE cloud_vm_runtime_intervals SET started_at=now()-interval '41 hours', ended_at=now() WHERE vm_id IN (first_id, second_id);
   UPDATE cloud_vms SET status='destroyed', destroyed_at=now() WHERE id=first_id;
   rejected := false;
   BEGIN
@@ -49,7 +49,7 @@ BEGIN
   UPDATE stripe_subscriptions SET current_period_end=now()+interval '1 month', raw=jsonb_build_object('current_period_start',extract(epoch from now())) WHERE id=u;
   UPDATE cloud_vms SET status='running' WHERE id=second_id;
   IF (SELECT status FROM cloud_vms WHERE id=second_id) <> 'running' THEN RAISE EXCEPTION 'renewal did not restore access'; END IF;
-  RAISE NOTICE 'PASS: runtime transitions, cross-team cap, saved cap, deleted VM accounting, renewal';
+  RAISE NOTICE 'PASS: runtime transitions, cross-team cap, saved cap, shared hours, deleted VM accounting, renewal';
 END;
 $$;
 

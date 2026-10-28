@@ -92,7 +92,7 @@ import {
   measureVmAsync,
   VmTimingRecorder,
 } from "../../../services/vms/timings";
-import { getGoVmUsage, GO_SAVED_VM_LIMIT } from "../../../services/vms/goUsage";
+import { getGoVmUsage, GO_INCLUDED_VM_HOURS, GO_SAVED_VM_LIMIT } from "../../../services/vms/goUsage";
 import { getPlanBudgetUsage, isBudgetPlanId, type PlanBudgetUsage } from "../../../services/vms/planUsage";
 import { publishVmOps, vmSyncReplaceOp } from "../../../services/vms/presencePublisher";
 
@@ -260,7 +260,7 @@ export async function GET(request: Request): Promise<Response> {
           planId: listEntitlements.planId,
           freeAccessWindowDays,
           ...(listEntitlements.planId === "go" ? {
-            vmHoursIncluded: 40,
+            vmHoursIncluded: GO_INCLUDED_VM_HOURS,
             vmHoursUsed: await getGoVmUsage(user.id)
               .then((usage) => usage ? Math.round(usage.usedSeconds / 360) / 10 : null)
               .catch(() => null),
