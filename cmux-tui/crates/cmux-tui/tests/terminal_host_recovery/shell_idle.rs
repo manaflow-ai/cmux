@@ -173,3 +173,23 @@ fn shell_idle_a_program_execed_in_the_shells_place_is_not_idle() {
     assert!(wait_for_screen(&harness.socket, surface, "execd> ").contains("execd> "));
     assert_not_idle(&harness, Duration::from_millis(500), "an exec'd shell");
 }
+
+#[test]
+fn shell_idle_a_renderer_grant_ends_idle_for_good() {
+    let _exclusive = exclusive_process_test();
+    let Some((harness, surface)) = start_bash("shell-idle-grant") else { return };
+    // A renderer grant's holder writes Input and Paste frames to the
+    // terminal host directly, unseen by the daemon (a remote viewer).
+    let mint = serde_json::json!({
+        "id": 3, "cmd": "mint-terminal-renderer", "surface": surface, "ttl_ms": 10_000
+    });
+    let grant = request(&harness.socket, mint);
+    assert!(grant["token"].is_string(), "the terminal is hosted: {grant}");
+    assert_not_idle(&harness, Duration::from_millis(500), "a renderer grant");
+    // A new prompt does not make it idle again: the grant's input stays
+    // unseen.
+    // `ag''ain` keeps the marker out of the echoed command line.
+    type_text(&harness, surface, "echo ag''ain\r");
+    assert!(wait_for_screen(&harness.socket, surface, "again").contains("again"));
+    assert_not_idle(&harness, Duration::from_millis(500), "a renderer grant, a later prompt");
+}

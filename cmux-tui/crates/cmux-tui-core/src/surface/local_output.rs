@@ -176,13 +176,19 @@ impl LocalOutput {
             let cursor_activity = term
                 .cursor_activity()
                 .expect("INVARIANT: valid local terminals expose cursor activity");
+            // Read before the parse confirms these bytes: whether they may
+            // be the holder ring's replay to a restarted daemon.
+            #[cfg(unix)]
+            let replayed = self.parsed_sink.as_ref().is_some_and(|sink| sink.replaying());
+            #[cfg(not(unix))]
+            let replayed = false;
             let normalized =
                 crate::prompt_mode_reset::write_output(&mut term, output, &mut self.shell_marks);
             #[cfg(unix)]
             if let Some(sink) = self.parsed_sink.as_ref() {
                 sink.confirm_parsed();
             }
-            terminal_notifications = pty.observe_terminal_output(output);
+            terminal_notifications = pty.observe_terminal_output_replayed(output, replayed);
             finished_commands = pty.observe_shell_marks(&mut term, || {
                 mux.upgrade().is_some_and(|mux| mux.terminal_command_history_enabled())
             });

@@ -78,6 +78,18 @@ impl Surface {
         pty.terminal_metadata.lock().recover_poison().activity.record_foreground(epoch, holds);
     }
 
+    /// Notes that input may reach this terminal's PTY without the daemon
+    /// seeing it (`ShellActivity::note_unseen_input`): a renderer grant, or
+    /// a terminal host adopted from another daemon. Its shell never reads
+    /// idle again. Publishes the change when idle was published.
+    pub(crate) fn note_unseen_shell_input(&self) {
+        let Some(pty) = self.as_pty() else { return };
+        let publish = pty.terminal_metadata.lock().recover_poison().activity.note_unseen_input();
+        if publish {
+            self.post_pending_publications();
+        }
+    }
+
     /// When the terminal last printed anything: `extra.last_output`
     /// (`terminal-activity-v1`).
     pub(crate) fn terminal_last_output(&self) -> Option<u64> {
@@ -330,13 +342,17 @@ impl PtyTerminalRuntime {
 
 /// Whether the terminal's PTY child `pid` (or the shell login(1) started for
 /// it) holds the PTY's foreground and still runs `command`'s program, the one
-/// the daemon spawned: not a job it started (ssh, a nested shell) and not a
-/// program `exec`ed in its place. False when unknown: no pid, a failed lookup,
+/// the daemon spawned, and that program is an interactive shell: not a job it
+/// started (ssh, a nested shell), not a program `exec`ed in its place, and not
+/// a terminal that runs ssh itself. False when unknown: no pid, a failed lookup,
 /// and Windows, where a console has no foreground process group.
 fn own_program_holds_foreground(pid: Option<u32>, command: &[String]) -> bool {
     #[cfg(unix)]
     {
         let (Some(pid), Some(spawned)) = (pid, command.first()) else { return false };
+        if !crate::terminal_activity::spawned_shell(command) {
+            return false;
+        }
         platform::foreground_own_program(pid)
             .is_some_and(|running| crate::terminal_activity::same_program(&running, spawned))
     }

@@ -340,6 +340,7 @@ impl HolderService {
         // output replays and the holder's EXIT records its real status.
         let Some(custody) = entry.master else { return Ok(None) };
         let sink = HolderSink::new(entry.oldest);
+        sink.replay_until(entry.end);
         if entry.oldest > 0 {
             // The ring's first byte may be inside an escape sequence or a
             // UTF-8 character the ring dropped the start of.

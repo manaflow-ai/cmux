@@ -59,6 +59,9 @@ struct SinkState {
     /// dead holder's segment, and where if it starts a fresh ring instead:
     /// its ADOPTED answer says which ([`HolderSink::expect_adoption`]).
     adoption: Option<AdoptionCuts>,
+    /// Offset after the last byte a restarted daemon's re-attach replays
+    /// from the holder's ring ([`HolderSink::replay_until`]); 0 for none.
+    replay_end: u64,
 }
 
 /// The possible losses of one adoption sent to a holder that answers it
@@ -278,6 +281,20 @@ impl HolderSink {
     pub(crate) fn has_ended(&self) -> bool {
         let state = self.state.lock().recover_poison();
         state.exit.is_some() || state.lost
+    }
+
+    /// The bytes up to `end` replay output a shell printed before this daemon
+    /// re-attached it: their prompt marks are old, and the input the last
+    /// daemon wrote after them is unknown (`terminal_activity` `shell_idle`).
+    pub(crate) fn replay_until(&self, end: u64) {
+        self.state.lock().recover_poison().replay_end = end;
+    }
+
+    /// Whether the parser has not finished parsing the replay
+    /// ([`Self::replay_until`]): the next bytes it parses may be replayed.
+    pub(crate) fn replaying(&self) -> bool {
+        let state = self.state.lock().recover_poison();
+        state.confirmed < state.replay_end
     }
 
     /// The parser finished parsing every byte the reader took. The reader

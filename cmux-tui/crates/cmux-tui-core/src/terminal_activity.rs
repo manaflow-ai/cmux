@@ -40,9 +40,13 @@
 //! it) and still runs the spawned program (an `exec` of another program
 //! fails it), checked after the last prompt mark (`A` or `B`), and (2) no
 //! input was written to the terminal since the last `A`. Anything unknown
-//! counts as not idle: no check yet, a check that failed, input the daemon
-//! did not see (a terminal adopted from another daemon, until its next `A`),
-//! and Windows, where a console has no foreground process group.
+//! counts as not idle: no check yet, a check that failed, a terminal whose
+//! spawned program is not an interactive shell (`cmux run ssh host`), input
+//! the daemon did not see (a terminal adopted from another daemon: from the
+//! PTY holder until its first `A` after the replayed ring; for good once a
+//! renderer grant was minted for it or its terminal host was adopted, since
+//! a grant's holder writes to the host directly), and Windows, where a
+//! console has no foreground process group.
 //!
 //! The check reads the process table (`/proc`, proc_pidinfo), so the output
 //! thread's parse never runs it: a mark asks for it, and the terminal's publication
@@ -143,6 +147,11 @@ pub(crate) struct ShellActivity {
     /// Counts marks and inputs, so a foreground check that raced one of them
     /// is dropped ([`Self::record_foreground`]).
     epoch: u64,
+    /// Input may reach the PTY without this daemon seeing it: a renderer
+    /// grant (its holder writes Input and Paste frames to the terminal host
+    /// directly), or a host adopted from another daemon, whose grants and
+    /// their connections this daemon cannot know. For the terminal's life.
+    unseen_input: bool,
     /// When the terminal last printed anything.
     last_output_ms: Option<u64>,
     published: (Option<u64>, bool, Option<u64>, Option<u64>),
@@ -228,6 +237,24 @@ impl ShellActivity {
         self.published.3.is_some()
     }
 
+    /// Notes output a restarted daemon replays from the holder's ring: its
+    /// prompt marks are old, and the input the last daemon wrote after them
+    /// is unknown, so the shell is not idle until a prompt after the replay.
+    pub(crate) fn note_replayed_output(&mut self) {
+        self.epoch = self.epoch.wrapping_add(1);
+        self.input_after_prompt = true;
+    }
+
+    /// Notes that input may reach the PTY without this daemon seeing it
+    /// (see `unseen_input`): the shell is never idle again. Returns true
+    /// when the published facts still say idle, so the caller asks for a
+    /// publication.
+    pub(crate) fn note_unseen_input(&mut self) -> bool {
+        self.epoch = self.epoch.wrapping_add(1);
+        self.unseen_input = true;
+        self.published.3.is_some()
+    }
+
     /// The epoch to hand [`Self::record_foreground`] when the shell sits at a
     /// prompt with no input since and its foreground was not checked since
     /// the last mark; `None` when no check would change the facts.
@@ -235,6 +262,7 @@ impl ShellActivity {
         (self.busy_since_ms.is_none()
             && self.prompt_since_ms.is_some()
             && !self.input_after_prompt
+            && !self.unseen_input
             && self.shell_foreground.is_none())
         .then_some(self.epoch)
     }
@@ -264,6 +292,7 @@ impl ShellActivity {
     pub(crate) fn idle_since(&self) -> Option<u64> {
         if self.busy_since_ms.is_some()
             || self.input_after_prompt
+            || self.unseen_input
             || self.shell_foreground != Some(true)
         {
             return None;
@@ -314,6 +343,7 @@ impl ShellActivity {
         self.last_output_ms = previous.last_output_ms;
         self.published_output_ms = previous.published_output_ms;
         self.input_after_prompt = previous.input_after_prompt;
+        self.unseen_input = previous.unseen_input;
     }
 
     /// The published facts: command, prompt and idle shell.
@@ -367,6 +397,26 @@ pub(crate) fn same_program(running: &str, spawned: &str) -> bool {
     }
     let first_word = running.split_whitespace().next().unwrap_or_default();
     file_name(running) == spawned || file_name(first_word) == spawned
+}
+
+/// Whether `command`, the argv the daemon spawned for a terminal, is an
+/// interactive shell: a known shell with no command of its own (`-c`,
+/// `--command`). Only a shell's prompt can be idle: a terminal that runs ssh
+/// or `docker exec` itself shows the remote shell's prompt marks while its
+/// own program holds the foreground, and `bash -c 'a; b'` runs its commands
+/// in its own process group.
+#[cfg_attr(not(unix), allow(dead_code))]
+pub(crate) fn spawned_shell(command: &[String]) -> bool {
+    const SHELLS: &[&str] =
+        &["bash", "zsh", "fish", "sh", "dash", "ksh", "mksh", "tcsh", "csh", "nu", "elvish"];
+    let Some((program, arguments)) = command.split_first() else { return false };
+    let name = program.rsplit('/').next().unwrap_or(program).trim_start_matches('-');
+    SHELLS.contains(&name)
+        && !arguments.iter().any(|argument| {
+            let short_command =
+                argument.starts_with('-') && !argument.starts_with("--") && argument.contains('c');
+            short_command || argument == "--command" || argument == "--execute"
+        })
 }
 
 /// The `activity` field of a terminal record.
@@ -535,6 +585,55 @@ mod tests {
         assert_eq!(activity.idle_since(), None);
         assert!(activity.take_change(), "the publication drops the idle fact");
         assert_eq!(activity.foreground_check_epoch(), None, "nothing to check while not idle");
+    }
+
+    #[test]
+    fn shell_idle_unseen_input_ends_idle_for_good() {
+        let mut activity = idle_at(1_000);
+        assert!(activity.take_change());
+        assert!(activity.note_unseen_input(), "published idle: asks for a publication");
+        assert_eq!(activity.idle_since(), None);
+        activity.observe(ShellMark::PromptStart, 2_000);
+        assert_eq!(activity.foreground_check_due(), None, "no new prompt makes it idle again");
+        assert_eq!(activity.idle_since(), None);
+        // A reconnect inside this daemon keeps it.
+        let mut reconnected = ShellActivity::default();
+        reconnected.restore(activity.snapshot());
+        reconnected.keep_output_of(&activity);
+        reconnected.observe(ShellMark::PromptStart, 3_000);
+        assert_eq!(reconnected.foreground_check_due(), None);
+    }
+
+    #[test]
+    fn shell_idle_a_replayed_prompt_is_not_idle_until_a_new_one() {
+        let mut activity = ShellActivity::default();
+        // A ring replay ends at an old prompt; input after it is unknown.
+        activity.observe(ShellMark::PromptStart, 1_000);
+        activity.note_replayed_output();
+        assert_eq!(activity.prompt_since(), Some(1_000));
+        assert_eq!(activity.foreground_check_due(), None);
+        assert_eq!(activity.idle_since(), None);
+        // The shell's next prompt, after the replay.
+        activity.observe(ShellMark::PromptStart, 2_000);
+        let epoch = activity.foreground_check_due().expect("a live prompt asks for a check");
+        activity.record_foreground(epoch, true);
+        assert!(activity.idle_since().is_some());
+    }
+
+    #[test]
+    fn shell_idle_spawned_shell_is_an_interactive_shell_only() {
+        assert!(spawned_shell(&["/bin/zsh".into()]));
+        assert!(spawned_shell(&["-bash".into()]));
+        assert!(spawned_shell(&["bash".into(), "--posix".into()]), "the integrated bash");
+        let rcfile = ["/bin/bash", "--noprofile", "--rcfile", "/tmp/rc", "-i"];
+        assert!(spawned_shell(&rcfile.map(String::from)));
+        assert!(!spawned_shell(&["ssh".into(), "host".into()]), "a terminal that runs ssh");
+        let docker = ["docker", "exec", "-it", "c", "bash"];
+        assert!(!spawned_shell(&docker.map(String::from)));
+        assert!(!spawned_shell(&["bash".into(), "-c".into(), "a; b".into()]));
+        assert!(!spawned_shell(&["bash".into(), "-lc".into(), "a".into()]));
+        assert!(!spawned_shell(&["fish".into(), "--command".into(), "a".into()]));
+        assert!(!spawned_shell(&[]));
     }
 
     #[test]
