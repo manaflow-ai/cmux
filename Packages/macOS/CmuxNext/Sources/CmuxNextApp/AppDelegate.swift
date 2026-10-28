@@ -189,11 +189,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if services.features.isEnabled(.vsyncHub) { FrameScheduler.appDisplays.hub = VSyncHub() }
         // The settle references, one closure each, before the daemon starts and the windows restore
         // (Chrome's StartupObserver, after_startup_task_utils.cc). A hidden launch (no window on
-        // screen) reveals at once and is interrupted: its first frame records no launch sample.
+        // screen) reveals at once. Interruptions are classified from here (p08-startup-108): no launch sample.
         let startup = mainWork.startup
         let presentation: StartupPhase.Presentation = NSApp.isHidden ? .hidden : .window
         startup.noteLaunch(presentation)
-        if presentation != .window { DebugTimings.markLaunch(LaunchSlices.interruptedMark) }  // before the first window
+        let interruptions = DebugTimings.watchLaunchInterruptions(hidden: presentation == .hidden, crashRecovery: services.crashRecovery, startup: order.startup)
         services.daemon.store.whenFirstSnapshotApplied { startup.markDone(.firstSnapshot) }
         // The restore and visible-page references are the pane refs' (`VisiblePaneRefs.finishRestore`).
         startupReferences.watchUnavailable { [daemon = services.daemon] in daemon.startup.isUnavailable }
@@ -251,7 +251,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         StatusIndicatorAppearance.shared.observe(on: services.mainWork, appEvents: services.appEvents,
                                                  workspaceEvents: services.workspaceEvents)
         services.windows.onPresent = { [weak services] controller in
-            DebugTimings.markLaunch("first_window_presented")  // launch.first_window ends here (once per process)
+            DebugTimings.firstWindowPresented(controller.window, watch: interruptions)  // launch.first_window ends here
             services?.crashRecovery.showRestartNotice(on: controller.window)
         }
         DebugTimings.markLaunch("dfl.daemon_cloud_updater")

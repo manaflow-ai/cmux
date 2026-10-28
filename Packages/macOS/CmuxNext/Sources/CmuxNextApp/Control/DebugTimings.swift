@@ -92,6 +92,38 @@ enum DebugTimings {
         if let derived = LaunchMarks.derivedMark(of: name) { markLaunch(derived, at: date) }
     }
 
+    /// Starts classifying this launch's interruptions (p08-startup-108; Chrome's `WasMainWindowStartupInterrupted`):
+    /// the launch's own causes are marked now, in `applicationDidFinishLaunching` before the first window, then each
+    /// cmux dialog and the first window's minimize or cover until startup completes. An interrupted launch's first
+    /// frame records no histogram sample (`LaunchSlices`), and the benches leave it out of their percentiles.
+    ///
+    /// - Parameters:
+    ///   - hidden: The launch is hidden (`NSApp.isHidden`).
+    ///   - crashRecovery: Whether this is the bundle's first launch and whether the restart notice shows.
+    ///   - startup: The launch's startup scheduler; its completion ends the watch.
+    /// - Returns: The watch; the caller keeps it and hands it the first window (``firstWindowPresented(_:watch:)``).
+    static func watchLaunchInterruptions(hidden: Bool, crashRecovery: CrashRecoveryService,
+                                         startup: StartupScheduler) -> LaunchInterruptionWatch {
+        let behind = StartupInterruptionClassifier.Launch.firstWindowBehind(noActivate: WindowPlacement.noActivate,
+                                                                             testScreen: WindowPlacement.testScreen != nil)
+        let launch = StartupInterruptionClassifier.Launch(hidden: hidden, firstWindowBehind: behind,
+                                                          firstLaunch: crashRecovery.isFirstLaunch,
+                                                          recoveryNotice: crashRecovery.recovery.isRestart)
+        return LaunchInterruptionWatch(launch: launch, startup: startup, dialogs: .shared) { markLaunch($0) }
+    }
+
+    /// Whether something interrupted this launch so far (``LaunchSlices/interrupted``, set by the watch's first
+    /// `launch.interrupted` mark): the `interrupted` flag of its hang-report launch record (`LaunchAggregate.Record`,
+    /// read at startup completion by task 115). The causes are launch marks, listed with the others.
+    nonisolated static var launchInterrupted: Bool { launchMarks.withLock { $0.slices.interrupted } }
+
+    /// Marks `first_window_presented` (launch.first_window ends here, once per process) and has `watch` follow that
+    /// window for a minimize or a cover before startup completes.
+    static func firstWindowPresented(_ window: NSWindow?, watch: LaunchInterruptionWatch) {
+        markLaunch("first_window_presented")
+        watch.watchFirstWindow(window)
+    }
+
     /// The launch marks so far (`debug.startup`).
     nonisolated static var launchMarksNow: LaunchMarks { launchMarks.withLock { $0.marks } }
 

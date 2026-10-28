@@ -108,6 +108,14 @@ They are not times: no table row, gap or --order term. Task 007 can also send
 the temperature as the instant mark `launch.temperature.<name>`; it reads the
 same. Each run's line and the summary print them when the build sends them.
 
+Interrupted launches (task 108, Chrome's `WasMainWindowStartupInterrupted`): the app
+sends `launch.interrupted` with one instant mark per cause, `launch.interrupted.<cause>`
+(StartupInterruption: hidden, presentedBehind, minimized, occluded, daemonPrompt,
+settingConfirmation, dialog, recoveryNotice, firstLaunch). Such a run is listed with its
+causes and left out of every percentile, --budget median and result-v1 sample (there it is
+a missing run). --no-activate launches without the test screen, so the first window goes
+behind the other apps: every run reads interrupted (presentedBehind).
+
 --tag finds the tag's newest bundle in DerivedData's Build/Products/Debug or
 Build/Products/Release (where `reload.sh --config release|bench|bench-checks`
 puts it). --require-optimized refuses (exit 2), before any launch, a build that
@@ -303,6 +311,8 @@ PAGEINS_RUN_LOOP = "launch.pageins_run_loop_start"
 PAGEINS = "launch.pageins_first_frame"
 MAIN_CPU = "launch.main_cpu_ms"
 INTERRUPTED = "launch.interrupted"
+# Task 108 sends each cause as an instant time mark, `launch.interrupted.<cause> <ms>` (StartupInterruption.markPrefix).
+INTERRUPTED_INSTANT = INTERRUPTED + "."
 # p08-startup-064: the sidebar row views built before startup_complete, and the rows its clip showed then.
 SIDEBAR_ROWS_BUILT = "launch.sidebar_rows_built"
 SIDEBAR_ROWS_VISIBLE = "launch.sidebar_rows_visible"
@@ -409,9 +419,21 @@ def completion_summary(runs):
 
 
 def interrupted(run):
-    """startup-queue.py's rule: present and not false or null; a mark at 0 ms counts."""
+    """startup-queue.py's rule: present and not false or null; a mark at 0 ms counts. A cause mark alone counts too."""
     value = run.get(INTERRUPTED)
-    return value is not None and value is not False
+    return (value is not None and value is not False) or bool(interruption_causes(run))
+
+
+def interruption_causes(run):
+    """The causes task 108 sent (`launch.interrupted.<cause>`), in the order they came."""
+    causes = [(value, name[len(INTERRUPTED_INSTANT):]) for name, value in run.items()
+              if name.startswith(INTERRUPTED_INSTANT)]
+    return [cause for _, cause in sorted(causes, key=lambda item: item[0] if is_number(item[0]) else float("inf"))]
+
+
+def measured(runs):
+    """The runs whose numbers are a launch's: the interrupted ones left out (Chrome's ShouldLogStartupHistogram)."""
+    return [run for run in runs if not interrupted(run)]
 
 
 # Apps given with --app, by tag; other tags are DerivedData builds, each resolved once into TAGGED (tagged_app).
@@ -538,7 +560,8 @@ def launch_environment(scratch, marks_fd, extra_env=None):
         "HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
         "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
         "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
-        "CMUX_NEXT_TEST_WINDOW_SCREEN": "last",
+        # --no-activate: no test screen, so the window goes behind the other apps (an interrupted launch, task 108).
+        **({} if BACKGROUND_LAUNCH else {"CMUX_NEXT_TEST_WINDOW_SCREEN": "last"}),
         "CMUX_NEXT_CONFIG_FILE": os.path.join(scratch, "cmux.json"),
         "CMUX_NEXT_LAUNCH_MARKS_FD": str(marks_fd),
         **({"CMUX_NEXT_HANG_THRESHOLD_MS": str(HANG_THRESHOLD_MS)} if HANG_THRESHOLD_MS else {}),
@@ -597,6 +620,8 @@ SEED_FOCUS = "agent"
 SEED_CHAT_PANE = "last"
 # --hangs: main-thread stalls over this many ms are recorded with stacks (debug.hangs).
 HANG_THRESHOLD_MS = None
+# --no-activate: each launch without the test screen, its first window behind the other apps (task 108).
+BACKGROUND_LAUNCH = False
 # --corpus: the corpus launch story (launch_restore.Story) whose saved session every launch restores.
 CORPUS = None
 # --startup-complete: each launch also waits (within --timeout) for `startup_complete` and its reason.
@@ -1110,7 +1135,8 @@ def run_values(marks):
     if reason is not None:
         shown.append(f"startup complete {reason}")
     if interrupted(marks):
-        shown.append("interrupted")
+        causes = interruption_causes(marks)
+        shown.append("interrupted" + (f" ({', '.join(causes)})" if causes else ""))
     return shown
 
 
@@ -1136,7 +1162,8 @@ def value_summary(runs, temperature=None):
     """Summary lines for the value marks: the temperature of each run (against --temperature), page-in and main
     CPU spreads, and the interrupted runs by number. None when no run sent one and no temperature was asked."""
     if not runs or (temperature is None and not any(
-            mark in VALUE_MARKS or mark.startswith((TEMPERATURE_INSTANT, COMPLETION_INSTANT)) for run in runs for mark in run)):
+            mark in VALUE_MARKS or mark.startswith((TEMPERATURE_INSTANT, COMPLETION_INSTANT, INTERRUPTED_INSTANT))
+            for run in runs for mark in run)):
         return []
     total = len(runs)
     read = [name for name in map(run_temperature, runs) if name is not None]
@@ -1166,8 +1193,10 @@ def value_summary(runs, temperature=None):
     lines += action_catalog_summary(runs)
     lines.append(completion_summary(runs))
     stopped = [str(index + 1) for index, run in enumerate(runs) if interrupted(run)]
-    lines.append(f"  {INTERRUPTED}: " + (f"runs {', '.join(stopped)} ({len(stopped)} of {total})" if stopped
-                                         else f"none of {total} runs"))
+    causes = sorted({cause for run in runs for cause in interruption_causes(run)})
+    detail = f"; {', '.join(causes)}" if causes else ""
+    lines.append(f"  {INTERRUPTED}: " + (f"runs {', '.join(stopped)} ({len(stopped)} of {total}, left out of the "
+                                         f"percentiles{detail})" if stopped else f"none of {total} runs"))
     return lines
 
 
@@ -1263,14 +1292,15 @@ def checkpoint_mismatches(runs):
 def result_series(mode, runs, profile, root="launch"):
     """`(metric, unit, samples)` of one tag's runs in one mode, as result-v1 names them (`<root>.<mode>.<mark>`; a
     corpus launch story's root is `corpus.<id>`). A cold run that the build classified otherwise is no cold sample:
-    <root>.cold.not_cold_runs counts it. A corpus story also counts the runs that restored another state."""
+    <root>.cold.not_cold_runs counts it. An interrupted run is no sample either: it is a missing run. A corpus story also counts the runs that restored another state."""
     series = []
     if mode == "cold":
         kept = [run for run in runs if not classified_not_cold(run)]
         series.append((f"{root}.cold.not_cold_runs", "count", [len(runs) - len(kept)]))
         runs = kept
+    # An interrupted run is no sample (task 108): it counts in each mark's missing_runs.
     for mark in result_marks(profile):
-        values = [value for value in (result_value(run, mark) for run in runs) if value is not None]
+        values = [value for value in (result_value(run, mark) for run in measured(runs)) if value is not None]
         if values:
             series.append((f"{root}.{mode}.{mark}", "ms", values))
         series.append((f"{root}.{mode}.{mark}.missing_runs", "count", [len(runs) - len(values)]))
@@ -1468,6 +1498,9 @@ def parse_args(argv):
                         help="after the first content, keep each launch until startup_complete (within --timeout) "
                              "and print its reason per run and as counts, the failsafe ones counted, and "
                              "launch.views_built (sent just before it)")
+    parser.add_argument("--no-activate", action="store_true",
+                        help="launch without the test screen: the first window goes behind the other apps, so every "
+                             "run is an interrupted launch (task 108), listed and left out of the percentiles")
     parser.add_argument("--hangs", type=int, metavar="MS",
                         help="record main-thread stalls over MS during each launch (debug.hangs) and print the worst")
     parser.add_argument("--purge", action="store_true",
@@ -1500,6 +1533,8 @@ def parse_args(argv):
     if args.temperature == "cold" and [mode for mode in args.mode or ["cold", "warm"] if mode != "cold"]:
         parser.error("--temperature cold needs --mode cold only: a true cold launch has no daemon and an empty "
                      "file cache")
+    if args.no_activate and args.out:
+        parser.error("--no-activate launches are interrupted (task 108): they write no result-v1 sample, give no --out")
     if args.after_reboot:
         if [mode for mode in args.mode or ["cold"] if mode != "cold"]:
             parser.error("--after-reboot is one --mode cold launch: only the first launch since the boot is cold")
@@ -1544,8 +1579,9 @@ def write_results(recorder, results):
 def main():
     args = parse_args(sys.argv[1:])
     require_gui_session("bench-startup")
-    global HANG_THRESHOLD_MS, SEED_FOCUS, SEED_CHAT_PANE, WAIT_STARTUP_COMPLETE, WAIT_MILESTONES, CORPUS
+    global HANG_THRESHOLD_MS, SEED_FOCUS, SEED_CHAT_PANE, WAIT_STARTUP_COMPLETE, WAIT_MILESTONES, CORPUS, BACKGROUND_LAUNCH
     HANG_THRESHOLD_MS = args.hangs
+    BACKGROUND_LAUNCH = args.no_activate
     if args.corpus:
         CORPUS = load_corpus(args.corpus)  # before any launch: a manifest that is no launch story stops here
     orders = args.order + (LAUNCH_ORDER if args.budget else [])
@@ -1605,11 +1641,14 @@ def main():
             runs = results[tag][mode]
             cold = " (purged)" if mode == "cold" and args.purge_cold else (
                 " (after reboot)" if args.after_reboot else "")
-            print(f"\n{tag} {mode}{cold} {args.profile or 'kept'} profile ({len(runs)} runs), ms since process start")
+            kept = measured(runs)
+            left_out = f", {len(runs) - len(kept)} interrupted left out" if len(kept) < len(runs) else ""
+            print(f"\n{tag} {mode}{cold} {args.profile or 'kept'} profile ({len(runs)} runs{left_out}), "
+                  "ms since process start")
             print(f"  {'phase':<46} {spread_header()} {'gap':>8}  n")
-            for label, mark, values, gap, count in table(runs):
+            for label, mark, values, gap, count in table(kept):
                 print(f"  {label:<46} {spread_cells(values)} {gap:>+8.0f}  {count}")
-            span = main_span_summary(runs)
+            span = main_span_summary(kept)
             if span:
                 print(span)
             for line in value_summary(runs, args.temperature):
@@ -1679,12 +1718,17 @@ def capture_checkpoint(results):
 
 
 def check_budgets(results, budgets):
-    """Every `MARK=MS` whose median is over MS (or missing) in some tag and mode."""
+    """Every `MARK=MS` whose median is over MS (or missing) in some tag and mode, over the runs that were not
+    interrupted (task 108); a tag and mode whose every run was interrupted has nothing to judge, and says so."""
     over = []
     for budget in budgets:
         mark, _, limit = budget.partition("=")
         for tag, modes in results.items():
-            for mode, runs in modes.items():
+            for mode, all_runs in modes.items():
+                runs = measured(all_runs)
+                if all_runs and not runs:
+                    over.append(f"{tag} {mode}: {mark}: all {len(all_runs)} runs interrupted, nothing to judge")
+                    continue
                 values = [run[mark] for run in runs if is_number(run.get(mark))]
                 if len(values) < len(runs):
                     over.append(f"{tag} {mode}: {mark} missing in {len(runs) - len(values)} of {len(runs)} runs")

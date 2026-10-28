@@ -164,7 +164,7 @@ class ValueSummaryTests(unittest.TestCase):
                         lines[2])
         self.assertIn("n 9", lines[2])
         self.assertIn("main cpu", " ".join(bs.run_values(runs[0])))
-        self.assertEqual(lines[-1], "  launch.interrupted: runs 10 (1 of 10)")
+        self.assertEqual(lines[-1], "  launch.interrupted: runs 10 (1 of 10, left out of the percentiles)")
 
     def test_an_asked_temperature_with_no_marks_says_so(self):
         lines = bs.value_summary([{"main_start": 1}] * 3, "cold")
@@ -930,6 +930,80 @@ class StoryCommandTests(unittest.TestCase):
                     self.assertTrue(args.purge_cold or args.after_reboot)
                     self.assertEqual("privilege:purge" in story["needs"], args.purge_cold)
                     self.assertEqual(story["tier"], "T2" if args.after_reboot else "T1")
+
+
+class InterruptedRunTests(unittest.TestCase):
+    """Task 108: an interrupted launch (Chrome's WasMainWindowStartupInterrupted) is listed with its causes and left
+    out of every percentile, budget median and result-v1 sample."""
+
+    SWIFT = HERE.parent.parent / "Packages/macOS/CmuxNext/Sources/CmuxNextLaunch/StartupInterruption.swift"
+
+    @staticmethod
+    def run_at(first_frame, *causes):
+        run = {"first_window_frame_committed": first_frame, "main_start": 5.0}
+        for index, cause in enumerate(causes):
+            run[bs.INTERRUPTED_INSTANT + cause] = 10.0 + index
+        if causes:
+            run[bs.INTERRUPTED] = 10.0
+        return run
+
+    def test_causes_read_in_the_order_they_came_and_a_cause_alone_interrupts(self):
+        run = {bs.INTERRUPTED_INSTANT + "occluded": 900.0, bs.INTERRUPTED_INSTANT + "presentedBehind": 80.0,
+               bs.INTERRUPTED: 80.0}
+        self.assertEqual(bs.interruption_causes(run), ["presentedBehind", "occluded"])
+        self.assertTrue(bs.interrupted({bs.INTERRUPTED_INSTANT + "dialog": 300.0}))
+        self.assertFalse(bs.interrupted({"first_window_frame_committed": 150.0}))
+        self.assertEqual(bs.run_values(run)[-1], "interrupted (presentedBehind, occluded)")
+
+    def test_cause_marks_are_never_a_table_row(self):
+        rows = bs.table([self.run_at(150.0, "hidden")] * 3)
+        self.assertEqual([row[1] for row in rows], ["main_start", "first_window_frame_committed"])
+
+    def test_the_percentiles_leave_interrupted_runs_out(self):
+        runs = [self.run_at(150.0 + i) for i in range(4)] + [self.run_at(9000.0, "presentedBehind")]
+        kept = bs.measured(runs)
+        self.assertEqual(len(kept), 4)
+        frame = {row[1]: row[2] for row in bs.table(kept)}["first_window_frame_committed"]
+        self.assertEqual(frame["max"], 153.0, "the interrupted run's 9 s first frame is no sample")
+        line = bs.value_summary(runs)[-1]
+        self.assertEqual(line, "  launch.interrupted: runs 5 (1 of 5, left out of the percentiles; presentedBehind)")
+
+    def test_an_interrupted_run_is_a_missing_result_sample(self):
+        runs = [self.run_at(140.0), self.run_at(142.0), self.run_at(5000.0, "firstLaunch", "dialog")]
+        series = {metric: samples for metric, _, samples in bs.result_series("warm", runs, "empty")}
+        self.assertEqual(series["launch.warm.first_window_frame_committed"], [140.0, 142.0])
+        self.assertEqual(series["launch.warm.first_window_frame_committed.missing_runs"], [1])
+
+    def test_budgets_judge_only_the_launches_and_say_when_none_was_one(self):
+        runs = [self.run_at(150.0), self.run_at(160.0), self.run_at(9000.0, "occluded")]
+        results = {"t": {"warm": runs}}
+        self.assertEqual(bs.check_budgets(results, ["first_window_frame_committed=200"]), [],
+                         "the interrupted run is neither over budget nor missing")
+        everything = {"t": {"warm": [self.run_at(150.0, "presentedBehind")] * 2}}
+        self.assertEqual(bs.check_budgets(everything, ["first_window_frame_committed=200"]),
+                         ["t warm: first_window_frame_committed: all 2 runs interrupted, nothing to judge"])
+
+    def test_no_activate_launches_without_the_test_screen_and_writes_no_result(self):
+        self.addCleanup(setattr, bs, "BACKGROUND_LAUNCH", bs.BACKGROUND_LAUNCH)
+        bs.BACKGROUND_LAUNCH = False
+        self.assertEqual(bs.launch_environment("/tmp/s", 7)["CMUX_NEXT_TEST_WINDOW_SCREEN"], "last")
+        bs.BACKGROUND_LAUNCH = True
+        env = bs.launch_environment("/tmp/s", 7)
+        self.assertNotIn("CMUX_NEXT_TEST_WINDOW_SCREEN", env, "no test screen: the window goes behind")
+        self.assertEqual(env["CMUX_NEXT_NO_ACTIVATE"], "1")
+        self.assertTrue(bs.parse_args(BASE + ["--no-activate"]).no_activate)
+        code, _, err = quiet(bs.parse_args, BASE + ["--no-activate", "--profile", "empty", "--out", "/tmp/o"])
+        self.assertEqual(code, 2)
+        self.assertIn("--no-activate launches are interrupted", err)
+
+    def test_the_app_sends_the_cause_marks_the_bench_reads(self):
+        source = self.SWIFT.read_text()
+        self.assertIn('markPrefix = LaunchSlices.interruptedMark + "."', source)
+        causes = re.findall(r"^    case (\w+)$", source, re.MULTILINE)
+        self.assertEqual(causes, ["hidden", "presentedBehind", "minimized", "occluded", "daemonPrompt",
+                                  "settingConfirmation", "dialog", "recoveryNotice", "firstLaunch"])
+        for cause in causes:
+            self.assertIn(cause, bs.__doc__, f"bench-startup.py's help lists {cause}")
 
 
 class ResultArgsTests(unittest.TestCase):

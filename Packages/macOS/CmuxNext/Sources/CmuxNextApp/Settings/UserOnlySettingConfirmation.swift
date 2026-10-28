@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import enum CmuxNextLaunch.StartupInterruption
 import CmuxNextSettings
 import class CmuxSafeConcurrency.OnceContinuation
 import enum CmuxSafeConcurrency.OnceContinuationError
@@ -29,10 +30,13 @@ enum UserOnlySettingConfirmation {
         // The request may end first (deadline, Ctrl-C): then the sheet goes, answered no.
         guard !Task.isCancelled else { return false }
         let shown = ShownDialog(), mainWork = services.mainWork
+        var dialog = DestructiveConfirmation.spec(prompt)
+        dialog.identifier = StartupInterruption.settingConfirmationDialog  // a launch it shows in is interrupted (p08-startup-108)
+        let spec = dialog
         return await withTaskCancellationHandler {
             // A sheet that goes without an answer (dismissed, dropped) is a no.
             (try? await withOnceContinuation { (continuation: OnceContinuation<Bool, OnceContinuationError>) in
-                shown.id = CmuxDialogCenter.shared.present(DestructiveConfirmation.spec(prompt), in: .window(window)) {
+                shown.id = CmuxDialogCenter.shared.present(spec, in: .window(window)) {
                     continuation.resume(returning: $0.button == DestructiveConfirmation.confirmID)
                 }
             }) ?? false
