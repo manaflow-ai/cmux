@@ -152,7 +152,10 @@ public final class KeyArrivalLedger {
     /// A cmux path took `event` at `nanos` to dispatch it later. A key that never passed `sendEvent` (a synthetic key
     /// routed straight to the key router) arrives here: its hold counts from now.
     public func held(_ event: NSEvent, by path: HoldPath, at nanos: UInt64) {
-        guard let index = index(of: event) ?? insert(event, at: nanos, deliveries: 0) else { return }
+        let known = index(of: event)
+        guard let index = known ?? insert(event, at: nanos, deliveries: 0) else { return }
+        // A key that never passed `sendEvent` is the app's own (`debug.key` routes straight to the key router).
+        if known == nil { entries[index].synthetic = true }
         guard entries[index].heldBy == .none else { return }
         entries[index].heldBy = path
         entries[index].held = nanos

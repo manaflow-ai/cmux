@@ -67,37 +67,25 @@ public final class HeldKeyReplay {
         }
     }
 
-    /// Opens `event`'s latency slot for a send that bypasses `NSApplication.sendEvent` (to a window or a view) and
-    /// returns the call that ends its dispatch; `keyWindow` is where it goes. Set by the app's `InputLatencyDispatch`.
-    public typealias SlotOpener = @MainActor (_ event: NSEvent, _ keyWindow: NSWindow?) -> @MainActor () -> Void
+    /// The app's latency dispatch: each replay opens the key's slot around its whole run (the router included), as
+    /// `NSApplication.sendEvent` does, unless it goes through `sendEvent` itself (`throughApplication`). Nil opens none
+    /// (a router a test made).
+    public weak var dispatch: InputLatencyDispatch?
 
-    /// Opens a slot for each send that bypasses the application's dispatch; nil opens none (a test's seam).
-    public var openSlot: SlotOpener?
-
-    /// Sends a held event on; only ``replay(_:heldBy:keyWindow:_:)`` makes one, after it recorded the hold.
+    /// Sends a held event on; only ``replay(_:heldBy:keyWindow:throughApplication:_:)`` makes one, after it recorded the
+    /// hold.
     public struct Sender {
-        fileprivate let openSlot: SlotOpener?
+        fileprivate init() {}
 
-        fileprivate init(openSlot: SlotOpener?) { self.openSlot = openSlot }
-
-        /// Through the application's dispatch (`NSApplication.sendEvent`): the key opens its latency slot and passes
-        /// the key router again, as a key from the event queue does.
+        /// Through the application's dispatch (`NSApplication.sendEvent`): the key opens its own latency slot and passes
+        /// the key router again, as a key from the event queue does. Only with `throughApplication: true`.
         public func application(_ event: NSEvent) { NSApp.sendEvent(event) }
 
-        /// Straight to `window` (`NSWindow.sendEvent`): the caller already ran the key router. The key gets its slot.
-        public func window(_ window: NSWindow, _ event: NSEvent) {
-            let end = openSlot?(event, window)
-            window.sendEvent(event)
-            end?()
-        }
+        /// Straight to `window` (`NSWindow.sendEvent`): the caller already ran the key router.
+        public func window(_ window: NSWindow, _ event: NSEvent) { window.sendEvent(event) }
 
-        /// Straight to `view`'s `keyDown(with:)` (a key-down only): the view is the key's known destination. The key
-        /// gets its slot.
-        public func view(_ view: NSResponder, _ event: NSEvent) {
-            let end = openSlot?(event, (view as? NSView)?.window)
-            view.keyDown(with: event)
-            end?()
-        }
+        /// Straight to `view`'s `keyDown(with:)` (a key-down only): the view is the key's known destination.
+        public func view(_ view: NSResponder, _ event: NSEvent) { view.keyDown(with: event) }
     }
 
     private let ledger: KeyArrivalLedger?
@@ -114,16 +102,18 @@ public final class HeldKeyReplay {
         paths = KeyArrivalLedger.HoldPath.allCases.map { _ in Stage() }
     }
 
-    /// Runs `event`, which `path` held, again now: records the hold in `path`'s stage, logs it in the ledger when it is
-    /// late, then hands `send` the one ``Sender``. A key the router decides again (an action runs) counts too.
+    /// Runs `event`, which `path` held, again now: records the hold in `path`'s stage, opens the key's latency slot
+    /// (its first arrival is its `arrivedMain`, its frame closes it) and logs it when it is late, then hands `send` the
+    /// one ``Sender``. A key the router decides again (an action runs) counts too.
     ///
     /// - Parameters:
     ///   - event: The key event as the person typed it (the one the hold took).
     ///   - path: The path that held it.
-    ///   - keyWindow: The window it goes to (the late-key log reads its responder chain).
+    ///   - keyWindow: The window it goes to (its slot's target and the late-key log's responder chain).
+    ///   - throughApplication: `send` uses ``Sender/application(_:)``, whose `sendEvent` opens the slot itself.
     ///   - send: Sends `event`, or an event made from it, through the ``Sender``.
     public func replay(_ event: NSEvent, heldBy path: KeyArrivalLedger.HoldPath, keyWindow: NSWindow?,
-                       _ send: (Sender) -> Void) {
+                       throughApplication: Bool = false, _ send: (Sender) -> Void) {
         let at = now()
         if path != .none {
             let start = ledger?.holdStart(of: event) ?? InputLatencyTracker.eventNanos(event.timestamp)
@@ -134,9 +124,12 @@ public final class HeldKeyReplay {
             }
             paths[Int(path.rawValue)].add(hold)
         }
-        // A send's own slot logs a late key (``openSlot``); without one the seam logs it here.
-        if openSlot == nil, event.type == .keyDown { ledger?.replayed(event, at: at, keyWindow: keyWindow) }
-        send(Sender(openSlot: openSlot))
+        // The key's slot spans the whole run, as `sendEvent`'s does, and logs it when late; without one the seam logs it.
+        let slot = throughApplication ? nil : dispatch?.willDispatch(event, synthetic: ledger?.isSynthetic(event) ?? false,
+                                                                     keyWindow: keyWindow)
+        if dispatch == nil, !throughApplication, event.type == .keyDown { ledger?.replayed(event, at: at, keyWindow: keyWindow) }
+        send(Sender())
+        if let slot { dispatch?.didDispatch(slot, layoutTookScroll: false) }
     }
 
     /// `path`'s holds since launch.

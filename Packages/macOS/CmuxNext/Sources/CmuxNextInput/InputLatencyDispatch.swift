@@ -48,13 +48,10 @@ public final class InputLatencyDispatch {
     public let arrivals = KeyArrivalLedger()
     /// The one seam that sends a held key again and records its hold (``HeldKeyReplay``).
     public private(set) lazy var heldKeys: HeldKeyReplay = {
+        // A replayed held key opens its slot here, as `sendEvent` would: its first arrival is its `arrivedMain`, so the
+        // hold is `arrivedMain -> dispatchStart`, and its frame closes the slot.
         let replay = HeldKeyReplay(ledger: arrivals)
-        // A held key sent straight to a window or a view opens its slot here, as `sendEvent` would: its first arrival is
-        // its `arrivedMain`, so the hold is `arrivedMain -> dispatchStart`, and its frame closes the slot.
-        replay.openSlot = { [weak self] event, keyWindow in
-            guard let self, let slot = willDispatch(event, synthetic: arrivals.isSynthetic(event), keyWindow: keyWindow) else { return {} }
-            return { [weak self] in self?.didDispatch(slot, layoutTookScroll: false) }
-        }
+        replay.dispatch = self
         return replay
     }()
     private let classifier: InputTargetClassifier
@@ -171,7 +168,7 @@ public final class InputLatencyDispatch {
     /// `arrivedMain` is this first arrival (``KeyArrivalLedger``).
     ///
     /// Every path runs the key again with a slot of its own: through `NSApplication.sendEvent` (the creation hold), or
-    /// straight into a window or view through ``heldKeys``, which opens it.
+    /// through ``heldKeys``, which opens it around the run.
     public func held(_ event: NSEvent, by path: KeyArrivalLedger.HoldPath) {
         arrivals.held(event, by: path, at: InputLatencyTracker.uptimeNanos())
         guard path != .none, let token = tracker.dispatchingKey, event.timestamp > 0,
