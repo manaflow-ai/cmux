@@ -867,6 +867,8 @@ export type SessionDetail = {
    * the tree from these links at any depth.
    */
   startedBy?: (string | null);
+  /** Effective liveness: `stuck` after three classified harness failures, else `status`. */
+  state?: string;
   stateSeq: number;
   /**
    * `idle`, `ready`, `running`, `waiting`, `disconnected` or `closed`;
@@ -875,6 +877,11 @@ export type SessionDetail = {
   status: string;
   /** The agent takes a prompt mid-turn. */
   steering: boolean;
+  /** Last classified error, redacted and bounded. Omitted for peers. */
+  stuckError?: (string | null);
+  stuckReason?: (StuckReason | null);
+  /** Unix milliseconds when the third failure established stuck. Omitted for peers. */
+  stuckSince?: (number | null);
   /** Tags that have not expired. */
   tags: Record<string, string>;
   title?: (string | null);
@@ -1054,6 +1061,8 @@ export type SessionSummary = {
    * the tree from these links at any depth.
    */
   startedBy?: (string | null);
+  /** Effective liveness: `stuck` after three classified harness failures, else `status`. */
+  state?: string;
   stateSeq: number;
   /**
    * `idle`, `ready`, `running`, `waiting`, `disconnected` or `closed`;
@@ -1062,6 +1071,11 @@ export type SessionSummary = {
   status: string;
   /** The agent takes a prompt mid-turn. */
   steering: boolean;
+  /** Last classified error, redacted and bounded. Omitted for peers. */
+  stuckError?: (string | null);
+  stuckReason?: (StuckReason | null);
+  /** Unix milliseconds when the third failure established stuck. Omitted for peers. */
+  stuckSince?: (number | null);
   /** Tags that have not expired. */
   tags: Record<string, string>;
   title?: (string | null);
@@ -1123,6 +1137,8 @@ export type SessionsResult = {
   /** Local and peer sessions, newest first, then by `sessionId`. */
   sessions: SessionSummary[];
 } & Record<string, unknown>;
+
+export type StuckReason = "harness_unavailable" | "capacity" | "auth" | "spawn_failed";
 
 /** One row of a chat's tool list (`store::ToolRow`). */
 export type ToolSummary = {
