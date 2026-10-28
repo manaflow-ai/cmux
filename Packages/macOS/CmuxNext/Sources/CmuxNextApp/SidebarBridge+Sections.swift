@@ -37,7 +37,9 @@ extension SidebarBridge {
     /// page opens that page in this window (TOP-SECTION-ITEMS-ARE-PAGES).
     func activateLayoutItem(_ id: LayoutItemID, opensWorkspace: Bool = false) {
         guard let item = model.layout.item(id) ?? model.listedItem(id) else { return WhatsNewPage.activateClientItem(id, services: services, in: state) }
+        // Docked Home goes through `home.show`: the home workspace where this window lists it, else this window's own Home.
         if let region = model.layout.region(of: id), let route = TopPageRoute(item.ref, in: region),
+           route != .home || services.home.dock.isClassic,
            TopPages.show(route, services: services, in: state) != nil { return }
         activate(item.ref, opensWorkspace: opensWorkspace)
     }

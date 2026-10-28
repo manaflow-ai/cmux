@@ -115,6 +115,25 @@ final class HomeDockTab: InternalPageProvider {
         }
     }
 
+    // MARK: One Home per window (multiwindow.md; audit-findings-1 C: every window has its Home)
+
+    /// The provider key of window `windowID`'s own Home: the same content model as the home workspace's
+    /// dock (HomeService), its own view state. A window whose sidebar asks for Home while another window
+    /// lists the home workspace shows this one as its `.home` top page; nothing moves between windows.
+    static func windowKey(_ windowID: String) -> String { "home-window:\(windowID)" }
+
+    /// Window `windowID`'s own Home view, made on first use (nil once the app's services are gone).
+    func windowView(for windowID: String, in window: WindowController?) -> HomeDockView? {
+        let key = Self.windowKey(windowID)
+        if views[key] == nil { _ = makeView(for: key, in: window) }
+        return views[key]
+    }
+
+    /// The Home view window `windowID` shows as its top page, if it shows one.
+    static func windowView(_ services: AppServices, windowID: String) -> HomeDockView? {
+        (services.pages.provider(.homeDock) as? HomeDockTab)?.views[windowKey(windowID)]
+    }
+
     /// The docked Home's view in the live tree, once its tab has shown (nil while it is discarded).
     static func view(_ services: AppServices) -> HomeDockView? {
         guard let found = dockTab(services) else { return nil }

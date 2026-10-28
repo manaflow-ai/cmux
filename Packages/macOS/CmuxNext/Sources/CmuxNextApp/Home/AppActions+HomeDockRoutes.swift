@@ -30,21 +30,25 @@ extension AppActions {
             return false
         }
         if !classic, let active = services.windows.active {
-            services.windows.show(workspaceID: home.id, in: active.state, from: homeOrigin(home.id, in: active.state.id, services))
+            showHome(home.id, in: active, services)
         } else {
             services.windows.reveal(workspaceID: home.id)
         }
         return true
     }
 
-    /// Where a Home request shows Home: a person's in the window they asked in (`.thisWindow`), unless the
-    /// window that lists Home lists nothing else (taking Home would close that window): then that window
-    /// comes forward, as a request from elsewhere (the CLI, a script) always does.
-    private static func homeOrigin(_ home: String, in window: String, _ services: AppServices) -> ShowOrigin {
-        guard (ActionRunScope.current?.origin ?? .user) == .user else { return .anywhere }
-        let registry = services.windows.registry
-        guard let owner = registry.value.owner(of: home), owner != window else { return .thisWindow }
-        return registry.members(of: owner).count > 1 ? .thisWindow : .anywhere
+    /// Home in `window` (one Home per window, multiwindow.md; audit-findings-1 C): the home workspace when
+    /// this window lists it (or no window does: it moves in, nothing closes); else this window's own Home
+    /// page, the same content with its own view state. Nothing moves between windows, no other window
+    /// comes forward or closes. A request from elsewhere (the CLI, a script) shows Home where it lives.
+    private static func showHome(_ home: String, in window: WindowController, _ services: AppServices) {
+        let byPerson = (ActionRunScope.current?.origin ?? .user) == .user
+        guard byPerson else { return services.windows.show(workspaceID: home, in: window.state) }
+        let owner = services.windows.registry.value.owner(of: home)
+        if owner == nil || owner == window.state.id {
+            return services.windows.show(workspaceID: home, in: window.state, from: .thisWindow)
+        }
+        TopPages.show(.home, services: services, in: window.state)
     }
 
     /// Runs `body` on the docked Home's view: Home shown, the dock tab selected, the view made
@@ -52,6 +56,11 @@ extension AppActions {
     static func withDock(_ services: AppServices, _ body: @escaping @MainActor (HomeDockView) -> Void) {
         guard ActionRunScope.viewChangeAllowed() else { return services.registry.refuse(RefusalStrings.homeNeedsFocus) }
         guard showHome(services) else { return }
+        // This window shows its own Home page: the action runs there.
+        if let window = services.windows.active, window.shownTopPage == .home,
+           let view = HomeDockTab.windowView(services, windowID: window.state.id) {
+            return view.whenInWindow { body(view) }
+        }
         guard let tab = services.home.homeWorkspace.flatMap(HomeDock.pageTab(in:))?.tab,
               services.revealTab(tab.id),
               let provider = services.pages.provider(.homeDock) as? HomeDockTab else {

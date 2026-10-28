@@ -110,7 +110,10 @@ final class TopPageHost {
     convenience init(services: AppServices, windowNode: VisibilityNode) {
         self.init(make: { [weak services] route, window in services.flatMap { TopPageHost.makePage(route, in: window, services: $0) } },
                   closed: { [weak services] route, key in
-                      if case .page(let id) = route { services?.pages.provider(id)?.tabClosed(key) }
+                      switch route {
+                      case .page(let id): services?.pages.provider(id)?.tabClosed(key)
+                      case .home: services?.pages.provider(.homeDock)?.tabClosed(key)  // a window's own Home view
+                      }
                   },
                   discardable: { [weak services] route, view in
                       guard case .page(let id) = route else { return view as? TopHomePageView }
@@ -134,8 +137,13 @@ final class TopPageHost {
                                  services: AppServices) -> (view: NSView, key: String?)? {
         switch route {
         case .home:
-            // The docked Home (cx-ebm.59.5) is the home workspace itself; only classic Home is a top page.
-            guard HomeDock.classic else { return nil }
+            // Classic Home is a top page per window. The docked Home (cx-ebm.59.5) is the home workspace; a window
+            // that does not list it shows its own Home view as this page (one Home per window, multiwindow.md).
+            guard HomeDock.classic else {
+                guard let window, let provider = services.pages.provider(.homeDock) as? HomeDockTab,
+                      let view = provider.windowView(for: window.state.id, in: window) else { return nil }
+                return (view, HomeDockTab.windowKey(window.state.id))
+            }
             return (TopHomePageView(services: services, windowKey: { [weak window] in window?.state.id ?? "" }), nil)
         case .page(let id):
             guard let provider = TopPages.provider(id, services: services) else { return nil }
