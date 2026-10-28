@@ -343,6 +343,52 @@ import Testing
         #expect(stopped["inspecting"] as? Bool == false)
     }
 
+    // MARK: One intent, one top-level animation
+
+    @Test func anActionThatChainsASecondAnimationAFrameLaterFailsTheIntentCheck() throws {
+        let clock = MediaClock()
+        let inspector = Self.inspector(clock)
+        defer { Self.release(inspector) }
+        inspector.start()
+        var input: Double? = 42
+        inspector.currentInput = { input }
+        // Cmd-W on the last tab: the strip's close tween in the key's turn (three layers, one top-level animation) ...
+        inspector.noteActionStarted("closeTab", inputTimestamp: 42)
+        for _ in 0..<3 { _ = Motion.tabs.springAnimation(.move, "position", from: NSValue(point: .zero), to: NSValue(point: .zero)) }
+        clock.now += 0.004
+        _ = Motion.tabs.springAnimation(.move, "bounds.size", from: NSValue(size: .zero), to: NSValue(size: .zero))
+        #expect(inspector.intentViolations().isEmpty, "one turn's animations are one top-level animation")
+        // ... then, after the daemon's reply (no run scope), the workspace row collapses: a chained second animation.
+        input = nil
+        clock.now += 0.120
+        _ = Motion.sidebar.springAnimation(.move, "position", from: NSValue(point: .zero), to: NSValue(point: .zero))
+        let violations = inspector.intentViolations()
+        let violation = try #require(violations.first)
+        #expect(violations.count == 1 && violation.intent.action == "closeTab")
+        #expect(violation.topLevels.count == 2)
+        #expect(violation.topLevels[0].first.category == .tabs && violation.topLevels[1].first.category == .sidebar)
+        #expect(abs(violation.topLevels[1].afterIntentMs - 124) < 0.5)
+        #expect(violation.matchedBy == "window")
+        let report = inspector.intentsReport()
+        #expect(report["passed"] as? Bool == false)
+    }
+
+    @Test func aRecordAfterTheWindowOrOfANewActionIsNotTheOldOnes() {
+        let clock = MediaClock()
+        let inspector = Self.inspector(clock)
+        defer { Self.release(inspector) }
+        inspector.start()
+        inspector.noteActionStarted("newTab", inputTimestamp: 1)
+        _ = Motion.tabs.springAnimation(.move, "position", from: NSValue(point: .zero), to: NSValue(point: .zero))
+        clock.now += MotionInspector.intentWindow + 0.1
+        _ = Motion.tabs.springAnimation(.move, "position", from: NSValue(point: .zero), to: NSValue(point: .zero))
+        #expect(inspector.records.last?.intent == nil, "past the window: no action")
+        inspector.noteActionStarted("newTab", inputTimestamp: 2)
+        clock.now += 0.2
+        _ = Motion.tabs.springAnimation(.move, "position", from: NSValue(point: .zero), to: NSValue(point: .zero))
+        #expect(inspector.intentViolations().isEmpty, "each action has one top-level animation")
+    }
+
     // MARK: Web pages
 
     @Test func aWebThemeCarriesTheRateOnlyWhileSlowed() {

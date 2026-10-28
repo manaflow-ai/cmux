@@ -121,9 +121,15 @@ extension MotionInspector {
         }
         lastAddWall = wall
         nextID &+= 1
-        records.append(MotionInspectorRecord(id: nextID, site: site?.text, ownerType: ownerType, category: site?.category, kind: kind,
-                                             property: property, from: from, to: to, curve: curve, runs: runs, gated: true,
-                                             start: start, expectedEnd: end))
+        var record = MotionInspectorRecord(id: nextID, site: site?.text, ownerType: ownerType, category: site?.category, kind: kind,
+                                           property: property, from: from, to: to, curve: curve, runs: runs, gated: true,
+                                           start: start, expectedEnd: end)
+        record.wallStart = wall
+        if let intent = intentForNewRecord() {
+            record.intent = intent.id
+            record.intentExact = intent.exact
+        }
+        records.append(record)
         if records.count > Self.endedKept + Self.loopsKept + 64 { records = Self.pruned(records) }
         runningChanged()
         return nextID

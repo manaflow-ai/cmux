@@ -49,6 +49,9 @@ extension MotionInspector {
             out["findings"] = findings.map(Self.json)
             out["static_findings"] = Self.staticFindings.map { ["site": $0.site, "note": $0.note] }
             return out
+        case "intents":
+            // The one-intent check: every action seen and each one that started more than one top-level animation.
+            return report(records: false, endedRecords: false).merging(intentsReport()) { _, new in new }
         case "inspector":
             break
         default:
@@ -91,6 +94,7 @@ extension MotionInspector {
             "running": record.isRunning,
         ]
         if let site = record.site { out["site"] = site }
+        if let intent = record.intent { out["intent"] = intent }
         if let type = record.ownerType { out["owner_type"] = type }
         if let category = record.category { out["category"] = category.rawValue }
         if let from = record.from { out["from"] = from }

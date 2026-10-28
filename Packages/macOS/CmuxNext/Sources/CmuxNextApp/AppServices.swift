@@ -593,7 +593,11 @@ final class AppServices {
     private(set) lazy var actionLatencyHUD = ActionLatencyHUD(monitor: actionBudget)
     /// Debug > Debug Windows > Motion Inspector and `debug.motion`'s inspector actions (plans/cmux-next/motion-inspector.md):
     /// one model over the gates' settings, made at first use.
-    private(set) lazy var motionInspector = MotionInspectorWindow(inspector: MotionInspector(design: .shared), work: mainWork)
+    private(set) lazy var motionInspector: MotionInspectorWindow = {
+        let inspector = MotionInspector(design: .shared)
+        inspector.currentInput = { ActionRunScope.current?.inputTimestamp }  // the one-intent check's exact match
+        return MotionInspectorWindow(inspector: inspector, work: mainWork)
+    }()
     /// Quit: origin, the keep-or-end sheet and the end of the local sessions.
     private(set) lazy var quit = QuitCoordinator(services: self)
     /// Background mode (cx-ghagp): no window open means no Dock icon or Cmd-Tab entry, and a menu bar item instead.

@@ -62,6 +62,12 @@ public nonisolated struct MotionInspectorRecord: Sendable, Equatable, Identifiab
     public var expectedEnd: Double?
     /// When it ended (its completion ran, its curve ran out, or its clock let it rest); nil while running.
     public var ended: Double?
+    /// The action it answers (``MotionInspector/Intent``), and whether it was matched by the run's input (true)
+    /// or by the time window after the action (false); nil when no action was running.
+    public var intent: UInt64?
+    public var intentExact = false
+    /// Media time it started (wall clock, for the one-intent check: animation times stand still while paused).
+    public var wallStart: CFTimeInterval = 0
     /// Layers it moves: one call that animates several layers alike in one turn (a sidebar insert moves
     /// every row below it) is one record.
     public var layers: Int = 1

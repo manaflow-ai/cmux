@@ -20,6 +20,8 @@ Commands:
   running [--ended]     the live list (running, or with --ended the ended ones too)
   watch [SECONDS]       print the running list every 250 ms for SECONDS (default 5)
   findings              scan the windows for animations no Motion gate made, plus the known bypasses
+  intents               the one-intent check: each action that started more than one top-level animation
+                        (exit 1 when one did)
   state                 time scale, filter and the inspector's own overhead
   window [--close]      open (or close) the Motion Inspector window without taking the keys
 
@@ -166,6 +168,8 @@ def main():
         return
     elif command == "findings":
         params = {"action": "findings"}
+    elif command == "intents":
+        params = {"action": "intents"}
     elif command == "state":
         params = {"action": "inspector"}
     elif command == "window":
@@ -178,6 +182,14 @@ def main():
         print(json.dumps(result, indent=2))
     elif command in ("running", "stop"):
         print_records(result)
+    elif command == "intents":
+        for v in result.get("violations", []):
+            print(f"FAIL {v['action']} (intent {v['intent']}, matched by {v['matched_by']}): {len(v['top_level'])} top-level animations")
+            for t in v["top_level"]:
+                print(f"     +{t['after_intent_ms']:>7.1f} ms  {t['kind']:<24} {t['property']:<14} x{t['records']:<3} {t['owner']}")
+        print("one intent, one top-level animation: " + ("pass" if result.get("passed") else "FAIL"))
+        if not result.get("passed"):
+            sys.exit(1)
     elif command == "findings":
         for f in result.get("findings", []):
             print(f"ungated  {f['owner_type']:<28} {f['property']:<16} {f['class']:<22} {f['duration_ms']:>6.0f}ms"

@@ -97,6 +97,11 @@ public final class MotionInspector: MotionInspecting {
     @ObservationIgnored private var motionBase: Double = 0
     @ObservationIgnored private var wallBase: CFTimeInterval = 0
     @ObservationIgnored var nextID: UInt64 = 0
+    /// The actions seen since the inspection started (``noteActionStarted(_:inputTimestamp:)``), oldest first.
+    @ObservationIgnored public internal(set) var intents: [Intent] = []
+    @ObservationIgnored var nextIntentID: UInt64 = 0
+    /// The person's input the code running now answers (the App's action run scope); nil outside a run.
+    @ObservationIgnored public var currentInput: (@MainActor () -> Double?)?
     /// Wall time of the last record added (coalescing one turn's starts, ``add(kind:property:from:to:curve:runs:ownerType:start:end:)``).
     @ObservationIgnored var lastAddWall: CFTimeInterval = -.infinity
     /// Wall time of the last pass over the windows for ones that appeared while slowed.
@@ -137,6 +142,7 @@ public final class MotionInspector: MotionInspecting {
         (design.activeMotionInspector as? MotionInspector)?.stop()
         isInspecting = true
         records = []
+        intents = []
         findings = []
         overhead = MotionInspectorOverhead()
         motionBase = 0
