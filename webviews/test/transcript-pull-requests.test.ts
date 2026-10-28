@@ -487,12 +487,7 @@ test("PR evidence canonicalizes issue URLs in either order without stale Sources
 
 test("mutated PR URLs with fragments stay out of Sources", () => {
   const rows = [
-    activity(
-      [
-        shell("gh pr comment 41 -R acme/app", "https://github.com/acme/app/pull/41#issuecomment-123"),
-      ],
-      1,
-    ),
+    activity([shell("gh pr comment 41 -R acme/app", "https://github.com/acme/app/pull/41#issuecomment-123")], 1),
   ];
   expect(transcriptPullRequests(rows, { folder: "acme/app" })).toMatchObject([
     { number: 41, changed: true, kind: "pullRequest" },
