@@ -15,6 +15,7 @@
 
 use super::*;
 use crate::workspace_registry::TopologyCloseCommit;
+use std::sync::PoisonError;
 
 /// What one batch close removes.
 pub(crate) enum BatchCloseTarget {
@@ -102,12 +103,19 @@ pub(crate) struct BatchCloseOutcome {
 
 impl BatchCloseOutcome {
     pub(crate) fn closed(&self) -> Vec<SurfaceId> {
-        self.result["closed"].as_array().into_iter().flatten().filter_map(Value::as_u64).collect()
+        self.result
+            .get("closed")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_u64)
+            .collect()
     }
 
     pub(crate) fn terminals(&self) -> Vec<EndedTerminal> {
-        self.result["terminals"]
-            .as_array()
+        self.result
+            .get("terminals")
+            .and_then(Value::as_array)
             .into_iter()
             .flatten()
             .filter_map(|terminal| {
@@ -130,8 +138,10 @@ impl Mux {
         &self,
         request: BatchCloseRequest<'_>,
     ) -> anyhow::Result<BatchCloseOutcome> {
-        let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
-        let _creation_fence = self.resource_creation_execution.lock().unwrap();
+        let _creation_handoff =
+            self.resource_creation_handoff.lock().unwrap_or_else(PoisonError::into_inner);
+        let _creation_fence =
+            self.resource_creation_execution.lock().unwrap_or_else(PoisonError::into_inner);
         let _authority = request
             .authorize_workspace
             .then(|| {
@@ -143,11 +153,12 @@ impl Mux {
             .transpose()?;
         // A retry of a committed close replays before its targets resolve:
         // they are gone by then.
-        if let Some(replay) = self.workspace_registry.lock().unwrap().replay_resource_patch(
-            request.mutation,
-            request.operation,
-            request.fingerprint,
-        )? {
+        if let Some(replay) = self
+            .workspace_registry
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .replay_resource_patch(request.mutation, request.operation, request.fingerprint)?
+        {
             return Ok(BatchCloseOutcome {
                 result: replay.result,
                 resource_revision: replay.revision,
@@ -158,7 +169,8 @@ impl Mux {
         let workspace = self.with_state(|state| match &request.target {
             BatchCloseTarget::Tabs(_) | BatchCloseTarget::TabGroup(_) => None,
             BatchCloseTarget::Pane(pane) => {
-                state.screen_of(*pane).map(|(workspace, _)| state.workspaces[workspace].id)
+                let (workspace, _) = state.screen_of(*pane)?;
+                Some(state.workspace_at(workspace).ok()?.id)
             }
             BatchCloseTarget::Screen(screen) => state
                 .workspaces
@@ -179,10 +191,12 @@ impl Mux {
             anyhow::bail!("close target disappeared");
         }
         let lifecycle = workspace.map(|workspace| self.workspace_lifecycle(workspace));
-        let workspace_lifecycle = lifecycle.as_ref().map(|lifecycle| lifecycle.lock().unwrap());
+        let workspace_lifecycle = lifecycle
+            .as_ref()
+            .map(|lifecycle| lifecycle.lock().unwrap_or_else(PoisonError::into_inner));
         let notifications = self.tree_decorations();
-        let mut registry = self.workspace_registry.lock().unwrap();
-        let mut state = self.lock_state_pinned(&registry).unwrap();
+        let mut registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut state = self.lock_state_pinned(&registry).unwrap_or_else(PoisonError::into_inner);
         if let BatchCloseTarget::Workspace(workspace) = &request.target {
             let index = state.workspace_index(*workspace).context("close target disappeared")?;
             Self::require_empty_workspace_for_close(&state, index, request.if_empty)?;
@@ -264,7 +278,7 @@ impl Mux {
             && let Some(fields) = close.legacy_result.as_object()
         {
             for (key, value) in fields {
-                result[key] = value.clone();
+                set_named_field(&mut result, "workspace close result", key.clone(), value.clone())?;
             }
         }
         let projection =
@@ -489,7 +503,7 @@ impl Mux {
             "end_terminals": end_terminals,
         });
         if let Some(reason) = reason {
-            fingerprint["reason"] = json!(reason.as_str());
+            set_field(&mut fingerprint, "reason", json!(reason.as_str()))?;
         }
         self.commit_batch_close(BatchCloseRequest {
             target: BatchCloseTarget::Tabs(surfaces),
@@ -666,11 +680,11 @@ impl Mux {
             "end_terminals": true,
         });
         if let Some(reason) = reason {
-            fingerprint["reason"] = json!(reason.as_str());
+            set_field(&mut fingerprint, "reason", json!(reason.as_str()))?;
         }
         // A retry of a committed close replays before the selector resolves.
         {
-            let registry = self.workspace_registry.lock().unwrap();
+            let registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
             if let Some(commit) = registry.replay(mutation, &fingerprint)? {
                 let result = workspace_mutation_result(&commit)?;
                 let resource = registry
@@ -688,10 +702,10 @@ impl Mux {
             }
         }
         let resolved = {
-            let state = self.state.lock().unwrap();
+            let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
             Self::require_workspace_revision(&state, expected_revision)?;
             let index = resolve_workspace_index(&state, target, requested_key)?;
-            state.workspaces[index].id
+            state.workspace_at(index)?.id
         };
         let outcome = self.commit_batch_close(BatchCloseRequest {
             target: BatchCloseTarget::Workspace(resolved),
@@ -713,19 +727,25 @@ impl Mux {
             None => {
                 self.workspace_registry
                     .lock()
-                    .unwrap()
+                    .unwrap_or_else(PoisonError::into_inner)
                     .replay(mutation, &fingerprint)?
                     .context("replayed workspace close has no workspace receipt")?
                     .revision
             }
         };
         let result = WorkspaceMutationResult {
-            workspace: outcome.result["workspace"].as_u64().or(Some(resolved)),
-            key: outcome.result["key"]
-                .as_str()
+            workspace: outcome.result.get("workspace").and_then(Value::as_u64).or(Some(resolved)),
+            key: outcome
+                .result
+                .get("key")
+                .and_then(Value::as_str)
                 .context("workspace close result is missing its key")?
                 .to_string(),
-            index: outcome.result["index"].as_u64().and_then(|index| usize::try_from(index).ok()),
+            index: outcome
+                .result
+                .get("index")
+                .and_then(Value::as_u64)
+                .and_then(|index| usize::try_from(index).ok()),
             revision,
             replayed: outcome.replayed,
             changed: true,

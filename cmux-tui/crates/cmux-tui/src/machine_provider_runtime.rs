@@ -373,7 +373,10 @@ impl ProviderMachineController {
         let worker =
             std::thread::Builder::new().name("machine-local-overlay".into()).spawn(move || {
                 while !worker_stop.load(Ordering::Acquire) {
-                    match provider_receiver.recv_timeout(Duration::from_millis(250)) {
+                    match crate::blocking::sync::recv_timeout(
+                        &provider_receiver,
+                        Duration::from_millis(250),
+                    ) {
                         Ok(update) => {
                             let update = match update {
                                 MachineUpdate::Ui(ui) => MachineUpdate::Ui(Box::new(
@@ -401,7 +404,7 @@ impl ProviderMachineController {
                 }
                 provider_stop.store(true, Ordering::Release);
                 drop(provider_receiver);
-                let _ = provider_worker.join();
+                let _ = crate::blocking::thread::join(provider_worker);
             })?;
         Ok(MachineUpdateStream::new(receiver, stop, worker))
     }
@@ -1175,7 +1178,10 @@ impl ProviderMachineRuntime {
                         let _ = refresh_output.send(MachineUpdate::Ui(Box::new(ui)));
                         break;
                     }
-                    let event = match refresh_receiver.recv_timeout(Duration::from_millis(250)) {
+                    let event = match crate::blocking::sync::recv_timeout(
+                        &refresh_receiver,
+                        Duration::from_millis(250),
+                    ) {
                         Ok(ProviderRefreshSignal::Refresh(event)) => {
                             if matches!(&event, Some(protocol::ProviderEvent::SnapshotChanged(_))) {
                                 // Permit one follow-up invalidation while this authoritative
@@ -1546,7 +1552,7 @@ impl ProviderMachineRuntime {
                     }
                 }
                 drop(refresh_sender);
-                let _ = refresh_worker.join();
+                let _ = crate::blocking::thread::join(refresh_worker);
             },
         )?;
         Ok(MachineUpdateStream::new(receiver, stop, worker))

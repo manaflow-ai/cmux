@@ -39,9 +39,10 @@ pub(crate) enum WatchKind {
     LineOut,
     /// One input write of `mux-pty-input` to a local terminal.
     PtyInput,
-    /// One frame a `mux-attach-out` thread encodes for its viewer.
+    /// One item a byte or browser view's drain sends (the scope keeps the
+    /// name of the thread that once ran it).
     AttachOut,
-    /// One frame a `mux-render-attach-out` thread encodes for its viewer.
+    /// One item a render view's drain sends.
     RenderAttachOut,
     /// One item a snapshot viewer's drain builds and queues (a READY, a
     /// history or images chunk, output, a digest): it runs on a worker the
