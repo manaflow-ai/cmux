@@ -123,8 +123,9 @@ import Testing
 }
 
 /// A supervisor whose hosts take the relay link: hands out the read end of one pipe as the wire on each
-/// request (the spy shim never reads it).
-@MainActor private final class RelayingHost: ChromiumHostAgentRelaying {
+/// request (the spy shim never reads it). Its conformance is main-actor isolated, as its inherited
+/// ``ChromiumHostSupervising`` one is; the host start and the browser host cast to it on the main actor.
+@MainActor private final class RelayingHost: @MainActor ChromiumHostAgentRelaying {
     let agentRelay = ChromiumHostAgentRelay()
     private(set) var asked = 0
     private lazy var wire: Int32 = {
