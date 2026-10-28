@@ -18,7 +18,9 @@ const pair = () => {
 const loop = (
   name: string,
   target: Element | null,
-  overrides: Partial<Pick<RunningLineLoop, "playState" | "playbackRate" | "currentTime" | "duration">> = {},
+  overrides: Partial<
+    Pick<RunningLineLoop, "playState" | "playbackRate" | "currentTime" | "duration">
+  > = {},
 ): RunningLineLoop => ({
   name,
   target,
@@ -31,7 +33,10 @@ const loop = (
 
 test("the approved shimmer has one active loop on each text layer", () => {
   const { band, lit } = pair();
-  const check = checkRunningLineLoops([loop("cmux-shimmer-band", band), loop("cmux-shimmer-lit", lit)]);
+  const check = checkRunningLineLoops([
+    loop("cmux-shimmer-band", band),
+    loop("cmux-shimmer-lit", lit),
+  ]);
   expect(check.unapproved).toHaveLength(0);
   expect(check.duplicateTargets).toHaveLength(0);
   expect(hasCompleteRunningLineShimmer(check)).toBe(true);
@@ -55,7 +60,10 @@ test("paused, zero-rate, and stalled layers are not treated as shimmer", () => {
     { playbackRate: 0 },
     { currentTime: null },
   ]) {
-    const check = checkRunningLineLoops([loop("cmux-shimmer-band", band, overrides), loop("cmux-shimmer-lit", lit)]);
+    const check = checkRunningLineLoops([
+      loop("cmux-shimmer-band", band, overrides),
+      loop("cmux-shimmer-lit", lit),
+    ]);
     expect(hasCompleteRunningLineShimmer(check)).toBe(false);
   }
 });
@@ -68,7 +76,9 @@ test("names cannot approve null, arbitrary, or swapped shimmer targets", () => {
     [loop("cmux-shimmer-band", arbitrary), loop("cmux-shimmer-lit", lit)],
     [loop("cmux-shimmer-band", lit), loop("cmux-shimmer-lit", band)],
   ];
-  for (const check of cases.map(checkRunningLineLoops)) expect(hasCompleteRunningLineShimmer(check)).toBe(false);
+  for (const check of cases.map(checkRunningLineLoops)) {
+    expect(hasCompleteRunningLineShimmer(check)).toBe(false);
+  }
 });
 
 test("an active spinner or an idle/reduced-motion line is not approved", () => {
