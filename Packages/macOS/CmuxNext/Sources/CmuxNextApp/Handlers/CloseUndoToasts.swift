@@ -42,6 +42,14 @@ final class CloseUndoToasts {
         /// The answer is still being read (a terminal reports no shell state): the toast waits for it
         /// (``decided(_:costly:)``) even once every record is in.
         var deciding = false
+        /// Names this gesture for the read's answer (``decided(_:costly:)``).
+        var token: UInt64 = 0
+    }
+    private var nextToken: UInt64 = 0
+    /// The token the next ``expectGroup`` gives its gesture (a read started before the close hands it on).
+    func reserveToken() -> UInt64 {
+        nextToken &+= 1
+        return nextToken
     }
 
     /// The close toast showing in a window, which a quick next close joins.
@@ -174,7 +182,11 @@ final class CloseUndoToasts {
         // A close of a tab whose page was deciding (the page's own close after it decided, a close
         // button): that decision is over; the close below starts a new one if the page decides again.
         for part in parts { for id in part.ids { undoToasts?.pageClosing.end(id.rawValue) } }
-        let parts = (undoToasts?.pageDecidedCloses.absorb(parts) ?? parts).filter { !$0.ids.isEmpty }
+        let absorbed = (undoToasts?.pageDecidedCloses.absorb(parts) ?? parts).filter { !$0.ids.isEmpty }
+        // Tabs whose close already asks stay with that question (a selection that overlaps it closes the rest).
+        let parts = absorbed.map { part in (pane: part.pane, ids: part.ids.filter { !TabCloseGuard.asking.contains($0.rawValue) }) }
+            .filter { !$0.ids.isEmpty }
+        if parts.isEmpty, !absorbed.isEmpty { return absorbed[0].pane.services.registry.refuse(RefusalStrings.closeAlreadyAsking) }
         guard let first = parts.first?.pane else { return }
         let user = isUserClose, services = first.services, daemon = first.daemon
         let tabs = parts.flatMap { part in part.ids.compactMap(part.pane.tab) }
@@ -233,26 +245,30 @@ final class CloseUndoToasts {
             if let pushed = TabCloseGuard.pushedPrograms(terminals.filter { !asked.covers([$0]) }) {
                 return run(terminals.contains { (asked[$0.surface] ?? pushed[$0.surface]).flatMap { $0 } != nil })
             }
-            let ids = Set(tabs.map(\.id))
-            // The read is started before the close is sent (the toast must know what the terminal ran), but the close
-            // does not wait for it: the tabs leave the strip in this turn.
+            // The close does not wait for the read: the tabs leave the strip in this turn. The read is queued in this turn
+            // but reaches the daemon after the close's send may have; it still answers because a closed terminal is
+            // detached, not ended, and runs through the daemon's reap grace (terminal-reap-v1, 30 s by default). With
+            // a grace of 0 the read finds nothing and the toast is skipped (the close stays undoable with Cmd-Shift-T).
+            let token = reserveToken()
             // task-owner: one bounded process-info read per terminal (1 s each, concurrent), then the toast decision
             // main-hop-allow: the toast decision only (the close ran in the person's turn): it awaits the main-actor process-info reads
             Task { @MainActor [weak self] in
                 let costly = !(await DestructiveConfirmation.runningPrograms(of: terminals, on: daemon)).isEmpty
-                self?.decided(ids, costly: costly)
+                self?.decided(token, costly: costly)
             }
             run(nil)
         }
     }
 
-    /// The toast decision of a close whose tabs `ids` closed while it was read (``decideFirst(_:on:asked:then:)``):
-    /// its toast shows now if it is costly and every record is in, or when the last record comes.
-    func decided(_ ids: Set<String>, costly: Bool) {
-        guard let position = expected.firstIndex(where: { $0.deciding && $0.tabs.contains { ids.contains($0.id) } }) else { return }
-        expected[position].deciding = false
-        expected[position].costly = costly
-        if expected[position].daemonTabs >= expected[position].tabs.count { finish(at: position) }
+    /// The toast decision of the gesture `token` names, whose tabs closed while it was read (``decideFirst(_:on:asked:then:)``;
+    /// a gesture over several daemons waits as several entries with one token): each shows its toast now if it is costly
+    /// and every record is in, or when the last record comes.
+    func decided(_ token: UInt64, costly: Bool) {
+        while let position = expected.firstIndex(where: { $0.deciding && $0.token == token }) {
+            expected[position].deciding = false
+            expected[position].costly = costly
+            if expected[position].daemonTabs >= expected[position].tabs.count { finish(at: position) }
+        }
     }
 
     /// No action run (a click in the strip) or a user-origin run.
@@ -293,9 +309,14 @@ final class CloseUndoToasts {
         let pending = Set(expected.flatMap { $0.tabs.map(\.id) })
         guard !entries.contains(where: { pending.contains($0.id) }) else { return }
         let title = tabs.count == 1 ? Self.title(of: tabs[0], titles: services.map { TabTitleResolver(services: $0) } ?? TabTitleResolver()) : ""
+        // A deciding gesture takes the token its read reserved (the newest one); others get their own.
+        let token = costly == nil ? nextToken : reserveToken()
         expected.append(Expected(tabs: entries.sorted { $0.index < $1.index }, paneResourceIDs: Set(parts.compactMap(\.pane.resourceID)),
-                                 title: title, window: window, costly: costly ?? false, deciding: costly == nil))
-        if expected.count > 16 { expected.removeFirst(expected.count - 16) }
+                                 title: title, window: window, costly: costly ?? false, deciding: costly == nil, token: token))
+        // Over the cap: the oldest gestures that would show no toast go first, then the oldest of the rest.
+        while expected.count > 16 {
+            expected.remove(at: expected.firstIndex { !$0.costly && !$0.deciding } ?? 0)
+        }
     }
 
     /// A tab's name in its toast, as its strip and the sidebar name it

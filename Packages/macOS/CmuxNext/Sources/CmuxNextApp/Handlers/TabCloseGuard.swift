@@ -39,9 +39,10 @@ enum TabCloseGuard {
         guard CloseUndoToasts.isUserClose, window != nil, asks(tabs, services: services) else { return close([:]) }
         // A second close of tabs this close is already asking about (a double click on a close button, a Cmd-W
         // behind the question) is the same close: it goes to the question.
+        // CloseUndoToasts.close leaves out tabs whose close already asks; a close of only those goes to the question.
         guard tabs.contains(where: { !asking.contains($0.id) }) else {
-            // The question on screen is this press's answer (quiet: the question is what the person sees).
-            return services.registry.refuse(RefusalStrings.closeAlreadyAsking, quiet: true)
+            // The question on screen is this press's answer; the HUD says so (no press is silent).
+            return services.registry.refuse(RefusalStrings.closeAlreadyAsking)
         }
         let ids = Set(tabs.map(\.id)), terminals = askedTerminals(closing: tabs, services: services)
         // No terminal to ask (the program warning is off, or only agents work): the close, or the agent's
@@ -55,18 +56,44 @@ enum TabCloseGuard {
             return askNow(tabs, ids: ids, terminals: terminals, pushed: pushed, on: daemon, window: window, services: services, close: close)
         }
         asking.formUnion(ids)
-        reading.formUnion(ids)
+        reading[ids] = []
         // Only the daemon's read is awaited, off main; the close or the question is the person's completion, one
         // userBlocking task that answers the press.
         let end = services.registry.completion(on: services.mainWork)
         end.start {
             let asked = await DestructiveConfirmation.runningPrograms(bySurface: terminals, on: daemon)
             end.post(owner: "TabCloseGuard.close", answering: true) {
-                reading.subtract(ids)
+                let pending = reading.removeValue(forKey: ids) ?? []
                 answer(tabs, ids: ids, asked: asked, window: window, services: services, close: close)
+                runDeferred(pending, questionOpen: tabs.contains { asking.contains($0.id) }, services: services)
             }
         }
     }
+
+    // The presses made while a close read its terminals (a terminal that reports no shell state) are kept per read
+    // (``reading``), in order, and run once the read answered: to the question when one shows, else each closes the
+    // next tab as the strip is then (Lawrence 2026-10-28: presses during a confirmation go to it, and never close an
+    // idle neighbour behind a question that has not shown yet).
+
+    /// Keeps a person's Close Tab press aimed at `tab` while its close reads its terminals; false when no read runs.
+    /// `isRepeat`: the press is a key repeat (it keeps the boundary rule when it runs).
+    static func defers(_ tab: StripTabID, isRepeat: Bool) -> Bool {
+        guard let key = reading.keys.first(where: { $0.contains(tab.rawValue) }) else { return false }
+        reading[key, default: []].append(isRepeat)
+        return true
+    }
+
+    /// Runs the kept presses of a read that answered: into the open question (they close nothing; the HUD says so),
+    /// else each as a Close Tab of its own, in order.
+    private static func runDeferred(_ presses: [Bool], questionOpen: Bool, services: AppServices) {
+        for isRepeat in presses {
+            if questionOpen { services.registry.refuse(RefusalStrings.closeAlreadyAsking); continue }
+            services.registry.perform("closeTab", invocation: ActionInvocation(arguments: [deferredRepeatArgument: .bool(isRepeat)], origin: .user))
+        }
+    }
+
+    /// The invocation argument a kept press runs with: whether it was a key repeat.
+    static let deferredRepeatArgument = "deferredRepeat"
 
     /// Closes `tabs` now, or asks the question for them and closes on the person's yes. `asked`: what the
     /// terminals answered (``askedTerminals(closing:services:)``).
@@ -93,9 +120,16 @@ enum TabCloseGuard {
         case unknown
     }
 
-    /// `tab`'s pushed shell state (``TabModel/commandSinceMs``, ``TabModel/promptSinceMs``).
+    /// `tab`'s pushed shell state (``TabModel/commandSinceMs``, ``TabModel/commandInUse``, ``TabModel/promptSinceMs``).
+    ///
+    /// Limits (the read-after-close of the undo toast still names what ran): a nested shell with its own OSC 133 marks
+    /// (ssh or `docker exec` into an integrated shell) reports its prompt, so the tab reads idle while ssh runs; it then
+    /// closes without the question (its terminal survives the reap grace, and the toast's Undo brings it back). A
+    /// command typed a moment before the press may not be pushed yet. A shell replaced without integration (`exec
+    /// bash`) can leave a stale running command, which asks once. A daemon check of the PTY's foreground leader against
+    /// the shell would close these (cmux-tui follow-up).
     static func pushedState(_ tab: TabModel) -> PushedState {
-        if tab.commandSinceMs != nil { return .busy }
+        if tab.commandSinceMs != nil || tab.commandInUse { return .busy }
         return tab.promptSinceMs != nil ? .idle : .unknown
     }
 
@@ -154,9 +188,12 @@ enum TabCloseGuard {
     /// The tabs whose close is still asking (the daemon's read, then the question): they
     /// stay in their strip, selected, until it answers; a second close of them is the same close.
     private(set) static var asking: Set<String> = []
-    /// Those still in the daemon's read: a quick next Cmd-W skips them. Once the question
-    /// shows, a Cmd-W behind it closes nothing until the person answers.
-    private(set) static var reading: Set<String> = []
+    /// The closes still in the daemon's read, each with the presses kept behind it (a key repeat or not): a quick
+    /// next Cmd-W waits until the read answers (``defers(_:isRepeat:)``). Once the question shows, a Cmd-W behind it
+    /// closes nothing until the person answers.
+    private(set) static var reading: [Set<String>: [Bool]] = [:]
+    /// The tabs of the closes still in the daemon's read.
+    static var readingTabs: Set<String> { reading.keys.reduce(into: []) { $0.formUnion($1) } }
 
     /// The tab a user's Cmd-W on `id` closes: `id`, or while `id`'s close is still under way
     /// (`closing`: the daemon's read, or its page deciding), the tab selected once it closes (the
@@ -175,7 +212,7 @@ enum TabCloseGuard {
     static func cmdWTarget(_ id: StripTabID, in pane: PaneController) -> StripTabID? {
         let pages = pane.services.closedTabs?.undoToasts.pageClosing
         return cmdWTarget(id, in: pane.stripModel) { tab in
-            reading.contains(tab.rawValue) || pages?.contains(tab.rawValue) == true
+            pages?.contains(tab.rawValue) == true
         }
     }
 
@@ -189,7 +226,9 @@ enum TabCloseGuard {
         case .leftMouseDown?, .leftMouseUp?, .rightMouseDown?, .rightMouseUp?, .otherMouseDown?, .otherMouseUp?, .keyUp?:
             return .init(time: event?.timestamp ?? 0, isKey: false, isRepeat: false)
         default:
-            return .init(time: invocation.inputTimestamp ?? ProcessInfo.processInfo.systemUptime, isKey: false, isRepeat: false)
+            // A press kept during a terminal read runs later with its repeat flag (``defers(_:isRepeat:)``).
+            let isRepeat = invocation[deferredRepeatArgument]?.boolValue == true
+            return .init(time: invocation.inputTimestamp ?? ProcessInfo.processInfo.systemUptime, isKey: isRepeat, isRepeat: isRepeat)
         }
     }
 

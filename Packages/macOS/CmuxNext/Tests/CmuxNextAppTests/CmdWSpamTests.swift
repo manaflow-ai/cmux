@@ -74,6 +74,74 @@ struct CmdWSpamTests {
         }
     }
 
+    /// Review 1 of cp/spam-cmdw: an interactive program (less, vim, ssh: the daemon's `in_use`, which has no
+    /// running-command time) asks too, in press 1's turn; the presses behind it close no idle neighbour.
+    @Test func anInteractiveProgramAsksInThePressTurnToo() async throws {
+        try await Self.withZshApp(settings: nil) { services, connection in
+            let (pane, ids) = try await Self.terminalTabs(3, services, connection, atPrompt: true)
+            let busy = try #require(services.daemon.store.tab(id: ids[0]))
+            try await connection.send(busy.surface, text: "less /etc/hosts\r")
+            try await PinnedPageTests.until({ services.daemon.store.tab(id: ids[0]).map { $0.commandInUse || $0.commandSinceMs != nil } == true },
+                                            report: { "the daemon never reported less as a running command" })
+            pane.select(TabID(ids[0]))
+            let before = Set(CmuxDialogCenter.shared.records.map(\.id))
+            func questions() -> [CmuxDialogCenter.Record] { CmuxDialogCenter.shared.records.filter { !before.contains($0.id) } }
+            #expect(Self.press(services, repeat: false))
+            #expect(questions().count == 1, "press 1 did not ask in its own turn for less")
+            #expect(Self.press(services, repeat: false))
+            try await Task.sleep(for: .milliseconds(1500))
+            #expect(ids.allSatisfy { services.daemon.store.tab(id: $0) != nil }, "a press behind the question closed a tab")
+            for question in questions() { CmuxDialogCenter.shared.press(question.id, button: "cancel") }
+        }
+    }
+
+    /// Review 1 of cp/spam-cmdw: terminals with no shell state (sh, no integration) are read before the close asks.
+    /// Presses made during that read wait for it, in order: with a running program they go to the question and close
+    /// no idle neighbour; with none they each close the next tab.
+    @Test func pressesDuringAReadWaitForItAndGoToTheQuestion() async throws {
+        try await Self.withZshApp(settings: nil, shell: "/bin/sh") { services, connection in
+            let (pane, ids) = try await Self.terminalTabs(3, services, connection, atPrompt: false)
+            let busy = try #require(services.daemon.store.tab(id: ids[0]))
+            try await connection.send(busy.surface, text: "sleep 60\r")
+            try await Task.sleep(for: .milliseconds(500))
+            try #require(TabCloseGuard.pushedState(busy) == .unknown, "sh reported shell state")
+            pane.select(TabID(ids[0]))
+            let before = Set(CmuxDialogCenter.shared.records.map(\.id))
+            func questions() -> [CmuxDialogCenter.Record] { CmuxDialogCenter.shared.records.filter { !before.contains($0.id) } }
+            for _ in 0..<3 { #expect(Self.press(services, repeat: false)) }
+            try await PinnedPageTests.until({ !questions().isEmpty }, report: { "no question for sleep" })
+            try await Task.sleep(for: .milliseconds(800))
+            #expect(ids.allSatisfy { services.daemon.store.tab(id: $0) != nil }, "a press during the read closed an idle neighbour")
+            #expect(questions().count == 1, "\(questions().count) questions for one close")
+            for question in questions() { CmuxDialogCenter.shared.press(question.id, button: "cancel") }
+        }
+    }
+
+    /// Review 1 of cp/spam-cmdw: with the warning off, a terminal with no shell state closes in the press's turn, and
+    /// the undo toast still shows when it ran a program (the read decides after the close); an idle one shows none.
+    @Test func theToastStillShowsForAProgramWhenTheReadDecidesAfterTheClose() async throws {
+        try await Self.withZshApp(settings: #"{"app":{"warnBeforeClosingTab":false}}"#, shell: "/bin/sh") { services, connection in
+            let (pane, ids) = try await Self.terminalTabs(3, services, connection, atPrompt: false)
+            let window = try #require(pane.view.window)
+            let busy = try #require(services.daemon.store.tab(id: ids[0]))
+            try await connection.send(busy.surface, text: "sleep 60\r")
+            try await Task.sleep(for: .milliseconds(500))
+            pane.select(TabID(ids[0]))
+            #expect(Self.press(services, repeat: false))
+            #expect(pane.orderedIDs.count == 2, "the close waited for the read")
+            try await PinnedPageTests.until({ CmuxToastCenter.shared.toasts(in: window).contains { $0.id == CloseUndoToasts.toastID } },
+                                            report: { "no undo toast for a terminal that ran sleep" })
+            let shown = CmuxToastCenter.shared.toasts(in: window).filter { $0.id == CloseUndoToasts.toastID }.count
+            // An idle one, after the toast rate limit: no new toast (the open one does not count it).
+            services.closedTabs?.undoToasts.now = { .now + .seconds(600) }
+            pane.select(TabID(ids[1]))
+            #expect(Self.press(services, repeat: false))
+            try await Task.sleep(for: .milliseconds(2500))
+            #expect(CmuxToastCenter.shared.toasts(in: window).filter { $0.id == CloseUndoToasts.toastID }.count <= shown,
+                    "an idle terminal's close showed a toast")
+        }
+    }
+
     /// hold-shortcuts-ux.md 3: key repeat never crosses a boundary. A held Cmd-W closes the pane's tabs at the
     /// repeat rate and stops before its last tab; a new physical press closes that one (and the pane).
     @Test func aHeldCmdWStopsBeforeThePanesLastTabAndANewPressClosesIt() async throws {
@@ -152,7 +220,7 @@ struct CmdWSpamTests {
 
     /// ``PinnedPageTests/withApp(_:)`` with zsh terminals (the daemon injects its shell integration, so it pushes
     /// each terminal's prompt and running command), an empty home, and `settings` as the cmux.json.
-    static func withZshApp(settings json: String?, _ body: (AppServices, DaemonConnection) async throws -> Void) async throws {
+    static func withZshApp(settings json: String?, shell: String = "/bin/zsh", _ body: (AppServices, DaemonConnection) async throws -> Void) async throws {
         let binary = try #require(SameTreeDaemonBinary.url)
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("cn-cmdw-\(UUID().uuidString.prefix(8))")
         let home = root.appendingPathComponent("home")
@@ -162,7 +230,7 @@ struct CmdWSpamTests {
             work: BackgroundWork(label: "test.daemon-launcher"),
             configuration: .init(binary: binary, session: "cn-cmdw-\(UUID().uuidString.prefix(8).lowercased())",
                                  stateDirectory: root.appendingPathComponent("state")),
-            environment: { ["HOME": home.path, "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/zsh", "TERM": "xterm-256color"] })
+            environment: { ["HOME": home.path, "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": shell, "TERM": "xterm-256color"] })
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
         AppActions.bind(services)

@@ -118,6 +118,9 @@ public final class TabModel: Identifiable {
     /// When the terminal's running shell command started (`extra.busy.since_ms`: the daemon's
     /// OSC 133 C..D fact), nil at a prompt. How long it must run to show is the client's call.
     public internal(set) var commandSinceMs: UInt64?
+    /// Whether the terminal's shell command uses the terminal interactively (vim, less, htop, ssh, a REPL: the
+    /// daemon's `extra.activity` `in_use`); ``commandSinceMs`` is nil then. A close asks about it.
+    public internal(set) var commandInUse = false
     /// This clock's time when `commandSinceMs` arrived: another machine's daemon may run ahead.
     @ObservationIgnored public private(set) var commandSeenAt: Date?
     /// Bumped when `recheckCommand(after:)` fires: whoever read the command's age reads it again.
@@ -313,8 +316,9 @@ public final class TabModel: Identifiable {
 
     /// Lays the daemon's tab record and terminal progress over the record.
     func applyState(_ record: SessionStateMirror.TabRecord?, progress: TerminalProgressReport?, programStatus: [ProgramStatusRecord] = [],
-                    commandSinceMs: UInt64? = nil, promptSinceMs: UInt64? = nil, lastOutputMs: UInt64? = nil) {
+                    commandSinceMs: UInt64? = nil, promptSinceMs: UInt64? = nil, lastOutputMs: UInt64? = nil, commandInUse: Bool = false) {
         let record = record ?? SessionStateMirror.TabRecord()
+        if self.commandInUse != commandInUse { self.commandInUse = commandInUse }
         if zoom != record.zoom { zoom = record.zoom }
         if userIcon != record.icon { userIcon = record.icon }
         if emulation != record.emulation { emulation = record.emulation }

@@ -12,7 +12,7 @@ public enum SessionStateChange: Sendable, Hashable {
     /// A terminal's OSC 9;4 progress, OSC 7501 program status records, running shell command, prompt
     /// and last output.
     case terminal(ResourceID, TerminalProgressReport?, programStatus: [ProgramStatusRecord] = [], busySinceMs: UInt64? = nil,
-                  promptSinceMs: UInt64? = nil, lastOutputMs: UInt64? = nil)
+                  promptSinceMs: UInt64? = nil, lastOutputMs: UInt64? = nil, commandInUse: Bool = false)
     case closed(ClosedItem)
     case closedRemoved(String)
     case status(WorkspaceStatus)
@@ -183,6 +183,14 @@ enum SessionWire {
             return busy["since_ms"]?.stringValue.flatMap { UInt64($0, radix: 10) }
         }
 
+        /// Whether a shell command runs that uses the terminal interactively (`extra.activity.state` `in_use`: vim,
+        /// less, htop, ssh, a REPL). ``busySinceMs`` leaves it out (it is not work in progress), but it is a program a
+        /// close must ask about.
+        var commandInUse: Bool {
+            guard case .object(let activity)? = extra?["activity"], case .object? = extra?["busy"] else { return false }
+            return activity["state"]?.stringValue == "in_use"
+        }
+
         /// Since when the shell sits at its prompt (`extra.prompt.since_ms`: OSC 133 A until C), nil
         /// while a command runs and for a shell without integration.
         var promptSinceMs: UInt64? { ms(extra?["prompt"], "since_ms") }
@@ -200,7 +208,7 @@ enum SessionWire {
         /// The terminal's change as the mirror applies it.
         func terminalChange(_ id: ResourceID) -> SessionStateChange {
             .terminal(id, progress, programStatus: programStatus, busySinceMs: busySinceMs, promptSinceMs: promptSinceMs,
-                      lastOutputMs: lastOutputMs)
+                      lastOutputMs: lastOutputMs, commandInUse: commandInUse)
         }
     }
 

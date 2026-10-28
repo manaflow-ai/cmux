@@ -58,7 +58,7 @@ struct RapidCloseTabTests {
         }
         // A terminal's close waits for the daemon's read first; the presses during it close the next tabs.
         if terminals {
-            #expect(Set(ids.prefix(3)).isSubset(of: TabCloseGuard.reading), "the closes did not wait for the read")
+            #expect(Set(ids.prefix(3)).isSubset(of: TabCloseGuard.readingTabs), "the closes did not wait for the read")
             try await PinnedPageTests.until({ pane.orderedIDs.map(\.rawValue) == expected })
         }
         let after: [String] = pane.orderedIDs.map(\.rawValue)

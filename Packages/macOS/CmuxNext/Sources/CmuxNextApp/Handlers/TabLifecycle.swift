@@ -403,15 +403,12 @@ enum TabLifecycle {
                 return ctx.refuse(RefusalStrings.closeAimedAtClosedPane)
             }
             guard let (pane, selected) = ctx.tab(invocation) else { return }
-            // A Cmd-W while the last one's close still asks the daemon closes the next tab (TabCloseGuard).
+            // A Cmd-W while the selected tab's close still reads its terminals waits for that read, in order: it
+            // then goes to the question if one shows, else closes the next tab (TabCloseGuard.defers).
+            if invocation.origin == .user, TabCloseGuard.defers(selected, isRepeat: press.isRepeat) { return }
             guard let id = invocation.origin == .user ? TabCloseGuard.cmdWTarget(selected, in: pane) : selected else {
                 // Every tab of the pane is already closing (or asking): this press has nothing left to close here.
                 return ctx.refuse(RefusalStrings.everyTabClosing)
-            }
-            // Key repeat never crosses a boundary (hold-shortcuts-ux.md 3): a held Cmd-W closes the pane's tabs
-            // and stops before its last one; closing the pane (or the workspace) takes a new press.
-            if invocation.origin == .user, press.isRepeat, TabCloseGuard.empties(pane, closing: [id]) {
-                return ctx.refuse(RefusalStrings.heldCloseStopsAtLastTab)
             }
             // The user's Cmd-W closes a pinned tab, as Chrome's does, unless `tabs.cmdWClosesPinnedTabs`
             // is off (then it keeps it, PINNED-ITEMS-END-TO-END P3); the tab menu, the CLI and MCP close it either way.
@@ -420,11 +417,17 @@ enum TabLifecycle {
                 // Several selected tabs close together (Chrome); a selected pinned tab stays, as above.
                 if let selected = pane.stripModel.keyboardCloseSelection(id, closesPinned: closesPinned) {
                     let empties = TabCloseGuard.empties(pane, closing: selected)
+                    // Key repeat never crosses a boundary (hold-shortcuts-ux.md 3): a new press empties the pane.
+                    if press.isRepeat, empties { return ctx.refuse(RefusalStrings.heldCloseStopsAtLastTab) }
                     if empties { pane.workspace?.focus.noteEmptied(pane.paneKey, by: press) }
                     trace.closed(tabs: selected.map(\.rawValue), emptiesPane: empties, input: input)
                     return CloseUndoToasts.close(in: pane, selected)
                 }
                 switch pane.stripModel.keyboardClose(id, closesPinned: closesPinned) {
+                // Key repeat never crosses a boundary (hold-shortcuts-ux.md 3): a held Cmd-W closes the pane's tabs
+                // and stops before its last one; closing the pane (or the workspace) takes a new press.
+                case .close where press.isRepeat && TabCloseGuard.empties(pane, closing: [id]):
+                    return ctx.refuse(RefusalStrings.heldCloseStopsAtLastTab)
                 case .close: break
                 case .select(let next): return pane.select(next)
                 case .keep: return ctx.refuse(RefusalStrings.pinnedTabKept)
