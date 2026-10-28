@@ -69,6 +69,7 @@ export function WaitingMessagesCard({
     senders.length === 1
       ? t("message.waitingFromOne", { n })
       : t("message.waitingFrom", { n, sessions: senders.length });
+  const isChat = waiting.delivery === "chat";
   return (
     <div className="cv-waiting" data-open={open || undefined} data-delivery={waiting.delivery}>
       {/* Find counts the messages' text, not the head's names. */}
@@ -93,9 +94,11 @@ export function WaitingMessagesCard({
             ))}
           </span>
         </button>
-        <span className="cv-received__queued">
-          {t(waiting.delivery === "step" ? "message.readAfterStep" : "message.readAfterTurn")}
-        </span>
+        {!isChat && (
+          <span className="cv-received__queued">
+            {t(waiting.delivery === "step" ? "message.readAfterStep" : "message.readAfterTurn")}
+          </span>
+        )}
       </div>
       <div id={bodyId} className="cv-waiting__messages" hidden={!open}>
         {open &&
