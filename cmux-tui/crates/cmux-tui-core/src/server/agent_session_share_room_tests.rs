@@ -1,6 +1,6 @@
 //! The link share bridge against a fake room (cmux-platform's `ChatShareRoom` HTTP API):
 //! provisioning, its retry and give-up, a refusal, and revoke's `DELETE`.
-use super::super::{digest, hex};
+use super::super::{digest, hex, MAX_SHARES};
 use super::*;
 use crate::server::agent_session_attach_tests::{
     Client, FakeAcpmux, SESSION, WAIT, agent_tab, assert_code, mux_with,
@@ -11,6 +11,7 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
+use std::sync::Condvar;
 use std::time::Instant;
 
 const OWNER_TOKEN: &str = "owner-access-token";
@@ -31,6 +32,12 @@ struct Shared {
     on_put: Mutex<Option<Box<dyn FnOnce() + Send>>>,
     /// Overrides the next successful `PUT`'s URL base (used to exercise bad room responses).
     url_base_once: Mutex<Option<String>>,
+    /// Holds every `DELETE` response until the test releases it.
+    delete_gate: Mutex<Option<Arc<(Mutex<bool>, Condvar)>>>,
+    /// Signals a test watcher as each `DELETE` enters the fake room.
+    delete_entered: Mutex<Option<Sender<()>>>,
+    delete_active: AtomicU64,
+    delete_peak: AtomicU64,
     host_tokens: AtomicU64,
 }
 
@@ -96,6 +103,22 @@ impl FakeRoom {
             Seen::Request { path, bearer, body, .. } => (path, bearer, body),
         }
     }
+
+    fn block_deletes(&self) -> Arc<(Mutex<bool>, Condvar)> {
+        let gate = Arc::new((Mutex::new(false), Condvar::new()));
+        *self.shared.delete_gate.lock().unwrap() = Some(gate.clone());
+        gate
+    }
+
+    fn watch_delete(&self) -> Receiver<()> {
+        let (sender, receiver) = channel();
+        *self.shared.delete_entered.lock().unwrap() = Some(sender);
+        receiver
+    }
+
+    fn delete_peak(&self) -> u64 {
+        self.shared.delete_peak.load(Ordering::SeqCst)
+    }
 }
 
 fn serve(stream: TcpStream, shared: &Shared, seen: &Sender<Seen>, base: &str) {
@@ -122,6 +145,14 @@ fn serve(stream: TcpStream, shared: &Shared, seen: &Sender<Seen>, base: &str) {
     let mut body = vec![0; length];
     reader.read_exact(&mut body).unwrap();
     let body = serde_json::from_slice(&body).unwrap_or(Value::Null);
+    let is_delete = method == "DELETE";
+    if is_delete {
+        let active = shared.delete_active.fetch_add(1, Ordering::SeqCst) + 1;
+        shared.delete_peak.fetch_max(active, Ordering::SeqCst);
+        if let Some(sender) = shared.delete_entered.lock().unwrap().take() {
+            let _ = sender.send(());
+        }
+    }
     let (status, reply) = match method.as_str() {
         "PUT" => match shared.puts.lock().unwrap().pop_front() {
             None if shared.on_put.lock().unwrap().is_some() => {
@@ -158,6 +189,16 @@ fn serve(stream: TcpStream, shared: &Shared, seen: &Sender<Seen>, base: &str) {
         _ => (shared.deletes.lock().unwrap().pop_front().unwrap_or(200), json!({})),
     };
     let _ = seen.send(Seen::Request { method, path, bearer, body });
+    if is_delete {
+        if let Some(gate) = shared.delete_gate.lock().unwrap().clone() {
+            let (released, wake) = &*gate;
+            let mut released = released.lock().unwrap();
+            while !*released {
+                released = wake.wait(released).unwrap();
+            }
+        }
+        shared.delete_active.fetch_sub(1, Ordering::SeqCst);
+    }
     let reply = reply.to_string();
     let mut stream = stream;
     let _ = write!(
@@ -345,6 +386,151 @@ fn a_delete_stops_retrying_after_share_expiry_even_with_its_host_token() {
         |s| matches!(s, Seen::Request { method, .. } if method == "DELETE"),
     );
     assert_eq!(state(&mut owner)["state"], "revoked");
+}
+
+#[test]
+fn a_slow_expired_delete_has_one_in_flight_worker() {
+    let room = FakeRoom::start(&[]);
+    let gate = room.block_deletes();
+    let (_fake, mux, surface, mut owner) = bridged("room-delete-slow", &room);
+    let share = create(&mut owner, surface)["data"].clone();
+    room.request("PUT");
+    let first = room.watch_delete();
+    let revoke = json!({"cmd":"agent-session-share-revoke", "share_id":share["share_id"]});
+    assert_eq!(owner.request(revoke)["ok"], true);
+    first.recv_timeout(WAIT).expect("the first DELETE enters the room");
+
+    // The expiry sweep races the slow request. It must not dispatch a second worker for the same
+    // queued operation while the first worker is waiting for the room response.
+    let duplicate = room.watch_delete();
+    shares_of(&mux).advance(Duration::from_secs(2 * 86_400));
+    shares_of(&mux).expired(&mux);
+    assert!(
+        shares_of(&mux).armed.lock().unwrap().is_none(),
+        "the dispatched expiry is not rearmed"
+    );
+    assert!(duplicate.recv_timeout(Duration::from_millis(300)).is_err());
+
+    let (released, wake) = &*gate;
+    *released.lock().unwrap() = true;
+    wake.notify_all();
+    room.request("DELETE");
+    assert_eq!(room.delete_peak(), 1, "one DELETE worker remains in flight");
+}
+
+#[test]
+fn a_failed_expired_delete_has_one_in_flight_worker() {
+    let room = FakeRoom::start(&[]);
+    room.shared.deletes.lock().unwrap().push_back(503);
+    let gate = room.block_deletes();
+    let (_fake, mux, surface, mut owner) = bridged("room-delete-failed", &room);
+    let share = create(&mut owner, surface)["data"].clone();
+    room.request("PUT");
+    let first = room.watch_delete();
+    let revoke = json!({"cmd":"agent-session-share-revoke", "share_id":share["share_id"]});
+    assert_eq!(owner.request(revoke)["ok"], true);
+    first.recv_timeout(WAIT).expect("the failed DELETE enters the room");
+
+    // Even a failed response that is still in flight must be owned by one cleanup worker; a
+    // repeated expiry sweep cannot fan out duplicate retries.
+    let duplicate = room.watch_delete();
+    shares_of(&mux).advance(Duration::from_secs(2 * 86_400));
+    shares_of(&mux).expired(&mux);
+    assert!(
+        shares_of(&mux).armed.lock().unwrap().is_none(),
+        "the dispatched expiry is not rearmed"
+    );
+    assert!(duplicate.recv_timeout(Duration::from_millis(300)).is_err());
+
+    let (released, wake) = &*gate;
+    *released.lock().unwrap() = true;
+    wake.notify_all();
+    room.request("DELETE");
+    assert_eq!(room.delete_peak(), 1, "one failed DELETE worker remains in flight");
+}
+
+#[test]
+fn revoking_an_already_expired_share_starts_room_cleanup() {
+    let room = FakeRoom::start(&[]);
+    let (_fake, mux, surface, mut owner) = bridged("room-revoke-expired", &room);
+    let share = create(&mut owner, surface)["data"].clone();
+    room.request("PUT");
+
+    // `with` marks an active share expired before the revoke runs. The room DELETE still has to
+    // be scheduled even though the normal live-to-ended transition is no longer present.
+    shares_of(&mux).advance(Duration::from_secs(2 * 86_400));
+    shares_of(&mux).expired(&mux);
+    let revoke = json!({"cmd":"agent-session-share-revoke", "share_id":share["share_id"]});
+    assert_eq!(owner.request(revoke)["ok"], true);
+    let (_, bearer, _) = room.request("DELETE");
+    assert_eq!(bearer, "host-token-1");
+}
+
+#[test]
+fn restart_resumes_roomless_pending_deletes_at_expiry_and_frees_capacity() {
+    let room = FakeRoom::start(&[]);
+    let root = std::env::temp_dir()
+        .join(format!("cmux-room-restart-{}", crate::workspace_registry::new_uuid_v4()));
+    let options = crate::SurfaceOptions::default();
+    let mux = Mux::open_persistent("room-restart", options.clone(), &root).unwrap();
+    let shares = shares_of(&mux);
+    let directory = mux.session_state_directory().unwrap();
+    let expires_at = shares.now().saturating_add(60_000);
+    shares
+        .with(Some(&directory), |all, _| {
+            all.extend((0..MAX_SHARES).map(|index| LinkShare {
+                share_id: format!("pending-{index}"),
+                session: SESSION.into(),
+                surface: 1,
+                created_at: expires_at.saturating_sub(60_000),
+                expires_at,
+                uses_left: 0,
+                state: ShareState::Revoked,
+                secret_sha256: String::new(),
+                provision_key: None,
+                room: None,
+                pending_room_ops: vec![json!({"op": "delete"})],
+                guests: Vec::new(),
+            }));
+            Ok(((), true))
+        })
+        .unwrap();
+    let initial_pending = shares
+        .with(Some(&directory), |all, _| {
+            Ok((
+                all.iter()
+                    .filter(|share| !share.pending_room_ops.is_empty())
+                    .count(),
+                false,
+            ))
+        })
+        .unwrap();
+    assert_eq!(initial_pending, MAX_SHARES);
+
+    mux.shutdown();
+    drop(mux);
+    let mux = Mux::open_persistent("room-restart", options, &root).unwrap();
+    let shares = shares_of(&mux);
+
+    // A restart has no owner credential or host token for these failed provisions. It must still
+    // resume the records and wake a credentialless cleanup at their expiry.
+    start_link_share_bridge(&mux, Some(&room.url));
+    shares.advance(Duration::from_secs(2 * 86_400));
+    shares.expired(&mux);
+    let pending = shares
+        .with(Some(&directory), |all, _| {
+            Ok((
+                all.iter()
+                    .filter(|share| !share.pending_room_ops.is_empty())
+                    .count(),
+                false,
+            ))
+        })
+        .unwrap();
+    assert_eq!(pending, 0, "credentialless pending room deletes settle at expiry");
+    assert!(shares.insert(Some(&directory), SESSION.into(), 1, 3600, 1, false).is_ok());
+    drop(mux);
+    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
