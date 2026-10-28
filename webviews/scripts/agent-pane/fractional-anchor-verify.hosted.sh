@@ -31,6 +31,28 @@ if (( red_status == 0 )); then
   exit 1
 fi
 printf 'fractional-anchor: controlled-reversion status=%s\n' "$red_status"
+# The last reviewed source retained a canceled upward input until an unrelated native clamp.
+git fetch --no-tags --depth=1 origin ebb38fe7eadafb72485bcb023120b2b8a9e91e3c
+saved=$(mktemp /tmp/cmux-anchor-app.XXXXXXXX)
+cp "$app" "$saved"
+trap restore EXIT
+git show ebb38fe7eadafb72485bcb023120b2b8a9e91e3c:webviews/src/agent-session/acpmux/App.tsx > "$app"
+red_log=$(mktemp /tmp/cmux-anchor-canceled.XXXXXXXX)
+red_status=0
+(cd "$repo_root/webviews" && bun test test/transcript-row-renders.test.tsx \
+  --test-name-pattern 'no-op upward gesture') > "$red_log" 2>&1 || red_status=$?
+cat "$red_log"
+restore
+trap - EXIT
+python3 - "$red_log" "$red_status" <<'PYRED'
+from pathlib import Path
+import re
+import sys
+log = re.sub(r"\x1b\[[0-9;]*m", "", Path(sys.argv[1]).read_text())
+assert int(sys.argv[2]) != 0, 'canceled-input discriminator unexpectedly passed old source'
+assert len(re.findall(r"^\(fail\).*a no-op upward gesture", log, re.M)) == 2, log[-4000:]
+PYRED
+rm -f "$red_log"
 cd "$repo_root/webviews"
 bun test test/transcript-row-renders.test.tsx \
   src/agent-session/acpmux/conversation/scrollAnchorOrigin.test.ts \

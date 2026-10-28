@@ -262,7 +262,9 @@ for (const gesture of ["pointer", "canceled wheel"] as const)
       Object.defineProperty(scroller, "scrollTop", {
         configurable: true,
         get: () => Math.min(physical, Math.max(0, parseFloat(spacer.style.height) - VIEWPORT)),
-        set: (value: number) => { physical = Math.round(value); },
+        set: (value: number) => {
+          physical = Math.round(value);
+        },
       });
       Object.defineProperty(scroller, "scrollHeight", {
         configurable: true,
@@ -271,9 +273,7 @@ for (const gesture of ["pointer", "canceled wheel"] as const)
       const logical = () =>
         scroller.scrollTop - (parseFloat(scroller.style.getPropertyValue("--acpmux-scroll-origin")) || 0);
       const mounted = [...scroller.querySelectorAll<HTMLElement>(".acpmux-row")];
-      const anchor = mounted.find(
-        (node) => parseFloat(node.style.top) + drawnHeight(node.dataset.rowId!) > logical(),
-      )!;
+      const anchor = mounted.find((node) => parseFloat(node.style.top) + drawnHeight(node.dataset.rowId!) > logical())!;
       const above = mounted
         .filter((node) => parseFloat(node.style.top) + drawnHeight(node.dataset.rowId!) <= logical())
         .at(-1)!;
@@ -289,9 +289,15 @@ for (const gesture of ["pointer", "canceled wheel"] as const)
         } else {
           // A nested control cancels the native wheel after transcript capture observed it.
           anchor.addEventListener("wheel", (event) => event.preventDefault(), { once: true });
-          expect(anchor.dispatchEvent(new dom.window.WheelEvent("wheel", {
-            bubbles: true, cancelable: true, deltaY: -1,
-          }))).toBe(false);
+          expect(
+            anchor.dispatchEvent(
+              new dom.window.WheelEvent("wheel", {
+                bubbles: true,
+                cancelable: true,
+                deltaY: -1,
+              }),
+            ),
+          ).toBe(false);
         }
         drawnHeights.set(above.dataset.rowId!, drawnHeight(above.dataset.rowId!) - 20);
         observers.get(above)!([{ target: above }]);

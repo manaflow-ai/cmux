@@ -3830,17 +3830,27 @@ export function VirtualTranscript({
     };
     // A long scrollbar drag/touch gesture remains reader input after its initial press expires.
     // Track a drag outside the scroller too, without treating unrelated pointer motion as input.
-    const readerMove = (event: PointerEvent) => {
-      if (!event.buttons) dragging = false;
-      if (dragging) reader(event);
-    };
     const readerReleased = () => {
       dragging = false;
+      readerUpPending.current = false;
+    };
+    const readerMove = (event: PointerEvent) => {
+      if (!event.buttons) readerReleased();
+      if (dragging) reader(event);
+    };
+    // Capture may see upward input that a nested control later cancels. Such input has no
+    // native scroll event to acknowledge it; it must not turn a later resize clamp into a move.
+    const readerCanceled = (event: Event) => {
+      if (event.defaultPrevented && node?.contains(event.target as Node)) readerUpPending.current = false;
     };
     const ownerDocument = node?.ownerDocument;
     ownerDocument?.addEventListener("pointermove", readerMove, { capture: true, passive: true });
     ownerDocument?.addEventListener("pointerup", readerReleased, { capture: true });
     ownerDocument?.addEventListener("pointercancel", readerReleased, { capture: true });
+    ownerDocument?.addEventListener("lostpointercapture", readerReleased, { capture: true });
+    ownerDocument?.defaultView?.addEventListener("blur", readerReleased);
+    const canceledInputs = ["wheel", "keydown"] as const;
+    for (const name of canceledInputs) ownerDocument?.addEventListener(name, readerCanceled, { passive: true });
     const inputs = ["wheel", "pointerdown", "touchstart", "touchmove", "keydown"] as const;
     for (const name of inputs) node?.addEventListener(name, reader, { capture: true, passive: true });
     // A click on a disclosure line holds it where it is (foldAnchor.ts), before the row's own handler
@@ -3916,6 +3926,9 @@ export function VirtualTranscript({
       ownerDocument?.removeEventListener("pointermove", readerMove, { capture: true });
       ownerDocument?.removeEventListener("pointerup", readerReleased, { capture: true });
       ownerDocument?.removeEventListener("pointercancel", readerReleased, { capture: true });
+      ownerDocument?.removeEventListener("lostpointercapture", readerReleased, { capture: true });
+      ownerDocument?.defaultView?.removeEventListener("blur", readerReleased);
+      for (const name of canceledInputs) ownerDocument?.removeEventListener(name, readerCanceled);
       node?.removeEventListener("click", holdClicked, { capture: true });
       node?.removeEventListener(ANCHORED_COLLAPSE_EVENT, holdAsked);
       for (const name of releases) node?.removeEventListener(name, release);
