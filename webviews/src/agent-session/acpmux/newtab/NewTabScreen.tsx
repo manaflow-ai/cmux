@@ -1147,9 +1147,13 @@ export function NewTabScreen(props: Props) {
     capture: Boolean(props.capture && !shell),
     commands: !shell,
     project: Boolean(props.onBrowseProject && !shell),
+    // Plan only where the send continues the deferred chat that holds the pick: a no-project or
+    // another machine's send is a fresh `chat.new`, which cancels that switch and drops the mode.
     mode: Boolean(
       props.onPlusMode &&
       !shell &&
+      !plusTarget?.noProject &&
+      !plusTarget?.peer &&
       props.runMode?.mode !== "sandboxed" &&
       !(environment?.kind === "local" && environment.worktree),
     ),

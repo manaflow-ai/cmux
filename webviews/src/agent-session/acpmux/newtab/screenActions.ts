@@ -95,12 +95,15 @@ export function newTabScreenActions(deps: {
     },
     // The + menu's Plan/Build row (plusActions.ts), as the page's mode chip sends it (App
     // `DefaultComposerChips`): the deferred start for the picked harness and folder first, then the
-    // mode, which the switch holds until that chat starts. `chat.new` for the switch already running
-    // is that switch. A pick for another machine or no project has no deferred start (`chat.new`
-    // would open the chat itself), so only the mode goes. A refused mode rejects: the menu stays
-    // open with its error.
+    // mode, which the switch holds until that chat starts, and the page's send continues that chat.
+    // `chat.new` for the switch already running is that switch. The page offers no Plan for another
+    // machine or no project: their send is a fresh `chat.new` that cancels the switch, so a held mode
+    // would be lost. A refused mode rejects: the menu stays open with its error.
     async onPlusMode(pick) {
-      if (!deps.chatStarted?.() && !pick.peer && !pick.noProject)
+      if (pick.peer || pick.noProject)
+        // l10n-allow: a developer guard; the page never offers Plan for these targets (NewTabScreen `mode`).
+        throw new Error("Plan is offered only for a chat in a project on this Mac");
+      if (!deps.chatStarted?.())
         ignore(
           callNative("chat.new", {
             harness: pick.harness,

@@ -36,14 +36,14 @@ test("a chat that already started takes only the mode", async () => {
   expect(calls).toEqual([["chat.mode", { modeId: "default" }]]);
 });
 
-test("another machine or no project has no deferred start: chat.new would open the chat itself", async () => {
+test("another machine or no project is refused: its send would start a fresh chat without the mode", async () => {
   for (const pick of [
     { harness: "codex", peer: "mini-2", modeId: "plan" },
     { harness: "codex", noProject: true as const, modeId: "plan" },
   ]) {
     const { actions, calls } = host();
-    await actions.onPlusMode?.(pick);
-    expect(calls).toEqual([["chat.mode", { modeId: "plan" }]]);
+    await expect(actions.onPlusMode?.(pick) ?? Promise.resolve()).rejects.toThrow();
+    expect(calls).toEqual([]);
   }
 });
 
