@@ -288,6 +288,8 @@ pub mod method {
     pub const MUX_AGENT_PAIR_RESUME: &str = "_acpmux/agent_pair_resume";
     /// Retry a chat's failed last turn now (`hub/auto_resume/retry_turn.rs`).
     pub const MUX_RETRY: &str = "_acpmux/retry";
+    /// What this daemon knows of a chat's sign-in (`hub/session_auth.rs`).
+    pub const MUX_SESSION_AUTH: &str = "_acpmux/session/auth";
     pub const MUX_INFO: &str = "_acpmux/info";
     /// Metadata-only paths for a session's config and state files; local Unix socket only.
     pub const MUX_SESSION_FILES: &str = "_acpmux/session_files";
