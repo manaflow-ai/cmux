@@ -42,7 +42,7 @@ describe("credits checkout is one tap for a returning payer (paid-plan step 4)",
     const made = fakeStripe()
 
     expect(await topup(t, 10)).toBe(200)
-    expect(made[0]).toMatchObject({ customer_creation: "always", "payment_intent_data[setup_future_usage]": "on_session" })
+    expect(made[0]).toMatchObject({ customer_creation: "always", "payment_intent_data[setup_future_usage]": "off_session" })
 
     // The first paid top-up recorded the team's customer (grantPaidSession).
     await inDO(testEnv.USAGE_METER_DO.get(testEnv.USAGE_METER_DO.idFromName(team)), async (m) => {
@@ -51,7 +51,7 @@ describe("credits checkout is one tap for a returning payer (paid-plan step 4)",
     expect(await topup(t, 20)).toBe(200)
     expect(made[1]).toMatchObject({
       customer: "cus_TestFast123",
-      "payment_intent_data[setup_future_usage]": "on_session",
+      "payment_intent_data[setup_future_usage]": "off_session",
       "saved_payment_method_options[allow_redisplay_filters][0]": "always",
       "saved_payment_method_options[allow_redisplay_filters][1]": "limited",
       "saved_payment_method_options[allow_redisplay_filters][2]": "unspecified"
