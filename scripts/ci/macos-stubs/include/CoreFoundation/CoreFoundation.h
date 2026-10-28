@@ -13,9 +13,9 @@ typedef unsigned char Boolean;
 // values in a CFTypeRef dictionary); distinct incomplete struct names turn
 // those ABI-compatible conversions into compile errors in cgo.
 typedef struct __CFType *CFTypeRef;
-typedef struct __CFType *CFAllocatorRef;
-typedef struct __CFType *CFStringRef;
-typedef struct __CFType *CFMutableDictionaryRef;
+typedef CFTypeRef CFAllocatorRef;
+typedef CFTypeRef CFStringRef;
+typedef CFTypeRef CFMutableDictionaryRef;
 extern const CFAllocatorRef kCFAllocatorDefault;
 #define kCFStringEncodingUTF8 ((CFStringEncoding)0x08000100)
 #define CFSTR(value) ((CFStringRef)__builtin___CFStringMakeConstantString(value))
@@ -25,11 +25,11 @@ extern Boolean CFStringGetCString(CFStringRef, char *, CFIndex, CFStringEncoding
 extern void CFRelease(CFTypeRef);
 // Additional public ABI consumed by tailscale/certstore's pinned Darwin bridge.
 typedef uint8_t UInt8;
-typedef struct __CFType *CFArrayRef;
-typedef struct __CFType *CFDataRef;
-typedef struct __CFType *CFDictionaryRef;
-typedef struct __CFType *CFErrorRef;
-typedef struct __CFType *CFBooleanRef;
+typedef CFTypeRef CFArrayRef;
+typedef CFTypeRef CFDataRef;
+typedef CFTypeRef CFDictionaryRef;
+typedef CFTypeRef CFErrorRef;
+typedef CFTypeRef CFBooleanRef;
 typedef struct { CFIndex location; CFIndex length; } CFRange;
 typedef struct CFArrayCallBacks CFArrayCallBacks;
 typedef struct CFDictionaryKeyCallBacks CFDictionaryKeyCallBacks;

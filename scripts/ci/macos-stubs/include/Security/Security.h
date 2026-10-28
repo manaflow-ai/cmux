@@ -6,11 +6,11 @@ typedef int32_t OSStatus;
 // Security handles are opaque pointers, just like CoreFoundation handles.
 // Using the same named pointer keeps cgo's explicit CFTypeRef casts valid
 // while preserving the platform ABI (all handles are one pointer wide).
-typedef struct __CFType *SecCertificateRef;
-typedef struct __CFType *SecIdentityRef;
-typedef struct __CFType *SecKeyRef;
-typedef struct __CFType *SecPolicyRef;
-typedef struct __CFType *SecTrustRef;
+typedef CFTypeRef SecCertificateRef;
+typedef CFTypeRef SecIdentityRef;
+typedef CFTypeRef SecKeyRef;
+typedef CFTypeRef SecPolicyRef;
+typedef CFTypeRef SecTrustRef;
 typedef CFStringRef SecKeyAlgorithm;
 enum { errSecSuccess = 0, errSecItemNotFound = -25300 };
 extern OSStatus SecItemCopyMatching(CFDictionaryRef, CFTypeRef *);
