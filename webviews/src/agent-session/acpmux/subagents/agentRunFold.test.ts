@@ -273,6 +273,38 @@ for (const [label, records] of [
   });
 }
 
+for (const [label, mcpName, shellName, actual] of [
+  ["case fold", "Alpha", "alpha", "alpha"],
+  ["punctuation", "Review/router", "review-router", "review-router"],
+  ["separator run", "Alpha___Beta", "alpha-beta", "alpha-beta"],
+] as const) {
+  test(`daemon name normalization cannot pair ${label} MCP and shell starts`, () => {
+    const { fold, send } = folder();
+    send(call("shell", `acpmux run --parent chat-1 -n ${shellName} "Shell task"`));
+    send(sessionStart("mcp", "claude", mcpName, "MCP task"));
+    expect(
+      child(fold, 20, {
+        childSessionId: "normalized-mcp",
+        event: "started",
+        shortName: actual,
+        prompt: "MCP task",
+        harness: "codex",
+      }),
+    ).toBeUndefined();
+    expect(
+      child(fold, 21, {
+        childSessionId: "normalized-shell",
+        event: "started",
+        shortName: `${actual}-2`,
+        prompt: "Shell task",
+        harness: "codex",
+      }),
+    ).toBeUndefined();
+    expect(fold.isRun("shell")).toBe(false);
+    expect(fold.all()).toEqual([]);
+  });
+}
+
 test("an overlapping start stays ambiguous after the other shell call fails", () => {
   const { fold, send } = folder();
   send(call("shell-a", PARENT_RUN));
