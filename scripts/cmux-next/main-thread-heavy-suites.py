@@ -21,8 +21,10 @@ from pathlib import Path
 FRAME_DRIVERS = re.compile(r"CATransaction\.flush\(\)|\.displayIfNeeded\(\)|\bdrawFrame\(")
 # Suites the frame scan cannot see: real WebKit downloads block the main thread in a kernel call.
 ALWAYS = {("CmuxNextBrowserTests", "RemoteVideoPageTests")}
-TYPE_DECL = re.compile(r"^(?:@[^\n]*\s+)*(?:(?:public|package|internal|private|fileprivate|final)\s+)*"
-                       r"(?:struct|class|enum|actor)\s+([A-Z][A-Za-z0-9_]*)", re.M)
+# A top-level declaration only: its attributes may sit on lines of their own, but each such line starts at
+# column 0, so a nested (indented) type is never read as a top-level one.
+TYPE_DECL = re.compile(r"^(?:@\w+(?:\([^\n]*?\))?(?:[ \t]+|\n))*(?:(?:public|package|internal|private|fileprivate|final)[ \t]+)*"
+                       r"(?:struct|class|enum|actor)[ \t]+([A-Z][A-Za-z0-9_]*)", re.M)
 EXTENSION = re.compile(r"^extension\s+([A-Z][A-Za-z0-9_]*)", re.M)
 
 

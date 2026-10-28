@@ -11,6 +11,7 @@ names them from the test sources; the broad pass skips them and a serial step ru
 from __future__ import annotations
 
 import importlib.util
+import re
 import tempfile
 import unittest
 from pathlib import Path
@@ -47,6 +48,27 @@ class HeavySuites(unittest.TestCase):
         self.assertIn(("SomeTests", "FooTests"), found)
         self.assertNotIn(("SomeTests", "PlainTests"), found)
         self.assertNotIn(("SomeTests", "FooBench"), found)
+
+    def test_a_nested_helper_type_is_not_read_as_a_suite(self) -> None:
+        # run 40705037968 filtered on CmuxNextAppTests.Harness, a class nested in a suite: 0 tests ran.
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "SomeTests"
+            target.mkdir()
+            (target / "BarTests.swift").write_text(
+                "@MainActor @Suite(.serialized)\nstruct BarTests {\n    @MainActor final class Harness {\n"
+                "        func go() { CATransaction.flush() }\n    }\n    @Test func a() { Harness().go() }\n}\n")
+            found = heavy.heavy_suites(Path(tmp))
+        self.assertIn(("SomeTests", "BarTests"), found)
+        self.assertNotIn(("SomeTests", "Harness"), found)
+
+    def test_every_suite_found_is_a_top_level_type(self) -> None:
+        for target, name in heavy.heavy_suites(TESTS):
+            if (target, name) in heavy.ALWAYS:
+                continue
+            with self.subTest(suite=f"{target}.{name}"):
+                files = (TESTS / target).rglob("*.swift")
+                self.assertTrue(any(re.search(rf"^(?:@[^\n]*[ \t])?(?:\w+[ \t]+)*(?:struct|class|enum|actor)[ \t]+{name}\b",
+                                              f.read_text(errors="replace"), re.M) for f in files))
 
     def test_the_pattern_matches_whole_suite_names_only(self) -> None:
         pattern = heavy.pattern([("CmuxNextAppTests", "SidebarLagTests")])
