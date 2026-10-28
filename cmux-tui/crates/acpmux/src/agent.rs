@@ -610,7 +610,7 @@ pub struct ChildAgent {
     pub given_servers: std::sync::Mutex<Option<Value>>,
     /// The MCP servers its harness's configs named as it started (`ChildAgent::record_launch`),
     /// for the idle census. None for a harness another daemon started.
-    pub launch: std::sync::Mutex<Option<crate::hub::LaunchServers>>,
+    pub(crate) launch: std::sync::Mutex<Option<crate::hub::LaunchServers>>,
     /// Set once the agent is replaced or stopped (`retire`): a /context answer it still sends
     /// is not the chat's context any more, and is neither logged nor handed to the hub. A lock,
     /// not a flag: the reader holds it while it checks and logs such an answer (`tap_live`), so a
