@@ -4,6 +4,7 @@ import CmuxNextFocusUI
 import CmuxNextInput
 import CmuxNextAgentPane
 import CmuxNextDesign
+import CmuxNextPages
 import CmuxNextWakeups
 
 /// Owns the short interval between Cmd-T (or Cmd-N's new workspace) and the New Tab field's
@@ -124,7 +125,11 @@ final class NewTabInputCoordinator {
         release(in: window)
         // The pane focus had at the opening, when the opening may move focus (a person's, not a script's).
         var focusedAtOpening = ActionRunScope.viewChangeAllowed() ? pane.services.windowController(showing: pane)?.focus.state.pane : nil
-        let buffer = NewTabInputBuffer(began: now(), focusField: { [weak pane, weak window] in
+        let buffer = NewTabInputBuffer(began: now(), fieldReady: { [weak pane] in
+            // The page the pane shows now has its field focused in its document (an adopted spare).
+            guard let pane, let key = pane.currentTabKey, pane.services.agentTabs.isNewTabPage(key) else { return false }
+            return pane.services.agentTabs.existingView(key)?.inputReadiness.isReady == true
+        }, focusField: { [weak pane, weak window] in
             guard let pane, let window, let key = pane.currentTabKey, pane.services.agentTabs.isNewTabPage(key),
                   let view = pane.services.agentTabs.existingView(key), view.window === window,
                   view.isShownForInput else { return false }
@@ -169,7 +174,11 @@ final class NewTabInputCoordinator {
         let target = IncomingPage()
         target.followsNewWindow = followsNewWindow
         let services = router.services
-        let buffer = NewTabInputBuffer(began: now(), focusField: { [weak services, weak window] in
+        let buffer = NewTabInputBuffer(began: now(), fieldReady: { [weak services] in
+            // The page made for this hold (``pageMade(_:key:)``) has its field focused in its document.
+            guard let key = target.key else { return false }
+            return (target.view ?? services?.agentTabs.existingView(key))?.inputReadiness.isReady == true
+        }, focusField: { [weak services, weak window] in
             // The page shows in this window (FirstTabHold), or a New Window's, before it takes keys.
             guard let services, let window, let key = target.key,
                   let view = target.view ?? (services.agentTabs.isNewTabPage(key) ? services.agentTabs.existingView(key) : nil),
@@ -214,8 +223,15 @@ final class NewTabInputCoordinator {
         if entry.window != nil { release(entry, why: "creation made no page") } else { buffers[number] = nil }
     }
 
-    /// The page for incoming hold `token` was made as tab `key` (`AgentTabStore.showWorkspace`, in the press's turn).
-    func pageMade(_ token: String, key: String) {}
+    /// The page for incoming hold `token` was made as tab `key` (`AgentTabStore.showWorkspace`, in the press's turn):
+    /// the hold knows its destination now, and its keys go there once the page shows with its field ready, whether
+    /// or not the page's readiness message comes (an adopted spare's page was ready before this token existed).
+    func pageMade(_ token: String, key: String) {
+        guard let entry = buffers.values.first(where: { $0.buffer.token == token }), let incoming = entry.incoming else { return }
+        incoming.key = key
+        incoming.view = router?.services?.agentTabs.existingView(key)
+        note("page made \(key)", entry)
+    }
 
     /// A New Tab page `key` reported its field ready with `token`: the hold that gave it the token
     /// (in whatever window) sends its keys there.
@@ -346,6 +362,13 @@ final class NewTabInputCoordinator {
         // The hold ended: the held keys go on first, then this one, in typing order.
         if expired(entry) || !entry.owns {
             release(entry, why: expired(entry) ? "limit at key" : "not owned at key (tab \(entry.pane?.currentTabKey ?? "-"))")
+            return false
+        }
+        // The field may be ready by now (a page that showed with its field focused): the held keys go first, then this one.
+        if entry.buffer.drain() {
+            note("drained to field at key", entry)
+            entry.deadline?.cancel()
+            remove(entry)
             return false
         }
         note("hold key #\(entry.buffer.count + 1)", entry)  // never characters: desync reports keep this log

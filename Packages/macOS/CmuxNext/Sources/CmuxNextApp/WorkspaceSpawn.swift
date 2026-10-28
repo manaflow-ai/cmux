@@ -106,7 +106,8 @@ struct WorkspaceSpawner {
         windows.claimNew(workspaceID: key.rawValue, window: windowID, frame: frame)
         guard let shown = services.agentTabs.showWorkspace(key, name: name, index: nil, cwd: cwd, token: spawn.inputToken,
                                                            on: daemon, repair: repair) else { return nil }
-        // The keys held since the press may go to its page's field once that reports ready.
+        // The keys held since the press go to its page (tab `shown.tabKey`, known now) once it shows with its field ready.
+        if let token = spawn.inputToken { services.keyRouter.newTabInputCoordinator.pageMade(token, key: shown.tabKey) }
         services.keyRouter.newTabInputCoordinator.flushAll()
         let windows = windows
         return {
