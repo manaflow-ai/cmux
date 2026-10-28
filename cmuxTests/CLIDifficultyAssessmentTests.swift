@@ -123,4 +123,13 @@ import Testing
         #expect(Engine.verdictToSend(new: .easy, current: .hard, previous: .hard) == nil)
         #expect(Engine.verdictToSend(new: .easy, current: .hard, previous: .easy) == .easy)
     }
+
+    // MARK: - Environment
+
+    @Test func classifierRunsAtLowEffortWhateverThePaneRuns() {
+        let env = Engine.classifierEnvironment(from: ["CLAUDE_CODE_EFFORT_LEVEL": "max", "PATH": "/bin"])
+        #expect(env["CLAUDE_CODE_EFFORT_LEVEL"] == "low")
+        #expect(env["PATH"] == "/bin")
+        #expect(Engine.classifierEnvironment(from: [:])["CLAUDE_CODE_EFFORT_LEVEL"] == "low")
+    }
 }
