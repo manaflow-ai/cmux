@@ -1,3 +1,4 @@
+import AppKit
 import CmuxNextCompat
 import Darwin
 public import Foundation
@@ -34,7 +35,7 @@ public nonisolated struct SingleInstanceGuard: Equatable, Sendable {
         public var pid: pid_t
         /// Its `.app` bundle: where the hand-off sends the URLs (`open -a`).
         public var bundlePath: String
-        /// Its executable as the kernel reports it (`proc_pidpath`): proves `pid` is still that copy.
+        /// Its executable (symlinks resolved): proves `pid` is still that copy.
         public var executablePath: String
 
         public init(pid: pid_t, bundlePath: String, executablePath: String) {
@@ -136,18 +137,17 @@ public nonisolated extension SingleInstanceGuard {
         return owner
     }
 
-    /// `pid`'s executable as the kernel reports it, nil when it is not running.
+    /// `pid`'s executable as LaunchServices has it registered (`NSRunningApplication`, thread safe; never a
+    /// process scan), symlinks resolved; nil when no running application has that pid.
     static func processExecutablePath(_ pid: pid_t) -> String? {
-        var buffer = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
-        guard proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { return nil }
-        return String(cString: buffer)
+        guard let app = NSRunningApplication(processIdentifier: pid), !app.isTerminated else { return nil }
+        return app.executableURL?.resolvingSymlinksInPath().path
     }
 
-    /// This process as the claim's owner; nil when it has no executable path.
+    /// This process as the claim's owner; nil when it has no executable.
     static var currentOwner: Owner? {
-        let pid = getpid()
-        guard let executable = processExecutablePath(pid) else { return nil }
-        return Owner(pid: pid, bundlePath: Bundle.main.bundlePath, executablePath: executable)
+        guard let executable = Bundle.main.executableURL else { return nil }
+        return Owner(pid: getpid(), bundlePath: Bundle.main.bundlePath, executablePath: executable.resolvingSymlinksInPath().path)
     }
 
     /// This launch's lock file, nil when it is not guarded.

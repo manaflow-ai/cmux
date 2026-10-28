@@ -141,14 +141,15 @@ import Testing
         #expect(SingleInstanceGuard.Owner(record: owner.record) == owner)
     }
 
-    /// The real kernel lookup: this test process recorded as an owner resolves, and a new record replaces a
-    /// longer stale one whole.
-    @Test func aLiveRecordedProcessResolves() throws {
+    /// The real lookup: a pid no application has resolves to nothing; this test process, when LaunchServices
+    /// knows it as an application, resolves as an owner, and a new record replaces a longer stale one whole.
+    @Test func theLiveLookupNamesOnlyARunningApplication() throws {
+        #expect(SingleInstanceGuard.processExecutablePath(99_999_999) == nil)
         let (directory, url) = ownerFile()
         defer { try? FileManager.default.removeItem(at: directory) }
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         try Data(String(repeating: "stale record\n", count: 50).utf8).write(to: url)
-        let executable = try #require(SingleInstanceGuard.processExecutablePath(getpid()))
+        guard let executable = SingleInstanceGuard.processExecutablePath(getpid()) else { return }  // a bare test runner
         let owner = SingleInstanceGuard.Owner(pid: getpid(), bundlePath: "/Applications/cmux.app", executablePath: executable)
         SingleInstanceGuard.writeOwner(owner, at: url)
         #expect(SingleInstanceGuard.runningCopy(at: url, selfPID: 0) == owner)
