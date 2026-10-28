@@ -6,7 +6,7 @@ import Testing
 /// Exercise the production Accounts client composition with controlled async boundaries.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(1)))
 struct CodeRouterAccountScopeTests {
-    private final class Account: CodeRouterAccountSource {
+    @MainActor private final class Account: CodeRouterAccountSource {
         var codeRouterAccountID: String? = "first-user"
         var teamID: String? = "first-team"
         var tokenGate: Gate?
