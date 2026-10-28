@@ -46,7 +46,6 @@
 // (conversation/fold.ts), a line that joins it rises in, and its header's words tick. What runs
 // turns the shared spinner, never a breathing dot.
 import { memo, useId, useRef, useState } from "react";
-import { useArrivals } from "../../../ui/presence";
 import { experimentArm } from "../../../experiments/experiment";
 import { foldMotion, useFold } from "../conversation/fold";
 import { entranceAllowed } from "../../shared/pageReveal";
@@ -142,27 +141,40 @@ export const SubagentTray = memo(function SubagentTray({
   // A fold while the page is away (hidden, or in its first frames back) applies at once: the shared
   // page-reveal gate (shared/pageReveal.ts), read only when the fold changes.
   const fold = useFold(open, entranceMayRun, false);
-  // Every line the tray has, drawn or not, and the ones drawn now.
-  const keys = [...items.map(itemKey), ...finished.map(itemKey)];
-  const drawnKeys = [
-    ...items.map(itemKey),
-    ...finished.slice(0, showFinished ? finished.length : TRAY_OPEN_MAX).map(itemKey),
-  ];
   // A line that joins the open list rises in (ui/popupSurface.css `data-enter`); the lines it was
   // drawn with, and lines a fold or View all brings back, are simply there. With no motion (Reduce
-  // Motion, the host's switch, a hidden page) nothing arrives. A burst (more than
-  // ARRIVALS_PER_UPDATE new lines at once, a reconnect's catch-up) is simply there too, as the
-  // transcript's live rows are, so the arrivals set stays a handful (each settles in one entrance) and settling one never copies the
-  // tray's size. Counting the new lines is one pass over keys this render already builds.
+  // Motion, the host's switch, a page away: hidden, or in its first frames back, shared/pageReveal.ts)
+  // nothing arrives. A burst (more than ARRIVALS_PER_UPDATE new lines at once, a reconnect's
+  // catch-up) is simply there too, as the transcript's live rows are, so the arrived set stays a
+  // handful. The lines are compared only when the tray's lists change (an event), never on the
+  // clock's tick, so a long ended history costs nothing per second.
   const seen = useRef<ReadonlySet<string> | null>(null);
-  seen.current ??= new Set(keys);
-  const known = seen.current;
-  const fresh = keys.reduce((count, key) => count + (known.has(key) ? 0 : 1), 0);
-  if (fresh > 0) seen.current = new Set(keys);
-  // A page that is away (hidden, or in its first frames back) starts no entrance: the shared
-  // page-reveal gate, read only when new lines came.
-  const moves = open && fresh > 0 && fresh <= ARRIVALS_PER_UPDATE && !foldMotion.reducedMotion() && entranceMayRun();
-  const arrivals = useArrivals(keys, moves ? drawnKeys : NO_KEYS);
+  const comparedFor = useRef<{ items: readonly TrayItem[]; finished: readonly TrayItem[] } | null>(null);
+  const [arrived, setArrived] = useState<ReadonlySet<string>>(NO_ARRIVALS);
+  if (comparedFor.current?.items !== items || comparedFor.current.finished !== finished) {
+    comparedFor.current = { items, finished };
+    const keys = new Set([...items.map(itemKey), ...finished.map(itemKey)]);
+    const known = seen.current ?? keys;
+    seen.current = keys;
+    const fresh = [...keys].filter((key) => !known.has(key));
+    if (fresh.length > 0 && fresh.length <= ARRIVALS_PER_UPDATE && open && !foldMotion.reducedMotion() && entranceMayRun()) {
+      const drawn = new Set([
+        ...items.map(itemKey),
+        ...finished.slice(0, showFinished ? finished.length : TRAY_OPEN_MAX).map(itemKey),
+      ]);
+      const rising = fresh.filter((key) => drawn.has(key));
+      if (rising.length > 0) setArrived((current) => new Set([...current, ...rising]));
+    }
+  }
+  /// A line's entrance is played (ended, cancelled or unmounted first): it never replays.
+  const played = (key: string) =>
+    setArrived((current) => {
+      if (!current.has(key)) return current;
+      const next = new Set(current);
+      next.delete(key);
+      return next;
+    });
+  const arrivals = { arrived, played };
   const arrivalRefs = useRef(new Map<string, (node: HTMLElement | null) => (() => void) | undefined>());
   if (items.length === 0 && finished.length === 0) return null;
   // Its subagents and the chats it started are one word: subagents.
@@ -396,7 +408,7 @@ export const SubagentTray = memo(function SubagentTray({
 });
 
 const NO_ITEMS: readonly TrayItem[] = [];
-const NO_KEYS: readonly string[] = [];
+const NO_ARRIVALS: ReadonlySet<string> = new Set();
 /// The most lines that rise in from one update; a bigger burst is simply there.
 const ARRIVALS_PER_UPDATE = 3;
 /// The shared gate on an entrance or a fold now: the page shows, its first frame back has passed, and
