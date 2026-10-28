@@ -382,6 +382,56 @@ mod tests {
         Hub::new(cfg, store)
     }
 
+    fn replace_meta(hub: &Hub, id: &str, changes: Value) {
+        let session = hub.resolve("chat").unwrap();
+        let mut value = serde_json::to_value(session.meta()).unwrap();
+        value["id"] = json!(id);
+        value["name"] = json!(id);
+        for (key, value_changed) in changes.as_object().unwrap() {
+            value[key] = value_changed.clone();
+        }
+        let meta = serde_json::from_value(value).unwrap();
+        if id == "chat" {
+            *session.meta.lock().unwrap() = meta;
+        } else {
+            hub.make_session(meta);
+        }
+    }
+
+    #[tokio::test]
+    async fn fork_transcript_reads_earlier_claude_id_of_the_same_chat() {
+        let home = scoped_store("same-chat-fork");
+        let hub = transcript_hub(&home);
+        replace_meta(&hub, "chat", json!({
+            "agentSessionId": "new-session", "previousAgentSessionIds": ["s1"]
+        }));
+        let page = handle(&hub, &transcript_request("wf_own")).await.unwrap();
+        assert_eq!(page["lines"], 4);
+        let absent = handle(&hub, &transcript_request("wf_missing")).await.unwrap_err();
+        let sibling = handle(&hub, &transcript_request("wf_other")).await.unwrap_err();
+        assert_eq!(serde_json::to_vec(&sibling).unwrap(), serde_json::to_vec(&absent).unwrap());
+        let _ = std::fs::remove_dir_all(home);
+    }
+
+    #[tokio::test]
+    async fn fork_transcript_reads_parent_and_terminates_a_cycle() {
+        let home = scoped_store("parent-cycle");
+        let hub = transcript_hub(&home);
+        replace_meta(&hub, "parent", json!({"parentId": "chat", "forkSeq": 1}));
+        replace_meta(&hub, "chat", json!({
+            "agentSessionId": "child-session", "parentId": "parent", "forkSeq": 1
+        }));
+        let page = handle(&hub, &transcript_request("wf_own")).await.unwrap();
+        assert_eq!(page["lines"], 4);
+        let absent = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            handle(&hub, &transcript_request("wf_missing")),
+        ).await.unwrap().unwrap_err();
+        let sibling = handle(&hub, &transcript_request("wf_other")).await.unwrap_err();
+        assert_eq!(serde_json::to_vec(&sibling).unwrap(), serde_json::to_vec(&absent).unwrap());
+        let _ = std::fs::remove_dir_all(home);
+    }
+
     fn transcript_request(run: &str) -> Value {
         json!({"sessionId": "chat", "runId": run, "agentId": "a01"})
     }
