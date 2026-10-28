@@ -6,6 +6,28 @@ import Testing
 
 @MainActor
 struct PaneToolbarMenuTrimTests {
+    @Test(arguments: [CGFloat(32), 240])
+    func collapsedPinnedToolsReturnToOverflow(width: CGFloat) throws {
+        _ = NSApplication.shared
+        let registry = ActionRegistry.standard()
+        registry.context = ActionContext(rawValue: .max)
+        let tools: [ActionID] = ["openDiffViewer", "file.open", "agentPane.searchChats"]
+        for id in tools { registry.bind(id, invoke: { _ in }) }
+        let toolbar = PaneToolbar(registry: { registry }, newTabMenu: { nil })
+        toolbar.update(target: "t1", kind: .newTab, pinned: tools.map(\.rawValue))
+        toolbar.view.frame = NSRect(x: 0, y: 0, width: width, height: 32)
+        toolbar.view.layoutSubtreeIfNeeded()
+
+        let narrow = width == 32
+        #expect(toolbar.view.buttons.count == tools.count)
+        #expect(toolbar.view.buttons.allSatisfy { $0.isHidden == narrow })
+        let menu = try #require(toolbar.view.moreMenu?())
+        let ids = menu.items.compactMap { ActionRegistry.menuRun(of: $0)?.id }
+        for id in tools {
+            #expect(ids.contains(id) == narrow, "A width-hidden pin stays available in overflow: \(id.rawValue)")
+        }
+    }
+
     @Test func overflowKeepsCreationSplitsZoomAndSearch() throws {
         let registry = ActionRegistry.standard()
         registry.context = ActionContext(rawValue: .max)
