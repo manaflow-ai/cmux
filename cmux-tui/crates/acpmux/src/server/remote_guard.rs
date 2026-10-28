@@ -69,7 +69,8 @@
 //!   machine for the app's pane (`hub/media_read.rs`): the unix socket, the
 //!   app and a peer forwarding for either.
 //! - Web, LocalApp and Peer: no `_acpmux/github_action` (`github_broker.rs`), which an agent
-//!   session asks over the unix socket only.
+//!   session asks over the unix socket only, and no `_acpmux/github_app_lease`
+//!   (`github_app_token.rs`), which only the app's unix-socket call makes.
 //! - Web only: no `_acpmux/subagent_transcript` (`transcriptRead.remote`),
 //!   which reads a subagent's transcript from the chat's Claude store
 //!   (`hub/subagent_transcript.rs`): the unix socket, the app and a peer
@@ -195,8 +196,8 @@ async fn check_inner(
     }
     // A GitHub action runs with the person's GitHub login on their Mac (`github_broker.rs`): an
     // agent session of this daemon asks over the unix socket; no page, app or peer does.
-    if m == method::MUX_GITHUB_ACTION {
-        return Err(refused("_acpmux/github_action"));
+    if m == method::MUX_GITHUB_ACTION || m == method::MUX_GITHUB_APP_LEASE {
+        return Err(refused(m));
     }
     // A person's name (`author.rs`) comes over the unix socket, or from a peer forwarding one it
     // took there; never from Web, the app's pane or a peer forwarding for its own Web client.
