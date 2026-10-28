@@ -6,7 +6,8 @@
 - a seed replaces a host's cache only when the host has none or the seed is newer;
 - a reader takes a record only from a trusted feat-cmux-next run with matching key fields, and
   stops at the newest one that is not newer than the host's cache;
-- bytes that do not match the record's digest are never installed;
+- bytes that do not match the record's digest are never installed, a download past the record's
+  size is cut off, and a seed that unpacks past its declared size is refused as it streams;
 - without the store's URL and token nothing is fetched or published, and a pack without --out
   writes only the host's origin marker;
 - the workflow hands the token only to the DEV landing compile, from the next-dev-cas environment.
@@ -56,9 +57,17 @@ def make_cas(derived_data: Path, payload: str) -> None:
     (derived_data / seed.CAS_DIR / "v1.3" / "index").write_text(payload[::-1])
 
 
-def manifest(sha=SHA_B, committed_at=200, run_id=1, digest="0" * 64, size=10, fields=FIELDS):
+def manifest(sha=SHA_B, committed_at=200, run_id=1, digest="0" * 64, size=10, fields=FIELDS, cas_bytes=1000):
     return {"schema": seed.SCHEMA, "key": KEY, "key_fields": fields, "run_id": run_id, "blob_sha256": digest,
-            "blob_bytes": size, "source_sha": sha, "committed_at": committed_at}
+            "blob_bytes": size, "cas_bytes": cas_bytes, "source_sha": sha, "committed_at": committed_at}
+
+
+def fake_curl_bin(directory: Path) -> Path:
+    """A curl that ignores its URL and streams the file FAKE_BODY names."""
+    path = directory / "curl"
+    path.write_text('#!/bin/sh\ncat >/dev/null\nexec cat "$FAKE_BODY"\n')
+    path.chmod(0o755)
+    return path
 
 
 def artifact(run_id: int, branch="feat-cmux-next", created="2026-10-28T10:00:00Z") -> dict:
@@ -180,8 +189,9 @@ class SeedTests(unittest.TestCase):
         marker = self.root / "cas-origin.json"
         marker.write_text(json.dumps({"sha": SHA_A, "committed_at": 100}))
 
-        def fake_curl(args, _token, _timeout):
-            Path(args[args.index("-o") + 1]).write_bytes(blob_bytes)
+        body = self.root / "body"
+        body.write_bytes(blob_bytes)
+        fake_curl_bin(self.root)
 
         env = {**self.env, "CMUX_NEXT_DEV_CAS_URL": "http://store.invalid:8787", "CMUX_NEXT_DEV_CAS_TOKEN": "t",
                "GH_TOKEN": "g"}
@@ -189,9 +199,8 @@ class SeedTests(unittest.TestCase):
                                        scratch=str(self.root / "scratch"), timeout=60)
         with mock.patch.object(seed, "key_fields", lambda *_: FIELDS), \
                 mock.patch.object(seed, "find_seed", lambda *_: (record, 7)), \
-                mock.patch.object(seed, "curl", fake_curl), \
                 mock.patch.object(seed.reuse, "Api", lambda *a: StubApi([], {})), \
-                mock.patch.dict(os.environ, {}, clear=False):
+                mock.patch.dict(os.environ, {"PATH": f"{self.root}:{os.environ['PATH']}", "FAKE_BODY": str(body)}):
             seed.cmd_restore(args, env)
         return (host / seed.CAS_DIR / "v1.3/data").read_text()
 
@@ -207,12 +216,43 @@ class SeedTests(unittest.TestCase):
         marker = json.loads((self.root / "cas-origin.json").read_text())
         self.assertEqual((marker["sha"], marker["seeded_from_run"]), (SHA_B, 7))
 
+    def test_an_oversized_or_wrong_body_is_cut_off_and_leaves_no_file(self):
+        fake_curl_bin(self.root)
+        body, dest = self.root / "body", self.root / "dest"
+        body.write_bytes(b"x" * (3 << 20))
+        digest = hashlib.sha256(body.read_bytes()).hexdigest()
+        with mock.patch.dict(os.environ, {"PATH": f"{self.root}:{os.environ['PATH']}", "FAKE_BODY": str(body)}):
+            with self.assertRaisesRegex(seed.Miss, "more than the record's"):
+                seed.download("http://store.invalid/v1/cache/x", dest, "t", 30, 1 << 20, digest)
+            self.assertFalse(dest.exists(), "an oversized download left its partial file")
+            with self.assertRaisesRegex(seed.Miss, "do not match"):
+                seed.download("http://store.invalid/v1/cache/x", dest, "t", 30, 3 << 20, "0" * 64)
+            self.assertFalse(dest.exists())
+            seed.download("http://store.invalid/v1/cache/x", dest, "t", 30, 3 << 20, digest)
+            self.assertEqual(dest.stat().st_size, 3 << 20)
+
+    def test_a_seed_that_unpacks_past_its_declared_size_is_refused_mid_stream(self):
+        env = dict(self.env)
+        if shutil.which("zstd"):
+            env["CMUX_NEXT_DEV_CAS_ZSTD"] = shutil.which("zstd")  # a real bomb: a few KiB of zstd
+        writer, reader = self.root / "w", self.root / "r"
+        (writer / seed.CAS_DIR / "v1.3").mkdir(parents=True)
+        (writer / seed.CAS_DIR / "v1.3" / "data").write_bytes(b"\0" * (64 << 20))
+        make_cas(reader, "kept")
+        seed.pack(writer, self.root / "out", env)
+        with self.assertRaisesRegex(seed.Miss, "more than its record declares"):
+            seed.extract(self.root / "out" / seed.BLOB, reader, env, max_bytes=1 << 20)
+        self.assertEqual((reader / seed.CAS_DIR / "v1.3/data").read_text(), "kept")
+        self.assertEqual(sorted(p.name for p in reader.iterdir()), [seed.CAS_DIR], "a refused seed left files")
+        with self.assertRaisesRegex(seed.reuse.Miss, "cache size"):
+            seed.check_record(manifest(run_id=1, cas_bytes=seed.CAS_MAX_BYTES + 1), KEY, FIELDS, 1)
+
     def test_without_the_store_nothing_is_fetched_or_published(self):
         host = self.root / "dd"
         make_cas(host, "local")
         args = seed.argparse.Namespace(derived_data=str(host), build_root=str(self.root), marker=str(self.root / "m.json"),
                                        scratch=str(self.root / "scratch"), timeout=5)
-        with mock.patch.object(seed, "curl", side_effect=AssertionError("fetched without a store")):
+        with mock.patch.object(seed, "download", side_effect=AssertionError("fetched without a store")):
             seed.cmd_restore(args, self.env)
         (self.root / "pack").mkdir()
         (self.root / "pack/pack.json").write_text(json.dumps({"schema": seed.SCHEMA}))

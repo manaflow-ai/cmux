@@ -61,6 +61,10 @@ RECORD_PREFIX = "cmux-next-dev-cas-seed-"
 CAS_DIR = "CompilationCache.noindex"
 BLOB = "seed.tar.zst"
 MAX_BLOB_BYTES = 8 * 1024**3
+# What a seed may unpack to beyond the cache size its record declares (tar headers, rounding), and
+# the most entries it may hold: a seed past either is refused mid-stream, whatever its digest.
+EXTRACT_SLACK_BYTES = 64 * 1024**2
+MAX_MEMBERS = 2_000_000
 CANDIDATES = 3
 KEY_ENV = (
     "CMUX_NEXT_CONFIGURATION", "CMUX_NEXT_SWIFT_COMPILATION_MODE", "CMUX_NEXT_PRODUCT_NAME",
@@ -205,35 +209,69 @@ def safe_member(member: tarfile.TarInfo) -> bool:
             and (member.isfile() or member.isdir()))
 
 
-def extract(blob: Path, derived_data: Path, env: dict[str, str]) -> None:
+def copy_bounded(source, sink, left: int) -> int:
+    """Copy SOURCE to SINK and return how many of LEFT bytes remain; refuse past LEFT."""
+    while chunk := source.read(1 << 20):
+        left -= len(chunk)
+        if left < 0:
+            raise Miss("the seed unpacks to more than its record declares")
+        sink.write(chunk)
+    return left
+
+
+def extract(blob: Path, derived_data: Path, env: dict[str, str], max_bytes: int = CAS_MAX_BYTES) -> None:
     """Unpack the seed into derived_data/.cas-seed-incoming, then swap it in for the CAS. A member
-    outside CompilationCache.noindex, a link or a device refuses the whole seed."""
+    outside CompilationCache.noindex, a link or a device refuses the whole seed, and so does
+    unpacking more than MAX_BYTES (counted as it streams, so a bomb never fills the disk) or more
+    than MAX_MEMBERS entries. A refused seed leaves nothing behind and the host's cache as it was."""
     incoming = derived_data / ".cas-seed-incoming"
     shutil.rmtree(incoming, ignore_errors=True)
     incoming.mkdir(parents=True)
+    try:
+        unpack(blob, incoming, env, max_bytes)
+    except BaseException:
+        shutil.rmtree(incoming, ignore_errors=True)
+        raise
+    swap_in(incoming, derived_data)
+
+
+def unpack(blob: Path, incoming: Path, env: dict[str, str], max_bytes: int) -> None:
+    left, members = max_bytes, 0
     with blob.open("rb") as source:
         zstd = subprocess.Popen([zstd_binary(env), "-q", "-d", "-c"], stdin=source, stdout=subprocess.PIPE)
         try:
             with tarfile.open(fileobj=zstd.stdout, mode="r|") as tar:
                 for member in tar:
+                    members += 1
+                    if members > MAX_MEMBERS:
+                        raise Miss(f"the seed holds more than {MAX_MEMBERS} entries")
                     if not safe_member(member):
                         raise Miss(f"the seed holds {member.name!r}, not a file or directory of the cache")
                     target = incoming / member.name
                     if member.isdir():
                         target.mkdir(parents=True, exist_ok=True)
                         continue
+                    if member.size > left:
+                        raise Miss("the seed unpacks to more than its record declares")
                     target.parent.mkdir(parents=True, exist_ok=True)
+                    if target.is_symlink() or not target.resolve().is_relative_to(incoming.resolve()):
+                        raise Miss(f"the seed's {member.name!r} lands outside the cache")
                     data = tar.extractfile(member)
                     with target.open("wb") as sink:
-                        shutil.copyfileobj(data, sink, 1 << 20)
+                        left = copy_bounded(data, sink, left)
                     os.chmod(target, (member.mode & 0o755) | 0o600)
         except tarfile.TarError as error:
             raise Miss(f"the seed is not a readable tar: {error}") from error
         finally:
             zstd.stdout.close()
+            if zstd.poll() is None:
+                zstd.kill()
             status = zstd.wait()
     if status:
         raise Miss(f"zstd exited {status} while unpacking")
+
+
+def swap_in(incoming: Path, derived_data: Path) -> None:
     if not (incoming / CAS_DIR).is_dir():
         raise Miss(f"the seed holds no {CAS_DIR}")
     old = derived_data / CAS_DIR
@@ -247,6 +285,42 @@ def extract(blob: Path, derived_data: Path, env: dict[str, str]) -> None:
 
 
 # ---- the store: GET and PUT /v1/cache/<sha256>, the token on stdin, never in argv
+
+
+def download(url: str, dest: Path, token: str, timeout: float, size: int, digest: str) -> None:
+    """GET URL into DEST, hashing as it streams; refuse past SIZE bytes at once, and a body of
+    another size or digest. A refused download leaves no file."""
+    command = ["curl", "-fsS", "--connect-timeout", "5", "--max-time", str(max(1, int(timeout))),
+               "--max-filesize", str(size), "-H", "@-", url]
+    sha, got = hashlib.sha256(), 0
+    try:
+        curl_proc = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    except OSError as error:
+        raise Miss(f"the store did not answer: {error}") from error
+    try:
+        curl_proc.stdin.write(f"Authorization: Bearer {token}\n".encode())
+        curl_proc.stdin.close()
+        with dest.open("wb") as sink:
+            while chunk := curl_proc.stdout.read(1 << 20):
+                got += len(chunk)
+                if got > size:
+                    raise Miss(f"the store sent more than the record's {size} bytes")
+                sha.update(chunk)
+                sink.write(chunk)
+        status = curl_proc.wait(timeout=30)
+        if status:
+            raise Miss(f"the store refused (curl {status}): {curl_proc.stderr.read().decode(errors='replace').strip()[:200]}")
+        if got != size or sha.hexdigest() != digest:
+            raise Miss("the store's bytes do not match the record (corrupt or replaced)")
+    except BaseException:
+        dest.unlink(missing_ok=True)
+        raise
+    finally:
+        if curl_proc.poll() is None:
+            curl_proc.kill()
+            curl_proc.wait()
+        curl_proc.stdout.close()
+        curl_proc.stderr.close()
 
 
 def curl(args: list[str], token: str, timeout: float) -> None:
@@ -289,6 +363,9 @@ def check_record(manifest: dict, key: str, fields: dict[str, str], run_id: int) 
     size = manifest.get("blob_bytes")
     if not isinstance(size, int) or isinstance(size, bool) or not 0 < size <= MAX_BLOB_BYTES:
         raise Miss(f"the record's blob size {size!r} is out of range")
+    cas = manifest.get("cas_bytes")
+    if not isinstance(cas, int) or isinstance(cas, bool) or not 0 < cas <= CAS_MAX_BYTES:
+        raise Miss(f"the record's cache size {cas!r} is out of range")
     if not reuse.SHA.match(str(manifest.get("source_sha", ""))) or not isinstance(manifest.get("committed_at"), int):
         raise Miss("the record names no source commit")
 
@@ -419,11 +496,10 @@ def cmd_restore(args: argparse.Namespace, env: dict[str, str]) -> int:
         try:
             manifest, run_id = find_seed(api, key, fields, env, marker, derived_data, scratch)
             blob = scratch / BLOB
-            curl(["-o", str(blob), store_url(url, manifest["blob_sha256"])], token, api.left())
-            if blob.stat().st_size != manifest["blob_bytes"] or sha256_file(blob) != manifest["blob_sha256"]:
-                raise Miss("the store's bytes do not match the record (corrupt or replaced)")
+            download(store_url(url, manifest["blob_sha256"]), blob, token, api.left(),
+                     manifest["blob_bytes"], manifest["blob_sha256"])
             fetched = time.monotonic() - started
-            extract(blob, derived_data, env)
+            extract(blob, derived_data, env, min(manifest["cas_bytes"] + EXTRACT_SLACK_BYTES, CAS_MAX_BYTES))
             write_json(marker_path, {"sha": manifest["source_sha"], "committed_at": manifest["committed_at"],
                                      "seeded_from_run": run_id, "built_at": int(time.time())})
         finally:
