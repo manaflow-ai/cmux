@@ -33,7 +33,9 @@
 //! reported failed once no continuation comes: `auto_resume_settled`,
 //! `_exhausted` or `_skipped`, another prompt begins, the session closes, no
 //! continuation was scheduled within [`DECIDE_WAIT`], or [`RETRY_WAIT_MAX`]
-//! passed since the last one was. The worker wakes for those deadlines itself.
+//! passed since the last one was. A deadline is judged by when each event
+//! reached the queue, never by when a busy worker got to it, and the worker
+//! reports a due turn by itself only once the queue is empty.
 //!
 //! The hub's events are only read and queued here; one worker sends the
 //! reports in order, one at a time, and reads a finished turn's reply (only
@@ -67,7 +69,8 @@ pub(super) const PROMPT_PREFIX: &str = "handoff-";
 /// Sessions followed at most; past it a session with no turn being reported is forgotten, and a
 /// new session is not followed while every followed one is reporting a turn.
 const MAX_TRACKS: usize = 4096;
-/// Closed sessions remembered at most (the oldest is forgotten first).
+/// Closed sessions, and sessions whose hand-off closed, remembered at most (the oldest is
+/// forgotten first).
 const MAX_CLOSED: usize = 4096;
 /// The agent answers within its own bounds (a queued ask waits at most 60 s,
 /// then up to three API calls of 20 s); past this it is not answering.
@@ -289,8 +292,6 @@ fn outcome(reply: &Reply) -> (Outcome, bool) {
 #[derive(Debug, Default)]
 struct Track {
     now: Now,
-    /// The hand-off is closed: nothing more is reported.
-    closed: bool,
     /// The last turn the store refused (or had no hand-off for): its end is not sent.
     refused: Option<u64>,
 }
@@ -312,9 +313,11 @@ enum Now {
 pub(super) struct Reporter<I: Io> {
     io: I,
     tracks: HashMap<String, Track>,
-    /// Sessions closed here (oldest first), until they reopen.
-    closed: HashSet<String>,
-    closed_order: VecDeque<String>,
+    /// Sessions closed here, until they reopen.
+    closed: Remembered,
+    /// Sessions whose hand-off the store closed: for good (a session has one hand-off), across
+    /// the session's close and reopen and its track's eviction.
+    handoff_closed: Remembered,
     /// Until when the agent is not asked: it did not answer the last report.
     silent_until: Option<tokio::time::Instant>,
 }
@@ -324,30 +327,44 @@ impl<I: Io> Reporter<I> {
         Reporter {
             io,
             tracks: HashMap::new(),
-            closed: HashSet::new(),
-            closed_order: VecDeque::new(),
+            closed: Remembered::default(),
+            handoff_closed: Remembered::default(),
             silent_until: None,
         }
     }
 
+    /// One step queued now (tests).
+    #[cfg(test)]
     pub(super) async fn step(&mut self, session: &str, step: Step) {
+        self.step_at(session, step, tokio::time::Instant::now()).await;
+    }
+
+    /// One step, `queued` when its event reached the queue: a deadline it meets counts even
+    /// when the worker gets to it later.
+    pub(super) async fn step_at(
+        &mut self,
+        session: &str,
+        step: Step,
+        queued: tokio::time::Instant,
+    ) {
         if !valid_session(session) {
             return;
         }
         match step {
             Step::Reopened => {
-                if self.closed.remove(session) {
-                    self.closed_order.retain(|s| s != session);
-                }
+                self.closed.remove(session);
                 return;
             }
             Step::Closed => return self.close(session).await,
             _ => {}
         }
-        if self.closed.contains(session) || !self.io.present() {
+        if self.closed.contains(session)
+            || self.handoff_closed.contains(session)
+            || !self.io.present()
+        {
             return;
         }
-        if self.silent_until.is_some_and(|until| tokio::time::Instant::now() < until) {
+        if self.silent() {
             if let Some(track) = self.tracks.get_mut(session) {
                 track.now = Now::Quiet;
             }
@@ -361,13 +378,10 @@ impl<I: Io> Reporter<I> {
             }
         }
         let track = self.tracks.entry(session.to_owned()).or_default();
-        if track.closed {
-            return;
-        }
         let mut now = track.now.clone();
-        // A continuation that did not come in time.
+        // A continuation that did not come in time (by when this step's event came).
         if let Now::Retrying { turn, until, .. } = &now
-            && *until <= tokio::time::Instant::now()
+            && *until <= queued
         {
             let turn = *turn;
             self.give_up_retry(session, turn).await;
@@ -385,7 +399,7 @@ impl<I: Io> Reporter<I> {
             }
             (Step::NoRetry, Now::Retrying { turn, .. }) => self.give_up_retry(session, turn).await,
             (Step::RetryScheduled, Now::Retrying { turn, why, .. }) => {
-                let until = tokio::time::Instant::now() + RETRY_WAIT_MAX;
+                let until = queued + RETRY_WAIT_MAX;
                 self.set_now(session, Now::Retrying { turn, why, until });
             }
             (Step::Asks(what), Now::Reporting { turn, last })
@@ -396,14 +410,21 @@ impl<I: Io> Reporter<I> {
             (Step::Runs, Now::Reporting { turn, last: Some("needs-you") }) => {
                 self.follow(session, turn, "running", None).await;
             }
-            (Step::Ended(end, named), now) => self.end(session, end, named, now).await,
+            (Step::Ended(end, named), now) => self.end(session, end, named, now, queued).await,
             _ => {}
         }
     }
 
     /// A turn ended: reported on the turn its prompt names, unless the store refused that turn,
     /// or acpmux may continue it.
-    async fn end(&mut self, session: &str, end: End, named: Option<u64>, now: Now) {
+    async fn end(
+        &mut self,
+        session: &str,
+        end: End,
+        named: Option<u64>,
+        now: Now,
+        queued: tokio::time::Instant,
+    ) {
         let refused = self.tracks.get(session).and_then(|t| t.refused);
         let Some(turn) = named.filter(|turn| refused != Some(*turn)) else {
             // A prompt that names no hand-off turn, or one the store refused.
@@ -418,7 +439,7 @@ impl<I: Io> Reporter<I> {
         let (status, note) = match end {
             End::Completed(reply) => ("done", reply.filter(|r| !r.is_empty())),
             End::Failed { why, retried: true } => {
-                let until = tokio::time::Instant::now() + DECIDE_WAIT;
+                let until = queued + DECIDE_WAIT;
                 return self.set_now(session, Now::Retrying { turn, why, until });
             }
             End::Failed { why, retried: false } => ("failed", Some(why).filter(|w| !w.is_empty())),
@@ -449,7 +470,8 @@ impl<I: Io> Reporter<I> {
             .min()
     }
 
-    /// Reports failed every turn whose continuation did not come in time.
+    /// Reports failed every turn whose continuation did not come in time. The worker calls it
+    /// only with nothing queued, so no step that came in time waits behind it.
     pub(super) async fn expire(&mut self) {
         let now = tokio::time::Instant::now();
         let due: Vec<(String, u64)> = self
@@ -461,8 +483,17 @@ impl<I: Io> Reporter<I> {
             })
             .collect();
         for (session, turn) in due {
+            // An agent that stopped answering is not asked again for each due turn.
+            if self.silent() {
+                break;
+            }
             self.give_up_retry(&session, turn).await;
         }
+    }
+
+    /// The agent did not answer lately and is left alone ([`SILENT_FOR`]).
+    fn silent(&self) -> bool {
+        self.silent_until.is_some_and(|until| tokio::time::Instant::now() < until)
     }
 
     fn set_now(&mut self, session: &str, now: Now) {
@@ -474,17 +505,9 @@ impl<I: Io> Reporter<I> {
     /// The session closed: a turn still reported ends failed, and the session reports nothing
     /// until it reopens.
     async fn close(&mut self, session: &str) {
-        if self.closed.insert(session.to_owned()) {
-            self.closed_order.push_back(session.to_owned());
-            while self.closed_order.len() > MAX_CLOSED {
-                if let Some(old) = self.closed_order.pop_front() {
-                    self.closed.remove(&old);
-                }
-            }
-        }
+        self.closed.insert(session);
         let Some(track) = self.tracks.remove(session) else { return };
-        let silent = self.silent_until.is_some_and(|until| tokio::time::Instant::now() < until);
-        if track.closed || silent || !self.io.present() {
+        if self.handoff_closed.contains(session) || self.silent() || !self.io.present() {
             return;
         }
         let closed = || Some("The session was closed before the turn finished.".to_owned());
@@ -577,6 +600,9 @@ impl<I: Io> Reporter<I> {
         }
         let line = json!({ "handoff_report": Value::Object(fields) }).to_string();
         let mut answer = Outcome::Unsent;
+        if self.silent() {
+            return answer;
+        }
         for wait in std::iter::once(None).chain(RETRY_AFTER.iter().map(Some)) {
             if let Some(wait) = wait {
                 tokio::time::sleep(*wait).await;
@@ -594,10 +620,8 @@ impl<I: Io> Reporter<I> {
         match answer {
             Outcome::Accepted => {}
             Outcome::Closed => {
-                if let Some(track) = self.tracks.get_mut(session) {
-                    track.closed = true;
-                    track.now = Now::Quiet;
-                }
+                self.handoff_closed.insert(session);
+                self.set_now(session, Now::Quiet);
             }
             // Not this turn, or no hand-off for the session: its end is not sent.
             Outcome::Refused | Outcome::NotFound => {
@@ -652,6 +676,8 @@ pub(super) async fn handoff_loop(hub: Arc<Hub>) {
         loop {
             let deadline = reporter.next_deadline();
             let next = tokio::select! {
+                // Queued steps first: a due turn is reported only with nothing queued.
+                biased;
                 queued = rx.recv() => queued,
                 () = sleep_until(deadline), if deadline.is_some() => {
                     reporter.expire().await;
@@ -683,7 +709,7 @@ pub(super) async fn handoff_loop(hub: Arc<Hub>) {
                     .flatten()
                     .map(|r| cut(&r, DONE_CHARS));
             }
-            reporter.step(&queued.session, queued.step).await;
+            reporter.step_at(&queued.session, queued.step, queued.at).await;
         }
     });
     let mut events = hub.subscribe();
@@ -723,6 +749,7 @@ pub(super) async fn handoff_loop(hub: Arc<Hub>) {
             step,
             reply,
             losses: losses.load(Ordering::SeqCst),
+            at: tokio::time::Instant::now(),
         };
         match tx.try_send(queued) {
             Ok(()) => {}
@@ -749,6 +776,44 @@ struct Queued {
     reply: Option<(u64, u64)>,
     /// The loss count when it was queued.
     losses: u64,
+    /// When it was queued.
+    at: tokio::time::Instant,
+}
+
+/// A bounded set of session ids, the oldest forgotten first.
+#[derive(Default)]
+pub(super) struct Remembered {
+    ids: HashSet<String>,
+    order: VecDeque<String>,
+}
+
+impl Remembered {
+    fn contains(&self, id: &str) -> bool {
+        self.ids.contains(id)
+    }
+
+    fn insert(&mut self, id: &str) {
+        if !self.ids.insert(id.to_owned()) {
+            return;
+        }
+        self.order.push_back(id.to_owned());
+        while self.order.len() > MAX_CLOSED {
+            if let Some(old) = self.order.pop_front() {
+                self.ids.remove(&old);
+            }
+        }
+    }
+
+    fn remove(&mut self, id: &str) {
+        if self.ids.remove(id) {
+            self.order.retain(|s| s != id);
+        }
+    }
+
+    #[cfg(test)]
+    pub(super) fn count(&self, id: &str) -> usize {
+        self.order.iter().filter(|s| *s == id).count()
+    }
 }
 
 #[cfg(test)]

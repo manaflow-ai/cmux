@@ -427,7 +427,7 @@ async fn a_session_closed_twice_is_remembered_once() {
     r.step(S, Step::Closed).await;
     r.step(S, Step::Reopened).await;
     r.step(S, Step::Closed).await;
-    assert_eq!(r.closed_order.iter().filter(|id| *id == S).count(), 1);
+    assert_eq!(r.closed.count(S), 1);
     assert!(r.closed.contains(S));
 }
 
@@ -438,7 +438,7 @@ async fn the_followed_sessions_are_bounded() {
     for i in 0..MAX_TRACKS {
         r.tracks.insert(
             format!("acp_{i}"),
-            Track { now: Now::Reporting { turn: 1, last: None }, closed: false, refused: None },
+            Track { now: Now::Reporting { turn: 1, last: None }, refused: None },
         );
     }
     r.step(S, began(1)).await;
@@ -578,4 +578,54 @@ async fn nothing_is_sent_without_the_agent_or_for_an_id_the_store_refuses() {
     fake.0.lock().unwrap().absent = false;
     r.step("not/a session", began(1)).await;
     assert!(fake.0.lock().unwrap().sent.is_empty());
+}
+
+/// A continuation whose event came in time counts, even when a busy worker gets to it after the
+/// deadline: the deadline is judged by when the event was queued.
+#[tokio::test(start_paused = true)]
+async fn a_continuation_that_came_in_time_counts_however_late_it_is_handled() {
+    let (mut r, fake) = reporter();
+    fake.answer([ok(1, "running"), ok(1, "running"), ok(1, "done")]);
+    r.step(S, began(1)).await;
+    r.step(S, cut_off(1)).await;
+    let came = tokio::time::Instant::now() + Duration::from_secs(30);
+    // The worker was held by another report until well past DECIDE_WAIT.
+    tokio::time::advance(DECIDE_WAIT * 3).await;
+    r.step_at(S, Step::RetryScheduled, came).await;
+    r.step_at(S, began(1), came + Duration::from_secs(10)).await;
+    r.step(S, done(1, "Back.")).await;
+    assert_eq!(
+        fake.take(),
+        [s(1, "running", None), s(1, "running", None), s(1, "done", Some("Back."))]
+    );
+}
+
+/// An agent that stops answering while due turns are reported is not asked again for each one.
+#[tokio::test(start_paused = true)]
+async fn due_turns_stop_at_an_agent_that_stopped_answering() {
+    let (mut r, fake) = reporter();
+    fake.answer([ok(1, "running"), ok(1, "running"), Reply::Silent]);
+    r.step("acp_a", began(1)).await;
+    r.step("acp_b", began(1)).await;
+    r.step("acp_a", cut_off(1)).await;
+    r.step("acp_b", cut_off(1)).await;
+    tokio::time::advance(DECIDE_WAIT).await;
+    r.expire().await;
+    let sent = std::mem::take(&mut fake.0.lock().unwrap().sent);
+    assert_eq!(sent.len(), 3, "two begins and one failed report: {sent:?}");
+}
+
+/// A hand-off the store closed stays closed for its session across a close and reopen.
+#[tokio::test]
+async fn a_closed_hand_off_stays_closed_after_the_session_reopens() {
+    let (mut r, fake) = reporter();
+    fake.answer([Reply::Answer(json!({"ok": false, "status": 409,
+        "error": {"code": "handoff.closed", "message": "m"},
+        "handoff": {"id": "ho_x", "turn": 1, "state": "closed", "status": "cancelled"}}))]);
+    r.step(S, began(1)).await;
+    r.step(S, Step::Closed).await;
+    r.step(S, Step::Reopened).await;
+    r.step(S, began(2)).await;
+    r.step(S, Step::Ended(End::Completed(None), Some(2))).await;
+    assert_eq!(fake.take(), [s(1, "running", None)]);
 }
