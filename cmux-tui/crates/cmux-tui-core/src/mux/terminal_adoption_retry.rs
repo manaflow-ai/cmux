@@ -28,6 +28,17 @@ impl Mux {
             &self.terminal_replays,
             move |mux| {
                 let _end = &end;
+                // Test hook (debug builds): each try holds its permit this
+                // much longer, as a slow handshake and replay do.
+                #[cfg(debug_assertions)]
+                if let Some(hold) = std::env::var("CMUX_TUI_TEST_ADOPTION_TRY_HOLD_MS")
+                    .ok()
+                    .and_then(|ms| ms.parse::<u64>().ok())
+                {
+                    cmux_threads::work::will_block(|| {
+                        crate::request_path::sleep(Duration::from_millis(hold));
+                    });
+                }
                 let panic_log = options.host_panic_log.as_ref();
                 // Retries back off from 100 ms, also after an immediate first try.
                 delay = delay.max(Duration::from_millis(50));
