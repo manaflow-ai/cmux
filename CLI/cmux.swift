@@ -14928,7 +14928,7 @@ struct CMUXCLI {
         ) else {
             throw CLIError(message: String(
                 localized: "cli.ssh.et.optionsInvalid",
-                defaultValue: "ssh: --et-* values must be non-empty and free of control characters"
+                defaultValue: "ssh: --et-* values must be non-empty and free of control characters, --et-terminal-path must be absolute, and repeated tunnels must use port:port"
             ))
         }
         let agentForwarding = resolvedSSHAgentForwarding(

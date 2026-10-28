@@ -43,9 +43,9 @@ extension CMUXCLI {
             Eternal Terminal transport:
               --transport et              Carry the interactive terminal over Eternal Terminal (et)
               --et-port <n>               etserver port (default: 2022)
-              --et-terminal-path <path>   Remote etterminal path when it is not on the remote PATH
-              --et-tunnel <spec>          ET --tunnel forward (repeatable)
-              --et-reversetunnel <spec>   ET --reversetunnel forward (repeatable)
+              --et-terminal-path <path>   Absolute remote etterminal path when it is not on the remote PATH
+              --et-tunnel <spec>          ET --tunnel forward (repeat only as port:port)
+              --et-reversetunnel <spec>   ET --reversetunnel forward (repeat only as port:port)
 
             SSH continues to handle remote features; ET carries the interactive terminal and
             any --et-tunnel forwards, and forwards the SSH agent when agent forwarding is on.

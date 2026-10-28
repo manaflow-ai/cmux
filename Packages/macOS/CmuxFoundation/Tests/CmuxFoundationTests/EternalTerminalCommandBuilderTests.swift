@@ -239,6 +239,11 @@ struct EternalTerminalCommandBuilderTests {
         #expect(EternalTerminalOptions(terminalPath: " ") == nil)
         #expect(EternalTerminalOptions(terminalPath: "~/bin/etterminal") == nil)
         #expect(EternalTerminalOptions(terminalPath: "bin/etterminal") == nil)
+        // Repeated tunnels are comma-joined, which ET parses only as port:port.
+        #expect(EternalTerminalOptions(tunnels: ["localhost:2222:db.internal:22"]) != nil)
+        #expect(EternalTerminalOptions(tunnels: ["localhost:2222:db.internal:22", "8080:80"]) == nil)
+        #expect(EternalTerminalOptions(reverseTunnels: ["9090:90", "x:90"]) == nil)
+        #expect(EternalTerminalOptions(tunnels: ["8080:80", "9000-9003:9000-9003"])?.tunnels.count == 2)
         #expect(EternalTerminalOptions(tunnels: ["80\n:80"]) == nil)
         #expect(EternalTerminalOptions(tunnels: [" 80:80\n"])?.tunnels == ["80:80"])
         #expect(EternalTerminalOptions.default.clientArguments == ["--port", "2022"])
