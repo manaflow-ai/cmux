@@ -18,7 +18,7 @@
 # swiftpm_binary_module_guard PKGDIR [SCRATCH]
 #   Resolves PKGDIR (so the binary artifacts in SCRATCH are the commit's; a network
 #   fetch failure is tried again, swiftpm_resolve_package, and when every try fails
-#   the step exits 75 "fetch failed, no test ran"), then
+#   it returns 75, "fetch failed, no test ran": the caller decides), then
 #   hashes every header, module map and API notes file the build can read from
 #   a binary target: SCRATCH/artifacts and each *.xcframework of the checkout
 #   that the package's or a local dependency's manifest names.
@@ -112,10 +112,12 @@ swiftpm_binary_module_digest() {
   } | swiftpm__sha256 | cut -d' ' -f1
 }
 
-# A resolve's output (FILE) shows a network fetch failure: git or curl lost the connection, not the commit's
-# own manifest or pins. Step 9bc9eadb (cmux14, 2026-10-28): "RPC failed; curl 18 Transferred a partial file".
+# A resolve's output (FILE) shows a network fetch failure: git, curl or a release download lost the connection
+# or got a server error (5xx), not the commit's own manifest, pins, a 404 or a checksum mismatch (those are the
+# commit's defects and stay a red). Step 9bc9eadb (cmux14, 2026-10-28): "RPC failed; curl 18 Transferred a
+# partial file".
 swiftpm__network_fetch_failure() {
-  grep -qE 'curl [0-9]+|RPC failed|Transferred a partial file|expected flush after|Could not resolve host|Connection (reset|refused|timed out)|Operation timed out|SSL_ERROR|gnutls_handshake|unexpected disconnect|early EOF|The network connection was lost|The request timed out' "$1"
+  grep -qE 'curl [0-9]+|RPC failed|Transferred a partial file|expected flush after|Could not resolve host|Failed to connect to|Couldn.{1,3}t connect to server|Connection (reset|refused|timed out)|Operation timed out|SSL_ERROR|gnutls_handshake|unexpected disconnect|early EOF|remote end hung up unexpectedly|Empty reply from server|The requested URL returned error: 5[0-9][0-9]|badResponseStatusCode[(]5[0-9][0-9]|The network connection was lost|The request timed out' "$1"
 }
 
 # `swift package resolve` of PKGDIR (ARGS go after --package-path), its output in the step log. A failure on
@@ -160,7 +162,9 @@ swiftpm_binary_module_guard() {
   # (the build reports why), the artifacts may still be the old commit's, so the
   # digest proves nothing: drop the caches and the stamp, and the next step
   # starts from a digest of its own. A network fetch failure is tried again; when
-  # every try fails, no test can run: the step ends with 75 (no verdict), never 1.
+  # every try fails, no test can run for PKGDIR: the guard returns 75 (no verdict)
+  # and the caller decides (a lane of several packages records it for this one
+  # package and goes on; a step of one package ends with 75, never 1).
   swiftpm_resolve_package "$pkgdir" ${resolve_args[@]+"${resolve_args[@]}"} || resolved=$?
   if [ "$resolved" -ne 0 ]; then
     digest=""
@@ -182,8 +186,8 @@ swiftpm_binary_module_guard() {
     rm -f "$stamp"
     echo "ci-phase swift package resolve failed in $pkgdir: removed the build outputs in $scratch"
     if [ "$resolved" -eq 75 ]; then
-      echo "ci-phase fetch failed, no test ran: swift package resolve in $pkgdir failed on a network fetch on every try (infrastructure, exit 75; rerun the step)"
-      exit 75
+      echo "ci-phase fetch failed, no test ran: swift package resolve in $pkgdir failed on a network fetch on every try (infrastructure, no verdict: 75; rerun the step)"
+      return 75
     fi
     return 0
   fi
