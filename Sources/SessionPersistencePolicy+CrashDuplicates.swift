@@ -167,7 +167,8 @@ extension SessionPersistencePolicy {
                 crashPanelCheckpointID($0) == nil ? $0.id : nil
             }),
             preservedContentIDs: crashWorkspaceContentIDs(workspace, fingerprints: &fingerprints),
-            metadataFingerprint: crashWorkspaceMetadataFingerprint(workspace, fingerprints: &fingerprints)
+            metadataFingerprint: crashWorkspaceMetadataFingerprint(workspace, fingerprints: &fingerprints),
+            agentPanels: crashAgentPanelSignatures(workspace.panels, fingerprints: &fingerprints)
         )
     }
 
@@ -185,28 +186,68 @@ extension SessionPersistencePolicy {
         }
     }
 
-    /// Preserve all persisted non-agent contents and agent text. Exhausting
+    /// Preserve all persisted non-agent contents. Exhausting
     /// the comparison budget retains both copies instead of using sampled text.
     private nonisolated static func crashWorkspaceContentIDs(
         _ workspace: SessionWorkspaceSnapshot, fingerprints: inout CrashContentFingerprint
     ) -> Set<String>? {
         var contents: Set<String> = []
-        for panel in workspace.panels {
-            guard let checkpoint = crashPanelCheckpointID(panel) else {
-                guard let fingerprint = fingerprints.fingerprint(panel) else { return nil }
-                contents.insert("panel:\(panel.id):\(fingerprint)")
-                continue
-            }
+        for panel in workspace.panels where crashPanelCheckpointID(panel) == nil {
+            guard let fingerprint = fingerprints.fingerprint(panel) else { return nil }
+            contents.insert("panel:\(panel.id):\(fingerprint)")
+        }
+        return contents
+    }
+
+    /// Keep pane metadata and its contents together, even when checkpoints repeat.
+    private nonisolated static func crashAgentPanelSignatures(
+        _ panels: [SessionPanelSnapshot], fingerprints: inout CrashContentFingerprint
+    ) -> [CrashAgentPanelSignature]? {
+        var signatures: [CrashAgentPanelSignature] = []
+        for panel in panels {
+            guard let checkpoint = crashPanelCheckpointID(panel) else { continue }
+            var contents: Set<String> = []
             if let scrollback = panel.terminal?.scrollback, !scrollback.isEmpty {
                 guard let fingerprint = fingerprints.fingerprint(scrollback) else { return nil }
-                contents.insert("scrollback:\(checkpoint):\(fingerprint)")
+                contents.insert("scrollback:\(fingerprint)")
             }
             if let draft = panel.terminal?.textBoxDraft {
                 guard let fingerprint = fingerprints.fingerprint(draft) else { return nil }
-                contents.insert("draft:\(checkpoint):\(fingerprint)")
+                contents.insert("draft:\(fingerprint)")
             }
+            if let launch = panel.terminal?.agent?.launchCommand {
+                guard let fingerprint = fingerprints.fingerprint(launch) else { return nil }
+                contents.insert("launch:\(fingerprint)")
+            }
+            for (name, binding) in [
+                ("resume", panel.terminal?.resumeBinding), ("managed", panel.terminal?.managedAgentResumeBinding)
+            ] {
+                guard var binding else { continue }
+                binding.cwd = nil
+                binding.updatedAt = 0
+                guard let fingerprint = fingerprints.fingerprint(binding) else { return nil }
+                contents.insert("\(name):\(fingerprint)")
+            }
+            var metadata = panel
+            // Pane IDs and process titles change across generations. Working
+            // directories come from the retained complete generation's fidelity.
+            metadata.id = UUID(uuid: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
+            metadata.stableSurfaceId = nil
+            metadata.title = nil
+            metadata.directory = nil
+            metadata.terminal?.workingDirectory = nil
+            metadata.terminal?.agent?.workingDirectory = nil
+            metadata.terminal?.agent?.launchCommand = nil
+            metadata.terminal?.scrollback = nil
+            metadata.terminal?.textBoxDraft = nil
+            metadata.terminal?.resumeBinding = nil
+            metadata.terminal?.managedAgentResumeBinding = nil
+            guard let fingerprint = fingerprints.fingerprint(metadata) else { return nil }
+            signatures.append(CrashAgentPanelSignature(
+                checkpointID: checkpoint, metadataFingerprint: fingerprint, contentFingerprints: contents
+            ))
         }
-        return contents
+        return signatures
     }
 
     /// User-authored workspace state must agree before a whole copy is lost.

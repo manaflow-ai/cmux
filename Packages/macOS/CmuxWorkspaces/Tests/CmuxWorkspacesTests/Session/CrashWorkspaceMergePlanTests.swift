@@ -7,13 +7,67 @@ struct CrashWorkspaceMergePlanTests {
     private func workspace(
         id: UUID? = nil, agents: Set<String> = [], title: String? = nil,
         group: UUID? = nil, dock: CrashDockSignature? = nil, score: Int = 0,
-        nonAgents: Set<UUID> = [], contents: Set<String>? = []
+        nonAgents: Set<UUID> = [], contents: Set<String>? = [], panels: [CrashAgentPanelSignature]? = []
     ) -> CrashWorkspaceSignature {
         CrashWorkspaceSignature(
             stableID: nil, workspaceID: id, checkpointIDs: agents,
             title: title, description: nil, groupID: group, directory: "/work",
-            dock: dock, fidelityScore: score, nonAgentPanelIDs: nonAgents, preservedContentIDs: contents
+            dock: dock, fidelityScore: score, nonAgentPanelIDs: nonAgents, preservedContentIDs: contents,
+            agentPanels: panels
         )
+    }
+
+    private func panel(_ metadata: String = "same", contents: Set<String> = []) -> CrashAgentPanelSignature {
+        CrashAgentPanelSignature(checkpointID: "a", metadataFingerprint: metadata, contentFingerprints: contents)
+    }
+
+    @Test("A repeated checkpoint does not erase distinct panes", arguments: [false, true])
+    func repeatedAgentPanesSurvive(reversed: Bool) {
+        let smaller = workspace(agents: ["a"], score: 100, panels: [panel()])
+        let larger = workspace(agents: ["a"], panels: [panel(), panel()])
+        let plan = CrashWorkspaceMergePlan(
+            preferred: [reversed ? larger : smaller],
+            supplemental: [reversed ? smaller : larger]
+        )
+        #expect(plan.selections == [reversed ? .preferred(0) : .supplemental(0)])
+    }
+
+    @Test("Pane metadata and saved contents remain associated")
+    func agentPaneAssociationsSurvive() {
+        let plan = CrashWorkspaceMergePlan(
+            preferred: [workspace(agents: ["a"], panels: [panel("first", contents: ["one"]), panel("second", contents: ["two"])])],
+            supplemental: [workspace(agents: ["a"], panels: [panel("first", contents: ["two"]), panel("second", contents: ["one"])])]
+        )
+        #expect(plan.selections == [.preferred(0), .supplemental(0)])
+    }
+
+    @Test("Missing or divergent pane metadata retains both copies", arguments: [nil, [CrashAgentPanelSignature(
+        checkpointID: "a", metadataFingerprint: "different", contentFingerprints: []
+    )]])
+    func agentPaneMetadataSurvives(panels: [CrashAgentPanelSignature]?) {
+        let plan = CrashWorkspaceMergePlan(
+            preferred: [workspace(agents: ["a"], panels: [panel()])],
+            supplemental: [workspace(agents: ["a"], panels: panels)]
+        )
+        #expect(plan.selections == [.preferred(0), .supplemental(0)])
+    }
+
+    @Test("Recovered pane contents beat directory fidelity")
+    func recoveredAgentPaneWins() {
+        let plan = CrashWorkspaceMergePlan(
+            preferred: [workspace(agents: ["a"], score: 100, panels: [panel()])],
+            supplemental: [workspace(agents: ["a"], panels: [panel(contents: ["recovered"])])]
+        )
+        #expect(plan.selections == [.supplemental(0)])
+    }
+
+    @Test("A content-rich pane is assigned before an empty pane sharing its checkpoint")
+    func agentPaneContainmentIsOneToOne() {
+        let plan = CrashWorkspaceMergePlan(
+            preferred: [workspace(agents: ["a"], panels: [panel(contents: ["one"]), panel()])],
+            supplemental: [workspace(agents: ["a"], panels: [panel(), panel(contents: ["one"])])]
+        )
+        #expect(plan.selections == [.preferred(0)])
     }
 
     @Test("Matching identity cannot discard an incomparable agent generation")

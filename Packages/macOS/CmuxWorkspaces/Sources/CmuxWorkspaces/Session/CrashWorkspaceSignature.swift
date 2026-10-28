@@ -8,6 +8,7 @@ public struct CrashWorkspaceSignature: Sendable {
     let nonAgentPanelIDs: Set<UUID>
     let preservedContentIDs: Set<String>?
     let metadataFingerprint: String?
+    let agentPanels: [CrashAgentPanelSignature]?
     let title: String?
     let description: String?
     let groupID: UUID?
@@ -29,13 +30,15 @@ public struct CrashWorkspaceSignature: Sendable {
     ///   - fidelityScore: Restore metadata score used when checkpoint sets are equal.
     ///   - nonAgentPanelIDs: Persisted panels without agent checkpoint identity.
     ///   - metadataFingerprint: Exact comparison of user-authored workspace state; nil refuses merging.
-    ///   - preservedContentIDs: Fingerprints of non-agent panel contents and saved agent text;
+    ///   - agentPanels: Per-pane comparison evidence; nil refuses merging when any pane cannot be compared.
+    ///   - preservedContentIDs: Fingerprints of complete non-agent panel contents;
     ///     nil refuses whole-copy selection when that content cannot be compared.
     public nonisolated init(
         stableID: UUID?, workspaceID: UUID?, checkpointIDs: Set<String>,
         title: String?, description: String?, groupID: UUID?, directory: String,
         dock: CrashDockSignature?, fidelityScore: Int, nonAgentPanelIDs: Set<UUID> = [],
-        preservedContentIDs: Set<String>? = [], metadataFingerprint: String? = ""
+        preservedContentIDs: Set<String>? = [], metadataFingerprint: String? = "",
+        agentPanels: [CrashAgentPanelSignature]? = []
     ) {
         self.stableID = stableID
         self.workspaceID = workspaceID
@@ -43,6 +46,7 @@ public struct CrashWorkspaceSignature: Sendable {
         self.nonAgentPanelIDs = nonAgentPanelIDs
         self.preservedContentIDs = preservedContentIDs
         self.metadataFingerprint = metadataFingerprint
+        self.agentPanels = agentPanels
         self.title = title
         self.description = description
         self.groupID = groupID
@@ -60,9 +64,10 @@ public struct CrashWorkspaceSignature: Sendable {
     }
 
     nonisolated func isPreferred(over other: Self) -> Bool {
-        if checkpointIDs != other.checkpointIDs || nonAgentPanelIDs != other.nonAgentPanelIDs
-            || preservedContentIDs != other.preservedContentIDs {
-            return containsPanels(of: other)
+        let containsOther = containsPanels(of: other)
+        let otherContainsSelf = other.containsPanels(of: self)
+        if containsOther != otherContainsSelf {
+            return containsOther
         }
         return fidelityScore > other.fidelityScore
     }
@@ -71,5 +76,26 @@ public struct CrashWorkspaceSignature: Sendable {
         guard let ownContents = preservedContentIDs, let otherContents = other.preservedContentIDs else { return false }
         return ownContents.isSuperset(of: otherContents) && checkpointIDs.isSuperset(of: other.checkpointIDs)
             && nonAgentPanelIDs.isSuperset(of: other.nonAgentPanelIDs)
+            && containsAgentPanels(of: other)
+    }
+
+    /// Match each pane once, considering panes with more saved contents first.
+    /// An ambiguous assignment can retain an extra workspace, never discard a pane.
+    private nonisolated func containsAgentPanels(of other: Self) -> Bool {
+        guard let ownPanels = agentPanels, let otherPanels = other.agentPanels,
+              ownPanels.count >= otherPanels.count else { return false }
+        let candidates = Dictionary(grouping: ownPanels.indices, by: { ownPanels[$0].checkpointID })
+        let order = otherPanels.indices.sorted {
+            otherPanels[$0].contentFingerprints.count > otherPanels[$1].contentFingerprints.count
+        }
+        var consumed: Set<Int> = []
+        for index in order {
+            let panel = otherPanels[index]
+            guard let match = candidates[panel.checkpointID]?.first(where: {
+                !consumed.contains($0) && ownPanels[$0].contains(panel)
+            }) else { return false }
+            consumed.insert(match)
+        }
+        return true
     }
 }
