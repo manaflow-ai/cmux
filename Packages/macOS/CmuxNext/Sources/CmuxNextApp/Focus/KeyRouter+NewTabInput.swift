@@ -339,6 +339,9 @@ final class NewTabInputCoordinator {
         buffers[number] = entry
     }
 
+    /// Tests: the open showed tab `key` (as ``didShow(in:)`` reads it from the pane).
+    func markShown(_ key: String, in window: NSWindow?) {}
+
     /// The open put the page's tab on screen: leaving it now ends the hold at once.
     func didShow(in window: NSWindow?) {
         guard let window, let entry = buffers[window.windowNumber] else { return }

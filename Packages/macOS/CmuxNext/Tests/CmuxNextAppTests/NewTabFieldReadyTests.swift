@@ -144,6 +144,30 @@ struct NewTabFieldReadyTests {
         #expect(!input.isHolding(in: fixture.window), "the field took focus and the keys still wait: \(input.log)")
     }
 
+    /// A cold New Tab page (no field yet): a native stand-in field takes the keys in the open's turn, nothing is held,
+    /// and the stand-in hands its text and selection to the page's field once that has focus: one transfer, no replay.
+    @Test func aColdPagesKeysGoToANativeStandInThatHandsItsTextToTheField() async throws {
+        let fixture = try await Self.fixture()
+        defer { fixture.close() }
+        fixture.page.inputReadiness.receive(["editing": false])  // the page's field does not exist yet
+        var seeds: [NewTabFieldSeed] = []
+        fixture.page.fieldSeedSink = { seeds.append($0) }
+        let input = fixture.services.keyRouter.newTabInputCoordinator
+        input.holdLimit = .seconds(600)
+        input.scheduleDeadline = { _, _ in DemandTimer(owner: "test.holdLimit") }
+        // The opening shows a page other than the one the pane showed before.
+        _ = try #require(input.begin(for: fixture.pane))
+        input.markShown(fixture.key, in: fixture.window)
+        #expect(!input.isHolding(in: fixture.window), "a cold page's keys wait in a hold: \(input.log)")
+        let standIn = try #require(fixture.page.fieldStandIn, "no stand-in field for the cold page")
+        #expect(fixture.window.firstResponder === standIn, "the stand-in does not have the keyboard")
+        (standIn as? NSTextView)?.insertText("hi", replacementRange: NSRange(location: NSNotFound, length: 0))
+        #expect(seeds.isEmpty, "the stand-in handed its text before the field existed")
+        fixture.page.inputReadiness.receive(["editing": true])
+        #expect(seeds == [NewTabFieldSeed(text: "hi", selectionStart: 2, selectionEnd: 2, submit: false)], "seeds \(seeds)")
+        #expect(fixture.page.fieldStandIn == nil, "the stand-in stayed after it handed its text")
+    }
+
     /// Cmd-N / Cmd-Shift-N: the hold learns its page's tab when the page is made (in the press's turn), and the keys go
     /// to it once it shows with its field ready, with no readiness message.
     @Test func incomingKeysGoToTheirPageOnceItShowsWithItsFieldReady() async throws {
