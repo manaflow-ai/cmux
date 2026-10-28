@@ -102,7 +102,9 @@ const UPLOAD = "home-attachment-upload"
 /** Each derived image is its own token purpose: an image token is never a poster or preview token, nor the other way. */
 const derivedPurpose = (variant: Variant) => `home-attachment-${variant}-upload`
 const DOWNLOAD = "home-attachment-download"
-const PART_NUMBER = /^[1-9]\d{0,14}$/
+/** A part number names one of the slot's planned parts: an integer from 1 to its part count (R2: at most 10,000). */
+const partNumberIn = (value: unknown, parts: number): value is number => Number.isInteger(value) && (value as number) >= 1 && (value as number) <= Math.min(parts, homeConversation.MULTIPART_PART_COUNT)
+const partInvalid = (parts: number) => failure({ status: 400, code: "attachment.part_invalid", message: `part number must be an integer from 1 to ${parts}` })
 
 const uploadToken = (env: Env, conversation: string, slot: string, purpose = UPLOAD) => {
   const kid = currentKid(env)
@@ -349,7 +351,7 @@ export const handleAttachmentMultipartPart = async (request: Request, env: Env, 
   const [id, kid, sig, extra] = token.split(".")
   if (!id || !kid || !sig || extra !== undefined || !verify(env, kid, UPLOAD, [conversation, id], sig)) return invalid
   const partText = request.headers.get("x-cmux-part-number") ?? ""
-  if (!PART_NUMBER.test(partText)) return failure({ status: 400, code: "attachment.part_invalid", message: "part number must be a positive integer" })
+  if (!/^[1-9]\d{0,4}$/.test(partText)) return partInvalid(homeConversation.MULTIPART_PART_COUNT)
   const part = Number(partText)
   const conv = conversationOf(env, conversation)
   const slot = await conv.uploadSlot(conversation, id, "multipart", false)
@@ -357,6 +359,7 @@ export const handleAttachmentMultipartPart = async (request: Request, env: Env, 
   const missing = derivedMissing(slot)
   if (missing) return missing
   const plan = homeConversation.multipartPlan(slot.byte_count)
+  if (!partNumberIn(part, plan.parts)) return partInvalid(plan.parts)
   const sha = new ResumableSha256(slot.multipart_hash)
   const next = sha.bytes / plan.partBytes + 1
   if (part !== next) return failure({ status: 409, code: "attachment.part_order", message: Number.isInteger(next) ? `send part ${next} next` : "every part is stored; complete the upload" })
@@ -396,10 +399,12 @@ export const handleAttachmentMultipartComplete = async (request: Request, env: E
   if (!peek?.multipart_upload_id) return invalid
   const missing = derivedMissing(peek)
   if (missing) return missing
-  const etags = await conv.multipartEtags(conversation, peek.id)
-  if (etags.length !== homeConversation.multipartPlan(peek.byte_count).parts || peek.multipart_hash !== `${peek.hash}:${peek.byte_count}`) return failure({ status: 409, code: "attachment.part_missing", message: "one or more upload parts are missing" })
+  const { parts } = homeConversation.multipartPlan(peek.byte_count)
   const listed = body.parts
-  if (listed !== undefined && (!Array.isArray(listed) || listed.length !== etags.length || listed.some((p, i) => p?.part_number !== i + 1 || p.etag !== etags[i]))) return failure({ status: 409, code: "attachment.part_missing", message: "the parts do not match the stored parts" })
+  if (listed !== undefined && (!Array.isArray(listed) || listed.length !== parts || listed.some((p, i) => !partNumberIn(p?.part_number, parts) || p.part_number !== i + 1 || typeof p.etag !== "string"))) return failure({ status: 400, code: "attachment.parts_invalid", message: `parts must be numbered 1 to ${parts}, in order, each with its etag` })
+  const etags = await conv.multipartEtags(conversation, peek.id)
+  if (etags.length !== parts || peek.multipart_hash !== `${peek.hash}:${peek.byte_count}`) return failure({ status: 409, code: "attachment.part_missing", message: "one or more upload parts are missing" })
+  if (listed?.some((p: { etag: string }, i: number) => p.etag !== etags[i])) return failure({ status: 409, code: "attachment.part_missing", message: "the parts do not match the stored parts" })
   const slot = await conv.uploadSlot(conversation, peek.id, "multipart", true, caller.actor)
   if (!slot?.multipart_upload_id) return invalid
   const bucket = env.HOME_ATTACHMENTS!

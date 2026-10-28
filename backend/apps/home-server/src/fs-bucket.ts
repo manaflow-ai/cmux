@@ -198,7 +198,8 @@ export class FsBucket {
   }
 
   async uploadMultipartPart(uploadId: string, partNumber: number, value: unknown): Promise<{ partNumber: number; etag: string }> {
-    if (!Number.isSafeInteger(partNumber) || partNumber <= 0) throw new Error("invalid multipart part")
+    // R2 numbers parts 1 to 10,000.
+    if (!Number.isSafeInteger(partNumber) || partNumber <= 0 || partNumber > 10_000) throw new Error("invalid multipart part")
     this.readMultipart(uploadId)
     const partPath = this.multipartPath(uploadId) + `.part.${partNumber}`
     try {

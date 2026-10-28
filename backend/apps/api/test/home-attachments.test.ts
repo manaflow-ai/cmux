@@ -55,7 +55,7 @@ describe("Home attachments: upload and dedupe", { timeout: 60_000 }, () => {
     const r = await intent(alice, id, body, { multipart: true })
     expect(r.json.value).toMatchObject({ state: "upload", mode: "multipart", method: "PUT" })
     const partSize = r.json.value.part_size as number
-    expect((await worker.fetch(r.json.value.upload_url, { method: "PUT", body: new Uint8Array([1]), headers: { "content-length": "1", "x-cmux-part-number": "3" } })).status).toBe(409)
+    expect((await worker.fetch(r.json.value.upload_url, { method: "PUT", body: new Uint8Array([1]), headers: { "content-length": "1", "x-cmux-part-number": "3" } })).status).toBe(400)
     expect((await worker.fetch(r.json.value.upload_url, { method: "PUT", body: new Uint8Array([1]), headers: { "content-length": "1", "x-cmux-part-number": "1" } })).status).toBe(400)
     const parts: Array<{ part_number: number; byte_count: number; etag?: string }> = []
     for (let start = 0, part = 1; start < body.length; start += partSize, part++) {
