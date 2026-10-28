@@ -600,7 +600,14 @@ class App : public CefApp, public CefBrowserProcessHandler {
     // per remote tab; the host ends with the app, which an update restarts.
     // The app's Chromium host turns it off for the same reason
     // (ChromiumHostConfiguration.swift).
-    command_line->AppendSwitchWithValue("disable-features", "MacAppCodeSignClone");
+    // Merged into the list CEF already passes (it turns off Chrome features
+    // CEF does not support, such as the actor UI): a replaced list turns them
+    // back on and the first tab crashes.
+    std::string disabled = command_line->GetSwitchValue("disable-features").ToString();
+    if (disabled.find("MacAppCodeSignClone") == std::string::npos) {
+      disabled += disabled.empty() ? "MacAppCodeSignClone" : ",MacAppCodeSignClone";
+    }
+    command_line->AppendSwitchWithValue("disable-features", disabled);
   }
   void OnContextInitialized() override {
     if (g_rp.set_needs_begin_frames_handler) {
