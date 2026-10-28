@@ -100,6 +100,123 @@ async fn dashboard_page_needs_token_and_own_origin() {
     assert_eq!(status(port, page(&query, "evil.example", None)).await, 403);
 }
 
+/// Send one raw request and return the whole response head.
+async fn response_head(port: u16, request: String) -> String {
+    let mut stream = tokio::net::TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+    stream.write_all(request.as_bytes()).await.unwrap();
+    let mut head = Vec::new();
+    let mut buf = [0u8; 1024];
+    while !head.windows(4).any(|w| w == b"\r\n\r\n") {
+        let n = tokio::time::timeout(std::time::Duration::from_secs(5), stream.read(&mut buf))
+            .await
+            .expect("response")
+            .unwrap();
+        if n == 0 {
+            break;
+        }
+        head.extend_from_slice(&buf[..n]);
+    }
+    String::from_utf8_lossy(&head).into_owned()
+}
+
+fn upgrade_offering(host: &str, protocols: &str) -> String {
+    format!(
+        "GET / HTTP/1.1\r\nHost: {host}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Protocol: {protocols}\r\n\r\n"
+    )
+}
+
+/// A URL is logged, kept in history and sent as a Referer: the listener
+/// token in the query alone admits nothing.
+#[tokio::test]
+async fn websocket_with_only_a_query_token_is_refused() {
+    let port = listener().await;
+    let host = format!("127.0.0.1:{port}");
+    let query = format!("?token={TOKEN}");
+    assert_eq!(status(port, upgrade(&query, &host, None)).await, 401);
+    assert_eq!(status(port, upgrade(&query, &host, Some(AGENT_PANE_ORIGIN))).await, 401);
+}
+
+/// A browser cannot set an Authorization header: it offers the token as a
+/// WebSocket subprotocol next to the plain `acpmux.v1`. The upgrade answers
+/// with `acpmux.v1` only, never the token.
+#[tokio::test]
+async fn websocket_with_the_token_subprotocol_upgrades_and_echoes_only_the_plain_protocol() {
+    let port = listener().await;
+    let host = format!("127.0.0.1:{port}");
+    let offered = format!("acpmux.v1, acpmux.token.{TOKEN}");
+    let head = response_head(port, upgrade_offering(&host, &offered)).await;
+    assert!(head.starts_with("HTTP/1.1 101"), "{head}");
+    let protocols: Vec<&str> = head
+        .lines()
+        .filter_map(|l| l.split_once(':'))
+        .filter(|(name, _)| name.trim().eq_ignore_ascii_case("sec-websocket-protocol"))
+        .map(|(_, value)| value.trim())
+        .collect();
+    assert_eq!(protocols, ["acpmux.v1"], "{head}");
+    assert!(!head.contains(TOKEN), "the response echoed the token: {head}");
+    // The same in two headers, as some clients send them.
+    let split = format!("acpmux.v1\r\nSec-WebSocket-Protocol: acpmux.token.{TOKEN}");
+    let head = response_head(port, upgrade_offering(&host, &split)).await;
+    assert!(head.starts_with("HTTP/1.1 101"), "{head}");
+    assert!(!head.contains(TOKEN), "{head}");
+}
+
+#[tokio::test]
+async fn websocket_with_a_wrong_or_lone_token_subprotocol_is_refused() {
+    let port = listener().await;
+    let host = format!("127.0.0.1:{port}");
+    for offered in [
+        "acpmux.v1, acpmux.token.wrong".to_owned(),
+        "acpmux.v1".to_owned(),
+        // Without the plain protocol to answer with, a browser fails the
+        // upgrade: refuse it rather than echo the token.
+        format!("acpmux.token.{TOKEN}"),
+    ] {
+        let head = response_head(port, upgrade_offering(&host, &offered)).await;
+        assert!(!head.starts_with("HTTP/1.1 101"), "{offered}: {head}");
+        assert!(!head.contains(TOKEN), "{offered}: {head}");
+    }
+}
+
+/// The page holds no secret: it is served without a token, so no link has
+/// to carry one in its query. Its WebSocket still needs the token.
+#[tokio::test]
+async fn dashboard_page_is_served_without_a_token_in_its_url() {
+    let port = listener().await;
+    let host = format!("127.0.0.1:{port}");
+    let mut stream = tokio::net::TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+    stream.write_all(page("", &host, None).as_bytes()).await.unwrap();
+    let mut body = Vec::new();
+    tokio::time::timeout(std::time::Duration::from_secs(5), stream.read_to_end(&mut body))
+        .await
+        .expect("response")
+        .unwrap();
+    let body = String::from_utf8_lossy(&body);
+    assert!(body.starts_with("HTTP/1.1 200"), "{}", &body[..body.len().min(200)]);
+    assert!(!body.contains(TOKEN), "the page embeds the token");
+    // The listener rule still holds for the page.
+    assert_eq!(status(port, page("", &host, Some("https://evil.example"))).await, 403);
+    assert_eq!(status(port, page("", "evil.example", None)).await, 403);
+}
+
+/// Plain ws:// on a network address carries the token in clear: never bound
+/// unless the person opts in, and the refusal names the opt-in.
+#[tokio::test]
+async fn a_network_address_is_not_bound_without_the_opt_in() {
+    for addr in ["0.0.0.0:0", "[::]:0"] {
+        match bind_ws(addr).await {
+            Ok(l) => panic!("{addr} was bound: {:?}", l.local_addr()),
+            Err(e) => {
+                let text = format!("{e:#}");
+                assert!(text.contains("--insecure-network-listen"), "{addr}: {text}");
+                assert!(text.contains("websocket.allowInsecureNetwork"), "{addr}: {text}");
+            }
+        }
+    }
+    // Loopback stays as it was.
+    assert!(bind_ws("127.0.0.1:0").await.is_ok());
+}
+
 #[tokio::test]
 async fn an_empty_token_never_starts_the_listener() {
     let mut config = Config::default();
