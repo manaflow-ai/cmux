@@ -1,6 +1,7 @@
 #if canImport(UIKit)
 import CmuxConversationCore
 import CmuxConversationGeometry
+import CmuxMobileSupport
 import GameController
 import UIKit
 
@@ -193,6 +194,9 @@ public final class ConversationViewController: UIViewController {
     /// Keyboard-relative base line of the composer (see `composerBottomConstraint`).
     let composerBase = UILayoutGuide()
     var composerDropConstraint: NSLayoutConstraint?
+    /// The docked keyboard's top edge (or the bottom safe-area edge): the
+    /// composer's base line hangs from it (see `MobileKeyboardDock`).
+    private(set) var keyboardDock: MobileKeyboardDock!
     /// Height of the docked keyboard when fully shown, from its notifications.
     var dockedKeyboardHeight: CGFloat = 0
     /// Top edge of the keyboard's latest end frame, in view coordinates.
@@ -261,14 +265,16 @@ public final class ConversationViewController: UIViewController {
         view.addSubview(topEdgeFade)
         view.addSubview(header)
 
-        view.keyboardLayoutGuide.followsUndockedKeyboard = true
+        let keyboardDock = MobileKeyboardDock(view: view, usesBottomSafeArea: true)
+        keyboardDock.trackInteractiveDismissal(of: collectionView)
+        self.keyboardDock = keyboardDock
         let composerHeight = composer.heightAnchor.constraint(equalToConstant: composer.preferredHeight)
         composerHeightConstraint = composerHeight
-        // `composerBottomConstraint` places a base line 4 pt above the keyboard
+        // `composerBottomConstraint` places a base line 4 pt above the docked keyboard
         // (or the safe area, or a drawer); the composer then sits `composerDrop`
         // below that line, which follows the keyboard's progress.
         view.addLayoutGuide(composerBase)
-        let composerBottom = composerBase.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor, constant: -4)
+        let composerBottom = composerBase.bottomAnchor.constraint(equalTo: keyboardDock.guide.topAnchor, constant: -4)
         composerBottomConstraint = composerBottom
         let drop = composerContainer.bottomAnchor.constraint(equalTo: composerBase.bottomAnchor, constant: ConversationKeyboardPinGeometry.restDrop)
         composerDropConstraint = drop
@@ -403,6 +409,7 @@ public final class ConversationViewController: UIViewController {
 
     public override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
+        keyboardDock.refresh()
         // With the keyboard up Messages insets the composer by the system
         // layout margin (16 pt, 20 pt on Plus/Max-width iPhones).
         composer.keyboardSideInset = systemMinimumLayoutMargins.leading
@@ -520,7 +527,7 @@ public final class ConversationViewController: UIViewController {
     /// passes through every value in between.
     var keyboardProgress: CGFloat {
         let rest = view.bounds.maxY - view.safeAreaInsets.bottom
-        let top = view.keyboardLayoutGuide.layoutFrame.minY
+        let top = keyboardDock.guide.layoutFrame.minY
         guard top < rest - 0.5 else { return 0 }
         let travel = dockedKeyboardHeight - view.safeAreaInsets.bottom
         guard travel > 1 else { return 1 }
@@ -541,7 +548,7 @@ public final class ConversationViewController: UIViewController {
         // A drawer in the keyboard's place keeps the composer on its base line.
         let p = photoDrawer == nil ? keyboardProgress : 0
         let restingGuideTop = view.bounds.maxY - view.safeAreaInsets.bottom
-        let guideTop = view.keyboardLayoutGuide.layoutFrame.minY
+        let guideTop = keyboardDock.guide.layoutFrame.minY
         let keyboardTop = ConversationKeyboardPinGeometry.keyboardTop(
             guideTop: guideTop, restingGuideTop: restingGuideTop,
             screenBottom: view.bounds.maxY, dragLocation: keyboardDragLocation,
@@ -602,7 +609,7 @@ public final class ConversationViewController: UIViewController {
         let restingGuideTop = view.bounds.maxY - view.safeAreaInsets.bottom
         let state = ConversationKeyboardFocusPolicy.KeyboardHidden(
             composerIsFirstResponder: composer.textView.isFirstResponder,
-            keyboardGuideAtRest: view.keyboardLayoutGuide.layoutFrame.minY >= restingGuideTop - 0.5,
+            keyboardGuideAtRest: keyboardDock.guide.layoutFrame.minY >= restingGuideTop - 0.5,
             hardwareKeyboardAttached: GCKeyboard.coalesced != nil,
             sceneIsForegroundActive: view.window?.windowScene?.activationState == .foregroundActive,
             isTransitioningSize: isTransitioningSize

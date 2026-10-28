@@ -1,6 +1,7 @@
 #if os(iOS)
 import CmuxMobileArtifacts
 import CmuxMobileDesign
+import CmuxMobileSupport
 import GhosttyNextKit
 import SwiftUI
 import UIKit
@@ -13,7 +14,8 @@ private let sizingLog = Logger(subsystem: "dev.cmux.mobile", category: "terminal
 /// Lays out the terminal screen in UIKit, where keyboard tracking is exact:
 ///
 /// - The bottom stack (key row over the composer, classic cmux iOS's dock) is
-///   pinned to `keyboardLayoutGuide`, so it rides the keyboard's own
+///   pinned to the docked keyboard (`MobileKeyboardDock`, the keyboard layout
+///   guide while it follows the keyboard), so it rides the keyboard's own
 ///   animation and interactive dismissal.
 /// - Non-TUI: the Ghostty surface lives inside a `UIScrollView` whose content
 ///   height is the session's rows times the cell height. The surface is placed
@@ -280,6 +282,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private var keyRowGap: NSLayoutConstraint!
     /// The stack's 8 pt bottom margin; 0 once Hide Toolbar folds everything.
     private var dockBottomMargin: NSLayoutConstraint!
+    /// The docked keyboard's top edge, which the bottom stack rides.
+    private var keyboardDock: MobileKeyboardDock!
     /// A drag that began while following the prompt with the keyboard up:
     /// a downward drag dismisses the keyboard and the content stays pinned
     /// to the composer, row for row (SPEC M6).
@@ -456,23 +460,25 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                 view.addSubview(statusScrim)
             }
         }
-        let guide = view.keyboardLayoutGuide
         // The stack rides the keyboard only while the keyboard is docked at
-        // the bottom. With a hardware keyboard the guide can report a 0-wide,
-        // 44 pt frame near the top (172 pt on iPhone 17 Pro): pinned to it,
-        // the composer and key bar jumped to the top of the page and the
-        // terminal went blank. Away from the bottom the stack rests at the
-        // chrome's line instead and the key bar folds away.
-        guide.followsUndockedKeyboard = true
-        guide.usesBottomSafeArea = false
+        // the bottom (`MobileKeyboardDock`). With a hardware keyboard the
+        // system guide can report a 0-wide, 44 pt frame near the top (172 pt on
+        // iPhone 17 Pro): pinned to it, the composer and key bar jumped to the
+        // top of the page and the terminal went blank. On the iOS 27
+        // simulator it can also stay at the bottom under a docked keyboard
+        // (after a rotation the keyboard covered the dock). Away from the
+        // bottom the stack rests at the chrome's line instead.
+        keyboardDock = MobileKeyboardDock(view: view, usesBottomSafeArea: false)
+        keyboardDock.trackInteractiveDismissal(of: scrollView)
+        let guide = keyboardDock.guide
         keyRowCollapsed = keyBarClip.heightAnchor.constraint(equalToConstant: 0)
         composerCollapsed = composer.view.heightAnchor.constraint(equalToConstant: 0)
         keyRowGap = composer.view.topAnchor.constraint(equalTo: keyBarClip.bottomAnchor, constant: TerminalDockMetrics.keyRowGap)
         dockBottomMargin = composer.view.bottomAnchor.constraint(equalTo: bottomStack.bottomAnchor, constant: -8)
-        guide.setConstraints([
+        NSLayoutConstraint.activate([
             bottomStack.bottomAnchor.constraint(lessThanOrEqualTo: guide.topAnchor),
             prioritized(bottomStack.bottomAnchor.constraint(equalTo: guide.topAnchor), .defaultHigh),
-        ], activeWhenNearEdge: .bottom)
+        ])
         NSLayoutConstraint.activate([
             scrollView.topAnchor.constraint(equalTo: view.topAnchor),
             scrollView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
@@ -920,6 +926,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
+        keyboardDock.refresh()
         layoutTerminal()
         if !started, surface.surface != nil, cell.height > 0 {
             started = true
@@ -956,7 +963,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// DEBUG diagnostics for the demo timeline.
     var debugState: String {
         let grid = surface.grid
-        return "sb=\(scrollbar.total)/\(scrollbar.offset)/\(scrollbar.visible) doc=\(originRow)+\(documentRows) top=\(viewportTop) rows=\(surfaceRows) tui=\(tuiRows) grid=\(grid.columns)x\(grid.rows) cell=\(cell) off=\(Int(scrollView.contentOffset.y)) size=\(Int(scrollView.contentSize.height)) inset=\(Int(scrollView.contentInset.top)),\(Int(scrollView.contentInset.bottom)) follow=\(following) cursor=\(surface.cursorViewportRow.map(String.init) ?? "-") draws=\(surface.draws) presents=\(surface.presents) presented=\(presentedTop) pacing(frames/hitches/longestMs/stepMs)=\(FlingAnimator.pacing.frames)/\(FlingAnimator.pacing.hitches)/\(String(format: "%.1f", FlingAnimator.pacing.longestMs))/\(String(format: "%.2f", FlingAnimator.pacing.stepMs)) kbguide=\(Int(view.keyboardLayoutGuide.layoutFrame.minY)) stack=\(Int(bottomStack.frame.minY))-\(Int(bottomStack.frame.maxY)) keybar=\(Int(keyBarClip.frame.minY))-\(Int(keyBarClip.frame.maxY)) view=\(Int(view.bounds.height)) safe=\(Int(view.safeAreaInsets.top)),\(Int(view.safeAreaInsets.bottom))"
+        return "sb=\(scrollbar.total)/\(scrollbar.offset)/\(scrollbar.visible) doc=\(originRow)+\(documentRows) top=\(viewportTop) rows=\(surfaceRows) tui=\(tuiRows) grid=\(grid.columns)x\(grid.rows) cell=\(cell) off=\(Int(scrollView.contentOffset.y)) size=\(Int(scrollView.contentSize.height)) inset=\(Int(scrollView.contentInset.top)),\(Int(scrollView.contentInset.bottom)) follow=\(following) cursor=\(surface.cursorViewportRow.map(String.init) ?? "-") draws=\(surface.draws) presents=\(surface.presents) presented=\(presentedTop) pacing(frames/hitches/longestMs/stepMs)=\(FlingAnimator.pacing.frames)/\(FlingAnimator.pacing.hitches)/\(String(format: "%.1f", FlingAnimator.pacing.longestMs))/\(String(format: "%.2f", FlingAnimator.pacing.stepMs)) kbguide=\(Int(keyboardDock.guide.layoutFrame.minY)) stack=\(Int(bottomStack.frame.minY))-\(Int(bottomStack.frame.maxY)) keybar=\(Int(keyBarClip.frame.minY))-\(Int(keyBarClip.frame.maxY)) view=\(Int(view.bounds.height)) safe=\(Int(view.safeAreaInsets.top)),\(Int(view.safeAreaInsets.bottom))"
     }
     #endif
 
@@ -1470,7 +1477,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         defer { applyScroll() }
         #if DEBUG
         if CommandLine.arguments.contains("-CmuxMobileTermLog") {
-            NSLog("mobileterm layout kb=%@ stack=%@ view=%@ window=%@", NSCoder.string(for: view.keyboardLayoutGuide.layoutFrame), NSCoder.string(for: bottomStack.frame), NSCoder.string(for: view.frame), NSCoder.string(for: view.convert(view.bounds, to: nil)))
+            NSLog("mobileterm layout kb=%@ stack=%@ view=%@ window=%@", NSCoder.string(for: keyboardDock.guide.layoutFrame), NSCoder.string(for: bottomStack.frame), NSCoder.string(for: view.frame), NSCoder.string(for: view.convert(view.bounds, to: nil)))
         }
         #endif
         let measured = surface.cellSize
@@ -2056,7 +2063,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         guard !model.isTUI else { return }
         if scrollView.isTracking, !pinningDrag {
             dragPin.moved(fingerY: scrollView.panGestureRecognizer.location(in: view).y,
-                          keyboardTop: view.keyboardLayoutGuide.layoutFrame.minY)
+                          keyboardTop: keyboardDock.guide.layoutFrame.minY)
             // The keyboard now follows the finger: back on the prompt (M6).
             if dragPinsToComposer { scroll.keyboardDragPinned() }
         }
