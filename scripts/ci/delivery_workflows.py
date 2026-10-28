@@ -263,8 +263,9 @@ def is_build_job(job: Mapping[str, Any]) -> bool:
 
 
 def building(jobs: Sequence[Mapping[str, Any]] | None) -> str | None:
-    """Why a newer run is not building (condition 3), or None when it is: a build job of it is running or has
-    succeeded, and no job past the light ones failed."""
+    """Why a newer run is not building (condition 3), or None when it is: a job of it named for the build, sign or
+    publish work (BUILD_JOB_NAME, never a light job) is running or has succeeded, and no job past the light ones
+    failed. A Mac job alone (a compilation cache refresh) is not the build."""
     if jobs is None:
         return "its jobs could not be read"
     live = ""
@@ -272,7 +273,7 @@ def building(jobs: Sequence[Mapping[str, Any]] | None) -> str | None:
         name = str(job.get("name") or "")
         if job.get("status") == "completed" and job.get("conclusion") in FAILED_CONCLUSIONS and not is_light_job(job):
             return f"its job {name!r} concluded {job.get('conclusion')}"
-        if is_build_job(job) and (job.get("status") == "in_progress" or (
+        if _named_for_build(name) and (job.get("status") == "in_progress" or (
                 job.get("status") == "completed" and job.get("conclusion") == "success")):
             live = live or name
     return None if live else "no build job of it is running or has run"

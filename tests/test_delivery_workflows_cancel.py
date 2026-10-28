@@ -382,6 +382,11 @@ class StaleRuleTests(unittest.TestCase):
         cache_only = [job("decide", start=at(11), end=at(12)),
                       job("refresh-compilation-cache", "in_progress", labels=(MAC,), start=at(12)),
                       job("build-nightly-app", "completed", "skipped", labels=(MAC,), start=at(12), end=at(12))]
+        # An old run with only decide done is not replaced by a tip that only refreshes a cache on a Mac.
+        only_decide = [job("decide", start=at(1), end=at(2))]
+        ok, why = self.stale(jobs=only_decide, newer_jobs=cache_only)
+        self.assertFalse(ok)
+        self.assertIn("no build job of it is running or has run", why)
         for label, kwargs in {"no newer run": dict(newer=False), "the newer run is queued too": dict(newer_jobs=queued),
                               "the newer run's build failed": dict(newer_jobs=failed),
                               "the newer run only refreshes a cache": dict(newer_jobs=cache_only)}.items():
