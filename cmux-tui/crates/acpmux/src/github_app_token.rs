@@ -72,15 +72,13 @@ impl AppLease {
         if seq > crate::store::now_ms() + SEQ_AHEAD_MAX_MS {
             return Err(RpcError::invalid_params("seq is too far ahead"));
         }
-        let now = crate::store::now_ms();
+        // `held` is the lease with an expired sign-in already dropped (`live`).
         let take = |held: &mut Held, lent: Option<Lent>| {
             // At the newest `seq`, only a clear or a renewal of the sign-in held now (unexpired,
             // the same API and team) is taken: a token minted under that `seq` stays the sign-in's
             // it was minted with, and a cleared or expired one never comes back under it.
             let renews = |l: &Lent| {
-                held.lent.as_ref().is_some_and(|h| {
-                    h.expires_at_ms > now && h.origin == l.origin && h.team == l.team
-                })
+                held.lent.as_ref().is_some_and(|h| h.origin == l.origin && h.team == l.team)
             };
             if seq < held.seq || (seq == held.seq && lent.as_ref().is_some_and(|l| !renews(l))) {
                 // The newest `seq` (a time, no secret): the app goes on from past it.
@@ -91,7 +89,7 @@ impl AppLease {
             json!({"lent": held.lent.is_some()})
         };
         if params.get("clear") == Some(&Value::Bool(true)) {
-            return Ok(take(&mut self.lock(), None));
+            return Ok(take(&mut self.live(crate::store::now_ms), None));
         }
         let text = |k: &str| {
             params
@@ -114,12 +112,14 @@ impl AppLease {
             .and_then(Value::as_u64)
             .ok_or_else(|| RpcError::invalid_params("expiresAtMs is required"))?;
         let lent = Lent { origin, bearer: bearer.to_owned(), team: team.to_owned(), expires_at_ms };
-        Ok(take(&mut self.lock(), Some(lent)))
+        Ok(take(&mut self.live(crate::store::now_ms), Some(lent)))
     }
 
-    /// The lease, with a sign-in that expired by `now_ms` dropped from memory.
-    fn live(&self, now_ms: u64) -> std::sync::MutexGuard<'_, Held> {
+    /// The lease, with a sign-in that expired by `now()` dropped from memory. The clock is read
+    /// once the lock is held, so a wait for it never lets an expired sign-in through.
+    fn live(&self, now: impl FnOnce() -> u64) -> std::sync::MutexGuard<'_, Held> {
         let mut held = self.lock();
+        let now_ms = now();
         if held.lent.as_ref().is_some_and(|l| l.expires_at_ms <= now_ms) {
             held.lent = None;
         }
@@ -128,16 +128,20 @@ impl AppLease {
 
     /// The sign-in held now and its `seq`.
     #[cfg_attr(not(test), allow(dead_code))]
-    fn current(&self, now_ms: u64) -> Option<(u64, Lent)> {
-        let held = self.live(now_ms);
+    fn current(&self, now: impl FnOnce() -> u64) -> Option<(u64, Lent)> {
+        let held = self.live(now);
         held.lent.clone().map(|l| (held.seq, l))
     }
 
     /// The lease while the sign-in of `seq` is still the one held and unexpired: no lend or
     /// clear lands until the guard is dropped.
     #[cfg_attr(not(test), allow(dead_code))]
-    fn still(&self, seq: u64, now_ms: u64) -> Option<std::sync::MutexGuard<'_, Held>> {
-        let held = self.live(now_ms);
+    fn still(
+        &self,
+        seq: u64,
+        now: impl FnOnce() -> u64,
+    ) -> Option<std::sync::MutexGuard<'_, Held>> {
+        let held = self.live(now);
         (held.seq == seq && held.lent.is_some()).then_some(held)
     }
 }
@@ -153,8 +157,8 @@ mod tests {
             "team": "team_0123", "expiresAtMs": 10});
         let far = crate::store::now_ms() + 2 * SEQ_AHEAD_MAX_MS;
         assert_eq!(lease.set(&ok).unwrap(), json!({"lent": true}));
-        assert_eq!(lease.current(9).unwrap().1.origin, "https://cloud-api.cmux.dev");
-        assert!(lease.current(10).is_none(), "an expired sign-in is not used");
+        assert_eq!(lease.current(|| 9).unwrap().1.origin, "https://cloud-api.cmux.dev");
+        assert!(lease.current(|| 10).is_none(), "an expired sign-in is not used");
         for bad in [
             json!({"seq": 2, "origin": "http://example.com", "bearer": "b", "team": "t", "expiresAtMs": 1}),
             json!({"seq": 2, "origin": "https://evil.example", "bearer": "b", "team": "t", "expiresAtMs": 1}),
@@ -172,7 +176,7 @@ mod tests {
             assert_eq!(lease.set(&bad).unwrap_err().code, -32602, "{bad}");
         }
         assert_eq!(lease.set(&json!({"seq": 2, "clear": true})).unwrap(), json!({"lent": false}));
-        assert!(lease.current(0).is_none());
+        assert!(lease.current(|| 0).is_none());
     }
 
     /// Review of the App token at d8a663b: a lend that reached the daemon after the sign-out
@@ -187,11 +191,11 @@ mod tests {
         // Signed in (1), signed out (2): the lend for 1 arrives last.
         lease.set(&json!({"seq": 2, "clear": true})).unwrap();
         assert_eq!(lease.set(&lend(1)).unwrap(), json!({"lent": false, "stale": true, "seq": 2}));
-        assert!(lease.current(0).is_none(), "the sign-out holds");
+        assert!(lease.current(|| 0).is_none(), "the sign-out holds");
         // Signed in again (3): the earlier clear arrives after it.
         lease.set(&lend(3)).unwrap();
         assert_eq!(lease.set(&json!({"seq": 2, "clear": true})).unwrap()["stale"], true);
-        assert_eq!(lease.current(0).unwrap().1.bearer, "b3", "the newer sign-in holds");
+        assert_eq!(lease.current(|| 0).unwrap().1.bearer, "b3", "the newer sign-in holds");
         // A renewal of the same sign-in is taken.
         assert_eq!(lease.set(&lend(3)).unwrap(), json!({"lent": true}));
     }
@@ -208,14 +212,14 @@ mod tests {
         };
         lease.set(&lend(3, "team_a", u64::MAX)).unwrap();
         assert_eq!(lease.set(&lend(3, "team_b", u64::MAX)).unwrap()["stale"], true);
-        assert_eq!(lease.current(0).unwrap().1.team, "team_a", "another team needs a newer seq");
+        assert_eq!(lease.current(|| 0).unwrap().1.team, "team_a", "another team needs a newer seq");
         assert_eq!(lease.set(&lend(4, "team_a", u64::MAX)).unwrap(), json!({"lent": true}));
         assert_eq!(lease.set(&json!({"seq": 4, "clear": true})).unwrap(), json!({"lent": false}));
         assert_eq!(lease.set(&lend(4, "team_a", u64::MAX)).unwrap()["stale"], true);
-        assert!(lease.current(0).is_none(), "a cleared sign-in stays cleared at its seq");
+        assert!(lease.current(|| 0).is_none(), "a cleared sign-in stays cleared at its seq");
         lease.set(&lend(5, "team_a", 1)).unwrap();
         assert_eq!(lease.set(&lend(5, "team_a", u64::MAX)).unwrap()["stale"], true);
-        assert!(lease.current(2).is_none(), "an expired one does not come back at its seq");
+        assert!(lease.current(|| 2).is_none(), "an expired one does not come back at its seq");
     }
 
     /// Review of the App token at 15a905b: an expired sign-in stayed in memory.
@@ -227,17 +231,40 @@ mod tests {
                 "team": "team_0", "expiresAtMs": expires})
         };
         lease.set(&lend(1, 100)).unwrap();
-        assert!(lease.current(100).is_none());
+        assert!(lease.current(|| 100).is_none());
         assert!(lease.lock().lent.is_none(), "an expired sign-in is dropped from memory");
 
         lease.set(&lend(2, u64::MAX)).unwrap();
-        assert!(lease.still(2, 0).is_some());
+        assert!(lease.still(2, || 0).is_some());
         lease.set(&lend(3, u64::MAX)).unwrap();
-        assert!(lease.still(2, 0).is_none(), "a team switch replaces the sign-in");
+        assert!(lease.still(2, || 0).is_none(), "a team switch replaces the sign-in");
         lease.set(&json!({"seq": 4, "clear": true})).unwrap();
-        assert!(lease.still(3, 0).is_none(), "a sign-out ends it");
+        assert!(lease.still(3, || 0).is_none(), "a sign-out ends it");
         lease.set(&lend(5, 50)).unwrap();
-        assert!(lease.still(5, 49).is_some());
-        assert!(lease.still(5, 50).is_none(), "an expired one is not still lent");
+        assert!(lease.still(5, || 49).is_some());
+        assert!(lease.still(5, || 50).is_none(), "an expired one is not still lent");
+    }
+
+    /// Review of the lease at 0fdead6: a call that came after the sign-in expired answered that
+    /// one was lent and kept it in memory, and the clock was read before the lock was taken.
+    #[test]
+    fn an_expired_sign_in_is_gone_for_every_call_and_the_clock_is_read_under_the_lock() {
+        let lease = AppLease::default();
+        lease
+            .set(&json!({"seq": 5, "origin": "https://cloud-api.cmux.dev", "bearer": "b",
+                "team": "team_0", "expiresAtMs": 1}))
+            .unwrap();
+        let stale = lease.set(&json!({"seq": 4, "clear": true})).unwrap();
+        assert_eq!(stale, json!({"lent": false, "stale": true, "seq": 5}));
+        assert!(lease.lock().lent.is_none(), "dropped from memory");
+        lease
+            .set(&json!({"seq": 6, "origin": "https://cloud-api.cmux.dev", "bearer": "b",
+                "team": "team_0", "expiresAtMs": u64::MAX}))
+            .unwrap();
+        let under_lock = || {
+            assert!(lease.0.try_lock().is_err(), "the clock is read with the lease locked");
+            0
+        };
+        assert!(lease.still(6, under_lock).is_some());
     }
 }
