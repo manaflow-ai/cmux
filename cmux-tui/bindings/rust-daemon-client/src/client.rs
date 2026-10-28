@@ -277,6 +277,7 @@ impl DaemonClient {
         });
         let (stop_tx, stop_rx) = mpsc::channel();
         let worker_shared = shared.clone();
+        // supervise-allow: owned by DaemonClient, which keeps the handle and joins it in stop and Drop; the worker is this client's only state, so a panic ends this client's updates only.
         let thread =
             std::thread::Builder::new().name("cmux-daemon-client".into()).spawn(move || {
                 let on_event: SharedCallback = Arc::new(Mutex::new(Box::new(on_event)));
@@ -602,9 +603,11 @@ impl SubscribeEvents {
             .map_err(|e| format!("subscribe: {e}"))?;
         let closer = stream.closer();
         let (shared, on_event) = (shared.clone(), on_event.clone());
+        // supervise-allow: owned by SubscribeEvents, which keeps the handle and joins it at drop; a panic (in an event callback, say) cancels the session stream like any lost subscribe stream, so the worker reconnects both.
         let thread = std::thread::Builder::new()
             .name("cmux-daemon-client-subscribe".into())
             .spawn(move || {
+                let _cancel_on_panic = CancelOnPanic(session_events.clone());
                 let error = loop {
                     let frame = match stream.recv_frame_timeout(SUBSCRIBE_EVENTS_IDLE) {
                         Ok(frame) => frame,
@@ -635,6 +638,18 @@ impl SubscribeEvents {
             })
             .map_err(|e| format!("thread: {e}"))?;
         Ok(Self { closer, thread: Some(thread) })
+    }
+}
+
+/// Cancels the session stream when the subscribe thread unwinds, so the
+/// worker reconnects instead of running without subscribe events.
+struct CancelOnPanic(StreamCancellation);
+
+impl Drop for CancelOnPanic {
+    fn drop(&mut self) {
+        if std::thread::panicking() {
+            let _ = self.0.cancel();
+        }
     }
 }
 

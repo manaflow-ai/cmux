@@ -412,6 +412,7 @@ pub(crate) fn spawn(
     // A client that connected before the observer was installed.
     watch.clients_changed();
     let waiter = watch.clone();
+    // supervise-allow: owned by OrphanExit and joined at its stop; a panic ends the idle check only and the owner keeps serving.
     let thread = cmux_tui_core::thread_qos::spawn_raisable(
         name,
         cmux_tui_core::thread_qos::ThreadType::Utility.qos(),

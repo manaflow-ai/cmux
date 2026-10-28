@@ -206,11 +206,13 @@ using PasswordRevealedFn = bool (*)(uint32_t token, const char* password, size_t
 bool PostPasswordReveal(uint32_t token, const char* profile_cache_path, const char* id, PasswordRevealedFn revealed);
 // Never 0.
 uint32_t NextToken();
-// Browser ids from 1 << 20, so they never meet one Chromium assigned; DevTools message ids below
+// Browser ids in [1 << 20, 1 << 30), so they never meet one Chromium assigned nor one the host mints
+// for a tab it opened for a window request (task 031); DevTools message ids below
 // 2^30 (the header's shim-internal range), from 2^29 so they never meet the host shim's own
 // counter (chromium_host_mint.h; the host maps them, host_client_ids.h). 0 when the range is used up.
 int32_t MintID(uint16_t op);
 inline constexpr int32_t kFirstMintedBrowserID = cmux_host::mint::kFirstBrowserID;
+inline constexpr int32_t kEndMintedBrowserID = cmux_host::mint::kFirstHostBrowserID;
 inline constexpr int32_t kFirstMintedDevToolsID = cmux_host::mint::kFirstDevToolsID;
 inline constexpr int32_t kEndMintedDevToolsID = cmux_host::mint::kEndDevToolsID;
 // A malloc'd copy, freed by cmux_shim_free or cmux_shim_free_owned.
