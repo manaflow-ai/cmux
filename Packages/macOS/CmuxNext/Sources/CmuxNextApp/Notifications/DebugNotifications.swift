@@ -4,36 +4,33 @@ import CmuxNextSettings
 
 /// `debug.notifications`: unread tabs with their source, the attention marks
 /// each window draws, banners asked for, the arrival and dismissal log, and
-/// the live preferences. `{"action": "click", "surface": <handle>}` runs the
-/// banner click path (`DesktopNotifier.open`), for windows no one can click;
+/// the live preferences. `{"action": "click", "surface": <handle>, "tab": <tab id>}` runs the
+/// banner click path (`DesktopNotifier.received`), for windows no one can click;
 /// `{"action": "reply", "surface": <handle>, "id": <banner id>, "text": <text>}` runs a reply
-/// banner's Send (`DesktopNotifier.reply`).
+/// banner's Send (`DesktopNotifier.received`).
 /// `{"action": "allow" | "deny", "surface": <handle>, "id": <banner id>}` runs an approval
-/// banner's Allow once or Deny (`DesktopNotifier.approve`).
+/// banner's Allow once or Deny (`DesktopNotifier.received`).
 /// `{"action": "mark_read", "surface": <handle>, "id": <banner id>}` runs a banner's Mark as Read
-/// (`DesktopNotifier.markRead`).
+/// (`DesktopNotifier.received`).
 /// `{"action": "dismiss_highlight", "workspace": <id>}` hides that
 /// workspace's attention rings until a newer notification (cx-epgo).
 enum DebugNotifications {
     @MainActor
     static func handle(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
         let center = services.notifications
-        if params["action"]?.stringValue == "click" {
-            let surface = params["surface"]?.doubleValue.map { UInt64($0) }
-            center.desktop.open(id: params["id"]?.stringValue ?? "", surface: surface)
+        // `"tab": <tab id>` names the banner's tab as a banner does (`DesktopNotifier.Posted.tab`).
+        let surface = params["surface"]?.doubleValue.map { UInt64($0) }
+        let tab = params["tab"]?.stringValue
+        let id = params["id"]?.stringValue ?? ""
+        let action: DesktopNotifier.BannerResponse.Action? = switch params["action"]?.stringValue {
+        case "click": .open
+        case "reply": params["text"]?.stringValue.map { .reply($0) }
+        case "allow": .approve(true)
+        case "deny": .approve(false)
+        case "mark_read": .markRead
+        default: nil
         }
-        if params["action"]?.stringValue == "reply", let text = params["text"]?.stringValue {
-            let surface = params["surface"]?.doubleValue.map { UInt64($0) }
-            center.desktop.reply(id: params["id"]?.stringValue ?? "", surface: surface, text: text)
-        }
-        if let action = params["action"]?.stringValue, action == "allow" || action == "deny" {
-            let surface = params["surface"]?.doubleValue.map { UInt64($0) }
-            center.desktop.approve(id: params["id"]?.stringValue ?? "", surface: surface, allow: action == "allow")
-        }
-        if params["action"]?.stringValue == "mark_read" {
-            let surface = params["surface"]?.doubleValue.map { UInt64($0) }
-            center.desktop.markRead(id: params["id"]?.stringValue ?? "", surface: surface)
-        }
+        if let action { center.desktop.received(DesktopNotifier.BannerResponse(id: id, surface: surface, tab: tab, action: action)) }
         let store = services.daemon.store
         // `{"action": "dismiss_highlight", "workspace": <id>}`: the Dismiss Highlight path (cx-epgo).
         if params["action"]?.stringValue == "dismiss_highlight", let id = params["workspace"]?.stringValue,

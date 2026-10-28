@@ -83,6 +83,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// The system's handler for other apps' sign-ins (`WebAuthSessionHandler`, which owns their broker).
     var webAuthHandler: WebAuthSessionHandler?
     let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app")
+    /// The banners' notifier, the system notification center's delegate from `applicationWillFinishLaunching`
+    /// (made here, the composition root; the notification service takes it with the services).
+    let desktopNotifier: DesktopNotifier
 
     /// `watchdog` is the launch's main-thread watchdog, made and started first in `main()`.
     init(environment: AppEnvironment, daemonStart: LaunchRead<DaemonLaunchStart>, wireStats: DaemonWireStats?, features: FeatureList? = nil,
@@ -110,7 +113,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         #endif
         self.control = control
         mouseSideButtons = MouseSideButtons(input: inputTap)
+        desktopNotifier = DesktopNotifier(work: order.mainWork)
         super.init()
+    }
+
+    /// macOS delivers the click on a banner of an earlier launch (the click that launched or woke cmux)
+    /// only to a center delegate set before launch finishes (Apple: "assign your delegate object to the
+    /// UNUserNotificationCenter object before your app finishes launching"). The notifier keeps the
+    /// click until the notification service wires its handlers. No authorization request here.
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        desktopNotifier.claimSystemCenter()
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {

@@ -530,7 +530,11 @@ final class AppServices {
     let terminalDelegate = TerminalHostDelegate()
     /// Attention rings, banners, sounds and dismissal (plans/cmux-next/notifications.md), on
     /// ``mainWork`` and the app's one deadline scheduler ``mainDeadlines``.
-    private(set) lazy var notifications = NotificationCenterService(work: mainWork, deadlines: mainDeadlines, background: work)
+    private(set) lazy var notifications = NotificationCenterService(work: mainWork, deadlines: mainDeadlines, background: work,
+                                                                    desktop: desktopNotifier)
+    /// The banners' notifier the app delegate made and set as the system center's delegate before launch
+    /// finished (a click on an earlier launch's banner reaches it); nil: the notification service makes one.
+    private let desktopNotifier: DesktopNotifier?
     /// Email verification AutoFill (`browser.verificationAutofill.enabled`, off by default): a code
     /// or link from Mail.app offered in the prompt bar of a page of the sender's own site
     /// (plans/cmux-next/email-verification-autofill/DESIGN.md). Built on the first page that waits,
@@ -766,8 +770,10 @@ final class AppServices {
          energyMonitor: EnergyMonitor? = nil, inputTap: InputEventTap = InputEventTap(),
          launchImageHold: LaunchImageHold = LaunchImageHold(), launchStartup: StartupScheduler? = nil,
          crashKeys: CrashKeySlots? = nil, watchdog: MainThreadWatchdog? = nil,
-         appearance: AppearanceSignals = DesignSettings.shared.signals, features: FeatureList? = nil) {
+         appearance: AppearanceSignals = DesignSettings.shared.signals, features: FeatureList? = nil,
+         desktopNotifier: DesktopNotifier? = nil) {
         self.appearance = appearance
+        self.desktopNotifier = desktopNotifier
         ThemeScope.app.store.repaint(following: appearance)
         let work = work ?? BackgroundWork(hangs: hangWatch, inputTurns: mainWork.budget.board)
         self.work = work

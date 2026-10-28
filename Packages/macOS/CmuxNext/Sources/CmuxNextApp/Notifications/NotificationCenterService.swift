@@ -76,6 +76,9 @@ final class NotificationCenterService {
     @ObservationIgnored var heldProgramAlerts: [UInt64: HeldProgramAlert] = [:]
     /// Banner ids posted per tab id, withdrawn once the tab is read.
     @ObservationIgnored private var banners: [String: [String]] = [:]
+    /// Banner clicks waiting for their tab to arrive in the daemon's tree (`whenBannerTab`), by wait id.
+    @ObservationIgnored var bannerTabWaits: [UInt64: TabArrivalWait] = [:]
+    @ObservationIgnored var nextBannerTabWait: UInt64 = 0
     @ObservationIgnored let finishedBursts = FinishedBannerBursts()
     /// The Chief pet's notices (`NotificationCenterService+ChiefPet`); nil while it is off.
     @ObservationIgnored var chiefPet: ChiefPetController?
@@ -129,12 +132,14 @@ final class NotificationCenterService {
     }
     private static let logLimit = 64
 
-    /// - Parameters: `work`, `deadlines` and `background` are the composition root's one of each.
-    init(work: MainWorkScheduler, deadlines: MainDeadlineScheduler, background: BackgroundWork) {
+    /// - Parameters: `work`, `deadlines` and `background` are the composition root's one of each;
+    ///   `desktop` is the app delegate's notifier, which owns the system center from
+    ///   `applicationWillFinishLaunching` (nil: one of the service's own, as tests use).
+    init(work: MainWorkScheduler, deadlines: MainDeadlineScheduler, background: BackgroundWork, desktop: DesktopNotifier? = nil) {
         self.work = work
         self.deadlines = deadlines
         self.background = background
-        desktop = DesktopNotifier(work: work)
+        self.desktop = desktop ?? DesktopNotifier(work: work)
     }
 
     /// Wires the service to the app in `AppServices.init`, with no I/O: what reads `services` before the
@@ -169,21 +174,25 @@ final class NotificationCenterService {
     }
 
     private func startDesktopAndStore(_ services: AppServices) {
-        desktop.onOpen = { [weak self] id, surface in
+        desktop.onOpen = { [weak self] id, target in
             if id == IPhonePairNotices.id { try? self?.services?.settingsWindow.show(section: nil, route: IPhonePairNotices.settingsRoute); return }
             if let request = AppBrowserPasskeyHost.requestID(banner: id) { self?.onPasskeyBanner?(request); return }
-            self?.open(surface: surface.map(SurfaceID.init(rawValue:)))
-            self?.webNotificationClicks.run(bannerID: id)
-        }
-        desktop.onReply = { [weak self] id, surface, text in
-            self?.reply(banner: id, surface: surface.map(SurfaceID.init(rawValue:)), text: text)
-        }
-        desktop.onMarkRead = { [weak self] id, surface in
             guard let self, let store = self.services?.daemon.store else { return }
-            self.markRead(banner: id, surface: surface.map(SurfaceID.init(rawValue:)), in: store)
+            self.whenBannerTab(target, in: store) { [weak self] in self?.open(surface: $0.map(SurfaceID.init(rawValue:))) }
+            self.webNotificationClicks.run(bannerID: id)
+        }
+        desktop.onReply = { [weak self] id, target, text in
+            guard let self, let store = self.services?.daemon.store else { return }
+            self.whenBannerTab(target, in: store) { [weak self] in self?.reply(banner: id, surface: $0.map(SurfaceID.init(rawValue:)), text: text) }
+        }
+        desktop.onMarkRead = { [weak self] id, target in
+            guard let self, let store = self.services?.daemon.store else { return }
+            self.whenBannerTab(target, in: store) { [weak self] in self?.markRead(banner: id, surface: $0.map(SurfaceID.init(rawValue:)), in: store) }
         }
         followApprovals(services)
         follow(services.daemon)
+        // A click on an earlier launch's banner (which launched the app) waited for these handlers.
+        desktop.handlersWired()
     }
 
     /// The source of `tab`'s retained marker, from the daemon
@@ -554,7 +563,8 @@ final class NotificationCenterService {
                 body: approval?.summary ?? notification.bannerBody(previews: self.previews, screenLocked: self.screenLocked()),
                 workspace: workspaceName, tab: tab?.displayTitle, host: tab?.remote?.sessionName, plain: approval == nil)
             self.desktop.post(id: id, title: content.title, subtitle: content.subtitle, body: content.body,
-                              surface: notification.surface?.rawValue, workspace: workspace, defaultSound: sound == "default",
+                              surface: notification.surface?.rawValue, tab: Self.bannerTabID(notification, tab: tab, owner: owner),
+                              workspace: workspace, defaultSound: sound == "default",
                               attachment: program.flatMap { StatusNotificationImage.data($0.reason) },
                               reply: notification.reply && owner?.kind == .pty, approval: approval != nil)
             if let sound, sound != "default" { NotificationSounds.play(sound) }

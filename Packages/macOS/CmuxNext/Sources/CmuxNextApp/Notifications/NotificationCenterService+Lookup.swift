@@ -239,6 +239,44 @@ extension NotificationCenterService {
     }
 }
 
+/// A banner's tab across a relaunch (audit 4, P1): a banner names its tab by the tab's lasting id
+/// (`TabModel.id`), not only by its surface handle, which a relaunch can give to another tab. A click
+/// that came before the daemon's tree (the click launched the app) waits for its tab
+/// (``TabArrivalWait``), at most ``bannerTabWait``, then does nothing.
+extension NotificationCenterService {
+    /// How long a banner click waits for its tab to arrive in the local daemon's tree.
+    static let bannerTabWait: Duration = .seconds(30)
+
+    /// The lasting id of the tab a banner for `notification` opens: the tab on the notification's
+    /// surface (`tab`, else `owner`); nil for a banner of no tab.
+    static func bannerTabID(_ notification: DaemonNotification, tab: TabModel?, owner: TabModel?) -> String? {
+        guard let surface = notification.surface else { return nil }
+        return [tab, owner].lazy.compactMap { $0 }.first { $0.surface == surface }?.id
+    }
+
+    /// Runs `then` once with the surface of `target`'s tab: at once for a banner that names no
+    /// lasting id (an older build's: its surface handle as is), else by the tab's lasting id.
+    func whenBannerTab(_ target: DesktopNotifier.BannerTab, in store: DaemonStore, then: @escaping @MainActor (UInt64?) -> Void) {
+        guard let tab = target.tab else { return then(target.surface) }
+        whenBannerTab(tab, in: store, then: then)
+    }
+
+    /// Runs `then` once with the surface of the tab whose lasting id is `tab`: now, when it arrives
+    /// in `store`, or nil when it has not arrived after ``bannerTabWait``.
+    func whenBannerTab(_ tab: String, in store: DaemonStore, then: @escaping @MainActor (UInt64?) -> Void) {
+        nextBannerTabWait &+= 1
+        let key = nextBannerTabWait
+        // A person's click waits on it: the visible class.
+        let wait = TabArrivalWait(tab: tab, in: store, within: Self.bannerTabWait, owner: "notifications.banner-tab", workClass: .visible,
+                                  work: work, deadlines: deadlines) { [weak self] surface in
+            self?.bannerTabWaits[key] = nil
+            if surface == nil { self?.note("banner tab \(tab) did not arrive") }
+            then(surface?.rawValue)
+        }
+        if !wait.isDone { bannerTabWaits[key] = wait }
+    }
+}
+
 /// What the service follows for the app's lifetime (plans/cmux-next/chrome-parity/p06-scheduler.md,
 /// task 205, the pilot). Each is a ``ServiceObservation``: its apply writes the model, the daemon or
 /// the Dock, so it runs while no window shows, and it flushes once per frame in its class on the

@@ -10,10 +10,13 @@ import UserNotifications
 /// macOS notification banners through `UNUserNotificationCenter`, so the
 /// user's notification settings and Focus modes apply (macOS filters the
 /// banner and its default sound). A banner click opens the notifying tab
-/// through `onOpen`; a reply banner's typed text goes to `onReply`. The center is touched only when the first banner posts
-/// (which asks for authorization) or `notifications.status` / `notifications.request` reads or asks for it
-/// (`permission()`, for `cmux setup notifications`), so hosts without a bundle identifier (tests) never
-/// create it. An automation launch (`WindowDrawPolicy.isAutomationLaunch`: e2e scripts and
+/// through `onOpen`; a reply banner's typed text goes to `onReply`. A banner names its tab by the
+/// tab's lasting id (`Posted.tab`) and its surface handle, which a relaunch can give to another tab.
+/// The app delegate claims the center in `applicationWillFinishLaunching` (``claimSystemCenter()``),
+/// as macOS needs for a click on a banner of an earlier launch, which is what launches or wakes the
+/// app; a click that comes before ``handlersWired()`` waits for it. Authorization is asked only
+/// when the first banner posts or `notifications.request` asks (`permission()`, for
+/// `cmux setup notifications`); hosts without a bundle identifier (tests) never create the center. An automation launch (`WindowDrawPolicy.isAutomationLaunch`: e2e scripts and
 /// GUI proofs on shared hosts) never creates it either: no authorization
 /// request and no system banner cover the host's screen, and the two methods answer `unavailable`;
 /// `posted` still records each banner for `debug.notifications`.
@@ -27,6 +30,8 @@ final class DesktopNotifier: NSObject {
         var subtitle: String?
         var body: String
         var surface: UInt64?
+        /// The lasting id of the banner's tab (`TabModel.id`), which a relaunch keeps; nil for a banner of no tab.
+        var tab: String?
         var sound: String?
         /// The status badge PNG the banner carries (OSC 7501 alerts), else nil.
         var attachment: Data?
@@ -38,14 +43,42 @@ final class DesktopNotifier: NSObject {
         var category: String?
     }
 
-    /// Banner clicked: the notification id and its tab's surface handle.
-    var onOpen: ((_ id: String, _ surface: UInt64?) -> Void)?
-    /// A reply banner's text sent: the notification id, its tab's surface handle and the text.
-    var onReply: ((_ id: String, _ surface: UInt64?, _ text: String) -> Void)?
-    /// An approval banner's Allow once (true) or Deny (false): the notification id, its tab's surface handle.
-    var onApprove: ((_ id: String, _ surface: UInt64?, _ allow: Bool) -> Void)?
-    /// Mark as Read: the notification id and its tab's surface handle; the tab is read, not opened.
-    var onMarkRead: ((_ id: String, _ surface: UInt64?) -> Void)?
+    /// The tab a banner names: its lasting id (nil on a banner an older build posted) and its surface handle.
+    nonisolated struct BannerTab: Equatable, Sendable {
+        var surface: UInt64?
+        var tab: String?
+    }
+
+    /// What the person did with a banner: one response of the center, or one `debug.notifications` action.
+    nonisolated struct BannerResponse: Equatable, Sendable {
+        nonisolated enum Action: Equatable, Sendable {
+            case open
+            case reply(String)
+            case approve(Bool)
+            case markRead
+        }
+
+        var id: String
+        var surface: UInt64?
+        var tab: String?
+        var action: Action
+
+        var target: BannerTab { BannerTab(surface: surface, tab: tab) }
+    }
+
+    /// Banner clicked: the notification id and its tab.
+    var onOpen: ((_ id: String, _ target: BannerTab) -> Void)?
+    /// A reply banner's text sent: the notification id, its tab and the text.
+    var onReply: ((_ id: String, _ target: BannerTab, _ text: String) -> Void)?
+    /// An approval banner's Allow once (true) or Deny (false): the notification id, its tab.
+    var onApprove: ((_ id: String, _ target: BannerTab, _ allow: Bool) -> Void)?
+    /// Mark as Read: the notification id and its tab; the tab is read, not opened.
+    var onMarkRead: ((_ id: String, _ target: BannerTab) -> Void)?
+    /// Responses that came before ``handlersWired()`` (a click on an earlier launch's banner, which
+    /// launched the app), run in order when it is called. Bounded: macOS sends one per click.
+    private var waitingResponses: [BannerResponse] = []
+    private var handlersReady = false
+    private static let waitingLimit = 16
     /// The category of banners with a Reply field, and its action.
     nonisolated static let replyCategory = "cmux.notification.reply"
     nonisolated static let replyAction = "cmux.notification.reply.send"
@@ -81,10 +114,10 @@ final class DesktopNotifier: NSObject {
     /// played by `NotificationSounds`. `attachment` is a status badge PNG
     /// (OSC 7501 alerts), written to a file only for a banner the center
     /// will take (it moves the file); a failed one is deleted.
-    func post(id: String, title: String, subtitle: String? = nil, body: String, surface: UInt64?, workspace: String?,
+    func post(id: String, title: String, subtitle: String? = nil, body: String, surface: UInt64?, tab: String? = nil, workspace: String?,
               defaultSound: Bool, attachment: Data? = nil, reply: Bool = false, approval: Bool = false, category: String? = nil) {
         let category = category ?? (approval ? AgentApprovalBanners.category : reply ? Self.replyCategory : Self.defaultCategory)
-        posted.append(Posted(id: id, title: title, subtitle: subtitle, body: body, surface: surface,
+        posted.append(Posted(id: id, title: title, subtitle: subtitle, body: body, surface: surface, tab: tab,
                              sound: defaultSound ? "default" : nil, attachment: attachment, reply: reply,
                              approval: approval, category: category))
         if posted.count > Self.postedLimit { posted.removeFirst(posted.count - Self.postedLimit) }
@@ -107,6 +140,7 @@ final class DesktopNotifier: NSObject {
         content.categoryIdentifier = category
         var info: [String: Any] = ["notification": id]
         if let surface { info["surface"] = NSNumber(value: surface) }
+        if let tab { info["tab"] = tab }
         content.userInfo = info
         let request = UNNotificationRequest(identifier: id, content: content, trigger: nil)
         let logger = logger
@@ -136,24 +170,38 @@ final class DesktopNotifier: NSObject {
         for remove in [center.removeDeliveredNotifications(withIdentifiers:), center.removePendingNotificationRequests(withIdentifiers:)] { remove(ids) }
     }
 
-    /// The banner click path, also used by `debug.notifications` (click).
-    func open(id: String, surface: UInt64?) {
-        onOpen?(id, surface)
+    /// A banner's click, Send, Allow once or Deny, or Mark as Read (the center's delegate, and
+    /// `debug.notifications`): runs its handler, or waits for ``handlersWired()``.
+    func received(_ response: BannerResponse) {
+        guard handlersReady else {
+            if waitingResponses.count < Self.waitingLimit { waitingResponses.append(response) }
+            return
+        }
+        let target = response.target
+        switch response.action {
+        case .open: onOpen?(response.id, target)
+        case .reply(let text): onReply?(response.id, target, text)
+        case .approve(let allow): onApprove?(response.id, target, allow)
+        case .markRead: onMarkRead?(response.id, target)
+        }
     }
 
-    /// The Reply field's Send path, also used by `debug.notifications` (reply).
-    func reply(id: String, surface: UInt64?, text: String) {
-        onReply?(id, surface, text)
+    /// The service set the handlers (`NotificationCenterService.start`): the responses that came
+    /// before run now, once, in order.
+    func handlersWired() {
+        guard !handlersReady else { return }
+        handlersReady = true
+        let waiting = waitingResponses
+        waitingResponses = []
+        for response in waiting { received(response) }
     }
 
-    /// Mark as Read, also used by `debug.notifications` (mark_read).
-    func markRead(id: String, surface: UInt64?) {
-        onMarkRead?(id, surface)
-    }
-
-    /// An approval banner's Allow once or Deny, also used by `debug.notifications` (allow, deny).
-    func approve(id: String, surface: UInt64?, allow: Bool) {
-        onApprove?(id, surface, allow)
+    /// Sets this notifier as the system center's delegate, with the banner categories
+    /// (`applicationWillFinishLaunching`): macOS delivers the click that launched the app, on a
+    /// banner of an earlier launch, only to a delegate set before launch finishes. No authorization
+    /// request; nothing in an automation launch or outside the main app bundle.
+    func claimSystemCenter() {
+        _ = configuredCenter()
     }
 
     /// CEF embeds the same executable in helper app bundles whose identifiers
@@ -257,15 +305,16 @@ extension DesktopNotifier: UNUserNotificationCenterDelegate {
         let info = response.notification.request.content.userInfo
         let id = info["notification"] as? String ?? response.notification.request.identifier
         let surface = (info["surface"] as? NSNumber)?.uint64Value
+        let tab = info["tab"] as? String
         let isDefault = [UNNotificationDefaultActionIdentifier, IPhonePairNotices.reviewAction, Self.openAction].contains(response.actionIdentifier)
         let markRead = response.actionIdentifier == Self.markReadAction
         let replied = response.actionIdentifier == Self.replyAction ? (response as? UNTextInputNotificationResponse)?.userText : nil
         let approved = AgentApprovalBanners.decision(response.actionIdentifier)
+        let action: BannerResponse.Action? = isDefault ? .open : replied.map { .reply($0) } ?? approved.map { .approve($0) }
+            ?? (markRead ? .markRead : nil)
         work.postFromAnyThread(.visible, owner: "notifications.banner-response") { [weak self] in
-            if isDefault { self?.open(id: id, surface: surface) }
-            if let replied { self?.reply(id: id, surface: surface, text: replied) }
-            if let approved { self?.approve(id: id, surface: surface, allow: approved) }
-            if markRead { self?.markRead(id: id, surface: surface) }
+            guard let action else { return }
+            self?.received(BannerResponse(id: id, surface: surface, tab: tab, action: action))
         }
         completionHandler()
     }

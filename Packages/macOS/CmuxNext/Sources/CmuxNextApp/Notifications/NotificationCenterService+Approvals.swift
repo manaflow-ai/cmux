@@ -12,8 +12,9 @@ extension NotificationCenterService {
             approvals.answerer = AcpmuxApprovalAnswerer(environment: environment, deadlines: services.mainDeadlines)
         }
         localAgentHost = { [weak services] in services?.agentTabs.localHost }
-        desktop.onApprove = { [weak self] id, surface, allow in
-            self?.answerApproval(banner: id, surface: surface.map(SurfaceID.init(rawValue:)), allow: allow)
+        // An approval banner answers only in its own launch (`approvals.take`): its surface is this launch's.
+        desktop.onApprove = { [weak self] id, target, allow in
+            self?.answerApproval(banner: id, surface: target.surface.map(SurfaceID.init(rawValue:)), allow: allow)
         }
     }
 
