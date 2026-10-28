@@ -22,6 +22,17 @@ enum DebugNativeInput {
         for event in events { NSApp.sendEvent(event) }
     }
 
+    /// `events` to `window` as real input: through the app's `sendEvent` (`entry`) with every stage of a real event's
+    /// dispatch, delivered at the end to `window`, which AppKit would not do for a window that is not key.
+    ///
+    /// - Parameter entry: Dispatches one event through `CmuxApplication.sendEvent`'s stages and delivers it to the
+    ///   window (`CmuxApplication.sendEvent(_:deliveringTo:)`; tests: a fake).
+    static func sendThroughApp(_ events: [NSEvent], to window: NSWindow,
+                               entry: (NSEvent, NSWindow) -> Void = { (NSApp as? CmuxApplication)?.sendEvent($0, deliveringTo: $1) }) {
+        SyntheticInput.register(events)
+        for event in events { entry(event, window) }
+    }
+
     /// The agent panes' gesture monitors in `window`, on `event` (each pane decides by its own
     /// focus and bounds at this moment, as for a real event).
     static func runPaneMonitors(_ event: NSEvent, in window: NSWindow, services: AppServices) {
