@@ -104,8 +104,25 @@ import Testing
         #expect(plan.routes.isEmpty)
     }
 
+    @Test func aLiveDirectoryUpdateReplacesTheTemporaryRows() async throws {
+        let discovery = LiveDirectoryDiscovery(candidates: [try candidate("old-mac")])
+        let shell = makeShell(discovery)
+        await shell.refreshDirectoryCandidates()
+        #expect(shell.discoveredIrohMacs.map(\.deviceID) == ["old-mac"])
+
+        discovery.setCandidates([try candidate("new-mac")])
+        shell.evaluatePresenceSubscription()
+        discovery.emitUpdate()
+        for _ in 0 ..< 100 {
+            await Task.yield()
+            if shell.discoveredIrohMacs.map(\.deviceID) == ["new-mac"] { break }
+        }
+
+        #expect(shell.discoveredIrohMacs.map(\.deviceID) == ["new-mac"])
+    }
+
     private func makeShell(
-        _ discovery: PendingDirectoryDiscovery,
+        _ discovery: any MobileIrohMacDiscovering,
         identity: StaticIdentityProvider? = nil
     ) -> MobileShellComposite {
         let defaults = UserDefaults(suiteName: "directory-candidates-\(UUID().uuidString)")!
@@ -159,6 +176,30 @@ private final class PendingDirectoryDiscovery: MobileIrohMacDiscovering {
     func finish(_ number: Int, with candidates: [MobileDiscoveredIrohMac]) {
         pending.removeValue(forKey: number)?.resume(returning: candidates)
     }
+
+    func invalidateDiscovery(forMacDeviceID _: String) async {}
+}
+
+@MainActor
+private final class LiveDirectoryDiscovery: MobileIrohMacDiscovering {
+    private var candidates: [MobileDiscoveredIrohMac]
+    private let stream: AsyncStream<Void>
+    private let continuation: AsyncStream<Void>.Continuation
+
+    init(candidates: [MobileDiscoveredIrohMac]) {
+        self.candidates = candidates
+        (stream, continuation) = AsyncStream.makeStream(of: Void.self)
+    }
+
+    func discoverLiveMacs() async -> [MobileDiscoveredIrohMac] { candidates }
+
+    func directoryUpdates() -> AsyncStream<Void> { stream }
+
+    func setCandidates(_ candidates: [MobileDiscoveredIrohMac]) {
+        self.candidates = candidates
+    }
+
+    func emitUpdate() { continuation.yield(()) }
 
     func invalidateDiscovery(forMacDeviceID _: String) async {}
 }

@@ -398,7 +398,12 @@ struct MacComputerDetailView: View {
                             addresses: configuration.addresses,
                             isEnabled: isEnabled
                         )
-                        Task { _ = await model.upsertCustomPrivatePath(draft) }
+                        Task {
+                            let saved = await model.upsertCustomPrivatePath(draft)
+                            if saved, isDirectoryOnly {
+                                _ = await store.connectDiscoveredIrohMac(using: draft)
+                            }
+                        }
                     }
                 )) {
                     VStack(alignment: .leading) {

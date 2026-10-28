@@ -4449,6 +4449,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     for await _ in discovery.directoryUpdates() {
                         guard let self, !Task.isCancelled, self.isSignedIn else { return }
                         if let scope = await self.currentScopeSnapshot() {
+                            _ = await self.loadDirectoryCandidates(scope: scope)
                             await self.recoverForgottenMacsFromDirectory(
                                 scope: scope,
                                 refreshDirectory: false
