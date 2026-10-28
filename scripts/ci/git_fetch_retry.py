@@ -284,10 +284,15 @@ def submodule_update_paths(command: Sequence[str]) -> list[str] | None:
     i = 0
     while i < len(words) and words[i].startswith("-"):  # git's own options
         i += 2 if words[i] in GIT_VALUE_OPTIONS else 1
-    if words[i:i + 2] != ["submodule", "update"]:
+    if words[i:i + 1] != ["submodule"]:
+        return None
+    i += 1
+    while i < len(words) and words[i] in ("--quiet", "-q"):  # `git submodule --quiet update`
+        i += 1
+    if words[i:i + 1] != ["update"]:
         return None
     paths: list[str] = []
-    rest = words[i + 2:]
+    rest = words[i + 1:]
     j = 0
     while j < len(rest):
         word = rest[j]

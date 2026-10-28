@@ -307,6 +307,8 @@ class DanglingSubmodules(unittest.TestCase):
         self.assertEqual(retry.submodule_update_paths(["git", "submodule", "update", "--", "a", "b"]), ["a", "b"])
         self.assertIsNone(retry.submodule_update_paths(["git", "-C", "update", "fetch"]))
         self.assertIsNone(retry.submodule_update_paths(["git", "submodule", "sync"]))
+        self.assertEqual(retry.submodule_update_paths(["git", "submodule", "--quiet", "update", "--init"]), [])
+        self.assertEqual(retry.submodule_update_paths(["git", "submodule", "-q", "update", "x"]), ["x"])
 
     def test_the_cli_only_drops(self) -> None:
         shutil.rmtree(self.repo / ".git" / "modules")
