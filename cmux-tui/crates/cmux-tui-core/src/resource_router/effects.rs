@@ -29,11 +29,12 @@ pub(super) fn prepare(
     make_intent: impl FnOnce() -> Result<Value, ResourceError>,
 ) -> Result<EffectPreparation, ResourceError> {
     let operation = operation_name(request.envelope.operation);
-    let idempotency_key = request
-        .envelope
-        .idempotency_key
-        .as_deref()
-        .expect("catalog-validated mutations have an idempotency key");
+    let idempotency_key = request.envelope.idempotency_key.as_deref().ok_or_else(|| {
+        ResourceError::validation_invalid(
+            Some("idempotency_key"),
+            "mutations require idempotency_key",
+        )
+    })?;
     let fingerprint = durable_fingerprint(mux, request, &operation, idempotency_key)?;
     if let Some(preparation) = mux
         .lookup_resource_effect(idempotency_key, &operation, &fingerprint)
@@ -383,11 +384,11 @@ fn canonical_fields_json(fields: &Map<String, Value>) -> serde_json::Result<Vec<
 }
 
 fn hex_digest(digest: &[u8; 32]) -> String {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
     let mut encoded = String::with_capacity(64);
     for byte in digest {
-        encoded.push(char::from(HEX[usize::from(byte >> 4)]));
-        encoded.push(char::from(HEX[usize::from(byte & 0x0f)]));
+        // A nibble is below 16, so `from_digit` always yields a digit.
+        encoded.extend(char::from_digit(u32::from(byte >> 4), 16));
+        encoded.extend(char::from_digit(u32::from(byte & 0x0f), 16));
     }
     encoded
 }
@@ -419,6 +420,29 @@ mod tests {
             .to_string(),
         )
         .unwrap()
+    }
+
+    #[test]
+    fn hex_digest_is_lowercase_two_digits_per_byte() {
+        let mut digest = [0_u8; 32];
+        digest[0] = 0x0f;
+        digest[1] = 0xa0;
+        digest[31] = 0xff;
+        let encoded = hex_digest(&digest);
+        assert_eq!(encoded.len(), 64);
+        assert!(encoded.starts_with("0fa0"));
+        assert!(encoded.ends_with("00ff"));
+    }
+
+    #[test]
+    fn prepare_without_idempotency_key_is_a_validation_error() {
+        let mux = Mux::new_for_test("effect-without-key", SurfaceOptions::default());
+        let mut request = input_request(json!({"text":"x"}));
+        request.envelope.idempotency_key = None;
+        let Err(error) = prepare(&mux, &request, || Ok(json!({}))) else {
+            panic!("a mutation without an idempotency key must not prepare");
+        };
+        assert_eq!(error.code, "validation.invalid");
     }
 
     #[test]

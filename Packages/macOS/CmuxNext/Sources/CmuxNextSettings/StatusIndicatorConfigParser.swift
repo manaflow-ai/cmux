@@ -1,5 +1,5 @@
 import CoreGraphics
-public import CmuxNextDesign
+public import CmuxNextDesignTokens
 
 /// `appearance.statusIndicator.*`: how loading and status indicators look
 /// on sidebar rows, tabs, sections and pane headers.

@@ -17,7 +17,8 @@ import Foundation
 /// a window in the turn that opened it. The page tabs of one pane share that pane's page window
 /// (``PageChromiumWindow``, p13-webui-063): the second page of a pane builds no window. A page tab runs no
 /// browser-tab document script and attaches none of their DevTools bridges (``CEFEngine/makePagesTab(_:)``,
-/// p13-webui-068): only its first paint is read.
+/// p13-webui-068): only its first paint is read. A page's ``PageChromiumOrigin`` is its tab's origin, and the slot's
+/// launch order (``CEFLaunchDeferral``, 040) answers a restored page's origin and hidden start (p08-startup-041).
 @MainActor
 final class ChromiumPageHost: PageChromiumHosting {
     enum Failure: Error {
@@ -30,8 +31,14 @@ final class ChromiumPageHost: PageChromiumHosting {
     private weak var keyRouter: KeyRouter?
     /// The scheduler pages report their renderer's hang on (feature `pageHangNotice`); nil: they never do.
     private let hangWork: MainWorkScheduler?
+    /// Pages post their calls on the runtime's page channel (feature `pageHostChannel`).
+    private let pageChannel: Bool
+    /// The default-off feature `pagePushChannel`: pages get host events and replies as data where the fork can.
+    private let pushChannel: Bool
     /// The app's lanes: a page's screenshot reply is decoded on their `.cpu` lane.
     let work: BackgroundWork
+    /// The app's main-thread scheduler: each page's crash watch flushes on it.
+    private let mainWork: MainWorkScheduler
     /// The app's dialog center: a page's "Page unresponsive" card shows there.
     let dialogs: CmuxDialogCenter
 
@@ -41,17 +48,35 @@ final class ChromiumPageHost: PageChromiumHosting {
     ///     windows restore already follow the file).
     ///   - keyRouter: Gets the app's shortcuts from a focused Chromium page.
     ///   - work: The app's lanes (``PageChromiumHosting/work``).
+    ///   - mainWork: The app's main-thread scheduler (``CEFPageChromiumPage``'s crash watch).
     ///   - dialogs: The app's dialog center (``PageChromiumHosting/dialogs``).
     ///   - hangWork: The app's main-thread scheduler when pages report their renderer's hang (feature
     ///     `pageHangNotice`, ``PageChromiumEvent/unresponsive``); nil: they never do.
+    ///   - pageChannel: Pages post their calls on the runtime's page channel where it has one (feature
+    ///     `pageHostChannel`, ``PageChromiumPage/pageHostEvent``); false: on their DevTools binding.
+    ///   - pushChannel: The feature `pagePushChannel` (``PageChromiumPage/pushesToPage``).
     init(chromium: ChromiumEngineSlot, preference: @escaping @MainActor () -> BrowserDefaultEngine, keyRouter: KeyRouter?,
-         work: BackgroundWork, dialogs: CmuxDialogCenter, hangWork: MainWorkScheduler?) {
+         work: BackgroundWork, mainWork: MainWorkScheduler, dialogs: CmuxDialogCenter, hangWork: MainWorkScheduler?,
+         pageChannel: Bool = false, pushChannel: Bool = false) {
         self.chromium = chromium
         enginePreference = preference
         self.keyRouter = keyRouter
         self.work = work
+        self.mainWork = mainWork
         self.dialogs = dialogs
         self.hangWork = hangWork
+        self.pageChannel = pageChannel
+        self.pushChannel = pushChannel
+    }
+
+    /// The slot's launch order's origin (``CEFLaunchDeferral/restoredOrigin(isShown:wasStarted:)``): a page view starts once.
+    func restoredOrigin(isShown: Bool) -> PageChromiumOrigin {
+        PageChromiumOrigin(chromium.launchOrder.restoredOrigin(isShown: isShown, wasStarted: false))
+    }
+
+    /// The slot's launch order's hidden start, the path a hidden restored browser tab takes too.
+    func startHidden(when node: VisibilityNode, _ start: @escaping @MainActor @Sendable () -> Void) {
+        chromium.launchOrder.startHidden(when: node, start)
     }
 
     var preference: BrowserDefaultEngine { enginePreference() }
@@ -60,20 +85,22 @@ final class ChromiumPageHost: PageChromiumHosting {
 
     func serves(_ page: PageDescriptor) -> Bool { CEFPageSchemes.firstParty[page.id] != nil }
 
-    func makePage(_ page: PageDescriptor, chatOpen: ChatOpenStages?, window: PageChromiumWindow?) async throws
-        -> any PageChromiumPage {
+    func makePage(_ page: PageDescriptor, chatOpen: ChatOpenStages?, window: PageChromiumWindow?,
+                  origin: PageChromiumOrigin) async throws -> any PageChromiumPage {
         #if DEBUG || CMUX_BENCH_HOOKS
         // Taken before any suspension: set by the traced chat's own page in this turn (``ChatOpenTrace``).
         let traced = ChatOpenTrace.shared.takeMakingTracedPage()
         #endif
         let cef = chromium.engine
-        let configuration = Self.tabConfiguration(of: cef, chatOpen: chatOpen, window: window)
+        var configuration = Self.tabConfiguration(of: cef, chatOpen: chatOpen, window: window)
+        configuration.origin = BrowserTabOrigin(origin)  // CEFEngine.makeTab's launch order is the only wait
         #if DEBUG || CMUX_BENCH_HOOKS
         if traced, ChatOpenTrace.shared.chromiumPane == nil { ChatOpenTrace.shared.chromiumPane = configuration.pane?.rawValue }
         #endif
         let tab = try await cef.makePagesTab(configuration)
         tab.keyRouter = keyRouter
-        let chromiumPage = CEFPageChromiumPage(tab: tab, pageID: page.id, hangWork: hangWork)
+        let chromiumPage = CEFPageChromiumPage(tab: tab, pageID: page.id, mainWork: mainWork, hangWork: hangWork,
+                                               pageChannel: pageChannel, pushChannel: pushChannel)
         tab.delegate = chromiumPage
         tab.agentRelay.createBrowser()
         guard await tab.agentRelay.browserCreated() else {
@@ -101,5 +128,29 @@ final class ChromiumPageHost: PageChromiumHosting {
     /// The CEF pane key of `window`: one Chromium window per pane of a main window.
     nonisolated static func pane(of window: PageChromiumWindow) -> BrowserPaneID {
         CEFEngine.pagesPane(window: window.window, pane: window.pane)
+    }
+}
+
+extension BrowserTabOrigin {
+    /// The engine's origin of a cmux page made with `origin` (``ChromiumPageHost/makePage(_:chatOpen:window:origin:)``).
+    nonisolated init(_ origin: PageChromiumOrigin) {
+        self = switch origin {
+        case .user: .user
+        case .automation: .automation
+        case .restoreVisible: .restoreVisible
+        case .restoreHidden: .restoreHidden
+        }
+    }
+}
+
+extension PageChromiumOrigin {
+    /// The page side of the engine's `origin` (``ChromiumPageHost/restoredOrigin(isShown:)``).
+    nonisolated init(_ origin: BrowserTabOrigin) {
+        self = switch origin {
+        case .user: .user
+        case .automation: .automation
+        case .restoreVisible: .restoreVisible
+        case .restoreHidden: .restoreHidden
+        }
     }
 }

@@ -16,10 +16,9 @@ pub fn read_owner_only(path: &Path, maximum_bytes: usize) -> io::Result<Zeroizin
     use std::io::Read;
     use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 
-    let mut file = OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC)
-        .open(path)?;
+    let mut options = OpenOptions::new();
+    options.read(true).custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC);
+    let mut file = cmux_threads::checked::fs::open_with(&options, path)?;
     let metadata = file.metadata()?;
     if !metadata.file_type().is_file() {
         return Err(io::Error::new(
@@ -27,6 +26,7 @@ pub fn read_owner_only(path: &Path, maximum_bytes: usize) -> io::Result<Zeroizin
             "secret path is not a regular file",
         ));
     }
+    // SAFETY: geteuid takes no arguments, cannot fail, and touches no memory.
     if metadata.uid() != unsafe { libc::geteuid() } {
         return Err(io::Error::new(
             io::ErrorKind::PermissionDenied,

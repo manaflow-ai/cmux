@@ -147,10 +147,23 @@ export type DevicesHostState = {
   activity: Array<{ time: string; what: string; subject: string }>;
 };
 
+/**
+ * What the page leaves out on this Mac now (Swift `SettingsAvailability`): rows whose feature is off
+ * and choices this Mac cannot use (Energy Saver's On Battery on a Mac with no battery).
+ */
+export type HostAvailability = {
+  /** Setting keys the page does not show. */
+  hidden_rows?: string[];
+  /** Choice values a row does not offer, by setting key. */
+  hidden_choices?: Record<string, string[]>;
+};
+
 /** The lists the host shows beside the schema rows; `rooms` is null when spaces are unsupported. */
 export type HostLists = {
   /** The app is a DEV build: the Development category shows (Settings > Development). */
   dev_build?: boolean;
+  /** Rows and choices the page leaves out now; absent shows every row and choice. */
+  availability?: HostAvailability | null;
   rooms: HostListRow[] | null;
   machines: HostListRow[];
   browser_profiles: BrowserProfile[];

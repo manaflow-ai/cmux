@@ -14,11 +14,8 @@ use ghostty_vt::{Dirty, KittyReplayState, StyledRun, UnderlineStyle};
 use serde::Serialize;
 use serde_json::{Value, json};
 
-use super::{
-    BudgetedJsonWriter, BudgetedText, MessageWriter, OutboundStream, RenderService,
-    write_base64_json_string,
-};
-use crate::browser::{BrowserAttachUpdate, BrowserFrameUpdate};
+use super::{BudgetedJsonWriter, RenderService, write_base64_json_string};
+use crate::browser::BrowserFrameUpdate;
 use crate::{BrowserAttachState, Rgb, SurfaceId, SurfaceRenderFrame};
 
 /// SNAPSHOT and REPLAY frames: the binary forms of `snapshot` and `vt-state`.
@@ -557,37 +554,6 @@ pub(super) fn browser_frame_json(surface: SurfaceId, update: &BrowserFrameUpdate
         "pointer_frame_floor_seq": update.pointer_frame_floor_seq,
         "pointer_frame_seq": update.pointer_frame_seq,
     })
-}
-
-/// A browser attach update as the texts [`send_encoded_browser_attach_update`]
-/// sends: its frame, then its state.
-pub(super) type EncodedBrowserAttachUpdate = [Option<std::io::Result<Arc<BudgetedText>>>; 2];
-
-/// A browser attach update encoded: the work an attach thread watches,
-/// not the hand-off that waits for room.
-pub(super) fn encode_browser_attach_update(
-    writer: &MessageWriter,
-    surface: SurfaceId,
-    update: BrowserAttachUpdate,
-) -> EncodedBrowserAttachUpdate {
-    [
-        update.frame.map(|frame| writer.encode(&browser_frame_json(surface, &frame))),
-        update.state.map(|state| writer.encode(&browser_state_message(surface, &state, false))),
-    ]
-}
-
-/// Send an encoded browser attach update, its frame before its state: a
-/// frame event applies its bitmap and authority atomically, so it goes out
-/// before a paired state snapshot can expose the same positive token.
-pub(super) fn send_encoded_browser_attach_update(
-    writer: &MessageWriter,
-    encoded: EncodedBrowserAttachUpdate,
-    outbound_stream: &OutboundStream,
-) -> std::io::Result<()> {
-    for text in encoded.into_iter().flatten() {
-        writer.send_encoded_backpressured(text, outbound_stream)?;
-    }
-    Ok(())
 }
 
 fn browser_frame_payload(frame: &crate::BrowserFrame) -> BrowserFramePayload<'_> {

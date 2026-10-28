@@ -229,7 +229,7 @@ impl SessionEventWorker {
             stop.close();
         }
         if let Some(mux) = self.mux.take() {
-            let _ = mux.join();
+            let _ = crate::blocking::thread::join(mux);
         }
     }
 }
@@ -252,6 +252,7 @@ impl OwnerReloadWorker {
         let stop = events.clone();
         let cancellation = EventCancellation::new();
         let worker_cancellation = cancellation.clone();
+        // supervise-allow: owned by OwnerReloadWorker and joined at its stop; a panic ends config-reload forwarding only, and drops its app-event sender.
         let thread =
             std::thread::Builder::new().name("owner-config-reload".into()).spawn(move || {
                 while !worker_cancellation.stop.load(Ordering::Acquire) {
@@ -279,7 +280,7 @@ impl OwnerReloadWorker {
             stop.close();
         }
         if let Some(thread) = self.thread.take() {
-            let _ = thread.join();
+            let _ = crate::blocking::thread::join(thread);
         }
     }
 }

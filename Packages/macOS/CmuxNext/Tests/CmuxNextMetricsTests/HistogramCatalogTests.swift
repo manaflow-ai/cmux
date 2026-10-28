@@ -45,7 +45,8 @@ struct HistogramCatalogTests {
                          "daemon.request.terminal_io", "daemon.dispatch.queue_us", "automation.request.query",
                          "automation.main_queue_us", "automation.blocked_person", "webview.inp.home",
                          "webview.loaf_ms.home", "webview.js_errors.home", "remote.input_to_present", "runtime.busy_ms",
-                         "stability.launch", "stability.child_exit.holder", "blocking.violations",
+                         "stability.launch", "stability.child_exit.holder", "stability.renderer.content_end.webkit",
+                         "stability.renderer.unresponsive.chromium", "blocking.violations",
                          "chromium.EventLatency.KeyPressed.TotalLatency"] {
             #expect(names.contains(required), "\(required)")
         }

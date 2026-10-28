@@ -104,14 +104,46 @@ extension URL {
 /// alt]" or a link); nothing is fetched. Called off the main thread (the Markdown layout and
 /// the row bitmaps), so it is Sendable: the folder is a constant and the decoded pictures sit
 /// behind their lock.
-final class HomeMarkdownImages: MarkdownImageProvider, Sendable {
+///
+/// The kept pictures are a byte-capped LRU (p07-memory-115), sized and trimmed by the host with the
+/// transcript's other pixel caches (`MessagesLabTranscriptCaches`); a dropped picture decodes again
+/// from its file at the next ask.
+final class HomeMarkdownImages: MarkdownImageProvider, Sendable { // memory: consumer via MessagesLabMemoryConsumer (CmuxNextHome)
+    /// The cap until the host sizes the pictures (`setBudget(bytes:)`).
+    static let defaultBudget = 32 << 20
     private let directory: String
+    private struct Entry: Sendable { var image: HomeShared<CGImage>; var bytes: Int; var tick: Int }
+    private struct State: Sendable {
+        var budget = HomeMarkdownImages.defaultBudget
+        var map: [String: Entry] = [:]
+        var bytes = 0
+        var tick = 0
+    }
     // Lock carve-out: a synchronous cache read from layout and drawing threads (MarkdownImageProvider is
-    // a synchronous call); the decode runs outside the lock.
-    private let pictures = OSAllocatedUnfairLock(initialState: [String: CGImage]())
+    // a synchronous call); the decode runs outside the lock, an eviction is a sort of the kept pictures.
+    private let state = OSAllocatedUnfairLock(initialState: State())
 
     init(directory: URL) {
         self.directory = directory.standardizedFileURL.resolvingSymlinksInPath().path
+    }
+
+    /// The decoded pictures' bytes now.
+    var bytes: Int { state.withLock { $0.bytes } }
+    /// The pictures kept now.
+    var count: Int { state.withLock { $0.map.count } }
+    /// The most bytes kept.
+    var budget: Int { state.withLock { $0.budget } }
+
+    /// The host's cap; lowering it frees nothing now (the next store trims to it).
+    func setBudget(bytes: Int) {
+        state.withLock { $0.budget = max(0, bytes) }
+    }
+
+    /// Frees the least recently asked pictures until at most `fraction` of the bytes held now remain (0 frees
+    /// all of them); the images are released off main. A row already drawn keeps its bitmap.
+    func trim(toFraction fraction: Double) {
+        let freed = state.withLock { s in Self.evict(&s, downTo: s.bytes.trimTarget(fraction)) }
+        Reclaimer.release(bitmaps: freed)
     }
 
     func markdownImage(source: String, alt: String) -> CGImage? {
@@ -119,11 +151,42 @@ final class HomeMarkdownImages: MarkdownImageProvider, Sendable {
         let file = url.standardizedFileURL.resolvingSymlinksInPath()
         guard file.deletingLastPathComponent().path == directory else { return nil }
         let path = file.path
-        if let hit = pictures.withLock({ $0[path] }) { return hit }
+        let hit = state.withLock { s -> HomeShared<CGImage>? in
+            guard var entry = s.map[path] else { return nil }
+            s.tick += 1
+            entry.tick = s.tick
+            s.map.updateValue(entry, forKey: path) // dictionary write
+            return entry.image
+        }
+        if let hit { return hit.value }
         guard let src = CGImageSourceCreateWithURL(file as CFURL, nil),
               let image = CGImageSourceCreateImageAtIndex(src, 0, nil) else { return nil }
-        pictures.withLock { $0[path] = image }
-        return image
+        let shared = HomeShared(image)
+        let bytes = image.bytesPerRow * image.height
+        let (kept, freed) = state.withLock { s -> (HomeShared<CGImage>, [HomeShared<CGImage>]) in
+            // Another thread decoded it meanwhile: every caller gets the one kept picture.
+            if let other = s.map[path] { return (other.image, []) }
+            guard bytes <= s.budget else { return (shared, []) }
+            s.tick += 1
+            s.map.updateValue(Entry(image: shared, bytes: bytes, tick: s.tick), forKey: path) // dictionary write
+            s.bytes += bytes
+            return (shared, s.bytes > s.budget ? Self.evict(&s, downTo: s.budget * 4 / 5) : [])
+        }
+        Reclaimer.release(bitmaps: freed)
+        return kept.value
+    }
+
+    /// Unlinks the least recently asked pictures until at most `target` bytes remain; returns them to free.
+    private static func evict(_ s: inout State, downTo target: Int) -> [HomeShared<CGImage>] {
+        var freed: [HomeShared<CGImage>] = []
+        guard s.bytes > target else { return freed }
+        for (key, entry) in s.map.sorted(by: { $0.value.tick < $1.value.tick }) {
+            if s.bytes <= target { break }
+            s.map.removeValue(forKey: key)
+            s.bytes -= entry.bytes
+            freed.append(entry.image)
+        }
+        return freed
     }
 }
 

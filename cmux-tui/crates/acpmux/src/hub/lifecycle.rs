@@ -99,13 +99,17 @@ impl Hub {
         // A gone recorded folder may be remapped: git runs to compare repositories.
         let cwd_map = adopt.as_ref().map(|a| a.cwd_map.clone()).unwrap_or_default();
         let fam = family.clone();
+        // The remap's git children make it a WILL_BLOCK item, unwatched (`daemon/hang_watch.rs`).
         let (cwd, adopted_cwd, git) =
             tokio::task::spawn_blocking(move || start_folder(cwd, recorded, &fam, &cwd_map))
                 .await
                 .map_err(|e| RpcError::internal(e.to_string()))??;
         // A folder profile runs only in chats whose folder is inside its folder (H4).
         if let Some(root) = &folder_root
-            && !std::fs::canonicalize(&cwd).unwrap_or_else(|_| cwd.clone()).starts_with(root)
+            && !tokio::fs::canonicalize(&cwd)
+                .await
+                .unwrap_or_else(|_| cwd.clone())
+                .starts_with(root)
         {
             return Err(RpcError::invalid_params(format!(
                 "harness {agent} is a folder profile of {}; the chat folder must be inside it",
@@ -358,6 +362,8 @@ impl Hub {
         if self.shutting_down() {
             return Err(super::shutdown::shutting_down_error());
         }
+        // An agent started below inherits the daemon's priority: normal first.
+        self.clients.foreground();
         if let Some(child) = session.child.lock().await.as_ref()
             && child.is_alive().await
         {
@@ -613,6 +619,7 @@ impl Hub {
                     Some((plan.program, plan.args)),
                     Some(tr),
                     Some((&session.id, &meta.name)),
+                    &self.supervisor,
                 )
                 .await
                 .map_err(|e| {
@@ -631,6 +638,7 @@ impl Hub {
                 None,
                 None,
                 Some((&session.id, &meta.name)),
+                &self.supervisor,
             )
             .await
             .map_err(|e| {
@@ -660,9 +668,7 @@ impl Hub {
 
         // Start the inbound loop for this session once.
         if let Some(rx) = session.inbound_rx.lock().await.take() {
-            let hub = self.clone();
-            let s = session.clone();
-            tokio::spawn(async move { hub.inbound_loop(s, rx).await });
+            self.start_inbound_loop(session, rx);
         }
 
         let init = match child.request(method::INITIALIZE, super::pool::initialize_params()).await {
@@ -1042,12 +1048,12 @@ impl Hub {
         let (tx, mut rx) = tokio::sync::mpsc::channel(64);
         let tap: crate::agent::Tap = Arc::new(|_, _, _| Some(crate::agent::WriteTicket::done()));
         // Never the home folder: the agent scans its folder at start (LAUNCH-NO-TCC-PROMPTS).
-        let cwd = tokio::task::spawn_blocking(crate::protected_folders::unattended_cwd)
+        let cwd = crate::daemon::spawn_blocking(crate::protected_folders::unattended_cwd)
             .await
             .unwrap_or_else(|_| std::env::temp_dir());
         let mut resolved = profile.clone();
         resolved.argv = self.resolved_launcher_argv(resolved.argv);
-        let child = crate::agent::ChildAgent::spawn(name, &resolved, &cwd, tx, tap).await?;
+        let child = ChildAgent::spawn(name, &resolved, &cwd, tx, tap, &self.supervisor).await?;
         // Drain anything the agent sends so its writer never blocks.
         let drain = tokio::spawn(async move { while rx.recv().await.is_some() {} });
         let result = tokio::time::timeout(std::time::Duration::from_secs(50), async {
@@ -1069,7 +1075,7 @@ impl Hub {
         drain.abort();
         // The probe's session leaves no transcript behind (it listed as an empty chat).
         let folder = cwd.clone();
-        let _ = tokio::task::spawn_blocking(move || {
+        let _ = crate::daemon::spawn_blocking(move || {
             crate::probe_cleanup::remove_probe_transcripts(&folder)
         })
         .await;

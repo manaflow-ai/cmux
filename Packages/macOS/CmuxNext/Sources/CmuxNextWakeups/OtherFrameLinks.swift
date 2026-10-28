@@ -24,6 +24,7 @@ public final class FrameLinksSubscription {
     /// Called after each link frame with its timestamp and refresh period (`CACurrentMediaTime` seconds).
     public let frame: @MainActor (_ timestamp: CFTimeInterval, _ refreshInterval: Double) -> Void
 
+    /// A subscription that calls `changed` when the first link starts or the last stops, and `frame` after each link frame.
     public init(changed: @escaping @MainActor (_ running: Bool) -> Void,
                 frame: @escaping @MainActor (_ timestamp: CFTimeInterval, _ refreshInterval: Double) -> Void) {
         self.changed = changed
@@ -39,10 +40,13 @@ public final class UnbudgetedFrameLinks: OtherFrameLinks {
     private var links = 0
     private var subscriptions: [WeakSubscription] = []
 
+    /// A set with no link running.
     public init() {}
 
+    /// Whether any other link is running.
     public var anyRunning: Bool { links > 0 }
 
+    /// Adds `subscription`, held weakly; released subscriptions are dropped here.
     public func add(_ subscription: FrameLinksSubscription) {
         subscriptions.removeAll { $0.value == nil }
         subscriptions.append(WeakSubscription(value: subscription))

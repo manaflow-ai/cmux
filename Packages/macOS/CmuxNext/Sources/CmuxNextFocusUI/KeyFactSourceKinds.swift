@@ -23,9 +23,14 @@ public protocol KeyFactsPageWindowSource: AnyObject {
     /// Chromium Host: whether the tab's page view is `window`'s first responder and its host reports the
     /// chords the page leaves unhandled, so the page gets page-ownable keys first (p01-process-030).
     func hostedPageHasKeys(in window: NSWindow) -> Bool
+    /// Chromium Host: whether the tab's page view is `window`'s first responder and its page holds a
+    /// keyboard lock in its fullscreen, so the page gets the chords cmux would run (p01-process-229).
+    func hostedPageLocksKeys(in window: NSWindow) -> Bool
 }
 
 extension KeyFactsPageWindowSource {
     /// A page with no Chromium Host page view never has the keys through one.
     public func hostedPageHasKeys(in window: NSWindow) -> Bool { false }
+    /// A page with no Chromium Host page view never locks the keys.
+    public func hostedPageLocksKeys(in window: NSWindow) -> Bool { false }
 }

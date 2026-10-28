@@ -70,6 +70,9 @@ final class HangReportsController {
     /// main at best effort; only View Hang Report, a person's click, is user-blocking.
     private let work: BackgroundWork
     private let mainWork: MainWorkScheduler
+    /// Told each decision of whether reports are on in effect (``AppCrashReporting/hangReportsDecided(_:)``: a
+    /// Rust crash's black box goes only then); off at once on a build that never sends.
+    private let blackboxConsent: @MainActor (Bool) -> Void
 
     private struct Asking {
         let settings: SettingsController
@@ -79,7 +82,8 @@ final class HangReportsController {
 
     init(service: HangReportService?, managedDisables: @escaping @Sendable () -> Bool, defaults: UserDefaults = .standard,
          activityFeed: MainThreadActivityFeed? = nil, memory: HiddenWorkspaceMemory? = nil, daemonMetrics: DaemonMetricsFold? = nil,
-         daemonPID: @escaping @MainActor @Sendable () -> Int32? = { nil }, work: BackgroundWork, mainWork: MainWorkScheduler) {
+         daemonPID: @escaping @MainActor @Sendable () -> Int32? = { nil }, work: BackgroundWork, mainWork: MainWorkScheduler,
+         blackboxConsent: @escaping @MainActor (Bool) -> Void = { _ in }) {
         self.service = service
         self.activityFeed = activityFeed
         self.memory = memory
@@ -89,6 +93,8 @@ final class HangReportsController {
         self.daemonPID = daemonPID
         self.work = work
         self.mainWork = mainWork
+        self.blackboxConsent = blackboxConsent
+        if service == nil { blackboxConsent(false) }
     }
 
     /// The controller for this launch: the service over this build's folder, the real transport,
@@ -97,13 +103,16 @@ final class HangReportsController {
     /// daemon's request latency is folded from its metrics file in `metricsFolder` on `work`'s files lane. `memory`
     /// samples at the report triggers too, and runs where nothing is sent. `wireSchema` is schema 3 only while the
     /// `hangReportsSchema3` feature says cmux.com accepts it. `features` reads the features hash and overrides the
-    /// app runs with, at each report.
+    /// app runs with, at each report. `blockingSites` reads the blocking detector's main-thread sites (and reset count), whose counts a
+    /// schema-3 report carries by hashed site id. `blackboxConsent` is told each decision of whether reports are on.
     static func forThisLaunch(policy: CrashReportingPolicy, folder: URL, counts: @escaping @Sendable () async -> CoarseCounts,
                               watchdog: MainThreadWatchdog, input: any InputObserving, events: AppEvents, memory: HiddenWorkspaceMemory,
                               work: BackgroundWork, mainWork: MainWorkScheduler,
                               metricsFolder: URL, daemonPID: @escaping @MainActor @Sendable () -> Int32?,
                               wireSchema: HangReport.WireSchema = .deployed,
                               features: @escaping @Sendable () -> HangReport.FeatureState? = { nil },
+                              blockingSites: @escaping @Sendable () -> BlockingDetector.MainThreadRead = { .init() },
+                              blackboxConsent: @escaping @MainActor (Bool) -> Void = { _ in },
                               environment: [String: String] = ProcessInfo.processInfo.environment) -> HangReportsController {
         let devOptIn = policy.channel == .dev && environment[devOptInKey] == "1"
         let mayReport = (policy.channel == .nightly || devOptIn) && !CrashReportingPolicy.isTestProcess(environment)
@@ -112,7 +121,8 @@ final class HangReportsController {
             managed.read().forced[CrashReportingPolicy.disableTelemetryPolicyKey]?.boolValue == true
         }
         guard mayReport else {
-            return HangReportsController(service: nil, managedDisables: managedDisables, memory: memory, work: work, mainWork: mainWork)
+            return HangReportsController(service: nil, managedDisables: managedDisables, memory: memory, work: work, mainWork: mainWork,
+                                         blackboxConsent: blackboxConsent)
         }
         let endpoint = devOptIn ? environment[devEndpointKey] ?? URLSessionHangReportTransport.defaultEndpoint
             : URLSessionHangReportTransport.defaultEndpoint
@@ -120,8 +130,7 @@ final class HangReportsController {
         // black boxes where the daemon (its key-flow folder), the holders and the hosts write them.
         let bundleID = Bundle.main.bundleIdentifier
         let metricsDirectory = HangReportFieldSources.appMetricsDirectory(bundleID: bundleID)
-        let flows = DaemonDiagnosticKnobs(processEnvironment: environment).daemonEnvironment["CMUX_TRACE_FLOWS"]
-        let rings = HangReportFieldSources.RingFolders.app(bundleID: bundleID, flowsDirectory: flows.map { URL(filePath: $0, directoryHint: .isDirectory) })
+        let rings = ringFolders(bundleID: bundleID, environment: environment)
         if wireSchema.carriesFieldData {
             MetricsStore.startApp(directory: metricsDirectory, channel: policy.channel?.rawValue ?? "dev", work: work)
         }
@@ -134,14 +143,24 @@ final class HangReportsController {
             mainThreadHistograms: { [watchdog] in
                 MainThreadReportLedger.Histograms(edgesNanos: MainTurnHistogram.edgesNanos, turnCounts: watchdog.turnHistogram.snapshot().counts,
                                                   inputQueueingCounts: watchdog.inputQueueHistogram.snapshot().counts)
-            }, wireSchema: wireSchema, metricsDirectory: metricsDirectory, rings: rings, features: features)
+            }, wireSchema: wireSchema, metricsDirectory: metricsDirectory, rings: rings, features: features,
+            blockingSites: blockingSites)
         let feed = service.mainThreadLedger.map {
             MainThreadActivityFeed(ledger: $0, input: input, events: events, isActive: NSApp?.isActive ?? false)
         }
         let daemonMetrics = DaemonMetricsFold(reader: ChildMetricsReader(role: .daemon, directory: metricsFolder), metrics: Metrics(),
                                               work: work)
         return HangReportsController(service: service, managedDisables: managedDisables, activityFeed: feed, memory: memory,
-                                     daemonMetrics: daemonMetrics, daemonPID: daemonPID, work: work, mainWork: mainWork)
+                                     daemonMetrics: daemonMetrics, daemonPID: daemonPID, work: work, mainWork: mainWork,
+                                     blackboxConsent: blackboxConsent)
+    }
+
+    /// The folders the app's Rust processes write their black boxes and crash-key pages in: the app's trace folder,
+    /// the daemon's key-flow folder when the diagnostic knob turns it on, and the holders' socket folder. Hang
+    /// reports and the crash forwarder (``RustCrashArtifacts``) read the same list.
+    nonisolated static func ringFolders(bundleID: String?, environment: [String: String]) -> HangReportFieldSources.RingFolders {
+        let flows = DaemonDiagnosticKnobs(processEnvironment: environment).daemonEnvironment["CMUX_TRACE_FLOWS"]
+        return .app(bundleID: bundleID, flowsDirectory: flows.map { URL(filePath: $0, directoryHint: .isDirectory) })
     }
 
     /// The local daemon's request latency into the app's histograms, before a report reads them (no socket request).
@@ -179,15 +198,21 @@ final class HangReportsController {
                                               daemonMetricsFold: await daemonMetrics?.tally.byName)
     }
 
-    /// Follows the setting from the first load on (``HangReportAskPolicy``): sends only with this
-    /// Mac's consent record; otherwise shows the confirm or the one-time invitation card after
-    /// `firstWindow` resolves. A managed `DisableTelemetry` turns everything off and clears what
-    /// an earlier opted-in period left (read once per launch).
-    func start(settings: SettingsController, asks: SidebarAsks, firstWindow: @escaping @MainActor () async -> Void) {
+    /// Records this Mac's consent from the person's own writes of the setting (``recordUserWrite(defaults:path:value:)``),
+    /// from the launch on: ``start(settings:asks:firstWindow:)`` runs after startup, and a write made before it still counts.
+    func recordUserWrites(of settings: SettingsController) {
         guard service != nil else { return }
         settings.userWillWrite = { [defaults] descriptor, value in
             Self.recordUserWrite(defaults: defaults, path: descriptor.path, value: value)
         }
+    }
+
+    /// Follows the setting from the first load on (``HangReportAskPolicy``): sends only with this
+    /// Mac's consent record; otherwise shows the confirm or the one-time invitation card after
+    /// `firstWindow` resolves. A managed `DisableTelemetry` turns everything off and clears what
+    /// an earlier opted-in period left (read once per launch). The consent hook is ``recordUserWrites(of:)``'s.
+    func start(settings: SettingsController, asks: SidebarAsks, firstWindow: @escaping @MainActor () async -> Void) {
+        guard service != nil else { return }
         asking = Asking(settings: settings, asks: asks, firstWindow: firstWindow)
         let managedDisables = managedDisables, work = work
         // task-owner: the controller's one follow loop (it lives with the launch): the managed check on the files lane,
@@ -258,6 +283,7 @@ final class HangReportsController {
     private func apply(_ on: Bool, settingOn: Bool) async {
         guard let service else { return }
         if !settingOn { defaults.removeObject(forKey: Self.consentKey) }
+        blackboxConsent(on)
         await service.setEnabled(on)
         // The catalog's Release intervals reach MetricKit only while reports are on.
         SignpostMetricKitMirror.shared.setOn(on)

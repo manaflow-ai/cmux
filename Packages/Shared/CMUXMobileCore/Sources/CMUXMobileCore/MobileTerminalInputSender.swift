@@ -242,14 +242,7 @@ public final class MobileTerminalInputSender<Payload: Sendable> {
     }
 
     private func runPump(_ key: Key) async {
-        while !Task.isCancelled {
-            if let attempt = retryAttempts[key] {
-                do { try await transport.pause(attempt) } catch { return }
-            }
-            repump.remove(key)
-            guard let entry = outboxes[key]?.nextUnsent(),
-                  transport.isReachable(key, entry.item.payload) else { return }
-            outboxes[key]?.markSent(entry.delivery.sequence)
+        while let entry = await nextSend(key) {
             var result = await transport.sendOnLane(key, entry.item.payload, entry.delivery)
             if case .unavailable = result {
                 guard isPending(entry, key: key) else { continue }
@@ -290,6 +283,21 @@ public final class MobileTerminalInputSender<Payload: Sendable> {
                 return
             }
         }
+    }
+
+    /// The next unit of `key` to send, marked sent, after the pause of a
+    /// pending retry; nil when the pump stops (cancelled, torn down, nothing
+    /// left to send, or the Mac is out of reach).
+    private func nextSend(_ key: Key) async -> MobileTerminalInputOutbox<Unit>.Entry? {
+        guard !Task.isCancelled else { return nil }
+        if let attempt = retryAttempts[key] {
+            do { try await transport.pause(attempt) } catch { return nil }
+        }
+        repump.remove(key)
+        guard let entry = outboxes[key]?.nextUnsent(),
+              transport.isReachable(key, entry.item.payload) else { return nil }
+        outboxes[key]?.markSent(entry.delivery.sequence)
+        return entry
     }
 
     /// Whether this exact unit is still pending under the identity it was

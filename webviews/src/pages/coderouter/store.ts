@@ -17,6 +17,9 @@ import {
 
 export type Connection = "connecting" | "connected" | "disconnected";
 
+/** The page name its saved state carries (pageState.ts). */
+export const CODEROUTER_PAGE = "coderouter";
+
 export interface CodeRouterSnapshot {
   connection: Connection;
   loading: boolean;

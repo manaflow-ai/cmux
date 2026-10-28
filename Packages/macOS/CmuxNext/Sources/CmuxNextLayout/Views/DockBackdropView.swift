@@ -67,7 +67,7 @@ final class DockBackdropView: NSView {
         applyColors()
     }
 
-    override func viewDidChangeEffectiveAppearance() {
+    override func viewDidChangeEffectiveAppearance() { // visibility-walk-allow: a fill and a shadow layer color plus the surface's colors, no layout or text measure; cheaper than a deferral
         super.viewDidChangeEffectiveAppearance()
         applyColors()
     }

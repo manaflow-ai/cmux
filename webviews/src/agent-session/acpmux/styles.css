@@ -55,8 +55,8 @@
 @keyframes acpmux-mic-wait{50%{opacity:.45}}
 @media (prefers-reduced-motion:no-preference){.acpmux-mic[data-state=starting]{animation:acpmux-mic-wait calc(var(--agent-motion-in) * 10) var(--agent-ease-out) infinite}}
 .acpmux-dictation-notice{display:flex;align-items:center;gap:8px;margin:0 var(--cv-inset) 8px;padding:6px 6px 6px 12px;border-radius:12px;background:var(--acpmux-composer-bg);box-shadow:inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge);color:var(--agent-text);font-size:12px;line-height:18px}
-/* Static status indicators (cx-sya4n): the mic's wait pulse stops. */
-:root[data-status-indicators=static] .acpmux-mic[data-state=starting]{animation:none}
+/* Static status indicators (cx-sya4n), Energy Saver and animations off (`data-cmux-energy`, `data-cmux-motion`, WebTheme.swift): the mic's wait pulse stops. */
+:root:is([data-status-indicators=static],[data-cmux-energy=saver],[data-cmux-motion=off]) .acpmux-mic[data-state=starting]{animation:none}
 .acpmux-dictation-notice span{flex:1}
 .acpmux-dictation-settings,.acpmux-dictation-dismiss{height:24px;padding:0 10px;border:0;border-radius:6px;background:var(--acpmux-menu-hover);color:var(--agent-text);font:inherit;cursor:default}
 .acpmux-dictation-dismiss{width:24px;padding:0;background:none;color:var(--acpmux-composer-dim)}
@@ -96,7 +96,7 @@
 .acpmux-effort .acpmux-picker-button,.acpmux-picker-button .acpmux-icon:last-child{color:var(--agent-muted)}
 .acpmux-mp-refresh-spinner{width:12px;height:12px;border:1.5px solid color-mix(in srgb,currentColor 35%,transparent);border-top-color:currentColor;border-radius:50%}
 @media (prefers-reduced-motion: no-preference){.acpmux-mp-refresh-spinner{animation:cmux-spin var(--cmux-spinner-period,900ms) linear infinite}}
-:root[data-status-indicators=static] .acpmux-mp-refresh-spinner{animation:none}
+:root:is([data-status-indicators=static],[data-cmux-energy=saver],[data-cmux-motion=off]) .acpmux-mp-refresh-spinner{animation:none}
 /* The context ring is a button the size of the mic; resting on it or focusing it shows the context card (contextCard.css). */
 .acpmux-context{flex:none}
 .acpmux-context-ring{flex:none;display:grid;place-items:center;width:22px;height:22px;padding:0;border:0;border-radius:50%;background:none;color:var(--agent-muted)}
@@ -572,6 +572,8 @@ button.acpmux-edited-file:hover{background:color-mix(in srgb,var(--agent-text) 4
 :root[data-reduce-transparency] .acpmux-chief-dock-rail,:root[data-reduce-transparency] .acpmux-chief-dock-cards,:root[data-reduce-transparency] .acpmux-chief-card{background:var(--surface-popup);-webkit-backdrop-filter:none;backdrop-filter:none}
 @keyframes acpmux-chief-dock-attention{0%,100%{opacity:.35;transform:scale(.96)}50%{opacity:0;transform:scale(1.12)}}
 @media (prefers-reduced-motion:reduce){.acpmux-chief-dock,.acpmux-chief-dock-rail,.acpmux-chief-dock-mascot,.acpmux-chief-card,.acpmux-chief-dock-cards{transition:none;animation:none}.acpmux-chief-dock-mascot img{animation:none;transition:none}}
+/* Energy Saver and animations off (WebTheme.swift): the mascot rests instead of floating. */
+:root:is([data-cmux-energy=saver],[data-cmux-motion=off]) .acpmux-chief-dock-mascot img{animation:none}
 .acpmux-link-missing{margin:8px 24px;color:var(--agent-text);font-size:12px}
 .acpmux-live-chat p{margin:0}
 .acpmux-live-chat-command{display:block;margin:4px 0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:11px var(--font-mono);color:var(--agent-muted)}
@@ -587,7 +589,7 @@ button.acpmux-edited-file:hover{background:color-mix(in srgb,var(--agent-text) 4
 .acpmux-harness-spinner{display:inline-block;margin-right:6px;vertical-align:-1px;color:var(--agent-muted)}
 .acpmux-harness-notice .acpmux-harness-spinner{margin:0 0 0 6px}
 @media (prefers-reduced-motion: no-preference){.acpmux-harness-spinner{animation:cmux-spin var(--cmux-spinner-period,900ms) linear infinite}}
-:root[data-status-indicators=static] .acpmux-harness-spinner{animation:none}
+:root:is([data-status-indicators=static],[data-cmux-energy=saver],[data-cmux-motion=off]) .acpmux-harness-spinner{animation:none}
 .acpmux-instructions-notice button[data-notice-action=dismiss]{background:transparent;color:var(--agent-muted)}
 .acpmux-composer{flex-wrap:wrap}.acpmux-composer-dropping .acpmux-composer-box{border-color:var(--agent-accent)}
 .acpmux-switch-notice{display:block;padding:0 var(--cv-inset,max(18px,calc((100% - 760px)/2))) 6px;color:var(--agent-muted);font-size:12px;line-height:16px}

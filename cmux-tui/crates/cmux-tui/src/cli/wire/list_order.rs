@@ -36,7 +36,7 @@ pub(super) fn apply(plan: &mut RequestPlan, request: &mut Value, daemon_socket: 
 
 /// Whether `daemon_socket` is the cmux app's own daemon.
 fn app_context(daemon_socket: &Path) -> bool {
-    let named = std::env::var_os(super::super::chief_target::APP_DAEMON_KEY)
+    let named = super::super::caller_env::var_os(super::super::chief_target::APP_DAEMON_KEY)
         .filter(|value| !value.is_empty())
         .map(PathBuf::from);
     if named.is_some_and(|named| same_socket(&named, daemon_socket)) {
@@ -51,6 +51,7 @@ fn app_context(daemon_socket: &Path) -> bool {
 
 /// Two spellings of one socket (a link, `/var` and `/private/var`).
 fn same_socket(left: &Path, right: &Path) -> bool {
-    let canonical = |path: &Path| std::fs::canonicalize(path).unwrap_or_else(|_| path.to_owned());
+    let canonical =
+        |path: &Path| cmux_blocking::fs::canonicalize(path).unwrap_or_else(|_| path.to_owned());
     left == right || canonical(left) == canonical(right)
 }

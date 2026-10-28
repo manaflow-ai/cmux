@@ -6,11 +6,14 @@
 // cmux_shim_initialize and everything else after it, in cmux's order; a
 // MIRROR goes out before the EVENT that refreshes it, and both before the
 // ack of the op that caused them; client-minted ids map to Chromium's both
-// ways; Chromium focuses a page only inside cmux's set_focus; a page's
+// ways; Chromium focuses a page only inside cmux's set_focus; window requests
+// go to cmux's pushed policy in Chromium's ids, never to a handler; a page's
 // accessibility token comes back in its REPLY; a page window whose layers
 // are hosted is detached; a page view moves only when its geometry changed
 // (task 053); the host holds its App Nap activity while a page shows (task
-// p14-energy-128); a bad message ends the host. Run by scripts/cmux-next/tests/chromium-host-dispatch.test.sh.
+// p14-energy-128); the fork's lock delegate reaches cmux as CMUX_SHIM_LOCK
+// while cmux's handler is on (task 229); a helper's end goes out as HELPER_EXIT (task p01-process-225); a bad
+// message ends the host. Run by scripts/cmux-next/tests/chromium-host-dispatch.test.sh.
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
@@ -22,6 +25,7 @@
 #include "chromium_host_input_ring.h"
 #include "cmux_cef_shim.h"
 #include "host_dispatch.h"
+#include "host_helper_exits.h"
 #include "host_page_activity.h"
 #include "host_switches.h"
 
@@ -61,6 +65,14 @@ struct Shim {
   bool refuse_detach = false;  // set_detached_hosting(1) answers 0 (a fork that cannot detach)
   // (browser, request): AFTER_CREATED events the next create_window emits inside the call, in order.
   std::vector<std::pair<int, int>> created_in_call;
+  // The handler the host put in the fork's lock delegate (RecordSetLockHandler).
+  cmux_host::LockFn lock_fn = nullptr;
+  void* lock_context = nullptr;
+  int lock_answer = 1;  // set_lock_handler's return (0: the fork refused it)
+  cmux_shim_password_reveal_fn reveal_done = nullptr;  // the latest started reveal's
+  void* reveal_ctx = nullptr;
+  int reveals_started = 0;
+  bool reveal_refuses = false;  // password_reveal returns 0
 } shim;
 
 void Emit(int kind, int browser, int request, const char* s1 = "") {
@@ -160,7 +172,33 @@ char* cmux_shim_tab_navigation_state(int browser_id) {
   return strdup(("state of " + std::to_string(browser_id)).c_str());
 }
 void cmux_shim_free(char* s) { std::free(s); }
+int cmux_shim_password_reveal(const char* path, const char* id, cmux_shim_password_reveal_fn done, void* ctx) {
+  shim.calls.push_back(std::string("reveal ") + (path ? path : "<null>") + " " + (id ? id : "<null>"));
+  if (shim.reveal_refuses) return 0;
+  shim.reveal_done = done;
+  shim.reveal_ctx = ctx;
+  ++shim.reveals_started;
+  return 1;
+}
 int cmux_shim_live_browser_count(void) { return shim.live; }
+void cmux_shim_set_window_request_policy(const cmux_shim_window_policy_window* windows, int window_count,
+                                         const cmux_shim_window_policy_click* clicks, int click_count,
+                                         const char* profile_root, int cmd_click, int cmd_shift_click,
+                                         int shift_click, int option_click, int middle_click) {
+  std::string text = "policy";
+  for (int i = 0; i < window_count; ++i) {
+    text += " " + std::to_string(windows[i].anchor_browser_id) + ":" + std::to_string(windows[i].opener_browser_id) +
+            ":" + std::to_string(windows[i].flags) + ":" + std::string(windows[i].store, windows[i].store_length);
+  }
+  for (int i = 0; i < click_count; ++i) {
+    text += " click " + std::to_string(clicks[i].browser_id) + ":" + std::to_string(clicks[i].gesture) + ":" +
+            std::to_string(clicks[i].uptime_ms);
+  }
+  text += std::string(" root ") + (profile_root ? profile_root : "(null)") + " actions " + std::to_string(cmd_click) +
+          "," + std::to_string(cmd_shift_click) + "," + std::to_string(shift_click) + "," +
+          std::to_string(option_click) + "," + std::to_string(middle_click);
+  shim.calls.push_back(text);
+}
 }
 
 namespace {
@@ -400,8 +438,9 @@ void PreinitBeforeInitialize() {
   Expect(f.Sent(), {"ack 11", Key("mirror", kOpForeignBrowserCount), Key("mirror", kOpLiveBrowserCount),
                     Key("mirror", kOpWindowCount), Key("mirror", kOpTabNavigationState, "5"), "ack 12", "ack 13"},
          "initialize acked, then the counts that refresh on attach too, then the rest");
-  Check(shim.focus_handler_sets > 0 && shim.focus == nullptr && shim.window != nullptr,
-        "after initialize the host's window policy is installed and no focus handler (task p01-process-032)");
+  Check(shim.focus_handler_sets > 0 && shim.focus == nullptr && shim.window == nullptr,
+        "after initialize no focus handler (task p01-process-032) and no window request handler: the shim "
+        "decides by cmux's pushed policy (task 031)");
 }
 
 // What AFTER_CREATED (`verb` "mirror") or BEFORE_CLOSE ("forget") sends for
@@ -436,7 +475,8 @@ void MintedWindow() {
   Expect(f.views.calls, {"open 9"}, "the page view token opens a view");
   const std::string minted = std::to_string(kMinted);
   Expect(f.Sent(),
-         TabKeys("mirror", minted, {Key("mirror", kOpLiveBrowserCount), Key("mirror", kOpWindowCount), "event 2 " + minted + " 42", "ack 20"}),
+         TabKeys("mirror", minted, {Key("mirror", kOpLiveBrowserCount), Key("mirror", kOpWindowCount),
+                                        Key("mirror", kOpRendererClientIds, minted), "event 2 " + minted + " 42", "ack 20"}),
          "AFTER_CREATED carries the minted id; its mirrors first, the ack last");
 
   Writer watch;
@@ -458,7 +498,8 @@ void MintedWindow() {
   shim.live = 0;
   Emit(CMUX_SHIM_BEFORE_CLOSE, 3, 0);
   Expect(f.Sent(),
-         TabKeys("forget", minted, {Key("mirror", kOpLiveBrowserCount), Key("mirror", kOpWindowCount), "event 3 " + minted + " 0"}),
+         TabKeys("forget", minted, {Key("mirror", kOpLiveBrowserCount), Key("mirror", kOpWindowCount),
+                                        Key("forget", kOpRendererClientIds, minted), "event 3 " + minted + " 0"}),
          "BEFORE_CLOSE: the tab's keys forgotten, the counts refreshed, then the event");
   Expect(f.views.calls, {"open 9", "close 9"}, "the browser's page view closes with it");
   Expect(f.delegate.calls, {"initialize /root", "closed"}, "the delegate hears of the close");
@@ -478,7 +519,8 @@ void MintedTab() {
   f.host.OnMessages({Op(kOpTabAdd, 30, add)});
   const std::string minted = std::to_string(kMinted + 1);
   Expect(f.Sent(),
-         TabKeys("mirror", minted, {Key("mirror", kOpLiveBrowserCount), Key("mirror", kOpWindowCount), "event 2 " + minted + " 0", "ack 30"}),
+         TabKeys("mirror", minted, {Key("mirror", kOpLiveBrowserCount), Key("mirror", kOpWindowCount),
+                                        Key("mirror", kOpRendererClientIds, minted), "event 2 " + minted + " 0", "ack 30"}),
          "an AFTER_CREATED inside tab_add already carries the minted id");
 }
 
@@ -583,9 +625,90 @@ void FocusIsTheShimsEmbedderActiveRule() {
   f.host.OnMessages({Op(kOpBrowserSetEmbedderActive, 51, active)});
   Expect(shim.calls, {"embedder_active 3 1"}, "embedder-active reaches the shim, which owns the focus rule");
   Check(shim.focus_answer == -1, "no host handler is asked inside it");
-  Check(shim.window && shim.window(&f.host, 2, 0, 3, 0, 0, 0, 0, 0, 1, "https://p/", "") == 3,
-        "a popup opens as a tab in the opener's window");
-  Check(shim.window(&f.host, 3, 0, 3, 0, 0, 0, 0, 0, 1, "https://p/", "") == 0, "an incognito window opens nothing");
+}
+
+// The pushed window request policy (task 031): the records' browser ids reach
+// the shim as Chromium's (a minted tab with no browser yet keeps its id, which
+// names no Chromium window, so the shim never picks it), and the
+// decision's anchor comes back in cmux's id. cmux's own handler never
+// reaches the shim, whatever cmux sends.
+void WindowRequestPolicy() {
+  Fixture f;
+  f.Start();
+  Writer add;
+  add.I32(kMinted + 1);
+  add.I32(3);
+  add.Str("https://d/");
+  add.I32(-1);
+  add.I32(1);
+  f.host.OnMessages({Op(kOpTabAdd, 30, add)});  // Chromium's 4
+  f.Sent();
+  shim.calls.clear();
+  Writer policy;
+  policy.I32(2);
+  policy.I64(kMinted + 1);
+  policy.I64(0);
+  policy.I64(CMUX_SHIM_WINDOW_CANDIDATE | CMUX_SHIM_WINDOW_LAST_SHOWN);
+  policy.Bytes("/p/Profile-A", 12);
+  policy.I64(kMinted + 9);  // minted, no browser yet
+  policy.I64(kMinted + 1);
+  policy.I64(0);
+  policy.Bytes("/p/Profile-A", 12);
+  policy.I32(1);
+  policy.I64(kMinted + 1);
+  policy.I64(CMUX_SHIM_GESTURE_CMD_SHIFT);
+  policy.I64(1234);
+  policy.Str("/p");
+  for (int action : {3, 2, 4, 5, 1}) policy.I32(action);
+  f.host.OnMessages({Op(kOpSetWindowRequestPolicy, 31, policy)});
+  Expect(shim.calls, {"policy 4:0:3:/p/Profile-A " + std::to_string(kMinted + 9) + ":4:0:/p/Profile-A click 4:2:1234 root /p actions 3,2,4,5,1"},
+         "the policy reaches the shim in Chromium's ids");
+  Expect(f.Sent(), {"ack 31"}, "the policy is a post");
+
+  HostContext::OnShimEvent(&f.host, CMUX_SHIM_WINDOW_REQUEST_RESULT, 4, 77, 4, CMUX_SHIM_WINDOW_INSERT,
+                           "https://p/", ";/p/Profile-A");
+  Check(f.sent.size() == 1, "one result event");
+  int32_t tab = 0;
+  if (f.sent.size() == 1) {
+    Reader r(f.sent[0].fields);
+    const int kind = r.I32(), browser = r.I32(), request = r.I32();
+    const int64_t anchor = r.I64(), b = r.I64();
+    tab = static_cast<int32_t>(static_cast<uint64_t>(b) >> 32);
+    Check(kind == CMUX_SHIM_WINDOW_REQUEST_RESULT && browser == kMinted + 1 && request == 77 && anchor == kMinted + 1,
+          "the result names the source and the anchor by cmux's ids and keeps Chromium's window id");
+    Check(tab == (1 << 30) && (b & 0xffffffff) == CMUX_SHIM_WINDOW_INSERT,
+          "an INSERT's result carries the id the host minted for its tab, from the host's range");
+  }
+  f.Sent();
+
+  // The tab Chromium opens in the anchor's window (77), opened by Chromium's 4: cmux's ids both.
+  HostContext::OnShimEvent(&f.host, CMUX_SHIM_AFTER_CREATED, 12, 0, 77, (int64_t{4} << 32) | 3, "", "");
+  bool created = false;
+  for (const Message& message : f.sent) {
+    if (message.op != kOpEvent) continue;
+    Reader r(message.fields);
+    const int kind = r.I32(), browser = r.I32(), request = r.I32();
+    const int64_t window = r.I64(), b = r.I64();
+    if (kind != CMUX_SHIM_AFTER_CREATED) continue;
+    created = true;
+    Check(browser == tab && request == 0 && window == 77, "the tab's AFTER_CREATED names it by the minted id");
+    Check(static_cast<int32_t>(static_cast<uint64_t>(b) >> 32) == kMinted + 1 && (b & 0xffffffff) == 3,
+          "its opener by cmux's id");
+  }
+  Check(created, "the tab's AFTER_CREATED reaches cmux");
+  f.Sent();
+  shim.calls.clear();
+  Writer load;
+  load.I32(tab);
+  load.Str("https://q/");
+  f.host.OnMessages({Op(kOpLoadUrl, 33, load)});
+  Expect(shim.calls, {"load 12 https://q/", "nav_state 12"}, "an op on the minted id reaches Chromium's tab");
+  f.Sent();
+
+  Writer install;
+  install.I32(1);
+  f.host.OnMessages({Op(kOpSetWindowRequestHandler, 32, install)});
+  Check(shim.window == nullptr, "cmux's window request handler never reaches the host's shim");
 }
 
 void Shutdown() {
@@ -941,13 +1064,18 @@ void PageVisibilityAppliesAtTheDetach() {
          "a malformed op is bad");
 }
 
+// PageShowActivity's hold as the task 128 tests read it: held or not, per change of level.
+PageShowActivity::Hold Recorder(std::vector<bool>& holds) {
+  return [&holds](const ActivityState& state) { holds.push_back(state.level != ActivityLevel::kNone); };
+}
+
 // Task p14-energy-128: the host holds its App Nap activity while cmux shows one of its pages and
 // lets App Nap apply when every page is hidden or occluded. It starts held, through Chromium's
 // start; 1 shown page begins it, 0 ends it, and the same count again changes nothing.
 void PageShowActivityHoldsWhileAPageShows() {
   {
     std::vector<bool> holds;
-    PageShowActivity activity([&holds](bool held) { holds.push_back(held); });
+    PageShowActivity activity(Recorder(holds));
     Check(activity.held() && holds == std::vector<bool>{true}, "the activity begins at the start");
     activity.SetShownPages(1);
     activity.SetShownPages(2);
@@ -971,7 +1099,7 @@ void PageShowActivityHoldsWhileAPageShows() {
     // Through the dispatcher: the count is cmux's visibility posts, per browser.
     Fixture f;
     std::vector<bool> holds;
-    PageShowActivity activity([&holds](bool held) { holds.push_back(held); });
+    PageShowActivity activity(Recorder(holds));
     f.host.SetPageShowActivity(&activity);
     f.Start();
     Check(!activity.held() && holds == (std::vector<bool>{true, false}),
@@ -1004,7 +1132,7 @@ void PageShowActivityHoldsWhileAPageShows() {
     // carries on into the page's, with no end between.
     Fixture f;
     std::vector<bool> holds;
-    PageShowActivity activity([&holds](bool held) { holds.push_back(held); });
+    PageShowActivity activity(Recorder(holds));
     f.host.SetPageShowActivity(&activity);
     f.Initialize();
     visibility(f, 5, CMUX_SHIM_PAGE_VISIBLE);
@@ -1013,6 +1141,56 @@ void PageShowActivityHoldsWhileAPageShows() {
     Check(f.host.shown_pages() == 1 && activity.held() && holds == std::vector<bool>{true},
           "held from the start through the shown page");
   }
+}
+
+// Task p01-process-222: while cmux is the active app the host holds the activity at kActive
+// (latency critical), with or without a shown page; a shown page with another app active holds
+// kShown; cmux hidden lets App Nap apply. Each change of level is one hold and one log line.
+void ActivityFollowsCmuxActiveAndHidden() {
+  std::vector<ActivityState> states;
+  PageShowActivity activity([&states](const ActivityState& state) { states.push_back(state); });
+  auto levels = [&states] {
+    std::vector<ActivityLevel> out;
+    for (const ActivityState& state : states) out.push_back(state.level);
+    return out;
+  };
+  using L = ActivityLevel;
+  Check(levels() == std::vector<L>{L::kShown} && states.back().starting, "the start holds kShown");
+  activity.SetApp(true, false);
+  Check(levels() == (std::vector<L>{L::kShown, L::kActive}), "cmux active during the start: kActive");
+  activity.SetShownPages(0);
+  Check(activity.level() == L::kActive && states.size() == 2,
+        "the start's end with no page shown keeps kActive while cmux is active");
+  activity.SetApp(true, false);
+  Check(states.size() == 2, "the same app state again changes nothing");
+  activity.SetApp(false, false);
+  Check(activity.level() == L::kNone && !activity.held() && states.size() == 3,
+        "another app active and no page shown: App Nap may apply");
+  activity.SetShownPages(1);
+  Check(activity.level() == L::kShown && states.size() == 4, "a shown page with another app active: kShown");
+  activity.SetApp(true, false);
+  Check(activity.level() == L::kActive && states.size() == 5, "cmux active again: kActive");
+  activity.SetShownPages(2);
+  Check(states.size() == 5, "a second page while active does not churn");
+  activity.SetApp(false, true);
+  Check(activity.level() == L::kNone && states.size() == 6, "cmux hidden ends it, pages posted shown or not");
+  activity.SetApp(false, false);
+  Check(activity.level() == L::kShown && states.size() == 7, "unhidden with its pages shown: kShown");
+  Check(activity.edges() == 7, "one edge per change of level");
+  Check(ActivityLogLine(states.back()) ==
+            "cmux-chromium-host: app nap activity shown (cmux active 0, hidden 0, shown pages 2)\n",
+        "the log line names the level and what it follows");
+  Check(ActivityLogLine(states.front()) ==
+            "cmux-chromium-host: app nap activity shown (cmux active 0, hidden 0, shown pages 0, starting)\n",
+        "the start's line says it is starting");
+
+  // Hidden during the start: the start's hold stays until the first count.
+  std::vector<bool> holds;
+  PageShowActivity starting(Recorder(holds));
+  starting.SetApp(false, true);
+  Check(starting.level() == L::kShown && holds.size() == 1, "hidden while starting keeps the start's hold");
+  starting.SetShownPages(1);
+  Check(!starting.held() && holds == (std::vector<bool>{true, false}), "and hidden ends it after the start");
 }
 
 // The fork applies a page visibility post to the browser's Chromium window, every tab of it, and
@@ -1036,7 +1214,7 @@ void PageShowActivityFollowsTheWindow() {
 
   Fixture f;
   std::vector<bool> holds;
-  PageShowActivity activity([&holds](bool held) { holds.push_back(held); });
+  PageShowActivity activity(Recorder(holds));
   f.host.SetPageShowActivity(&activity);
   f.Start();
   auto created = [&f](int browser, int64_t window) {
@@ -1216,6 +1394,162 @@ void GeometryStatsReply() {
   Expect(f.delegate.calls, {"initialize /root", "bad a malformed geometry stats request"}, "fields are bad");
 }
 
+// A helper's end (task p01-process-225): the event cmux decodes as CEFShimEvent.helperExit, with no
+// browser, the pid as its request, the wait status, the extension flag and the helper's switches.
+void HelperExitGoesOutAsAnEvent() {
+  Fixture f;
+  f.Start();
+  f.host.HelperExited(HelperExit{4242, 9, HelperIdentity{"gpu-process", "", false}});
+  f.host.HelperExited(HelperExit{4243, 1 << 8, HelperIdentity{"renderer", "", true}});
+  f.host.HelperExited(HelperExit{4244, 6, HelperIdentity{"utility", "network.mojom.NetworkService", false}});
+  Check(f.sent.size() == 3, "one event per helper end, got " + std::to_string(f.sent.size()));
+  struct Want {
+    int32_t pid;
+    int64_t status, flags;
+    const char* type;
+    const char* sub_type;
+  };
+  const Want want[] = {{4242, 9, 0, "gpu-process", ""},
+                       {4243, 1 << 8, kHelperExitExtension, "renderer", ""},
+                       {4244, 6, 0, "utility", "network.mojom.NetworkService"}};
+  for (size_t i = 0; i < f.sent.size() && i < 3; ++i) {
+    Reader r(f.sent[i].fields);
+    const int kind = r.I32(), browser = r.I32(), request = r.I32();
+    const int64_t a = r.I64(), b = r.I64();
+    const std::optional<std::string> s1 = r.Str(), s2 = r.Str();
+    Check(f.sent[i].op == kOpEvent && kind == kEventHelperExit && browser == 0 && request == want[i].pid &&
+              a == want[i].status && b == want[i].flags && s1 == std::optional<std::string>(want[i].type) &&
+              s2 == std::optional<std::string>(want[i].sub_type) && r.ok() && r.AtEnd(),
+          "HELPER_EXIT " + std::to_string(i) + " carries pid, status, flags, type and sub type");
+  }
+}
+
+// The children the watcher follows: a helper's argv from KERN_PROCARGS2, its identity, and one
+// end per helper (none for a child that never exec'd a helper, or one not followed).
+void HelperTableFollowsChildren() {
+  std::string buffer("\x03\x00\x00\x00/path/to/cmux Helper (GPU)\0\0\0\0", 4 + 26 + 4);
+  for (const char* argument : {"/path/to/cmux Helper (GPU)", "--type=gpu-process", "--gpu-preferences=x"}) {
+    buffer += argument;
+    buffer.push_back('\0');
+  }
+  buffer += "PATH=/usr/bin";  // the environment after argv
+  buffer.push_back('\0');
+  const std::vector<std::string> argv = ProcArgs(buffer);
+  Expect(argv, {"/path/to/cmux Helper (GPU)", "--type=gpu-process", "--gpu-preferences=x"},
+         "KERN_PROCARGS2 gives argc arguments after the exec path and its padding");
+  Check(ProcArgs(std::string("\x02\x00\x00", 3)).empty(), "a buffer shorter than argc reads nothing");
+  Check(HelperIdentityOf(argv) == std::optional<HelperIdentity>(HelperIdentity{"gpu-process", "", false}),
+        "a GPU helper's identity");
+  Check(HelperIdentityOf({"x", "--type=utility", "--utility-sub-type=network.mojom.NetworkService"}) ==
+            std::optional<HelperIdentity>(HelperIdentity{"utility", "network.mojom.NetworkService", false}),
+        "a utility's sub type");
+  Check(HelperIdentityOf({"x", "--type=renderer", "--extension-process"}) ==
+            std::optional<HelperIdentity>(HelperIdentity{"renderer", "", true}),
+        "an extension renderer");
+  Check(!HelperIdentityOf({"/path/to/cmux Chromium Host"}) && !HelperIdentityOf({"x", "--type="}),
+        "no --type, no helper");
+
+  HelperTable table;
+  table.Watch(10, std::nullopt);  // forked, not exec'd yet
+  table.Watch(11, HelperIdentity{"renderer", "", false});
+  table.Watch(12, std::nullopt);  // never a helper
+  Check(table.size() == 3 && table.Watches(10) && !table.Watches(13), "three children followed");
+  table.Execed(10, HelperIdentity{"gpu-process", "", false});
+  table.Execed(13, HelperIdentity{"utility", "", false});  // not followed: stays out
+  const std::optional<HelperExit> gpu = table.Exited(10, 9);
+  Check(gpu && gpu->pid == 10 && gpu->status == 9 && gpu->identity.type == "gpu-process",
+        "the GPU helper's end with its status");
+  const std::optional<HelperExit> renderer = table.Exited(11, 0);
+  Check(renderer && renderer->identity.type == "renderer", "a renderer's end, normal ones too (cmux judges them)");
+  Check(!table.Exited(12, 9) && !table.Exited(13, 9) && !table.Exited(10, 9),
+        "no end for a child that never became a helper, one not followed, or one already ended");
+  Check(table.size() == 0, "every end leaves the table");
+}
+
+// cmux_shim_password_reveal (task p01-process-025): the shim's done answers
+// the op's token with one bytes field, or none when it found no password.
+Message RevealRequest(uint32_t token, const char* id) {
+  Writer w;
+  w.Str("/profile");
+  w.Str(id);
+  return Op(kOpPasswordReveal, token, w);
+}
+
+bool Answers(const std::vector<Message>& sent, uint32_t token, const char* password) {
+  if (sent.size() != 1 || sent[0].op != kOpReply || !sent[0].reply || sent[0].token != token) return false;
+  if (password == nullptr) return sent[0].fields.empty();
+  return sent[0].fields.size() == 1 && sent[0].fields[0].type == control::Type::kBytes &&
+         sent[0].fields[0].tag == control::kTagValue && sent[0].fields[0].bytes == password;
+}
+
+void PasswordReveal() {
+  {
+    Fixture f;
+    f.Start();
+    f.host.OnMessages({RevealRequest(9, "id1")});
+    Check(!shim.calls.empty() && shim.calls.back() == "reveal /profile id1", "the reveal reaches the shim");
+    Check(f.sent.empty(), "nothing is sent before the shim's done");
+    shim.reveal_done(shim.reveal_ctx, "s3cretXX", 6);
+    Check(Answers(f.sent, 9, "s3cret"), "done answers the token with the password's bytes");
+    f.sent.clear();
+    f.host.OnMessages({RevealRequest(10, "id2")});
+    shim.reveal_done(shim.reveal_ctx, nullptr, 0);
+    Check(Answers(f.sent, 10, nullptr), "not found: a REPLY with no field");
+    f.sent.clear();
+    shim.reveal_refuses = true;
+    f.host.OnMessages({RevealRequest(11, "id3")});
+    Check(Answers(f.sent, 11, nullptr), "a reveal the shim did not start is answered at once as not found");
+    f.sent.clear();
+    f.host.OnMessages({RevealRequest(0, "id4")});
+    Check(f.delegate.calls.back() == "bad a malformed password reveal", "a reveal with no token is bad");
+  }
+  {
+    Fixture f;
+    f.host.Attach();
+    f.host.OnMessages({Hello()});
+    f.Sent();
+    f.host.OnMessages({RevealRequest(12, "id5")});
+    Check(Answers(f.sent, 12, nullptr), "before initialize nothing is started: not found");
+    Check(shim.calls.empty(), "before initialize the shim is not asked");
+  }
+  // A done after the host context is gone sends nothing (ASan: no use after free).
+  cmux_shim_password_reveal_fn done = nullptr;
+  void* ctx = nullptr;
+  {
+    Fixture f;
+    f.Start();
+    f.host.OnMessages({RevealRequest(13, "id6")});
+    done = shim.reveal_done;
+    ctx = shim.reveal_ctx;
+  }
+  Check(done != nullptr, "the late reveal started");
+  if (done) done(ctx, "late", 4);
+  // Past 64 waiting reveals one is answered as not found; the host stays up.
+  {
+    Fixture f;
+    f.Start();
+    std::vector<std::pair<cmux_shim_password_reveal_fn, void*>> waiting;
+    for (uint32_t token = 100; token < 164; ++token) {
+      f.host.OnMessages({RevealRequest(token, "id")});
+      waiting.emplace_back(shim.reveal_done, shim.reveal_ctx);
+    }
+    Check(f.sent.empty() && shim.reveals_started == 64, "64 reveals wait for the shim");
+    f.host.OnMessages({RevealRequest(164, "id")});
+    Check(Answers(f.sent, 164, nullptr), "the 65th is answered as not found at once");
+    Check(shim.reveals_started == 64, "the 65th never reaches the shim");
+    bool bad = false;
+    for (const std::string& call : f.delegate.calls) bad = bad || call.rfind("bad ", 0) == 0;
+    Check(!bad, "too many reveals is not a bad message");
+    f.sent.clear();
+    for (const auto& [reveal_done, reveal_ctx] : waiting) reveal_done(reveal_ctx, "pw", 2);
+    Check(f.sent.size() == 64, "each waiting reveal is answered by its done");
+    f.sent.clear();
+    f.host.OnMessages({RevealRequest(165, "id")});
+    Check(shim.reveals_started == 65 && f.sent.empty(), "answered reveals free their places");
+    shim.reveal_done(shim.reveal_ctx, nullptr, 0);
+  }
+}
+
 void WipeZeroes() {
   std::vector<std::string> secrets = {"hunter2", ""};
   cmux_host::Wipe(secrets);
@@ -1353,6 +1687,103 @@ void EnergySaverReachesTheFork() {
   }
 }
 
+int RecordSetLockHandler(cmux_host::LockFn fn, void* context) {
+  shim.calls.push_back(fn ? "lock_handler on" : "lock_handler off");
+  shim.lock_fn = fn;
+  shim.lock_context = context;
+  return shim.lock_answer;
+}
+
+Message LockHandlerOp(uint32_t token, int32_t installed) {
+  Writer w;
+  w.I32(installed);
+  return Op(kOpSetLockHandler, token, w);
+}
+
+// "<kind> <browser> <request> <a> <b>" of each EVENT among `sent`.
+std::vector<std::string> Events(const std::vector<Message>& sent) {
+  std::vector<std::string> out;
+  for (const Message& m : sent) {
+    if (m.op != kOpEvent) continue;
+    Reader r(m.fields);
+    const int kind = r.I32(), browser = r.I32(), request = r.I32();
+    const int64_t a = r.I64(), b = r.I64();
+    out.push_back(std::to_string(kind) + " " + std::to_string(browser) + " " + std::to_string(request) + " " +
+                  std::to_string(a) + " " + std::to_string(b));
+  }
+  return out;
+}
+
+// Task 229: a host whose fork has the lock delegate lists kLocksHelloName; cmux's handler goes
+// into the fork once initialize returned and out again; each call of the delegate reaches cmux
+// as CMUX_SHIM_LOCK with cmux's id of the browser, the event as request and the detail as a; a
+// host without the delegate takes the op and calls nothing; a malformed op is bad.
+void LocksReachCmux() {
+  {
+    Fixture f;
+    f.host.SetLockHandler(&RecordSetLockHandler);
+    f.host.Attach();
+    const std::vector<std::string> sent = f.Sent();
+    Check(!sent.empty() && sent.back() == "hello cmux_shim_tab_set_frozen " + std::string(kLocksHelloName),
+          "a host whose fork has the lock delegate lists it in its hello: " + Join(sent));
+    f.host.OnMessages({Hello()});
+    f.host.OnMessages({LockHandlerOp(0, 1)});
+    Check(shim.calls.empty(), "before initialize the handler waits");
+    Writer init;
+    for (const char* path : {"/fw", "/app", "/helper", "/root"}) init.Str(path);
+    init.Str(nullptr);
+    init.I32(0);
+    init.Str(nullptr);
+    init.Str(nullptr);
+    init.StrList(nullptr, 0);
+    f.host.OnMessages({Op(kOpInitialize, 1, init)});
+    f.host.Resume();
+    Expect(shim.calls, {"lock_handler on"}, "after initialize the host's handler is in the fork");
+    Check(shim.lock_fn == &HostContext::OnLock && shim.lock_context == &f.host, "the host's own handler, with the host");
+    f.Sent();
+
+    CreateWindow(f, kMinted, 9);  // Chromium's 3 is cmux's kMinted
+    f.sent.clear();
+    shim.lock_fn(shim.lock_context, CMUX_SHIM_POINTER_LOCK_REQUESTED, 3, 1);
+    shim.lock_fn(shim.lock_context, CMUX_SHIM_KEYBOARD_LOCK_REQUESTED, 3, 1);
+    shim.lock_fn(shim.lock_context, CMUX_SHIM_POINTER_UNLOCKED, 3, 0);
+    shim.lock_fn(shim.lock_context, CMUX_SHIM_KEYBOARD_UNLOCKED, 77, 0);  // a browser cmux did not mint
+    const std::string lock = std::to_string(CMUX_SHIM_LOCK);
+    const std::string minted = std::to_string(kMinted);
+    Expect(Events(f.sent),
+           {lock + " " + minted + " 0 1 0", lock + " " + minted + " 2 1 0", lock + " " + minted + " 1 0 0",
+            lock + " 77 3 0 0"},
+           "each call of the delegate is one CMUX_SHIM_LOCK, cmux's browser id, the event and its detail");
+    f.sent.clear();
+
+    shim.calls.clear();
+    f.host.OnMessages({LockHandlerOp(31, 0)});
+    Expect(shim.calls, {"lock_handler off"}, "cmux's handler off takes the host's out of the fork");
+    Expect(f.Sent(), {"ack 31"}, "a token is acked");
+
+    shim.calls.clear();
+    shim.lock_answer = 0;
+    f.host.OnMessages({LockHandlerOp(0, 1)});
+    Expect(shim.calls, {"lock_handler on"}, "a refused handler is logged, not bad");
+    Expect(f.delegate.calls, {"initialize /root"}, "and the host goes on");
+  }
+  {
+    Fixture f;
+    f.Start();
+    f.host.OnMessages({LockHandlerOp(32, 1)});
+    Check(shim.calls.empty(), "a host whose fork has no lock delegate calls nothing");
+    Expect(f.Sent(), {"ack 32"}, "and acks the op");
+  }
+  {
+    Fixture f;
+    f.host.SetLockHandler(&RecordSetLockHandler);
+    f.Start();
+    f.host.OnMessages({LockHandlerOp(0, 2)});
+    Check(shim.calls.empty(), "installed neither 0 nor 1: nothing reaches the fork");
+    Expect(f.delegate.calls, {"initialize /root", "bad a malformed lock handler"}, "and it is bad");
+  }
+}
+
 // The switches the host starts Chromium with: cmux's set, without the external pump's slice (the
 // host runs CefRunMessageLoop), with TimerSlackMac on (host_switches.h).
 void HostSwitchesFitTheHostsLoop() {
@@ -1364,6 +1795,17 @@ void HostSwitchesFitTheHostsLoop() {
                                          "disable-stack-profiler", "enable-features=TimerSlackMac"};
   Expect(cmux_host::HostSwitches(app), want, "the app's switches fitted to the host's message loop");
   Expect(cmux_host::HostSwitches({}), {"enable-features=TimerSlackMac"}, "TimerSlackMac with no app switches");
+}
+
+// The log the host's Chromium writes: the spawn's --log-file when INITIALIZE
+// names none, as cmux's runtime does in host mode, so the supervisor finds a
+// crashed host's last lines there (host_switches.h, p01-process-085).
+void HostLogFileIsTheSpawnsUnlessInitializeNamesOne() {
+  const std::string spawn = "/root/ChromiumHost/chromium-host.log";
+  Check(cmux_host::HostLogFile(std::nullopt, spawn) == spawn, "no log in INITIALIZE: the spawn's");
+  Check(cmux_host::HostLogFile(std::string(), spawn) == spawn, "an empty log in INITIALIZE: the spawn's");
+  Check(cmux_host::HostLogFile(std::string("/a/cef.log"), spawn) == "/a/cef.log", "INITIALIZE's log wins");
+  Check(cmux_host::HostLogFile(std::nullopt, "").empty(), "no log anywhere: none");
 }
 
 }  // namespace
@@ -1378,6 +1820,7 @@ int main() {
   DevTools();
   DevToolsPlacementView();
   FocusIsTheShimsEmbedderActiveRule();
+  WindowRequestPolicy();
   Shutdown();
   BadMessages();
   PopupBoundsByWindow();
@@ -1389,11 +1832,17 @@ int main() {
   PageVisibilityAppliesAtTheDetach();
   PageShowActivityHoldsWhileAPageShows();
   PageShowActivityFollowsTheWindow();
+  ActivityFollowsCmuxActiveAndHidden();
   GeometryOnlyOnChange();
   GeometryStatsReply();
+  PasswordReveal();
   WipeZeroes();
+  HelperExitGoesOutAsAnEvent();
+  HelperTableFollowsChildren();
   EnergySaverReachesTheFork();
+  LocksReachCmux();
   HostSwitchesFitTheHostsLoop();
+  HostLogFileIsTheSpawnsUnlessInitializeNamesOne();
   if (failures) return EXIT_FAILURE;
   std::puts("chromium-host-dispatch tests: ok");
   return EXIT_SUCCESS;

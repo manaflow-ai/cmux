@@ -1,15 +1,21 @@
 //! Layout undo: undo with confirmation tokens, including the resource-effect path.
 
 use super::*;
+use crate::panic_free::{JsonFields, RecoverPoison};
 
 impl Mux {
     /// Forget the layout-undo history of `pane`'s screen: its layout was
     /// rebuilt for the user (a reopened screen), not changed by them, so
     /// undo must not fold those splits back.
     pub(crate) fn forget_layout_undo(&self, pane: PaneId) {
-        let mut state = self.state.lock().unwrap();
-        if let Some((workspace, screen)) = state.screen_of(pane) {
-            state.workspaces[workspace].screens[screen].invalidate_layout_undo();
+        let mut state = self.state.lock().recover_poison();
+        if let Some((workspace, screen)) = state.screen_of(pane)
+            && let Some(screen) = state
+                .workspaces
+                .get_mut(workspace)
+                .and_then(|workspace| workspace.screens.get_mut(screen))
+        {
+            screen.invalidate_layout_undo();
         }
     }
 
@@ -28,14 +34,15 @@ impl Mux {
         confirm_close: bool,
     ) -> anyhow::Result<LayoutUndoResult> {
         let (screen_id, current_revision, created_panes) = {
-            let state = self.state.lock().unwrap();
-            let Some((workspace_index, screen_index)) = state.screen_of(pane) else {
+            let state = self.state.lock().recover_poison();
+            let Some(screen) = state.screen_of(pane).and_then(|(workspace_index, screen_index)| {
+                state.workspaces.get(workspace_index)?.screens.get(screen_index)
+            }) else {
                 return Err(LayoutUndoError::Stale(
                     "layout undo target is no longer available".to_string(),
                 )
                 .into());
             };
-            let screen = &state.workspaces[workspace_index].screens[screen_index];
             let Some(entry) = screen.layout_undo.back() else {
                 return Err(LayoutUndoError::Unavailable.into());
             };
@@ -89,8 +96,8 @@ impl Mux {
         // is retried (bounded) with the same token: the commit re-checks the
         // token against the state it commits on.
         if !created_panes.is_empty() {
-            let registry = self.workspace_registry.lock().unwrap();
-            let state = self.lock_state_pinned(&registry).unwrap();
+            let registry = self.workspace_registry.lock().recover_poison();
+            let state = self.lock_state_pinned(&registry).recover_poison();
             let Some((workspace_index, screen_index)) = state.screen_of(pane) else {
                 return Err(LayoutUndoError::Stale(
                     "layout undo target disappeared before confirmation".to_string(),
@@ -99,7 +106,8 @@ impl Mux {
             };
             let details =
                 layout_undo_confirmation_details(&state, &registry, workspace_index, screen_index)?;
-            let token = details["confirmation_token"]
+            let token = details
+                .field("confirmation_token")
                 .as_str()
                 .context("layout undo confirmation omitted its token")?;
             fields.insert("confirmation_token".into(), Value::String(token.to_string()));
@@ -141,17 +149,20 @@ impl Mux {
         confirmation_token: Option<&str>,
     ) -> anyhow::Result<LayoutUndoResult> {
         let (workspace, screen_id, preview) = {
-            let state = self.state.lock().unwrap();
-            let Some((workspace_index, screen_index)) = state.screen_of(pane) else {
+            let state = self.state.lock().recover_poison();
+            let Some((workspace, screen)) =
+                state.screen_of(pane).and_then(|(workspace_index, screen_index)| {
+                    let workspace = state.workspaces.get(workspace_index)?;
+                    Some((workspace.id, workspace.screens.get(screen_index)?))
+                })
+            else {
                 return Err(LayoutUndoError::Stale(
                     "layout undo target is no longer available".to_string(),
                 )
                 .into());
             };
-            let workspace = state.workspaces[workspace_index].id;
-            let screen_id = state.workspaces[workspace_index].screens[screen_index].id;
+            let screen_id = screen.id;
             let entry = {
-                let screen = &state.workspaces[workspace_index].screens[screen_index];
                 let Some(entry) = screen.layout_undo.back().cloned() else {
                     return Err(LayoutUndoError::Unavailable.into());
                 };
@@ -197,15 +208,24 @@ impl Mux {
         }
         if preview.created_panes.is_empty() {
             let revision = {
-                let mut state = self.state.lock().unwrap();
+                let mut state = self.state.lock().recover_poison();
                 let Some((workspace_index, screen_index)) = state.screen_of(pane) else {
                     return Err(LayoutUndoError::Stale(
                         "layout undo target disappeared before the change could commit".to_string(),
                     )
                     .into());
                 };
+                let missing = || {
+                    LayoutUndoError::Stale(
+                        "layout undo target disappeared before the change could commit".to_string(),
+                    )
+                };
                 let entry = {
-                    let screen = &mut state.workspaces[workspace_index].screens[screen_index];
+                    let screen = state
+                        .workspaces
+                        .get_mut(workspace_index)
+                        .and_then(|workspace| workspace.screens.get_mut(screen_index))
+                        .ok_or_else(missing)?;
                     let Some(entry) = screen.layout_undo.pop_back() else {
                         return Err(
                             LayoutUndoError::Stale("layout undo disappeared".to_string()).into()
@@ -232,12 +252,20 @@ impl Mux {
                         restore,
                     )
                 {
-                    state.workspaces[workspace_index].screens[screen_index]
-                        .layout_undo
-                        .push_back(entry);
+                    if let Some(screen) = state
+                        .workspaces
+                        .get_mut(workspace_index)
+                        .and_then(|workspace| workspace.screens.get_mut(screen_index))
+                    {
+                        screen.layout_undo.push_back(entry);
+                    }
                     return Err(error);
                 }
-                let screen = &mut state.workspaces[workspace_index].screens[screen_index];
+                let screen = state
+                    .workspaces
+                    .get_mut(workspace_index)
+                    .and_then(|workspace| workspace.screens.get_mut(screen_index))
+                    .ok_or_else(missing)?;
                 let revision = screen.layout_revision.saturating_add(1);
                 screen.restore_layout_snapshot(entry.before);
                 screen.layout_revision = revision;
@@ -254,21 +282,21 @@ impl Mux {
         }
 
         let lifecycle = self.workspace_lifecycle(workspace);
-        let _workspace_lifecycle = lifecycle.lock().unwrap();
+        let _workspace_lifecycle = lifecycle.lock().recover_poison();
         let notifications = self.tree_decorations();
-        let registry = self.workspace_registry.lock().unwrap();
+        let registry = self.workspace_registry.lock().recover_poison();
         let (removed, deltas, selection_resync, revision) = {
-            let mut state = self.lock_state_pinned(&registry).unwrap();
+            let mut state = self.lock_state_pinned(&registry).recover_poison();
             let Some(workspace_index) = state.workspace_index(workspace) else {
                 return Err(LayoutUndoError::Stale(
                     "layout undo workspace is no longer available".to_string(),
                 )
                 .into());
             };
-            let Some(screen_index) = state.workspaces[workspace_index]
-                .screens
-                .iter()
-                .position(|screen| screen.id == screen_id)
+            let Some((screen_index, screen)) =
+                state.workspaces.get(workspace_index).and_then(|workspace| {
+                    workspace.screens.iter().enumerate().find(|(_, screen)| screen.id == screen_id)
+                })
             else {
                 return Err(LayoutUndoError::Stale(
                     "layout undo screen is no longer available".to_string(),
@@ -276,7 +304,6 @@ impl Mux {
                 .into());
             };
             let entry = {
-                let screen = &state.workspaces[workspace_index].screens[screen_index];
                 let Some(entry) = screen.layout_undo.back().cloned() else {
                     return Err(
                         LayoutUndoError::Stale("layout undo disappeared".to_string()).into()
@@ -292,17 +319,14 @@ impl Mux {
                 }
                 entry
             };
-            let mut remaining_history =
-                state.workspaces[workspace_index].screens[screen_index].layout_undo.clone();
+            let mut remaining_history = screen.layout_undo.clone();
             remaining_history.pop_back();
 
             let mut before_panes = Vec::new();
             entry.before.root.pane_ids(&mut before_panes);
             let before_panes = before_panes.into_iter().collect::<HashSet<_>>();
             let mut current_panes = Vec::new();
-            state.workspaces[workspace_index].screens[screen_index]
-                .root
-                .pane_ids(&mut current_panes);
+            screen.root.pane_ids(&mut current_panes);
             let expected_panes = before_panes
                 .iter()
                 .copied()
@@ -321,7 +345,7 @@ impl Mux {
                     workspace_index,
                     screen_index,
                 )?;
-                if details["confirmation_token"].as_str() != Some(expected_token) {
+                if details.field("confirmation_token").as_str() != Some(expected_token) {
                     return Err(anyhow::Error::new(ResourceError::new(
                         "confirmation.required",
                         "layout undo confirmation is stale",
@@ -352,17 +376,14 @@ impl Mux {
                     removed.push(surface);
                 }
             }
-            let Some(screen_index) = state.workspaces[workspace_index]
-                .screens
-                .iter()
-                .position(|screen| screen.id == screen_id)
-            else {
+            let Some(screen) = state.workspaces.get_mut(workspace_index).and_then(|workspace| {
+                workspace.screens.iter_mut().find(|screen| screen.id == screen_id)
+            }) else {
                 return Err(LayoutUndoError::Stale(
                     "layout changed while undo was closing panes".to_string(),
                 )
                 .into());
             };
-            let screen = &mut state.workspaces[workspace_index].screens[screen_index];
             let revision = screen.layout_revision.max(entry.after_revision).saturating_add(1);
             screen.restore_layout_snapshot(entry.before);
             screen.layout_revision = revision;

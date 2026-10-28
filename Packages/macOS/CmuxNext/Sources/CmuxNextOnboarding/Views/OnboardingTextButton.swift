@@ -63,6 +63,7 @@ final class OnboardingTextButton: NSButton {
 
     /// A button hidden under the pointer (Check Again once access is
     /// granted) gets no exit event; it reappears without the fill.
+    // visibility-walk-allow: input state only: a hidden button ends its hover and press, so it never shows them on its next show
     override func viewDidHide() {
         super.viewDidHide()
         changeHover { $0.hovering = false; $0.pressed = false }
@@ -91,6 +92,7 @@ final class OnboardingTextButton: NSButton {
         return resigned
     }
 
+    // visibility-walk-allow: its hover fill and its title's color, no layout
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         hover.refresh(animated: false)

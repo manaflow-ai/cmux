@@ -43,17 +43,18 @@ final class RemoteInputCaptureView: NSView, MouseButtonForwarding {
     /// The key event being interpreted by the input method.
     private var interpretingEvent: NSEvent?
 
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .activeInKeyWindow, .inVisibleRect, .cursorUpdate], owner: self))
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
     nonisolated override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { acceptsPointer ? super.hitTest(point) : nil }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        for area in trackingAreas where area.owner === self { removeTrackingArea(area) }
-        addTrackingArea(NSTrackingArea(
-            rect: .zero, options: [.mouseMoved, .activeInKeyWindow, .inVisibleRect, .cursorUpdate], owner: self))
-    }
 
     override func becomeFirstResponder() -> Bool {
         isFirstResponder = true
@@ -71,7 +72,7 @@ final class RemoteInputCaptureView: NSView, MouseButtonForwarding {
         return true
     }
 
-    private var keyObservers: [MainActorObservation] = []
+    private var keyObservers: [EventSubscription] = []
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
@@ -80,12 +81,13 @@ final class RemoteInputCaptureView: NSView, MouseButtonForwarding {
         keyObservers.removeAll()
         if window == nil, isFirstResponder { isFirstResponder = false }
         if let window {
-            // A window that stops being key takes the keyboard with it: release held keys.
-            keyObservers = [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification].map { name in
-                MainActorObservation(name, object: window) { [weak self] in
-                    self?.updateActive()
-                }
-            }
+            // A window that stops being key takes the keyboard with it: release held keys. The window's one observer
+            // per notice (WindowEvents) calls it, shown or hidden: a held key must be released either way.
+            let events = WindowEvents.of(window)
+            keyObservers = [
+                events.subscribe(NSWindow.didBecomeKeyNotification, owner: "RemoteInputCaptureView") { [weak self] in self?.updateActive() },
+                events.subscribe(NSWindow.didResignKeyNotification, owner: "RemoteInputCaptureView") { [weak self] in self?.updateActive() },
+            ]
         }
         updateActive()
     }
@@ -142,7 +144,9 @@ final class RemoteInputCaptureView: NSView, MouseButtonForwarding {
 
     override func cursorUpdate(with event: NSEvent) { NSCursor.arrow.set() }
 
+    // local-monitor-allow: pointerMoved posts to the window's FrameInputCoalescer (pointerFrameRemoteInput) and forwards each move at once without it; buttons and keys flush what waits first, so the host gets every event in order
     override func mouseMoved(with event: NSEvent) { pointerMoved(event) }
+    // local-monitor-allow: as mouseMoved: the window's FrameInputCoalescer, the host's events kept in order
     override func mouseDragged(with event: NSEvent) { pointerMoved(event) }
     override func rightMouseDragged(with event: NSEvent) { pointerMoved(event) }
     override func otherMouseDragged(with event: NSEvent) { pointerMoved(event) }
@@ -157,6 +161,7 @@ final class RemoteInputCaptureView: NSView, MouseButtonForwarding {
     /// A scroll in the middle of its gesture, or a wheel notch, waits for the frame; a phase edge
     /// (began, ended, momentum began) goes at once, after what waits. A pane that sends nothing to
     /// the host (view mode, not first responder) posts nothing: it never wakes the window's frame.
+    // local-monitor-allow: a mid-gesture scroll goes through the window's FrameInputCoalescer, a phase edge flushes it and goes at once: the host's wheel events keep their order
     override func scrollWheel(with event: NSEvent) { // perf-hot: 2us pointer-coalesce (every scroll over a remote desktop)
         if event.isMergeableScroll {
             guard controller.isActive else { return }

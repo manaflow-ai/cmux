@@ -1,3 +1,4 @@
+import struct CmuxSafeConcurrency.OwnerReference
 import CmuxNextAgentPane
 import CmuxNextBrowser
 import CmuxNextDaemon
@@ -24,10 +25,12 @@ import Foundation
 /// the main actor; daemon requests are async with a 1 s deadline.
 @MainActor
 final class AppResourceSource: ResourceSampleSource {
-    private unowned let services: AppServices
+    private let servicesReference: OwnerReference<AppServices>
+    /// The app's services, which own this; nil (reported) only once they are gone.
+    private var services: AppServices? { servicesReference.resolve() }
 
     init(services: AppServices) {
-        self.services = services
+        servicesReference = OwnerReference(services: services)
     }
 
     /// A terminal whose numbers come from its daemon.
@@ -56,7 +59,7 @@ final class AppResourceSource: ResourceSampleSource {
         // Chromium: map renderer client ids to helper processes.
         let chromiumTabs = tabs.indices.filter { resolved.rendererClients[tabs[$0].tabID] != nil }
         if !chromiumTabs.isEmpty {
-            let helpers = await Self.chromiumHelpers()
+            let helpers = await Self.chromiumHelpers(of: services?.cache.chromium.helperParent)
             var byClient: [Int32: Int32] = [:]
             for helper in helpers {
                 switch helper.kind {
@@ -120,6 +123,7 @@ final class AppResourceSource: ResourceSampleSource {
 
     private func resolve(_ target: ResourceTarget) -> Resolved {
         var resolved = Resolved()
+        guard let services else { return resolved }
         let entries: [(TabModel, DaemonService)]
         switch target {
         case .tab(let id):
@@ -214,9 +218,10 @@ final class AppResourceSource: ResourceSampleSource {
 
     // MARK: Off the main actor
 
+    /// The children of `parent`, the app or the Chromium Host (`ChromiumEngineSlot.helperParent`).
     @concurrent
-    private static func chromiumHelpers() async -> [ChromiumHelperProcess] {
-        ChromiumHelperProcess.list()
+    private static func chromiumHelpers(of parent: pid_t?) async -> [ChromiumHelperProcess] {
+        ChromiumHelperProcess.list(parent: parent)
     }
 
     @concurrent

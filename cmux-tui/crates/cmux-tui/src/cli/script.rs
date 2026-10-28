@@ -175,7 +175,7 @@ pub(super) fn load(
             if typescript {
                 return Err(messages().typescript.replace("{path}", &path.display().to_string()));
             }
-            std::fs::read_to_string(path).map_err(|error| {
+            cmux_blocking::fs::read_to_string(path).map_err(|error| {
                 messages()
                     .read_failed
                     .replace("{path}", &path.display().to_string())
@@ -544,8 +544,7 @@ async fn connect(socket: &std::path::Path) -> Result<tokio::net::UnixStream, Str
         .await
         .map_err(|error| connect_failed(error.to_string()))?;
     // Only this user's daemon (as every CLI connection checks).
-    // SAFETY: geteuid has no preconditions.
-    let own = unsafe { libc::geteuid() };
+    let own = cmux_tui_core::platform::effective_uid();
     let peer = stream.peer_cred().map_err(|error| connect_failed(error.to_string()))?;
     if peer.uid() != own && peer.uid() != 0 {
         return Err(connect_failed(format!("the socket belongs to uid {}", peer.uid())));

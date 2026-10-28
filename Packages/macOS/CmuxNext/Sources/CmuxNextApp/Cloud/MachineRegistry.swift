@@ -39,6 +39,11 @@ final class MachineRegistry {
     /// connections that live outside its session close (cx-2cob slice 2:
     /// the forwarding connection and the browser runtimes on it).
     @ObservationIgnored var onDaemonRemoved: (@MainActor (DaemonService) -> Void)?
+    /// What a person sees, handed to every machine's daemon here and to each one added
+    /// (``DaemonService/connectionPresence``); nil: the heartbeats count the app as shown.
+    @ObservationIgnored var connectionPresence: ConnectionPresence? {
+        didSet { for daemon in daemons { daemon.connectionPresence = connectionPresence } }
+    }
 
     init(local: DaemonService) {
         self.local = local
@@ -188,6 +193,7 @@ final class MachineRegistry {
         guard self.session(session.machineID) == nil else { return }
         cloud.append(session)
         tabIndex.track(session.daemon, as: .cloud)
+        session.daemon.connectionPresence = connectionPresence
     }
 
     func remove(_ machineID: String) -> CloudMachineSession? {
@@ -203,6 +209,7 @@ final class MachineRegistry {
         guard sshSession(session.machineID) == nil else { return }
         ssh.append(session)
         tabIndex.track(session.daemon, as: .ssh)
+        session.daemon.connectionPresence = connectionPresence
     }
 
     func removeSSH(_ machineID: String) -> SSHMachineSession? {
@@ -218,6 +225,7 @@ final class MachineRegistry {
         guard server(session.machineID) == nil else { return }
         servers.append(session)
         tabIndex.track(session.daemon, as: .server)
+        session.daemon.connectionPresence = connectionPresence
     }
 
     func removeServer(_ machineID: String) -> ServerMachineSession? {

@@ -48,6 +48,7 @@ final class IPhoneBrowserHosts: MobileHostBrowserHosting {
             let host = try await LocalRemoteBrowserHost.start(executable: executable, pageURL: URL(string: url), workRoot: workRoot)
             hosts[tab] = host
             // task-owner: one per host; ends when the host exits
+            // main-hop-allow: the task only awaits the host's main-actor exit stream; the entry drops in its one resume
             Task { @MainActor [weak self] in
                 _ = await host.exitStatus()
                 if self?.hosts[tab] === host { self?.hosts[tab] = nil }

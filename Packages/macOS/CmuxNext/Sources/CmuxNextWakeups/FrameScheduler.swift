@@ -17,6 +17,7 @@ extension FrameLink {
 }
 
 extension CADisplayLink: FrameLink {
+    /// Sets the link's preferred frame rate range.
     @MainActor public func requestFrameRate(_ range: CAFrameRateRange) { preferredFrameRateRange = range }
 }
 
@@ -66,7 +67,9 @@ public final class FrameScheduler: NSObject {
         case window(NSWindow)
     }
 
+    /// The scheduler's name in the wakeup ledger and signposts.
     public let name: String
+    /// The window it clocks; nil for a screen-hosted scheduler or once the window is gone.
     public private(set) weak var window: NSWindow?
     /// The scheduler serves window-less work on a display (``app``, the ``MainWorkScheduler``'s).
     let isScreenHost: Bool
@@ -74,7 +77,7 @@ public final class FrameScheduler: NSObject {
     /// The budgeted clients, the one that ran least recently first: a class's budget goes to them
     /// in this order, and a client that ran moves to the back, so one saturating client never
     /// keeps the others of its class from ticking (round-robin).
-    private var budgetedOrder: [ObjectIdentifier] = []
+    var budgetedOrder: [ObjectIdentifier] = []
     /// The clock this scheduler subscribes to.
     public let displayClock: DisplayClock
     /// The display this scheduler last subscribed to (kept after it leaves, for its stall stats);
@@ -101,6 +104,9 @@ public final class FrameScheduler: NSObject {
     /// ``MainWorkScheduler``: a short idle period may follow the frame's render pass, until one
     /// millisecond before the next vsync). Stall-deadline ticks have no vsync and are not reported.
     var onLinkFrame: (@MainActor (_ timestamp: CFTimeInterval, _ refreshInterval: Double) -> Void)?
+    /// Takes each tick's budgeted batch out of the tick (the ``MainWorkScheduler``'s after-commit
+    /// placement), which runs it in a turn of its own (``runBudgeted(_:)``); nil: it runs in the tick.
+    var defersBudgeted: (@MainActor (FrameTick) -> Void)?
     /// The link frame this scheduler ticks in now, reported when its part of the frame ends.
     private var linkFrame: (timestamp: CFTimeInterval, refreshInterval: Double)?
     private let ledger: WakeupLedger
@@ -120,7 +126,8 @@ public final class FrameScheduler: NSObject {
     weak var starvation: RenderStarvationGuard?
     /// The late period the guard saw since ``lastTick`` (stale once it moves).
     var starvationPeriod: RenderStarvationGuard.Period?
-    var closeObserver: MainActorObservation?
+    /// Lets go of it when its window closes (window schedulers only): a ``WindowEvents`` subscription.
+    var closeObserver: EventSubscription?
     /// Moves it to its window's new display when the window changes screen (window schedulers only).
     var screenFamily: WindowScreenFamily?
     /// When the frame of its last tick is shown (nil before the first tick after subscribing).
@@ -392,36 +399,18 @@ public final class FrameScheduler: NSObject {
                          targetTimestamp: target, sequence: frames)
     }
 
-    /// The frame-locked clients, every frame: the input stage first (the window's
-    /// FrameInputCoalescer), so the frame clients see this frame's input. Clients activated during
-    /// this frame tick next frame.
+    /// The frame-locked clients, every frame: the input stage first (the window's input coalescers),
+    /// then the frame clients, so they see this frame's input. A frame client the input stage
+    /// activated (a ghost spring a trailing move woke) ticks in this frame too, as Blink dispatches
+    /// rAF-aligned input before the frame's animation callbacks (`WidgetBase::BeginMainFrame`,
+    /// `third_party/blink/renderer/platform/widget/widget_base.cc`). Clients a frame client
+    /// activates tick next frame.
     func deliverFrameLocked(_ tick: FrameTick) { // perf-hot: 0.5ms frame-tick (every frame)
-        let ticking = clients.values.filter(\.isActive)
-        for client in ticking where client.workClass == .input {
+        for client in clients.values.filter({ $0.isActive && $0.workClass == .input }) {
             fire(client, tick)
         }
-        for client in ticking where client.workClass == .frame {
+        for client in clients.values.filter({ $0.isActive && $0.workClass == .frame }) {
             fire(client, tick)
-        }
-    }
-
-    /// Only on the scheduler that holds the budget, after every other scheduler on its display: the
-    /// budgeted batches in class order, each only while its class may run (a held one stays active
-    /// and ticks next frame: input pending, or the class's budget spent).
-    func deliverBudgeted(_ tick: FrameTick) {
-        guard let budget else { return }
-        let order = budgetedOrder
-        for workClass in MainWorkClass.budgeted {
-            for id in order {
-                guard let client = clients[id], client.workClass == workClass, client.isActive else { continue }
-                guard budget.mayRun(workClass) else { break }
-                fire(client, tick)
-                // It ran: the clients of its class that did not get to run go first next frame.
-                if clients[id] != nil {
-                    budgetedOrder.removeAll { $0 == id }
-                    budgetedOrder.append(id)
-                }
-            }
         }
     }
 
@@ -439,7 +428,7 @@ public final class FrameScheduler: NSObject {
 
     /// Ticks `client` and records its wakeup, unless an earlier tick of this frame stopped or parked it
     /// (it left ``clients``): a client that does not run is not counted.
-    private func fire(_ client: FrameClient, _ tick: FrameTick) {
+    func fire(_ client: FrameClient, _ tick: FrameTick) {
         let id = ObjectIdentifier(client)
         guard clients[id] === client, client.isActive else { return }
         ledger.record(client.owner, reason: "frame")

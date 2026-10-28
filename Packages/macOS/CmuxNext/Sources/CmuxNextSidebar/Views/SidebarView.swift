@@ -1,6 +1,5 @@
 public import AppKit
 public import CmuxNextDesign
-public import CmuxNextInput
 public import CmuxNextResources
 public import CmuxNextWakeups
 import CmuxNextCompat
@@ -34,7 +33,8 @@ public final class SidebarView: NSView {
     public var headerHasWindowControls = true { didSet { if oldValue != headerHasWindowControls { needsLayout = true } } }
     var titlebarHeight: CGFloat { titlebarHeightOverride ?? Metrics.titlebarHeight }
     let list: SidebarListView
-    let scrollView = SidebarScrollView()
+    /// The list's scroll view: a ``ResponsiveSidebarScrollView`` with feature `responsiveScrolling`.
+    let scrollView: SidebarScrollView
     private(set) lazy var spacePaging = SidebarSpacePaging(host: self)
     /// Hosts the list's scroll view and fades rows out at its top or bottom
     /// while more are hidden there.
@@ -109,12 +109,6 @@ public final class SidebarView: NSView {
     var shownAppContributions: Set<String> = []
     /// The `sidebar.*` settings this sidebar draws from (tests give their own).
     let design: DesignSettings
-    /// The app's one input tap (the App injects it): the list hears the app's left presses and releases there,
-    /// so a press whose release went elsewhere ends (`SidebarListView+PointerEnd`).
-    public var inputTap: InputEventTap? {
-        get { list.inputTap }
-        set { list.inputTap = newValue }
-    }
     /// The row feed of this sidebar's rows (the App injects it with feature `sidebarRowsNearViewport` on): only
     /// the rows the list draws on screen stay armed. Nil observes every row.
     public var rowFeed: SidebarRowFeed? {
@@ -138,9 +132,12 @@ public final class SidebarView: NSView {
     ///   - design: The `sidebar.*` settings it draws from.
     ///   - mainWork: The app's main-thread scheduler: the list draws through it while the sidebar shows.
     ///   - newRows: Told which rows each list reload lists (`create.workspace`); nil times nothing.
-    public init(model: SidebarModel, design: DesignSettings = .shared, mainWork: MainWorkScheduler, newRows: SidebarNewRowTimer? = nil) {
+    ///   - responsiveScrolling: The list scrolls on AppKit's scrolling thread (feature `responsiveScrolling`).
+    public init(model: SidebarModel, design: DesignSettings = .shared, mainWork: MainWorkScheduler,
+                newRows: SidebarNewRowTimer? = nil, responsiveScrolling: Bool = false) {
         self.model = model
         self.design = design
+        scrollView = responsiveScrolling ? ResponsiveSidebarScrollView() : SidebarScrollView()
         list = SidebarListView(model: model)
         list.newRows = newRows
         profileBar = ProfileBarView(model: model)
@@ -287,6 +284,8 @@ public final class SidebarView: NSView {
 
         scrollView.drawsBackground = false
         scrollView.hasVerticalScroller = true
+        // A gesture AppKit scrolls on its own thread never moves the list sideways, not even a bounce.
+        if type(of: scrollView).isCompatibleWithResponsiveScrolling { scrollView.horizontalScrollElasticity = .none }
         // The shared thin scroller (the chat's): a 3 pt knob on no track, an
         // overlay that never narrows the list.
         SystemScrollers.followThin(scrollView)

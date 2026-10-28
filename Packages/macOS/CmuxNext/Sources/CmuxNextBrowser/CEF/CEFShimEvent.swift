@@ -46,8 +46,10 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
     case devToolsClosed(browser: Int32, devTools: Int32)
     /// The tab's renderer ended unexpectedly: `status` is
     /// `cef_termination_status_t`, `code` the exit code or signal, `end` whether this browser
-    /// is the first that renderer hosted to report it (``CEFRendererEnd``).
-    case renderTerminated(browser: Int32, status: Int, code: Int, text: String, end: CEFRendererEnd)
+    /// is the first that renderer hosted to report it (``CEFRendererEnd``), `client` the renderer's
+    /// `--renderer-client-id` (0 when the shim cannot name it), which joins the end with the
+    /// child monitor's exit of the same process.
+    case renderTerminated(browser: Int32, status: Int, code: Int, text: String, end: CEFRendererEnd, client: Int32 = 0)
     /// The renderer stopped handling input (hang monitor, 15 s).
     case renderUnresponsive(browser: Int32)
     case renderResponsive(browser: Int32)
@@ -107,6 +109,10 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
     case pageResource(browser: Int32, token: Int32, url: String)
     /// A drag of files from outside entered a page (PAGE_DRAG_ENTER): their paths, as JSON.
     case pageDragEnter(browser: Int32, pathsJSON: String)
+    /// Frame `frame` (its identifier) of a page, not its main frame, attached to (or detached from) renderer
+    /// `client`, its `--renderer-client-id` (SUBFRAME_RENDERER): ``CEFChildProcessMonitor`` names the page in
+    /// that renderer's end.
+    case subframeRenderer(browser: Int32, frame: String, client: Int32, attached: Bool)
     /// A page opened a file chooser (FILE_DIALOG; only after `setFileDialogs(1)`): answer it once with
     /// `fileDialogAnswer(dialogID, ...)`. `mode` 0 open one, 1 open several, 2 folder, 3 save;
     /// `acceptTypes` are MIME types and ".ext" entries; `defaultPath` may be empty.
@@ -117,6 +123,9 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
     /// A `cmux_shim_tab_evaluate` answer (EVALUATE_RESULT, fork API 29): `status` 1 value, 0
     /// exception, -1 no result (renderer ended, navigated away), -2 refused world name.
     case evaluateResult(token: Int32, status: Int, value: String)
+    /// The Chromium Host decided a window request with the policy cmux pushed (WINDOW_REQUEST_RESULT,
+    /// task 031): cmux applies it (`CEFWindowRequests.hostDecided`).
+    case windowRequestResult(CEFWindowRequestResult)
     /// A host widget with a WebContents shows or changes (WIDGET_CONTEXT, host mode, fork task 173):
     /// ``ChromiumHostWidgetHost`` shows it.
     case widgetContext(ChromiumHostWidgetContext)
@@ -129,6 +138,12 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
     case popupMenu(browser: Int32, token: Int64, popup: ChromiumHostPopupMenu?)
     /// Chromium closed that popup before cmux answered (POPUP_MENU_HIDE): its menu closes with no answer.
     case popupMenuHidden(browser: Int32, token: Int64)
+    /// One of the Chromium Host's helpers ended (HELPER_EXIT; host mode, task p01-process-225): the host
+    /// watches its children as ``CEFChildProcessMonitor`` watches the app's in process.
+    case helperExit(CEFChildProcessMonitor.Exit)
+    /// The renderers of the tab's frames changed (FRAME_RENDERERS, task p01-process-225): an iframe's renderer came
+    /// or went after the load. In host mode `tab.renderer_client_ids` was pushed before it.
+    case frameRenderers(browser: Int32)
     case unknown(kind: Int32)
 
     init(kind: Int32, browser: Int32, request: Int32, a: Int64, b: Int64, s1: String, s2: String) {
@@ -163,7 +178,9 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
         case 20: self = .devToolsWillOpen(browser: browser)
         case 21: self = .devToolsOpened(browser: browser, devTools: Int32(truncatingIfNeeded: a), docked: b != 0)
         case 22: self = .devToolsClosed(browser: browser, devTools: Int32(truncatingIfNeeded: a))
-        case 23: self = .renderTerminated(browser: browser, status: Int(a), code: Int(b), text: s1, end: CEFRendererEnd(rawValue: request) ?? .unknown)
+        case 23:
+            self = .renderTerminated(browser: browser, status: Int(a), code: Int(Int32(truncatingIfNeeded: b)), text: s1,
+                                     end: CEFRendererEnd(rawValue: request) ?? .unknown, client: max(Int32(truncatingIfNeeded: b >> 32), 0))
         case 24: self = .renderUnresponsive(browser: browser)
         case 25: self = .renderResponsive(browser: browser)
         case 26: self = .chromeCommand(browser: browser, command: request)
@@ -206,6 +223,12 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
         case 58: self = .popupMenu(browser: browser, token: a, popup: ChromiumHostPopupMenu(json: s1))
         case 59: self = .popupMenuHidden(browser: browser, token: a)
         case 60: self = ChromiumHostSuggestionEvent(request: request, a: a, b: b, s1: s1).map { Self.pageView(browser: browser, .suggestions($0)) } ?? .unknown(kind: kind)
+        case 64: self = .subframeRenderer(browser: browser, frame: s1, client: request, attached: a != 0)
+        case 66:
+            let result = CEFWindowRequestResult(browser: browser, window: request, anchor: a, packed: b, url: s1, placement: s2)
+            self = result.map(Self.windowRequestResult) ?? .unknown(kind: kind)
+        case 67: self = .frameRenderers(browser: browser)
+        case 68: self = CEFChildProcessMonitor.Exit(helperExitPID: request, status: a, flags: b, type: s1, subType: s2).map(Self.helperExit) ?? .unknown(kind: kind)
         default: self = .unknown(kind: kind)
         }
     }
@@ -221,16 +244,18 @@ extension CEFShimEvent {
              .afterCreated(let b, _, _, _), .beforeClose(let b), .createFailed(let b, _), .chromeCommand(let b, _), .devToolsResult(let b, _, _, _), .tab(_, let b, _, _),
              .reply(let b, _, _, _), .contextMenu(let b, _, _, _, _, _),
              .devToolsWillOpen(let b), .devToolsOpened(let b, _, _), .devToolsClosed(let b, _),
-             .renderTerminated(let b, _, _, _, _), .renderUnresponsive(let b), .renderResponsive(let b),
+             .renderTerminated(let b, _, _, _, _, _), .renderUnresponsive(let b), .renderResponsive(let b),
              .navigationReroute(let b, _, _), .localFileHandoff(let b, _), .externalURL(let b, _, _), .keyUnhandled(let b, _, _), .keyUnhandledChord(let b, _), .installPrompt(let b, _, _), .takeFocus(let b, _),
              .devToolsMessage(let b, _), .authCallback(let b, _), .permissionPrompt(let b, _, _, _), .permissionDismissed(let b, _), .passwordPrompt(let b, _, _),
              .beforeUnloadDialog(let b, _, _), .beforeUnloadDismissed(let b), .pageResource(let b, _, _), .pageDragEnter(let b, _),
-             .fileDialog(let b, _, _, _, _), .pageView(let b, _),
-             .pageMessage(let b, _, _, _), .widgetGone(let b, _), .popupMenu(let b, _, _), .popupMenuHidden(let b, _):
+             .subframeRenderer(let b, _, _, _), .fileDialog(let b, _, _, _, _), .pageView(let b, _),
+             .pageMessage(let b, _, _, _), .widgetGone(let b, _), .popupMenu(let b, _, _), .popupMenuHidden(let b, _),
+             .frameRenderers(let b):
             b
         case .widgetContext(let context):
             context.owner
-        case .contextInitialized, .omniboxSuggestions, .preferenceChanged, .bookmarks, .download, .evaluateResult, .unknown:
+        case .contextInitialized, .omniboxSuggestions, .preferenceChanged, .bookmarks, .download, .evaluateResult,
+             .windowRequestResult, .helperExit, .unknown:
             nil
         }
     }

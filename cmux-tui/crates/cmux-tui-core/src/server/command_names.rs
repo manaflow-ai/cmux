@@ -477,10 +477,13 @@ command_table! {
     ClientFocus => "client-focus", Topology;
     Subscribe => "subscribe", Other;
     AttachSurface => "attach-surface", Other;
+    CancelStream => "cancel-stream", TerminalIo;
+    SetStreamPriority => "set-stream-priority", TerminalIo;
     SnapshotRequest => "snapshot-request", Other;
     TerminalHistory => "terminal-history", TerminalIo;
     TerminalReadRange => "terminal-read-range", TerminalIo;
     ScrollSurface => "scroll-surface", TerminalIo;
+    MemoryReport => "memory-report", Query;
 }
 
 #[cfg(test)]

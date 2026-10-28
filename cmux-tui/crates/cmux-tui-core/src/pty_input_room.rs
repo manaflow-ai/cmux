@@ -34,6 +34,29 @@ pub(crate) fn write_input(
     Ok(true)
 }
 
+/// [`write_input`] for a terminal whose input the `pty-writer` writes
+/// (`crate::pty_write`): queued in the key lane, never waiting for the
+/// child. A wheel or motion report is also dropped while earlier input still
+/// waits in the queue: the child is not reading, and the report would only
+/// grow the backlog a terminal coalesces.
+#[cfg(unix)]
+pub(crate) fn queue_input(
+    master: Option<&dyn MasterPty>,
+    queue: &crate::pty_write::PtyInputQueue,
+    payload: &[u8],
+) -> io::Result<bool> {
+    if is_lossy_mouse_input(payload) && queue.pending() > 0 {
+        return Ok(false);
+    }
+    if let Some(master) = master
+        && !admits(master, payload)
+    {
+        return Ok(false);
+    }
+    queue.send(payload, crate::pty_write::InputLane::Key)?;
+    Ok(true)
+}
+
 /// Whether `payload` goes to the PTY child of `master` now: any input but
 /// wheel and motion reports, and those only while the child's input queue
 /// has room for all of them. Never blocks.
@@ -93,6 +116,8 @@ fn lossy_input_fits(master_fd: Option<MasterFd>, len: usize) -> bool {
         return true;
     };
     let mut pending: libc::c_int = 0;
+    // SAFETY: `fd` is the master the caller's `MasterPty` keeps open for this
+    // call; FIONREAD writes one c_int into the exclusively borrowed `pending`.
     if unsafe { libc::ioctl(fd, libc::FIONREAD, &mut pending) } != 0 {
         return true;
     }

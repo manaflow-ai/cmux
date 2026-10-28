@@ -1,4 +1,5 @@
 public import CmuxNextDaemon
+public import CmuxNextInputModel
 public import Foundation
 import CmuxNextCompat
 
@@ -17,14 +18,26 @@ public nonisolated protocol TerminalAttachLink: AnyObject, Sendable {
     func sendHidden(_ hidden: Bool)
     /// Asks for a fresh READY + history on this attach.
     func sendSnapshotRequest(reason: SnapshotRequestReason)
+    /// Live output goes from the link's reader straight to `sink`, in order with `events` (each change waits
+    /// for an ``TerminalChannelEvent/outputResume(_:)`` marker); nil keeps it on `events`.
+    func setOutputSink(_ sink: TerminalEchoSink?)
     /// Detaches and closes the connection; its `events` then finish.
     /// Idempotent.
     func detachNow()
+    /// Ranks the link's stream against the other views of its connection (`set-stream-priority`).
+    func sendStreamPriority(_ priority: TerminalStreamPriority)
+}
+
+public nonisolated extension TerminalAttachLink {
+    /// A link with no stream to rank.
+    func sendStreamPriority(_ priority: TerminalStreamPriority) {}
 }
 
 /// Runs a ``TerminalAttachMachine`` against real attachments: one reducer
 /// under one lock, one effect applier, and one pump per open link feeding a
-/// bounded ``TerminalStepQueue``.
+/// bounded ``TerminalStepQueue``. Live output skips the pump once the view
+/// names its lane (``setOutputSink(_:)``): the link's reader hands it to the
+/// lane, behind every step the view has not applied yet.
 ///
 /// Effects are applied outside the lock but strictly in the order the
 /// reducer produced them: whichever caller finds the applier idle drains the
@@ -51,6 +64,14 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
         var applying = false
         /// One task per attach attempt: opens the link, then pumps it.
         var tasks: [Int: Task<Void, Never>] = [:]
+        /// The view's output lane (``setOutputSink(_:)``), and the links being pumped, which carry it.
+        var sink: TerminalEchoSink?
+        var pumped: [Int: LinkRef] = [:]
+        /// The priority every pumped link has (``TerminalStreamPriority``), from `machine.visible` and whether
+        /// this view holds ``streamFocus``.
+        var streamPriority: TerminalStreamPriority
+        /// Links are ranked: the driver has a ``TerminalStreamFocus`` (feature `terminalStreamPriority`).
+        let ranksStreams: Bool
     }
 
     private let core: Mutex<Core>
@@ -62,6 +83,7 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
     private let cursorDefault: TerminalCursorDefault
     private let backoffDelay: BackoffDelay
     private let onGridSent: GridSent?
+    private let streamFocus: TerminalStreamFocus?
 
     /// Told each grid this view sends to the PTY and whether the daemon will echo it (a grid other than
     /// the one the stream last announced, or one sent while an earlier echo is still due).
@@ -88,9 +110,13 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
         observer: Observer? = nil,
         cursorDefault: TerminalCursorDefault = .ghostty,
         backoffDelay: @escaping BackoffDelay = { _ in },
-        onGridSent: GridSent? = nil
+        onGridSent: GridSent? = nil,
+        // nil: the links' streams keep the priority they opened with (feature `terminalStreamPriority` off).
+        streamFocus: TerminalStreamFocus? = nil
     ) {
-        core = Mutex(Core(machine: Machine(initialSize: initialSize, visible: visible, restoring: restoring)))
+        core = Mutex(Core(machine: Machine(initialSize: initialSize, visible: visible, restoring: restoring),
+                          streamPriority: TerminalStreamPriority(visible: visible, focused: false),
+                          ranksStreams: streamFocus != nil))
         queue = TerminalStepQueue(highWater: outputHighWater)
         self.opener = opener
         self.onFailure = onFailure
@@ -99,9 +125,11 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
         self.cursorDefault = cursorDefault
         self.backoffDelay = backoffDelay
         self.onGridSent = onGridSent
+        self.streamFocus = streamFocus
     }
 
     deinit {
+        streamFocus?.release(ObjectIdentifier(self))
         // Nothing can reach this driver any more: free whatever it holds.
         let effects = core.withLock { core -> [Machine.Effect] in
             let effects = core.outbox + core.machine.reduce(.close)
@@ -119,14 +147,35 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
     /// The view stopped consuming.
     public func cancelSteps() { queue.cancel() }
 
+    /// Any thread: live output of every link this driver pumps, and of each it opens later, goes from the
+    /// link's reader straight to `sink` (the view's output lane), in order with ``nextStep()``: the view
+    /// resumes each ``TerminalStreamPlan/Step/outputResume(_:)`` once it applied the steps before it. Nil keeps
+    /// output on the steps. Set under the reducer's lock, so a link opening meanwhile never keeps an older sink.
+    public func setOutputSink(_ sink: TerminalEchoSink?) {
+        core.withLock { core in
+            core.sink = sink
+            core.pumped.values.forEach { $0.link.setOutputSink(sink) }
+        }
+    }
+
     // MARK: Events
 
     public func start() { send(.start) }
     public func input(_ data: Data) { send(.input(data)) }
     public func resize(_ size: CellSize) { send(.resize(size)) }
-    public func setVisible(_ visible: Bool) { send(.visibility(visible)) }
-    /// The surface gained keyboard focus.
+    public func setVisible(_ visible: Bool) {
+        send(.visibility(visible))
+        syncStreamPriority()
+    }
+    /// The surface gained keyboard focus (geometry and reconnect, in the view's input order).
     public func focused() { send(.focused) }
+    /// The surface gained keyboard focus, in the order focus moves between views (the main thread's): its
+    /// stream rides the input lane while it shows, until another view takes ``streamFocus``.
+    public func takeStreamFocus() {
+        guard let streamFocus else { return }
+        streamFocus.take(ObjectIdentifier(self)) { [weak self] in self?.syncStreamPriority() }
+        syncStreamPriority()
+    }
     /// Take over from the "Sized for" chip.
     public func takeOver(setLatest: Bool) { send(.takeOver(setLatest: setLatest)) }
     /// The terminal or the daemon connection is back: a disconnected view
@@ -143,6 +192,25 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
     public func requestResync() {
         core.withLock { $0.machine.liveLink }?.link.sendSnapshotRequest(reason: .gap)
     }
+
+    /// Sends the priority the view's visibility and focus give to every pumped link, when it changed. Under the
+    /// reducer's lock, as ``setOutputSink(_:)``: a link opening meanwhile reads the new one. Focus is read from
+    /// ``streamFocus`` under that lock (the focus holder's lock nests inside and never calls out), so the last
+    /// sync of a view sends what the holder is then: a take syncs the view it demotes after the change, and
+    /// the view that took it after its take.
+    private func syncStreamPriority() {
+        guard let streamFocus else { return }
+        let me = ObjectIdentifier(self)
+        core.withLock { core in
+            let priority = TerminalStreamPriority(visible: core.machine.visible, focused: streamFocus.holderView == me)
+            guard core.streamPriority != priority else { return }
+            core.streamPriority = priority
+            core.pumped.values.forEach { $0.link.sendStreamPriority(priority) }
+        }
+    }
+
+    /// The view's stream priority now (tests, diagnostics).
+    public var streamPriority: TerminalStreamPriority { core.withLock { $0.streamPriority } }
 
     // MARK: Diagnostics
 
@@ -233,6 +301,11 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
     private static func run(owner: Owner, opener: Opener, attempt: Int, size: CellSize,
                             cursorDefault: TerminalCursorDefault) async {
         guard let ref = await open(owner: owner, opener: opener, attempt: attempt, size: size) else { return }
+        owner.value?.core.withLock { core in
+            core.pumped[attempt] = ref
+            ref.link.setOutputSink(core.sink)
+            if core.ranksStreams { ref.link.sendStreamPriority(core.streamPriority) }
+        }
         var ended: TerminalChannelCloseReason = .connectionLost("attach stream ended")
         stream: for await event in ref.link.events {
             guard let queue = owner.value?.queue else { break stream }
@@ -253,7 +326,7 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
                 case .replay: owner.value?.send(.replayDelivered(ref))
                 // A link's first READY is its replay; later ones are no-ops there.
                 case .snapshot(let frame) where frame.phase == .ready: owner.value?.send(.replayDelivered(ref))
-                case .grid, .output, .inputEcho, .snapshot, .exited, .status, .sizing: break
+                case .grid, .output, .inputEcho, .outputResume, .snapshot, .exited, .status, .sizing: break
                 }
             }
             if case .closed(let reason) = event {
@@ -305,7 +378,10 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
     }
 
     private func finishTask(_ attempt: Int) {
-        _ = core.withLock { $0.tasks.removeValue(forKey: attempt) }
+        core.withLock { core in
+            core.tasks.removeValue(forKey: attempt)
+            core.pumped.removeValue(forKey: attempt)
+        }
     }
 }
 
@@ -315,4 +391,5 @@ extension TerminalAttachment: TerminalAttachLink {
     public nonisolated func sendClaim(reporting size: CellSize) { claimGeometry(reporting: size) }
     public nonisolated func sendTakeOver(reporting size: CellSize, setLatest: Bool) { takeOver(reporting: size, setLatest: setLatest) }
     public nonisolated func sendSnapshotRequest(reason: SnapshotRequestReason) { requestSnapshot(reason: reason) }
+    public nonisolated func sendStreamPriority(_ priority: TerminalStreamPriority) { setStreamPriority(priority) }
 }

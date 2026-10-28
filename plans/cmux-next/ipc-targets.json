@@ -1,5 +1,5 @@
 {
-  "about": "p05-ipc queue targets (plans/cmux-next/chrome-parity/p05-ipc.md, section 6). scripts/cmux-next/ipc-census.py --record writes `base`; --check fails when a queue grows past it or an allowlist entry has no reason or matches no site. Allowlist entries are {queue, file, key (optional: the whole file), reason}. Task p05-ipc-106 adds the transient daemon connections of section 3.1. `ipc5_ops` lists the IPC-5 ops; cmux-tui/scripts/bench-daemon-latency.py `--ops all` measures each of them and refuses to run when one has no plan. `runtime.Q16` (items {file, line, key, p95_ms, wire}) and `runtime.Q16_run` (command, scenario, threshold_ms, sha, host, daemon_version, skipped, failed) are written by `bench-daemon-latency.py --ops all --scenario scale --write-q16` on a macOS fleet host (p05-ipc-002); ipc-census.py reads Q16 from there.",
+  "about": "p05-ipc queue targets (plans/cmux-next/chrome-parity/p05-ipc.md, section 6). scripts/cmux-next/ipc-census.py --record writes `base`; --check fails when a queue grows past it or an allowlist entry has no reason or matches no site. Allowlist entries are {queue, file, key (optional: the whole file), reason}. The keyed Q4 entries are the daemon connections app-daemon-connection-DESIGN.md section 2.1 keeps: the control connection and the transient ones (p05-ipc-106). `ipc5_ops` lists the IPC-5 ops; cmux-tui/scripts/bench-daemon-latency.py `--ops all` measures each of them and refuses to run when one has no plan. `runtime.Q16` (items {file, line, key, p95_ms, wire}) and `runtime.Q16_run` (command, scenario, threshold_ms, sha, host, daemon_version, skipped, failed) are written by `bench-daemon-latency.py --ops all --scenario scale --write-q16` on a macOS fleet host (p05-ipc-002); ipc-census.py reads Q16 from there.",
   "allowlist": [
     {
       "queue": "Q4",
@@ -53,16 +53,46 @@
       "reason": "Not a cmux-tui daemon socket: the Tasks owner (cmux task serve)."
     },
     {
+      "queue": "Q4",
+      "file": "Packages/macOS/CmuxNext/Sources/CmuxNextDaemonService/DaemonService.swift",
+      "key": "DaemonService.start: DaemonConnection(",
+      "reason": "The one control connection per daemon (the local daemon and each machine): the connection every stream moves onto, not a side connection."
+    },
+    {
+      "queue": "Q4",
+      "file": "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/DaemonPrestart.swift",
+      "key": "DaemonPrestart.init: DaemonConnection(",
+      "reason": "Not a second connection: the control connection's first attempt, begun at the top of main; DaemonService adopts it (DaemonStartup.connect(first:)) or closes it."
+    },
+    {
+      "queue": "Q4",
+      "file": "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Launch/DaemonSocketMemory.swift",
+      "key": "DaemonSocketMemory.acceptsConnections: LineTransport(path:",
+      "reason": "Transient: the launch probe of the remembered socket connects and closes at once, before any control connection exists; it sends no request."
+    },
+    {
+      "queue": "Q4",
+      "file": "Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/ChiefConversationOwner.swift",
+      "key": "ChiefConversationOwner.start: DaemonConnection(",
+      "reason": "Another daemon: the Chief conversation owner (DaemonLauncher.forChief, its own session and socket); this is that daemon's one control connection."
+    },
+    {
+      "queue": "Q4",
+      "file": "Packages/macOS/CmuxNext/Sources/CmuxNextMobile/Compat/DaemonCompatBackend.swift",
+      "key": "DaemonCompatBackend.connect: DaemonConnection(",
+      "reason": "The mobile host's own connection while a phone is attached, so phone traffic never queues behind the Mac's tree mirror or the main actor (p05-ipc-098 keeps it)."
+    },
+    {
+      "queue": "Q4",
+      "file": "Packages/macOS/CmuxNext/Sources/CmuxNextMobile/DaemonLane/UnixSocketLane.swift",
+      "key": "UnixSocketLane.connect: NWConnection(to: .unix",
+      "reason": "The phone's daemon lane: MobileIrxConnectionServer splices a paired phone's lane to the daemon under DaemonLanePolicy, so the daemon sees the phone as its own client; it ends with the lane."
+    },
+    {
       "queue": "Q8",
       "file": "cmux-tui/crates/cmux-tui/src/machine_agent/runtime.rs",
       "key": "<unresolved>",
       "reason": "Not a Q8 thread: spawn_cloud_reader_with passes the closure the name machine-agent-cloud-reader-{generation}."
-    },
-    {
-      "queue": "Q8",
-      "file": "cmux-tui/crates/cmux-threads/src/spawn.rs",
-      "key": "<unresolved>",
-      "reason": "Not a Q8 thread: cmux_threads::spawn is the QoS helper itself; it registers the thread and sets its declared QoS before the closure runs."
     },
     {
       "queue": "Q11",
@@ -109,15 +139,16 @@
     "queues": {
       "Q1": {
         "title": "hand-written Swift commands",
-        "count": 235,
-        "found": 235,
-        "raw": "git grep -n -E 'static (let|var) command(: String)? = \"' -- 'Packages/macOS/CmuxNext/Sources' ':!*.generated.swift' | wc -l",
-        "raw_count": 235,
+        "count": 237,
+        "found": 237,
+        "raw": "git grep -n -E 'static (let|var) command(Name)?(: (String|DaemonCommandName))? = \"' -- 'Packages/macOS/CmuxNext/Sources' ':!*.generated.swift' | wc -l",
+        "raw_count": 237,
         "groups": {
           "CmuxNextApp/Handlers": 1,
+          "CmuxNextBrowserTabs": 1,
           "CmuxNextDaemon/Chief": 1,
           "CmuxNextDaemon/CloudConversations": 20,
-          "CmuxNextDaemon/Connection": 7,
+          "CmuxNextDaemon/Connection": 8,
           "CmuxNextDaemon/Conversations": 21,
           "CmuxNextDaemon/Loopback": 4,
           "CmuxNextDaemon/Requests": 1,
@@ -140,7 +171,8 @@
           "CmuxNextDaemon/Requests/Workspace": 7,
           "CmuxNextDaemon/Tree": 1,
           "CmuxNextTasks/Views": 1
-        }
+        },
+        "sha": "b23d066f60534e7080657e069eac7c46d7cfc911"
       },
       "Q2": {
         "title": "daemon sniffers",
@@ -176,16 +208,13 @@
       },
       "Q5": {
         "title": "schema gaps (Swift wire names not in sdk-schema)",
-        "count": 27,
-        "found": 27,
+        "count": 4,
+        "found": 4,
         "groups": {
-          "CmuxNextDaemon/Connection": 5,
-          "CmuxNextDaemon/Loopback": 4,
-          "CmuxNextDaemon/Requests/Agents": 4,
-          "CmuxNextDaemon/Requests/Apps": 12,
-          "CmuxNextDaemon/Requests/Machines": 1,
-          "CmuxNextDaemon/Requests/Session": 1
-        }
+          "CmuxNextBrowserTabs": 1,
+          "CmuxNextDaemon/Requests/Agents": 3
+        },
+        "sha": "b23d066f60534e7080657e069eac7c46d7cfc911"
       },
       "Q6": {
         "title": "schema attributes missing",
@@ -233,17 +262,16 @@
       },
       "Q8": {
         "title": "threads without QoS",
-        "count": 81,
-        "found": 82,
+        "count": 2,
+        "found": 3,
         "raw": "git grep -n -E '\\.name\\((format!\\()?\"(mux-|surface-|terminal-host-(client|client-input|parser)\"|cmux-link-(in|out)\")|spawn_journal_writer\\(\"' -- 'cmux-tui/crates/*.rs' ':!*tests*' ':!*_tests.rs' | wc -l",
-        "raw_count": 80,
+        "raw_count": 3,
         "breakdown": {
           "dropped": {
             "test": 2
           },
           "added": {
-            "a name the census cannot follow": 1,
-            "a name through a variable": 3
+            "a name the census cannot follow": 2
           },
           "same_line": 0
         }

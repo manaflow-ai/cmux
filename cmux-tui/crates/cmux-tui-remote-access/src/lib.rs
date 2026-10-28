@@ -3,5 +3,7 @@
 //! pairing records and offline revocation limits ([`remote_relay_state`]).
 //! cmux-tui-core re-exports each module at its old path.
 
+#![forbid(unsafe_code)]
+
 pub mod pairing;
 pub mod remote_relay_state;

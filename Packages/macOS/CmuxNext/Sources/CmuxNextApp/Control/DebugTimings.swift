@@ -55,6 +55,9 @@ enum DebugTimings {
     private nonisolated static let processStartDate = Date(timeIntervalSince1970: Double(processStart.wallNanos) / 1e9)
     /// ``processStart`` on the trace clock (`CLOCK_UPTIME_RAW` nanoseconds), the zero of `debug.startup`'s task times.
     nonisolated static var processStartUptimeNanos: UInt64 { processStart.uptimeNanos }
+    /// The page-ins and main-thread CPU read at the first frame (p08-startup-007), sent as values apart from the
+    /// time marks. The temperature is ``LaunchSlices``'s (``launchMarks``).
+    private nonisolated static let launchCounters = LaunchCounterLog(sink: LaunchMarkSink.shared)
 
     /// Records a launch mark (milliseconds since process start) once per
     /// name, from any thread. The first record of a name goes to
@@ -65,6 +68,8 @@ enum DebugTimings {
     /// sends the bench `launch.temperature.<name>` and `launch.pageins_run_loop_start`.
     /// A first live content frame (``LaunchMarks/liveContentFrameMarks``) also marks `first_live_content_frame`, once.
     nonisolated static func markLaunch(_ name: String, at date: Date = Date()) {
+        // First, so the mark's own work never reaches the counters (p08-startup-007).
+        launchCounters.read(atMilestone: name)
         let reading = LaunchSlices.Reading(mark: name, clock: launchClock)
         let endNanos = reading.milestone == nil ? 0 : LaunchMarks.uptimeNanos(of: date, pairedWith: processStart)
         let (ms, trace, step) = launchMarks.withLock { state -> (Double?, StartupTrace?, LaunchSlices.Step) in
@@ -86,6 +91,9 @@ enum DebugTimings {
         if let temperatureInstant = step.temperatureInstant { markLaunch(temperatureInstant, at: date) }
         if let derived = LaunchMarks.derivedMark(of: name) { markLaunch(derived, at: date) }
     }
+
+    /// The launch marks so far (`debug.startup`).
+    nonisolated static var launchMarksNow: LaunchMarks { launchMarks.withLock { $0.marks } }
 
     /// The startup trace `CMUX_TRACE_STARTUP` asks for, attached before the first mark (`main`).
     nonisolated static func makeStartupTrace() -> StartupTrace? {
@@ -188,6 +196,14 @@ enum DebugTimings {
         return report
     }
 
+    /// The `debug.timings` field `launch_counters` (p08-startup-007): each first-frame value by name, empty
+    /// until the first frame. The temperature is `launch_clock`'s.
+    nonisolated static func counterReport(_ values: [StartupCounterReader.Value]) -> JSONValue {
+        var report: [String: JSONValue] = [:]
+        for value in values { report[value.name] = .number((value.value * 10).rounded() / 10) }
+        return .object(report)
+    }
+
     /// `debug.startup_trace`: writes what the startup trace holds now (on the files lane, never on main) and
     /// returns its status; `{"close": true}` closes it first. With no trace: `trace_ring_bytes` 0.
     nonisolated static var startupTraceMethod: ControlMethod {
@@ -215,6 +231,8 @@ enum DebugTimings {
             "launch_clock": ["temperature": slices.temperature.map { JSONValue.string($0.name) } ?? .null,
                              "pageins": slices.pageins.map { JSONValue.number(Double($0)) } ?? .null,
                              "process_start_uptime_ns": .number(Double(slices.processStartNanos))],
+            // The first frame's page-ins and main-thread CPU (p08-startup-007): values, never time marks.
+            "launch_counters": counterReport(launchCounters.values),
             "palette_opens": .array(paletteOpens.map { open in
                 ["ms": round(milliseconds(open.total)), "input_ms": round(milliseconds(open.input)),
                  "key_to_frame_ms": round(milliseconds(open.keyToFrame)), "model_ms": round(milliseconds(open.model)),

@@ -42,11 +42,10 @@ fn chat_key(chat: &str, claude_projects: Option<&Path>) -> Option<String> {
         return None;
     }
     let claude = claude_projects.is_some_and(|projects| {
-        std::fs::read_dir(projects)
-            .into_iter()
-            .flatten()
-            .flatten()
-            .any(|project| project.path().join(format!("{chat}.jsonl")).is_file())
+        cmux_blocking::fs::read_dir(projects).into_iter().flatten().flatten().any(|project| {
+            cmux_blocking::fs::metadata(project.path().join(format!("{chat}.jsonl")))
+                .is_ok_and(|metadata| metadata.is_file())
+        })
     });
     Some(format!("{}:{chat}", if claude { "claude-code" } else { "codex" }))
 }

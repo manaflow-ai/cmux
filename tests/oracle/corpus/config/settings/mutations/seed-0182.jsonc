@@ -1,0 +1,19 @@
+{
+	"editor": {
+		"lineNumbers": "on"
+	},
+	"layout": {
+		"paneBorder": "__not_a_choice__",
+		"minimumPaneHeight": 600.0
+	},
+	"sidebar": {
+		"hoverCards": {
+			"sections": {
+				"timings": true
+			}
+		}
+	},
+	"browser": {
+		"defaultEngine": true
+	}
+}

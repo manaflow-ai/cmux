@@ -1,0 +1,17 @@
+{
+  "id": "swift-sidebar-hover-retarget",
+  "tier": "builder",
+  "description": "SidebarHoverCardRetargetBenchTests: main-thread CPU of each hover card retarget (pointer onto the next row with a card open, and its frame) over 18 rows with 100-entry histories, and the card body and present parts.",
+  "command": ["scripts/perf-lab/stories/swift_benches.py", "run", "--story", "swift-sidebar-hover-retarget", "--filter", "SidebarHoverCardRetargetBenchTests"],
+  "session": "light",
+  "engine": "none",
+  "config": "release",
+  "metrics": [
+    {"name": "swift\\.sidebar_hover_retarget\\.(step|body|present)_cpu", "unit": "ms", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 1200,
+  "needs": ["file:Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/SidebarHoverCardRetargetBenchTests.swift", "file:Packages/macOS/CmuxNext/Tests/CmuxNextTestSupport/PerfResultWriter.swift"],
+  "owner": "a590",
+  "component": "Sidebar>HoverCard"
+}

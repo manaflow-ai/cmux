@@ -1,0 +1,22 @@
+{
+  "id": "long-day-soak",
+  "tier": "T2",
+  "description": "The 8 h corpus soak (soak.py, perf-corpus/long-day-soak.json): one bench launch plays agent-swarm, dev-loop and browse-heavy in a loop, each replay's checkpoint digests checked, then resets to one workspace and idles 5 minutes. Main hangs over 250 ms per hour (debug.hangs count250), footprint growth per hour of every app process and of the app alone (least-squares over the gap footprints at one workspace, the warm-up pass left out), idle wakeups per second in each gap (proc_pid_rusage, no socket call inside) and Chromium process failures per hour (debug.crashes chromium_total).",
+  "command": ["scripts/perf-lab/corpus/soak.py", "perf-corpus/long-day-soak.json"],
+  "session": "corpus:long-day-soak",
+  "engine": "chromium",
+  "config": "bench",
+  "metrics": [
+    {"name": "corpus\\.long_day_soak\\.hangs_over_250ms", "unit": "count", "better": "lower"},
+    {"name": "corpus\\.long_day_soak\\.footprint_growth_per_hour\\.(total|app)", "unit": "bytes", "better": "lower"},
+    {"name": "corpus\\.long_day_soak\\.idle_wakeups", "unit": "per_s", "better": "lower"},
+    {"name": "corpus\\.long_day_soak\\.browser_crashes", "unit": "count", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 28800,
+  "needs": ["debug:debug.hangs", "debug:debug.crashes", "debug:debug.frames", "debug:debug.focus",
+            "debug:debug.surfaces", "file:scripts/perf-lab/corpus/play.py"],
+  "owner": "PL-perf-lab",
+  "component": "Stability>Soak",
+  "not_measurable": "agent-swarm, dev-loop and browse-heavy are planned, not recorded: soak.py plays only recorded stories (tasks 117, 118 and 119, then a lab capture of their checkpoint digests). Remove this field in the change that records the last of them."
+}

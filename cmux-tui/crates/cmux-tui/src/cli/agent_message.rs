@@ -146,7 +146,7 @@ fn own_address() -> Option<String> {
 }
 
 fn env_value(name: &str) -> Option<String> {
-    std::env::var(name).ok().filter(|value| !value.trim().is_empty())
+    super::caller_env::var(name).filter(|value| !value.trim().is_empty())
 }
 
 type Reader = BufReader<Box<dyn cmux_tui_core::platform::transport::Stream>>;
@@ -391,7 +391,7 @@ fn await_pump(connection: &mut Connection, recipients: &[String], sent: &mut Sen
         if !waiting || std::time::Instant::now() >= deadline {
             break;
         }
-        std::thread::sleep(PUMP_POLL);
+        cmux_blocking::thread::sleep(PUMP_POLL);
     }
     for recipient in acp {
         match delivery_state(&sent.message, recipient) {
@@ -756,7 +756,9 @@ mod acp {
     /// The id of the session `key` names.
     pub(super) fn resolve(key: &str) -> Result<String, String> {
         runtime()?.block_on(async {
-            let client = acpmux::deliver::connect().await.map_err(|error| format!("{error:#}"))?;
+            let caller = crate::cli::caller_env::acpmux_caller();
+            let client =
+                acpmux::deliver::connect_as(caller).await.map_err(|error| format!("{error:#}"))?;
             acpmux::deliver::resolve_session(&client, key)
                 .await
                 .map(|(id, _name)| id)

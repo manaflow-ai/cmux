@@ -1,8 +1,13 @@
 // The Mobile Pairing page's state owner: the host's pairing status, read again on every change
 // event and whenever the shown QR code expires. React reads it through `useSyncExternalStore`; a
-// reply older than a newer read is dropped.
+// reply older than a newer read is dropped. The expiry wait rests while the page is hidden
+// (pagePoll.ts, p13-webui-069): a code that expired while hidden is replaced once, on show.
 import type { PageClient } from "../shared/pageClient";
+import { type PagePollSeams, startPageTimeout } from "../shared/pagePoll";
 import { ACTION_RUN, MobilePairingOps, PairingActions, type MobilePairingStatus } from "./types";
+
+/** The page name its saved state carries (pageState.ts). */
+export const MOBILE_PAIRING_PAGE = "mobile-pairing";
 
 export interface MobilePairingSnapshot {
   status?: MobilePairingStatus;
@@ -12,6 +17,9 @@ export interface MobilePairingSnapshot {
   /** The page has no host to ask; the page says so in its own words. */
   unavailable?: boolean;
 }
+
+/** How long after its expiry a code is asked for again, so the host has minted the next one. */
+const EXPIRY_GRACE_MS = 250;
 
 export class MobilePairingStore {
   private snapshot: MobilePairingSnapshot = { loading: true };
@@ -23,6 +31,7 @@ export class MobilePairingStore {
   constructor(
     private readonly client: PageClient | null,
     private readonly now: () => number = Date.now,
+    private readonly seams: PagePollSeams = {},
   ) {}
 
   subscribe = (listener: () => void) => {
@@ -67,6 +76,25 @@ export class MobilePairingStore {
   async refreshIfExpired(): Promise<void> {
     const qr = this.snapshot.status?.qr;
     if (qr && this.now() >= qr.expiresAt) await this.refresh();
+  }
+
+  /** Replaces the code that expires at `expiresAt` once it has, reading nothing while the page is
+   *  hidden. Returns the cancel function. */
+  refreshOnExpiry(expiresAt: number): () => void {
+    let cancel = () => {};
+    const arm = () => {
+      cancel = startPageTimeout(
+        () => {
+          // A show before the expiry waits out the rest.
+          if (this.now() >= expiresAt) void this.refreshIfExpired();
+          else arm();
+        },
+        Math.max(0, expiresAt - this.now()) + EXPIRY_GRACE_MS,
+        this.seams,
+      );
+    };
+    arm();
+    return () => cancel();
   }
 
   /** Turns phone access on or off; the host takes it only from the person's own click. */

@@ -46,6 +46,8 @@ impl HistoryMarkers {
 
     /// Free the probe. Must run before the terminal is freed.
     pub(super) fn release(&mut self) {
+        // SAFETY: `probe` is null (a no-op) or an anchor these markers own; it
+        // is reset to null before any other use.
         unsafe { sys::ghostty_tracked_grid_ref_free(self.probe) };
         self.probe = ptr::null_mut();
     }
@@ -144,10 +146,14 @@ impl Terminal {
             };
             let markers = &mut self.history_markers;
             let pinned = if markers.probe.is_null() {
+                // SAFETY: `self.raw` is this Terminal's live handle; `markers.probe` is
+                // null and becomes the anchor these markers own.
                 check(unsafe {
                     sys::ghostty_terminal_grid_ref_track(self.raw, point, &mut markers.probe)
                 })
             } else {
+                // SAFETY: `markers.probe` is a non-null anchor these markers own and
+                // `self.raw` the live terminal it came from.
                 check(unsafe { sys::ghostty_tracked_grid_ref_set(markers.probe, self.raw, point) })
             };
             if pinned.is_err() {
@@ -166,7 +172,9 @@ impl Terminal {
                 let mut y = sys::GhosttyPointCoordinate::default();
                 let probe = self.history_markers.probe;
                 let located = !probe.is_null()
+                    // SAFETY: `probe` is a non-null anchor these markers own.
                     && unsafe { sys::ghostty_tracked_grid_ref_has_value(probe) }
+                    // SAFETY: `probe` is a live non-null anchor and `y` a writable local.
                     && check(unsafe {
                         sys::ghostty_tracked_grid_ref_point(
                             probe,
@@ -188,6 +196,7 @@ impl Terminal {
             // oldest-row anchor tells whether any primary row was evicted.
             Screen::Alternate => {
                 let anchor = self.history_anchor;
+                // SAFETY: `anchor` is a non-null anchor this Terminal owns.
                 if !anchor.is_null() && !unsafe { sys::ghostty_tracked_grid_ref_has_value(anchor) }
                 {
                     self.history_markers.new_epoch();

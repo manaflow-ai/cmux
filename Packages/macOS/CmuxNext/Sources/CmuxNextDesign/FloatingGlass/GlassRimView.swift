@@ -54,7 +54,7 @@ public final class GlassRimView: NSView {
         // CoreGraphics refuses a corner wider than half the rect.
         let radius = min(max(cornerRadius - width / 2, 0), max(min(inset.width, inset.height) / 2, 0))
         stroke.path = inset.width > 0 && inset.height > 0
-            ? CGPath(roundedRect: inset, cornerWidth: radius, cornerHeight: radius, transform: nil) : nil
+            ? CGPath.roundedRect(inset, cornerWidth: radius, cornerHeight: radius) : nil
         CATransaction.commit()
     }
 

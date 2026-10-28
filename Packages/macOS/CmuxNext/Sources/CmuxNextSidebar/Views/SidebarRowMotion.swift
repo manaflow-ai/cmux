@@ -17,20 +17,12 @@ struct RowMotion {
     var companions: [(NSView, NSRect)] = []
 
     func run(in list: SidebarListView, from old: SidebarLayout, to layout: SidebarLayout, animated: Bool) {
-        let moves = {
-            for (view, target) in targets {
-                view.animator().frame = target
-                view.animator().alphaValue = 1
-            }
-        }
         // A change without motion also ends a move still running from an earlier one: its springs come off,
         // so every row shows its slot now (`SidebarDragSpring.stop`).
         let views = targets.map(\.0) + appearing.map(\.0) + leaving.map(\.0)
         guard animated else {
-            Motion.withoutAnimation {
-                moves()
-                lines.changes()
-            }
+            Self.snap(targets)
+            Motion.withoutAnimation { lines.changes() }
             SidebarDragSpring.stop(views)
             leaving.forEach { Self.closed($0.0, in: list) }
             lines.leaving.forEach { $0.removeFromSuperview() }
@@ -39,8 +31,8 @@ struct RowMotion {
         guard Motion.sidebar.animatesMovement else {
             // Reduce Motion: rows take their places in one step, with no crossfade standing in
             // for the motion (DESIGN P6): no movement, and nothing a person must wait out.
+            Self.snap(targets)
             Motion.withoutAnimation {
-                moves()
                 lines.changes()
                 for (view, target) in appearing {
                     view.frame = target
@@ -71,6 +63,17 @@ struct RowMotion {
         }
         Self.animate(frames: targets + appearing + leaving, companions: lines.springs + companions,
                      fades: Self.fades(targets: targets, appearing: appearing, leaving: leaving), lines: lines.changes, in: list, ended: ended)
+    }
+
+    /// Puts each row at its frame, whole, in one step. Set through the animator in a zero-length group, the frame
+    /// also stops a move AppKit still runs on the row, which a plain set would not.
+    private static func snap(_ targets: [(SidebarRowView, NSRect)]) {
+        Motion.withoutAnimation {
+            for (view, target) in targets {
+                view.animator().frame = target
+                view.animator().alphaValue = 1
+            }
+        }
     }
 
     /// The views whose opacity this move changes and to what: an opening row and a target still fading in to 1,
@@ -151,17 +154,15 @@ struct RowMotion {
             }
         }
         // A close on the render server's spring (`animate`) already has its frame at its end, which moved with it:
-        // its spring keeps running on top. Only a close whose frame is not at its end re-targets here.
-        let retargeted = closing.filter { view in view.closingEnd.map { view.frame != $0 } ?? false }
+        // its spring keeps running on top. Only a close whose frame is not at its end re-targets here, on the same
+        // render-server spring; its fade stays on AppKit's. The close's own completion (`run`) still recycles each row.
+        let retargeted: [(SidebarRowView, NSRect)] = closing.compactMap { view in
+            guard let end = view.closingEnd, view.frame != end else { return nil }
+            return (view, end)
+        }
         guard !retargeted.isEmpty else { return }
-        // The close's own completion (`run`) still recycles each row.
-        Motion.sidebar.animate(.move, in: list, {
-            for view in retargeted {
-                guard let end = view.closingEnd else { continue }
-                view.animator().alphaValue = 0
-                view.animator().frame = end
-            }
-        })
+        SidebarDragSpring.move(retargeted, in: list)
+        Motion.sidebar.animate(.move, in: list, { for (view, _) in retargeted { view.animator().alphaValue = 0 } })
     }
 
     /// A row whose close ended (or never animated) goes back to the pool.

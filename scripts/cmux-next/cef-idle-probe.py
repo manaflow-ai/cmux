@@ -11,9 +11,12 @@ with a DevTools port, lets it settle, then with no input:
   3. Chromium's own trace for the window (every process): per process and thread, the tasks per second by
      posting location, BeginFrames, BeginMainFrames, and the TracingStartedInBrowser frame list (renderer pid
      to URL).
-  4. CEF-IDLE-POSTED {"process","pid","thread","location","per_s"} for every posting location, highest per_s first
-     (Q8, p14-energy-041); `--queue` keeps the ones at or above QUEUE_MIN_PER_S, the Q8 work list. Then
-     CEF-IDLE-POSTED-PUMP sets the browser main thread's task rate beside the cmux pump counters.
+  4. CEF-IDLE-POSTED {"kind","process","thread","location","per_s","pids"} for every posting location, highest
+     per_s first (Q8, p14-energy-041, -109), with `seed` and `switch` when it is on the seed list (IDLE_SEEDS) or
+     `stays` (Safe Browsing, the CRLSet, the probe's own trace). `--queue` prints the Q8 work list: locations at
+     or above QUEUE_MIN_PER_S in the browser process (every thread) or a renderer, GPU, network, storage, audio
+     or other utility process, that do not stay; then CEF-IDLE-POSTED-STAYS for the ones above it that stay.
+     Then CEF-IDLE-POSTED-PUMP sets the browser main thread's task rate beside the cmux pump counters.
   5. With --extension-timers [ID] (default the built-in uBlock Origin), INSTEAD of steps 1 to 4: the extension's
      background page (extension_timers.py, p14-energy-108): CEF-IDLE-EXT-TIMER {"kind","event","where","count","per_s"}
      per timer fire (`where` = the callback), arm (`where` = the stack that armed it) and alarm, then CEF-IDLE-EXT
@@ -131,9 +134,58 @@ QUEUE_MIN_WINDOW_S = 1 / QUEUE_MIN_PER_S
 QUEUE_WINDOW_S = 2 * QUEUE_MIN_WINDOW_S
 IDLE_WINDOW_S = 10.0
 TASK_EVENTS = ("ThreadControllerImpl::RunTask", "ThreadPool_RunTask")
-# The browser process's UI thread (content/public/browser/browser_thread.h); in-process CEF runs it on the app's
+# The browser process's UI thread (content/browser/browser_main_loop.cc names it); in-process CEF runs it on the app's
 # main thread, driven by the external pump that debug.cef counts.
 BROWSER_MAIN_THREAD = "CrBrowserMain"
+
+# The trace's process names (base/process/current_process.cc, GetProcessName) and the kind of each.
+PROCESS_KINDS = {
+    "Browser": "browser",
+    "Renderer": "renderer",
+    "GPU Process": "gpu",
+    "Service: network.mojom.NetworkService": "network",
+    "Service: storage.mojom.StorageService": "storage",
+    "Service: audio.mojom.AudioService": "audio",
+    "Service: tracing.mojom.TracingService": "tracing",
+}
+# Q8 covers every thread of the browser process (the app: CrBrowserMain, ThreadPool*Worker, Chrome_IOThread), the
+# renderers (CrRendererMain, Compositor), the GPU process (CrGpuMain, VizCompositorThread), the network, storage and
+# audio services, and any other utility service. Out: the probe's own tracing service, extension renderers (the
+# built-in uBlock Origin is measured as its own kind, p14-energy-108) and processes the trace does not name.
+QUEUE_KINDS = frozenset({"browser", "renderer", "gpu", "network", "storage", "audio", "utility"})
+
+# Q8's seed list, checked against Chromium main: where each candidate posts from, the source that shows it, and the
+# existing switch that turns it off (None: a fork patch into p14-energy-136). The first matching entry wins.
+IDLE_SEEDS = (
+    {"seed": "Media Router discovery", "paths": ("chrome/browser/media/router/", "components/media_router/"),
+     "source": "chrome/browser/media/router/media_router_feature.cc (kMediaRouter, enabled by default)",
+     "switch": "disable-features=MediaRouter"},
+    {"seed": "component updater",
+     "paths": ("components/component_updater/", "components/update_client/", "chrome/browser/component_updater/"),
+     "source": "chrome/browser/chrome_browser_main.cc (RegisterComponentsForUpdate)",
+     # disable-component-update would also drop the CRLSet (registration.cc, RegisterCRLSetComponent).
+     "switch": None},
+    {"seed": "GCM", "paths": ("google_apis/gcm/", "components/gcm_driver/"),
+     "source": "google_apis/gcm/engine/heartbeat_manager.cc", "switch": None},
+    {"seed": "Optimization Guide", "paths": ("components/optimization_guide/", "chrome/browser/optimization_guide/"),
+     "source": "components/optimization_guide/core/optimization_guide_features.cc (kOptimizationHints, "
+               "kOptimizationTargetPrediction, enabled by default)",
+     "switch": "disable-features=OptimizationHints,OptimizationTargetPrediction"},
+    {"seed": "NetworkQualityEstimator", "paths": ("net/nqe/",),
+     "source": "net/base/features.cc (EffectiveConnectionTypeRecomputationInterval, 10 s)", "switch": None},
+    {"seed": "spare renderer", "paths": ("content/browser/renderer_host/spare_render_process_host_manager",),
+     "source": "content/browser/renderer_host/spare_render_process_host_manager_impl.cc (PrepareForFutureRequests)",
+     "switch": "cmux-spare-renderer-after-first-tab"},
+)
+# Locations that are never Q8 items. Safe Browsing and the CRLSet stay on (p14-energy.md, section E); the trace and
+# DevTools work is the probe's own measurement. Checked before IDLE_SEEDS: the CRLSet installer is under
+# chrome/browser/component_updater/.
+STAYS = (
+    {"stays": "CRLSet", "paths": ("chrome/browser/component_updater/crl_set_component_installer", "net/cert/crl_set")},
+    {"stays": "Safe Browsing", "paths": ("components/safe_browsing/", "chrome/browser/safe_browsing/")},
+    {"stays": "probe", "paths": ("services/tracing/", "components/tracing/", "base/trace_event/",
+                                 "content/browser/tracing/", "content/browser/devtools/", "third_party/perfetto/")},
+)
 
 
 def posted_from(args):
@@ -145,15 +197,68 @@ def posted_from(args):
     return f"{origin.get('file_name')}:{origin.get('function_name')}"
 
 
-def posted_rows(tasks, seconds, minimum=0.0):
-    """One row per (process, thread, location), highest per_s first; rows under `minimum` are dropped
-    (compared before rounding, so 0.0199/s stays out of a 0.02 queue)."""
-    rows = [{"process": process, "pid": pid, "thread": thread, "location": location, "per_s": count / seconds}
-            for (process, pid, thread, location), count in tasks.items() if count / seconds >= minimum]
-    rows.sort(key=lambda row: (-row["per_s"], row["process"], str(row["pid"]), row["thread"], row["location"]))
+def process_kind(process, url=""):
+    """The Q8 kind of a trace process; a renderer whose frame is a chrome-extension:// page is `extension`."""
+    if process in PROCESS_KINDS:
+        kind = PROCESS_KINDS[process]
+    elif process.startswith("browser "):  # chromium_summary's name for a pid with no process_name metadata
+        kind = "browser"
+    elif process == "Utility" or process.startswith("Service: "):
+        kind = "utility"
+    else:
+        kind = "other"
+    return "extension" if kind == "renderer" and url.startswith("chrome-extension://") else kind
+
+
+def source_file(location):
+    """The location's path in the Chromium checkout (base/location.cc strips the build directory; a build that
+    keeps it writes ../../)."""
+    path = location.split(":", 1)[0]
+    while path.startswith("../"):
+        path = path[3:]
+    return path
+
+
+def classify(location):
+    """The `stays` or `seed` fields of a location, or none."""
+    path = source_file(location)
+    for entry in STAYS:
+        if path.startswith(entry["paths"]):
+            return {"stays": entry["stays"]}
+    for entry in IDLE_SEEDS:
+        if path.startswith(entry["paths"]):
+            return {"seed": entry["seed"], "switch": entry["switch"]}
+    return {}
+
+
+def posted_rows(tasks, seconds, renderer_urls=None, minimum=0.0):
+    """One row per (kind, process, thread, location), highest per_s first, each naming its process and thread.
+    The processes of one kind add up (one timer in each of 20 renderers is one location at 20 times the rate) and
+    `pids` lists them; threads of one name add up (every ThreadPoolBackgroundWorker). Rows under `minimum` are
+    dropped, compared before rounding, so 0.0199/s stays out of a 0.02 queue."""
+    urls = renderer_urls or {}
+    merged = {}
+    for (process, pid, thread, location), count in tasks.items():
+        kind = process_kind(process, urls.get(str(pid), ""))
+        key = (kind, "Browser" if kind == "browser" else process, thread, location)
+        total, pids = merged.get(key, (0, frozenset()))
+        merged[key] = (total + count, pids | {pid})
+    rows = []
+    for (kind, process, thread, location), (count, pids) in merged.items():
+        if count / seconds < minimum:
+            continue
+        rows.append({"kind": kind, "process": process, "thread": thread, "location": location,
+                     "per_s": count / seconds, "pids": sorted(pids, key=str), **classify(location)})
+    rows.sort(key=lambda row: (-row["per_s"], row["kind"], row["process"], row["thread"], row["location"]))
     for row in rows:
         row["per_s"] = round(row["per_s"], 3)
     return rows
+
+
+def queue_rows(tasks, seconds, renderer_urls=None):
+    """The Q8 work list: locations at or above QUEUE_MIN_PER_S in a QUEUE_KINDS process that do not stay."""
+    return [row for row in posted_rows(tasks, seconds, renderer_urls, QUEUE_MIN_PER_S)
+            if row["kind"] in QUEUE_KINDS and "stays" not in row]
 
 
 def window_seconds(window, queue):
@@ -173,7 +278,7 @@ def queue_window_error(seconds, flag):
 
 def pump_comparison(posted, pump_per_s, early_passes):
     """The browser main thread's posted tasks per second beside the pump's work runs and requests per second."""
-    main_tasks = sum(row["per_s"] for row in posted if row["thread"] == BROWSER_MAIN_THREAD)
+    main_tasks = sum(row["per_s"] for row in posted if row["kind"] == "browser" and row["thread"] == BROWSER_MAIN_THREAD)
     report = {"browser_main_tasks_per_s": round(main_tasks, 3), "early_passes": early_passes}
     for key in ("work_runs", "immediate_requests", "delayed_requests", "reentrant_fires"):
         if key in pump_per_s:
@@ -181,10 +286,19 @@ def pump_comparison(posted, pump_per_s, early_passes):
     return report
 
 
-def print_posted(task_counts, seconds, queue, pump_per_s, early_passes):
-    posted = posted_rows(task_counts, seconds)
-    for row in (posted_rows(task_counts, seconds, QUEUE_MIN_PER_S) if queue else posted):
-        print("CEF-IDLE-POSTED " + json.dumps(row), flush=True)
+def print_posted(task_counts, seconds, queue, pump_per_s, early_passes, renderer_urls=None):
+    """CEF-IDLE-POSTED lines: every location, or with `queue` the Q8 work list and then the locations at or above
+    the threshold that stay (CEF-IDLE-POSTED-STAYS); last CEF-IDLE-POSTED-PUMP."""
+    posted = posted_rows(task_counts, seconds, renderer_urls)
+    if queue:
+        for row in queue_rows(task_counts, seconds, renderer_urls):
+            print("CEF-IDLE-POSTED " + json.dumps(row), flush=True)
+        for row in posted_rows(task_counts, seconds, renderer_urls, QUEUE_MIN_PER_S):
+            if "stays" in row:
+                print("CEF-IDLE-POSTED-STAYS " + json.dumps(row), flush=True)
+    else:
+        for row in posted:
+            print("CEF-IDLE-POSTED " + json.dumps(row), flush=True)
     print("CEF-IDLE-POSTED-PUMP " + json.dumps(pump_comparison(posted, pump_per_s, early_passes)), flush=True)
     return posted
 
@@ -220,7 +334,8 @@ def main():
     parser.add_argument("--trace", help="summarize this recorded chromium-trace.json instead of launching the app")
     parser.add_argument("--seconds", type=float, help="the recorded trace's window in seconds (with --trace)")
     parser.add_argument("--queue", action="store_true",
-                        help=f"print only posting locations at or above {QUEUE_MIN_PER_S}/s (the Q8 work list)")
+                        help=f"print the Q8 work list: posting locations at or above {QUEUE_MIN_PER_S}/s on any "
+                             "browser-process thread or in a renderer, GPU, network, storage, audio or utility process")
     parser.add_argument("--out", default=os.path.join(os.getcwd(), "artifacts", "cef-idle"))
     parser.add_argument("--settle", type=float, default=60)
     parser.add_argument("--window", type=float,
@@ -242,7 +357,8 @@ def main():
             parser.error("--trace needs --seconds > 0")
         if opts.queue and (error := queue_window_error(opts.seconds, "--seconds")):
             parser.error(error)
-        print_posted(chromium_summary(opts.trace, opts.seconds)["task_counts"], opts.seconds, opts.queue, {}, None)
+        summary = chromium_summary(opts.trace, opts.seconds)
+        print_posted(summary["task_counts"], opts.seconds, opts.queue, {}, None, summary["renderer_urls"])
         return
     if not opts.app:
         parser.error("--app is required unless --trace is given")
@@ -316,8 +432,8 @@ def main():
         for row in report["chromium"]["frames"][:20]:
             print("CEF-IDLE-FRAME " + json.dumps(row), flush=True)
         print("CEF-IDLE-RENDERERS " + json.dumps(report["chromium"]["renderer_urls"]), flush=True)
-        report["chromium"]["posted"] = print_posted(task_counts, seconds, opts.queue,
-                                                    report["pump_per_s"], report["early_passes"])
+        report["chromium"]["posted"] = print_posted(task_counts, seconds, opts.queue, report["pump_per_s"],
+                                                    report["early_passes"], report["chromium"]["renderer_urls"])
     except BaseException as error:  # noqa: BLE001 - the report keeps what was read
         report["error"] = f"{type(error).__name__}: {error}"[:500]
         print("CEF-IDLE-ERROR " + report["error"], flush=True)

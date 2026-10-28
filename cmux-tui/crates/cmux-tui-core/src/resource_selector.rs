@@ -268,7 +268,7 @@ pub(crate) fn resolve_resource_selectors(
     let mut target_browser = None;
     let target_tab = match target {
         ResourceTarget::Terminal => {
-            let raw = selectors.terminal.as_deref().expect("target selector checked");
+            let raw = require_selector(selectors.terminal.as_deref(), "terminal")?;
             let (slot, id) = resolve_terminal(
                 state,
                 raw,
@@ -281,7 +281,7 @@ pub(crate) fn resolve_resource_selectors(
             Some(slot)
         }
         ResourceTarget::Browser => {
-            let raw = selectors.browser.as_deref().expect("target selector checked");
+            let raw = require_selector(selectors.browser.as_deref(), "browser")?;
             let (slot, id) = resolve_browser(state, raw, supplied_tab)?;
             target_browser = Some(id);
             Some(slot)
@@ -320,9 +320,10 @@ pub(crate) fn resolve_resource_selectors(
     // A terminal is a session-owned content resource, so it remains
     // addressable after its last tab has been detached. Topology ancestors
     // are present only when this resolution selected a concrete view.
-    if target == ResourceTarget::Terminal && target_pane.is_none() {
-        let terminal_id =
-            target_terminal.as_ref().expect("resolved terminal target omitted its public identity");
+    if target == ResourceTarget::Terminal
+        && target_pane.is_none()
+        && let Some(terminal_id) = target_terminal.as_ref()
+    {
         if let Some(pane) = supplied_pane {
             return Err(wrong_parent(
                 "target",
@@ -501,14 +502,14 @@ fn validate_contiguous_name_current_chains(
         if matches!(Selector::parse(raw)?, Selector::Id(_)) {
             continue;
         }
-        for (missing, parent) in structural[..index].iter().rev() {
+        for (missing, parent) in structural.iter().take(index).rev() {
             if parent.is_none() {
                 return Err(incomplete_chain(kind, missing));
             }
         }
     }
     if target.depth() == 6 {
-        let raw = selectors.at_depth(target, 6).expect("target selector checked");
+        let raw = require_selector(selectors.at_depth(target, 6), target.kind())?;
         if !matches!(Selector::parse(raw)?, Selector::Id(_)) {
             for (missing, parent) in structural.iter().rev() {
                 if parent.is_none() {
@@ -1034,10 +1035,10 @@ fn target_public_id(
 }
 
 fn workspace_by_slot(state: &State, slot: WorkspaceId) -> Result<&crate::Workspace, ResourceError> {
-    let index = state
+    state
         .workspace_index(slot)
-        .ok_or_else(|| ResourceError::not_found("workspace", "<resolved>"))?;
-    Ok(&state.workspaces[index])
+        .and_then(|index| state.workspaces.get(index))
+        .ok_or_else(|| ResourceError::not_found("workspace", "<resolved>"))
 }
 
 fn screen_by_slot(state: &State, slot: ScreenId) -> Result<&crate::Screen, ResourceError> {

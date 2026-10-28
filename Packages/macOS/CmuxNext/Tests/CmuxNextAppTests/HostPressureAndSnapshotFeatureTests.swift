@@ -101,9 +101,9 @@ struct HostPressureAndSnapshotFeatureTests {
         let tab = MockBrowserEngine().makeMockTab(BrowserTabConfiguration())
         defer { tab.close() }
         let compressed = await hibernation.snapshot(tab, key: "a")
-        #expect(compressed != nil && compressed?.data != nil, "the default keeps pictures compressed")
+        #expect(compressed?.isEncoded == true, "the default keeps pictures compressed")
         hibernation.snapshots.keepsCompressed = false
         let decoded = await hibernation.snapshot(tab, key: "a")
-        #expect(decoded != nil && decoded?.data == nil, "off keeps the decoded picture, with no bytes")
+        #expect(decoded?.isEncoded == false, "off keeps the decoded picture, not encoded bytes")
     }
 }

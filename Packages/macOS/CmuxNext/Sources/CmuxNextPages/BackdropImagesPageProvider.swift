@@ -25,6 +25,8 @@ public final class BackdropImagesPageProvider: PageProvider {
     public static let prefix = "cmux.settings.backdrop.image."
 
     private let images: BackdropUserImages
+    /// The lanes the folder is measured and an image removed on.
+    private let lanes: any MayBlockRunner
     private let use: @MainActor (URL) async throws -> String
     private let reveal: @MainActor ([URL]) -> Void
     private let inUse: @MainActor () -> BackdropSelection?
@@ -33,12 +35,15 @@ public final class BackdropImagesPageProvider: PageProvider {
 
     /// `use` copies a file into the folder and makes it the background, returning its id (the
     /// picker's own path, so a link is checked and written as a picked file is).
-    /// `inUse` is the background the app shows now, which remove refuses.
-    public init(images: BackdropUserImages, use: @escaping @MainActor (URL) async throws -> String,
+    /// `inUse` is the background the app shows now, which remove refuses. `files` runs the folder's
+    /// file work on its files lane: a remove at `.userBlocking` (the person clicked), the usage sum at
+    /// `.userVisible` (the page shows it).
+    public init(images: BackdropUserImages, files: any MayBlockRunner, use: @escaping @MainActor (URL) async throws -> String,
                 inUse: @escaping @MainActor () -> BackdropSelection? = { nil },
                 settings: SettingsController? = nil, pickFolder: (@MainActor () async -> URL?)? = nil,
                 reveal: @escaping @MainActor ([URL]) -> Void = { NSWorkspace.shared.revealInBackground($0) }) {
         self.images = images
+        self.lanes = files
         self.use = use
         self.inUse = inUse
         self.settings = settings
@@ -68,7 +73,7 @@ public final class BackdropImagesPageProvider: PageProvider {
                 throw PageError(code: "cmux.settings.backdrop.in_use", message: "the background in use cannot be removed")
             }
             let images = images
-            try await Task.detached { try images.remove(selection) }.value
+            try await lanes.runFiles(.userBlocking) { try images.remove(selection) }
             return try await usage()
         case Self.prefix + "reveal":
             if params["id"] != nil, case .file(let path) = try own(params) {
@@ -100,7 +105,7 @@ public final class BackdropImagesPageProvider: PageProvider {
 
     private func usage() async throws -> JSONValue {
         let images = images
-        let bytes = await Task.detached { images.usage() }.value
+        let bytes = try await lanes.runFiles(.userVisible) { images.usage() }
         return ["bytes": .number(Double(bytes)), "folder": .string(images.folder.path)]
     }
 

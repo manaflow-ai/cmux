@@ -4,6 +4,7 @@ import CmuxNextFiles
 import CmuxNextScreenshots
 import Foundation
 import Testing
+import CmuxNextWakeups
 
 /// Drops into the pane are saved through CmuxNextFiles: files are copied (never moved) under
 /// Finder's Keep Both name, picture data becomes a time-named PNG.
@@ -14,7 +15,7 @@ import Testing
         let file = try source.write("Shot.png")
         try target.write("Shot.png")
         let drop = Drop(droppedFileURLs: [file])
-        let saver = ScreenshotDropSaver()
+        let saver = ScreenshotDropSaver(files: FileOperator(work: BackgroundWork()))
         #expect(saver.canSave(drop))
         #expect(!saver.canSave(Drop()))
         let saved = try await saver.save(drop, into: target.url)
@@ -26,7 +27,7 @@ import Testing
     @Test func aFileFromTheSameFolderIsNotCopiedAgain() async throws {
         let folder = try TemporaryFolder()
         let file = try folder.write("Shot.png")
-        let saved = try await ScreenshotDropSaver().save(Drop(droppedFileURLs: [file]), into: folder.url)
+        let saved = try await ScreenshotDropSaver(files: FileOperator(work: BackgroundWork())).save(Drop(droppedFileURLs: [file]), into: folder.url)
         #expect(saved.isEmpty)
     }
 
@@ -39,7 +40,7 @@ import Testing
         }
         let date = Date(timeIntervalSince1970: 1_800_000_000)
         try target.write(ScreenshotDropSaver.droppedName(at: date))
-        let saver = ScreenshotDropSaver(now: { date })
+        let saver = ScreenshotDropSaver(files: FileOperator(work: BackgroundWork()), now: { date })
         let saved = try await saver.save(Drop(droppedImage: image), into: target.url)
         let name = ScreenshotDropSaver.droppedName(at: date)
         let numbered = (name as NSString).deletingPathExtension + " 2.png"

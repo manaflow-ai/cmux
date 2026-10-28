@@ -62,13 +62,20 @@ public final class MainJobGateDiagnostics: Sendable {
     /// The input of the turn a hop ran in: the kinds pending (``SessionInputPending/Kinds``'s bits)
     /// and whether an event was being dispatched.
     public struct InputTurn: OptionSet, Sendable, Hashable {
+        /// The bits as a number.
         public let rawValue: UInt8
+        /// Bits from their number.
         public init(rawValue: UInt8) { self.rawValue = rawValue }
 
+        /// A key press was pending.
         public static let key = InputTurn(rawValue: 1 << 0)
+        /// A mouse button press was pending.
         public static let click = InputTurn(rawValue: 1 << 1)
+        /// A scroll begin was pending.
         public static let scrollBegin = InputTurn(rawValue: 1 << 2)
+        /// A drag was pending.
         public static let drag = InputTurn(rawValue: 1 << 3)
+        /// An event was in dispatch.
         public static let dispatching = InputTurn(rawValue: 1 << 4)
 
         /// The kinds `pending` names, and ``dispatching`` when `dispatching`.
@@ -249,7 +256,9 @@ extension MainJobGateDiagnostics {
         /// `truncated` (a Swift stack with no site: no entry frame, or none past the runtime) or `runloop.<stretch>`
         /// (unsampled non-Swift callouts).
         public var site: String
+        /// Whether the site is a Swift job or a non-Swift callout.
         public var lane: Lane
+        /// The hops counted at the site.
         public var count: Int
         /// The input kinds of the turns the site's hops ran in (`key`, `click`, `scroll_begin`, `drag`,
         /// `dispatching`).
@@ -266,6 +275,7 @@ extension MainJobGateDiagnostics {
         public var includesSwiftJobs: Bool?
         /// Time in the callouts (non-Swift).
         public var totalMilliseconds: Double?
+        /// The longest callout (non-Swift).
         public var maxMilliseconds: Double?
         /// The site's frame (resolved).
         public var frame: Frame?
@@ -281,7 +291,9 @@ extension MainJobGateDiagnostics {
 
     /// One return address as image + offset: enough to symbolicate with the image's dSYM.
     public struct Frame: Sendable, Encodable, Equatable {
+        /// The image's name.
         public var image: String
+        /// The image's UUID, which names its dSYM; nil when it could not be read.
         public var imageUUID: String?
         /// The return address minus the image's load address.
         public var offset: UInt64

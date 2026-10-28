@@ -42,6 +42,7 @@ public struct VSCodeServeWebProcessLauncher: VSCodeServeWebLaunching {
         // resumes the wait once (no task group waits for a loser).
         let outcome = FirstOutcome<Result<URL, VSCodeServeWebError>>()
         drain(fileDescriptor: pipe.fileHandleForReading.fileDescriptor, into: outcome)
+        // timer-class-allow: off-main: the startup bound only resolves `outcome` (thread-safe) and posts no main-thread job
         let deadline = DemandTimer(owner: "vscode-serve-web.startup")
         deadline.schedule(after: startupTimeout) { outcome.resolve(.failure(.startupTimedOut)) }
         let result = await withTaskCancellationHandler {

@@ -342,6 +342,18 @@ class StartTests(Fixture):
                 self.assertEqual(self.executor(world).start_bisects(), [])
                 self.assertIsNone(self.bisect_row(world))
 
+    def test_a_field_crash_signature_group_is_never_bisected(self) -> None:
+        world = self.world()
+        perf_group = seed_lab(world)
+        stability = _load("perf_lab_stability", LAB / "stability.py")
+        signature = stability.Signature({"id": "102", "short_id": "CMUXTERM-MACOS-1B", "title": "SIGABRT"}, None)
+        (field_group,) = stability.record_groups(world.lab, [signature]).created.values()
+        report = self.executor(world).tick()
+        self.assertEqual(report.problems, [])
+        self.assertEqual([row["alert_group_id"] for row in self.bisect_rows(world)], [perf_group])
+        self.assertEqual(self.group(world, field_group)["state"], "new")
+        self.assertEqual(self.history(world, field_group), [(None, "new")])
+
     def test_a_group_a_sheriff_holds_is_not_moved(self) -> None:
         world = self.world()
         group_id = seed_lab(world)

@@ -52,11 +52,12 @@ final class HomePromisedFiles {
                 sink.yield(Arrival(index: index, url: error == nil ? url : nil))
             }
         }
+        // timer-class-allow: off-main: the drop's race timeout only finishes the arrivals stream (a nonisolated action on the injected clock) and posts no main-thread job
         let deadline = DemandTimer(owner: "home.promisedFiles", clock: clock)
         deadline.schedule(after: timeout) { sink.finish() }
         self.deadline = deadline
-        // task-owner: ends when every file came or at the deadline (`sink.finish()`)
-        files = Task {
+        // task-owner: ends when every file came or at the deadline (`sink.finish()`); off main, it only collects the arrivals
+        files = Task { @concurrent in
             var got: [Arrival] = []
             for await arrival in arrivals {
                 got.append(arrival)

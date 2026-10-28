@@ -1,4 +1,5 @@
 public import Foundation
+import CmuxNextCompat
 
 /// Reads the open tabs of a Chromium session file (`Sessions/Session_<n>`,
 /// or `Current Session` on older versions). The file is an "SNSS" command
@@ -7,14 +8,9 @@ public import Foundation
 /// and window commands gives the tabs that were open, each at its selected
 /// navigation. Encrypted session files (versions 2 and 4) are skipped.
 public struct ChromiumSessionReader {
-    private let fileManager: FileManager
 
-    /// Creates a reader with the filesystem used to discover Chromium sessions.
-    ///
-    /// - Parameter fileManager: Filesystem access for discovery.
-    public init(fileManager: FileManager = FileManager()) {
-        self.fileManager = fileManager
-    }
+    /// Creates a reader of Chromium sessions.
+    public init() {}
 
     // session_service_commands.cc command ids.
     let setTabWindow: UInt8 = 0
@@ -27,7 +23,7 @@ public struct ChromiumSessionReader {
 
     /// The newest `Session_*` file in a profile's `Sessions` folder.
     public func latestSessionFile(in sessions: URL) -> URL? {
-        let names = (try? fileManager.contentsOfDirectory(atPath: sessions.path)) ?? []
+        let names = (try? FileManager.checked.contentsOfDirectory(atPath: sessions.path)) ?? []
         return names.filter { $0.hasPrefix("Session_") }
             .max { (Int64($0.dropFirst(8)) ?? 0) < (Int64($1.dropFirst(8)) ?? 0) }
             .map { sessions.appending(path: $0) }
@@ -36,7 +32,7 @@ public struct ChromiumSessionReader {
     public func sessionFile(profile: URL) -> URL? {
         if let latest = latestSessionFile(in: profile.appending(path: "Sessions")) { return latest }
         let legacy = profile.appending(path: "Current Session")
-        return fileManager.fileExists(atPath: legacy.path) ? legacy : nil
+        return FileManager.checked.fileExists(atPath: legacy.path) ? legacy : nil
     }
 
     private struct Tab {
@@ -50,19 +46,18 @@ public struct ChromiumSessionReader {
     /// The open tabs; a tab with no page to show or an address that is not importable is counted.
     public func parse(_ data: Data) -> ImportRead<ImportedTab> {
         let bytes = [UInt8](data)
-        guard bytes.count >= 8, bytes[0..<4].elementsEqual("SNSS".utf8) else { return ImportRead() }
-        let version = PickleReader.uint32(bytes, at: 4)
-        guard version == 1 || version == 3 else { return ImportRead() }
+        guard bytes.starts(with: "SNSS".utf8), let version = PickleReader.uint32(bytes.dropFirst(4)),
+              version == 1 || version == 3 else { return ImportRead() }
         var tabs: [Int32: Tab] = [:]
         var closedWindows: Set<Int32> = []
-        var offset = 8
-        while offset + 3 <= bytes.count {
-            let size = Int(UInt16(bytes[offset]) | UInt16(bytes[offset + 1]) << 8)
-            guard size >= 1, offset + 2 + size <= bytes.count else { break }
-            let id = bytes[offset + 2]
-            let payload = Data(bytes[(offset + 3)..<(offset + 2 + size)])
-            offset += 2 + size
-            apply(id, payload, to: &tabs, closedWindows: &closedWindows)
+        // Each command is taken from the front of what is left: a uint16 size, then `size` bytes (the id and payload).
+        var rest = bytes.dropFirst(8)
+        while rest.count >= 3 { // wakeup-allow: bounded each pass drops at least 3 bytes
+            let size = rest.prefix(2).littleEndian(as: UInt16.self).widened
+            let command = rest.dropFirst(2).prefix(size)
+            guard size >= 1, command.count == size, let id = command.first else { break }
+            rest = rest.dropFirst(2 + size)
+            apply(id, Data(command.dropFirst()), to: &tabs, closedWindows: &closedWindows)
         }
         let open = tabs.values.filter { !closedWindows.contains($0.window) }
             .sorted { ($0.window, $0.index) < ($1.window, $1.index) }

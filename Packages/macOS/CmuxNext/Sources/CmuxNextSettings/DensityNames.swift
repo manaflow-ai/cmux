@@ -1,4 +1,4 @@
-public import CmuxNextDesign
+public import CmuxNextDesignTokens
 
 /// The localized names of the built-in densities (Settings, the palette and `cmux density list`).
 /// A custom density shows its own name.

@@ -80,18 +80,35 @@ package struct WebKitGestureFreeEvaluation {
 
     /// The script's completion value (main frame), as `WebKitTab.evaluate` returns it.
     package func evaluate(_ script: String, in world: WKContentWorld) async throws -> BrowserJSValue {
+        guard let send = sender(script, in: world) else { throw BrowserTabError.unsupported("evaluation without a user gesture") }
+        return try await answer(send)
+    }
+
+    /// The script's completion value (main frame) to `done` as WebKit answers, on the main thread; nil for an
+    /// error or when no path runs it without a gesture. For a caller that awaits nothing.
+    package func evaluate(_ script: String, in world: WKContentWorld, done: @escaping @MainActor (BrowserJSValue?) -> Void) {
+        guard let send = sender(script, in: world) else { return done(nil) }
+        send { value, error in
+            // main-proof: WebKit calls a script's completion handler on the main thread
+            MainActor.assumeIsolated { done(error == nil ? BrowserJSValue(foundation: value) : nil) }
+        }
+    }
+
+    /// Sends a plain `script` in `world` on the first gesture-free path, its answer to the completion; nil
+    /// when none can run it.
+    private func sender(_ script: String, in world: WKContentWorld) -> ((@escaping Completion) -> Void)? {
         switch path(in: world) {
         case .contentWorld?:
             let send = implementation(of: Self.contentWorldSelector, as: ContentWorldSend.self)
-            return try await answer { send(webView, Self.contentWorldSelector, script as NSString, nil, nil, world, false, $0) }
+            return { send(webView, Self.contentWorldSelector, script as NSString, nil, nil, world, false, $0) }
         case .asyncFunction?:
             let send = implementation(of: Self.asyncFunctionSelector, as: AsyncFunctionSend.self)
-            return try await answer { send(webView, Self.asyncFunctionSelector, script as NSString, false, nil, nil, false, nil, world, $0) }
+            return { send(webView, Self.asyncFunctionSelector, script as NSString, false, nil, nil, false, nil, world, $0) }
         case .pageWorld?:
             let send = implementation(of: Self.pageWorldSelector, as: PageWorldSend.self)
-            return try await answer { send(webView, Self.pageWorldSelector, script as NSString, $0) }
+            return { send(webView, Self.pageWorldSelector, script as NSString, $0) }
         case nil:
-            throw BrowserTabError.unsupported("evaluation without a user gesture")
+            return nil
         }
     }
 

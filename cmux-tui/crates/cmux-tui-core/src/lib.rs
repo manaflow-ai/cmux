@@ -52,6 +52,9 @@ pub mod history_search;
 /// The image paste spool; the cmux-tui-image-paste crate, re-exported at the old path.
 #[cfg(unix)]
 use cmux_tui_image_paste::image_paste;
+/// The test binary's one process hang watch (server/request_hang_watch.rs).
+#[cfg(test)]
+mod hang_watch_test_support;
 mod journal_checkpoint;
 mod journal_hooks;
 mod journal_ingress;
@@ -76,6 +79,7 @@ mod process_trace;
 mod program_status;
 mod prompt_mode_reset;
 pub mod provider_management;
+mod pty_input_fifo;
 mod pty_input_room;
 #[cfg(unix)]
 mod pty_write;
@@ -107,6 +111,8 @@ mod sidebar_resource;
 pub mod sizing_policy;
 mod state;
 pub mod store_schemas;
+/// Every thread this crate starts runs under the process supervisor (p10-stability-112).
+pub mod supervised;
 use cmux_tui_util::stream_interrupt;
 #[cfg(unix)]
 mod holder_runtime;
@@ -143,6 +149,8 @@ pub mod terminal_host;
 pub mod terminal_host_protocol;
 pub mod terminal_host_runtime;
 pub mod thread_qos;
+/// VT worker shard choice by trust class (p01-process task 142).
+pub mod vt_trust_shards;
 #[cfg(unix)]
 pub use cmux_tui_platform::unix_process_scope;
 pub use cmux_tui_util::user_settings;

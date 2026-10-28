@@ -5,17 +5,24 @@
 //! it faster, so a caller renumbers the siblings ([`spread`]) once a key
 //! exceeds [`super::MAX_ORDER_KEY_CHARS`].
 
-const DIGITS: &[u8; 62] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+const DIGITS: &[u8; BASE] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 const BASE: usize = 62;
 /// The first key of an empty list: the middle digit, so both ends have room.
-const FIRST: &str = "V";
+const FIRST: u8 = b'V';
 
 fn digit(byte: u8) -> usize {
     DIGITS.iter().position(|&candidate| candidate == byte).unwrap_or(0)
 }
 
-fn char_of(value: usize) -> char {
-    DIGITS[value] as char
+/// The digit byte of `value % BASE`.
+#[allow(clippy::indexing_slicing, reason = "INVARIANT: value % BASE < BASE, the length of DIGITS")]
+fn digit_byte(value: usize) -> u8 {
+    DIGITS[value % BASE]
+}
+
+/// Keys are built from `DIGITS` bytes, which are ASCII.
+fn key_text(key: Vec<u8>) -> String {
+    key.into_iter().map(char::from).collect()
 }
 
 /// Whether `key` is a well-formed order key.
@@ -24,51 +31,57 @@ pub fn is_valid(key: &str) -> bool {
 }
 
 /// A key after `a`.
-fn after(a: &str) -> String {
-    if a.is_empty() {
-        return FIRST.into();
+fn after(a: &[u8]) -> Vec<u8> {
+    let Some((&first, rest)) = a.split_first() else { return vec![FIRST] };
+    let value = digit(first);
+    if value + 1 < BASE {
+        return vec![digit_byte(value + 1)];
     }
-    let first = digit(a.as_bytes()[0]);
-    if first + 1 < BASE {
-        return char_of(first + 1).to_string();
-    }
-    format!("{}{}", char_of(first), after(&a[1..]))
+    let mut key = vec![digit_byte(value)];
+    key.extend(after(rest));
+    key
 }
 
-/// A key before `b` (non-empty, no trailing zero).
-fn before(b: &str) -> String {
-    let first = digit(b.as_bytes()[0]);
-    if first >= 2 {
-        return char_of(first - 1).to_string();
+/// A key before `b` (no trailing zero). With no digits left there is no
+/// bound, so any key is before it.
+fn before(b: &[u8]) -> Vec<u8> {
+    let Some((&first, rest)) = b.split_first() else { return vec![FIRST] };
+    let value = digit(first);
+    if value >= 2 {
+        return vec![digit_byte(value - 1)];
     }
-    if first == 1 {
-        return if b.len() > 1 { "1".into() } else { "0z".into() };
+    if value == 1 {
+        return if rest.is_empty() { b"0z".to_vec() } else { b"1".to_vec() };
     }
-    format!("0{}", before(&b[1..]))
+    let mut key = vec![b'0'];
+    key.extend(before(rest));
+    key
 }
 
-/// A key strictly between `a` and `b` (`a < b`; `a` may be empty).
-fn midpoint(a: &str, b: &str) -> String {
-    let (a_bytes, b_bytes) = (a.as_bytes(), b.as_bytes());
-    let mut shared = 0;
-    while shared < b_bytes.len() && a_bytes.get(shared).copied().unwrap_or(b'0') == b_bytes[shared]
-    {
-        shared += 1;
+/// A key strictly between `a` and `b` (`a < b`; `a` may be empty). Bounds
+/// out of order get a key after `a`, as in [`between`].
+fn midpoint(a: &[u8], b: &[u8]) -> Vec<u8> {
+    // `a` reads as padded with `0` digits past its end.
+    let padded_a = a.iter().copied().chain(std::iter::repeat(b'0'));
+    let shared = b.iter().zip(padded_a).take_while(|(high, low)| **high == *low).count();
+    let Some((prefix, b_rest)) = b.split_at_checked(shared) else { return after(a) };
+    let Some((&high_byte, b_tail)) = b_rest.split_first() else { return after(a) };
+    let a_rest = a.get(shared..).unwrap_or(&[]);
+    let (low, a_tail) = match a_rest.split_first() {
+        Some((&byte, tail)) => (digit(byte), tail),
+        None => (0, &[][..]),
+    };
+    let high = digit(high_byte);
+    let mut key = prefix.to_vec();
+    if high > low + 1 {
+        key.push(digit_byte((low + high).div_ceil(2)));
+    } else if !b_tail.is_empty() {
+        key.push(high_byte);
+    } else {
+        key.push(digit_byte(low));
+        key.extend(after(a_tail));
     }
-    if shared > 0 {
-        let rest_a = if shared <= a.len() { &a[shared..] } else { "" };
-        return format!("{}{}", &b[..shared], midpoint(rest_a, &b[shared..]));
-    }
-    let low = a_bytes.first().map_or(0, |&byte| digit(byte));
-    let high = digit(b_bytes[0]);
-    if high - low > 1 {
-        return char_of((low + high).div_ceil(2)).to_string();
-    }
-    if b.len() > 1 {
-        return b[..1].to_string();
-    }
-    let rest_a = if a.is_empty() { "" } else { &a[1..] };
-    format!("{}{}", char_of(low), after(rest_a))
+    key
 }
 
 /// A key strictly between `low` and `high` (either may be absent). A bound
@@ -78,13 +91,13 @@ fn midpoint(a: &str, b: &str) -> String {
 pub fn between(low: Option<&str>, high: Option<&str>) -> String {
     let low = low.filter(|key| is_valid(key));
     let high = high.filter(|key| is_valid(key));
-    match (low, high) {
-        (None, None) => FIRST.into(),
-        (Some(low), None) => after(low),
-        (None, Some(high)) => before(high),
-        (Some(low), Some(high)) if low < high => midpoint(low, high),
-        (Some(low), Some(_)) => after(low),
-    }
+    key_text(match (low, high) {
+        (None, None) => vec![FIRST],
+        (Some(low), None) => after(low.as_bytes()),
+        (None, Some(high)) => before(high.as_bytes()),
+        (Some(low), Some(high)) if low < high => midpoint(low.as_bytes(), high.as_bytes()),
+        (Some(low), Some(_)) => after(low.as_bytes()),
+    })
 }
 
 /// Whether keys between `low` and `high` cannot keep the order (a bound is
@@ -123,13 +136,19 @@ pub fn spread(count: usize) -> Vec<String> {
     (1..=count as u128)
         .map(|index| {
             let mut value = index * step;
-            let mut digits = vec![b'0'; width];
-            for slot in (0..width).rev() {
-                digits[slot] = DIGITS[(value % BASE as u128) as usize];
-                value /= BASE as u128;
-            }
-            let text = String::from_utf8(digits).unwrap_or_default();
-            text.trim_end_matches('0').to_string()
+            let mut digits: Vec<u8> = (0..width)
+                .map(|_| {
+                    let byte = digit_byte((value % BASE as u128) as usize);
+                    value /= BASE as u128;
+                    byte
+                })
+                .collect();
+            digits.reverse();
+            key_text(digits).trim_end_matches('0').to_string()
         })
         .collect()
 }
+
+#[cfg(test)]
+#[path = "order_key_tests.rs"]
+mod tests;

@@ -12,7 +12,7 @@ import Darwin
 /// `downloading`, `downloadFailed`, `startFailed`, `shutDown`), where the
 /// runtime came from (`runtime`: Chromium on demand) and the WebKit
 /// fallbacks so far, where Chromium's browser process runs (`backend`:
-/// `inProcess` or `host`), what the fork's page tracker read from host views
+/// `inProcess` or `host`; `host_supervisor`: host mode's one host), what the fork's page tracker read from host views
 /// (`tracker`; in host mode only `tracker.hosted_pages`) and, in process only,
 /// the external pump's counters (`pump`), the page windows over each
 /// DevTools tab (`devtools[].child_windows`) and what swipe gestures asked
@@ -30,6 +30,8 @@ enum DebugCEF {
             "footprint_mb": .number(footprintMegabytes()),
             "spare_window": .string(services.cache.cef.spareWindowState),
             "pages_spare_window": .string(services.cache.cef.pagesSpareWindowState),
+            // Whether the warm-up keeps spare windows (null before it starts); the bench's host arms check it (p01-process-086).
+            "warmup_spare_windows": services.chromiumWarmup.startedPlacement.map { .bool($0.keepsSpareWindows) } ?? .null,
             // A window a spare would have served, built because none was ready (p13-webui-016).
             "window_built_on_key_turn": .number(Double(services.cache.cef.windowsBuiltOnKeyTurn)),
             "engine_start_main_ms": .number(milliseconds(services.cache.cef.engineStartMainThreadTime)),
@@ -53,6 +55,7 @@ enum DebugCEF {
         let backend = services.chromiumRuntime.backend
         object["backend"] = .string(backend.rawValue)
         object["runtime"] = runtime(services.chromiumRuntime)
+        object["host_supervisor"] = hostSupervisor(services.chromiumRuntime.source.hostSupervisor)
         object["devtools"] = .array(devTools(services, pageWindows: ChildPageGeometry.hasPageWindows(backend)))
         object.merge(engineCounters(backend: backend, pump: services.cache.cef.pumpStats,
                                     tracker: services.cache.cef.trackerStats)) { $1 }
@@ -67,7 +70,24 @@ enum DebugCEF {
             .object(["asked": .number(Double(report.asked)), "answered": .number(Double(report.answered)),
                      "waiting": .number(Double(report.waiting))])
         } ?? .null
+        // Feature chromiumHangFollowsVisibility (p01-process-072): each tab's renderer hang; null with the feature off.
+        object["renderer_hangs"] = services.cache.cef.rendererHangs.map { hangs in
+            .array(hangs.map { hang in
+                .object(["browser": .number(Double(hang.browser)), "title": hang.title.map(JSONValue.string) ?? .null,
+                         "prompting": .bool(hang.prompting), "held": .bool(hang.held), "shown": .bool(hang.shown)])
+            })
+        } ?? .null
+        // Host mode with feature chromiumHostLocks (p01-process-229): the key window's page view's locks.
+        let lockPage = (NSApp.keyWindow?.firstResponder as? ChromiumHostPageView)
+        object["host_locks"] = services.cache.cef.hostLocks(page: lockPage).map(hostLocks) ?? .null
+        // Host mode with feature chromiumHostChoosers (p01-process-228): null while cmux shows none of the host's choosers.
+        object["host_choosers"] = services.cache.cef.hostChoosers.map { report in
+            .object(["color_open": .bool(report.colorOpen), "device_choosers": .number(Double(report.deviceChoosers)),
+                     "screen_shares": .number(Double(report.screenShares)), "answers": .number(Double(report.answers))])
+        } ?? .null
         object["host_resize"] = services.cache.cef.hostResizeCounters.map { counters in .object(counters.mapValues { value in .number(value) }) } ?? .null
+        // Host mode with feature chromiumHostHangBanner (p01-process-084): the busy banner's deadline and the host's hangs.
+        object["host_hang"] = services.cache.cef.hostHangCounters.map { counters in .object(counters.mapValues { value in .number(value) }) } ?? .null
         // Swipes over Chromium pages (p01-process-234): a hosted page on a host that acks wheels probes nothing.
         let swipe = services.cache.cef.swipeStats
         object["swipe"] = .object([
@@ -79,6 +99,15 @@ enum DebugCEF {
         if let duration = report.initializeDuration { object["initialize_ms"] = .number(milliseconds(duration)) }
         if let seconds = report.readyAfterLaunch { object["ready_after_launch_s"] = .number(seconds) }
         return .object(object)
+    }
+
+    private static func hostLocks(_ report: CEFHostLocksReport) -> JSONValue {
+        let browser: (Int32?) -> JSONValue = { $0.map { .number(Double($0)) } ?? .null }
+        return .object(["installed": .bool(report.installed), "asked": .number(Double(report.asked)),
+                        "granted": .number(Double(report.granted)), "pointer": browser(report.pointer),
+                        "unadjusted_movement": .bool(report.unadjustedMovement), "cursor_held": .bool(report.cursorHeld),
+                        "keyboard": browser(report.keyboard),
+                        "holds_keys": .bool(report.holdsKeys), "fullscreen": browser(report.fullscreen)])
     }
 
     /// Per shown Chromium tab: its DevTools state, the page and docked
@@ -209,6 +238,8 @@ enum DebugCEF {
             "deferred_for_input": .number(Double(stats.deferredForInput)),
             "pass_ms_p99": .number(stats.passMillisecondsP99),
             "early_passes": .number(Double(stats.earlyPasses)),
+            "frame_deadline_waits": .number(Double(stats.frameDeadlineWaits)),
+            "frame_input_holds": .number(Double(stats.frameInputHolds)),
         ])
     }
 
@@ -223,6 +254,14 @@ enum DebugCEF {
         }, reset: { [weak chromium] in chromium?.built?.resetPumpInputCounters() })
     }
 
+    /// `debug.input` section `chromium`: Chromium's own EventLatency and ScrollJank histograms (p04-input-091),
+    /// read through `Browser.getHistograms` on each read only. Builds no engine: before one exists the section
+    /// says `unavailable: not_started`.
+    static func histogramSource(_ chromium: ChromiumEngineSlot) -> DebugInputSectionSource<ChromiumInputHistograms> {
+        let reader = CEFHistogramReader(engine: chromium)
+        return DebugInputSectionSource(section: .chromium, read: { await reader.read() }, reset: { await reader.reset() })
+    }
+
     /// Per action = the change of each counter over it (scripts/cmux-next/pane-perf-terminal.py --browser).
     private static func trackerReport(_ stats: CEFTrackerStats) -> JSONValue {
         .object([
@@ -233,6 +272,8 @@ enum DebugCEF {
             "clip_ms": .number(stats.clipSeconds * 1_000),
             "geometry_posts": .number(Double(stats.geometryPosts)),
             "hosted_pages": .number(Double(stats.hostedPages)),
+            // Keyed by the page window's kind: "page", "devtools", "popup", "popup_window".
+            "hosted_pages_by_widget": .object(stats.hostedPagesByWidget.mapValues { JSONValue.number(Double($0)) }),
             "hosting_refused": .number(Double(stats.hostingRefused)),
             "hosting_widget_fallbacks": .number(Double(stats.hostingWidgetFallbacks)),
             "hosting_without_track_a": .number(Double(stats.hostingWithoutTrackA)),
@@ -255,11 +296,29 @@ enum DebugCEF {
             "install": .string(service.state.name),
             "fraction": service.state.fraction.map { .number($0) } ?? .null,
             "frameworks": service.source.layout.map { .string($0.frameworksDirectory.path) } ?? .null,
+            // `host` when Chromium tabs run in the Chromium Host (chromium-popups-live.py --window-requests).
+            "backend": .string(service.source.backend.rawValue),
         ]
         if case .failed(let error, let attempt) = service.state {
             object["error"] = .object(["code": .string(error.code), "detail": .string(error.detail), "attempt": .number(Double(attempt))])
         }
         return .object(object)
+    }
+
+    /// Host mode's one supervisor (p01-process-080): its running host's pid, the hosts it started, how they ended
+    /// and why none can start. Null in process. chromium-host-bench.py's profiles row tells its host from others.
+    private static func hostSupervisor(_ supervising: (any ChromiumHostSupervising)?) -> JSONValue {
+        #if DEBUG || CMUX_BENCH_HOOKS
+        guard let supervisor = supervising as? ChromiumHostSupervisor else { return .null }
+        return .object([
+            "pid": supervisor.hostPID.map { .number(Double($0)) } ?? .null,
+            "hosts_started": .number(Double(supervisor.hostsStarted)),
+            "exits": .array(supervisor.exits.map(JSONValue.string)),
+            "start_failure": supervisor.startFailure.map(JSONValue.string) ?? .null,
+        ])
+        #else
+        .null
+        #endif
     }
 
     private static func unavailable(_ reason: CEFUnavailableReason?) -> JSONValue {

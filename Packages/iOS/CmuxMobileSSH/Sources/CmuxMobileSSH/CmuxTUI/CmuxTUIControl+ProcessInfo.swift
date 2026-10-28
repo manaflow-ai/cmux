@@ -14,7 +14,7 @@ extension CmuxTUIControl {
     /// read it (it follows `cd`), otherwise the recorded spawn or
     /// shell-reported directory. `nil` when neither is known.
     public func workingDirectory(surface: Int) async throws -> String? {
-        let info = try await request("process-info", ["surface": .int(surface)], as: CmuxTUIProcessInfoWire.self)
+        let info = try await request(.processInfo, ["surface": .int(surface)], as: CmuxTUIProcessInfoWire.self)
         return [info.foreground_cwd, info.cwd]
             .compactMap { $0 }
             .first { !$0.isEmpty }

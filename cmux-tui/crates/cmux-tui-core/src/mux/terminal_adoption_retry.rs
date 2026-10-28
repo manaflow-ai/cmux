@@ -28,17 +28,21 @@ impl Mux {
             &self.terminal_replays,
             move |mux| {
                 let _end = &end;
+                let panic_log = options.host_panic_log.as_ref();
                 // Retries back off from 100 ms, also after an immediate first try.
                 delay = delay.max(Duration::from_millis(50));
                 // A failed read proves nothing about the host: retry.
-                let Ok(terminal) =
-                    mux.workspace_registry.lock().unwrap().terminal_record(&terminal_id)
+                let Ok(terminal) = mux
+                    .workspace_registry
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .terminal_record(&terminal_id)
                 else {
                     delay = (delay * 2).min(Duration::from_secs(5));
                     return Retry::After(delay);
                 };
                 let Some(terminal) = terminal else {
-                    if cleanup_terminal_host_record(&record, &record_path) {
+                    if cleanup_terminal_host_record(&record, &record_path, panic_log) {
                         return Retry::Done;
                     }
                     delay = (delay * 2).min(Duration::from_secs(5));
@@ -58,7 +62,7 @@ impl Mux {
                         delay = (delay * 2).min(Duration::from_secs(5));
                         return Retry::After(delay);
                     }
-                    if cleanup_terminal_host_record(&record, &record_path) {
+                    if cleanup_terminal_host_record(&record, &record_path, panic_log) {
                         return Retry::Done;
                     }
                     delay = (delay * 2).min(Duration::from_secs(5));
@@ -82,7 +86,7 @@ impl Mux {
                         delay = (delay * 2).min(Duration::from_secs(5));
                         return Retry::After(delay);
                     }
-                    if cleanup_terminal_host_record(&record, &record_path) {
+                    if cleanup_terminal_host_record(&record, &record_path, panic_log) {
                         return Retry::Done;
                     }
                     delay = (delay * 2).min(Duration::from_secs(5));
@@ -131,6 +135,7 @@ impl Mux {
                     let _ = crate::terminal_host_runtime::remove_stale_terminal_host_record(
                         &record_path,
                         &record,
+                        panic_log,
                     );
                     return Retry::Done;
                 }
@@ -190,6 +195,7 @@ impl Mux {
                         let _ = crate::terminal_host_runtime::remove_stale_terminal_host_record(
                             &record_path,
                             &record,
+                            panic_log,
                         );
                         return Retry::Done;
                     }
@@ -215,6 +221,7 @@ impl Mux {
                     let _ = crate::terminal_host_runtime::remove_stale_terminal_host_record(
                         &record_path,
                         &record,
+                        panic_log,
                     );
                     return Retry::Done;
                 }

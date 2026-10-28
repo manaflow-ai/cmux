@@ -24,6 +24,8 @@ cmux-stability = ["cmux-blocking/cmux-stability"]
 [dependencies]
 cmux-blocking.workspace = true
 cmux-panic-log.workspace = true
+# ThreadQos for the named runtimes (cmux_blocking::runtime builders take a name and QoS).
+cmux-threads.workspace = true
 anyhow.workspace = true
 async-trait.workspace = true
 base64.workspace = true

@@ -3,6 +3,7 @@ import CmuxNextInput
 @testable import CmuxNextInputDiagnostics
 import CmuxNextInputCore
 import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -79,13 +80,20 @@ struct DebugInputTests {
         return ledger.snapshot
     }
 
+    /// A main-thread scheduler whose posted turns run as main-actor tasks: the tap section's copy is a posted task.
+    static func mainWork() -> MainWorkScheduler {
+        MainWorkScheduler.testing(ledger: WakeupLedger(), performTurn: { turn in Task { @MainActor in turn() } }) { _ in
+            DebugInputTestLink()
+        }
+    }
+
     static func everySource(tap: InputEventTap, resets: Resets) -> [any DebugInputSource] {
         [
             FixedSource(section: .latency, value: latency(), resets: resets),
             FixedSource(section: .interactions, value: Opaque(count: 1), resets: resets),
             FixedSource(section: .gate, value: gate, resets: resets),
             FixedSource(section: .coalescer, value: Opaque(count: 2), resets: resets),
-            InputTapDebugSource(tap: tap),
+            InputTapDebugSource(tap: tap, mainWork: mainWork()),
             FixedSource(section: .pump, value: pump, resets: resets),
             FixedSource(section: .scrollViews, value: [Opaque(count: 3)], resets: resets),
             FixedSource(section: .chromium, value: Opaque(count: 4), resets: resets),
@@ -161,7 +169,7 @@ struct DebugInputTests {
     }
 
     @Test func aSectionWithoutAProducerIsListedAsAbsent() async throws {
-        let debugInput = DebugInput(sources: [InputTapDebugSource(tap: InputEventTap())])
+        let debugInput = DebugInput(sources: [InputTapDebugSource(tap: InputEventTap(), mainWork: Self.mainWork())])
         let reply = try await debugInput.reply(to: .read(Set(DebugInputSection.allCases)))
         let object = try Self.object(reply)
         #expect(Set(object.keys) == ["tap", "absent"])
@@ -192,6 +200,34 @@ struct DebugInputTests {
         let empty = try Self.decode(InputLatencySnapshot.self, after["latency"])
         #expect(empty == InputLatencyLedger().snapshot)
         #expect(empty.rows.isEmpty)
+        reporter.finish()
+        await reader.value
+    }
+
+    @Test func theInteractionsSectionPairsTheReportersKeysAndResetEmptiesIt() async throws {
+        let reporter = InputLatencyReporter()
+        let reader = Task.detached(priority: .utility) { await reporter.run() }
+        let debugInput = DebugInput(sources: [reporter, InteractionLatencyDebugSource(reporter: reporter)])
+        var press = InputLatencySlot(kind: .keyPress, target: .palette, entrypoint: .person, keyCode: 36)
+        press.generated = 1_000_000
+        press.dispatchEnd = 9_000_000
+        var release = InputLatencySlot(kind: .keyRelease, target: .palette, entrypoint: .person, keyCode: 36)
+        release.generated = 50_000_000
+        release.dispatchEnd = 51_000_000
+        reporter.submit(InputLatencyBatch(slots: [press, release], vsyncNanos: 16_666_667))
+
+        let reply = try await debugInput.reply(to: .read([.interactions]))
+        #expect(reply["absent"] == .array([]))
+        let object = try Self.object(reply)
+        let section = try #require(object["interactions"] as? [String: Any])
+        #expect(Set(section.keys) == ["count", "worst_ms", "high_pct_ms", "kind_of_worst", "target_of_worst"])
+        #expect(try Self.decode(InputLatencySnapshot.Interactions.self, reply["interactions"])
+            == InputLatencySnapshot.Interactions(count: 1, worstMilliseconds: 8, highPercentileMilliseconds: 8,
+                                                 kindOfWorst: "key", targetOfWorst: "palette"))
+
+        _ = try await debugInput.reply(to: DebugInput.Request(params: ["action": .string("reset")]))
+        let after = try await debugInput.reply(to: .read([.interactions]))
+        #expect(try Self.decode(InputLatencySnapshot.Interactions.self, after["interactions"]) == InputLatencySnapshot.Interactions())
         reporter.finish()
         await reader.value
     }
@@ -287,4 +323,11 @@ struct DebugInputTests {
         let reply = try await debugInput.reply(to: .read([.gate]))
         #expect(reply["gate"]?["max_input_wait_behind_jobs_ms"] == .string("inf"))
     }
+}
+
+/// The test scheduler's display link: never fires, the posted turns run the tap's copy.
+@MainActor
+private final class DebugInputTestLink: FrameLink {
+    var isPaused = false
+    func invalidate() {}
 }

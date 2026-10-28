@@ -26,6 +26,8 @@ public final class AppSceneHostingView: NSHostingView<AnyView> {
         sceneAppearance.update(from: self)
     }
 
+    // visibility-walk-allow: resolves the scene's theme colors and writes them only when they change; an app page's copy
+    // sits in a VisibilityGatedHostingView, which holds SwiftUI's update while hidden, and a section shows with its sidebar
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         sceneAppearance.update(from: self)

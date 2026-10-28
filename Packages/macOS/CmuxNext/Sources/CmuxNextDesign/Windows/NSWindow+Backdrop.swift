@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextDesignTokens
 
 extension NSWindow {
     /// The window half of the one backdrop (plans/cmux-next/windows.md):
@@ -29,18 +30,17 @@ extension NSWindow {
         var radius: Int
     }
 
-    private static var appliedBlurKey: UInt8 = 0
+    private static let appliedBlurs = ObjectAssociation<[Int]>()
 
     /// The blur radius last set on this window and the window number it was set on.
     private var appliedBlur: AppliedBlur? {
         get {
-            (objc_getAssociatedObject(self, &Self.appliedBlurKey) as? [Int]).flatMap {
+            Self.appliedBlurs.value(on: self).flatMap {
                 $0.count == 2 ? AppliedBlur(windowNumber: $0[0], radius: $0[1]) : nil
             }
         }
         set {
-            objc_setAssociatedObject(self, &Self.appliedBlurKey, newValue.map { [$0.windowNumber, $0.radius] },
-                                     .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+            Self.appliedBlurs.set(newValue.map { [$0.windowNumber, $0.radius] }, on: self)
         }
     }
 }

@@ -15,9 +15,9 @@ import Testing
 /// that makes the call.
 @Suite(.serialized)
 struct BlockingSyncPrimitiveTests {
-    /// The class is sync-wait, ipc-reply and lock-wait; every other kind may run on a lane.
+    /// The class is sync-wait, ipc-reply, lock-wait and xpc-reply; every other kind may run on a lane.
     @Test func theSyncPrimitiveClassIsTheWaitsForOtherWork() {
-        #expect(BlockingKind.allCases.filter(\.isSyncPrimitive) == [.syncWait, .ipcReply, .lockWait])
+        #expect(BlockingKind.allCases.filter(\.isSyncPrimitive) == [.syncWait, .ipcReply, .lockWait, .xpcReply])
     }
 
     #if DEBUG || CMUX_BLOCKING_CHECKS

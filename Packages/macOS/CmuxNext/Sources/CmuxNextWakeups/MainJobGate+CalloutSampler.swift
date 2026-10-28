@@ -53,6 +53,7 @@ public final class CalloutStackSampler: Sendable {
     /// - Parameter findSite: The site of a sampled stack (tests: a fixed index).
     init(thresholdNanos: UInt64, clock: any Clock<Duration>, findSite: @escaping SiteFinder, sample: @escaping @Sendable () -> [UInt]) {
         threshold = .nanoseconds(thresholdNanos)
+        // timer-class-allow: debug sampler: it samples the main thread's stack, so its deadline runs off main
         deadline = DemandTimer(owner: "input-turn-hops.sampler", clock: clock)
         self.findSite = findSite
         self.sample = sample

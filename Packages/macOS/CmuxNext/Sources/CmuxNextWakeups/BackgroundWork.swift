@@ -36,8 +36,8 @@ import func CmuxSafeConcurrency.withOnceThrowingContinuation
 /// Startup fence: between ``beginBestEffortFence()`` and ``endBestEffortFence()`` posted
 /// ``WorkPriority/idle`` and ``WorkPriority/bestEffort`` items wait, so they do not compete with launch.
 /// An awaited item is never held: someone waits for it, so it runs at once at its own priority. The app
-/// raises it once, through ``raiseLaunchFence(cap:clock:)``, and lowers it at startup complete or after
-/// ``LaunchFence/cap`` (``LaunchFence``).
+/// raises it once, with no cap, through ``raiseLaunchFence(cap:clock:)``, and lowers it at ``StartupPhase``'s
+/// reveal (``LaunchFence``).
 ///
 /// Every lane item is traced from its `fileID` and `line` post to its run (``TaskTrace``, Chrome's `TaskAnnotator`).
 ///
@@ -45,8 +45,8 @@ import func CmuxSafeConcurrency.withOnceThrowingContinuation
 /// tests build their own.
 ///
 /// ```swift
-/// let data = try await work.run(.userVisible, mayBlock: .files) { try Data(contentsOf: url) }
-/// work.post(.bestEffort, mayBlock: .files, shutdown: .blockShutdown) { try? data.write(to: url, options: .atomic) }
+/// let data = try await work.run(.userVisible, mayBlock: .files) { permit in try Data(blockingContentsOf: url, permit) }
+/// work.post(.bestEffort, mayBlock: .files, shutdown: .blockShutdown) { permit in try? data.blockingWrite(to: url, permit, options: .atomic) }
 /// let addresses = try await work.run(.userBlocking, mayBlock: .system) { resolve(host) }
 /// let saves = work.sequence("journal")  // in order, one at a time, on any files slot
 /// saves.post(.bestEffort, shutdown: .blockShutdown) { try? journal.append(entry) }
@@ -182,6 +182,7 @@ public final class BackgroundWork: Sendable {
             case .system: (.shared(width: Self.systemWidth, reserved: Self.systemReserved), true, [.hostResolution: Self.hostResolutionCap])
             // The .cpu lane is sized to the cores: a blocking seam in one of its items is a wrong-lane violation.
             case .cpu: (.shared(width: max(1, cpuWidth)), false, [:])
+            case .bulkFiles: (.shared(width: Self.bulkFilesWidth), true, [:])
             }
             // One registration per slot: items of a lane run at once, and a hang scope nests only on one thread.
             let watching = hangs.map { LaneScheduler.HangWatching(name: Self.hangScopeName(lane), deadline: Self.hangDeadline(lane), watch: $0) }
@@ -216,12 +217,16 @@ public final class BackgroundWork: Sendable {
         times.filter { $0.priority == .userBlocking }.map { $0.wait.percentileNanos(0.99) }.max() ?? 0
     }
 
+    /// How many ``BlockingLane/bulkFiles`` items run at once: a few long disk jobs (Get Info on a home
+    /// folder, a big delete) side by side, and still a bound on the disk work nobody waits for at once.
+    public static let bulkFilesWidth = 4
+
     /// The number of performance cores minus one (at least one), so CPU-bound background work always
     /// leaves a performance core to the main thread and the render threads.
     public static var defaultCPUWidth: Int {
         var cores: Int32 = 0
         var size = MemoryLayout<Int32>.size
-        if sysctlbyname("hw.perflevel0.logicalcpu", &cores, &size, nil, 0) != 0 || cores <= 0 {
+        if blockingSysctlByName("hw.perflevel0.logicalcpu", &cores, &size, nil, 0) != 0 || cores <= 0 {
             cores = Int32(clamping: sysconf(_SC_NPROCESSORS_ONLN))
         }
         return max(1, Int(cores) - 1)
@@ -305,7 +310,7 @@ public final class BackgroundWork: Sendable {
     /// matching ``endBestEffortFence()``. Items that already run finish; higher priorities and awaited
     /// items are not held; held items keep their priority and QoS. Fences nest. Chrome:
     /// `ThreadPoolInstance::BeginBestEffortFence` (base/task/thread_pool/thread_pool_instance.h), raised
-    /// for startup and lowered at startup complete.
+    /// for startup and lowered after it (cmux lowers it at the reveal).
     public func beginBestEffortFence() {
         for lane in lanes { lane.fence() }
     }

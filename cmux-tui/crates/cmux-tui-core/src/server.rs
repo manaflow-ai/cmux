@@ -39,7 +39,6 @@ use std::net::{Shutdown, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Weak};
-use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use anyhow::Context;
@@ -69,15 +68,16 @@ use crate::NotificationSource;
 use crate::SurfaceRenderFrame;
 #[cfg(test)]
 use crate::TreeDeltaKind;
+#[cfg(test)]
+use crate::browser::BrowserFrameUpdate;
 use crate::browser::BrowserMouseDispatch;
 #[cfg(test)]
 use crate::browser::BrowserPointerOwner;
 #[cfg(test)]
-use crate::browser::{BrowserAttachUpdate, BrowserFrameUpdate};
-#[cfg(test)]
 use crate::journal_kernel::JournalDocument;
 use crate::model::{Screen, State};
 use crate::mux::ClientSizingIdentity;
+use crate::panic_free::JsonFields;
 use crate::platform::{self, transport};
 #[cfg(test)]
 use crate::resource::BrowserPublicId;
@@ -122,6 +122,10 @@ pub use browser_runtime::BROWSER_RUNTIME_CAPABILITY;
 mod window_title;
 use window_title::sanitize_window_title;
 pub use window_title::window_title_osc;
+/// `debug-panic` (p09-observability task 101): debug and `--features bench` builds only.
+#[cfg(any(debug_assertions, feature = "bench"))]
+#[path = "server/debug_crash_inject.rs"]
+mod debug_crash_inject;
 #[path = "server/loopback_forward.rs"]
 mod loopback_forward;
 /// `oracle-state` (p15-oracle task 021): debug and `--features oracle` builds only.
@@ -151,6 +155,7 @@ pub mod agent_transfer;
 mod app_trust;
 pub use app_trust::{FrontendKey, frontend_proof, install_frontend_key, read_frontend_key};
 mod client_hello;
+pub use client_hello::{daemon_features, install_daemon_features};
 mod command_args;
 mod frame_dispatch;
 #[cfg(unix)]
@@ -164,6 +169,7 @@ mod orphan_shutdown;
 mod page_router;
 pub use orphan_shutdown::stop_orphaned_owner;
 mod pending_handoff;
+mod pending_streams;
 mod renderer_grant;
 use line_connection::{
     handle_connection_with_permit, serve_line_connection, spawn_connection_reader,
@@ -205,8 +211,10 @@ mod remote_relay;
 mod remote_terminal_tabs_wire;
 #[cfg(test)]
 use remote_relay::handle_connection_message;
+mod attach_streams;
 mod cmd_attach;
 mod cmd_browser;
+mod stream_priority;
 #[cfg(test)]
 use cmd_browser::browser_provider_registration;
 mod cmd_frontend;
@@ -239,6 +247,7 @@ mod responses;
 mod rows;
 mod screen_json;
 mod server_stats;
+pub(crate) use server_stats::{DIAGNOSTIC_SITES_CAPABILITY, forward_diagnostic_sites};
 mod session_stream;
 mod split_kind;
 mod split_respawn;
@@ -274,14 +283,14 @@ use group_outcome_json::{
     workspace_group_json, workspace_groups_json,
 };
 use split_respawn::{frontend_shell, placement_spawn_options, shell_argv, split_tab};
+mod capabilities;
+mod memory_report;
 mod terminal_create;
 mod terminal_history;
 mod terminal_io_wire;
 mod terminal_ports;
 mod terminal_resources;
 mod terminal_snapshot;
-use terminal_snapshot::{attach_overflow_json, handle_attach_send_error, report_attach_overflow};
-mod capabilities;
 pub use capabilities::{build_capabilities, static_capabilities};
 mod daemon_build;
 pub use daemon_build::{
@@ -304,6 +313,8 @@ mod chief_engine_mirror;
 pub(crate) mod energy_op;
 /// The app's Energy Saver rule for the daemon's own reading (p14-energy-137).
 pub(crate) mod energy_rule;
+/// `memory.limit`: the app's memory limit (p07-memory-109).
+pub(crate) mod memory_limit;
 pub(crate) use chief_engine_mirror::{
     engine_file as chief_engine_file, write as write_chief_engine_file,
 };
@@ -1943,6 +1954,9 @@ enum Command {
         identity: Option<ClientIdentityWire>,
         cols: u16,
         rows: u16,
+        /// attach-streams-v1: the view's client-minted stream, checked.
+        #[serde(default)]
+        stream: Option<u16>,
     },
     /// Stop this client from contributing a size for a surface while
     /// retaining its attach stream for cached rendering.
@@ -1956,6 +1970,9 @@ enum Command {
         lease: Option<String>,
         #[serde(default)]
         view: Option<String>,
+        /// attach-streams-v1: the view's client-minted stream, checked.
+        #[serde(default)]
+        stream: Option<u16>,
     },
     /// Close one negotiated view attachment without affecting the terminal or
     /// any other placement or client view.
@@ -1965,6 +1982,9 @@ enum Command {
         lease: Option<String>,
         #[serde(default)]
         view: Option<String>,
+        /// attach-streams-v1: the view's client-minted stream, checked.
+        #[serde(default)]
+        stream: Option<u16>,
     },
     FocusPane {
         pane: PaneId,
@@ -1994,6 +2014,10 @@ enum Command {
     ClientFocus {
         client_id: String,
     },
+    /// Where this daemon's memory goes (server/memory_report.rs): per
+    /// terminal, the registry's consumers and the process footprint. Owner
+    /// only.
+    MemoryReport,
 }
 }
 
@@ -2320,7 +2344,12 @@ const OUTBOUND_CONNECTION_CAPACITY: usize = OUTBOUND_CAPACITY * 16;
 const OUTBOUND_CONNECTION_BYTE_CAPACITY: usize = OUTBOUND_BYTE_CAPACITY * 8;
 const CLIENT_DETACH_WRITE_TIMEOUT: Duration = Duration::from_millis(100);
 const CONNECTION_SURFACE_QUEUE_CAPACITY: usize = 256;
-const CONNECTION_SURFACE_QUEUE_BYTE_CAPACITY: usize = 16 * 1024 * 1024;
+/// The bytes a connection's control sequence may hold queued: two lines of
+/// the largest size the reader accepts (with their `\n`), so any accepted
+/// line fits, also behind another of that size. `Command`s are held to the
+/// daemon's `SERVER_SURFACE_RETAINED_BYTE_CAPACITY` as well
+/// (connection_scheduler.rs, `SequenceBudget`).
+const CONNECTION_SURFACE_QUEUE_BYTE_CAPACITY: usize = 2 * (MAX_JSON_LINE_BYTES + 1);
 const CONNECTION_SURFACE_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(3);
 const SERVER_SURFACE_WORKER_CAPACITY: usize = 16;
 const SERVER_SURFACE_RETAINED_BYTE_CAPACITY: usize = 16 * 1024 * 1024;
@@ -2328,12 +2357,17 @@ const RESOURCE_STREAMS_PER_CLIENT_CAPACITY: usize = 64;
 const RESOURCE_STREAMS_SERVER_CAPACITY: usize = 256;
 const RESOURCE_WAITS_PER_CLIENT_CAPACITY: usize = 8;
 const RESOURCE_WAITS_SERVER_CAPACITY: usize = 64;
+/// Open client-minted attach streams (attach-streams-v1) one connection may
+/// hold, and the daemon across its connections; past either only the open
+/// fails (server/attach_streams.rs).
+const ATTACH_STREAMS_PER_CLIENT_CAPACITY: usize = 4096;
+const ATTACH_STREAMS_SERVER_CAPACITY: usize = ATTACH_STREAMS_PER_CLIENT_CAPACITY * 4;
 
 mod worker_admission;
 pub(crate) use worker_admission::ServerSurfaceOperationAdmission;
 use worker_admission::{
     ResourceWorkerAdmission, ResourceWorkerAdmissionError, ResourceWorkerPermit,
-    ServerSurfaceAdmissionError, ServerSurfaceBytesPermit,
+    ServerSurfaceAdmissionError, ServerSurfaceBytesPermit, WorkerClass,
 };
 
 // The frame variant of the attach writer; no transport serves it yet.
@@ -2348,7 +2382,7 @@ use render_service::{
 use render_service::{OutboundByteBudget, RenderGraphicBase64Cache};
 
 mod message_writer;
-use message_writer::{MessageSink, MessageWriter, OutboundStream};
+use message_writer::{MessageSink, MessageWriter, OutboundStream, RoomWaker};
 
 mod request_watchdog;
 #[cfg(unix)]
@@ -2362,20 +2396,24 @@ pub(crate) use request_watchdog::{
 };
 
 mod connection_scheduler;
+mod sequenced_pool;
+pub(crate) use sequenced_pool::SequencedPool;
+mod stream_lanes;
 #[cfg(test)]
 use connection_scheduler::ConnectionSurfaceState;
 use connection_scheduler::{
-    ConnectionCancellation, ConnectionSurfaceScheduler, PendingSurfaceRequest, run_pending_request,
+    ConnectionBudget, ConnectionCancellation, ConnectionSurfaceScheduler, PendingSurfaceRequest,
+    SequencedItem, run_pending_request,
 };
 
 mod bounded_outbound;
 pub(crate) use bounded_outbound::bulk_frame_max_from_env;
 use bounded_outbound::{
     BoundedOutbound, ConnectionPermit, OutboundItem, QueuedSink, SinkControl,
-    SynchronizedTcpStream, claim_connection, write_line_outbound_item,
+    SynchronizedTcpStream, claim_connection, write_counted_batch,
 };
 #[cfg(test)]
-use bounded_outbound::{ControlOutbound, websocket_server_frame_header};
+use bounded_outbound::{ControlOutbound, websocket_server_frame_header, write_line_outbound_item};
 
 mod client_registry;
 pub(crate) use client_registry::ClientRegistry;
@@ -2467,6 +2505,7 @@ use resource_connection::{
 };
 
 mod connection_frame;
+mod request_hang_watch;
 mod request_head;
 mod request_spans;
 mod request_wait;
@@ -2474,8 +2513,9 @@ mod routes;
 #[cfg(test)]
 use connection_frame::write_vt_state_command_json;
 use connection_frame::{
-    auth_token, constant_time_eq, handle_connection_frame_at, handle_request_with_cancellation,
-    lock_caller_scope, pairing_request, zeroize_string,
+    auth_token, connection_caller, constant_time_eq, debug_assert_off_reader,
+    handle_connection_frame_at, handle_request_with_cancellation, lock_caller_scope,
+    pairing_request, zeroize_string,
 };
 #[cfg(test)]
 use connection_frame::{handle_connection_frame, handle_request};
@@ -2503,7 +2543,7 @@ fn node_json(
                 "b": node_json(b, active_pane, split_ids),
             });
             if let Some(public_id) = split_ids.get(id) {
-                value["split_id"] = json!(public_id);
+                value.insert("split_id", json!(public_id));
             }
             value
         }
@@ -2579,17 +2619,17 @@ use terminal_colors::terminal_colors_json;
 mod render_messages;
 use render_messages::{
     AttachWireShape, RenderClientState, VtStateMessage, browser_state_message,
-    encode_browser_attach_update, render_state_message, send_encoded_browser_attach_update,
-    styled_run_json, write_output_flow_json, write_pending_sequence_json,
+    render_state_message, styled_run_json, write_output_flow_json, write_pending_sequence_json,
 };
 #[cfg(test)]
 use render_messages::{browser_frame_json, render_graphics_message};
 
 mod attach_lifecycle;
 use attach_lifecycle::{
-    AttachWorkerCommit, MarkedClientAttach, attach_response, commit_client_attach_and_start_worker,
-    detach_committed_attach, mark_client_attached, mark_resource_client_attached,
-    rollback_failed_attach, spawn_attach_notification_stream, wait_for_initial_browser_resize,
+    AttachWorkerCommit, MarkedClientAttach, attach_overflow_json, attach_response,
+    commit_client_attach_and_start_worker, detach_committed_attach, handle_attach_send_error,
+    mark_client_attached, mark_resource_client_attached, rollback_failed_attach,
+    wait_for_initial_browser_resize,
 };
 #[cfg(test)]
 use attach_lifecycle::{cleanup_failed_attach, commit_client_attach};
@@ -2614,9 +2654,9 @@ fn list_workspaces_reply(mux: &Mux) -> anyhow::Result<Value> {
     let notifications = mux.tree_decorations();
     let mut workspaces = mux.with_state(|state| workspaces_json(state, &notifications));
     let (registry_id, generation) = mux.registry_identity();
-    workspaces["registry_id"] = json!(registry_id);
-    workspaces["generation"] = json!(generation);
-    workspaces["terminal_revision"] = json!(mux.terminal_registry_revision()?);
+    workspaces.insert("registry_id", json!(registry_id));
+    workspaces.insert("generation", json!(generation));
+    workspaces.insert("terminal_revision", json!(mux.terminal_registry_revision()?));
     Ok(workspaces)
 }
 

@@ -46,7 +46,7 @@ extension TabStripView: TitlebarPressDeciding {
     /// The tabs' trailing edge in the clip, scrolled (for a strip whose +
     /// button is hidden).
     private func tabRunTrailing() -> CGFloat {
-        let ends = cells.values.map(\.frame.maxX) + groups.chips.values.map(\.frame.maxX)
+        let ends = cells.values.map { scroller.shownFrame($0.layer).maxX } + groups.chips.values.map { scroller.shownFrame($0.layer).maxX }
         return max(0, ends.max() ?? 0)
     }
 }

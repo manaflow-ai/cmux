@@ -1,0 +1,18 @@
+{
+	"markdown": {
+		"code": {
+			"scale": 2.25
+		}
+	},
+	"editor": {
+		"autoClosingQuotes": true
+	},
+	"appearance": {
+		"backgroundOpacity": 0.5
+	},
+	"oracleUnknown": {
+		"nested": {
+			"key": [true]
+		}
+	}
+}

@@ -55,7 +55,8 @@ private struct ForwarderScratch {
     func forwarders(searched: @escaping @Sendable (Bool) -> Void) -> CrashForwarders {
         let system = SystemCrashForwarder(directory: root.appending(path: "DiagnosticReports", directoryHint: .isDirectory),
                                           stateFile: root.appending(path: "system-state.json"), bundlePath: root.path,
-                                          mainExecutable: nil, capture: { _ in })
+                                          mainExecutable: nil, hostExeRoot: nil, ownRustBinaries: [], artifacts: nil,
+                                          capture: { _, _ in })
         let owner = OwnerPanicForwarder(log: root.appending(path: "owner-panics-s.jsonl"),
                                         stateFile: root.appending(path: "owner-state.json"), sends: true, capture: { _ in })
         return CrashForwarders(system: system, ownerPanics: owner) {

@@ -1,4 +1,4 @@
-public import CoreGraphics
+public import Foundation
 
 /// One agent cursor name tag a person can click (user, 2026-10-20: the tag
 /// names who drives and where, and a click goes there).

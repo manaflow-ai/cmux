@@ -8,8 +8,10 @@ import os
 /// Starts the local mux brain host (plans/cmux-next/home.md section 4) when
 /// Home first opens: a detached process (its own process group, adopted by
 /// launchd) that is a client of the daemon's conversation owner and of acpmux,
-/// and listens on nothing. It outlives the app; its own pid lock keeps one
-/// instance per mux home, so starting it again is harmless.
+/// and listens on nothing. It outlives the app only while it works: once the
+/// app has exited and the host is idle, it stops (`OPTCHAT_OWNER_APP_PID`,
+/// optchat-chief `owner_app.rs`; quit-persistence.md section 8). Its own pid
+/// lock keeps one instance per mux home, so starting it again is harmless.
 ///
 /// The host is the executable named by `CMUX_NEXT_MUX_HOST` (the TypeScript
 /// `mux`, or a local optchat-chief build), else the OptChat Chief that DEV
@@ -137,6 +139,9 @@ public nonisolated struct HomeBrainHost: Sendable {
         // (optchat-chief acpmux_daemon::Mode::Supervised). Never OPTCHAT_ACPMUX_SHARED: its last
         // Chief to leave ends every session of the daemon, the person's too.
         if usesAppAcpmux { variables["OPTCHAT_ACPMUX_SUPERVISED"] = "1" }
+        // This app: once it exits, an idle host stops with the acpmux it started (optchat-chief
+        // owner_app.rs); live work keeps it. A host this app reuses follows `ChiefHome.ownerAppFile`.
+        variables[Self.ownerAppPidKey] = String(ProcessInfo.processInfo.processIdentifier)
         // No CMUX_MCP_COMMAND: acpmux gives every agent chat, the Chief's
         // turns included, its own `cmux mcp serve` (one server per turn).
         for key in ["USER", "TMPDIR", "MUX_HARNESS"] {
@@ -153,6 +158,9 @@ public nonisolated struct HomeBrainHost: Sendable {
         return ([Bundle.main.resourceURL?.appendingPathComponent("bin").path].compactMap { $0 } + user
             + ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"]).joined(separator: ":")
     }
+
+    /// The variable that names the app a host serves (optchat-chief `owner_app.rs`).
+    static let ownerAppPidKey = "OPTCHAT_OWNER_APP_PID"
 
     /// Spawns the host through a throwaway shell with job control, so it gets
     /// its own process group and is adopted by launchd when the shell exits.
@@ -176,8 +184,9 @@ public nonisolated struct HomeBrainHost: Sendable {
 
     /// Starts the host for a Home that opened. `mintToken` replaces the
     /// owner's agent_mux credential and revokes the binding of the host that
-    /// runs, so it is called only when the host must start.
-    @concurrent public func start(mintToken: @Sendable () async throws -> String) async throws -> StartOutcome {
+    /// runs, so it is called only when the host must start. `runner` is the app's blocking-work lanes (the
+    /// Chief's own acpmux census and end).
+    @concurrent public func start(runner: any MayBlockRunner, mintToken: @Sendable () async throws -> String) async throws -> StartOutcome {
         // cmux NEXT's one-time adoption of its old homes ends before its brain starts (cx-is1kf.9).
         await AcpmuxEnvironment.adoptBuildHomes()
         // A Chief-home acpmux that runs from a replaced bundle (an update replaced the
@@ -198,7 +207,7 @@ public nonisolated struct HomeBrainHost: Sendable {
         // over, and that daemon ends (ChiefAppAcpmuxMove).
         if usesAppAcpmux, let acpmux {
             await ensureAppAcpmux?()
-            let move = ChiefAppAcpmuxMove(home: chiefHome, app: acpmux)
+            let move = ChiefAppAcpmuxMove(home: chiefHome, app: acpmux, runner: runner)
             guard await move.run() else {
                 // It hands off when its turn ends; its exit brings the next start (ChiefBrainWatch).
                 return .reusedRunningHost(pid: ChiefHostStop.runningHostPID(home: chiefHome))
@@ -224,7 +233,7 @@ public nonisolated struct HomeBrainHost: Sendable {
         // A pid the launch could not read: the host's lock names it, so the next start does
         // not take this new host for an old one and restart it.
         if usesAppAcpmux, let acpmux, let marked = pid ?? ChiefHostStop.runningHostPID(home: chiefHome) {
-            ChiefAppAcpmuxMove(home: chiefHome, app: acpmux).mark(pid: marked)
+            ChiefAppAcpmuxMove(home: chiefHome, app: acpmux, runner: runner).mark(pid: marked)
         }
         return .launched(pid: pid)
     }

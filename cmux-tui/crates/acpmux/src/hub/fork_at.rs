@@ -29,7 +29,7 @@ pub(super) fn claude_transcript_through(
     let id = uuid::Uuid::now_v7().to_string();
     let mut lines = Vec::new();
     let mut prompts = 0;
-    for line in BufReader::new(std::fs::File::open(&file)?).lines() {
+    for line in BufReader::new(cmux_blocking::fs::open(&file)?).lines() {
         let Ok(mut record) = serde_json::from_str::<Value>(&line?) else { continue };
         if is_prompt(&record) {
             if written_ms(&record).is_some_and(|at| at >= cut_ms) {
@@ -45,10 +45,7 @@ pub(super) fn claude_transcript_through(
     // Claude started this conversation after that turn (a failover starts
     // one fresh): resuming the copy would hold none of the chat's turns.
     anyhow::ensure!(prompts > 0, "Claude's conversation for this chat starts after that turn");
-    let mut copy = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(file.with_file_name(format!("{id}.jsonl")))?;
+    let mut copy = create_new(&file.with_file_name(format!("{id}.jsonl")))?;
     for line in lines {
         writeln!(copy, "{line}")?;
     }
@@ -75,7 +72,7 @@ pub(super) fn claude_transcript_now(store: &Path, parent: &str) -> anyhow::Resul
     let mut prompts = 0;
     let mut unresolved: Vec<String> = Vec::new();
     let mut last: Option<Value> = None;
-    for line in BufReader::new(std::fs::File::open(&file)?).lines() {
+    for line in BufReader::new(cmux_blocking::fs::open(&file)?).lines() {
         let Ok(mut record) = serde_json::from_str::<Value>(&line?) else { continue };
         prompts += usize::from(is_prompt(&record));
         if let Some(Value::Array(blocks)) = record.pointer("/message/content") {
@@ -125,10 +122,7 @@ pub(super) fn claude_transcript_now(store: &Path, parent: &str) -> anyhow::Resul
         }
         lines.push(serde_json::to_string(&result)?);
     }
-    let mut copy = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(file.with_file_name(format!("{id}.jsonl")))?;
+    let mut copy = create_new(&file.with_file_name(format!("{id}.jsonl")))?;
     for line in lines {
         writeln!(copy, "{line}")?;
     }
@@ -161,7 +155,7 @@ pub(super) fn codex_rollout_through(
     let copy_name = format!("{stem}{id}.jsonl");
     let mut lines = Vec::new();
     let mut turns = 0;
-    for line in BufReader::new(std::fs::File::open(&file)?).lines() {
+    for line in BufReader::new(cmux_blocking::fs::open(&file)?).lines() {
         let Ok(mut record) = serde_json::from_str::<Value>(&line?) else { continue };
         let kind = |key: &str| record.pointer(key).and_then(Value::as_str).map(str::to_owned);
         let (kind, event) = (kind("/type"), kind("/payload/type"));
@@ -182,14 +176,19 @@ pub(super) fn codex_rollout_through(
     // Codex started this thread after that turn (a failover starts one
     // fresh): resuming the copy would hold none of the chat's turns.
     anyhow::ensure!(turns > 0, "Codex's conversation for this chat starts after that turn");
-    let mut copy = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(file.with_file_name(copy_name))?;
+    let mut copy = create_new(&file.with_file_name(copy_name))?;
     for line in lines {
         writeln!(copy, "{line}")?;
     }
     Ok(id)
+}
+
+/// The fork's copy, a new file (never one already there).
+#[allow(clippy::disallowed_methods, reason = "inside scoped_blocking_call")]
+fn create_new(path: &Path) -> std::io::Result<std::fs::File> {
+    cmux_blocking::scoped_blocking_call("fs::open_with", cmux_blocking::BlockingKind::Fs, || {
+        std::fs::OpenOptions::new().write(true).create_new(true).open(path)
+    })
 }
 
 /// A Codex rollout record that opens a turn: `task_started`, written before

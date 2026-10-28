@@ -8,13 +8,13 @@ use cmux_threads::checked::sync as waits;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use ghostty_vt::Callbacks;
 
 use super::super::*;
 use super::clipboard_read::*;
-use super::host_shared::HostShared;
+use super::host_shared::{HostLoop, HostShared};
 use super::host_state::*;
 
 /// State the parser shares with the terminal's callbacks.
@@ -103,19 +103,15 @@ impl HostShared {
 
     /// Waits until the exit is published (`dead`), at most `bound`.
     fn wait_until_dead(&self, bound: Duration) -> bool {
-        let deadline = Instant::now() + bound;
         let (lock, published) = &self.parser_progress;
         // Exit publication sets `dead`, then bumps parser progress under
         // this lock, so a check made under the lock cannot miss the wake.
-        let mut generation = lock.lock().recover_poison();
-        while !self.dead.load(Ordering::Acquire) {
-            let now = Instant::now();
-            if now >= deadline {
-                return false;
-            }
-            generation = published.wait_timeout(generation, deadline - now).recover_poison().0;
-        }
-        true
+        let generation = lock.lock().recover_poison();
+        // wakeup-allow: deadline the panicked parser's one exit bound; the exit's publication ends it first
+        let (_generation, _) = published
+            .wait_timeout_while(generation, bound, |_| !self.dead.load(Ordering::Acquire))
+            .recover_poison();
+        self.dead.load(Ordering::Acquire)
     }
 }
 
@@ -155,12 +151,19 @@ pub(crate) fn run_host_parser(
     let flush_pending_responses = || {
         let responses = std::mem::take(&mut *pending_responses.lock().recover_poison());
         if !responses.is_empty() {
-            let mut writer = parser_host.writer.lock().recover_poison();
+            let mut writer = parser_host.pty_writer();
             let _ = writer.write_all(&responses);
             let _ = writer.flush();
         }
     };
-    while let Ok(command) = waits::recv(&parser_command_receiver) {
+    let hang_watch = HostLoop::Parser.register();
+    // The parser's wait for its next command is idle: it holds no one
+    // else's work at the top of its loop (p02-threads 308).
+    while let Ok(command) = waits::idle_recv(&parser_command_receiver) {
+        // One hang-watch scope per command, after its wait.
+        let _item = HostLoop::Parser.watch(&hang_watch);
+        // The class the daemon set (SetThreadQos), applied on this thread.
+        cmux_threads::apply_pending_qos();
         // One `task.host_parse` slice per command, after its wait: terminal hash, command kind
         // and, for Output, its bytes.
         let _parse = cmux_trace::trace_scope!(

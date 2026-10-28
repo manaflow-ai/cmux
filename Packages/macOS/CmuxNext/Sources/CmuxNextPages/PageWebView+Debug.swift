@@ -228,9 +228,9 @@ extension PageWebView {
         public var hiddenForSeconds: Double?
         /// The document has not finished loading.
         public var loading: Bool
-        /// Parked in ``PageHostPool``'s parking view.
+        /// Waiting in the preload slot's parking (``PagePreloadParkingView``).
         public var parked: Bool
-        /// Made by ``PageHostPool`` (may be rebound to another page).
+        /// Opened parked for the preload slot (``PageOpenRequest/parked``); its routes come with its claim.
         public var pooled: Bool
         /// Router events delivered while hidden (``PageRouter/debugDeliveriesWhileHidden``).
         public var deliveriesWhileHidden: Int

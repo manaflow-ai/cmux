@@ -14,6 +14,7 @@
         clippy::exit
     )
 )]
+#![forbid(unsafe_code)]
 
 mod admission;
 mod config;

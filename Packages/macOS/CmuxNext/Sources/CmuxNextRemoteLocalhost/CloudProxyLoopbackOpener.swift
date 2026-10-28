@@ -13,7 +13,8 @@ public struct CloudProxyLoopbackOpener: LoopbackTunnelOpening {
     private let proxyPort: UInt16
     private let credential: ProxyCredential
     private let handshakeTimeout: Duration
-    private let sleep: @Sendable (Duration) async throws -> Void
+    /// The handshake limit's clock (tests inject a manual one).
+    private let clock: any Clock<Duration>
     // concurrency-allow: Network.framework requires an event-delivery queue; it protects no mutable Swift state.
     private let queue: DispatchQueue
 
@@ -32,11 +33,7 @@ public struct CloudProxyLoopbackOpener: LoopbackTunnelOpening {
             proxyPort: proxyPort,
             credential: credential,
             handshakeTimeout: handshakeTimeout,
-            sleep: { duration in
-                // wakeup-allow: deadline of one network handshake: the injected sleep of the handshake's task-group race
-                // (tests inject it), not a DemandTimer
-                try await ContinuousClock().sleep(for: duration, tolerance: WakeLeeway.window(delay: duration).tolerance)
-            }
+            clock: ContinuousClock()
         )
     }
 
@@ -45,12 +42,12 @@ public struct CloudProxyLoopbackOpener: LoopbackTunnelOpening {
         proxyPort: UInt16,
         credential: ProxyCredential,
         handshakeTimeout: Duration,
-        sleep: @escaping @Sendable (Duration) async throws -> Void
+        clock: any Clock<Duration>
     ) {
         self.proxyPort = proxyPort
         self.credential = credential
         self.handshakeTimeout = handshakeTimeout
-        self.sleep = sleep
+        self.clock = clock
         queue = DispatchQueue(label: "com.cmuxterm.next.cloud-browser-proxy", qos: .userInitiated)
     }
 
@@ -104,21 +101,12 @@ public struct CloudProxyLoopbackOpener: LoopbackTunnelOpening {
 
     private func handshakeResponse(from connection: NWConnection) async throws(LoopbackTunnelFailure) -> (Data, Data) {
         do {
-            // concurrency-allow: the injected sleeper honors cancellation and timeout cancels NWConnection, so both group children exit.
-            return try await withThrowingTaskGroup(of: (Data, Data).self) { group in
-                group.addTask { try await Self.readResponseHead(from: connection) }
-                group.addTask {
-                    // wakeup-allow: deadline of the handshake: a task-group race with the response read, not a DemandTimer
-                    try await sleep(handshakeTimeout)
-                    connection.cancel()
-                    throw LoopbackTunnelFailure.other("Cloud browser proxy handshake timed out")
-                }
-                defer { group.cancelAll() }
-                guard let response = try await group.next() else {
-                    throw LoopbackTunnelFailure.other("Cloud browser proxy connection ended")
-                }
-                return response
+            // The limit is a Deadline race: when it wins, the connection is cancelled, which also ends the read.
+            return try await Deadline(handshakeTimeout, clock: clock).run("cloud-browser-proxy.handshake", onTimeout: { connection.cancel() }) {
+                try await Self.readResponseHead(from: connection)
             }
+        } catch is Deadline.Exceeded {
+            throw .other("Cloud browser proxy handshake timed out")
         } catch let failure as LoopbackTunnelFailure {
             throw failure
         } catch {

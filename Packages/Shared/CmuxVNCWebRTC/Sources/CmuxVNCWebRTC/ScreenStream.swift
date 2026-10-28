@@ -871,16 +871,13 @@ public final class ScreenStreamViewer: Sendable {
         for task in tasks { task.cancel() }
         socket?.close()
         guard let link else { return }
-        guard open, link.sendText(Self.byeMessage) else {
+        guard open else {
             link.close()
             return
         }
-        // Intentional bounded delay: SCTP sends the queued bye before the
-        // connection closes (closing at once can discard it).
-        Task.detached {
-            try? await Task.sleep(for: .milliseconds(200)) // bounded drain before close
-            link.close()
-        }
+        // Returns at once: the bye, its bounded drain and libwebrtc's close
+        // run on the link's close queue, never on the caller's (main) thread.
+        link.close(sendingFirst: Self.byeMessage, drain: .milliseconds(200))
     }
 }
 

@@ -8,9 +8,9 @@ use crate::no_panic::JsonExt;
 use crate::no_panic::LockExt;
 use crate::rpc::{Message, RpcError, method};
 use crate::session_identity::SessionReceipt;
+use crate::supervised::{Fatal, ShutdownBehavior};
 use anyhow::{Context, Result};
 use cmux_local_auth::{ListenerPolicy, Refusal};
-use cmux_panic_log::crash_keys::{self, Key};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
 use std::collections::HashMap;
@@ -94,6 +94,9 @@ pub struct Conn {
     ephemeral: StdMutex<Option<Vec<String>>>,
     /// The media files it opened (`hub/media_read.rs`), closed when it closes.
     media: crate::hub::media_handles::Handles,
+    /// Its vote in the memory registry, once it sent the app's memory limit
+    /// (`memory_control.rs`); withdrawn when the connection ends.
+    pub(crate) memory_vote: std::sync::OnceLock<cmux_memory::Voter>,
 }
 
 // Bound only request handlers that do finite work on behalf of the connection.
@@ -369,7 +372,7 @@ fn enqueue_outbound(
             let out = out.clone();
             pending_controls.fetch_add(1, Ordering::AcqRel);
             let pending_controls = Arc::clone(pending_controls);
-            tokio::spawn(async move {
+            crate::supervised::spawn_scoped(async move {
                 let _ = out.send(line).await;
                 pending_controls.fetch_sub(1, Ordering::AcqRel);
             });
@@ -404,7 +407,7 @@ fn report_outbound_loss_locked(
         let dropped = Arc::clone(dropped);
         let gap_pending = Arc::clone(gap_pending);
         let outbound_lock = Arc::clone(outbound_lock);
-        tokio::spawn(async move {
+        crate::supervised::spawn_scoped(async move {
             let permit = out.reserve().await;
             let Ok(permit) = permit else {
                 gap_pending.store(false, Ordering::Release);
@@ -439,21 +442,20 @@ pub async fn bind_unix(path: &std::path::Path) -> Result<UnixListener> {
     cmux_unix_socket::check_path(path)?;
     if let Some(parent) = path.parent() {
         // Owner-only when created here, like the /tmp fallback directory.
-        use std::os::unix::fs::DirBuilderExt;
-        std::fs::DirBuilder::new().recursive(true).mode(0o700).create(parent)?;
+        tokio::fs::DirBuilder::new().recursive(true).mode(0o700).create(parent).await?;
     }
-    if path.exists() {
+    if tokio::fs::try_exists(path).await.unwrap_or(false) {
         // Refuse to steal a live socket.
         if tokio::net::UnixStream::connect(path).await.is_ok() {
             anyhow::bail!("another acpmux daemon owns {}", path.display());
         }
-        std::fs::remove_file(path)?;
+        tokio::fs::remove_file(path).await?;
     }
     let listener = UnixListener::bind(path).with_context(|| format!("bind {}", path.display()))?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+        tokio::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)).await?;
     }
     tracing::info!("listening on {}", path.display());
     Ok(listener)
@@ -470,7 +472,7 @@ pub async fn serve_unix(hub: Arc<Hub>, listener: UnixListener) -> Result<()> {
             }
         };
         let hub = hub.clone();
-        tokio::spawn(async move {
+        crate::supervised::spawn_scoped(async move {
             // Named by its audit token, read once here, never by pid.
             let peer = {
                 use std::os::fd::AsRawFd;
@@ -645,7 +647,9 @@ pub async fn serve_ws_with(
         let policy = policy.clone();
         let local_app = auth.local_app.clone();
         let peer_auth = auth.peer.clone();
-        tokio::spawn(async move {
+        // A ticket redeems and a paired machine opens on the hub: Fatal, as its connection.
+        let supervising = hub.clone();
+        supervising.supervise("server.ws-connection", Fatal, ShutdownBehavior::Skip, async move {
             let mut head = [0u8; 4096];
             let n = match tokio::time::timeout(HANDSHAKE, stream.peek(&mut head)).await {
                 Ok(Ok(n)) => n,
@@ -796,7 +800,7 @@ pub async fn serve_ws_with(
             // Ends the writer when the server ends the connection itself:
             // other tasks may still hold a clone of `out_tx`.
             let (stop, mut stopped) = tokio::sync::oneshot::channel::<()>();
-            tokio::spawn(async move {
+            crate::supervised::spawn_scoped(async move {
                 loop {
                     let line = tokio::select! {
                         line = out_rx.recv() => line,
@@ -1030,8 +1034,8 @@ pub async fn serve_connection_device(
     serve_connection_from(hub, inbound, out, origin, auth, None, Some(device.id)).await
 }
 
-/// `serve_connection_authed` for a unix socket peer named by its audit token.
-async fn serve_connection_from(
+/// The body of `serve_connection_from` (`connection_task.rs`), under the hub's supervisor.
+async fn serve_connection_body(
     hub: Arc<Hub>,
     mut inbound: mpsc::Receiver<String>,
     out: mpsc::Sender<String>,
@@ -1045,36 +1049,7 @@ async fn serve_connection_from(
         return;
     }
     let Some(_client) = hub.clients.connect() else { return }; // exiting idle (daemon_lifecycle)
-    let raw_text = !peer_text::masks(origin);
-    let conn = Arc::new(Conn {
-        id: uuid::Uuid::now_v7().to_string(),
-        origin,
-        auth,
-        device,
-        raw_text,
-        name: StdMutex::new(String::new()),
-        out,
-        outbound_lock: Arc::new(StdMutex::new(())),
-        outbound_dropped: Arc::new(AtomicU64::new(0)),
-        outbound_gap_pending: Arc::new(AtomicBool::new(false)),
-        outbound_pending_controls: Arc::new(AtomicUsize::new(0)),
-        subs: StdMutex::new(HashMap::new()),
-        mailbox_bindings: StdMutex::new(HashMap::new()),
-        watch_all: AtomicBool::new(false),
-        watch_inventory: StdMutex::new(false),
-        peer,
-        requests: std::sync::atomic::AtomicU64::new(0),
-        challenged: AtomicBool::new(false),
-        nonce: crate::hub::person::new_nonce(),
-        person: AtomicBool::new(false),
-        holds_calls: std::sync::atomic::AtomicU32::new(0),
-        caller: std::sync::OnceLock::new(),
-        unproven_caller: std::sync::OnceLock::new(),
-        agent_tools: std::sync::OnceLock::new(),
-        peer_leases: StdMutex::new(Some(Vec::new())),
-        ephemeral: StdMutex::new(Some(Vec::new())),
-        media: crate::hub::media_handles::Handles::default(),
-    });
+    let conn = Arc::new(Conn::new(origin, auth, device, peer, out));
     tracing::debug!(conn = %conn.id, "client connected");
 
     let fan = fanout::start(hub.clone(), conn.clone());
@@ -1082,20 +1057,7 @@ async fn serve_connection_from(
     let (notification_tx, notification_rx) =
         mpsc::channel::<(String, Value)>(NOTIFICATION_QUEUE_LIMIT);
     let (cancel_tx, cancel_rx) = mpsc::channel::<(String, Value)>(NOTIFICATION_QUEUE_LIMIT);
-    let notification_handler = {
-        let hub = hub.clone();
-        let conn = conn.clone();
-        move |method: String, params| {
-            let hub = hub.clone();
-            let conn = conn.clone();
-            // An agent tool server's notifications are MCP (`agent_mcp.rs`): nothing to do.
-            async move {
-                if conn.agent_tools().is_none() {
-                    handle_notification(&hub, &conn, &method, params).await
-                }
-            }
-        }
-    };
+    let notification_handler = connection_task::notification_handler(&hub, &conn);
     let notification_worker =
         spawn_notification_worker(notification_rx, notification_handler.clone());
     let cancel_worker = spawn_notification_worker(cancel_rx, notification_handler);
@@ -1136,32 +1098,7 @@ async fn serve_connection_from(
                     conn.send(&Message::err(id, refused));
                     continue;
                 }
-                // From the dispatch to the reply queued, on every path out of the task.
-                let slice = crate::trace_layer::RequestSlice::begin(&conn.id, &id, &m);
-                // A panic in the request names its method (cmux-panic-log crash keys):
-                // set on whichever worker polls it, for each poll.
-                let method_key = crash_keys::stable_key(&m);
-                let hub = hub.clone();
-                let conn = conn.clone();
-                tokio::spawn(slice.wrap(crash_keys::keyed(
-                    Key::ActionId,
-                    method_key,
-                    async move {
-                        let _slot = slot;
-                        let params = params.unwrap_or(Value::Null);
-                        let result = match conn.agent_tools() {
-                            // Boxed: the tool calls hold a whole `chats::route` of their own.
-                            Some(tools) => {
-                                Box::pin(agent_mcp::handle(&hub, &conn, tools, &m, params)).await
-                            }
-                            None => chats::route(&hub, &conn, &m, params).await,
-                        };
-                        conn.send(&match result {
-                            Ok(v) => Message::ok(id, v),
-                            Err(e) => Message::err(id, e),
-                        });
-                    },
-                )));
+                request_task::spawn(&hub, &conn, id, m, params, slot);
             }
             // A read-only machine's notifications (a cancel) change nothing.
             Message::Notification { .. } if conn.auth == ConnAuth::ReadOnlyDevice => {}
@@ -1247,6 +1184,8 @@ async fn serve_connection_from(
     // session's kill. A leased peer must not keep reconnecting to a forward port its bridge already
     // closed, which another process could bind (`hub/peer_lease.rs`).
     conn.end_peer_leases(&hub);
+    // The app's memory limit lasts as long as the connection that sent it.
+    crate::memory_control::connection_ended(&conn.memory_vote);
     ephemeral::release_all(&hub, &conn).await;
     tracing::debug!(conn = %conn.id, "client disconnected");
 }
@@ -1454,8 +1393,10 @@ mod worktrees;
 use crate::hub::is_permission_ask;
 pub use pending::{event_value, into_event_value};
 use pending::{peer_permission_pending, permission_pending};
+mod connection_task;
 mod redact;
 pub(crate) mod remote_guard;
+mod request_task;
 mod requests;
 mod routes;
 mod secrets;
@@ -1467,7 +1408,7 @@ mod view;
 mod wait;
 #[cfg(windows)]
 mod windows_socket;
-use requests::handle_notification;
+use connection_task::serve_connection_from;
 
 #[cfg(test)]
 mod request_admission_tests {

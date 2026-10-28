@@ -5,6 +5,7 @@
 // running in an earlier run while the agent messaged others: the row read "Ran cp …" with
 // "⌃B to run in background" beside it, and the line at the bottom read "Thinking".
 import { expect, test } from "bun:test";
+import { fixedPageClock } from "../src/ui/fixedPageClock";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { CommandRow } from "../src/agent-session/acpmux/conversation/CommandRow";
@@ -55,7 +56,13 @@ test("a command still running in an earlier run is the live line, not Thinking u
   expect(
     words(
       withCtrlB(
-        <Thinking doing={line.doing} doingAt={line.doingAt} doingShell command now={() => line.doingAt! + 12_000} />,
+        <Thinking
+          doing={line.doing}
+          doingAt={line.doingAt}
+          doingShell
+          command
+          clock={fixedPageClock(line.doingAt! + 12_000)}
+        />,
       ),
     ),
   ).toBe(`Running ${cp} 12s ⌃B to run in background`);
@@ -102,7 +109,7 @@ test("the older live line (Working for) carries the hint too, even while the com
   const html = withCtrlB(
     <WorkingFor
       row={{ id: "w", kind: "working", version: 1, at: 0, below: true, doingCommand: true }}
-      now={() => 5_000}
+      clock={fixedPageClock(5_000)}
     />,
   );
   expect(html).toContain("cv-command__bg");
@@ -169,7 +176,9 @@ test("the older layout offers no ⌃B while the agent still writes the command",
     );
     const line = shaped.find((entry) => entry.kind === "working")!;
     expect(line.doingDraft).toBe(true);
-    expect(withCtrlB(<WorkingFor row={line} now={() => line.at + 5_000} />)).not.toContain("cv-command__bg");
+    expect(withCtrlB(<WorkingFor row={line} clock={fixedPageClock(line.at + 5_000)} />)).not.toContain(
+      "cv-command__bg",
+    );
   }
 });
 

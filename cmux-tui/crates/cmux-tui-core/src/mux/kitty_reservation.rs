@@ -1,6 +1,7 @@
 //! Kitty image budget reservation for a new terminal.
 
 use super::*;
+use crate::panic_free::RecoverPoison;
 
 /// How long creating a terminal waits for existing terminals to shrink their
 /// Kitty quota before the new terminal starts with graphics disabled (the
@@ -17,7 +18,7 @@ impl Mux {
         surface: SurfaceId,
     ) -> anyhow::Result<KittyImageBudgetReservation> {
         {
-            let mut budget = self.kitty_image_budget.lock().unwrap();
+            let mut budget = self.kitty_image_budget.lock().recover_poison();
             Self::prune_dead_kitty_image_surfaces(&mut budget);
             anyhow::ensure!(
                 !budget.entries.contains_key(&surface),
@@ -37,7 +38,7 @@ impl Mux {
         let deadline = Instant::now() + KITTY_RESERVATION_WAIT;
         let initial_limits =
             loop {
-                let mut budget = self.kitty_image_budget.lock().unwrap();
+                let mut budget = self.kitty_image_budget.lock().recover_poison();
                 if !budget.blocked_surfaces.is_empty() {
                     let entry = budget.entries.get_mut(&surface).ok_or_else(|| {
                         anyhow::anyhow!("Kitty image budget reservation disappeared")
@@ -101,7 +102,7 @@ impl Mux {
                     budget,
                     remaining,
                 )
-                .unwrap();
+                .recover_poison();
                 drop(next);
             };
         Ok(KittyImageBudgetReservation {

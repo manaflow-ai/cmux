@@ -31,7 +31,7 @@ import Testing
         }
         // New Message's suggestion list (a page now, no sheet) floats over the page on the shared
         // overlay glass, not the solid popup surface (Leo 2026-10-21: "STOP DOING SOLID").
-        let suggestions = HomeRecipientSuggestionsView(frame: NSRect(x: 0, y: 0, width: 300, height: 120))
+        let suggestions = HomeRecipientSuggestionsView(pictures: .testing(), frame: NSRect(x: 0, y: 0, width: 300, height: 120))
         scope.root(suggestions)
         suggestions.applyColors()
         #expect((suggestions.table.backgroundColor.usingColorSpace(.sRGB)?.alphaComponent ?? 1) < 0.01)

@@ -160,6 +160,7 @@ public final class HostedChiefMigration {
         runID = run
         runUser = user
         let copy = HostedChiefCopy(http: http, ops: wiring.ops, chief: hosted.id, conversation: main)
+        // main-hop-allow: the migration run is main-actor async over the app's Cloud seams (the token, v1/ops, the owner's history); its HTTP and daemon reads run off main, and each step's notice and ledger write lands on main in its resume
         task = Task { [weak self] in
             await self?.run(copy, user: user, copies: copies, ledger: ledger, muxHome: home.muxHome, run: run)
             guard let self, self.runID == run else { return }
@@ -262,7 +263,8 @@ public final class HostedChiefMigration {
                 let restore = HostedChiefCopy(http: HostedChiefCopy.HTTP(base: copy.http.base, token: fresh), ops: copy.ops,
                                               chief: copy.chief, conversation: copy.conversation)
                 // task-owner: one brain PUT, ends at once
-                Task { @MainActor in try? await restore.setBrain(enabled: true) }
+                // main-hop-allow: HostedChiefCopy is main-actor (its token closure reads the main-actor account); this task only starts the PUT, a URLSession request off main, and outlives the cancelled run on purpose
+                Task { try? await restore.setBrain(enabled: true) }
             }
         }
     }
@@ -287,11 +289,10 @@ public final class HostedChiefMigration {
 
     /// The local Chief conversation's messages, read from the Chief home's owner.
     private static func localHistory(_ owner: ChiefConversationOwner) async throws -> LocalHistory {
-        var connection: DaemonConnection?
-        for await next in ObservationStream({ owner.supports(DaemonCapability.localConversations.rawValue) ? owner.connection : nil }) {
-            if let next { connection = next; break }
+        // The owner's attach answers the wait; a cancelled run ends it.
+        guard let connection = await owner.connection(supporting: DaemonCapability.localConversations.rawValue) else {
+            return .none("no_owner")
         }
-        guard let connection else { return .none("no_owner") }
         let client = ConversationClient(connection)
         guard let local = HomeChiefName.select(from: try await client.list()), local.lastSeq > 0 else { return .none("no_local_history") }
         var messages: [ConversationMessage] = []

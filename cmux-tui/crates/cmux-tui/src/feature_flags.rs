@@ -258,10 +258,16 @@ pub(crate) fn install_daemon_features() -> cmux_features::Snapshot {
 /// shared rule (`cmux_features::sources::daemon_snapshot`, acpmux's too) on the
 /// channel of the app this owner belongs to.
 pub(crate) fn daemon_features() -> cmux_features::Snapshot {
-    let env = |name: &str| std::env::var(name).ok();
-    let exe = std::env::current_exe().ok();
-    let kind = crate::app_identity::AppIdentity::detect(env, exe.as_deref())
-        .map(|identity| identity.build().kind());
+    #[cfg(unix)]
+    let kind = {
+        let env = |name: &str| std::env::var(name).ok();
+        let exe = std::env::current_exe().ok();
+        crate::app_identity::AppIdentity::detect(env, exe.as_deref())
+            .map(|identity| identity.build().kind())
+    };
+    // app_identity is unix-only: no app channel to read elsewhere.
+    #[cfg(not(unix))]
+    let kind = None;
     cmux_features::sources::daemon_snapshot(kind)
 }
 
@@ -277,10 +283,11 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
         use std::os::unix::fs::OpenOptionsExt;
         options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
     }
-    let mut file =
-        options.open(&temp).map_err(|error| format!("write {}: {error}", temp.display()))?;
+    let mut file = crate::blocking::fs::open_with(&options, &temp)
+        .map_err(|error| format!("write {}: {error}", temp.display()))?;
     file.write_all(bytes).map_err(|error| format!("write {}: {error}", temp.display()))?;
-    std::fs::rename(&temp, path).map_err(|error| format!("write {}: {error}", path.display()))
+    cmux_blocking::fs::rename(&temp, path)
+        .map_err(|error| format!("write {}: {error}", path.display()))
 }
 
 #[cfg(test)]

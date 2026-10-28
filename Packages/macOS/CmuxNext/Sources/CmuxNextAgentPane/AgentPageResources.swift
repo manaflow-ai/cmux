@@ -6,7 +6,7 @@ import Foundation
 /// prefixes), as a Chromium WebUI controller owns its page's URL data source
 /// (content/public/browser/url_data_source.h):
 /// - `__lib/<name>`: the chart and diagram libraries (Vega and Vega-Lite, Ondine, and Mermaid 11
-///   as Ondine's fallback), the markdown viewer's bytes (``MarkdownPageResource/library(_:in:)``).
+///   as Ondine's fallback), the markdown viewer's bytes (``MarkdownPageResource/library(_:in:runner:)``).
 /// - `__media/<token>.<ext>`: a video or audio file the host granted (``AgentPaneMediaGrants``), in
 ///   the byte ranges the player asks for, at most ``mediaChunk`` bytes per answer.
 /// - `__render/frame`: the render card's frame document (``AgentPaneRenderFrame``).
@@ -23,11 +23,14 @@ final class AgentPageResources: PageDynamicResourceSource {
     let libraryFolder: URL?
     /// The files the page may play.
     let grants: AgentPaneMediaGrants
+    /// The app's blocking-work lanes: every library and media read runs on its files lane, never on the pool.
+    let runner: any MayBlockRunner
 
     init(libraryFolder: URL? = Bundle.main.resourceURL.map(PageDescriptor.markdownLibraries(inAppResources:)),
-         grants: AgentPaneMediaGrants = .shared) {
+         grants: AgentPaneMediaGrants = .shared, runner: any MayBlockRunner) {
         self.libraryFolder = libraryFolder
         self.grants = grants
+        self.runner = runner
     }
 
     func resource(for request: PageResourceRequest) async -> PageResource? {
@@ -35,11 +38,11 @@ final class AgentPageResources: PageDynamicResourceSource {
         switch request.prefix {
         case MarkdownPageResource.library:
             guard Self.libraries.contains(name), let folder = libraryFolder,
-                  let data = await MarkdownPageResource.library(name, in: folder) else { return nil }
+                  let data = await MarkdownPageResource.library(name, in: folder, runner: runner) else { return nil }
             return PageResource(data: data, mimeType: "text/javascript")
         case AgentPaneMediaGrants.prefix:
             guard let file = grants.file(named: name) else { return nil }
-            return await Self.readSlice(of: file, range: request.range)
+            return await Self.readSlice(of: file, range: request.range, on: runner)
         case AgentPaneRenderFrame.prefix:
             return name == AgentPaneRenderFrame.name ? AgentPaneRenderFrame.resource : nil
         default:
@@ -47,10 +50,9 @@ final class AgentPageResources: PageDynamicResourceSource {
         }
     }
 
-    /// Reads the slice off the main thread.
-    @concurrent nonisolated static func readSlice(of file: URL, range: String?) async -> PageResource? {
-        // concurrency-allow: @concurrent, so this read never runs on the main actor
-        mediaSlice(of: file, range: range)
+    /// Reads the slice on `runner`'s files lane (the player waits for it); nil when the lane refused it (quit began).
+    nonisolated static func readSlice(of file: URL, range: String?, on runner: any MayBlockRunner) async -> PageResource? {
+        (try? await runner.runFiles(.userVisible) { mediaSlice(of: file, range: range) }) ?? nil
     }
 
     /// The part of `file` an HTTP `Range` header asks for (`bytes=a-b`, `bytes=a-` or `bytes=-n`),

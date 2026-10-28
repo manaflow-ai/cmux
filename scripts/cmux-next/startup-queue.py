@@ -16,24 +16,33 @@ Mac and reads what the launch recorded. Each hit names its queue and the task te
   profile     Q6, template 039. From trace.py launch recordings (trace.json.gz, or the directory holding it):
               app symbols with median >= --symbol-ms inclusive on main before --first-frame-mark; main turns
               >= --turn-ms before --until-mark; swift_once initializers and static initializers >= --once-ms.
-  mainjobs    Q11, template 081. From `debug.startup`: each main-job enqueuer with a median >= --job-ms total
+  mainjobs    Q11, template 081. From `debug.startup` and `debug.startup.main_jobs` (task 080; a live run arms
+              the census with CMUX_NEXT_MAIN_JOB_CENSUS=1): each main-job enqueuer with a median >= --job-ms total
               or >= --job-count jobs before --first-frame-mark, and each main turn before --until-mark that ran
-              outside a StartupScheduler task and the allowlist.
+              outside a StartupScheduler task and the allowlist. A run whose census was not armed or whose hook
+              did not install is left out with a warning; a ring that dropped jobs is a warning.
   globaljobs  Q12, template 083. From `debug.startup` and `debug.startup.global_jobs` (task 082; a live run arms
               the census with CMUX_NEXT_GLOBAL_JOB_CENSUS=1): each caller of utility, background or unprioritized
               tasks started on the cooperative pool before --until-mark that is not a BackgroundWork lane job. A
               BackgroundWork.task is listed: it starts at once, outside the launch fence. The census is Swift's global-enqueue hook: GCD blocks (`DispatchQueue.global()`) are not in it. A run
               whose census was not armed or whose hook did not install is left out with a warning; a task the
               census counted and did not keep is a warning.
-  arms        Q13, template 086. From `debug.startup`: each timer, watcher and observer armed before
-              --until-mark, with its median arm and first-fire times.
+  arms        Q13, template 086. From `debug.startup` and `debug.startup.arms` (task 085; a live run arms the census
+              with CMUX_NEXT_ARM_CENSUS=1): each arm made before --until-mark, by kind, owner and creating site, with
+              its median arm and first-fire times and how often it was armed before its first fire. A live run reads
+              the census --settle-s (10) seconds after --until-mark, so first fires to +10 s are in it. Recorded:
+              timers (DemandTimer), main deadlines (MainDeadline, AlignedWakeups.schedule), watchers (FolderChanges,
+              ConfigFileWatcher, FolderWatcher, FileTreeWatcher, ControlSocketPathWatch, RetryWake, the crash
+              forwarders) and system observers (AppEvents on the NSWorkspace and distributed centers). Not yet: the
+              other direct NSWorkspace/distributed observers and DispatchSource/FSEvents watchers (task 116). A run
+              whose census was not armed is left out with a warning; arms past the census's capacity are a warning.
 
 Usage:
   startup-queue.py gaps warm.json --min-ms 5 [--json out.json]
   startup-queue.py blocking raw.json                     analyze a saved capture (any host)
   startup-queue.py blocking --app "$NX_APP" --runs 5 --temperature warm|cold [--raw raw.json] [--json out.json]
   startup-queue.py profile run1/ run2/ ...               or --app: N `trace.py record --scenario launch-<temp>`
-  startup-queue.py mainjobs|globaljobs|arms --app "$NX_APP" --runs 5
+  startup-queue.py mainjobs|globaljobs|arms --app "$NX_APP" --runs 5 [--settle-s 10]
 
 Fleet guard: --app runs only on macOS with a fleet marker, never on a person's Mac; elsewhere it exits 2 before it
 starts anything. Markers: CMUX_CI_STEP_KEY (`cmux-ci run`) or GITHUB_ACTIONS=true (lib/fleet-only.sh's rule), and
@@ -52,17 +61,25 @@ Input contract. All times are ms since process start (the launch-mark clock, Lau
   debug.startup (tasks 008, 080, 082, 085): {"milestones": {mark: ms}, "interrupted"?: bool,
     "main_jobs": [{"caller", "kind", "priority", "enqueued_ms", "run_ms"}],
     "main_turns": [{"start_ms", "duration_ms", "task": name or null, "allowlisted": bool, "site"}],
+    "main_job_census": {"armed", "hook", "dropped_jobs", "dropped_turns", ...},
     "global_jobs": [{"caller", "priority": name or number or null, "lane": name or null, "via": name or null,
                      "enqueued_ms", "run_ms"}],
     "global_job_census": {"armed", "hook", "dropped_tasks", "untracked_tasks", "pending_tasks", ...},
-    "arms": [{"kind", "owner", "site", "armed_ms", "first_fire_ms": ms or null}]}.
+    "arms": [{"kind", "owner", "site", "armed_ms", "count"?, "first_fire_ms": ms or null}],
+    "arm_census": {"armed", "closed", "dropped", "capacity"}}.
     Each census mode needs its arrays in a run (mainjobs: main_jobs and main_turns; globaljobs: global_jobs;
-    arms: arms). A run without them is left out; no run with them exits 2. Task 082's census answers its two keys
+    arms: arms). A run without them is left out; no run with them exits 2. Task 080's census answers its three
+    keys on its own method, `debug.startup.main_jobs` (main_jobs kinds: main_actor, main_delivery,
+    run_loop_block, timer (caller `timer <owner>`), run_loop_sources, run_loop_wake; a caller of `unknown` is a
+    job whose stack held no frame of its enqueuer); a live mainjobs run merges that reply into debug.startup's
+    (which it may lack). Task 082's census answers its two keys
     on its own method, `debug.startup.global_jobs` (one record per task, at its first enqueue on the pool; no `lane`,
     because lane items do not reach the pool; `via` `background_work_task` for a task BackgroundWork.task started,
     which is still a hit; `run_ms` null: the hook sees the enqueue, not the run); a live globaljobs run
-    merges that reply into debug.startup's (which it may lack). global_jobs' priority is null or 0 when
-    the job has none (082); 21 / default / medium (what a Task.detached or a DispatchQueue.global()
+    merges that reply into debug.startup's (which it may lack). Task 085's census answers `arms` and `arm_census` on
+    `debug.startup.arms` (one record per armed object: its first arm, `count` arms before its first fire, the first
+    fire whenever it came, also after completion) and a live arms run merges it the same way. global_jobs' priority
+    is null or 0 when the job has none (082); 21 / default / medium (what a Task.detached or a DispatchQueue.global()
     with no priority runs at) is counted as `default`.
   `launch.interrupted` (a mark, or the result's `interrupted`) means interrupted when present and not false or
   null; a mark at 0 ms counts.
@@ -90,6 +107,7 @@ import statistics
 import subprocess
 import sys
 import tempfile
+import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 FIRST_FRAME = "first_window_frame_committed"
@@ -111,14 +129,21 @@ GLOBAL_PRIORITIES = {"utility": "utility", "low": "utility", 17: "utility", "bac
 VALUE_MARKS = frozenset({"launch.temperature", "launch.pageins_run_loop_start", "launch.pageins_first_frame",
                          "launch.main_cpu_ms", "launch.interrupted", "launch.sidebar_rows_built",
                          "launch.sidebar_rows_visible", "launch.views_built", "launch.first_frame_threads",
-                         "launch.first_frame_runtime_threads", "launch.first_frame_ghostty_threads"})
+                         "launch.first_frame_runtime_threads", "launch.first_frame_ghostty_threads",
+                         "launch.action_catalog_main_wait_us", "launch.action_catalog_main_read_us"})
 INTERRUPTED = "launch.interrupted"
 # A live launch takes its window as a person's launch does; a noActivate launch is interrupted (task 108).
 LIVE_ENV = {"CMUX_NEXT_NO_ACTIVATE": "0"}
 # What a census mode adds to a live run: the environment that arms its recorder and the method that answers it (task
-# 082's global-job census is off unless armed, so the startup benches measure a launch without it).
-MODE_ENV = {"globaljobs": {"CMUX_NEXT_GLOBAL_JOB_CENSUS": "1"}}
-MODE_METHOD = {"globaljobs": "debug.startup.global_jobs"}
+# 080's main-job census, 082's global-job census and 085's arm census are off unless armed, so the startup benches
+# measure a launch without them).
+MODE_ENV = {"mainjobs": {"CMUX_NEXT_MAIN_JOB_CENSUS": "1"}, "globaljobs": {"CMUX_NEXT_GLOBAL_JOB_CENSUS": "1"},
+            "arms": {"CMUX_NEXT_ARM_CENSUS": "1"}}
+MODE_METHOD = {"mainjobs": "debug.startup.main_jobs", "globaljobs": "debug.startup.global_jobs",
+               "arms": "debug.startup.arms"}
+# How long a live run of a mode keeps the app running after --until-mark before it reads the app (--settle-s): the arm
+# census writes each first fire whenever it comes, so arms reads the launch to +10 s (test_phase of task 085).
+MODE_SETTLE_S = {"arms": 10.0}
 # Initializer frames (the frame under swift_once names its owner; a C++ or ObjC static initializer).
 STATIC_INIT = ("one-time initialization function for", "static initializer for", "_GLOBAL__sub_I",
                "__cxx_global_var_init", "globalinit_")
@@ -520,8 +545,31 @@ def census_runs(runs, marks_needed, fields):
     return kept, warnings
 
 
+def census_state(runs):
+    """The runs whose main-job census recorded (task 080's `main_job_census`), and why others were left out. A result
+    with no summary (a saved file from before it) is kept; one that says not armed, or a hook that did not install
+    (no main-actor job recorded), is not a census."""
+    kept, warnings = [], []
+    for index, run in enumerate(runs):
+        state = run["result"].get("main_job_census")
+        if not isinstance(state, dict):
+            kept.append(run)
+        elif state.get("armed") is False:
+            warnings.append(f"run {index + 1}: the main-job census was not armed (CMUX_NEXT_MAIN_JOB_CENSUS=1), left out")
+        elif state.get("hook") not in (None, "installed"):
+            warnings.append(f"run {index + 1}: main-actor job hook {state.get('hook')}, left out")
+        else:
+            for field, what in (("dropped_jobs", "jobs"), ("dropped_turns", "turns"), ("dropped_segments", "run-loop stretches")):
+                if number(state.get(field)):
+                    warnings.append(f"run {index + 1}: the census ring was full: {state[field]:g} {what} not recorded")
+            kept.append(run)
+    return kept, warnings
+
+
 def mainjobs_hits(runs, first_frame_mark, until_mark, job_ms, job_count):
-    kept, warnings = census_runs(runs, (first_frame_mark, until_mark), CENSUS_FIELDS["mainjobs"])
+    armed, refused = census_state(runs)
+    kept, warnings = census_runs(armed, (first_frame_mark, until_mark), CENSUS_FIELDS["mainjobs"])
+    warnings = refused + warnings
     totals, counts = collections.defaultdict(list), collections.defaultdict(list)
     turns = collections.defaultdict(lambda: {"runs": 0, "durations": []})
     for run in kept:
@@ -623,8 +671,26 @@ def globaljobs_hits(runs, until_mark):
     return hits, warnings, len(kept)
 
 
+def arm_census_state(runs):
+    """The runs whose arm census recorded (task 085's `arm_census`), and why others were left out. A result with no
+    summary (a saved file from before it) is kept; one that says not armed recorded nothing. Arms past the census's
+    capacity are a warning."""
+    kept, warnings = [], []
+    for index, run in enumerate(runs):
+        state = run["result"].get("arm_census")
+        if isinstance(state, dict) and state.get("armed") is False:
+            warnings.append(f"run {index + 1}: the arm census was not armed (CMUX_NEXT_ARM_CENSUS=1), left out")
+            continue
+        if isinstance(state, dict) and number(state.get("dropped")):
+            warnings.append(f"run {index + 1}: the census did not keep {state['dropped']:g} arms past its capacity")
+        kept.append(run)
+    return kept, warnings
+
+
 def arms_hits(runs, until_mark):
-    kept, warnings = census_runs(runs, (until_mark,), CENSUS_FIELDS["arms"])
+    armed_runs, refused = arm_census_state(runs)
+    kept, warnings = census_runs(armed_runs, (until_mark,), CENSUS_FIELDS["arms"])
+    warnings = refused + warnings
     arms = {}
     for index, run in enumerate(kept):
         complete = cutoff(run["marks"], until_mark)
@@ -633,8 +699,9 @@ def arms_hits(runs, until_mark):
             if armed is None or armed >= complete:
                 continue
             key = (str(arm.get("kind", "?")), str(arm.get("owner", "?")), str(arm.get("site", "?")))
-            entry = arms.setdefault(key, {"armed": [], "fires": [], "runs": set()})
+            entry = arms.setdefault(key, {"armed": [], "fires": [], "counts": [], "runs": set()})
             entry["armed"].append(armed)
+            entry["counts"].append(number(arm.get("count")) or 1)
             entry["runs"].add(index)
             fire = number(arm.get("first_fire_ms"))
             if fire is not None:
@@ -643,10 +710,13 @@ def arms_hits(runs, until_mark):
     for (kind, owner, site), entry in arms.items():
         armed = statistics.median(entry["armed"])
         fire = round(statistics.median(entry["fires"]), 1) if entry["fires"] else None
+        rearms = statistics.median(entry["counts"])
         hits.append({"kind": kind, "owner": owner, "site": site, "runs": len(entry["runs"]),
                      "count": len(entry["armed"]), "p50_armed_ms": round(armed, 1), "p50_first_fire_ms": fire,
+                     "fired": len(entry["fires"]), "p50_arms_before_fire": rearms,
                      "summary": f"{kind} {owner} at {site}: armed p50 {armed:.0f} ms, first fire "
-                                f"{'never' if fire is None else f'p50 {fire:.0f} ms'}, {len(entry['runs'])}/{len(kept)} runs"})
+                                f"{'never' if fire is None else f'p50 {fire:.0f} ms'} ({len(entry['fires'])} of "
+                                f"{len(entry['armed'])}), {rearms:g} arms before it, {len(entry['runs'])}/{len(kept)} runs"})
     hits.sort(key=lambda hit: (-hit["runs"], hit["p50_armed_ms"]))
     return hits, warnings, len(kept)
 
@@ -701,9 +771,10 @@ def query(bench, tag, method, required=True):
 
 
 def collect(bench, app, runs, temperature, until_mark, timeout, method, purge_cache=purge, extra_method=None,
-            extra_env=None):
-    """N launches; each is read with `method` once `until_mark` arrived on the mark pipe, then quit. With
-    `extra_method` that method's result is merged in and `method` may be missing; `extra_env` is added to each launch.
+            extra_env=None, settle_s=0.0, sleep=time.sleep):
+    """N launches; each is read with `method` once `until_mark` arrived on the mark pipe and `settle_s` more seconds
+    passed, then quit. With `extra_method` that method's result is merged in and `method` may be missing;
+    `extra_env` is added to each launch.
 
     At the end it stops only the tag's processes it started (a warm daemon that ran before is left running; a
     cold run stops the daemon before each launch, as cold means) and removes its scratch folders."""
@@ -724,6 +795,8 @@ def collect(bench, app, runs, temperature, until_mark, timeout, method, purge_ca
                 if not launch.wait_for(until_mark, timeout):
                     raise QueueError(f"run {index + 1}: {until_mark} never arrived within {timeout:g} s "
                                      "(pass --until-mark for a build without it)")
+                if settle_s > 0:
+                    sleep(settle_s)
                 result = query(bench, tag, method, required=extra_method is None)
                 if extra_method:
                     result = {**result, **query(bench, tag, extra_method)}
@@ -764,6 +837,9 @@ def parse(argv):
     parser.add_argument("--temperature", choices=["warm", "cold"], default="warm")
     parser.add_argument("--timeout", type=float, default=60.0, help="seconds per launch to reach --until-mark")
     parser.add_argument("--until-mark", default=COMPLETE)
+    parser.add_argument("--settle-s", type=float,
+                        help="--app: seconds the app keeps running after --until-mark before it is read (default: "
+                             "10 for arms, so first fires after completion are recorded; 0 for the other modes)")
     parser.add_argument("--first-frame-mark", default=FIRST_FRAME)
     parser.add_argument("--mode-filter", help="gaps: only this bench-startup mode (cold, warm, ...)")
     parser.add_argument("--min-ms", type=float, default=5.0, help="gaps: the smallest median gap kept")
@@ -780,9 +856,16 @@ def parse(argv):
     args = parser.parse_args(argv)
     if bool(args.app) == bool(args.inputs):
         parser.error("give saved input files or --app, not both and not neither")
+    if args.settle_s is not None and args.settle_s < 0:
+        parser.error("--settle-s must be 0 or more")
     if args.app and args.mode == "gaps":
         parser.error("gaps reads bench-startup.py --json files (run bench-startup.py for new ones)")
     return args
+
+
+def settle_seconds(args):
+    """--settle-s, or the mode's default (MODE_SETTLE_S)."""
+    return MODE_SETTLE_S.get(args.mode, 0.0) if args.settle_s is None else args.settle_s
 
 
 def live_inputs(args, env, system):
@@ -795,7 +878,8 @@ def live_inputs(args, env, system):
     bench = load_bench_startup()
     bench.require_gui_session("startup-queue")
     runs = collect(bench, args.app, args.runs, args.temperature, args.until_mark, args.timeout, method_of(args.mode),
-                   extra_method=MODE_METHOD.get(args.mode), extra_env=MODE_ENV.get(args.mode))
+                   extra_method=MODE_METHOD.get(args.mode), extra_env=MODE_ENV.get(args.mode),
+                   settle_s=settle_seconds(args))
     if args.raw:
         with open(args.raw, "w") as out:
             json.dump({"mode": args.mode, "app": os.path.basename(args.app), "runs": runs}, out, indent=1)

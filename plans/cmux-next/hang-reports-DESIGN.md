@@ -229,6 +229,21 @@ check only for a value that is exactly a member of its own field's closed set
 (`PrivacyLeakScanner.closedSetValues`); every other string, image names included, keeps the
 full term list, so a person named Mina still makes a `MinaTools.dylib` frame `other`.
 
+`interaction_latency` (p04-input-097, schema 3, optional) is cmux's Interaction to Next Paint
+(web.dev/articles/inp) from the same field ledger:
+`{"count": 120, "worst_ms": 300, "high_pct_ms": 40, "kind_of_worst": "key"}`. A key press and the
+release of the same key code are one interaction (a key with no release closes at the next key
+press), a mouse press and its release are a `tap`, or a `drag` when it dragged in between; each is
+as long as its longest event, measured to the presented frame, or to the commit or dispatch end
+when nothing changed on screen. Scrolls, moves and automation are not interactions
+(third_party/blink/renderer/core/timing/responsiveness_metrics.cc). `count` is the interactions
+closed in the period, `worst_ms` the longest, `high_pct_ms` the longest after ignoring one for each
+50 from a fixed list of the 11 worst (components/page_load_metrics/browser/
+responsiveness_metrics_normalization.cc), at most `worst_ms`; milliseconds have two decimals and
+are at most one day. `kind_of_worst` is `key`, `tap` or `drag`. The target of the worst stays in
+`debug.input` (section `interactions`) and never leaves the Mac. Absent with no interaction; an
+interaction still open when a report takes its counts goes into the report it closes in.
+
 The field ledger is the reporter's own (`debug.input reset` never changes what a report says)
 and follows the report's on/off state: `HangReportService.setEnabled` calls
 `HangReportInputLatencySource.setRecording`, so off drops every count not yet sent and nothing
@@ -334,8 +349,11 @@ with that run's profile (components/metrics/file_metrics_provider.cc). The keys 
   report decoded from disk with another name is refused. `unit` (`us`, `ms`, `kib`, `count`, `pct`, `enum`)
   and `max` (the layout's ceiling, or the value count of an enumeration) give the bucket layout. With more
   than 24 buckets, `count` and `sum` are those of the kept buckets, and the rest goes in a later report.
-  A report sends only the samples since the last queued report. A sample is marked as sent only when its
-  report is queued.
+  A report sends only the samples that no earlier report sent. A queued report holds its field data: until
+  the server answers it, a later report carries no field data (no histograms, stability counts or launch
+  section). The app marks the samples as sent when the server accepts the report or refuses it for good
+  (400, 413, 422), so a refused report's samples never come again. A queued report that is dropped unsent
+  (this build's rules or leak scan refuse it, or it is past its age) gives its samples back to the next report.
 - `stability{}`: only the non-zero counts. `launch` and `active_seconds` are the denominators.
   `unclean_exit` is by `HistogramID.UncleanExit` (`crash`, `system_shutdown`, `killed`, `fatal_hang`),
   `child_exit` by process kind and then exit kind, and `daemon_unresponsive` by the method class of the
@@ -351,7 +369,8 @@ with that run's profile (components/metrics/file_metrics_provider.cc). The keys 
 - `launch_sections[]`: at most one per report. At launch the app folds each earlier launch's metrics file
   off main (`MetricsLaunchFold`). The section's `id` is a UUID-shaped digest of that launch's id, so the
   launch's pid, start time and boot session never leave the Mac. The server counts a section that comes
-  twice only once. The app deletes the launch's file only after the server took the report.
+  twice only once. The app deletes the launch's file when the server accepts or refuses (400, 413, 422) the
+  report that holds its section. The app deletes an empty earlier launch's file at once, with no report.
 - Body cap: 48 KiB for schema 3 (`HangReport.WireSchema.maxBodyBytes`). The cut order is: the black box (the
   oldest records first), then the input latency, then the launch sections, then the histograms with the
   fewest samples, then the shortest hangs, CPU exceptions and intervals. The stability counts stay.

@@ -6,6 +6,7 @@ use std::collections::{HashMap, HashSet};
 use super::{Mux, ResourceMutationMetrics, ResourceMutationPlan};
 use crate::browser::{BrowserSource, BrowserStatus};
 use crate::model::{Node, State};
+use crate::panic_free::{JsonFields, RecoverPoison};
 use crate::resource::{
     ContentPublicId, PanePublicId, SplitPublicId, TabPublicId, TabResourceIdentity,
     TerminalPublicId,
@@ -16,7 +17,7 @@ use crate::workspace_registry::{
     RegistryLayoutNode, RegistryPane, RegistryTab, RegistryWorkspace, ResourceChange,
     ResourcePatch, ResourcePatchCommit, WorkspaceMutation, WorkspaceRegistry,
 };
-use crate::{ResourceSelectors, ResourceTarget, SurfaceId};
+use crate::{PaneId, ResourceSelectors, ResourceTarget, ScreenId, SurfaceId, WorkspaceId};
 use live_screen::registry_screen_from_live;
 use published_screens::PublishedScreens;
 pub(crate) use split_ids::ensure_screen_split_public_ids;
@@ -133,22 +134,19 @@ impl Mux {
                     "destination pane active-tab projection is inconsistent"
                 );
                 let final_index = index.min(tabs.len());
-                tabs.insert(
-                    final_index,
-                    RegistryTab {
-                        name_source: Default::default(),
-                        name_revision: 0,
-                        public_id: tab_id.clone(),
-                        pane_id: pane_id.clone(),
-                        position: final_index,
-                        content_id: content_id.clone(),
-                        name,
-                        browser_url: None,
-                        terminal_id: Some(host_id.clone()),
-                    },
-                );
+                let projected_tab = RegistryTab {
+                    name_source: Default::default(),
+                    name_revision: 0,
+                    public_id: tab_id.clone(),
+                    pane_id: pane_id.clone(),
+                    position: final_index,
+                    content_id: content_id.clone(),
+                    name,
+                    browser_url: None,
+                    terminal_id: Some(host_id.clone()),
+                };
+                tabs.insert(final_index, projected_tab.clone());
                 reindex_tabs(&mut tabs, &pane_id);
-                let projected_tab = tabs[final_index].clone();
                 let tab_ids = tabs.iter().map(|tab| tab.public_id.clone()).collect::<Vec<_>>();
                 if focused {
                     destination_pane.active_tab = Some(tab_id.clone());
@@ -256,6 +254,10 @@ impl Mux {
                     Value::Array(deltas),
                     move |state| {
                         state.surfaces.insert(surface_id, projected);
+                        #[allow(
+                            clippy::expect_used,
+                            reason = "INVARIANT: the plan reserved a tab slot in this pane under the locks the post-commit step runs under"
+                        )]
                         let destination = state
                             .panes
                             .get_mut(&pane)
@@ -275,12 +277,16 @@ impl Mux {
                                 .content_placements
                                 .insert(content_id.clone(), placements);
                         } else {
-                            state
+                            #[allow(
+                                clippy::expect_used,
+                                reason = "INVARIANT: the plan read this content's placements under the locks the post-commit step runs under"
+                            )]
+                            let placements = state
                                 .resource_indexes
                                 .content_placements
                                 .get_mut(&content_id)
-                                .expect("reserved terminal placement index remains live")
-                                .push(surface_id);
+                                .expect("reserved terminal placement index remains live");
+                            placements.push(surface_id);
                         }
                         state.resource_indexes.content_ids.insert(surface_id, content_id);
                         state.resource_indexes.tab_pane.insert(surface_id, pane);
@@ -361,8 +367,12 @@ impl Mux {
                 let target_workspace_index = state
                     .workspace_index(target_workspace_slot)
                     .context("destination workspace disappeared")?;
-                let target_workspace_id =
-                    state.workspaces[target_workspace_index].public_id.clone();
+                let target_workspace_id = state
+                    .workspaces
+                    .get(target_workspace_index)
+                    .context("destination workspace disappeared")?
+                    .public_id
+                    .clone();
                 let target_screen_slot =
                     target.screen.context("destination did not resolve a screen")?;
                 let target_screen_id =
@@ -608,7 +618,7 @@ impl Mux {
                     state
                         .panes
                         .get_mut(&target_pane_slot)
-                        .expect("destination pane validated")
+                        .context("destination pane disappeared")?
                         .tabs
                         .reserve(1);
                 }
@@ -626,6 +636,10 @@ impl Mux {
                     Value::Array(deltas),
                     move |state| {
                         if source_pane_slot == target_pane_slot {
+                            #[allow(
+                                clippy::expect_used,
+                                reason = "INVARIANT: the plan read this pane's tabs under the locks the post-commit step runs under"
+                            )]
                             let pane = state
                                 .panes
                                 .get_mut(&source_pane_slot)
@@ -635,6 +649,10 @@ impl Mux {
                             pane.active_tab = new_index;
                         } else {
                             {
+                                #[allow(
+                                    clippy::expect_used,
+                                    reason = "INVARIANT: the plan read this pane's tabs under the locks the post-commit step runs under"
+                                )]
                                 let source = state
                                     .panes
                                     .get_mut(&source_pane_slot)
@@ -642,6 +660,10 @@ impl Mux {
                                 source.tabs.remove(source_old_index);
                                 source.active_tab = source_active;
                             }
+                            #[allow(
+                                clippy::expect_used,
+                                reason = "INVARIANT: the plan reserved a tab slot in this pane under the locks the post-commit step runs under"
+                            )]
                             let target = state
                                 .panes
                                 .get_mut(&target_pane_slot)
@@ -651,18 +673,7 @@ impl Mux {
                             target.active_tab = new_index;
                             state.resource_indexes.tab_pane.insert(surface, target_pane_slot);
                         }
-                        let workspace_index = state
-                            .workspace_index(session_path.0)
-                            .expect("destination workspace validated before commit");
-                        let screen_index = state.workspaces[workspace_index]
-                            .screens
-                            .iter()
-                            .position(|screen| screen.id == session_path.1)
-                            .expect("destination screen validated before commit");
-                        state.active_workspace = workspace_index;
-                        state.workspaces[workspace_index].active_screen = screen_index;
-                        state.workspaces[workspace_index].screens[screen_index].active_pane =
-                            session_path.2;
+                        focus_moved_tab_path(state, session_path);
                     },
                 )
                 .with_metrics(ResourceMutationMetrics {
@@ -676,20 +687,17 @@ impl Mux {
         )?;
 
         if !commit.replayed
-            && let Some(tab_id) = commit.result["tab"].as_str()
+            && let Some(tab_id) = commit.result.field("tab").as_str()
             && let Ok(tab_id) = TabPublicId::parse(tab_id)
             && let Some(surface_id) =
                 self.with_state(|state| state.resource_indexes.tabs.get(&tab_id).copied())
         {
             let path = {
-                let state = self.state.lock().unwrap();
+                let state = self.state.lock().recover_poison();
                 state.resource_indexes.tab_pane.get(&surface_id).copied().and_then(|target_pane| {
                     let (workspace_index, screen_index) = state.screen_of(target_pane)?;
-                    Some((
-                        target_pane,
-                        state.workspaces[workspace_index].id,
-                        state.workspaces[workspace_index].screens[screen_index].id,
-                    ))
+                    let workspace = state.workspaces.get(workspace_index)?;
+                    Some((target_pane, workspace.id, workspace.screens.get(screen_index)?.id))
                 })
             };
             if let Some((target_pane, workspace, screen)) = path {
@@ -828,7 +836,7 @@ fn registry_layout_node(state: &State, node: &Node) -> anyhow::Result<RegistryLa
     })
 }
 
-fn pane_public_id(state: &State, pane: crate::PaneId) -> anyhow::Result<PanePublicId> {
+fn pane_public_id(state: &State, pane: PaneId) -> anyhow::Result<PanePublicId> {
     state
         .resource_indexes
         .pane_ids
@@ -837,7 +845,7 @@ fn pane_public_id(state: &State, pane: crate::PaneId) -> anyhow::Result<PanePubl
         .with_context(|| format!("pane {pane} has no public identity"))
 }
 
-fn pane_public_ids(state: &State, panes: &[crate::PaneId]) -> anyhow::Result<Vec<PanePublicId>> {
+fn pane_public_ids(state: &State, panes: &[PaneId]) -> anyhow::Result<Vec<PanePublicId>> {
     panes.iter().map(|pane| pane_public_id(state, *pane)).collect()
 }
 
@@ -864,6 +872,31 @@ fn ordered_tabs(tabs: &[RegistryTab], pane: &PanePublicId) -> Vec<RegistryTab> {
     let mut result = tabs.iter().filter(|tab| &tab.pane_id == pane).cloned().collect::<Vec<_>>();
     result.sort_by_key(|tab| tab.position);
     result
+}
+
+/// Focus the destination of a committed tab move: its workspace, screen and
+/// pane become the active ones.
+#[allow(
+    clippy::expect_used,
+    reason = "INVARIANT: the plan resolved this workspace and screen under the locks the post-commit step runs under"
+)]
+fn focus_moved_tab_path(
+    state: &mut State,
+    (workspace, screen, pane): (WorkspaceId, ScreenId, PaneId),
+) {
+    let workspace_index =
+        state.workspace_index(workspace).expect("destination workspace validated before commit");
+    state.active_workspace = workspace_index;
+    let workspace =
+        state.workspaces.get_mut(workspace_index).expect("workspace_index names a live slot");
+    let (screen_index, screen) = workspace
+        .screens
+        .iter_mut()
+        .enumerate()
+        .find(|(_, candidate)| candidate.id == screen)
+        .expect("destination screen validated before commit");
+    screen.active_pane = pane;
+    workspace.active_screen = screen_index;
 }
 
 fn reindex_tabs(tabs: &mut [RegistryTab], pane: &PanePublicId) {

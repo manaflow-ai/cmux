@@ -3,9 +3,10 @@
 // acpmux's process registry (cmux-tui/crates/acpmux/docs/background-processes.md):
 // `_acpmux/process/list {sessionId}` finds the process the note's tool call started, and
 // `_acpmux/process/tail` reads the end of its output file. Live previews poll only while their row
-// is expanded; closing, unmounting, or the row leaving the live list stops and cleans up the timer.
+// is expanded and the page is shown; closing, unmounting, or the row leaving the live list stops and cleans up the timer.
 // The registry serves only this Mac's clients and keeps output for Claude Code's shells only.
 import { createContext, useContext, useEffect, useState } from "react";
+import { type PagePollSeams, startPagePoll } from "../../../pages/shared/pagePoll";
 import { stripAnsi } from "./toolOutput";
 
 /// How much of the end of a task's output an opened note reads.
@@ -129,44 +130,40 @@ export function useBackgroundTaskOutput(toolCallId: string, open: boolean): Back
   return read?.key === key ? read.output : {};
 }
 
-/// A tray row's live tail. The caller's `open` is the stop predicate: the effect also cleans up
-/// its timer and ignores late replies when the row closes or unmounts.
+/// How often an expanded live row reads its tail again.
+export const LIVE_TAIL_POLL_MS = 1200;
+
+/// A tray row's live tail. The caller's `open` is the stop predicate: the effect also stops its
+/// poll and ignores late replies when the row closes or unmounts. The poll rests while the page is
+/// hidden (pages/shared/pagePoll.ts, p13-webui-069) and on show waits one period: a show reads
+/// nothing in the agent page (check-switch-fetches.py).
 export function useLiveBackgroundTaskOutput(
   toolCallId: string | undefined,
   processId: string | undefined,
   open: boolean,
+  seams: PagePollSeams = {},
 ): BackgroundTaskOutput {
   const reader = useContext(BackgroundTaskOutputContext);
   const [read, setRead] = useState<{ key: string; output: BackgroundTaskOutput }>();
   const key = reader ? `${reader.sessionId}\u0000${toolCallId ?? ""}\u0000${processId ?? ""}` : "";
+  const { lifecycle, timers } = seams;
   useEffect(() => {
     if (!reader || !open || (!toolCallId && !processId)) return;
     let current = true;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    let poll: () => void;
-    const schedule = () => {
-      timer = setTimeout(poll, 1200);
-    };
-    poll = () => {
+    const poll = () =>
       readBackgroundTaskOutput(reader, toolCallId, processId).then(
         (output) => {
-          if (!current) return;
-          setRead({ key, output });
-          // The row is live while mounted; its unmount/close clears this timer and stops polling.
-          schedule();
+          if (current) setRead({ key, output });
         },
         () => {
-          if (!current) return;
-          setRead({ key, output: {} });
-          schedule();
+          if (current) setRead({ key, output: {} });
         },
       );
-    };
-    poll();
+    const stop = startPagePoll(poll, LIVE_TAIL_POLL_MS, { lifecycle, timers, onResume: "wait" });
     return () => {
       current = false;
-      if (timer !== undefined) clearTimeout(timer);
+      stop();
     };
-  }, [reader, open, toolCallId, processId, key]);
+  }, [reader, open, toolCallId, processId, key, lifecycle, timers]);
   return read?.key === key ? read.output : {};
 }

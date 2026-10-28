@@ -191,7 +191,7 @@ impl Entry {
     fn runs(&self, path: Option<&OsStr>) -> bool {
         use std::os::unix::fs::PermissionsExt;
         match self.command.as_deref() {
-            Some(command) if command.contains('/') => std::fs::metadata(command)
+            Some(command) if command.contains('/') => cmux_blocking::fs::metadata(command)
                 .is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0),
             Some(command) => on_path(path, command).is_some(),
             None => false,
@@ -476,6 +476,7 @@ fn run_cli(client: Client, args: &[String]) -> Result<(), String> {
     // Read on its own thread, so a CLI that writes more than the pipe holds
     // never blocks on it.
     let stderr = child.stderr.take().map(|mut pipe| {
+        // supervise-allow: reads one CLI's stderr and is joined after the wait; a panic loses only that text.
         std::thread::spawn(move || {
             let mut text = String::new();
             let _ = pipe.read_to_string(&mut text);
@@ -500,7 +501,8 @@ fn run_cli(client: Client, args: &[String]) -> Result<(), String> {
     if status.success() {
         return Ok(());
     }
-    let text = stderr.and_then(|reader| reader.join().ok()).unwrap_or_default();
+    let text =
+        stderr.and_then(|reader| crate::blocking::thread::join(reader).ok()).unwrap_or_default();
     let text: String = text.trim().chars().take(2000).collect();
     Err(format!("`{line}` failed ({status}): {text}"))
 }

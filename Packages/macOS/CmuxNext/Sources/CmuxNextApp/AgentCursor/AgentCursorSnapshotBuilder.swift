@@ -26,10 +26,15 @@ struct AgentCursorSnapshotBuilder {
 
     // MARK: Target
 
-    /// The workspace and pane of tab `id` (daemon tabs, then this session's local browser tabs).
+    /// The workspace and pane of tab `id` (daemon tabs, then this session's local browser tabs). A
+    /// daemon tab is three index lookups in its own store (tab, its pane, the pane's workspace),
+    /// never a walk of the session: every agent input resolves its target here.
     private func locate(_ id: String, _ services: AppServices) -> AgentCursorVisibilitySnapshot.TabLocation? {
-        if let (_, pane) = services.locateTab(id), let workspace = workspaceID(containingPane: pane.id, services) {
-            return .init(workspace: workspace, pane: pane.id)
+        for daemon in services.machines.daemons {
+            let store = daemon.store
+            guard let tab = store.tab(idOrResource: id), let pane = store.pane(holding: tab) else { continue }
+            guard let workspace = store.workspace(containing: pane.handle) else { break }
+            return .init(workspace: workspace.id, pane: pane.id)
         }
         for controller in services.windows.controllers {
             for (pane, tabs) in controller.state.localBrowserTabs.all where tabs.contains(where: { $0.id == id }) {

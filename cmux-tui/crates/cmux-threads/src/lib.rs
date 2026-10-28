@@ -4,7 +4,9 @@
 //!
 //! Start threads with [`spawn`], change a thread's QoS with [`set_current`]
 //! or for one scope with [`with_qos`], and register threads started by other
-//! code (tokio workers) with [`register_current`].
+//! code (tokio workers) with [`register_current`]. A thread started with
+//! [`spawn_following`] runs at the class its owner requests through a
+//! [`DesiredQos`], applied by the thread itself with [`apply_pending_qos`].
 //!
 //! The registry is process-wide state on purpose: threads are a process
 //! resource, as in Chromium's `ThreadIdNameManager`
@@ -30,13 +32,21 @@
 //! behavior (Chrome's base/task/thread_pool).
 //!
 //! [`sync`] channels (std `mpsc`, and `crossbeam_channel` behind the
-//! `crossbeam` feature) carry their producer's QoS in Debug: a blocking
-//! receive on a higher-QoS thread records a `priority-inversion` site.
-//! Release sends the plain value.
+//! `crossbeam` feature) know their producer: a blocking receive on a
+//! higher-QoS thread raises the producer for the wait (macOS; Linux counts
+//! it) and, in Debug, records a `priority-inversion` site. Release sends the
+//! plain value.
+//!
+//! Tokio runtimes are built with [`tokio::builder`] (feature `tokio`): their
+//! threads are named, registered and set to the runtime's QoS, and
+//! [`tokio::block_on`] is a checked `BlockOn` call.
 //!
 //! Child processes never run at an echo thread's QoS: a user child starts
 //! at Default and a helper runs at [`HELPER_CHILD`] (Utility) at most, see
 //! [`process`]. [`process_role`] reads the process's Mach task role.
+//!
+//! A [`reaper`] waits for every child exit on one thread (kqueue on macOS,
+//! pidfd and epoll on Linux) and completes each on a [`work`] lane.
 
 pub mod blocking;
 pub mod checked;
@@ -46,9 +56,13 @@ pub mod lock_wait;
 pub mod process;
 pub mod process_role;
 pub mod qos;
+#[cfg(unix)]
+pub mod reaper;
 pub mod registry;
 pub mod spawn;
 pub mod sync;
+#[cfg(feature = "tokio")]
+pub mod tokio;
 pub mod work;
 
 pub use blocking::{
@@ -68,10 +82,11 @@ pub use lock_wait::{
 };
 pub use process::HELPER_CHILD;
 pub use qos::{
-    LiveQos, QosChange, QosScope, ThreadQos, current, current_effective, refused_changes,
-    reversible, set_current, with_qos,
+    LiveQos, QosChange, QosScope, ThreadQos, current, current_effective, reachable,
+    refused_changes, reversible, set_current, with_qos,
 };
 pub use registry::{
-    QosSlot, ThreadInfo, current_slot, deregister_current, register_current, snapshot,
+    DesiredQos, QosSlot, ThreadInfo, apply_pending_qos, current_slot, deregister_current,
+    register_current, register_current_following, snapshot,
 };
-pub use spawn::{spawn, spawn_with_stack};
+pub use spawn::{spawn, spawn_following, spawn_with_stack};

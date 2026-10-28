@@ -1,0 +1,21 @@
+[package]
+name = "cmux-ffi-guard"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The panic boundary of every in-app Rust C ABI: catch_unwind, the documented error value, and a fixed ring of panic records the app reads with cmux_ffi_take_panic"
+
+# std only: CCmuxAppFFI links it through cmux-app-ffi, cmux-rd-ffi,
+# cmux-layout-reducer-ffi and cmux-palette-ranker.
+[dependencies]
+
+[features]
+# `testing`: a test makes the next boundary on its thread panic, so it calls
+# a real export and sees its error value, and lists unguarded exports. Only
+# dev-dependencies turn it on; the app's library never has it.
+testing = []
+
+[lints]
+workspace = true

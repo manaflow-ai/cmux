@@ -369,7 +369,7 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
     }
 
     public func plainRows() -> [String] {
-        var rows = Array(repeating: "", count: self.rows)
+        var rows = Array(repeating: "", count: max(0, self.rows))
         for span in rowSpans.sorted(by: { lhs, rhs in
             lhs.row == rhs.row ? lhs.column < rhs.column : lhs.row < rhs.row
         }) {
@@ -377,7 +377,7 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
             rows.modify(checked: span.row) { row in
                 let currentWidth = row.count
                 if currentWidth < span.column {
-                    row.append(String(repeating: " ", count: span.column - currentWidth))
+                    row.append(String(repeating: " ", count: max(0, span.column - currentWidth)))
                 }
                 row.append(span.text)
                 let padWidth = max(0, span.gridCellWidth - span.text.count)

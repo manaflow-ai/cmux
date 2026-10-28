@@ -1,5 +1,6 @@
 use super::*;
 use crate::resource_api::{public_terminal_snapshot, terminal_tab_ids_in_canonical_order};
+use cmux_threads::work::{Lane, Priority, Shutdown};
 
 impl Mux {
     /// Commit terminal cwd under the same registry -> state fence as topology.
@@ -12,8 +13,8 @@ impl Mux {
         directory: Option<String>,
     ) -> anyhow::Result<bool> {
         let Some(id) = source.terminal_public_id() else { return Ok(true) };
-        let mut registry = self.workspace_registry.lock().unwrap();
-        let mut state = self.lock_state_pinned(&registry).unwrap();
+        let mut registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut state = self.lock_state_pinned(&registry).unwrap_or_else(PoisonError::into_inner);
         let Some(current) = state.terminal_catalog.get(id).cloned() else { return Ok(false) };
         if current.terminal_runtime_id() != source.terminal_runtime_id() {
             return Ok(true);
@@ -91,10 +92,72 @@ impl Mux {
         Ok(true)
     }
 
+    /// Queues the cwd and progress publications of terminal runtime
+    /// `surface` on the Files lane, in `sequence`
+    /// ([`Surface::post_pending_publications`]): an output thread may not
+    /// commit to the registry itself. The item finds the runtime when it
+    /// runs; one gone by then has nothing left to publish. `false` when the
+    /// work was refused (the mux is shutting down).
+    pub(crate) fn post_terminal_publications(
+        &self,
+        surface: SurfaceId,
+        sequence: &Arc<mux_work::Sequence>,
+    ) -> bool {
+        self.post_mux_work_sequenced(sequence, Priority::UserVisible, Lane::Files, move |mux| {
+            let Some(mux) = mux.upgrade() else { return };
+            if let Some(runtime) = mux.surface(surface) {
+                runtime.publish_posted_publications();
+            }
+        })
+        .is_ok()
+    }
+
+    /// Posts the desktop notifications terminal runtime `surface`'s output
+    /// asked for (OSC 9, 777, 99) on the Files lane, in the terminal's
+    /// publication `sequence`, so they keep their order with its cwd and
+    /// progress publications. A post records the notification in the
+    /// registry and reads the terminal's foreground process, which its
+    /// output thread may not do. A refused item (shutdown) posts nothing.
+    pub(crate) fn post_terminal_notifications_off_output(
+        &self,
+        surface: SurfaceId,
+        sequence: &Arc<mux_work::Sequence>,
+        notifications: Vec<crate::terminal_metadata::TerminalNotification>,
+    ) {
+        let _ = self.post_mux_work_sequenced(
+            sequence,
+            Priority::UserVisible,
+            Lane::Files,
+            move |mux| {
+                if let Some(mux) = mux.upgrade() {
+                    mux.post_terminal_notifications(surface, notifications);
+                }
+            },
+        );
+    }
+
+    /// Publishes local terminal `surface`'s exit, if it is ready, on the
+    /// Files lane: its reader may not commit to the registry itself
+    /// (`exit_state::post_local_exit_if_ready`).
+    pub(crate) fn post_local_terminal_exit(&self, surface: Arc<Surface>) {
+        let _ = self.post_mux_work(
+            Priority::UserVisible,
+            Lane::Files,
+            Shutdown::SkipOnShutdown,
+            move |_| surface.publish_local_exit_if_ready(),
+        );
+    }
+
     /// Close the startup race where the first prompt preceded runtime registration.
     pub(crate) fn publish_pending_terminal_directories(&self) {
-        let terminals =
-            self.state.lock().unwrap().terminal_catalog.values().cloned().collect::<Vec<_>>();
+        let terminals = self
+            .state
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .terminal_catalog
+            .values()
+            .cloned()
+            .collect::<Vec<_>>();
         for surface in terminals {
             surface.publish_pending_directory();
         }

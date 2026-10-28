@@ -53,6 +53,7 @@ pub fn inherited_link(fd: std::os::fd::RawFd) -> io::Result<HistoryLink> {
     }
     // SAFETY: fstat(2) on an fd number with a zeroed out buffer.
     let mut stat: libc::stat = unsafe { std::mem::zeroed() };
+    // SAFETY: fstat writes one stat into `stat`, a live local; a closed fd fails with EBADF.
     if unsafe { libc::fstat(fd, &mut stat) } != 0 || (stat.st_mode & libc::S_IFMT) != libc::S_IFSOCK
     {
         return Err(io::Error::new(io::ErrorKind::InvalidInput, format!("{fd}: not a socket")));

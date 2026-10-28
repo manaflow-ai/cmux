@@ -6,8 +6,8 @@
 //! that handle.
 
 use std::collections::VecDeque;
-use std::panic::{AssertUnwindSafe, catch_unwind};
 
+use cmux_ffi_guard::ffi_boundary;
 use cmux_rd_core::cc::{CcConfig, PathKind};
 use cmux_rd_core::upstream::{UpstreamConfig, UpstreamError, UpstreamSender};
 use cmux_rd_proto::{STREAM_DATAGRAM, encode_stream_frame};
@@ -16,7 +16,7 @@ use crate::receiver::Carrier;
 use crate::session_ffi::CMUX_RD_ERR_STREAM;
 use crate::{
     CMUX_RD_CARRIER_DATAGRAM, CMUX_RD_CARRIER_STREAM, CMUX_RD_ERR_INVALID, CMUX_RD_ERR_NULL,
-    CMUX_RD_ERR_PANIC, CMUX_RD_OK, bytes_in, copy_out,
+    CMUX_RD_ERR_PANIC, CMUX_RD_OK, Poison, bytes_in, copy_out, with_handle,
 };
 
 pub const CMUX_RD_PATH_DIRECT_LAN: u32 = 0;
@@ -91,7 +91,13 @@ impl CmuxRdUpstream {
     }
 }
 
-/// Runs `f` on a live sender; maps NULL, a poisoned sender and panics to codes.
+impl Poison for CmuxRdUpstream {
+    fn poisoned(&mut self) -> &mut bool {
+        &mut self.poisoned
+    }
+}
+
+/// Runs `f` on a live sender ([`with_handle`]).
 ///
 /// # Safety
 /// `ptr` is NULL or a live pointer from [`cmux_rd_upstream_new`] that no other
@@ -101,20 +107,7 @@ unsafe fn with_upstream(
     f: impl FnOnce(&mut CmuxRdUpstream) -> i32,
 ) -> i32 {
     // SAFETY: guaranteed by the caller.
-    let Some(handle) = (unsafe { ptr.as_mut() }) else { return CMUX_RD_ERR_NULL };
-    if handle.poisoned {
-        return CMUX_RD_ERR_PANIC;
-    }
-    match catch_unwind(AssertUnwindSafe(|| f(handle))) {
-        Ok(code) => code,
-        Err(_) => {
-            // SAFETY: as above; the closure's borrow ended when it unwound.
-            if let Some(handle) = unsafe { ptr.as_mut() } {
-                handle.poisoned = true;
-            }
-            CMUX_RD_ERR_PANIC
-        }
-    }
+    unsafe { with_handle(ptr, f) }
 }
 
 fn count(n: usize) -> i32 {
@@ -148,31 +141,31 @@ pub extern "C" fn cmux_rd_upstream_new(
     max_bps: u64,
     fec: bool,
 ) -> *mut CmuxRdUpstream {
-    let carrier = match carrier {
-        CMUX_RD_CARRIER_DATAGRAM => Carrier::Datagram,
-        CMUX_RD_CARRIER_STREAM => Carrier::Stream,
-        _ => return std::ptr::null_mut(),
-    };
-    if !matches!(kind, CMUX_RD_MEDIA_MIC | CMUX_RD_MEDIA_CAMERA | CMUX_RD_MEDIA_SCREEN) {
-        return std::ptr::null_mut();
-    }
-    let Some(path) = path_kind(path) else { return std::ptr::null_mut() };
-    if !(MIN_DATAGRAM..=MAX_DATAGRAM).contains(&max_datagram) {
-        return std::ptr::null_mut();
-    }
-    let default = CcConfig::default();
-    let pick = |value: u64, fallback: u64| if value == 0 { fallback } else { value };
-    let cc = CcConfig {
-        start_bps: pick(start_bps, default.start_bps),
-        min_bps: pick(min_bps, default.min_bps),
-        max_bps: pick(max_bps, default.max_bps),
-        ..default
-    };
-    if cc.min_bps > cc.max_bps {
-        return std::ptr::null_mut();
-    }
-    let config = UpstreamConfig { stream, max_datagram: max_datagram as usize, cc, path, fec };
-    catch_unwind(|| {
+    ffi_boundary("cmux_rd_upstream_new", std::ptr::null_mut(), || {
+        let carrier = match carrier {
+            CMUX_RD_CARRIER_DATAGRAM => Carrier::Datagram,
+            CMUX_RD_CARRIER_STREAM => Carrier::Stream,
+            _ => return std::ptr::null_mut(),
+        };
+        if !matches!(kind, CMUX_RD_MEDIA_MIC | CMUX_RD_MEDIA_CAMERA | CMUX_RD_MEDIA_SCREEN) {
+            return std::ptr::null_mut();
+        }
+        let Some(path) = path_kind(path) else { return std::ptr::null_mut() };
+        if !(MIN_DATAGRAM..=MAX_DATAGRAM).contains(&max_datagram) {
+            return std::ptr::null_mut();
+        }
+        let default = CcConfig::default();
+        let pick = |value: u64, fallback: u64| if value == 0 { fallback } else { value };
+        let cc = CcConfig {
+            start_bps: pick(start_bps, default.start_bps),
+            min_bps: pick(min_bps, default.min_bps),
+            max_bps: pick(max_bps, default.max_bps),
+            ..default
+        };
+        if cc.min_bps > cc.max_bps {
+            return std::ptr::null_mut();
+        }
+        let config = UpstreamConfig { stream, max_datagram: max_datagram as usize, cc, path, fec };
         Box::into_raw(Box::new(CmuxRdUpstream {
             inner: UpstreamSender::new(config),
             carrier,
@@ -183,7 +176,6 @@ pub extern "C" fn cmux_rd_upstream_new(
             poisoned: false,
         }))
     })
-    .unwrap_or(std::ptr::null_mut())
 }
 
 /// Frees a sender; NULL is ignored.
@@ -192,12 +184,13 @@ pub extern "C" fn cmux_rd_upstream_new(
 /// `upstream` is NULL or came from [`cmux_rd_upstream_new`] and is not used again.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_rd_upstream_free(upstream: *mut CmuxRdUpstream) {
-    if upstream.is_null() {
-        return;
-    }
-    // SAFETY: guaranteed by the caller; the box is dropped exactly once.
-    let owned = unsafe { Box::from_raw(upstream) };
-    let _ = catch_unwind(AssertUnwindSafe(move || drop(owned)));
+    ffi_boundary("cmux_rd_upstream_free", (), || {
+        if upstream.is_null() {
+            return;
+        }
+        // SAFETY: guaranteed by the caller; the box is dropped exactly once.
+        drop(unsafe { Box::from_raw(upstream) });
+    });
 }
 
 /// Sends one encoded frame. Returns the number of datagrams queued, 0 when
@@ -217,25 +210,27 @@ pub unsafe extern "C" fn cmux_rd_upstream_send_frame(
     independent: bool,
     now_us: u64,
 ) -> i32 {
-    // SAFETY: guaranteed by the caller.
-    let Some(data) = (unsafe { bytes_in(data, len) }) else { return CMUX_RD_ERR_NULL };
-    // SAFETY: `upstream` is NULL or valid (this function's contract).
-    unsafe {
-        with_upstream(upstream, |h| {
-            if !h.consent {
-                return CMUX_RD_ERR_CONSENT;
-            }
-            if h.full() {
-                h.inner.drop_frame();
-                return 0;
-            }
-            match h.inner.send_frame(data, t_capture_us, independent, now_us) {
-                Ok(Some(datagrams)) => count(h.enqueue(datagrams)),
-                Ok(None) => 0,
-                Err(_) => CMUX_RD_ERR_INVALID,
-            }
-        })
-    }
+    ffi_boundary("cmux_rd_upstream_send_frame", CMUX_RD_ERR_PANIC, || {
+        // SAFETY: guaranteed by the caller.
+        let Some(data) = (unsafe { bytes_in(data, len) }) else { return CMUX_RD_ERR_NULL };
+        // SAFETY: `upstream` is NULL or valid (this function's contract).
+        unsafe {
+            with_upstream(upstream, |h| {
+                if !h.consent {
+                    return CMUX_RD_ERR_CONSENT;
+                }
+                if h.full() {
+                    h.inner.drop_frame();
+                    return 0;
+                }
+                match h.inner.send_frame(data, t_capture_us, independent, now_us) {
+                    Ok(Some(datagrams)) => count(h.enqueue(datagrams)),
+                    Ok(None) => 0,
+                    Err(_) => CMUX_RD_ERR_INVALID,
+                }
+            })
+        }
+    })
 }
 
 /// Takes one datagram from the host (a session's `CMUX_RD_MESSAGE_DATAGRAM`
@@ -253,22 +248,24 @@ pub unsafe extern "C" fn cmux_rd_upstream_on_datagram(
     len: usize,
     now_us: u64,
 ) -> i32 {
-    // SAFETY: guaranteed by the caller.
-    let Some(bytes) = (unsafe { bytes_in(bytes, len) }) else { return CMUX_RD_ERR_NULL };
-    // SAFETY: `upstream` is NULL or valid (this function's contract).
-    unsafe {
-        with_upstream(upstream, |h| match h.inner.on_datagram(bytes, now_us) {
-            // Feedback still updates the controller; nothing goes out.
-            Ok(_) if !h.consent => CMUX_RD_ERR_CONSENT,
-            Ok(resends) if h.full() => {
-                drop(resends);
-                0
-            }
-            Ok(resends) => count(h.enqueue(resends)),
-            Err(UpstreamError::NotMine) => CMUX_RD_ERR_STREAM,
-            Err(UpstreamError::Invalid(_)) => CMUX_RD_ERR_INVALID,
-        })
-    }
+    ffi_boundary("cmux_rd_upstream_on_datagram", CMUX_RD_ERR_PANIC, || {
+        // SAFETY: guaranteed by the caller.
+        let Some(bytes) = (unsafe { bytes_in(bytes, len) }) else { return CMUX_RD_ERR_NULL };
+        // SAFETY: `upstream` is NULL or valid (this function's contract).
+        unsafe {
+            with_upstream(upstream, |h| match h.inner.on_datagram(bytes, now_us) {
+                // Feedback still updates the controller; nothing goes out.
+                Ok(_) if !h.consent => CMUX_RD_ERR_CONSENT,
+                Ok(resends) if h.full() => {
+                    drop(resends);
+                    0
+                }
+                Ok(resends) => count(h.enqueue(resends)),
+                Err(UpstreamError::NotMine) => CMUX_RD_ERR_STREAM,
+                Err(UpstreamError::Invalid(_)) => CMUX_RD_ERR_INVALID,
+            })
+        }
+    })
 }
 
 /// Writes the oldest queued datagram (framed for the carrier): 1 when
@@ -284,26 +281,28 @@ pub unsafe extern "C" fn cmux_rd_upstream_pop_datagram(
     cap: usize,
     out_len: *mut usize,
 ) -> i32 {
-    if out_len.is_null() {
-        return CMUX_RD_ERR_NULL;
-    }
-    // SAFETY: checked non-NULL; writable by contract.
-    unsafe { *out_len = 0 };
-    let pop = |h: &mut CmuxRdUpstream| {
-        let Some(front) = h.queue.front() else { return 0 };
-        // SAFETY: `out` and `out_len` are writable by this function's contract.
-        match unsafe { copy_out(front, out, cap, out_len) } {
-            CMUX_RD_OK => {
-                if let Some(sent) = h.queue.pop_front() {
-                    h.queued_bytes -= sent.len();
-                }
-                1
-            }
-            code => code,
+    ffi_boundary("cmux_rd_upstream_pop_datagram", CMUX_RD_ERR_PANIC, || {
+        if out_len.is_null() {
+            return CMUX_RD_ERR_NULL;
         }
-    };
-    // SAFETY: `upstream` is NULL or valid (this function's contract).
-    unsafe { with_upstream(upstream, pop) }
+        // SAFETY: checked non-NULL; writable by contract.
+        unsafe { *out_len = 0 };
+        let pop = |h: &mut CmuxRdUpstream| {
+            let Some(front) = h.queue.front() else { return 0 };
+            // SAFETY: `out` and `out_len` are writable by this function's contract.
+            match unsafe { copy_out(front, out, cap, out_len) } {
+                CMUX_RD_OK => {
+                    if let Some(sent) = h.queue.pop_front() {
+                        h.queued_bytes -= sent.len();
+                    }
+                    1
+                }
+                code => code,
+            }
+        };
+        // SAFETY: `upstream` is NULL or valid (this function's contract).
+        unsafe { with_upstream(upstream, pop) }
+    })
 }
 
 /// Grants or revokes consent for the sender's media kind. Only the app calls
@@ -319,19 +318,21 @@ pub unsafe extern "C" fn cmux_rd_upstream_set_consent(
     kind: u32,
     granted: bool,
 ) -> i32 {
-    let apply = |h: &mut CmuxRdUpstream| {
-        if kind != h.kind {
-            return CMUX_RD_ERR_INVALID;
-        }
-        h.consent = granted;
-        if !granted {
-            h.queue.clear();
-            h.queued_bytes = 0;
-        }
-        CMUX_RD_OK
-    };
-    // SAFETY: `upstream` is NULL or valid (this function's contract).
-    unsafe { with_upstream(upstream, apply) }
+    ffi_boundary("cmux_rd_upstream_set_consent", CMUX_RD_ERR_PANIC, || {
+        let apply = |h: &mut CmuxRdUpstream| {
+            if kind != h.kind {
+                return CMUX_RD_ERR_INVALID;
+            }
+            h.consent = granted;
+            if !granted {
+                h.queue.clear();
+                h.queued_bytes = 0;
+            }
+            CMUX_RD_OK
+        };
+        // SAFETY: `upstream` is NULL or valid (this function's contract).
+        unsafe { with_upstream(upstream, apply) }
+    })
 }
 
 /// The bitrate the encoder should aim for at `now_us`; 0 for NULL or an
@@ -344,12 +345,14 @@ pub unsafe extern "C" fn cmux_rd_upstream_target_bps(
     upstream: *const CmuxRdUpstream,
     now_us: u64,
 ) -> u64 {
-    // SAFETY: guaranteed by the caller.
-    let Some(handle) = (unsafe { upstream.as_ref() }) else { return 0 };
-    if handle.poisoned {
-        return 0;
-    }
-    catch_unwind(AssertUnwindSafe(|| handle.inner.target_bps(now_us))).unwrap_or(0)
+    ffi_boundary("cmux_rd_upstream_target_bps", 0, || {
+        // SAFETY: guaranteed by the caller.
+        let Some(handle) = (unsafe { upstream.as_ref() }) else { return 0 };
+        if handle.poisoned {
+            return 0;
+        }
+        handle.inner.target_bps(now_us)
+    })
 }
 
 /// Reports a path change (`CMUX_RD_PATH_*`); `CMUX_RD_ERR_INVALID` for an unknown path.
@@ -361,14 +364,16 @@ pub unsafe extern "C" fn cmux_rd_upstream_set_path(
     upstream: *mut CmuxRdUpstream,
     path: u32,
 ) -> i32 {
-    // SAFETY: `upstream` is NULL or valid (this function's contract).
-    unsafe {
-        with_upstream(upstream, |h| {
-            let Some(kind) = path_kind(path) else { return CMUX_RD_ERR_INVALID };
-            h.inner.set_path(kind);
-            CMUX_RD_OK
-        })
-    }
+    ffi_boundary("cmux_rd_upstream_set_path", CMUX_RD_ERR_PANIC, || {
+        // SAFETY: `upstream` is NULL or valid (this function's contract).
+        unsafe {
+            with_upstream(upstream, |h| {
+                let Some(kind) = path_kind(path) else { return CMUX_RD_ERR_INVALID };
+                h.inner.set_path(kind);
+                CMUX_RD_OK
+            })
+        }
+    })
 }
 
 /// Fills the status counters.
@@ -380,27 +385,27 @@ pub unsafe extern "C" fn cmux_rd_upstream_stats(
     upstream: *const CmuxRdUpstream,
     out: *mut CmuxRdUpstreamStats,
 ) -> i32 {
-    if out.is_null() {
-        return CMUX_RD_ERR_NULL;
-    }
-    // SAFETY: the caller passes NULL or a live sender; a shared borrow
-    // suffices (a panic here cannot poison through a const pointer).
-    let Some(h) = (unsafe { upstream.as_ref() }) else { return CMUX_RD_ERR_NULL };
-    if h.poisoned {
-        return CMUX_RD_ERR_PANIC;
-    }
-    let Ok(s) = catch_unwind(AssertUnwindSafe(|| h.inner.stats())) else {
-        return CMUX_RD_ERR_PANIC;
-    };
-    let value = CmuxRdUpstreamStats {
-        frames_sent: s.frames_sent,
-        frames_dropped: s.frames_dropped,
-        acked_frame: s.acked_frame,
-        loss_ppm: (s.loss.clamp(0.0, 1.0) * 1_000_000.0) as u32,
-        keyframe_requested: s.keyframe_requested,
-        consent: h.consent,
-    };
-    // SAFETY: checked non-NULL; writable by contract.
-    unsafe { out.write(value) };
-    CMUX_RD_OK
+    ffi_boundary("cmux_rd_upstream_stats", CMUX_RD_ERR_PANIC, || {
+        if out.is_null() {
+            return CMUX_RD_ERR_NULL;
+        }
+        // SAFETY: the caller passes NULL or a live sender; a shared borrow
+        // suffices (a panic here cannot poison through a const pointer).
+        let Some(h) = (unsafe { upstream.as_ref() }) else { return CMUX_RD_ERR_NULL };
+        if h.poisoned {
+            return CMUX_RD_ERR_PANIC;
+        }
+        let s = h.inner.stats();
+        let value = CmuxRdUpstreamStats {
+            frames_sent: s.frames_sent,
+            frames_dropped: s.frames_dropped,
+            acked_frame: s.acked_frame,
+            loss_ppm: (s.loss.clamp(0.0, 1.0) * 1_000_000.0) as u32,
+            keyframe_requested: s.keyframe_requested,
+            consent: h.consent,
+        };
+        // SAFETY: checked non-NULL; writable by contract.
+        unsafe { out.write(value) };
+        CMUX_RD_OK
+    })
 }

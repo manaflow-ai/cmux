@@ -22,6 +22,7 @@ use super::host_shared::HostShared;
 use super::host_state::HostTap;
 use crate::panic_free::RecoverPoison;
 use crate::process_trace::{TraceReport, TracedState};
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use crate::terminal_host_protocol::{wire_u32, wire_u64};
 
 const OP_START: u8 = 1;
@@ -54,7 +55,8 @@ pub(crate) fn decode_request(payload: &[u8]) -> Option<ControlOp> {
         return None;
     }
     let categories = wire_u64(payload, 1)?;
-    match payload[0] {
+    let [code, ..] = *payload else { return None };
+    match code {
         OP_START => Some(ControlOp::Start { categories }),
         OP_STOP if categories == 0 => Some(ControlOp::Stop),
         OP_STATUS if categories == 0 => Some(ControlOp::Status),
@@ -89,11 +91,12 @@ pub(crate) fn decode_ack(payload: &[u8]) -> Option<TraceReport> {
         return None;
     }
     let pid = wire_u32(payload, 2)?;
-    let state = match payload[0] {
+    let [outcome, recording, ..] = *payload else { return None };
+    let state = match outcome {
         OUTCOME_TRACED => {
-            let path = std::str::from_utf8(&payload[ACK_HEADER_LEN..]).ok()?;
+            let path = std::str::from_utf8(payload.get(ACK_HEADER_LEN..)?).ok()?;
             Ok(TracedState {
-                recording: match payload[1] {
+                recording: match recording {
                     0 => false,
                     1 => true,
                     _ => return None,
@@ -169,16 +172,14 @@ impl HostTraceQueue {
         }
         let (sender, receiver) = sync_channel::<TraceJob>(TRACE_QUEUE_CAPACITY);
         let apply = self.apply;
-        std::thread::Builder::new()
-            .name("cmux-host-trace".into())
-            .spawn(move || {
-                // Ends when the host drops its queue.
-                for job in receiver {
-                    let outcome = apply(job.op, &job.dir, Role::TerminalHost);
-                    (job.reply)(TraceReport::of_this_process(outcome));
-                }
-            })
-            .ok()?;
+        supervised::spawn("cmux-host-trace", Fatal, ShutdownBehavior::Continue, move || {
+            // Ends when the host drops its queue.
+            for job in receiver {
+                let outcome = apply(job.op, &job.dir, Role::TerminalHost);
+                (job.reply)(TraceReport::of_this_process(outcome));
+            }
+        })
+        .ok()?;
         // Two connections that race here both use the winner's thread; the
         // loser's ends with its sender.
         let _ = self.jobs.set(sender);

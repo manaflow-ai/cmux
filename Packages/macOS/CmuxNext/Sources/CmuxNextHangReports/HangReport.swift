@@ -64,6 +64,9 @@ public nonisolated struct HangReport: Codable, Sendable, Equatable {
         /// Whether a watchdog hang sample carries ``HangSample/mainTask`` (`"task": {"owner", "class"}`,
         /// p06-scheduler-203; the schema-3 decoder must list the key before a build sends schema 3).
         public var carriesTaskAttribution: Bool { self == .v3 }
+        /// Whether a watchdog stall or hang carries ``HangSample/startup`` (`"startup": {"phase", "task"}`,
+        /// p08-startup-088; the schema-3 decoder must list the key before a build sends schema 3).
+        public var carriesStartupTag: Bool { self == .v3 }
         /// Whether a report in this schema carries ``HangReport/histograms``, ``HangReport/stability``,
         /// ``HangReport/blackbox`` and ``HangReport/launchSections`` (p09-observability-063).
         public var carriesFieldData: Bool { self == .v3 }
@@ -74,6 +77,9 @@ public nonisolated struct HangReport: Codable, Sendable, Equatable {
         /// Whether a report in this schema carries ``HangReport/featuresHash`` and ``HangReport/features``
         /// (p12-perf-process-151; the schema-3 decoder lists them: web/services/hangReports/wireSchema.ts).
         public var carriesFeatures: Bool { self == .v3 }
+        /// Whether a report in this schema carries ``HangReport/blockingSites``, the main thread's blocking call
+        /// counts by site id (p12-perf-process-226; the schema-3 decoder lists them: web/services/hangReports/wireSchema.ts).
+        public var carriesBlockingSites: Bool { self == .v3 }
     }
 
     /// The wire schema a report is written in by default (``WireSchema/deployed``).
@@ -232,6 +238,8 @@ public nonisolated struct HangReport: Codable, Sendable, Equatable {
     public var inputLatency: [InputLatencyRow]?
     /// Chrome's scroll jank counts since the last report; schema 3 only.
     public var scrollJank: ScrollJank?
+    /// The person's interactions since the last report (cmux's INP); schema 3 only, absent with none.
+    public var interactionLatency: InteractionLatency?
     /// This launch's catalog histograms since the last report (at most ``maxFieldHistograms``); schema 3 only.
     public var histograms: [FieldHistogram]?
     /// This launch's stability counts since the last report; schema 3 only.
@@ -249,6 +257,10 @@ public nonisolated struct HangReport: Codable, Sendable, Equatable {
     /// The features an override decided this launch, sorted by name (at most ``maxFeatures``); present
     /// with ``featuresHash``.
     public var features: [FeatureEntry]?
+    /// The main thread's blocking call sites since the last report, most calls first (at most
+    /// ``maxBlockingSites``), each by its hashed site id only (``BlockingSiteCount``). Schema 3 only; nil, and so
+    /// absent from the JSON, in schema 2, in an older report and when the detector is not in the build.
+    public var blockingSites: [BlockingSiteCount]?
 
     /// Makes the value from its parts.
     public init(reportId: String, installId: String, day: String, app: App, os: OS, hardware: HardwareClass,
@@ -267,7 +279,7 @@ public nonisolated struct HangReport: Codable, Sendable, Equatable {
     public var hasNoFindings: Bool {
         hangs.isEmpty && cpuExceptions.isEmpty && stallHistogram.allSatisfy { $0.count == 0 } && metrics.isEmpty
             && intervals.isEmpty && (launches?.isEmpty ?? true) && !hasInputLatency && (activeSeconds ?? 0) == 0
-            && !hasFieldData
+            && !hasFieldData && (blockingSites ?? []).isEmpty
     }
 
     /// Whether the report carries histograms, stability counts or a launch section (a black box alone is
@@ -276,9 +288,9 @@ public nonisolated struct HangReport: Codable, Sendable, Equatable {
         !(histograms ?? []).isEmpty || !(stability?.isEmpty ?? true) || !(launchSections ?? []).isEmpty
     }
 
-    /// Whether the report carries input latency rows or scroll jank counts.
+    /// Whether the report carries input latency rows, scroll jank counts or interactions.
     public var hasInputLatency: Bool {
-        !(inputLatency ?? []).isEmpty || !(scrollJank?.isEmpty ?? true)
+        !(inputLatency ?? []).isEmpty || !(scrollJank?.isEmpty ?? true) || interactionLatency != nil
     }
 
     /// The wire names: camelCase for the schema 2 fields and `launches`; the input latency fields
@@ -290,11 +302,13 @@ public nonisolated struct HangReport: Codable, Sendable, Equatable {
         case inputLatencyBucketEdgesMs = "input_latency_bucket_edges_ms"
         case inputLatency = "input_latency"
         case scrollJank = "scroll_jank"
+        case interactionLatency = "interaction_latency"
         case activeSeconds = "active_seconds"
         case histograms, stability, blackbox
         case launchSections = "launch_sections"
         case featuresHash = "features_hash"
         case features
+        case blockingSites = "blocking_sites"
     }
 
     /// The wire encoder: sorted keys, so the same report always has the same bytes.

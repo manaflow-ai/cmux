@@ -28,7 +28,7 @@ import Testing
     func makePage(host: Host) -> (ChromiumHostPageView, NSWindow) {
         _ = NSApplication.shared
         let page = ChromiumHostPageView(frame: NSRect(x: 0, y: 0, width: 400, height: 300), inputTarget: .view,
-                                        makeLayerHost: { _ in CALayer() }, pageUpdateCenter: center)
+                                        makeLayerHost: { _ in CALayer() }, windowEventCenter: center)
         page.accessibilityBridge = ChromiumHostAccessibilityBridge(
             localToken: { $0 is NSWindow ? Array("window".utf8) : Array("view".utf8) },
             remoteElement: { token, _ in FakeRemote(token: token) },
@@ -203,7 +203,7 @@ import Testing
 
     @Test func anInProcessPageReportsNoRemoteAccessibility() {
         let page = ChromiumHostPageView(frame: NSRect(x: 0, y: 0, width: 10, height: 10), inputTarget: .pageWindow,
-                                        makeLayerHost: { _ in CALayer() }, pageUpdateCenter: center)
+                                        makeLayerHost: { _ in CALayer() }, windowEventCenter: center)
         #expect(page.remoteAccessibilityPhaseName == nil)
     }
 

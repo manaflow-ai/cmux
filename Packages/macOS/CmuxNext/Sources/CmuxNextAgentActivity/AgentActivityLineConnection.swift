@@ -211,6 +211,7 @@ public nonisolated final class AgentActivityLineConnection: @unchecked Sendable 
                         acceptsServer: (@Sendable (UnixSocketPeer) -> Bool)?,
                         faults: OnceContinuationFaultReporter) async throws -> Data {
         let connection = AgentActivityLineConnection(path: path, acceptsServer: acceptsServer)
+        // timer-class-allow: off-main: the request deadline only expires the connection on its own queue and resumes the caller's continuation; it posts no main-thread job
         let timeout = DemandTimer(owner: "agent-activity.request-deadline")
         defer { timeout.cancel() }
         return try await withTaskCancellationHandler {

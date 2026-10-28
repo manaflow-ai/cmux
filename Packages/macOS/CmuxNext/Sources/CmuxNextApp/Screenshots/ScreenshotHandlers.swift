@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextBrowser
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextWakeups
@@ -34,6 +35,18 @@ enum ScreenshotHandlers {
     static let unavailableCode = "screenshot.unavailable"
     /// The PNG could not be written where `out` names.
     static let writeFailedCode = "screenshot.write_failed"
+    /// A hibernated page was not woken for the capture: memory is low, so retry later. Its data's
+    /// `deferral` is the ``WakeAdmission/Deferral``.
+    static let deferredCode = "screenshot.deferred"
+
+    /// Why an off-screen page did not wake for a capture: ``deferredCode`` with the deferral when the wake
+    /// admission held it back, else ``unavailableCode``.
+    static func wakeFailure(_ key: String, cache: TabContentCache) -> ActionWorkFailure {
+        guard let deferral = cache.hibernation?.deferral(of: key) else {
+            return ActionWorkFailure(code: unavailableCode, reason: BrowserPageStrings.wakeFailed)
+        }
+        return ActionWorkFailure(code: deferredCode, reason: BrowserPageStrings.wakeDeferred, details: ["deferral": deferral.rawValue])
+    }
 
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         registry.bind("window.screenshot", run: { invocation in
@@ -133,7 +146,7 @@ enum ScreenshotHandlers {
         guard let made else { throw ActionWorkFailure(code: unavailableCode, reason: ScreenshotStrings.pageFailed("no page")) }
         services.cache.hibernation?.noteAgentUse(tab.id)
         guard let page = await AppBrowserPage.awakePage(tab.id, page: made, cache: services.cache, within: AppBrowserPage.actionWait) else {
-            throw ActionWorkFailure(code: unavailableCode, reason: BrowserPageStrings.wakeFailed)
+            throw wakeFailure(tab.id, cache: services.cache)
         }
         do {
             try await AppBrowserPage.ensureBrowser(page)
@@ -156,7 +169,7 @@ enum ScreenshotHandlers {
         // main-hop-allow: the capture reads the window, its views and the page between its awaits (AppWindowImage and AppBrowserPage are main-actor async); the registry tracks this run as the action's result
         let task: ActionResultWork = Task { @MainActor in
             do {
-                return .success(try await deliver(try await capture(), output: output, copies: byPerson))
+                return .success(try await deliver(try await capture(), output: output, copies: byPerson, runner: services.work))
             } catch let failure as ActionWorkFailure {
                 return .failure(failure)
             } catch let failure as WindowScreenshotFailure {
@@ -179,7 +192,8 @@ enum ScreenshotHandlers {
     }
 
     /// Encodes and writes `capture` where `output` says.
-    private static func deliver(_ capture: Capture, output: ScreenshotOutput, copies: Bool) async throws -> [String: ActionResultValue] {
+    private static func deliver(_ capture: Capture, output: ScreenshotOutput, copies: Bool,
+                                runner: any MayBlockRunner) async throws -> [String: ActionResultValue] {
         let image = capture.image
         let encoded = await encode(image)
         guard !encoded.blank else { throw ActionWorkFailure(code: unavailableCode, reason: ScreenshotStrings.blank) }
@@ -193,9 +207,9 @@ enum ScreenshotHandlers {
                 // Up to 4 MiB of PNG grows to 5.3 MiB of text: off the main actor.
                 result["png_base64"] = .string(await AppBrowserPage.base64(png))
             case .inline, .temporary:
-                result["path"] = .string(try await saveTemporary(png))
+                result["path"] = .string(try await saveTemporary(png, on: runner))
             case .file(let url):
-                try await write(png, to: url)
+                try await write(png, to: url, on: runner)
                 result["path"] = .string(url.path)
             }
         } catch {
@@ -216,23 +230,26 @@ enum ScreenshotHandlers {
         return (false, image.pngData())
     }
 
-    @concurrent
-    nonisolated private static func write(_ png: Data, to url: URL) async throws {
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try png.write(to: url, options: .atomic)
+    /// The caller waits for the file: the files lane at userBlocking.
+    private static func write(_ png: Data, to url: URL, on runner: any MayBlockRunner) async throws {
+        try await runner.runFiles(.userBlocking) {
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try png.write(to: url, options: .atomic)
+        }
     }
 
     /// Writes to `$TMPDIR/cmux-screenshots/`, pruned as browser screenshots are.
-    @concurrent
-    nonisolated private static func saveTemporary(_ png: Data) async throws -> String {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-screenshots", isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        // wall-clock: a file name stamp; pruning reads the files' dates.
-        let stamp = Int(Date().timeIntervalSince1970 * 1000)
-        let file = directory.appendingPathComponent("screenshot-\(stamp)-\(UUID().uuidString.prefix(8)).png")
-        try png.write(to: file, options: .atomic)
-        AppBrowserPage.prune(directory, keeping: AppBrowserPage.keptScreenshots,
-                             newerThan: Date().addingTimeInterval(-AppBrowserPage.screenshotLifetime))
-        return file.path
+    private static func saveTemporary(_ png: Data, on runner: any MayBlockRunner) async throws -> String {
+        try await runner.runFiles(.userBlocking) {
+            let directory = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-screenshots", isDirectory: true)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            // wall-clock: a file name stamp; pruning reads the files' dates.
+            let stamp = Int(Date().timeIntervalSince1970 * 1000)
+            let file = directory.appendingPathComponent("screenshot-\(stamp)-\(UUID().uuidString.prefix(8)).png")
+            try png.write(to: file, options: .atomic)
+            AppBrowserPage.prune(directory, keeping: AppBrowserPage.keptScreenshots,
+                                 newerThan: Date().addingTimeInterval(-AppBrowserPage.screenshotLifetime))
+            return file.path
+        }
     }
 }

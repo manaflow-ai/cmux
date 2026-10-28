@@ -11,7 +11,7 @@ import Testing
 
     @Test func theFadeInIsPreciseAndTheOthersFlexibleVisibleDeadlines() throws {
         let rig = MainDeadlineRig()
-        let wake = HomeDemandWake(deadlines: rig.deadlines)
+        let wake = HomeDemandWake(node: VisibilityNode(root: "test.home.scroller", own: .visible), deadlines: rig.deadlines)
         let show = try #require(wake.makeDeadline(owner: "Home.scroller.show", exact: true) as? HomeViewDeadline)
         let hide = try #require(wake.makeDeadline(owner: "Home.scroller.hide", exact: false) as? HomeViewDeadline)
         guard case .precise = show.deadline.alignment else { Issue.record("the fade-in is not precise"); return }
@@ -22,7 +22,8 @@ import Testing
 
     @Test func aScrollerDeadlineRunsOnceFromTheQueueAndACancelDropsItsWake() {
         let rig = MainDeadlineRig()
-        let deadline = HomeDemandWake(deadlines: rig.deadlines).makeDeadline(owner: "Home.scroller.hide", exact: false)
+        let wake = HomeDemandWake(node: VisibilityNode(root: "test.home.scroller", own: .visible), deadlines: rig.deadlines)
+        let deadline = wake.makeDeadline(owner: "Home.scroller.hide", exact: false)
         let fired = Count()
 
         deadline.schedule(after: 5) { fired.n += 10 }

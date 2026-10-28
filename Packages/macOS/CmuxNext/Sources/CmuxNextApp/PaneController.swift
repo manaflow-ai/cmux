@@ -49,6 +49,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     /// The strip's selected tab as last set, unobserved: a tab switch does not re-run `snapshot()` (I2).
     private(set) var stripSelection: String?
     private var sentFocusPane: FocusTopology.Pane? // this pane's topology part as last sent (I4)
+    private(set) var appliedRecordTabs: [String] = [] // the record's tab ids at the last apply: a record that differs is a stale strip (`syncStripIfStale`)
     private var closeTabs: [(SurfaceID, String)] = [] // the tabs of the last apply: a closed tab's opener picks its successor (BrowserTabOpeners.closeRelations)
     private var remapsViewedTab = false // a newly selected tab lost its attention dot: map the strip once, after the apply
     /// Its workspace draws nothing (`WorkspaceContentController.drawsNothing`): no strip observation runs and
@@ -98,14 +99,15 @@ final class PaneController: SurfacePresenter, PresentablePane {
         // Under its workspace's node (p06-scheduler-023); a pane outside a workspace (tests) is a root.
         let parent: VisibilityNode? = workspace.flatMap { $0.visibilityNode }
         visibilityNode = parent.map { VisibilityNode("pane:\(pane.id)", own: own, parent: $0) }
-            ?? VisibilityNode(root: "pane:\(pane.id)", own: own)
+            ?? VisibilityNode(root: "pane:\(pane.id)", own: own, workCounts: services.visibilityWorkCounts)
         view = PaneContentView(stripModel: stripModel, reveal: services.launchReveal, input: services.inputTap, node: visibilityNode, deadlines: services.mainDeadlines)
         stripModel.intentHandler = { [weak self] intent in self?.handle(intent) }
         view.stripView.previewProvider = services.previews
         view.stripView.hoverFrameInput = services.hoverFrameInput  // hover once per frame (`pointerFrameHover`)
-        view.stripView.resourceSource = services.resources
+        view.stripView.scrollFrameInput = services.tabScrollFrameInput  // scroll by translation once per frame (`tabStripScrollFrames`)
+        view.stripView.setResourceSource(services.resources, deadlines: services.mainDeadlines)
         view.stripView.contextMenuProvider = { [weak self] target in self?.contextMenu(for: target) }
-        view.stripView.attachHoverCards(services.hoverCards, memory: services.memoryCoordinator, energy: services.cache.hibernation?.highEnergy) // p07-memory-005, p14-energy-125
+        view.stripView.attachHoverCards(services.hoverCards, memory: services.memoryCoordinator, thumbnailPages: services.cache.imageCaches.pictureAllocator, energy: services.cache.hibernation?.highEnergy) // p07-memory-005, p07-memory-107, p14-energy-125
         view.stripView.onHoverTab = { [weak self] id in self?.noteHover(id) }
         view.stripView.newTabShortcut = { [weak services] in services?.registry.shortcutDisplay(for: StripNewTab.action) }
         view.onResize = { [weak services, weak paneView = view] in
@@ -152,6 +154,13 @@ final class PaneController: SurfacePresenter, PresentablePane {
         observation?.cancel(); observation = Task { [weak self] in
             for await structure in later {
                 guard let self, let structure = structure.value else { return }
+                // A tab moved in or out of this pane (its record's tabs changed): the workspace's layout and every
+                // moved strip change in this turn, under one topology, so focus follows the tab at once.
+                if self.stripIsStale {
+                    self.workspace?.applyMovedTabs()
+                    guard !Task.isCancelled else { return } // that apply removed this pane (teardown cancels this task)
+                    if !self.stripIsStale { continue } // it mapped this strip from the store already: no second map
+                }
                 self.apply(self.compose(structure))
             }
         }
@@ -191,6 +200,15 @@ final class PaneController: SurfacePresenter, PresentablePane {
         observe()
         // After the strip map: its selection changes flipped no tab, so only the tab selected now flips.
         visibilityNode.set(.visible)
+    }
+
+    /// The strip lags the pane record's tabs (a tab moved out or in since its last apply).
+    var stripIsStale: Bool { !isSuspended && !pane.tabs.lazy.map(\.id).elementsEqual(appliedRecordTabs) }
+
+    /// Maps the strip again when it lags the record (`stripIsStale`), as its observation would.
+    func syncStripIfStale() {
+        guard stripIsStale else { return }
+        apply(compose(structure()))
     }
 
     private func compose(_ structure: Snapshot, refresh: Bool = false) -> Snapshot {
@@ -315,6 +333,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     /// Pushes daemon truth (a New Tab page's replacement in its slot: NewTabSuccession) into the strip. `force` resets optimistic strip state after a rejected command.
     func apply(_ reported: Snapshot, force: Bool = false) {
         let snapshot = NewTabSuccession.order(reported, in: self)
+        appliedRecordTabs = pane.tabs.map(\.id)
         if force { view.stripView.discardPendingReorder() }
         if view.hidesStrip != snapshot.hidesStrip { view.hidesStrip = snapshot.hidesStrip }
         if stripModel.showsSelectedFullWidth != snapshot.fullWidthTab { stripModel.showsSelectedFullWidth = snapshot.fullWidthTab }

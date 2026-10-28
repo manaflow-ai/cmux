@@ -5,8 +5,10 @@ import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextFeatures
 package import CmuxNextHibernation
+import CmuxNextHostPressure
 import CmuxNextInput
 import CmuxNextMemory
+import CmuxNextPages
 import CmuxNextResources
 import CmuxNextSettings
 package import CmuxNextTabs
@@ -24,21 +26,25 @@ extension AppServices {
     func startHibernation(settings: SettingsController) {
         followMemorySaver(settings)
         let audible = features.isEnabled(.recentlyAudibleProtection) ? AudibleHistory(mainWork: mainWork) : nil
-        let hibernation = BrowserHibernation(cache: cache, memory: memoryCoordinator, deadlines: mainDeadlines, energy: mainWork.energy, audible: audible, followsTabVisibility: features.isEnabled(.chromiumTabVisibility))
+        let hibernation = BrowserHibernation(cache: cache, memory: memoryCoordinator, deadlines: mainDeadlines, energy: mainWork.energy, audible: audible, followsTabVisibility: features.isEnabled(.chromiumTabVisibility), freezeEligibility: features.isEnabled(.memoryFreezeEligibility))
         cache.hibernation = hibernation
+        cache.webKit.hidesHiddenTabs = features.isEnabled(.webkitHiddenTabs) // WebKit tabs follow their hides too (p14-energy-059)
         hibernation.isPinned = { [weak self] key in self?.locateTab(key)?.0.pinned ?? false }
         hibernation.isDownloading = { [weak self] key in self?.cache.pageRequests.downloads.isDownloading(tab: key) ?? false }
         hibernation.measureMemory = { [weak self] in await self?.resources.sample(.everything).browserPageMemory ?? [:] }
-        let readCPU = { [work = self.work, mainWork = self.mainWork, tabs = cache.tabRenderers] (owner: String) in
-            SaverCPUFreeze.measure(owner: owner, work: work, mainWork: mainWork, tabs: tabs) { ChromiumHelperProcess.tabRendererUsage() } }
+        let readCPU = { [work = self.work, mainWork = self.mainWork, tabs = cache.tabRenderers, parent = cache.chromium.source.helperParent] (owner: String) in
+            SaverCPUFreeze.measure(owner: owner, work: work, mainWork: mainWork, tabs: tabs) { ChromiumHelperProcess.tabRendererUsage(parent: parent.pid) } }
         hibernation.measureCPU = readCPU("SaverCPUFreeze")
         hibernation.highEnergy = features.isEnabled(.highEnergyTabs) ? HighEnergyTabMonitor(cache: cache, registry: registry, measure: readCPU("HighEnergyTabs")) : nil
         hibernation.activity.isEnabled = features.isEnabled(.memorySaverBackgroundActivity)
         hibernation.discardsGrowingFrozenPages = features.isEnabled(.frozenGrowthDiscard)
         hibernation.discardsAppPages = features.isEnabled(.memoryDiscardPageTabs)
         hibernation.discardsStreamedPages = features.isEnabled(.memoryDiscardRemoteTabs)
-        hibernation.openerGroup = { [weak self] key in self?.openerGroup(of: key) ?? [key] }
+        hibernation.freezesOffScreenShownPages = features.isEnabled(.offScreenWindowPageFreeze)
+        hibernation.discardsCrashedSubframes = features.isEnabled(.memoryDiscardCrashedSubframes)
+        hibernation.openerLinks = { [weak self] in self?.scriptOpenerLinks() ?? [:] }
         hibernation.ranksUrgentDiscards = features.isEnabled(.memoryUrgentDiscardRanking)
+        hibernation.admission = WakeAdmission(isEnabled: features.isEnabled(.memoryWakeAdmission), freeBytes: { HostSampler().freePhysicalBytes() })
         hibernation.snapshots.keepsCompressed = features.isEnabled(.compressedSnapshots)
         let agentPages = AgentPageHibernation(services: self)
         memoryHistograms.follow(hibernation, agentPages: agentPages)
@@ -101,18 +107,18 @@ extension AppServices {
     func startHibernationMeasurements() {
         memoryFootprints.start()
         if features.isEnabled(.occludedWindowDiscard), let hibernation = cache.hibernation {
-            hibernation.follow(WindowOcclusionChecker(windows: { [weak self] in self?.windows.controllers.compactMap(\.window) ?? [] }))
+            hibernation.follow(WindowOcclusionChecker(windows: { [weak self] in self?.windows.controllers.compactMap(\.window) ?? [] }, workspaceEvents: workspaceEvents, mainWork: mainWork))
         }
-        if features.isEnabled(.windowOcclusionFamily) { windowOcclusionFamilies = WindowOcclusionChecker.feedingFamilies() }
+        if features.isEnabled(.windowOcclusionFamily) { windowOcclusionFamilies = WindowOcclusionChecker.feedingFamilies(workspaceEvents: workspaceEvents, mainWork: mainWork) }
     }
 
-    /// Tab `key` and every tab script can reach from it through `window.opener`
-    /// (`BrowserScriptOpeners`: its opener, the tabs it opened, theirs), for a discard of the whole
-    /// group (`FrozenGrowthRule`). Runs only on such a discard.
-    func openerGroup(of key: String) -> Set<String> {
+    /// Each tab script opened with a live `window.opener` and its opener, by key (`BrowserScriptOpeners`): the opener groups'
+    /// links (`FrozenGrowthRule.openerGroups`). Free with no such tab, else one walk of the tabs, at most once per plan.
+    func scriptOpenerLinks() -> [String: String] {
+        let scriptOpeners = cache.pageRequests.scriptOpeners
+        guard !scriptOpeners.isEmpty else { return [:] }
         let keys = Dictionary(cache.browsers.map { (ObjectIdentifier($0.value.tab), $0.key) }) { first, _ in first }
-        let openers = cache.pageRequests.scriptOpeners.openers { keys[ObjectIdentifier($0)] }
-        return FrozenGrowthRule.openerGroup(of: key, openers: openers)
+        return scriptOpeners.openers { keys[ObjectIdentifier($0)] }
     }
 
     /// The parked workspaces of every window: none at critical memory pressure, one teardown per release
@@ -130,6 +136,13 @@ extension AppServices {
             memory: memoryCoordinator)
     }
 
+    /// The page host's shared WebKit processes (p07-memory-087): at most `SubsystemBudget.webProcessPagesPerGroup`
+    /// pages per process; every page of a sharing group joins with `webKitPageProcessGroups`, else only the agent pages.
+    func makeWebProcessGroups() -> WebProcessGroups {
+        WebProcessGroups(pagesPerProcess: SubsystemBudget.forThisMac(gpuResidentAvailable: false).webProcessPagesPerGroup,
+                         groupsEverySharingPage: features.isEnabled(.webKitPageProcessGroups))
+    }
+
     /// The one list of hidden frames with `memoryHiddenFrameLRU` (p03-rendering-099): every evicted terminal's last
     /// frame, as many unlocked as this Mac's memory allows, each culled after 5 min hidden on one background deadline,
     /// all purged in the memory coordinator's release slices at a warning. Holders drop culled frames on a second
@@ -143,6 +156,15 @@ extension AppServices {
             evictions: MainDeadline(owner: "HiddenFrameLRU.evict", workClass: .background, scheduler: mainDeadlines),
             memory: memoryCoordinator)
     }
+
+    /// A window's detach of workspaces hidden past the grace with `hiddenWorkspaceDetachAfterGrace`
+    /// (p03-rendering-096), on one background deadline; nil while off: hidden workspaces stay in their window.
+    func makeHiddenWorkspaceDetach() -> HiddenWorkspaceDetach? {
+        guard features.isEnabled(.hiddenWorkspaceDetachAfterGrace) else { return nil }
+        return HiddenWorkspaceDetach(
+            grace: Feature.hiddenWorkspaceDetachAfterGrace.durationParam("grace") ?? .seconds(30),
+            deadline: MainDeadline(owner: "HiddenWorkspaceDetach", workClass: .background, scheduler: mainDeadlines))
+    }
 }
 
 // The memory histograms' discard and wake counts come from the page hibernation (p07-memory-016).
@@ -152,10 +174,12 @@ extension MemoryHistograms {
     /// (absent, never a measured 0) until its discard path records too.
     static let hibernationKinds = [ContentKind.browser, .agentPage].map(\.rawValue)
 
-    /// The counted kinds: ``hibernationKinds``, and overlay pages while a feature releases them (their planner,
-    /// ``OverlayPageDiscards``, records each).
-    static func discardKinds(overlayPages: Bool) -> [String] {
+    /// The counted kinds: ``hibernationKinds``, overlay pages while a feature releases them (their planner,
+    /// ``OverlayPageDiscards``, records each), and sidebar sections while `memoryDiscardSidebarSections` does
+    /// (``SidebarSectionDiscards``).
+    static func discardKinds(overlayPages: Bool, sidebarSections: Bool = false) -> [String] {
         hibernationKinds + (overlayPages ? [ContentKind.overlayPage.rawValue] : [])
+            + (sidebarSections ? [ContentKind.sidebarSection.rawValue] : [])
     }
 
     /// Counts each page `hibernation` hibernates and each agent page `agentPages` releases as a

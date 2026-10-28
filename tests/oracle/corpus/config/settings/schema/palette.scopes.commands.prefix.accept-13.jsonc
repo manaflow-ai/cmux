@@ -1,0 +1,9 @@
+{
+  "palette": {
+    "scopes": {
+      "commands": {
+        "prefix": "~"
+      }
+    }
+  }
+}

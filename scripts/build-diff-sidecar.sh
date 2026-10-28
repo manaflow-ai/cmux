@@ -52,6 +52,18 @@ fi
 
 mkdir -p "$BUILD_OUTPUT_DIR"
 mkdir -p "$BUILD_WORK_DIR"
+# Line tables in a packed .dSYM beside the cargo output (rustc runs dsymutil
+# before the profile's strip), kept beside the app below; the shipped binary
+# stays stripped (verify-diff-sidecar-artifact.sh). rustc runs `dsymutil` from
+# PATH, so a host with no dsymutil (the Linux pool's cross build of the app
+# components) builds without a dSYM: asking for one there fails the link
+# ("unable to run `dsymutil`"). A Mac always has /usr/bin/dsymutil.
+dsym_env=()
+if command -v dsymutil >/dev/null 2>&1; then
+  dsym_env=(CARGO_PROFILE_RELEASE_DEBUG=line-tables-only CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO=packed)
+else
+  echo "note: no dsymutil on PATH: ${BINARY_NAME} builds without a dSYM" >&2
+fi
 binaries=()
 seen_targets=""
 for arch in $requested_archs; do
@@ -62,7 +74,7 @@ for arch in $requested_archs; do
   seen_targets="$seen_targets $target"
   ensure_rust_target "$target"
   target_dir="${BUILD_WORK_DIR}/${target}"
-  CARGO_TARGET_DIR="$target_dir" \
+  env ${dsym_env[@]+"${dsym_env[@]}"} CARGO_TARGET_DIR="$target_dir" \
     MACOSX_DEPLOYMENT_TARGET="${CMUX_DIFF_SIDECAR_MIN_MACOS:-14.0}" \
     "$CARGO_RUNNER" build \
       --manifest-path "${CRATE_DIR}/Cargo.toml" \
@@ -83,6 +95,9 @@ else
   lipo -create -output "$output_binary" "${binaries[@]}"
 fi
 chmod +x "$output_binary"
+dsyms=()
+for binary in "${binaries[@]}"; do dsyms+=("$binary.dSYM"); done
+"${ROOT}/scripts/cmux-next/lipo-dsym.sh" "$output_binary.dSYM" "${dsyms[@]}"
 "${ROOT}/scripts/verify-diff-sidecar-artifact.sh" "$output_binary" --archs "$requested_archs"
 
 if [[ -z "${TARGET_BUILD_DIR:-}" ]]; then

@@ -1,5 +1,3 @@
-import CmuxNextDesign
-
 /// The Settings rows of `LinkRouting` (Browser > Opening Links, Enable cmux Browser first) and of `TextEditorSetting`
 /// (General > Files), kept out of `SettingsSchema` so its catalog stays within the type budget.
 nonisolated enum LinkRoutingSchema {

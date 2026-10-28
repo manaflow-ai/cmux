@@ -1,5 +1,6 @@
 public import CmuxNextAgentPane
 import CmuxNextCompat
+public import CmuxNextWakeups
 import Foundation
 import os
 
@@ -22,14 +23,19 @@ public nonisolated struct ChiefAcpmuxHeal: Sendable {
     let environment: AcpmuxEnvironment
     /// Starts the brain host when none runs (`ChiefBrainKeeper.ensure`), after the stop.
     let ensureHost: @Sendable () async -> Void
+    /// Runs the follow-up that waits for a busy Chief host's turn to end.
+    let work: BackgroundWork
 
     /// - Parameters:
     ///   - home: the Chief home whose acpmux the chat uses.
     ///   - environment: that home's acpmux environment (`ChiefHome.acpmuxHome`).
+    ///   - work: the app's background work, which runs the follow-up after a busy host's turn.
     ///   - ensureHost: starts the Chief host again when its watch did not.
-    public init(home: ChiefHome, environment: AcpmuxEnvironment, ensureHost: @escaping @Sendable () async -> Void) {
+    public init(home: ChiefHome, environment: AcpmuxEnvironment, work: BackgroundWork,
+                ensureHost: @escaping @Sendable () async -> Void) {
         self.home = home
         self.environment = environment
+        self.work = work
         self.ensureHost = ensureHost
     }
 
@@ -55,8 +61,9 @@ public nonisolated struct ChiefAcpmuxHeal: Sendable {
             let ensureHost = ensureHost
             let host = asked.withLock { $0 }
             // task-owner: one follow-up per stale daemon (the pane heals each pid once); it ends
-            // when the host exits, however long its turn runs (one exit source, no timer)
-            Task.detached {
+            // when the host exits, however long its turn runs (one exit source, no timer). Nobody
+            // waits for it (best effort); quit cancels it and the next launch's HomeBrainHost.start heals.
+            work.task(.bestEffort) {
                 await Self.finishAfterTurn(
                     hostExited: {
                         guard let host else { return true }

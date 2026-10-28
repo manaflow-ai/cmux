@@ -2,7 +2,7 @@ public import AppKit
 public import CmuxNextDaemon
 public import CmuxNextDaemonService
 import CmuxNextDesign
-import CmuxNextWakeups
+public import CmuxNextWakeups
 
 /// Content of a window that has no workspace yet. The window opens at
 /// launch with this view, so the app is never windowless while the daemon
@@ -27,24 +27,29 @@ public final class DaemonConnectingView: NSView {
         NSPasteboard.general.setString(text, forType: .string)
     }
     private(set) var state: DaemonStartupState = .connecting
-    private let statusTimer: DemandTimer
+    /// The status line's delay: one visible deadline on the app's wake-up queue, armed only while the view is in a
+    /// window and connecting.
+    private let statusDelay: MainDeadline
     /// The status line has waited out its delay (or a failure showed it).
     private var statusDue = false
 
-    public convenience override init(frame: NSRect) {
-        self.init(frame: frame, clock: ContinuousClock())
-    }
-
-    public convenience init(frame: NSRect, recovery: DaemonRecovery) {
-        self.init(frame: frame, clock: ContinuousClock(), recovery: recovery)
+    /// - Parameters:
+    ///   - recovery: The local daemon's Retry Now and Restart.
+    ///   - node: The window's visibility node: the controls follow the recovery only while it shows.
+    ///   - work: The app's main-thread scheduler.
+    ///   - deadlines: The app's one deadline placer (`AppServices.mainDeadlines`), for the status line's delay.
+    public convenience init(frame: NSRect, recovery: DaemonRecovery, node: VisibilityNode, on work: MainWorkScheduler,
+                            deadlines: MainDeadlineScheduler) {
+        self.init(frame: frame, deadlines: deadlines,
+                  recoveryControls: DaemonRecoveryControls(recovery: recovery, node: node, on: work))
     }
 
     /// - Parameters:
-    ///   - clock: Times the status delay (tests step it).
-    ///   - recovery: The local daemon's Retry Now and Restart; nil shows neither.
-    init(frame: NSRect, clock: any Clock<Duration>, recovery: DaemonRecovery? = nil) {
-        statusTimer = DemandTimer(owner: "launch.status", clock: clock)
-        recoveryControls = recovery.map(DaemonRecoveryControls.init(recovery:))
+    ///   - deadlines: Where the status line's delay goes (tests pass one on a queue they fire).
+    ///   - recoveryControls: The local daemon's Retry Now and Restart; nil shows neither.
+    init(frame: NSRect, deadlines: MainDeadlineScheduler, recoveryControls: DaemonRecoveryControls? = nil) {
+        statusDelay = MainDeadline(owner: "launch.status", workClass: .visible, scheduler: deadlines)
+        self.recoveryControls = recoveryControls
         super.init(frame: frame)
         // Layer-backed, so the status line's fade sets its model alpha at once.
         wantsLayer = true
@@ -82,6 +87,7 @@ public final class DaemonConnectingView: NSView {
     @available(*, unavailable)
     public required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
+    // visibility-walk-allow: two label color stores in the theme scope, no layout or text measure; cheaper than a deferral
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         performWithTheme {
@@ -105,7 +111,7 @@ public final class DaemonConnectingView: NSView {
     private func staggerIfConnecting() {
         guard window != nil, state == .connecting else { return }
         if !statusDue {
-            statusTimer.scheduleOnMainIfIdle(after: .seconds(MotionTunables.launchTextDelay.value)) { [weak self] in
+            statusDelay.scheduleIfIdle(after: .seconds(MotionTunables.launchTextDelay.value)) { [weak self] in
                 guard let self else { return }
                 statusDue = true
                 DaemonLaunchTimings.shared.mark("connecting_status_shown")
@@ -114,14 +120,14 @@ public final class DaemonConnectingView: NSView {
         }
     }
 
-    private func cancelStagger() { statusTimer.cancel() }
+    private func cancelStagger() { statusDelay.cancel() }
 
     public func apply(_ state: DaemonStartupState) {
         self.state = state
         switch state {
         case .connecting, .connected:
             // Connected: what is left is the first workspace (cx-b4sjc), not cmux-tui, so no status line (cx-r650e).
-            if state == .connected { statusTimer.cancel(); statusDue = false }
+            if state == .connected { statusDelay.cancel(); statusDue = false }
             titleLabel.stringValue = DaemonRecoveryStrings.connecting
             titleLabel.alphaValue = statusDue ? 1 : 0
             detailLabel.stringValue = ""

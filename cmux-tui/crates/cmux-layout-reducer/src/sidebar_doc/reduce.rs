@@ -172,10 +172,9 @@ impl<'d> Batch<'d> {
         let items = std::mem::take(&mut self.items);
         let sections = std::mem::take(&mut self.sections);
         let mut applied = Applied::default();
-        let mut section_ids: Vec<&SectionId> = sections.keys().collect();
-        section_ids.sort();
-        for id in section_ids {
-            let old = &sections[id];
+        let mut section_rows: Vec<(&SectionId, &Option<Section>)> = sections.iter().collect();
+        section_rows.sort_by(|a, b| a.0.cmp(b.0));
+        for (id, old) in section_rows {
             let now = self.doc.section(id);
             if old.as_ref() == now {
                 continue;
@@ -189,10 +188,9 @@ impl<'d> Batch<'d> {
                 None => Op::SectionDelete { id: id.clone() },
             });
         }
-        let mut item_ids: Vec<&ItemId> = items.keys().collect();
-        item_ids.sort();
-        for id in item_ids {
-            let old = &items[id];
+        let mut item_rows: Vec<(&ItemId, &Option<Item>)> = items.iter().collect();
+        item_rows.sort_by(|a, b| a.0.cmp(b.0));
+        for (id, old) in item_rows {
             let now = self.doc.item(id);
             if old.as_ref() == now {
                 continue;
@@ -690,11 +688,12 @@ fn place_run(
             Some(high) => siblings.iter().position(|entry| entry == high).unwrap_or(siblings.len()),
             None => siblings.len(),
         };
-        let run: Vec<ItemId> = siblings[..at]
+        let run: Vec<ItemId> = siblings
             .iter()
+            .take(at)
             .map(|(_, id)| id.clone())
             .chain(moved.iter().cloned())
-            .chain(siblings[at..].iter().map(|(_, id)| id.clone()))
+            .chain(siblings.iter().skip(at).map(|(_, id)| id.clone()))
             .collect();
         assignments = run.iter().cloned().zip(order_key::spread(run.len())).collect();
     }
@@ -1105,7 +1104,8 @@ pub(super) fn place_section(
         (None, None, Some(index)) => index.clamp(0, siblings.len() as i64) as usize,
         (None, None, None) => siblings.len(),
     };
-    let low = position.checked_sub(1).map(|i| siblings[i].1.as_str());
+    let low =
+        position.checked_sub(1).and_then(|i| siblings.get(i)).map(|(_, order)| order.as_str());
     let high = siblings.get(position).map(|(_, order)| order.as_str());
     let key = order_key::between(low, high);
     if key.len() <= MAX_ORDER_KEY_CHARS && !order_key::needs_spread(low, high) {

@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextFeatures
 @testable import CmuxNextHangReports
 import CmuxNextMetrics
@@ -548,5 +549,52 @@ struct HangReportWireFormatTests {
         let many = (0 ..< HangReport.maxFeatures + 5).map { HangReport.FeatureEntry(name: "feature\($0)", state: "off", source: "remote") }
         let capped = Self.report(.v3, features: HangReport.FeatureState(hash: "0123456789abcdef", nonDefault: many))
         #expect(capped.features == Array(many.prefix(HangReport.maxFeatures)))
+    }
+
+    // MARK: Blocking sites (p12-perf-process-226)
+
+    /// Two main-thread sites and a pool site, as the detector lists them; only the main thread's are sent.
+    static let detectorSites = [
+        BlockingSite(kind: .fileIO, location: "CmuxNextApp/WorkspaceStore.swift:42", count: 7, totalNanos: 12_500_000),
+        BlockingSite(kind: .sqlite, location: "CmuxNextSidebar/SidebarModel.swift:9", count: 3),
+        BlockingSite(kind: .fileIO, location: "CmuxNextApp/WorkspaceStore.swift:42", count: 5, context: .pool),
+    ]
+    /// The ids are SHA-256 of `Module/File.swift:line` (first 8 bytes), as `lab.py field --sites-from` computes them.
+    static let blockingSitesJSON = #""blocking_sites":[{"count":7,"kind":"file-io","site":"8ef2dbd38483c034","total_ms":12},{"count":3,"kind":"sqlite","site":"2fc36eeebd7c605e","total_ms":0}]"#
+
+    static func report(_ schema: HangReport.WireSchema, blockingSites: [HangReport.BlockingSiteCount]?) -> HangReport {
+        HangReportFixtures.builder(wireSchema: schema).build(context: HangReportFixtures.context(), watchdog: StallAggregate(),
+                                                             metricKit: [], blockingSites: blockingSites)
+    }
+
+    /// The privacy rule: a site leaves the Mac as its hash, kind and counts; no path, module or file name.
+    @Test func schemaThreeSendsTheMainThreadsBlockingSitesByHashedIDWithNoPath() throws {
+        let ledger = BlockingSiteLedger(sites: { BlockingDetector.MainThreadRead(sites: Self.detectorSites) })
+        let report = Self.report(.v3, blockingSites: ledger.take().sites)
+        let body = try HangReport.encoder.encode(report)
+        let text = String(decoding: body, as: UTF8.self)
+        #expect(text.contains(Self.blockingSitesJSON))
+        for name in ["/", ".swift", "CmuxNextApp", "CmuxNextSidebar", "WorkspaceStore", "SidebarModel"] { #expect(!text.contains(name)) }
+        #expect(try JSONDecoder().decode(HangReport.self, from: body) == report)
+        #expect(HangReportServerRules.violations(in: body).isEmpty)
+        #expect(PrivacyLeakScanner(forbiddenTerms: HangReportFixtures.forbiddenTerms).findings(in: body).isEmpty)
+        #expect(!report.hasNoFindings)
+        let inSchema2 = text.replacingOccurrences(of: #""schema":3"#, with: #""schema":2"#)
+        #expect(HangReportServerRules.violations(in: Data(inSchema2.utf8)) == ["report.blocking_sites is not accepted"])
+    }
+
+    @Test func schemaTwoCarriesNoBlockingSitesAndSchemaThreeOnlyWellFormedOnes() {
+        let valid = HangReport.BlockingSiteCount(site: "8ef2dbd38483c034", kind: "file-io", count: 2, totalMs: 1)
+        #expect(Self.report(.v2, blockingSites: [valid]).blockingSites == nil)
+        let bad = [HangReport.BlockingSiteCount(site: "CmuxNextApp/A.swift:1", kind: "file-io", count: 9, totalMs: 0),
+                   HangReport.BlockingSiteCount(site: "8EF2DBD38483C034", kind: "file-io", count: 9, totalMs: 0),
+                   HangReport.BlockingSiteCount(site: "2fc36eeebd7c605e", kind: "disk", count: 9, totalMs: 0),
+                   HangReport.BlockingSiteCount(site: "2fc36eeebd7c605e", kind: "sqlite", count: 0, totalMs: 0)]
+        #expect(Self.report(.v3, blockingSites: bad + [valid]).blockingSites == [valid])
+        #expect(Self.report(.v3, blockingSites: bad).blockingSites == nil)
+        let many = (0 ..< HangReport.maxBlockingSites + 5).map {
+            HangReport.BlockingSiteCount(site: String(format: "%016lx", $0), kind: "sleep", count: $0 + 1, totalMs: 0)
+        }
+        #expect(Self.report(.v3, blockingSites: many).blockingSites?.map(\.count) == Array((6 ... HangReport.maxBlockingSites + 5).reversed()))
     }
 }

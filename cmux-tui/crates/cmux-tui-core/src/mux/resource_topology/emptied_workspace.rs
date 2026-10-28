@@ -122,8 +122,8 @@ impl Mux {
             .filter(|(_, workspace)| !workspace.screens.is_empty() || bare.contains(&workspace.id))
             .filter(|(_, workspace)| {
                 projected
-                    .workspace_index(workspace.id)
-                    .is_some_and(|index| projected.workspaces[index].screens.is_empty())
+                    .workspace_by_id(workspace.id)
+                    .is_some_and(|workspace| workspace.screens.is_empty())
             })
             .collect::<Vec<_>>();
         let mut closed = Vec::new();

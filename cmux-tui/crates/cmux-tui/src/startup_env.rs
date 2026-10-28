@@ -33,6 +33,11 @@ pub(crate) unsafe fn take_link_token_from_env() {
     unsafe { cmux_tui_core::chief_brains::take_from_env() };
     // SAFETY: as above.
     unsafe { take_owner_app_pid() };
+    // SAFETY: as above.
+    #[cfg(target_os = "linux")]
+    unsafe {
+        capture_systemd_listen_env();
+    }
 }
 
 /// cmux-link and its token verifier exist only on unix; nothing to take.
@@ -131,6 +136,49 @@ unsafe fn take_owner_app_pid() {
     let _ = OWNER_APP_PID.set(value);
 }
 
+/// The systemd socket-activation variables (sd_listen_fds(3)) this process
+/// started with. They are taken out of the environment at once, as
+/// `sd_listen_fds(unset_environment = 1)` does, so no child inherits a
+/// `LISTEN_PID` naming this process; `take_provider_management_listener`
+/// takes them later, after the server has started threads.
+#[cfg(target_os = "linux")]
+#[derive(Clone, Default)]
+pub(crate) struct SystemdListenEnv {
+    pub(crate) pid: Option<String>,
+    pub(crate) fds: Option<String>,
+    pub(crate) names: Option<String>,
+}
+
+#[cfg(target_os = "linux")]
+static SYSTEMD_LISTEN_ENV: std::sync::OnceLock<SystemdListenEnv> = std::sync::OnceLock::new();
+#[cfg(target_os = "linux")]
+static SYSTEMD_LISTEN_ENV_TAKEN: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+/// # Safety
+///
+/// As [`take_link_token_from_env`]: no other thread may exist yet.
+#[cfg(target_os = "linux")]
+unsafe fn capture_systemd_listen_env() {
+    const KEYS: [&str; 3] = ["LISTEN_PID", "LISTEN_FDS", "LISTEN_FDNAMES"];
+    let [pid, fds, names] = KEYS.map(|key| std::env::var(key).ok());
+    for key in KEYS {
+        // SAFETY: forwarded from this function's own contract (see # Safety).
+        unsafe { std::env::remove_var(key) };
+    }
+    let _ = SYSTEMD_LISTEN_ENV.set(SystemdListenEnv { pid, fds, names });
+}
+
+/// The systemd socket-activation variables this process started with, to the
+/// first caller only: the descriptors they name have one owner.
+#[cfg(target_os = "linux")]
+pub(crate) fn take_systemd_listen_env() -> SystemdListenEnv {
+    if SYSTEMD_LISTEN_ENV_TAKEN.swap(true, std::sync::atomic::Ordering::AcqRel) {
+        return SystemdListenEnv::default();
+    }
+    SYSTEMD_LISTEN_ENV.get().cloned().unwrap_or_default()
+}
+
 /// The owning app's pid this process was started with (see above).
 pub(crate) fn owner_app_pid() -> Option<String> {
     OWNER_APP_PID.get().cloned().flatten()
@@ -176,5 +224,24 @@ pub(crate) unsafe fn take_agent_caller_env() {
     for key in AGENT_CALLER_ENV {
         // SAFETY: forwarded from this function's own contract (see # Safety).
         unsafe { std::env::remove_var(key) };
+    }
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod tests {
+    use super::*;
+
+    /// Descriptor 3 has one owner: only the first take sees the variables.
+    #[test]
+    fn systemd_listen_env_is_taken_once() {
+        let _ = SYSTEMD_LISTEN_ENV.set(SystemdListenEnv {
+            pid: Some("1".into()),
+            fds: Some("1".into()),
+            names: Some("cmux-provider-authority".into()),
+        });
+        let first = take_systemd_listen_env();
+        assert_eq!(first.fds.as_deref(), Some("1"));
+        let second = take_systemd_listen_env();
+        assert!(second.pid.is_none() && second.fds.is_none() && second.names.is_none());
     }
 }

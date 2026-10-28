@@ -90,7 +90,7 @@ struct AgentPanePersonInputTests {
         router.input.deliverObserve(last)
         router.input.currentEvent = { last }
         router.input.sendEventEnded()
-        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), work: BackgroundWork(label: "test.agent-pane"),
+        let view = try #require(AgentPaneView(mainThread: .standalone(), model: AgentPaneModel(host: NoHost()), work: BackgroundWork(label: "test.agent-pane"),
                                               source: .bundled(file), webUI: .agentPaneTestHost(), gestures: router))
         defer { view.close() }
         let dropped = try #require(view.page.onFilesDropped, "the pane takes no file drop")

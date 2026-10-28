@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextMemory
 import Testing
 
@@ -36,5 +37,18 @@ struct ImageCacheSharesTests {
         #expect(shares == .legacy)
         #expect(shares.previewBytes == 32 << 20 && shares.pageThumbnailBytes == 16 << 20)
         #expect(shares.hibernationSnapshotBytes == 64 << 20)
+    }
+
+    /// `purgeableImageCaches` (p07-memory-107) picks where the pictures' pages come from: purgeable virtual
+    /// memory when on, resident heap pages when off (the default, so the sizes and the report stay as before).
+    @Test func thePurgeableFeaturePicksThePicturesPages() throws {
+        let budget = SubsystemBudget.forMemory(physicalBytes: 16 << 30, gpuResidentAvailable: false)
+        let off = ImageCacheShares(budget, budgeted: true)
+        let on = ImageCacheShares(budget, budgeted: true, purgeable: true)
+        #expect(!off.purgeable && !ImageCacheShares.legacy.purgeable)
+        #expect(on.purgeable && on.previewBytes == off.previewBytes)
+        let onPages = try #require(on.pictureAllocator.pages(byteCount: 16 << 10))
+        let offPages = try #require(off.pictureAllocator.pages(byteCount: 16 << 10))
+        #expect(onPages.isPurgeable && !offPages.isPurgeable)
     }
 }

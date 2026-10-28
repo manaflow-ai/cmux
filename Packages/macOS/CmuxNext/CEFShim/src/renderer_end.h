@@ -10,6 +10,7 @@
 // in a task after that one: Chromium can launch the same render process host again.
 #pragma once
 
+#include <cstdint>
 #include <set>
 #include <string>
 
@@ -30,6 +31,16 @@ inline int RendererClientIdOf(const std::string& identifier) {
     id = id * 10 + (identifier[i] - '0');
   }
   return id > 0 ? id : 0;
+}
+
+// RENDER_TERMINATED's b: Chromium's error code in the low 32 bits and the renderer's client id (0 when the
+// shim cannot name it) in the high 32. The client id is the helper's --renderer-client-id, so the app joins
+// Chromium's status of the end with the child monitor's exit of the same process, which has its pid
+// (Chrome keys a renderer's exit by the same host id, ChildProcessTerminationInfo in
+// RenderProcessHostImpl::ProcessDied).
+inline int64_t RendererEndCode(int error_code, int client) {
+  const uint64_t high = static_cast<uint64_t>(static_cast<uint32_t>(client > 0 ? client : 0)) << 32;
+  return static_cast<int64_t>(high | static_cast<uint32_t>(error_code));
 }
 
 // The renderer ends reported in the UI task under way, by render process host id.

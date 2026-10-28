@@ -301,7 +301,7 @@ fn content_digest() -> String {
         hasher.update([0]);
     }
     let digest = hasher.finalize();
-    digest[..8].iter().map(|byte| format!("{byte:02x}")).collect()
+    digest.iter().take(8).map(|byte| format!("{byte:02x}")).collect()
 }
 
 /// Write the scripts under `root`, or confirm they are already intact. The

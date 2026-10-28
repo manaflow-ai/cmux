@@ -427,12 +427,21 @@ import Testing
         let clock: PresentationClock
         let window: NSWindow
         let tracker: InputLatencyTracker
+        let textInput: TextInputStage
         let closed: Counter
         private let keepAlive: CFRunLoopTimer
         private let timestamp: TimeInterval
+        /// The key down each tracked key's text input call interprets (one event, so the loop allocates none).
+        private let keyEvent: NSEvent
         private var frameTime: Double = 1000
 
-        init() {
+        init() throws {
+            let timestamp = TimeInterval(InputLatencyTracker.uptimeNanos()) / 1e9
+            self.timestamp = timestamp
+            keyEvent = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+                                                     timestamp: timestamp, windowNumber: 0, context: nil,
+                                                     characters: "a", charactersIgnoringModifiers: "a",
+                                                     isARepeat: false, keyCode: 0))
             let scheduler = FrameScheduler.testing(clock: ManualClock(), mediaTime: { 1000 }) { _ in RigLink() }
             let display = PresentationDisplay(displayID: 1, minimumRefreshInterval: 1.0 / 60,
                                               maximumRefreshInterval: 1.0 / 60)
@@ -453,10 +462,10 @@ import Testing
                     closed.value += 1
                 },
                 batchSink: nil, now: InputLatencyTracker.uptimeNanos)
+            textInput = TextInputStage(tracker: tracker)
             // The far-future timer only keeps the private mode non-empty, so a turn runs its observers.
             keepAlive = CFRunLoopTimerCreateWithHandler(nil, CFAbsoluteTimeGetCurrent() + 3_600, 0, 0, 0) { _ in }
             CFRunLoopAddTimer(CFRunLoopGetMain(), keepAlive, Self.mode)
-            timestamp = TimeInterval(InputLatencyTracker.uptimeNanos()) / 1e9
         }
 
         func invalidate() {
@@ -470,8 +479,10 @@ import Testing
                 let target: InputTarget = index.isMultiple(of: 2) ? .textView : .terminal
                 guard let token = tracker.begin(kind: .keyPress, target: target, entrypoint: .person,
                                                 eventTimestamp: timestamp, window: window) else { continue }
-                tracker.mark(token, .textInputStart)
+                let outer = textInput.keyDownDispatchBegan(token, timestamp: timestamp)
+                textInput.interpreting(keyEvent) {}
                 tracker.endDispatch(token)
+                textInput.keyDownDispatchEnded(restoring: outer)
                 if target == .terminal { tracker.mark(token, .contentSubmitted) }
             }
             turnAndFrame()
@@ -491,12 +502,12 @@ import Testing
         }
     }
 
-    /// The per-event path (begin, marks, the dispatch end, the turn's commit through the real observer, the real
+    /// The per-event path (begin, the text input stage's two marks, the dispatch end, the turn's commit through the real observer, the real
     /// PresentationClock's resolve at the next frame, the close and the trace point) adds no allocation per event or
     /// per turn to the loop that runs it: compared with the same turns and frames with no input.
     @Test("Tracking an event allocates nothing with the real commit observer and PresentationClock")
     func perEventPathAllocatesNothing() throws {
-        let rig = AllocationRig()
+        let rig = try AllocationRig()
         defer { rig.invalidate() }
         // Warm up: the window's hold and estimate queue, the fake link, and the lists' and queues' capacity.
         for _ in 0..<3 { rig.trackedTurn() }

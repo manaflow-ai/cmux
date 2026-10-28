@@ -27,6 +27,7 @@ public protocol WindowLayoutPassHosting: NSWindow {
     private var order: [UInt64] = []
     private var nextID: UInt64 = 0
 
+    /// A window's passes with no observer.
     public init() {}
 
     /// Calls `handler` after each outermost layout pass of the window, until the returned token is
@@ -81,6 +82,7 @@ public protocol WindowLayoutPassHosting: NSWindow {
         deinit {
             guard let passes else { return }
             let id = self.id
+            // main-hop-allow: a deinit may run off main; inline on main, the hop only removes this subscriber
             MainDelivery().run { passes.remove(id) }
         }
     }

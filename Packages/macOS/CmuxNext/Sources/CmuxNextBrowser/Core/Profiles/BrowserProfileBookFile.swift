@@ -5,6 +5,14 @@ public import Foundation
 /// A missing or unreadable file loads a fresh book (only the default
 /// profile); writes are atomic.
 public actor BrowserProfileBookFile {
+    /// The queue this actor runs on (threading-model.md, `com.cmuxterm.next.browser.profile-book`): its file reads and writes block a thread of
+    /// its own, never a cooperative pool thread (the HomeCache pattern).
+    // executor: com.cmuxterm.next.browser.profile-book
+    private nonisolated let queue = DispatchSerialQueue(label: "com.cmuxterm.next.browser.profile-book", qos: .userInitiated)
+
+    /// Runs the actor on ``queue``.
+    public nonisolated var unownedExecutor: UnownedSerialExecutor { queue.asUnownedSerialExecutor() }
+
     public let url: URL
 
     public init(url: URL) {

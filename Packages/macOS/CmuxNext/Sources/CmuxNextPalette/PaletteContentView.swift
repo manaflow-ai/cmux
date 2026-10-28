@@ -24,6 +24,8 @@ final class PaletteContentView: NSView {
     private let topRule = NSView()
     private let bottomRule = NSView()
     private let list = PaletteListView()
+    /// The result list's scroll view (`PaletteController.debugResultsScrollView`).
+    var resultsScrollView: NSScrollView { list }
     /// Hosts the results and fades them out at the top or bottom while more
     /// are hidden there.
     private lazy var listHost = ScrollEdgeFadeView(scrollView: list)
@@ -280,6 +282,7 @@ final class PaletteContentView: NSView {
         )
     }
 
+    // visibility-walk-allow: colors only (the glass's theme, two rule fills, the stage shadow, the editor's caret and selection), no layout
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         // Colors only: `layout()` reads no appearance.

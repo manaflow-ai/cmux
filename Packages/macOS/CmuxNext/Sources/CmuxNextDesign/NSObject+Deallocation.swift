@@ -20,8 +20,12 @@ extension NSObject {
     /// which ARC headers mark unavailable), called through its implementation.
     public var isBeingDeallocated: Bool {
         let selector = allowsWeakReferenceSelector
-        guard let method = method(for: selector) else { return false }
+        // SAFETY: the lookup only returns the IMP the runtime has for `selector` on this object's class; nothing is
+        // called or read through it here.
+        guard let method = unsafe method(for: selector) else { return false }
         typealias AllowsWeakReference = @convention(c) (NSObject, Selector) -> Bool
-        return !unsafeBitCast(method, to: AllowsWeakReference.self)(self, selector)
+        // SAFETY: `method` is NSObject's implementation of `allowsWeakReference`, a `-(BOOL)` method with no
+        // arguments, so it is called with the C type of exactly that method: (self, _cmd) -> BOOL.
+        return unsafe !unsafeBitCast(method, to: AllowsWeakReference.self)(self, selector)
     }
 }

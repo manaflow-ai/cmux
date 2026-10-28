@@ -163,12 +163,12 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
-    /// A predicted Chromium start reads the 367 MiB framework as an idle lane job that waits for startup complete (the best-effort fence), then maps it; a tab or a user feature that asks for Chromium reads the rest at user-blocking priority at once.
+    /// A predicted Chromium start reads the 367 MiB framework as an idle lane job that waits for the reveal (the best-effort fence), then maps it; a tab or a user feature that asks for Chromium reads the rest at user-blocking priority at once.
     public static let cefPrefetchBehindFence = Feature(
         index: 9,
         name: "cefPrefetchBehindFence",
         owner: "Performance Lead",
-        description: "A predicted Chromium start reads the 367 MiB framework as an idle lane job that waits for startup complete (the best-effort fence), then maps it; a tab or a user feature that asks for Chromium reads the rest at user-blocking priority at once.",
+        description: "A predicted Chromium start reads the 367 MiB framework as an idle lane job that waits for the reveal (the best-effort fence), then maps it; a tab or a user feature that asks for Chromium reads the rest at user-blocking priority at once.",
         kind: .perfPath,
         process: .app,
         chromiumFeature: nil,
@@ -180,9 +180,26 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// Each in-process Chromium message pump pass runs only until the frame's commit (at most the 2 ms static slice), waits for the next frame when less than 1 ms is left, and starts none in a person's input turn or before a layout change commits. Older forks keep the static slice.
+    public static let cefPumpFrameDeadline = Feature(
+        index: 10,
+        name: "cefPumpFrameDeadline",
+        owner: "PL-cef-layer",
+        description: "Each in-process Chromium message pump pass runs only until the frame's commit (at most the 2 ms static slice), waits for the next frame when less than 1 ms is left, and starts none in a person's input turn or before a layout change commits. Older forks keep the static slice.",
+        kind: .perfPath,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: "2026-12-20",
+        params: [],
+        stories: ["typing-stress", "motion", "pane-stress"],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// The in-process Chromium message pump waits while a key, click, scroll or drag is pending for anything but a Chromium page, at most one display refresh, and runs at once after input to a Chromium page.
     public static let cefPumpInputPolicy = Feature(
-        index: 10,
+        index: 11,
         name: "cefPumpInputPolicy",
         owner: "PL-cef-layer",
         description: "The in-process Chromium message pump waits while a key, click, scroll or drag is pending for anything but a Chromium page, at most one display refresh, and runs at once after input to a Chromium page.",
@@ -197,9 +214,26 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// With a Chromium fork that has the resize fence, each resize of a shown Chromium page puts its next frame and the window's frame in one Core Animation fence of at most 2 display frames, in place of the page resize waits.
+    public static let cefResizeFence = Feature(
+        index: 12,
+        name: "cefResizeFence",
+        owner: "PL-motion-cef",
+        description: "With a Chromium fork that has the resize fence, each resize of a shown Chromium page puts its next frame and the window's frame in one Core Animation fence of at most 2 display frames, in place of the page resize waits.",
+        kind: .perfPath,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: "2026-12-20",
+        params: [],
+        stories: ["pane-stress", "motion"],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// Chromium's renderer, GPU and utility processes and the browser's non-UI threads let a delayed timer fire up to its leeway late (TimerSlackMac), so the system can coalesce their wakes; the app's main-thread pump is not affected.
     public static let cefTimerSlack = Feature(
-        index: 11,
+        index: 13,
         name: "cefTimerSlack",
         owner: "PL-cef-layer",
         description: "Chromium's renderer, GPU and utility processes and the browser's non-UI threads let a delayed timer fire up to its leeway late (TimerSlackMac), so the system can coalesce their wakes; the app's main-thread pump is not affected.",
@@ -216,7 +250,7 @@ nonisolated extension Feature {
 
     /// The built-in ad blocker loads into a browser profile right before its first browser tab instead of when Chromium starts, so Home with no browser tab runs no extension renderer.
     public static let chromiumAdBlockerAtFirstTab = Feature(
-        index: 12,
+        index: 14,
         name: "chromiumAdBlockerAtFirstTab",
         owner: "PL-webui",
         description: "The built-in ad blocker loads into a browser profile right before its first browser tab instead of when Chromium starts, so Home with no browser tab runs no extension renderer.",
@@ -231,9 +265,43 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// A Chromium tab's Page unresponsive prompt follows Chrome's rules for hidden tabs: a hang reported while the tab is hidden shows nothing, hiding a tab takes its prompt down, and showing it again restarts its 15 second hang timer.
+    public static let chromiumHangFollowsVisibility = Feature(
+        index: 15,
+        name: "chromiumHangFollowsVisibility",
+        owner: "PL-cef-layer",
+        description: "A Chromium tab's Page unresponsive prompt follows Chrome's rules for hidden tabs: a hang reported while the tab is hidden shows nothing, hiding a tab takes its prompt down, and showing it again restarts its 15 second hang timer.",
+        kind: .labs,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: nil,
+        params: [],
+        stories: [],
+        sticky: false,
+        runtimeMutable: false
+    )
+
+    /// In host mode, a Chromium page's color picker, Bluetooth, USB, HID and serial device choosers and screen-share picker open in cmux, and the Chromium host never shows a window of its own for them; needs a Chromium fork at API 31.
+    public static let chromiumHostChoosers = Feature(
+        index: 16,
+        name: "chromiumHostChoosers",
+        owner: "PL-cef-layer",
+        description: "In host mode, a Chromium page's color picker, Bluetooth, USB, HID and serial device choosers and screen-share picker open in cmux, and the Chromium host never shows a window of its own for them; needs a Chromium fork at API 31.",
+        kind: .labs,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: true, nightly: true, release: false),
+        expires: nil,
+        params: [],
+        stories: [],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// In host mode, files, text and links dragged onto a Chromium page reach it as Chrome's own drop (file inputs and drop zones get the files), with the page's answer shown as the drag's operation; needs a Chromium fork at API 31.
     public static let chromiumHostDragIn = Feature(
-        index: 13,
+        index: 17,
         name: "chromiumHostDragIn",
         owner: "PL-cef-layer",
         description: "In host mode, files, text and links dragged onto a Chromium page reach it as Chrome's own drop (file inputs and drop zones get the files), with the page's answer shown as the drag's operation; needs a Chromium fork at API 31.",
@@ -250,10 +318,61 @@ nonisolated extension Feature {
 
     /// In host mode, a page's file chooser opens cmux's file picker on the page's window and sends the chosen files to the Chromium host as paths, instead of Chromium's own panel opening in the host.
     public static let chromiumHostFileDialogs = Feature(
-        index: 14,
+        index: 18,
         name: "chromiumHostFileDialogs",
         owner: "PL-cef-layer",
         description: "In host mode, a page's file chooser opens cmux's file picker on the page's window and sends the chosen files to the Chromium host as paths, instead of Chromium's own panel opening in the host.",
+        kind: .labs,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: true, nightly: true, release: false),
+        expires: nil,
+        params: [],
+        stories: [],
+        sticky: false,
+        runtimeMutable: false
+    )
+
+    /// In host mode, when the Chromium host has not taken a key, click or scroll for 2 seconds while one of its pages shows, a bar says Chromium is busy, with Wait and Reload Chromium; the host's own hangs of 250 ms or more go to hang reports.
+    public static let chromiumHostHangBanner = Feature(
+        index: 19,
+        name: "chromiumHostHangBanner",
+        owner: "PL-cef-layer",
+        description: "In host mode, when the Chromium host has not taken a key, click or scroll for 2 seconds while one of its pages shows, a bar says Chromium is busy, with Wait and Reload Chromium; the host's own hangs of 250 ms or more go to hang reports.",
+        kind: .labs,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: true, nightly: true, release: false),
+        expires: nil,
+        params: [],
+        stories: [],
+        sticky: false,
+        runtimeMutable: false
+    )
+
+    /// In host mode, a Chromium page's keys, clicks, pointer moves and wheel ticks go to the Chromium host through the shared-memory input ring, with one move and one wheel tick in flight per page and the rest coalesced until the host acks.
+    public static let chromiumHostInputRing = Feature(
+        index: 20,
+        name: "chromiumHostInputRing",
+        owner: "PL-cef-layer",
+        description: "In host mode, a Chromium page's keys, clicks, pointer moves and wheel ticks go to the Chromium host through the shared-memory input ring, with one move and one wheel tick in flight per page and the rest coalesced until the host acks.",
+        kind: .labs,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: nil,
+        params: [],
+        stories: [],
+        sticky: false,
+        runtimeMutable: false
+    )
+
+    /// In host mode, a Chromium page's pointer lock and keyboard lock are cmux's: the focused page hides and holds cmux's cursor and, in its fullscreen, gets cmux's shortcuts (Ghostty's split keys and Quit aside); Escape ends the locks and the fullscreen. Needs a Chromium fork at API 31.
+    public static let chromiumHostLocks = Feature(
+        index: 21,
+        name: "chromiumHostLocks",
+        owner: "PL-cef-layer",
+        description: "In host mode, a Chromium page's pointer lock and keyboard lock are cmux's: the focused page hides and holds cmux's cursor and, in its fullscreen, gets cmux's shortcuts (Ghostty's split keys and Quit aside); Escape ends the locks and the fullscreen. Needs a Chromium fork at API 31.",
         kind: .labs,
         process: .app,
         chromiumFeature: nil,
@@ -267,14 +386,14 @@ nonisolated extension Feature {
 
     /// In host mode, a Chromium page's select lists open as cmux menus over the page, and the Chromium host never shows a menu of its own; needs a Chromium fork at API 31.
     public static let chromiumHostPopupMenus = Feature(
-        index: 15,
+        index: 22,
         name: "chromiumHostPopupMenus",
         owner: "PL-cef-layer",
         description: "In host mode, a Chromium page's select lists open as cmux menus over the page, and the Chromium host never shows a menu of its own; needs a Chromium fork at API 31.",
         kind: .labs,
         process: .app,
         chromiumFeature: nil,
-        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        defaults: FeatureDefaults(dev: true, nightly: true, release: false),
         expires: nil,
         params: [],
         stories: [],
@@ -284,7 +403,7 @@ nonisolated extension Feature {
 
     /// In host mode, a page's resize holds its window's frame on a Core Animation fence until the page draws at the new size, for one display frame at most; a later page shows its last frame on its background.
     public static let chromiumHostResizeFence = Feature(
-        index: 16,
+        index: 23,
         name: "chromiumHostResizeFence",
         owner: "PL-cef-layer",
         description: "In host mode, a page's resize holds its window's frame on a Core Animation fence until the page draws at the new size, for one display frame at most; a later page shows its last frame on its background.",
@@ -301,14 +420,14 @@ nonisolated extension Feature {
 
     /// In host mode, a page's autofill, password and datalist suggestions show in a cmux list under the field, which follows the field's keys and takes clicks, a delete button and VoiceOver; needs a Chromium fork at API 31.
     public static let chromiumHostSuggestions = Feature(
-        index: 17,
+        index: 24,
         name: "chromiumHostSuggestions",
         owner: "PL-cef-layer",
         description: "In host mode, a page's autofill, password and datalist suggestions show in a cmux list under the field, which follows the field's keys and takes clicks, a delete button and VoiceOver; needs a Chromium fork at API 31.",
         kind: .labs,
         process: .app,
         chromiumFeature: nil,
-        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        defaults: FeatureDefaults(dev: true, nightly: true, release: false),
         expires: nil,
         params: [],
         stories: [],
@@ -318,13 +437,47 @@ nonisolated extension Feature {
 
     /// In host mode, Chromium's extension popups, side panel, DevTools, popup windows and date and datalist popups show in cmux panels and panes from their layer contexts, with input sent to the host.
     public static let chromiumHostWidgets = Feature(
-        index: 18,
+        index: 25,
         name: "chromiumHostWidgets",
         owner: "PL-cef-layer",
         description: "In host mode, Chromium's extension popups, side panel, DevTools, popup windows and date and datalist popups show in cmux panels and panes from their layer contexts, with input sent to the host.",
         kind: .labs,
         process: .app,
         chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: true, nightly: true, release: false),
+        expires: nil,
+        params: [],
+        stories: [],
+        sticky: false,
+        runtimeMutable: false
+    )
+
+    /// At most one Chromium spare renderer, as Chrome keeps one: while a spare Chromium window's placeholder still holds a renderer, Chromium's own spare renderer is off and only the default profile keeps a spare window; with renderer-less placeholders Chromium's own spare is the one.
+    public static let chromiumOneSpareRenderer = Feature(
+        index: 26,
+        name: "chromiumOneSpareRenderer",
+        owner: "PL-memory",
+        description: "At most one Chromium spare renderer, as Chrome keeps one: while a spare Chromium window's placeholder still holds a renderer, Chromium's own spare renderer is off and only the default profile keeps a spare window; with renderer-less placeholders Chromium's own spare is the one.",
+        kind: .perfPath,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: "2026-12-20",
+        params: [],
+        stories: ["home-idle"],
+        sticky: false,
+        runtimeMutable: false
+    )
+
+    /// Every permission a Chromium page asks for (camera, microphone, clipboard, MIDI and the rest) is asked in the tab's prompt bar instead of Chromium's hidden bubble, and macOS camera and microphone access is asked in cmux's name.
+    public static let chromiumPermissionPromptsFromData = Feature(
+        index: 27,
+        name: "chromiumPermissionPromptsFromData",
+        owner: "PL-cefhost",
+        description: "Every permission a Chromium page asks for (camera, microphone, clipboard, MIDI and the rest) is asked in the tab's prompt bar instead of Chromium's hidden bubble, and macOS camera and microphone access is asked in cmux's name.",
+        kind: .labs,
+        process: .chromium,
+        chromiumFeature: "CmuxPermissionPromptsFromData",
         defaults: FeatureDefaults(dev: false, nightly: false, release: false),
         expires: nil,
         params: [],
@@ -335,7 +488,7 @@ nonisolated extension Feature {
 
     /// Chromium keeps its spare renderer only for a profile whose browser tab opened a web page, so Home with no browser tab and cmux pages start no spare renderer.
     public static let chromiumSpareAfterFirstTab = Feature(
-        index: 19,
+        index: 28,
         name: "chromiumSpareAfterFirstTab",
         owner: "PL-webui",
         description: "Chromium keeps its spare renderer only for a profile whose browser tab opened a web page, so Home with no browser tab and cmux pages start no spare renderer.",
@@ -352,7 +505,7 @@ nonisolated extension Feature {
 
     /// Each Chromium tab takes its visibility from its visibility tree node through the fork (API 37): a hidden or occluded tab is hidden or occluded to Blink in the node's turn, a capture keeps it painting, and the freeze follows the hide.
     public static let chromiumTabVisibility = Feature(
-        index: 20,
+        index: 29,
         name: "chromiumTabVisibility",
         owner: "PL-cef-tab",
         description: "Each Chromium tab takes its visibility from its visibility tree node through the fork (API 37): a hidden or occluded tab is hidden or occluded to Blink in the node's turn, a capture keeps it painting, and the freeze follows the hide.",
@@ -369,7 +522,7 @@ nonisolated extension Feature {
 
     /// Chromium puts the open instances of a shareable cmux page (New Tab and every agent chat) in one live renderer of up to 8 pages, as Chrome does for New Tab Pages; different pages share only once their hosts carry their group. Needs fork API 32 and renderer paths.
     public static let cmuxPageRendererSharing = Feature(
-        index: 21,
+        index: 30,
         name: "cmuxPageRendererSharing",
         owner: "PL-memory",
         description: "Chromium puts the open instances of a shareable cmux page (New Tab and every agent chat) in one live renderer of up to 8 pages, as Chrome does for New Tab Pages; different pages share only once their hosts carry their group. Needs fork API 32 and renderer paths.",
@@ -386,7 +539,7 @@ nonisolated extension Feature {
 
     /// The daemon compresses the scrollback of a terminal that no client views and that printed nothing for 10 minutes, at utility priority and never under memory pressure; any access restores it first. Stays off until the kernel compressor measurement (p07-memory-112) shows a 2x gain.
     public static let coldScrollbackCompression = Feature(
-        index: 22,
+        index: 31,
         name: "coldScrollbackCompression",
         owner: "PL-memory",
         description: "The daemon compresses the scrollback of a terminal that no client views and that printed nothing for 10 minutes, at utility priority and never under memory pressure; any access restores it first. Stays off until the kernel compressor measurement (p07-memory-112) shows a 2x gain.",
@@ -403,7 +556,7 @@ nonisolated extension Feature {
 
     /// Each hibernated browser page keeps its last frame as a JPEG in its own 64 MB store, so every hibernated tab wakes to its picture; off keeps decoded frames in the shared 32 MB preview cache, where only the last few fit.
     public static let compressedSnapshots = Feature(
-        index: 23,
+        index: 32,
         name: "compressedSnapshots",
         owner: "PL-memory",
         description: "Each hibernated browser page keeps its last frame as a JPEG in its own 64 MB store, so every hibernated tab wakes to its picture; off keeps decoded frames in the shared 32 MB preview cache, where only the last few fit.",
@@ -421,7 +574,7 @@ nonisolated extension Feature {
 
     /// The control socket binds on a background lane at launch with the mode the launch settings read gives, and serves once its method groups register after the first frame, instead of binding on the main thread when the launch settles.
     public static let controlSocketEarlyBind = Feature(
-        index: 24,
+        index: 33,
         name: "controlSocketEarlyBind",
         owner: "Performance Lead",
         description: "The control socket binds on a background lane at launch with the mode the launch settings read gives, and serves once its method groups register after the first frame, instead of binding on the main thread when the launch settles.",
@@ -438,7 +591,7 @@ nonisolated extension Feature {
 
     /// The crash report and panic log forwarders (DiagnosticReports listing, panic logs, finding acpmux) start in one best-effort files-lane job after startup completes, behind the fence; the previous run's reports are still sent this launch. Crash handlers install at launch.
     public static let crashForwardersAfterStartup = Feature(
-        index: 24,
+        index: 34,
         name: "crashForwardersAfterStartup",
         owner: "Performance Lead",
         description: "The crash report and panic log forwarders (DiagnosticReports listing, panic logs, finding acpmux) start in one best-effort files-lane job after startup completes, behind the fence; the previous run's reports are still sent this launch. Crash handlers install at launch.",
@@ -455,7 +608,7 @@ nonisolated extension Feature {
 
     /// Daemon requests run at their cause's class: verified-app requests at user-initiated, CLI, script, agent and page requests at utility, raised while they wait for or hold a daemon lock.
     public static let daemonRequestQos = Feature(
-        index: 25,
+        index: 35,
         name: "daemonRequestQos",
         owner: "Performance Lead",
         description: "Daemon requests run at their cause's class: verified-app requests at user-initiated, CLI, script, agent and page requests at utility, raised while they wait for or hold a daemon lock.",
@@ -472,7 +625,7 @@ nonisolated extension Feature {
 
     /// After Next or Previous Tab or Sidebar Item from a key, the sleeping browser page of the item one more step that way wakes in the background, so a held key finds it awake; a step the other way drops those wakes. Never in Low Power Mode on battery or under memory pressure.
     public static let directionalPrewarm = Feature(
-        index: 26,
+        index: 36,
         name: "directionalPrewarm",
         owner: "PL-switch",
         description: "After Next or Previous Tab or Sidebar Item from a key, the sleeping browser page of the item one more step that way wakes in the background, so a held key finds it awake; a step the other way drops those wakes. Never in Low Power Mode on battery or under memory pressure.",
@@ -487,9 +640,26 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// The daemon event drain applies in the frame only up to the last change a person or the app caused; later program and agent changes apply in budgeted tasks of their class, one whole transaction at a time.
+    public static let drainCauseSplit = Feature(
+        index: 37,
+        name: "drainCauseSplit",
+        owner: "Performance Lead",
+        description: "The daemon event drain applies in the frame only up to the last change a person or the app caused; later program and agent changes apply in budgeted tasks of their class, one whole transaction at a time.",
+        kind: .perfPath,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: true, nightly: true, release: false),
+        expires: "2026-12-20",
+        params: [],
+        stories: ["pane-stress", "new-surfaces-stress"],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// Energy Saver turns on as the energy.saver setting asks (Low Power Mode, low battery or a hot Mac on battery by default) and makes cmux draw fewer frames and wake less often.
     public static let energySaver = Feature(
-        index: 27,
+        index: 38,
         name: "energySaver",
         owner: "Performance Lead",
         description: "Energy Saver turns on as the energy.saver setting asks (Low Power Mode, low battery or a hot Mac on battery by default) and makes cmux draw fewer frames and wake less often.",
@@ -504,16 +674,33 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// While the main thread hangs past 2 s, the watchdog thread keeps the hang's stack in a small file next to the run marker; a run that is killed while it hangs is sent as one fatal app hang crash report at the next launch.
+    public static let fatalHangReports = Feature(
+        index: 39,
+        name: "fatalHangReports",
+        owner: "PL-telemetry",
+        description: "While the main thread hangs past 2 s, the watchdog thread keeps the hang's stack in a small file next to the run marker; a run that is killed while it hangs is sent as one fatal app hang crash report at the next launch.",
+        kind: .killSwitch,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: true, nightly: true, release: false),
+        expires: nil,
+        params: [],
+        stories: [],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// Settings > Experimental shows a Feature Flags card: every feature with its state and the input that decided it; DEV and NIGHTLY builds can set each one on or off for the next launch.
     public static let featureFlagsCard = Feature(
-        index: 28,
+        index: 40,
         name: "featureFlagsCard",
         owner: "Performance Lead",
         description: "Settings > Experimental shows a Feature Flags card: every feature with its state and the input that decided it; DEV and NIGHTLY builds can set each one on or off for the next launch.",
         kind: .labs,
         process: .app,
         chromiumFeature: nil,
-        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        defaults: FeatureDefaults(dev: true, nightly: true, release: false),
         expires: nil,
         params: [],
         stories: [],
@@ -523,7 +710,7 @@ nonisolated extension Feature {
 
     /// Each display link runs at the highest frame rate its armed clients ask for, and looping indicators such as spinners ask the render server for 30 frames a second.
     public static let frameRateClasses = Feature(
-        index: 29,
+        index: 41,
         name: "frameRateClasses",
         owner: "PL-motion-core",
         description: "Each display link runs at the highest frame rate its armed clients ask for, and looping indicators such as spinners ask the render server for 30 frames a second.",
@@ -540,7 +727,7 @@ nonisolated extension Feature {
 
     /// A frozen hidden page whose memory grows by max(50 MB, 25 percent) after it froze is discarded with its opener group, read at 5, 30 and 120 minutes after the freeze.
     public static let frozenGrowthDiscard = Feature(
-        index: 30,
+        index: 42,
         name: "frozenGrowthDiscard",
         owner: "PL-memory",
         description: "A frozen hidden page whose memory grows by max(50 MB, 25 percent) after it froze is discarded with its opener group, read at 5, 30 and 120 minutes after the freeze.",
@@ -557,7 +744,7 @@ nonisolated extension Feature {
 
     /// Opt-in hang reports are written in schema 3, with the catalog histograms, stability counts, earlier launches and the merged black box; turn it on only once cmux.com accepts schema 3 (p09-observability-064 deployed).
     public static let hangReportsSchema3 = Feature(
-        index: 31,
+        index: 43,
         name: "hangReportsSchema3",
         owner: "PL-telemetry",
         description: "Opt-in hang reports are written in schema 3, with the catalog histograms, stability counts, earlier launches and the merged black box; turn it on only once cmux.com accepts schema 3 (p09-observability-064 deployed).",
@@ -572,12 +759,12 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
-    /// The GitHub feed poll and the web-updates check book no next run while no cmux window shows, and run once when a window shows again if one came due.
+    /// The GitHub feed poll books no run while no feed surface shows, the web-updates check none while no window shows; each runs once on show if due. Daemon heartbeats ask nothing while no window shows (a bridged daemon after 60 s of silence) and ask once on window show or app activation.
     public static let hiddenPollPause = Feature(
-        index: 32,
+        index: 44,
         name: "hiddenPollPause",
         owner: "Performance Lead",
-        description: "The GitHub feed poll and the web-updates check book no next run while no cmux window shows, and run once when a window shows again if one came due.",
+        description: "The GitHub feed poll books no run while no feed surface shows, the web-updates check none while no window shows; each runs once on show if due. Daemon heartbeats ask nothing while no window shows (a bridged daemon after 60 s of silence) and ask once on window show or app activation.",
         kind: .perfPath,
         process: .app,
         chromiumFeature: nil,
@@ -589,16 +776,56 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// A terminal that no view shows (its tab is parked or its workspace is hidden) runs its PTY reader and parser threads at utility, in the daemon and in its terminal host; showing it again returns them to user-interactive at their next wake.
+    public static let hiddenTerminalQos = Feature(
+        index: 45,
+        name: "hiddenTerminalQos",
+        owner: "Performance Lead",
+        description: "A terminal that no view shows (its tab is parked or its workspace is hidden) runs its PTY reader and parser threads at utility, in the daemon and in its terminal host; showing it again returns them to user-interactive at their next wake.",
+        kind: .perfPath,
+        process: .daemon,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: "2026-12-20",
+        params: [],
+        stories: ["switch", "typing"],
+        sticky: false,
+        runtimeMutable: false
+    )
+
+    /// A workspace hidden longer than a grace leaves its window in the background, the oldest first, one per turn, and joins it again when shown. Off, hidden workspaces stay in their window, so a switch back moves no view into it. The arm measured against hiding only.
+    public static let hiddenWorkspaceDetachAfterGrace = Feature(
+        index: 46,
+        name: "hiddenWorkspaceDetachAfterGrace",
+        owner: "PL-switch",
+        description: "A workspace hidden longer than a grace leaves its window in the background, the oldest first, one per turn, and joins it again when shown. Off, hidden workspaces stay in their window, so a switch back moves no view into it. The arm measured against hiding only.",
+        kind: .perfPath,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: "2026-12-20",
+        params: [
+            FeatureParamSpec(
+                name: "grace",
+                description: "How long a workspace stays hidden in its window before it leaves it.",
+                value: .duration(default: 30.0, min: 5.0, max: 900.0)
+            ),
+        ],
+        stories: ["switch", "activation-stress", "memory-hidden"],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// A hidden browser tab whose renderer used more than 5 percent of one core over at least the last minute says Using high energy in its hover card, with Discard. Read at natural wakes only; tabs that show are never flagged.
     public static let highEnergyTabs = Feature(
-        index: 33,
+        index: 47,
         name: "highEnergyTabs",
         owner: "Performance Lead",
         description: "A hidden browser tab whose renderer used more than 5 percent of one core over at least the last minute says Using high energy in its hover card, with Discard. Read at natural wakes only; tabs that show are never flagged.",
         kind: .labs,
         process: .app,
         chromiumFeature: nil,
-        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        defaults: FeatureDefaults(dev: true, nightly: true, release: false),
         expires: nil,
         params: [],
         stories: [],
@@ -608,7 +835,7 @@ nonisolated extension Feature {
 
     /// A still gauge after the toolbar band shows when this Mac is busy or overloaded, with a popover of the load and its reasons; it reads the host every 15 seconds only while a window can be seen.
     public static let hostPressure = Feature(
-        index: 34,
+        index: 48,
         name: "hostPressure",
         owner: "PL-memory",
         description: "A still gauge after the toolbar band shows when this Mac is busy or overloaded, with a popover of the load and its reasons; it reads the host every 15 seconds only while a window can be seen.",
@@ -624,9 +851,26 @@ nonisolated extension Feature {
         replaces: ["hostPressure.enabled"]
     )
 
+    /// Pooled acpmux agents run at background process priority until a session takes them, and the acpmux daemon does while no client is connected and no agent runs; each goes back to normal priority before it is used.
+    public static let idleHelperBackgroundPriority = Feature(
+        index: 49,
+        name: "idleHelperBackgroundPriority",
+        owner: "PL-acpmux",
+        description: "Pooled acpmux agents run at background process priority until a session takes them, and the acpmux daemon does while no client is connected and no agent runs; each goes back to normal priority before it is used.",
+        kind: .perfPath,
+        process: .daemon,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: "2026-12-20",
+        params: [],
+        stories: ["idle-budget"],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// Resting the pointer on a sidebar row or tab whose browser page is frozen or hibernated wakes that page in the background after a short dwell, at most two at once, never in Low Power Mode on battery or under memory pressure.
     public static let intentPrewarmHover = Feature(
-        index: 35,
+        index: 50,
         name: "intentPrewarmHover",
         owner: "PL-switch",
         description: "Resting the pointer on a sidebar row or tab whose browser page is frozen or hibernated wakes that page in the background after a short dwell, at most two at once, never in Low Power Mode on battery or under memory pressure.",
@@ -649,7 +893,7 @@ nonisolated extension Feature {
 
     /// A press on a sidebar row that switches only when the button comes up (multi-view rows, a row of a multi-selection) wakes that row's frozen or hibernated browser page in the background at once, at most two at once, never in Low Power Mode on battery or under memory pressure.
     public static let intentPrewarmPress = Feature(
-        index: 36,
+        index: 51,
         name: "intentPrewarmPress",
         owner: "PL-switch",
         description: "A press on a sidebar row that switches only when the button comes up (multi-view rows, a row of a multi-selection) wakes that row's frozen or hibernated browser page in the background at once, at most two at once, never in Low Power Mode on battery or under memory pressure.",
@@ -666,7 +910,7 @@ nonisolated extension Feature {
 
     /// Release builds keep the per-method daemon send-to-reply histograms and wire counters that Debug and bench builds always keep, as opt-in field data; off, a release build keeps none and its daemon connections count nothing.
     public static let ipcMethodLatencyFieldData = Feature(
-        index: 37,
+        index: 52,
         name: "ipcMethodLatencyFieldData",
         owner: "Performance Lead",
         description: "Release builds keep the per-method daemon send-to-reply histograms and wire counters that Debug and bench builds always keep, as opt-in field data; off, a release build keeps none and its daemon connections count nothing.",
@@ -683,7 +927,7 @@ nonisolated extension Feature {
 
     /// Until startup completes only the panes on screen make their terminal surface or page, the focused pane first and the other visible panes one per frame after it; panes off screen make theirs after startup or when they scroll in.
     public static let launchVisiblePanesOnly = Feature(
-        index: 38,
+        index: 53,
         name: "launchVisiblePanesOnly",
         owner: "Performance Lead",
         description: "Until startup completes only the panes on screen make their terminal surface or page, the focused pane first and the other visible panes one per frame after it; panes off screen make theirs after startup or when they scroll in.",
@@ -700,7 +944,7 @@ nonisolated extension Feature {
 
     /// At launch the restored windows behind the front one build by what shows: one no window in front covers builds after the first frame, one per frame; a covered or off-screen one builds after startup, or at once when something acts in it. A window saved in full screen builds at launch, as before.
     public static let launchWindowsByOcclusion = Feature(
-        index: 39,
+        index: 54,
         name: "launchWindowsByOcclusion",
         owner: "Performance Lead",
         description: "At launch the restored windows behind the front one build by what shows: one no window in front covers builds after the first frame, one per frame; a covered or off-screen one builds after startup, or at once when something acts in it. A window saved in full screen builds at launch, as before.",
@@ -717,7 +961,7 @@ nonisolated extension Feature {
 
     /// The acpmux daemon and a headless cmux-tui owner exit after 10 minutes with no client, no live agent, no live terminal (own or holder-owned) and no owning app; an app that reconnects within the 10 minutes keeps them.
     public static let leftoverDaemonIdleExit = Feature(
-        index: 40,
+        index: 55,
         name: "leftoverDaemonIdleExit",
         owner: "PL-memory",
         description: "The acpmux daemon and a headless cmux-tui owner exit after 10 minutes with no client, no live agent, no live terminal (own or holder-owned) and no owning app; an app that reconnects within the 10 minutes keeps them.",
@@ -732,9 +976,43 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// The main thread's budgeted batch runs in its own run-loop turn right after the frame's commit, on shares scaled to the display's refresh rate, instead of inside the display tick.
+    public static let mainBudgetTurn = Feature(
+        index: 56,
+        name: "mainBudgetTurn",
+        owner: "Performance Lead",
+        description: "The main thread's budgeted batch runs in its own run-loop turn right after the frame's commit, on shares scaled to the display's refresh rate, instead of inside the display tick.",
+        kind: .perfPath,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: "2026-12-20",
+        params: [],
+        stories: ["automation-typing", "typing-stress"],
+        sticky: false,
+        runtimeMutable: false
+    )
+
+    /// Main-actor jobs run from queues ordered by their task priority, jobs started in an input turn first, and yield to pending input, instead of in the main dispatch queue's arrival order.
+    public static let mainExecutorHook = Feature(
+        index: 57,
+        name: "mainExecutorHook",
+        owner: "Performance Lead",
+        description: "Main-actor jobs run from queues ordered by their task priority, jobs started in an input turn first, and yield to pending input, instead of in the main dispatch queue's arrival order.",
+        kind: .perfPath,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: "2026-12-20",
+        params: [],
+        stories: ["automation-typing", "typing-stress"],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// Main-actor jobs that are not part of a person's input wait while a key, click, scroll or drag is pending or in dispatch, and run in order after that input's frame commits, at most one display refresh later.
     public static let mainJobGate = Feature(
-        index: 40,
+        index: 58,
         name: "mainJobGate",
         owner: "PL-typing",
         description: "Main-actor jobs that are not part of a person's input wait while a key, click, scroll or drag is pending or in dispatch, and run in order after that input's frame commits, at most one display refresh later.",
@@ -749,9 +1027,26 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// Every agent chat's cmux MCP server becomes a small stdio relay to one shared cmux MCP host per app build, which keeps the app's action catalog once instead of once per agent; the host exits 5 minutes after its last agent leaves.
+    public static let mcpCatalogHost = Feature(
+        index: 59,
+        name: "mcpCatalogHost",
+        owner: "PL-memory",
+        description: "Every agent chat's cmux MCP server becomes a small stdio relay to one shared cmux MCP host per app build, which keeps the app's action catalog once instead of once per agent; the host exits 5 minutes after its last agent leaves.",
+        kind: .perfPath,
+        process: .daemon,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: "2026-12-20",
+        params: [],
+        stories: ["acpmux-overhead"],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// acpmux and its TUI follow system memory pressure: at warning they empty caches rebuilt on demand (parsed login files, idle chats' error tails, the TUI's transcript layout); at critical they also drop live model lists and each chat's prompt outcomes past its newest 8.
     public static let memoryAcpmuxPressure = Feature(
-        index: 41,
+        index: 60,
         name: "memoryAcpmuxPressure",
         owner: "PL-memory",
         description: "acpmux and its TUI follow system memory pressure: at warning they empty caches rebuilt on demand (parsed login files, idle chats' error tails, the TUI's transcript layout); at critical they also drop live model lists and each chat's prompt outcomes past its newest 8.",
@@ -768,7 +1063,7 @@ nonisolated extension Feature {
 
     /// Agent pane caches (New Tab frames, chat tails, project icons), the control socket's run replies and the login environment join the memory coordinator. Agent pane caches shrink with the limit and keep nothing at critical pressure; the control socket keeps its 16 newest replies.
     public static let memoryAgentAndControlCaches = Feature(
-        index: 42,
+        index: 61,
         name: "memoryAgentAndControlCaches",
         owner: "PL-memory",
         description: "Agent pane caches (New Tab frames, chat tails, project icons), the control socket's run replies and the login environment join the memory coordinator. Agent pane caches shrink with the limit and keep nothing at critical pressure; the control socket keeps its 16 newest replies.",
@@ -785,7 +1080,7 @@ nonisolated extension Feature {
 
     /// App caches join the memory coordinator: at critical memory pressure, saved agent page frames, decoded icon assets and Browse more art thumbnails are dropped in short background slices; icons and thumbnails are read again when next shown.
     public static let memoryAppCaches = Feature(
-        index: 43,
+        index: 62,
         name: "memoryAppCaches",
         owner: "PL-memory",
         description: "App caches join the memory coordinator: at critical memory pressure, saved agent page frames, decoded icon assets and Browse more art thumbnails are dropped in short background slices; icons and thumbnails are read again when next shown.",
@@ -802,7 +1097,7 @@ nonisolated extension Feature {
 
     /// Decoded window backdrop pictures join the memory coordinator: at most four stay decoded, fewer at memory warning and only the ones windows show at critical; a picture picked again later is read back from its saved copy.
     public static let memoryBackdropImages = Feature(
-        index: 44,
+        index: 63,
         name: "memoryBackdropImages",
         owner: "PL-memory",
         description: "Decoded window backdrop pictures join the memory coordinator: at most four stay decoded, fewer at memory warning and only the ones windows show at critical; a picture picked again later is read back from its saved copy.",
@@ -819,7 +1114,7 @@ nonisolated extension Feature {
 
     /// The browser's favicon caches join the memory coordinator: each profile keeps fewer icons as the memory limit falls and none at critical memory pressure, so an icon dropped then is fetched again the next time a page asks for it.
     public static let memoryBrowserCaches = Feature(
-        index: 45,
+        index: 64,
         name: "memoryBrowserCaches",
         owner: "PL-memory",
         description: "The browser's favicon caches join the memory coordinator: each profile keeps fewer icons as the memory limit falls and none at critical memory pressure, so an icon dropped then is fetched again the next time a page asks for it.",
@@ -834,9 +1129,26 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// The app sends its memory pressure level, Memory Saver mode and debug override to the local daemon on each change (memory.limit), and the daemon passes it on to acpmux; each takes the worse of its own level and the app's, so the app's critical level makes them release their caches at once.
+    public static let memoryDaemonLimit = Feature(
+        index: 65,
+        name: "memoryDaemonLimit",
+        owner: "PL-memory",
+        description: "The app sends its memory pressure level, Memory Saver mode and debug override to the local daemon on each change (memory.limit), and the daemon passes it on to acpmux; each takes the worse of its own level and the app's, so the app's critical level makes them release their caches at once.",
+        kind: .labs,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: nil,
+        params: [],
+        stories: [],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// Hidden agent chat pages are held to a count sized from the Mac's memory: past it, the least recently shown idle chat hidden at least 10 seconds lets its page go at once and keeps its tab and session, as after the hibernation timeout; a chat whose agent works or waits on the person keeps its page.
     public static let memoryDiscardAgentPagesOverBudget = Feature(
-        index: 46,
+        index: 66,
         name: "memoryDiscardAgentPagesOverBudget",
         owner: "PL-memory",
         description: "Hidden agent chat pages are held to a count sized from the Mac's memory: past it, the least recently shown idle chat hidden at least 10 seconds lets its page go at once and keeps its tab and session, as after the hibernation timeout; a chat whose agent works or waits on the person keeps its page.",
@@ -853,7 +1165,7 @@ nonisolated extension Feature {
 
     /// A conversation tab hidden 10 minutes (sooner at critical memory pressure) drops its transcript rows, cells, thread view and the bitmaps and images only they drew; it keeps messages, draft, read state and scroll place, and its show lays out about 40 rows there once, at the pane's size.
     public static let memoryDiscardConversations = Feature(
-        index: 47,
+        index: 67,
         name: "memoryDiscardConversations",
         owner: "PL-memory",
         description: "A conversation tab hidden 10 minutes (sooner at critical memory pressure) drops its transcript rows, cells, thread view and the bitmaps and images only they drew; it keeps messages, draft, read state and scroll place, and its show lays out about 40 rows there once, at the pane's size.",
@@ -869,9 +1181,26 @@ nonisolated extension Feature {
         replaces: ["memory.discard.conversations"]
     )
 
+    /// A Chromium tab whose out-of-process iframe crashed hibernates while hidden or when next hidden, as Chrome discards such a page, so it reloads whole when shown; tabs kept from automatic hibernation (pinned, playing, typed into) stay.
+    public static let memoryDiscardCrashedSubframes = Feature(
+        index: 68,
+        name: "memoryDiscardCrashedSubframes",
+        owner: "PL-memory",
+        description: "A Chromium tab whose out-of-process iframe crashed hibernates while hidden or when next hidden, as Chrome discards such a page, so it reloads whole when shown; tabs kept from automatic hibernation (pinned, playing, typed into) stay.",
+        kind: .labs,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: nil,
+        params: [],
+        stories: [],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// A page tab whose page declares a discard policy and is hidden past it (sooner at critical memory pressure) lets its view and page renderer go and keeps its tab, route, scroll and picture; showing it builds the page again. Pages that declare no policy are never discarded.
     public static let memoryDiscardInternalPages = Feature(
-        index: 48,
+        index: 69,
         name: "memoryDiscardInternalPages",
         owner: "PL-memory",
         description: "A page tab whose page declares a discard policy and is hidden past it (sooner at critical memory pressure) lets its view and page renderer go and keeps its tab, route, scroll and picture; showing it builds the page again. Pages that declare no policy are never discarded.",
@@ -889,7 +1218,7 @@ nonisolated extension Feature {
 
     /// cmux pages in browser tabs (History, Bookmarks, Vault, Screenshots, Agent Activity) hibernate like web pages: the view and its model go, the tab keeps its title, icon and picture, and showing it builds the page again with its search, selection and scroll.
     public static let memoryDiscardPageTabs = Feature(
-        index: 49,
+        index: 70,
         name: "memoryDiscardPageTabs",
         owner: "PL-memory",
         description: "cmux pages in browser tabs (History, Bookmarks, Vault, Screenshots, Agent Activity) hibernate like web pages: the view and its model go, the tab keeps its title, icon and picture, and showing it builds the page again with its search, selection and scroll.",
@@ -907,7 +1236,7 @@ nonisolated extension Feature {
 
     /// With memoryDiscardParkedWorkspaces on, a hidden workspace also lets its views go after 15 minutes hidden, even within the budget. Separate so the budget can ship alone while a 12-pane remount takes over 50 ms at p95.
     public static let memoryDiscardParkedIdleTimeout = Feature(
-        index: 50,
+        index: 71,
         name: "memoryDiscardParkedIdleTimeout",
         owner: "PL-memory",
         description: "With memoryDiscardParkedWorkspaces on, a hidden workspace also lets its views go after 15 minutes hidden, even within the budget. Separate so the budget can ship alone while a 12-pane remount takes over 50 ms at p95.",
@@ -924,7 +1253,7 @@ nonisolated extension Feature {
 
     /// At most the Mac's budget of hidden workspaces (4 to 16 by RAM) stay mounted across all windows, none at critical memory pressure; past it the least recently shown one lets its views go, one at a time in the background, and showing it mounts it again. Workspaces on screen or under a top page stay.
     public static let memoryDiscardParkedWorkspaces = Feature(
-        index: 51,
+        index: 72,
         name: "memoryDiscardParkedWorkspaces",
         owner: "PL-memory",
         description: "At most the Mac's budget of hidden workspaces (4 to 16 by RAM) stay mounted across all windows, none at critical memory pressure; past it the least recently shown one lets its views go, one at a time in the background, and showing it mounts it again. Workspaces on screen or under a top page stay.",
@@ -942,7 +1271,7 @@ nonisolated extension Feature {
 
     /// A remote desktop or remote browser tab hidden past the Memory Saver timeout (sooner at critical pressure) closes its stream and decoder and keeps its last frame; showing it connects again. A stopped or ended session and a remote page with back or forward history stay.
     public static let memoryDiscardRemoteTabs = Feature(
-        index: 52,
+        index: 73,
         name: "memoryDiscardRemoteTabs",
         owner: "PL-memory",
         description: "A remote desktop or remote browser tab hidden past the Memory Saver timeout (sooner at critical pressure) closes its stream and decoder and keeps its last frame; showing it connects again. A stopped or ended session and a remote page with back or forward history stay.",
@@ -960,7 +1289,7 @@ nonisolated extension Feature {
 
     /// A right sidebar section or Home dock mode hidden past its timeout, or hidden at critical memory pressure, lets its view go and keeps a record of its scroll, expanded rows and query; showing it builds the section again as left. The shown section never goes.
     public static let memoryDiscardSidebarSections = Feature(
-        index: 53,
+        index: 74,
         name: "memoryDiscardSidebarSections",
         owner: "PL-memory",
         description: "A right sidebar section or Home dock mode hidden past its timeout, or hidden at critical memory pressure, lets its view go and keeps a record of its scroll, expanded rows and query; showing it builds the section again as left. The shown section never goes.",
@@ -978,7 +1307,7 @@ nonisolated extension Feature {
 
     /// Files and Screenshots thumbnails, app bundle images and Home diagrams join the memory coordinator: Files thumbnails keep to a share of the image cache budget; at critical pressure these caches empty in short slices and redraw when shown. Idle diagrams free their engine after 10 min.
     public static let memoryFileHomeCaches = Feature(
-        index: 54,
+        index: 75,
         name: "memoryFileHomeCaches",
         owner: "PL-memory",
         description: "Files and Screenshots thumbnails, app bundle images and Home diagrams join the memory coordinator: Files thumbnails keep to a share of the image cache budget; at critical pressure these caches empty in short slices and redraw when shown. Idle diagrams free their engine after 10 min.",
@@ -993,9 +1322,26 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// A hidden page does not freeze while its site may show notifications, it holds a Web Lock or an open IndexedDB connection, or it still loads, and an opener and the pages it opened freeze only together (Chrome's freezing policy).
+    public static let memoryFreezeEligibility = Feature(
+        index: 76,
+        name: "memoryFreezeEligibility",
+        owner: "PL-memory",
+        description: "A hidden page does not freeze while its site may show notifications, it holds a Web Lock or an open IndexedDB connection, or it still loads, and an opener and the pages it opened freeze only together (Chrome's freezing policy).",
+        kind: .labs,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: true, nightly: true, release: false),
+        expires: nil,
+        params: [],
+        stories: [],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// While no cmux window is visible (app hidden, windows minimized or covered, displays asleep), memory release runs in 8 ms slices back to back between main-thread events, not 2 ms per frame. Input brings back frame slices until a frame passes with no input.
     public static let memoryHiddenAppRelease = Feature(
-        index: 55,
+        index: 77,
         name: "memoryHiddenAppRelease",
         owner: "PL-memory",
         description: "While no cmux window is visible (app hidden, windows minimized or covered, displays asleep), memory release runs in 8 ms slices back to back between main-thread events, not 2 ms per frame. Input brings back frame slices until a frame passes with no input.",
@@ -1012,7 +1358,7 @@ nonisolated extension Feature {
 
     /// Evicted terminals' last frames share one app-wide list: a frame being read stays, the least recently hidden goes first past a limit set from the Mac's memory, a frame hidden 5 min goes, and a memory warning drops every hidden one.
     public static let memoryHiddenFrameLRU = Feature(
-        index: 56,
+        index: 78,
         name: "memoryHiddenFrameLRU",
         owner: "PL-memory",
         description: "Evicted terminals' last frames share one app-wide list: a frame being read stays, the least recently hidden goes first past a limit set from the Mac's memory, a frame hidden 5 min goes, and a memory warning drops every hidden one.",
@@ -1029,7 +1375,7 @@ nonisolated extension Feature {
 
     /// Home conversation caches join the memory coordinator: row pictures, attachments, long message tiles and list rows share one budget, shrink as the limit falls and empty at critical pressure or after 60 s with no Home view shown. They are drawn again when next shown.
     public static let memoryHomeLabCaches = Feature(
-        index: 57,
+        index: 79,
         name: "memoryHomeLabCaches",
         owner: "PL-memory",
         description: "Home conversation caches join the memory coordinator: row pictures, attachments, long message tiles and list rows share one budget, shrink as the limit falls and empty at critical pressure or after 60 s with no Home view shown. They are drawn again when next shown.",
@@ -1046,7 +1392,7 @@ nonisolated extension Feature {
 
     /// Picture caches take sizes from the Mac's memory and follow memory pressure: terminal previews shrink at warning; at critical the caches empty, only the pictures of tabs beside a shown tab stay, and other woken or discarded tabs may show loading first.
     public static let memoryImageCaches = Feature(
-        index: 58,
+        index: 80,
         name: "memoryImageCaches",
         owner: "PL-memory",
         description: "Picture caches take sizes from the Mac's memory and follow memory pressure: terminal previews shrink at warning; at critical the caches empty, only the pictures of tabs beside a shown tab stay, and other woken or discarded tabs may show loading first.",
@@ -1063,7 +1409,7 @@ nonisolated extension Feature {
 
     /// Daemon Kitty image total sized from installed RAM (64 MiB at 8 GB, 512 MiB at 64 GB) and shared by visibility: a terminal on screen keeps its grant, hidden ones get the rest, least recently shown lose images first; critical pressure clears decoded pixel copies.
     public static let memoryKittyShare = Feature(
-        index: 59,
+        index: 81,
         name: "memoryKittyShare",
         owner: "PL-memory",
         description: "Daemon Kitty image total sized from installed RAM (64 MiB at 8 GB, 512 MiB at 64 GB) and shared by visibility: a terminal on screen keeps its grant, hidden ones get the rest, least recently shown lose images first; critical pressure clears decoded pixel copies.",
@@ -1080,7 +1426,7 @@ nonisolated extension Feature {
 
     /// The system file picker and its panel service start on the first file picker click instead of at launch, and the kept picker is released after it goes unused so its service can exit; the first click of a session, and the first after a release, opens a little slower.
     public static let memoryOpenPanelOnFirstUse = Feature(
-        index: 60,
+        index: 82,
         name: "memoryOpenPanelOnFirstUse",
         owner: "PL-memory",
         description: "The system file picker and its panel service start on the first file picker click instead of at launch, and the kept picker is released after it goes unused so its service can exit; the first click of a session, and the first after a release, opens a little slower.",
@@ -1103,7 +1449,7 @@ nonisolated extension Feature {
 
     /// The icon picker, the update card's highlights page and each browser pane's Extensions menu are made on their first open instead of ahead of it, and let go once unused for a while or at memory pressure; the first open of a session, and the first after a release, opens a little slower.
     public static let memoryOverlayPagesOnFirstUse = Feature(
-        index: 61,
+        index: 83,
         name: "memoryOverlayPagesOnFirstUse",
         owner: "PL-memory",
         description: "The icon picker, the update card's highlights page and each browser pane's Extensions menu are made on their first open instead of ahead of it, and let go once unused for a while or at memory pressure; the first open of a session, and the first after a release, opens a little slower.",
@@ -1126,14 +1472,14 @@ nonisolated extension Feature {
 
     /// A hidden page that changes its title or icon is kept from the Memory Saver timeout, and stays unfrozen so its updates stay live, until it shows; memory pressure still discards it.
     public static let memorySaverBackgroundActivity = Feature(
-        index: 62,
+        index: 84,
         name: "memorySaverBackgroundActivity",
         owner: "PL-memory",
         description: "A hidden page that changes its title or icon is kept from the Memory Saver timeout, and stays unfrozen so its updates stay live, until it shows; memory pressure still discards it.",
         kind: .labs,
         process: .app,
         chromiumFeature: nil,
-        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        defaults: FeatureDefaults(dev: true, nightly: true, release: false),
         expires: nil,
         params: [],
         stories: [],
@@ -1143,7 +1489,7 @@ nonisolated extension Feature {
 
     /// The memory.saver setting and its four palette and CLI actions take effect: Off, Moderate, Balanced or Maximum set how soon hidden pages, conversations and parked workspaces free their memory and how much the memory coordinator trims caches under pressure. Off, cmux keeps Balanced.
     public static let memorySaverSetting = Feature(
-        index: 63,
+        index: 85,
         name: "memorySaverSetting",
         owner: "PL-memory",
         description: "The memory.saver setting and its four palette and CLI actions take effect: Off, Moderate, Balanced or Maximum set how soon hidden pages, conversations and parked workspaces free their memory and how much the memory coordinator trims caches under pressure. Off, cmux keeps Balanced.",
@@ -1160,7 +1506,7 @@ nonisolated extension Feature {
 
     /// Daemon scrollback RAM total sized from installed RAM (128 MiB at 8 GB, 1 GiB at 64 GB) and lowered by memory pressure: half at warning, 16 MiB at critical, least recently active terminals first; limits return at normal below 80 %.
     public static let memoryScrollbackPressure = Feature(
-        index: 64,
+        index: 86,
         name: "memoryScrollbackPressure",
         owner: "PL-memory",
         description: "Daemon scrollback RAM total sized from installed RAM (128 MiB at 8 GB, 1 GiB at 64 GB) and lowered by memory pressure: half at warning, 16 MiB at critical, least recently active terminals first; limits return at normal below 80 %.",
@@ -1177,7 +1523,7 @@ nonisolated extension Feature {
 
     /// Small app stores join the memory coordinator: last-quit terminal frames and agent pages go once the launch settles; glass lens stills and What's New pictures go at memory warning and are made again; terminal Kitty image storage is sized from the Mac's memory and halves at warning.
     public static let memorySmallAppStores = Feature(
-        index: 64,
+        index: 87,
         name: "memorySmallAppStores",
         owner: "PL-memory",
         description: "Small app stores join the memory coordinator: last-quit terminal frames and agent pages go once the launch settles; glass lens stills and What's New pictures go at memory warning and are made again; terminal Kitty image storage is sized from the Mac's memory and halves at warning.",
@@ -1192,9 +1538,26 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// Long-lived SQLite connections of the daemon and the app's page visit logs give their unused page cache back at warning and critical memory pressure, each on the connection's own executor; the pages read again on the next query.
+    public static let memorySqliteTrim = Feature(
+        index: 88,
+        name: "memorySqliteTrim",
+        owner: "PL-memory",
+        description: "Long-lived SQLite connections of the daemon and the app's page visit logs give their unused page cache back at warning and critical memory pressure, each on the connection's own executor; the pages read again on the next query.",
+        kind: .perfPath,
+        process: .both,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: "2026-12-20",
+        params: [],
+        stories: ["memory-hidden"],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// Tab strip icon caches join the memory coordinator: drawn symbols, pack icons, agent marks and emoji shrink as the memory limit falls; at critical pressure only icons drawn in the last 2 seconds stay. A dropped icon is drawn again when next shown.
     public static let memoryTabCaches = Feature(
-        index: 65,
+        index: 89,
         name: "memoryTabCaches",
         owner: "PL-memory",
         description: "Tab strip icon caches join the memory coordinator: drawn symbols, pack icons, agent marks and emoji shrink as the memory limit falls; at critical pressure only icons drawn in the last 2 seconds stay. A dropped icon is drawn again when next shown.",
@@ -1211,7 +1574,7 @@ nonisolated extension Feature {
 
     /// Evicted terminals' saved last frames join the memory coordinator: at critical memory pressure every saved frame is dropped in short background slices, so a terminal shown again after that shows its replay without a saved picture first.
     public static let memoryTerminalLastFrames = Feature(
-        index: 66,
+        index: 90,
         name: "memoryTerminalLastFrames",
         owner: "PL-memory",
         description: "Evicted terminals' saved last frames join the memory coordinator: at critical memory pressure every saved frame is dropped in short background slices, so a terminal shown again after that shows its replay without a saved picture first.",
@@ -1228,7 +1591,7 @@ nonisolated extension Feature {
 
     /// At critical memory pressure one urgent pass ranks hidden browser tabs, agent chats and cmux pages together and discards the one hidden longest, as Chrome discards one page per critical event; the browser tabs, chats and pages then discard at their own paces after one interval.
     public static let memoryUrgentDiscardRanking = Feature(
-        index: 67,
+        index: 91,
         name: "memoryUrgentDiscardRanking",
         owner: "PL-memory",
         description: "At critical memory pressure one urgent pass ranks hidden browser tabs, agent chats and cmux pages together and discards the one hidden longest, as Chrome discards one page per critical event; the browser tabs, chats and pages then discard at their own paces after one interval.",
@@ -1243,9 +1606,26 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// Hibernated tabs woken for no one looking (agent or script calls, neighbor and hover prewakes) restore at most clamp(cores / 2, 1, 4) at once, as Chrome's BackgroundTabLoadingPolicy; under memory pressure or below 150 MB free, none starts and waiting ones are deferred. A person's show always runs.
+    public static let memoryWakeAdmission = Feature(
+        index: 92,
+        name: "memoryWakeAdmission",
+        owner: "PL-memory",
+        description: "Hibernated tabs woken for no one looking (agent or script calls, neighbor and hover prewakes) restore at most clamp(cores / 2, 1, 4) at once, as Chrome's BackgroundTabLoadingPolicy; under memory pressure or below 150 MB free, none starts and waiting ones are deferred. A person's show always runs.",
+        kind: .perfPath,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: "2026-12-26",
+        params: [],
+        stories: ["browser-hibernation", "memory-hidden"],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// The app serves metrics.snapshot (cmux metrics) and the palette offers View Metrics: every field histogram recorded since launch, as JSON in a file tab.
     public static let metricsView = Feature(
-        index: 68,
+        index: 93,
         name: "metricsView",
         owner: "PL-telemetry",
         description: "The app serves metrics.snapshot (cmux metrics) and the palette offers View Metrics: every field histogram recorded since launch, as JSON in a file tab.",
@@ -1262,7 +1642,7 @@ nonisolated extension Feature {
 
     /// The preloaded New Tab page waits hidden in the app's preload slot (its document reports hidden), and Cmd-T shows the picture it parked with until its first live frame in the pane. Off: it waits rendering, as before, and its move into the pane is covered by its own last frame.
     public static let newTabParksHidden = Feature(
-        index: 69,
+        index: 94,
         name: "newTabParksHidden",
         owner: "PL-webui",
         description: "The preloaded New Tab page waits hidden in the app's preload slot (its document reports hidden), and Cmd-T shows the picture it parked with until its first live frame in the pane. Off: it waits rendering, as before, and its move into the pane is covered by its own last frame.",
@@ -1279,7 +1659,7 @@ nonisolated extension Feature {
 
     /// A minimized, other-Space or covered window counts as hidden: the tabs beside each shown page lose their neighbor keep-awake and Memory Saver may discard them; the shown page stays as the window's active tab.
     public static let occludedWindowDiscard = Feature(
-        index: 70,
+        index: 95,
         name: "occludedWindowDiscard",
         owner: "PL-memory",
         description: "A minimized, other-Space or covered window counts as hidden: the tabs beside each shown page lose their neighbor keep-awake and Memory Saver may discard them; the shown page stays as the window's active tab.",
@@ -1294,9 +1674,26 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// The Chromium page a minimized, other-Space or covered window shows freezes at once, hidden to Chromium first via DevTools, when its tab follows no visibility node (fork before API 37); a playing page stays awake. Needs occludedWindowDiscard.
+    public static let offScreenWindowPageFreeze = Feature(
+        index: 96,
+        name: "offScreenWindowPageFreeze",
+        owner: "PL-memory",
+        description: "The Chromium page a minimized, other-Space or covered window shows freezes at once, hidden to Chromium first via DevTools, when its tab follows no visibility node (fork before API 37); a playing page stays awake. Needs occludedWindowDiscard.",
+        kind: .perfPath,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: "2026-12-20",
+        params: [],
+        stories: ["idle-tabs"],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// Tooltips, toasts, popovers, menus, drag ghosts, dialogs and the agent cursor draw in a top layer view of the main window above its content; the overlay child panel and its child window re-ordering run only while a Chromium page child window shows.
     public static let overlayTopLayer = Feature(
-        index: 71,
+        index: 97,
         name: "overlayTopLayer",
         owner: "PL-motion-cef",
         description: "Tooltips, toasts, popovers, menus, drag ghosts, dialogs and the agent cursor draw in a top layer view of the main window above its content; the overlay child panel and its child window re-ordering run only while a Chromium page child window shows.",
@@ -1313,10 +1710,27 @@ nonisolated extension Feature {
 
     /// A cmux page tab whose Chromium renderer stops answering shows the Page unresponsive card while the page shows: Wait restarts the hang timer and Exit page ends the renderer, which the crash recovery reloads.
     public static let pageHangNotice = Feature(
-        index: 72,
+        index: 98,
         name: "pageHangNotice",
         owner: "PL-webui",
         description: "A cmux page tab whose Chromium renderer stops answering shows the Page unresponsive card while the page shows: Wait restarts the hang timer and Exit page ends the renderer, which the crash recovery reloads.",
+        kind: .labs,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: true, nightly: true, release: false),
+        expires: nil,
+        params: [],
+        stories: [],
+        sticky: false,
+        runtimeMutable: false
+    )
+
+    /// A cmux page in Chromium sends its calls to the app on the fork's page channel (fork API 29), the posts of one task as one message, with no DevTools binding event and no sender probe per call; off, every call is a DevTools binding call whose sender is asked first.
+    public static let pageHostChannel = Feature(
+        index: 99,
+        name: "pageHostChannel",
+        owner: "PL-webui",
+        description: "A cmux page in Chromium sends its calls to the app on the fork's page channel (fork API 29), the posts of one task as one message, with no DevTools binding event and no sender probe per call; off, every call is a DevTools binding call whose sender is asked first.",
         kind: .labs,
         process: .app,
         chromiumFeature: nil,
@@ -1330,7 +1744,7 @@ nonisolated extension Feature {
 
     /// Hidden cmux page tabs go Hidden, Frozen, Discarded on one deadline, fed by the tab content lifecycle, browser.hibernation, memory pressure and Low Power Mode; a page thaws before it shows. When on, it replaces memoryDiscardInternalPages for page tabs.
     public static let pageLifecycle = Feature(
-        index: 73,
+        index: 100,
         name: "pageLifecycle",
         owner: "PL-webui",
         description: "Hidden cmux page tabs go Hidden, Frozen, Discarded on one deadline, fed by the tab content lifecycle, browser.hibernation, memory pressure and Low Power Mode; a page thaws before it shows. When on, it replaces memoryDiscardInternalPages for page tabs.",
@@ -1345,9 +1759,26 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// After Settings, History or Cloud opens, the next page of that kind loads ahead through the app's one preload slot, in the page's own engine, hidden and frozen until an open claims it with its routes. Off: those pages load cold, and no spare page host is made.
+    public static let pagePreload = Feature(
+        index: 101,
+        name: "pagePreload",
+        owner: "PL-webui",
+        description: "After Settings, History or Cloud opens, the next page of that kind loads ahead through the app's one preload slot, in the page's own engine, hidden and frozen until an open claims it with its routes. Off: those pages load cold, and no spare page host is made.",
+        kind: .perfPath,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: "2026-12-20",
+        params: [],
+        stories: ["home-idle"],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// Chromium puts each cmux page in its capability group, so pages of one group share a renderer and pages of different groups never do.
     public static let pageProcessGroups = Feature(
-        index: 74,
+        index: 102,
         name: "pageProcessGroups",
         owner: "PL-webui",
         description: "Chromium puts each cmux page in its capability group, so pages of one group share a renderer and pages of different groups never do.",
@@ -1362,9 +1793,26 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// On a Chromium fork with the page push channel (API 43), cmux pages get their host events and replies as data handed to a receiver the page registered, instead of a script evaluated for each delivery.
+    public static let pagePushChannel = Feature(
+        index: 103,
+        name: "pagePushChannel",
+        owner: "PL-webui",
+        description: "On a Chromium fork with the page push channel (API 43), cmux pages get their host events and replies as data handed to a receiver the page registered, instead of a script evaluated for each delivery.",
+        kind: .perfPath,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: "2026-12-20",
+        params: [],
+        stories: ["home-perf", "sidebar-churn-typing"],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// No cmux page starts a renderer before it first shows: a page opened hidden (a background tab, a hidden workspace) loads at its first show, and the spare Settings and New Tab pages are made only after a page of their kind showed this session, so the first open of each kind loads cold.
     public static let pageRendererAtFirstShow = Feature(
-        index: 75,
+        index: 104,
         name: "pageRendererAtFirstShow",
         owner: "PL-memory",
         description: "No cmux page starts a renderer before it first shows: a page opened hidden (a background tab, a hidden workspace) loads at its first show, and the spare Settings and New Tab pages are made only after a page of their kind showed this session, so the first open of each kind loads cold.",
@@ -1381,7 +1829,7 @@ nonisolated extension Feature {
 
     /// A cmux page gets its host events as one script per display frame, and a hidden page gets none until it shows, then the latest state of each stream at once.
     public static let pageScriptFrames = Feature(
-        index: 76,
+        index: 105,
         name: "pageScriptFrames",
         owner: "PL-webui",
         description: "A cmux page gets its host events as one script per display frame, and a hidden page gets none until it shows, then the latest state of each stream at once.",
@@ -1396,9 +1844,26 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// A page in a pane that springs (a split, a close, a zoom) takes its final size once at the spring's start, held at its top-left with the page color in the gap, and a page in its own window hides while its pane shows a render-server move.
+    public static let pageSpringResizeOnce = Feature(
+        index: 106,
+        name: "pageSpringResizeOnce",
+        owner: "PL-cef-layer",
+        description: "A page in a pane that springs (a split, a close, a zoom) takes its final size once at the spring's start, held at its top-left with the page color in the gap, and a page in its own window hides while its pane shows a render-server move.",
+        kind: .perfPath,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: "2026-12-20",
+        params: [],
+        stories: ["pane-bench", "motion"],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// A page tab opened cold shows its title on the page's theme color from the open's frame until the page paints its first frame, instead of an empty pane.
     public static let pageStandIn = Feature(
-        index: 77,
+        index: 107,
         name: "pageStandIn",
         owner: "PL-webui",
         description: "A page tab opened cold shows its title on the page's theme color from the open's frame until the page paints its first frame, instead of an empty pane.",
@@ -1415,7 +1880,7 @@ nonisolated extension Feature {
 
     /// The Chromium page tabs of one pane share one Chromium window, as a Chrome window holds its tab strip: a pane's second page builds no window, a tab moved to another pane moves its page into that pane's window, and an emptied window closes.
     public static let pageTabsShareChromiumWindow = Feature(
-        index: 78,
+        index: 108,
         name: "pageTabsShareChromiumWindow",
         owner: "PL-webui",
         description: "The Chromium page tabs of one pane share one Chromium window, as a Chrome window holds its tab strip: a pane's second page builds no window, a tab moved to another pane moves its page into that pane's window, and an emptied window closes.",
@@ -1432,7 +1897,7 @@ nonisolated extension Feature {
 
     /// While cmux pages use Chromium, the warm start keeps a spare Chromium window of the pages profile, so a page opens in a live window instead of building one on the key's turn.
     public static let pagesSpareWindow = Feature(
-        index: 79,
+        index: 109,
         name: "pagesSpareWindow",
         owner: "PL-webui",
         description: "While cmux pages use Chromium, the warm start keeps a spare Chromium window of the pages profile, so a page opens in a live window instead of building one on the key's turn.",
@@ -1449,7 +1914,7 @@ nonisolated extension Feature {
 
     /// While a split, close, column or zoom springs, each pane's page or terminal keeps the larger of its starting and final size, clipped, and lays out once when the spring lands; off, content resizes live on every frame.
     public static let paneHoldsContentInMotion = Feature(
-        index: 80,
+        index: 110,
         name: "paneHoldsContentInMotion",
         owner: "PL-motion-core",
         description: "While a split, close, column or zoom springs, each pane's page or terminal keeps the larger of its starting and final size, clipped, and lays out once when the spring lands; off, content resizes live on every frame.",
@@ -1465,12 +1930,12 @@ nonisolated extension Feature {
         replaces: ["motion.pane.holdContent"]
     )
 
-    /// Pane divider, column edge, row edge, both sidebar edges and the DevTools divider move on the first drag event of a display frame and once more at the frame, to the latest pointer point; every drag event still counts toward the release velocity.
+    /// Resize edges, dividers, canvas pane drags and pans and the strip scrollbar thumb move, and tab, workspace, pane-swap, link and screen-tab drags hit-test, on a frame's first drag event and once more at the frame, at the latest point; every drag event still counts toward the release velocity.
     public static let pointerFrameDrags = Feature(
-        index: 81,
+        index: 111,
         name: "pointerFrameDrags",
         owner: "PL-motion-cef",
-        description: "Pane divider, column edge, row edge, both sidebar edges and the DevTools divider move on the first drag event of a display frame and once more at the frame, to the latest pointer point; every drag event still counts toward the release velocity.",
+        description: "Resize edges, dividers, canvas pane drags and pans and the strip scrollbar thumb move, and tab, workspace, pane-swap, link and screen-tab drags hit-test, on a frame's first drag event and once more at the frame, at the latest point; every drag event still counts toward the release velocity.",
         kind: .perfPath,
         process: .app,
         chromiumFeature: nil,
@@ -1482,12 +1947,12 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
-    /// The sidebar, tab strips, saved groups bar, palette, address bar suggestions, page menus, agent cursor tags, hover cards, hover reveals and thin scrollers hover on a display frame's first pointer move and once more at the frame, to the latest point; entering, leaving, clicking and keys act at once.
+    /// Sidebar, tab strips, saved groups bar, palette, suggestions, page menus, agent cursor tags, hover cards, hover reveals, thin scrollers and focus follows mouse hover on a display frame's first pointer move and again at the frame, at the latest point; entering, leaving, clicks and keys act at once.
     public static let pointerFrameHover = Feature(
-        index: 82,
+        index: 112,
         name: "pointerFrameHover",
         owner: "PL-motion-cef",
-        description: "The sidebar, tab strips, saved groups bar, palette, address bar suggestions, page menus, agent cursor tags, hover cards, hover reveals and thin scrollers hover on a display frame's first pointer move and once more at the frame, to the latest point; entering, leaving, clicking and keys act at once.",
+        description: "Sidebar, tab strips, saved groups bar, palette, suggestions, page menus, agent cursor tags, hover cards, hover reveals, thin scrollers and focus follows mouse hover on a display frame's first pointer move and again at the frame, at the latest point; entering, leaving, clicks and keys act at once.",
         kind: .perfPath,
         process: .app,
         chromiumFeature: nil,
@@ -1501,7 +1966,7 @@ nonisolated extension Feature {
 
     /// Remote desktop, Mac Screen, remote browser and phone tabs send pointer moves, drags, mid-gesture scrolls and wheel notches to the host once at a display frame's first event and once at the frame (latest point, scrolls summed per phase); buttons, keys and scroll edges send what waits first.
     public static let pointerFrameRemoteInput = Feature(
-        index: 83,
+        index: 113,
         name: "pointerFrameRemoteInput",
         owner: "Performance Lead",
         description: "Remote desktop, Mac Screen, remote browser and phone tabs send pointer moves, drags, mid-gesture scrolls and wheel notches to the host once at a display frame's first event and once at the frame (latest point, scrolls summed per phase); buttons, keys and scroll edges send what waits first.",
@@ -1516,12 +1981,12 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
-    /// Memory Saver keeps a hidden page awake for one minute after its sound ends, and keeps a page whose tab reports sound with no probe, as Chrome does (kTabAudioProtectionTime).
-    public static let recentlyAudibleProtection = Feature(
-        index: 84,
-        name: "recentlyAudibleProtection",
+    /// Tab previews, page thumbnails, hover card thumbnails and hibernated pages' pictures keep their pixels in purgeable memory while nothing shows them, so macOS takes it back under memory pressure; a picture it took is pictured again, or a woken tab shows loading first.
+    public static let purgeableImageCaches = Feature(
+        index: 114,
+        name: "purgeableImageCaches",
         owner: "PL-memory",
-        description: "Memory Saver keeps a hidden page awake for one minute after its sound ends, and keeps a page whose tab reports sound with no probe, as Chrome does (kTabAudioProtectionTime).",
+        description: "Tab previews, page thumbnails, hover card thumbnails and hibernated pages' pictures keep their pixels in purgeable memory while nothing shows them, so macOS takes it back under memory pressure; a picture it took is pictured again, or a woken tab shows loading first.",
         kind: .labs,
         process: .app,
         chromiumFeature: nil,
@@ -1533,9 +1998,26 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// Memory Saver keeps a hidden page awake for one minute after its sound ends, and keeps a page whose tab reports sound with no probe, as Chrome does (kTabAudioProtectionTime).
+    public static let recentlyAudibleProtection = Feature(
+        index: 115,
+        name: "recentlyAudibleProtection",
+        owner: "PL-memory",
+        description: "Memory Saver keeps a hidden page awake for one minute after its sound ends, and keeps a page whose tab reports sound with no probe, as Chrome does (kTabAudioProtectionTime).",
+        kind: .labs,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: true, nightly: true, release: false),
+        expires: nil,
+        params: [],
+        stories: [],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// Hold budgeted main-thread work while a shown window's display link is over 100 ms late, until its next tick.
     public static let renderStarvationGuard = Feature(
-        index: 85,
+        index: 116,
         name: "renderStarvationGuard",
         owner: "Performance Lead",
         description: "Hold budgeted main-thread work while a shown window's display link is over 100 ms late, until its next tick.",
@@ -1552,7 +2034,7 @@ nonisolated extension Feature {
 
     /// Where the Chromium fork makes renderer-less placeholders, a spare Chromium window's placeholder tab has no renderer process and never navigates, instead of a frozen about:blank page.
     public static let rendererlessSpareWindow = Feature(
-        index: 86,
+        index: 117,
         name: "rendererlessSpareWindow",
         owner: "PL-webui",
         description: "Where the Chromium fork makes renderer-less placeholders, a spare Chromium window's placeholder tab has no renderer process and never navigates, instead of a frozen about:blank page.",
@@ -1569,7 +2051,7 @@ nonisolated extension Feature {
 
     /// Dragged dividers, pane edges, tab and workspace ghosts and the pane-swap preview are drawn at the pointer resampled at each frame time (Chromium LinearResampling); snaps, drop targets and the drop read the real pointer. Needs pointerFrameDrags; off under Reduce Motion.
     public static let resampledDrags = Feature(
-        index: 87,
+        index: 118,
         name: "resampledDrags",
         owner: "PL-motion-cef",
         description: "Dragged dividers, pane edges, tab and workspace ghosts and the pane-swap preview are drawn at the pointer resampled at each frame time (Chromium LinearResampling); snaps, drop targets and the drop read the real pointer. Needs pointerFrameDrags; off under Reduce Motion.",
@@ -1584,9 +2066,26 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// The sidebar list and the palette results scroll on AppKit's scrolling thread, so a main-thread stall does not stop a scroll or its momentum; the sidebar decides a trackpad gesture's axis before AppKit takes it.
+    public static let responsiveScrolling = Feature(
+        index: 119,
+        name: "responsiveScrolling",
+        owner: "Performance Lead",
+        description: "The sidebar list and the palette results scroll on AppKit's scrolling thread, so a main-thread stall does not stop a scroll or its momentum; the sidebar decides a trackpad gesture's axis before AppKit takes it.",
+        kind: .perfPath,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: "2026-12-20",
+        params: [],
+        stories: ["sidebar", "palette-open"],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// At quit each open window (never incognito, full screen, another Space or capture-hidden) is saved as one private HEIC per profile with its frame, theme and layout meta; Secure Input panes are filled. Off deletes them.
     public static let savedWindowPicture = Feature(
-        index: 88,
+        index: 120,
         name: "savedWindowPicture",
         owner: "Performance Lead",
         description: "At quit each open window (never incognito, full screen, another Space or capture-hidden) is saved as one private HEIC per profile with its frame, theme and layout meta; Secure Input panes are filled. Off deletes them.",
@@ -1603,7 +2102,7 @@ nonisolated extension Feature {
 
     /// Sentry starts at launch with every integration as before (crash handlers, sessions, network breadcrumbs), but its app-hang reports stay paused until startup completes; the main-thread watchdog reports launch hangs.
     public static let sentryHandlersFirst = Feature(
-        index: 89,
+        index: 121,
         name: "sentryHandlersFirst",
         owner: "Performance Lead",
         description: "Sentry starts at launch with every integration as before (crash handlers, sessions, network breadcrumbs), but its app-hang reports stay paused until startup completes; the main-thread watchdog reports launch hangs.",
@@ -1620,7 +2119,7 @@ nonisolated extension Feature {
 
     /// Chrome labels that show the same text in the same font, size and scale share one glyph image from an app-wide cache capped by bytes, so equal labels draw their glyphs once.
     public static let sharedGlyphMasks = Feature(
-        index: 90,
+        index: 122,
         name: "sharedGlyphMasks",
         owner: "Performance Lead",
         description: "Chrome labels that show the same text in the same font, size and scale share one glyph image from an app-wide cache capped by bytes, so equal labels draw their glyphs once.",
@@ -1635,9 +2134,26 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// The sidebar builds what it shows from the sidebar document a few rows at a time across frames, so a large rebuild keeps to the visible share of each frame and a key press goes first.
+    public static let sidebarDocChunkedShow = Feature(
+        index: 123,
+        name: "sidebarDocChunkedShow",
+        owner: "a590",
+        description: "The sidebar builds what it shows from the sidebar document a few rows at a time across frames, so a large rebuild keeps to the visible share of each frame and a key press goes first.",
+        kind: .perfPath,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: true, nightly: true, release: false),
+        expires: "2026-12-20",
+        params: [],
+        stories: ["sidebar"],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// The sidebar keeps only the workspace rows on screen observed, and maps a row that changed off screen once when it scrolls back near (at once when it comes on screen).
     public static let sidebarRowsNearViewport = Feature(
-        index: 91,
+        index: 124,
         name: "sidebarRowsNearViewport",
         owner: "a590",
         description: "The sidebar keeps only the workspace rows on screen observed, and maps a row that changed off screen once when it scrolls back near (at once when it comes on screen).",
@@ -1654,7 +2170,7 @@ nonisolated extension Feature {
 
     /// While the sidebar slides open or closed, the panes beside it keep the wider of their starting and final width, ride the moving edge clipped at the far one, and lay out once when the slide lands; off, every pane resizes on every frame.
     public static let sidebarSlideHoldsContent = Feature(
-        index: 92,
+        index: 125,
         name: "sidebarSlideHoldsContent",
         owner: "PL-motion-core",
         description: "While the sidebar slides open or closed, the panes beside it keep the wider of their starting and final width, ride the moving edge clipped at the far one, and lay out once when the slide lands; off, every pane resizes on every frame.",
@@ -1672,7 +2188,7 @@ nonisolated extension Feature {
 
     /// cmux follows sleep, wake and display sleep: heartbeats, cloud socket pings and ambient frames stop while the Mac or its displays sleep (the device hub ping only while the Mac sleeps, for Mac Screen), and each cloud socket reconnects once within 2 s after a wake finds the network.
     public static let sleepWakeKeepalives = Feature(
-        index: 93,
+        index: 126,
         name: "sleepWakeKeepalives",
         owner: "Performance Lead",
         description: "cmux follows sleep, wake and display sleep: heartbeats, cloud socket pings and ambient frames stop while the Mac or its displays sleep (the device hub ping only while the Mac sleeps, for Mac Screen), and each cloud socket reconnects once within 2 s after a wake finds the network.",
@@ -1689,7 +2205,7 @@ nonisolated extension Feature {
 
     /// A trackpad pan of the column strip on its motion container shows once per display frame, at the offset resampled at the frame's time as Chromium resamples scroll updates (5 ms behind the frame, at most 8 ms of prediction); the snap and the fling read the real events.
     public static let stripPanResampling = Feature(
-        index: 94,
+        index: 127,
         name: "stripPanResampling",
         owner: "PL-motion-core",
         description: "A trackpad pan of the column strip on its motion container shows once per display frame, at the offset resampled at the frame's time as Chromium resamples scroll updates (5 ms behind the frame, at most 8 ms of prediction); the snap and the fling read the real events.",
@@ -1704,16 +2220,33 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// Tab strips and the saved groups bar scroll by moving one layer, on a display frame's first wheel or trackpad event and once more at the frame with its deltas summed per phase; tabs lay out again only when the tabs in view change or a gesture ends.
+    public static let tabStripScrollFrames = Feature(
+        index: 128,
+        name: "tabStripScrollFrames",
+        owner: "PL-motion-core",
+        description: "Tab strips and the saved groups bar scroll by moving one layer, on a display frame's first wheel or trackpad event and once more at the frame with its deltas summed per phase; tabs lay out again only when the tabs in view change or a gesture ends.",
+        kind: .perfPath,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: "2026-12-20",
+        params: [],
+        stories: ["motion"],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// The Task Manager lists the items Memory Saver discarded, each with the memory it saved, and the total Memory Saver freed.
     public static let taskManagerMemorySaved = Feature(
-        index: 95,
+        index: 129,
         name: "taskManagerMemorySaved",
         owner: "PL-memory",
         description: "The Task Manager lists the items Memory Saver discarded, each with the memory it saved, and the total Memory Saver freed.",
         kind: .labs,
         process: .app,
         chromiumFeature: nil,
-        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        defaults: FeatureDefaults(dev: true, nightly: true, release: false),
         expires: nil,
         params: [],
         stories: [],
@@ -1721,12 +2254,29 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
-    /// A terminal hidden outside the keep-alive band lets its Ghostty GPU memory and renderer thread go while paused and gets them back before it draws; the warm set then grows. Needs a GhosttyNextKit pin with ghostty_surface_set_gpu_resident.
+    /// The terminal cursor shows on a layer of its own over the terminal, with the cell Ghostty rendered, and blinks in the render server, so a blinking cursor costs Ghostty no frame and the app no main-thread work; needs a GhosttyNextKit with the external cursor.
+    public static let terminalCursorLayer = Feature(
+        index: 130,
+        name: "terminalCursorLayer",
+        owner: "PL-ghostty",
+        description: "The terminal cursor shows on a layer of its own over the terminal, with the cell Ghostty rendered, and blinks in the render server, so a blinking cursor costs Ghostty no frame and the app no main-thread work; needs a GhosttyNextKit with the external cursor.",
+        kind: .perfPath,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: "2026-12-20",
+        params: [],
+        stories: ["idle-budget", "typing-terminal"],
+        sticky: false,
+        runtimeMutable: false
+    )
+
+    /// A terminal hidden outside the keep-alive band, or shown in a window off screen for 30 s, lets its Ghostty GPU memory and renderer thread go while paused and gets them back before it draws; the warm set then grows. Needs a GhosttyNextKit pin with ghostty_surface_set_gpu_resident.
     public static let terminalGPURelease = Feature(
-        index: 96,
+        index: 131,
         name: "terminalGPURelease",
         owner: "PL-memory",
-        description: "A terminal hidden outside the keep-alive band lets its Ghostty GPU memory and renderer thread go while paused and gets them back before it draws; the warm set then grows. Needs a GhosttyNextKit pin with ghostty_surface_set_gpu_resident.",
+        description: "A terminal hidden outside the keep-alive band, or shown in a window off screen for 30 s, lets its Ghostty GPU memory and renderer thread go while paused and gets them back before it draws; the warm set then grows. Needs a GhosttyNextKit pin with ghostty_surface_set_gpu_resident.",
         kind: .labs,
         process: .app,
         chromiumFeature: nil,
@@ -1739,16 +2289,33 @@ nonisolated extension Feature {
         replaces: ["memory.discard.terminalGPURelease"]
     )
 
+    /// A hidden terminal's working directory, progress, scrollbar and other state from its program wait until it shows, latest wins; its title still changes at the next frame, quit and a surface swap apply what waits first, and bells, exits and clipboard requests run at once, in order.
+    public static let terminalHiddenActionHold = Feature(
+        index: 132,
+        name: "terminalHiddenActionHold",
+        owner: "PL-ghostty",
+        description: "A hidden terminal's working directory, progress, scrollbar and other state from its program wait until it shows, latest wins; its title still changes at the next frame, quit and a surface swap apply what waits first, and bells, exits and clipboard requests run at once, in order.",
+        kind: .perfPath,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: "2026-12-24",
+        params: [],
+        stories: ["idle-tabs", "automation-typing"],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// New terminals run on the install's one PTY holder process, and the daemon parses their output, instead of one terminal host process each (terminal-host-model-DESIGN.md option D).
     public static let terminalHolder = Feature(
-        index: 97,
+        index: 133,
         name: "terminalHolder",
         owner: "PL-holder",
         description: "New terminals run on the install's one PTY holder process, and the daemon parses their output, instead of one terminal host process each (terminal-host-model-DESIGN.md option D).",
         kind: .perfPath,
         process: .both,
         chromiumFeature: nil,
-        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        defaults: FeatureDefaults(dev: true, nightly: true, release: true),
         expires: "2026-12-20",
         params: [],
         stories: ["new-tab-daemon", "new-surfaces"],
@@ -1757,9 +2324,26 @@ nonisolated extension Feature {
         replaces: ["CMUX_TUI_TERMINAL_HOST_MODEL"]
     )
 
+    /// At launch a background thread opens the Metal device and loads the terminal's font, the emoji font and the fallback font list before the terminal runtime asks for them, so the first terminal waits less on the main thread.
+    public static let terminalLaunchPrefetch = Feature(
+        index: 134,
+        name: "terminalLaunchPrefetch",
+        owner: "Performance Lead",
+        description: "At launch a background thread opens the Metal device and loads the terminal's font, the emoji font and the fallback font list before the terminal runtime asks for them, so the first terminal waits less on the main thread.",
+        kind: .perfPath,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: "2026-12-20",
+        params: [],
+        stories: ["launch-cold", "launch-warm"],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// Terminal pointer moves, drags and the trackpad scrolls a program with mouse reporting gets reach Ghostty on the first event of a display frame and once more at the frame, at the latest point or each phase's summed scroll; a button delivers what waits first and a scrollback scroll goes at once.
     public static let terminalPointerFrames = Feature(
-        index: 98,
+        index: 135,
         name: "terminalPointerFrames",
         owner: "PL-ghostty",
         description: "Terminal pointer moves, drags and the trackpad scrolls a program with mouse reporting gets reach Ghostty on the first event of a display frame and once more at the frame, at the latest point or each phase's summed scroll; a button delivers what waits first and a scrollback scroll goes at once.",
@@ -1776,7 +2360,7 @@ nonisolated extension Feature {
 
     /// A resized or newly shown terminal's frame at its new size goes into the commit that carries the size when Ghostty already drew it; it never waits. Needs a GhosttyNextKit pin whose ghostty_surface_present_host_frame never waits (p03-rendering-084).
     public static let terminalPreCommitPresent = Feature(
-        index: 98,
+        index: 136,
         name: "terminalPreCommitPresent",
         owner: "PL-ghostty",
         description: "A resized or newly shown terminal's frame at its new size goes into the commit that carries the size when Ghostty already drew it; it never waits. Needs a GhosttyNextKit pin whose ghostty_surface_present_host_frame never waits (p03-rendering-084).",
@@ -1793,7 +2377,7 @@ nonisolated extension Feature {
 
     /// Terminal sizing counts one participant per app connection: all of an app's views of one terminal are leases of one participant (its latest active view sets its size), and disconnecting that participant ends only that terminal's views, not the app's connection.
     public static let terminalSizingPerApp = Feature(
-        index: 99,
+        index: 137,
         name: "terminalSizingPerApp",
         owner: "PL-conn",
         description: "Terminal sizing counts one participant per app connection: all of an app's views of one terminal are leases of one participant (its latest active view sets its size), and disconnecting that participant ends only that terminal's views, not the app's connection.",
@@ -1808,9 +2392,43 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// Each terminal view on a stream tells the daemon whether it is focused, visible or hidden: the focused view's output goes ahead of the others, and a hidden view gets no output until it shows, then one snapshot of its screen.
+    public static let terminalStreamPriority = Feature(
+        index: 138,
+        name: "terminalStreamPriority",
+        owner: "PL-ghostty",
+        description: "Each terminal view on a stream tells the daemon whether it is focused, visible or hidden: the focused view's output goes ahead of the others, and a hidden view gets no output until it shows, then one snapshot of its screen.",
+        kind: .perfPath,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: "2026-12-24",
+        params: [],
+        stories: ["typing-flood-stress", "idle-tabs", "tab-switch"],
+        sticky: false,
+        runtimeMutable: false
+    )
+
+    /// Terminal views attach as client-minted streams on the app's one control connection to each daemon, with no connection or identify handshake of their own; off keeps one connection per view.
+    public static let terminalStreams = Feature(
+        index: 139,
+        name: "terminalStreams",
+        owner: "PL-conn",
+        description: "Terminal views attach as client-minted streams on the app's one control connection to each daemon, with no connection or identify handshake of their own; off keeps one connection per view.",
+        kind: .perfPath,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: true, nightly: true, release: false),
+        expires: "2026-12-20",
+        params: [],
+        stories: ["split-latency", "typing-flood-stress"],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// A top page that records itself (classic Home: conversation, search, list scroll) hidden past its timeout lets its view go, and at most the Mac's budget of hidden top pages stay live across windows; showing it builds it again as left. Web pages and unsent input stay live.
     public static let topPageDiscard = Feature(
-        index: 100,
+        index: 140,
         name: "topPageDiscard",
         owner: "PL-memory",
         description: "A top page that records itself (classic Home: conversation, search, list scroll) hidden past its timeout lets its view go, and at most the Mac's budget of hidden top pages stay live across windows; showing it builds it again as left. Web pages and unsent input stay live.",
@@ -1826,9 +2444,26 @@ nonisolated extension Feature {
         replaces: ["memory.discard.topPages"]
     )
 
+    /// The control socket serves trace.start, trace.stop and trace.status, which record a trace of the app, the daemon and its children into local ring files.
+    public static let traceControl = Feature(
+        index: 141,
+        name: "traceControl",
+        owner: "PL-telemetry",
+        description: "The control socket serves trace.start, trace.stop and trace.status, which record a trace of the app, the daemon and its children into local ring files.",
+        kind: .labs,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: true, nightly: false, release: false),
+        expires: nil,
+        params: [],
+        stories: [],
+        sticky: true,
+        runtimeMutable: false
+    )
+
     /// A hidden native page tab takes its SwiftUI hosting view out of the window, so its bodies do not run, and puts it back with its focus when the tab shows.
     public static let visibilityGatedHosting = Feature(
-        index: 101,
+        index: 142,
         name: "visibilityGatedHosting",
         owner: "Performance Lead",
         description: "A hidden native page tab takes its SwiftUI hosting view out of the window, so its bodies do not run, and puts it back with its focus when the tab shows.",
@@ -1845,7 +2480,7 @@ nonisolated extension Feature {
 
     /// Each display's link runs on a vsync thread of its own, and the main frame clock gets one coalesced tick from it per vsync.
     public static let vsyncHub = Feature(
-        index: 102,
+        index: 143,
         name: "vsyncHub",
         owner: "Performance Lead",
         description: "Each display's link runs on a vsync thread of its own, and the main frame clock gets one coalesced tick from it per vsync.",
@@ -1860,9 +2495,26 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// Every cmux page that shows in WebKit shares a web content process with pages of its capability group, up to the memory budget's pages per group; off, only the New Tab page and agent chats share.
+    public static let webKitPageProcessGroups = Feature(
+        index: 144,
+        name: "webKitPageProcessGroups",
+        owner: "PL-memory",
+        description: "Every cmux page that shows in WebKit shares a web content process with pages of its capability group, up to the memory budget's pages per group; off, only the New Tab page and agent chats share.",
+        kind: .perfPath,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: "2026-12-20",
+        params: [],
+        stories: ["home-idle"],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// Once the live WebKit browser tab processes reach the Chromium renderer limit (physical memory / 3 / 85 MB), a new WebKit tab whose first URL is of the same site (scheme and eTLD+1) as a live process's tabs joins that process, as Chrome reuses a same-site renderer above its limit; sites never mix.
     public static let webKitSameSiteProcesses = Feature(
-        index: 102,
+        index: 145,
         name: "webKitSameSiteProcesses",
         owner: "PL-memory",
         description: "Once the live WebKit browser tab processes reach the Chromium renderer limit (physical memory / 3 / 85 MB), a new WebKit tab whose first URL is of the same site (scheme and eTLD+1) as a live process's tabs joins that process, as Chrome reuses a same-site renderer above its limit; sites never mix.",
@@ -1877,9 +2529,60 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// A web UI update or web-dev.json change asks and reloads only the cmux pages that show; hidden and frozen pages are asked when they next show and reload once they allow it, and the preloaded page is made again. Off: every page that holds a document is asked and reloads at the swap.
+    public static let webUpdateReloadOnShow = Feature(
+        index: 146,
+        name: "webUpdateReloadOnShow",
+        owner: "PL-webui",
+        description: "A web UI update or web-dev.json change asks and reloads only the cmux pages that show; hidden and frozen pages are asked when they next show and reload once they allow it, and the preloaded page is made again. Off: every page that holds a document is asked and reloads at the swap.",
+        kind: .perfPath,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: "2026-12-20",
+        params: [],
+        stories: ["tab-switch"],
+        sticky: false,
+        runtimeMutable: false
+    )
+
+    /// A WebKit browser tab that the content lifecycle hides is hidden to WebKit through its web view, so the page reports hidden and WebKit throttles it; tabs that play audible or Picture in Picture media or capture the camera or microphone stay visible.
+    public static let webkitHiddenTabs = Feature(
+        index: 147,
+        name: "webkitHiddenTabs",
+        owner: "Performance Lead",
+        description: "A WebKit browser tab that the content lifecycle hides is hidden to WebKit through its web view, so the page reports hidden and WebKit throttles it; tabs that play audible or Picture in Picture media or capture the camera or microphone stay visible.",
+        kind: .perfPath,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: "2026-12-20",
+        params: [],
+        stories: ["idle-tabs-webkit", "tab-switch-repeat"],
+        sticky: false,
+        runtimeMutable: false
+    )
+
+    /// While a window Zoom or the floating chat's fold or move animates the window frame, terminals keep their grid and the floating chat's page keeps its size, pinned to the top edge, and each lays out once when the frame lands; off, content resizes live on every frame.
+    public static let windowFrameAnimationHoldsContent = Feature(
+        index: 148,
+        name: "windowFrameAnimationHoldsContent",
+        owner: "PL-motion-core",
+        description: "While a window Zoom or the floating chat's fold or move animates the window frame, terminals keep their grid and the floating chat's page keeps its size, pinned to the top edge, and each lays out once when the frame lands; off, content resizes live on every frame.",
+        kind: .perfPath,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: "2026-12-20",
+        params: [],
+        stories: ["motion", "anim-perf"],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// A window fully covered by an opaque cmux window counts as occluded like a minimized or other-Space one: its animations stop ticking, its terminals stop drawing and its hosted pages are told they are occluded.
     public static let windowOcclusionFamily = Feature(
-        index: 103,
+        index: 149,
         name: "windowOcclusionFamily",
         owner: "Performance Lead",
         description: "A window fully covered by an opaque cmux window counts as occluded like a minimized or other-Space one: its animations stop ticking, its terminals stop drawing and its hosted pages are told they are occluded.",
@@ -1895,12 +2598,12 @@ nonisolated extension Feature {
     )
 
     #if DEBUG || CMUX_BENCH_HOOKS
-    /// debug.chromium_host can show a Chromium page whose browser process runs in the Chromium Host app, over a pane, and the browser backend picks the host; Chromium tabs stay in cmux until the host supervisor lands.
+    /// debug.chromium_host can show a Chromium page whose browser process runs in the Chromium Host app, over a pane, and the browser backend picks the host; Chromium tabs move to that one host only with chromiumHostTabs on too.
     public static let cefHelperHost = Feature(
-        index: 104,
+        index: 150,
         name: "cefHelperHost",
         owner: "PL-cef-helper",
-        description: "debug.chromium_host can show a Chromium page whose browser process runs in the Chromium Host app, over a pane, and the browser backend picks the host; Chromium tabs stay in cmux until the host supervisor lands.",
+        description: "debug.chromium_host can show a Chromium page whose browser process runs in the Chromium Host app, over a pane, and the browser backend picks the host; Chromium tabs move to that one host only with chromiumHostTabs on too.",
         kind: .perfPath,
         process: .app,
         chromiumFeature: nil,
@@ -1915,7 +2618,7 @@ nonisolated extension Feature {
 
     /// The layer hosting benches' on arm: every Chromium page window from fork API 26, DevTools and popups too, draws in the cmux window's own layer tree without the Track A calls that cefLayerHosting needs. DEBUG and bench builds only.
     public static let cefLayerHostingEveryPage = Feature(
-        index: 105,
+        index: 151,
         name: "cefLayerHostingEveryPage",
         owner: "PL-cef-layer",
         description: "The layer hosting benches' on arm: every Chromium page window from fork API 26, DevTools and popups too, draws in the cmux window's own layer tree without the Track A calls that cefLayerHosting needs. DEBUG and bench builds only.",
@@ -1933,7 +2636,7 @@ nonisolated extension Feature {
 
     /// The Chromium host app quits when its page has been in no window for a while; a closed pane still quits it at once. The next show starts a new host, under the page background only: cmux cannot capture the host's pixels yet.
     public static let chromiumHostIdleExit = Feature(
-        index: 106,
+        index: 152,
         name: "chromiumHostIdleExit",
         owner: "PL-memory",
         description: "The Chromium host app quits when its page has been in no window for a while; a closed pane still quits it at once. The next show starts a new host, under the page background only: cmux cannot capture the host's pixels yet.",
@@ -1954,9 +2657,61 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// With the Chromium host, the warm start keeps no spare Chromium window, so nothing warms a renderer for the first new tab; the bench arm that measures whether the host meets the new tab target without the spare window.
+    public static let chromiumHostNoSpareWindow = Feature(
+        index: 153,
+        name: "chromiumHostNoSpareWindow",
+        owner: "PL-cef-layer",
+        description: "With the Chromium host, the warm start keeps no spare Chromium window, so nothing warms a renderer for the first new tab; the bench arm that measures whether the host meets the new tab target without the spare window.",
+        kind: .perfPath,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: "2026-12-20",
+        params: [],
+        stories: ["new-browser-tab"],
+        sticky: false,
+        runtimeMutable: false
+    )
+
+    /// After a Chromium Host crash within the restart budget (Chrome's GPU rule), a new host starts at once and every Chromium tab of every window and profile comes back with its history from its daemon record; hidden tabs when shown, form results not resent.
+    public static let chromiumHostRestoreTabs = Feature(
+        index: 154,
+        name: "chromiumHostRestoreTabs",
+        owner: "PL-cef-helper",
+        description: "After a Chromium Host crash within the restart budget (Chrome's GPU rule), a new host starts at once and every Chromium tab of every window and profile comes back with its history from its daemon record; hidden tabs when shown, form results not resent.",
+        kind: .labs,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: "2026-12-20",
+        params: [],
+        stories: ["crash-survival"],
+        sticky: false,
+        runtimeMutable: false
+    )
+
+    /// With cefHelperHost on too, every Chromium tab of the launch, of every profile, runs in the one Chromium Host (ChromiumHostSupervisor) instead of cmux's process. Debug builds only; bench builds keep tabs in process.
+    public static let chromiumHostTabs = Feature(
+        index: 155,
+        name: "chromiumHostTabs",
+        owner: "PL-cef-helper",
+        description: "With cefHelperHost on too, every Chromium tab of the launch, of every profile, runs in the one Chromium Host (ChromiumHostSupervisor) instead of cmux's process. Debug builds only; bench builds keep tabs in process.",
+        kind: .perfPath,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: "2026-12-20",
+        params: [],
+        stories: ["chromium-host"],
+        sticky: false,
+        runtimeMutable: false,
+        replaces: ["browserHost.tabs"]
+    )
+
     /// Bench builds only: every key-down spins for exactly 2 ms before key dispatch, the known regression the perf lab canary must alert on, bisect to and verify.
     public static let perfLabCanary = Feature(
-        index: 107,
+        index: 156,
         name: "perfLabCanary",
         owner: "Performance Lead",
         description: "Bench builds only: every key-down spins for exactly 2 ms before key dispatch, the known regression the perf lab canary must alert on, bisect to and verify.",
@@ -1973,7 +2728,7 @@ nonisolated extension Feature {
 
     /// Bench builds only: changes nothing and reports its value at launch, so a signed flags document that turns it off proves the kill switch path end to end.
     public static let perfLabKillProbe = Feature(
-        index: 108,
+        index: 157,
         name: "perfLabKillProbe",
         owner: "Performance Lead",
         description: "Bench builds only: changes nothing and reports its value at launch, so a signed flags document that turns it off proves the kill switch path end to end.",
@@ -2002,15 +2757,24 @@ nonisolated extension Feature {
         .cefLayerHosting,
         .cefMergedEvents,
         .cefPrefetchBehindFence,
+        .cefPumpFrameDeadline,
         .cefPumpInputPolicy,
+        .cefResizeFence,
         .cefTimerSlack,
         .chromiumAdBlockerAtFirstTab,
+        .chromiumHangFollowsVisibility,
+        .chromiumHostChoosers,
         .chromiumHostDragIn,
         .chromiumHostFileDialogs,
+        .chromiumHostHangBanner,
+        .chromiumHostInputRing,
+        .chromiumHostLocks,
         .chromiumHostPopupMenus,
         .chromiumHostResizeFence,
         .chromiumHostSuggestions,
         .chromiumHostWidgets,
+        .chromiumOneSpareRenderer,
+        .chromiumPermissionPromptsFromData,
         .chromiumSpareAfterFirstTab,
         .chromiumTabVisibility,
         .cmuxPageRendererSharing,
@@ -2020,28 +2784,38 @@ nonisolated extension Feature {
         .crashForwardersAfterStartup,
         .daemonRequestQos,
         .directionalPrewarm,
+        .drainCauseSplit,
         .energySaver,
+        .fatalHangReports,
         .featureFlagsCard,
         .frameRateClasses,
         .frozenGrowthDiscard,
         .hangReportsSchema3,
         .hiddenPollPause,
+        .hiddenTerminalQos,
+        .hiddenWorkspaceDetachAfterGrace,
         .highEnergyTabs,
         .hostPressure,
+        .idleHelperBackgroundPriority,
         .intentPrewarmHover,
         .intentPrewarmPress,
         .ipcMethodLatencyFieldData,
         .launchVisiblePanesOnly,
         .launchWindowsByOcclusion,
         .leftoverDaemonIdleExit,
+        .mainBudgetTurn,
+        .mainExecutorHook,
         .mainJobGate,
+        .mcpCatalogHost,
         .memoryAcpmuxPressure,
         .memoryAgentAndControlCaches,
         .memoryAppCaches,
         .memoryBackdropImages,
         .memoryBrowserCaches,
+        .memoryDaemonLimit,
         .memoryDiscardAgentPagesOverBudget,
         .memoryDiscardConversations,
+        .memoryDiscardCrashedSubframes,
         .memoryDiscardInternalPages,
         .memoryDiscardPageTabs,
         .memoryDiscardParkedIdleTimeout,
@@ -2049,6 +2823,7 @@ nonisolated extension Feature {
         .memoryDiscardRemoteTabs,
         .memoryDiscardSidebarSections,
         .memoryFileHomeCaches,
+        .memoryFreezeEligibility,
         .memoryHiddenAppRelease,
         .memoryHiddenFrameLRU,
         .memoryHomeLabCaches,
@@ -2060,18 +2835,25 @@ nonisolated extension Feature {
         .memorySaverSetting,
         .memoryScrollbackPressure,
         .memorySmallAppStores,
+        .memorySqliteTrim,
         .memoryTabCaches,
         .memoryTerminalLastFrames,
         .memoryUrgentDiscardRanking,
+        .memoryWakeAdmission,
         .metricsView,
         .newTabParksHidden,
         .occludedWindowDiscard,
+        .offScreenWindowPageFreeze,
         .overlayTopLayer,
         .pageHangNotice,
+        .pageHostChannel,
         .pageLifecycle,
+        .pagePreload,
         .pageProcessGroups,
+        .pagePushChannel,
         .pageRendererAtFirstShow,
         .pageScriptFrames,
+        .pageSpringResizeOnce,
         .pageStandIn,
         .pageTabsShareChromiumWindow,
         .pagesSpareWindow,
@@ -2079,31 +2861,48 @@ nonisolated extension Feature {
         .pointerFrameDrags,
         .pointerFrameHover,
         .pointerFrameRemoteInput,
+        .purgeableImageCaches,
         .recentlyAudibleProtection,
         .renderStarvationGuard,
         .rendererlessSpareWindow,
         .resampledDrags,
+        .responsiveScrolling,
         .savedWindowPicture,
         .sentryHandlersFirst,
         .sharedGlyphMasks,
+        .sidebarDocChunkedShow,
         .sidebarRowsNearViewport,
         .sidebarSlideHoldsContent,
         .sleepWakeKeepalives,
         .stripPanResampling,
+        .tabStripScrollFrames,
         .taskManagerMemorySaved,
+        .terminalCursorLayer,
         .terminalGPURelease,
+        .terminalHiddenActionHold,
         .terminalHolder,
+        .terminalLaunchPrefetch,
         .terminalPointerFrames,
         .terminalPreCommitPresent,
         .terminalSizingPerApp,
+        .terminalStreamPriority,
+        .terminalStreams,
         .topPageDiscard,
+        .traceControl,
         .visibilityGatedHosting,
         .vsyncHub,
+        .webKitPageProcessGroups,
         .webKitSameSiteProcesses,
+        .webUpdateReloadOnShow,
+        .webkitHiddenTabs,
+        .windowFrameAnimationHoldsContent,
         .windowOcclusionFamily,
         .cefHelperHost,
         .cefLayerHostingEveryPage,
         .chromiumHostIdleExit,
+        .chromiumHostNoSpareWindow,
+        .chromiumHostRestoreTabs,
+        .chromiumHostTabs,
         .perfLabCanary,
         .perfLabKillProbe,
     ]
@@ -2120,15 +2919,24 @@ nonisolated extension Feature {
         .cefLayerHosting,
         .cefMergedEvents,
         .cefPrefetchBehindFence,
+        .cefPumpFrameDeadline,
         .cefPumpInputPolicy,
+        .cefResizeFence,
         .cefTimerSlack,
         .chromiumAdBlockerAtFirstTab,
+        .chromiumHangFollowsVisibility,
+        .chromiumHostChoosers,
         .chromiumHostDragIn,
         .chromiumHostFileDialogs,
+        .chromiumHostHangBanner,
+        .chromiumHostInputRing,
+        .chromiumHostLocks,
         .chromiumHostPopupMenus,
         .chromiumHostResizeFence,
         .chromiumHostSuggestions,
         .chromiumHostWidgets,
+        .chromiumOneSpareRenderer,
+        .chromiumPermissionPromptsFromData,
         .chromiumSpareAfterFirstTab,
         .chromiumTabVisibility,
         .cmuxPageRendererSharing,
@@ -2138,28 +2946,38 @@ nonisolated extension Feature {
         .crashForwardersAfterStartup,
         .daemonRequestQos,
         .directionalPrewarm,
+        .drainCauseSplit,
         .energySaver,
+        .fatalHangReports,
         .featureFlagsCard,
         .frameRateClasses,
         .frozenGrowthDiscard,
         .hangReportsSchema3,
         .hiddenPollPause,
+        .hiddenTerminalQos,
+        .hiddenWorkspaceDetachAfterGrace,
         .highEnergyTabs,
         .hostPressure,
+        .idleHelperBackgroundPriority,
         .intentPrewarmHover,
         .intentPrewarmPress,
         .ipcMethodLatencyFieldData,
         .launchVisiblePanesOnly,
         .launchWindowsByOcclusion,
         .leftoverDaemonIdleExit,
+        .mainBudgetTurn,
+        .mainExecutorHook,
         .mainJobGate,
+        .mcpCatalogHost,
         .memoryAcpmuxPressure,
         .memoryAgentAndControlCaches,
         .memoryAppCaches,
         .memoryBackdropImages,
         .memoryBrowserCaches,
+        .memoryDaemonLimit,
         .memoryDiscardAgentPagesOverBudget,
         .memoryDiscardConversations,
+        .memoryDiscardCrashedSubframes,
         .memoryDiscardInternalPages,
         .memoryDiscardPageTabs,
         .memoryDiscardParkedIdleTimeout,
@@ -2167,6 +2985,7 @@ nonisolated extension Feature {
         .memoryDiscardRemoteTabs,
         .memoryDiscardSidebarSections,
         .memoryFileHomeCaches,
+        .memoryFreezeEligibility,
         .memoryHiddenAppRelease,
         .memoryHiddenFrameLRU,
         .memoryHomeLabCaches,
@@ -2178,18 +2997,25 @@ nonisolated extension Feature {
         .memorySaverSetting,
         .memoryScrollbackPressure,
         .memorySmallAppStores,
+        .memorySqliteTrim,
         .memoryTabCaches,
         .memoryTerminalLastFrames,
         .memoryUrgentDiscardRanking,
+        .memoryWakeAdmission,
         .metricsView,
         .newTabParksHidden,
         .occludedWindowDiscard,
+        .offScreenWindowPageFreeze,
         .overlayTopLayer,
         .pageHangNotice,
+        .pageHostChannel,
         .pageLifecycle,
+        .pagePreload,
         .pageProcessGroups,
+        .pagePushChannel,
         .pageRendererAtFirstShow,
         .pageScriptFrames,
+        .pageSpringResizeOnce,
         .pageStandIn,
         .pageTabsShareChromiumWindow,
         .pagesSpareWindow,
@@ -2197,27 +3023,41 @@ nonisolated extension Feature {
         .pointerFrameDrags,
         .pointerFrameHover,
         .pointerFrameRemoteInput,
+        .purgeableImageCaches,
         .recentlyAudibleProtection,
         .renderStarvationGuard,
         .rendererlessSpareWindow,
         .resampledDrags,
+        .responsiveScrolling,
         .savedWindowPicture,
         .sentryHandlersFirst,
         .sharedGlyphMasks,
+        .sidebarDocChunkedShow,
         .sidebarRowsNearViewport,
         .sidebarSlideHoldsContent,
         .sleepWakeKeepalives,
         .stripPanResampling,
+        .tabStripScrollFrames,
         .taskManagerMemorySaved,
+        .terminalCursorLayer,
         .terminalGPURelease,
+        .terminalHiddenActionHold,
         .terminalHolder,
+        .terminalLaunchPrefetch,
         .terminalPointerFrames,
         .terminalPreCommitPresent,
         .terminalSizingPerApp,
+        .terminalStreamPriority,
+        .terminalStreams,
         .topPageDiscard,
+        .traceControl,
         .visibilityGatedHosting,
         .vsyncHub,
+        .webKitPageProcessGroups,
         .webKitSameSiteProcesses,
+        .webUpdateReloadOnShow,
+        .webkitHiddenTabs,
+        .windowFrameAnimationHoldsContent,
         .windowOcclusionFamily,
     ]
     #endif

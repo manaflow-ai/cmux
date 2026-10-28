@@ -2,7 +2,8 @@
 use super::*;
 
 pub(super) fn handle_connection(mux: Arc<Mux>, stream: Box<dyn transport::Stream>) {
-    handle_connection_with_permit(mux, stream, Arc::new(RenderService::new()), None);
+    let peer = origin_gate::AcceptedPeer::resolve(&mux, &*stream);
+    handle_connection_with_permit(mux, stream, peer, Arc::new(RenderService::new()), None);
 }
 
 pub(super) fn handle_message(

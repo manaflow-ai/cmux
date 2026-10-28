@@ -1,5 +1,6 @@
 import { memo, useId, type ReactNode, type Ref } from "react";
 import { ContextMenu, type ContextMenuItem } from "../../../ui/ContextMenu";
+import { useHiddenChoices, withShownChoices } from "../availability";
 import { useRowState, useStore, type RowState } from "../context";
 import { Editor } from "../editors/Editor";
 import { Icon } from "../icons";
@@ -61,6 +62,8 @@ export const SettingRow = memo(function SettingRow({
   const { managed, customized } = state;
   const disabled = inactive || !state.connected || !state.readable || managed !== null;
   const menu = rowMenu(row.key, state, store);
+  // The choices this Mac offers now (Energy Saver's On Battery only with a battery).
+  const shownRow = withShownChoices(row, useHiddenChoices(row.key), state.value);
   return (
     <RowFrame
       settingKey={row.key}
@@ -90,7 +93,7 @@ export const SettingRow = memo(function SettingRow({
         {/* The control has the row's menu too (cx-2lm4); a text field keeps its own Cut, Copy and Paste. */}
         <ContextMenu className="row-control-menu" items={menu} ignore={TEXT_FIELDS}>
           <div className="row-control">
-            <Editor row={row} value={state.value} disabled={disabled} labelId={labelId} />
+            <Editor row={shownRow} value={state.value} disabled={disabled} labelId={labelId} />
             <ResetButton
               settingKey={row.key}
               shown={customized && !managed}
