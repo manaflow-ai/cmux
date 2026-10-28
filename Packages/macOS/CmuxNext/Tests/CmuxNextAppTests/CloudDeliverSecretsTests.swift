@@ -53,7 +53,7 @@ struct CloudDeliverSecretsTests {
         let f = CloudCLITargetTests.fixture()
         let ssh = try TabMachineColorTests.sshMachine(f.services.machines)
         #expect(CloudHandlers.sshMachine("lab", f.context) === ssh, "its sidebar name")
-        #expect(CloudHandlers.sshMachine("leo@huge-blue.tail1.ts.net", f.context) === ssh, "its destination")
+        #expect(CloudHandlers.sshMachine(ssh.host.destination.sshArgument, f.context) === ssh, "its destination")
         #expect(!CloudHandlers.isCloudMachine(ssh.machineID, f.context) && CloudHandlers.isCloudMachine(f.session.machineID, f.context))
         #expect(throws: ActionFailure(message: CloudStrings.secretNamesRequired)) {
             try CloudHandlers.deliverSecrets(ActionInvocation(target: ActionTargetRef(kind: .machine, id: "lab"), origin: .cli), f.context)
@@ -61,10 +61,10 @@ struct CloudDeliverSecretsTests {
     }
 
     @Test func aPeerIsDeliveredToOverItsSSHRouteOnly() throws {
-        let peers = [AcpmuxPeerList.Peer(name: "huge-blue", connected: true, url: "ssh://leo@huge-blue:47811"),
+        let peers = [AcpmuxPeerList.Peer(name: "dev-box", connected: true, url: "ssh://ann@dev-box:47811"),
                      AcpmuxPeerList.Peer(name: "tail-box", connected: true, url: "ws://100.64.0.9:47811"),
                      AcpmuxPeerList.Peer(name: "bare", connected: false)]
-        #expect(CloudHandlers.peerRoute("Huge-Blue", among: peers) == .ssh(try SSHDestination(parsing: "leo@huge-blue")))
+        #expect(CloudHandlers.peerRoute("Dev-Box", among: peers) == .ssh(try SSHDestination(parsing: "ann@dev-box")))
         #expect(CloudHandlers.peerRoute("tail-box", among: peers) == .noSSH)
         #expect(CloudHandlers.peerRoute("bare", among: peers) == .noSSH)
         #expect(CloudHandlers.peerRoute("gone", among: peers) == .unknown)

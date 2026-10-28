@@ -9,23 +9,23 @@ import Testing
 @Suite(.serialized)
 struct SSHMachineSecretsTests {
     @Test func aPeersSSHURLGivesItsSSHDestinationWithoutTheDaemonsPort() throws {
-        #expect(SSHMachineSecrets.destination(peerURL: "ssh://leo@huge-blue:47811")?.sshArgument == "leo@huge-blue")
-        #expect(SSHMachineSecrets.destination(peerURL: "ssh://huge-blue")?.sshArgument == "huge-blue")
-        #expect(SSHMachineSecrets.destination(peerURL: "ssh://huge-blue:47811")?.port == nil, "47811 is the daemon's, not ssh's")
+        #expect(SSHMachineSecrets.destination(peerURL: "ssh://ann@dev-box:47811")?.sshArgument == "ann@dev-box")
+        #expect(SSHMachineSecrets.destination(peerURL: "ssh://dev-box")?.sshArgument == "dev-box")
+        #expect(SSHMachineSecrets.destination(peerURL: "ssh://dev-box:47811")?.port == nil, "47811 is the daemon's, not ssh's")
         #expect(SSHMachineSecrets.destination(peerURL: "ssh://[fd7a::1]:47811")?.sshArgument == "fd7a::1")
-        for other in ["ws://100.64.0.1:47811", "wss://host", "huge-blue", "ssh://-oProxyCommand=x", "ssh://a b"] {
+        for other in ["ws://100.64.0.1:47811", "wss://host", "dev-box", "ssh://-oProxyCommand=x", "ssh://a b"] {
             #expect(SSHMachineSecrets.destination(peerURL: other) == nil, "\(other)")
         }
     }
 
     @Test func theReceiverRunsOnAPtyOfItsOwnWithTheAppsSSHOptions() throws {
-        let destination = try SSHDestination(parsing: "leo@huge-blue:2222")
+        let destination = try SSHDestination(parsing: "ann@dev-box:2222")
         let command = try #require(SSHMachineSecrets.remoteCommand(["sh", SSHMachineSecrets.receiverPath, SSHMachineSecrets.ticketPath]))
         #expect(command == #"sh "$HOME/.cmux/machine-config/receive-secrets" "$HOME/.cmux/machine-config/receive-secrets.ticket""#)
         let argv = SSHCommandLine().pty(destination, command)
         #expect(Array(argv.prefix(2)) == ["/usr/bin/ssh", "-tt"])
         #expect(argv.contains("-oForwardAgent=no") && argv.contains("-oBatchMode=yes"))
-        #expect(Array(argv.suffix(5)) == ["-p", "2222", "--", "leo@huge-blue", command])
+        #expect(Array(argv.suffix(5)) == ["-p", "2222", "--", "ann@dev-box", command])
         // Only the fixed receiver paths pass: nothing a login shell would read as more than a word.
         for word in ["a b", "x\"y", "$(id)", "`id`", "a;b", ""] {
             #expect(SSHMachineSecrets.remoteCommand(["sh", word]) == nil, "\(word)")
@@ -54,7 +54,7 @@ struct SSHMachineSecretsTests {
         let home = try Self.scratchHome()
         defer { try? FileManager.default.removeItem(at: home) }
         let ssh = try Self.standInSSH(in: home)
-        let link = SSHMachineSecrets.link(to: try SSHDestination(parsing: "leo@own-machine"),
+        let link = SSHMachineSecrets.link(to: try SSHDestination(parsing: "ann@own-machine"),
                                           environment: ["HOME": home.path, "PATH": "/usr/bin:/bin:/usr/sbin:/sbin"],
                                           commandLine: SSHCommandLine(sshBinary: ssh.path))
         let values = [(name: "API_KEY", value: "sk-live-1'23"), (name: "DATABASE_URL", value: "postgres://u:p@db/app")]
