@@ -532,13 +532,14 @@
   display: flex;
   flex-wrap: wrap;
 }
-.ui-menu-item.acpmux-quick-effort-segment {
+.ui-menu-item.acpmux-quick-effort-segment,
+.acpmux-quick-width-probe-segment {
   display: flex;
   flex: 1 0 auto;
   justify-content: center;
   min-height: var(--ui-row-height);
   padding: var(--ds-space-1) var(--ds-space-2);
-  border-radius: 5px;
+  border-radius: var(--ui-row-radius);
   color: var(--agent-muted);
   font-size: var(--text-content);
 }
