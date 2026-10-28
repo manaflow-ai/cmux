@@ -156,7 +156,7 @@ impl HttpHub {
         }
         let stdout = std::str::from_utf8(&out[..len])
             .map_err(|_| HubError::unavailable("the token command printed no text"))?;
-        let token = parse_token(&stdout).map_err(HubError::unavailable)?;
+        let token = parse_token(stdout).map_err(HubError::unavailable)?;
         *held = Some((token.0.clone(), token.1));
         Ok(token.0)
     }
