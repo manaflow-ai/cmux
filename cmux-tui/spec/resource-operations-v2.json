@@ -9175,6 +9175,15 @@
           },
           "description": "With patch_offset: a bounded page of the selected file's raw unified patch, with a digest of the complete output. Join decoded bytes only while revision remains identical."
         },
+        "patch_key": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "Opaque immutable capture key for patch continuations."
+        },
         "next_path": {
           "required": false,
           "type": {
@@ -10113,6 +10122,15 @@
             "name": "GitPatchPage"
           },
           "description": "With patch_offset: a bounded page of the selected file's raw unified patch, with a digest of the complete output. Join decoded bytes only while revision remains identical."
+        },
+        "patch_key": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "Opaque immutable capture key for patch continuations."
         },
         "next_path": {
           "required": false,
