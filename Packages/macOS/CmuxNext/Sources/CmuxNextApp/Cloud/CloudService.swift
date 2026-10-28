@@ -78,10 +78,10 @@ final class CloudService {
     /// Files the person drops or pastes into a moved chat, sent to its machine (``CloudUploads``).
     @ObservationIgnored let uploads = CloudUploads()
 
-    init(machines: MachineRegistry, isDebugBuild: Bool) {
+    init(machines: MachineRegistry, isDebugBuild: Bool, authCaptureFixture: Bool = false) {
         self.machines = machines
         configuration = CloudConfiguration.current(isDebugBuild: isDebugBuild)
-        auth = CloudAuth(configuration: configuration)
+        auth = CloudAuth(configuration: configuration, captureFixture: authCaptureFixture)
         paths = CloudPaths.standard(bundleID: configuration.bundleID)
         let auth = auth
         api = CloudAPIClient(
