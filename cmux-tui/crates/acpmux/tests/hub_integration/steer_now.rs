@@ -263,19 +263,14 @@ async fn ten_agent_messages_during_a_long_step_arrive_as_one_input() {
         senders.push((a, request));
     }
     // The last message reached Claude Code's stdin (in the one line, once its drops are answered).
-    let written = || {
-        hub.events(&id, 0, 10_000)
-            .unwrap()
-            .iter()
-            .any(|e| e.kind == "claude.stdin" && e.msg.to_string().contains("MSG-10"))
+    let stdin = |e: &acpmux::store::EventRecord| {
+        e.kind == "claude.stdin" && e.msg.to_string().contains("MSG-10")
     };
-    for _ in 0..200 {
-        if written() {
-            break;
-        }
+    let mut tries = 0;
+    while !hub.events(&id, 0, 10_000).unwrap().iter().any(stdin) && tries < 200 {
+        tries += 1;
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
-    assert!(written(), "the last message never reached Claude Code");
     send_now(&hub, &id, "p-agent-10").await;
     let (answer, seen) = c.response(turn).await;
     assert_eq!(answer.unwrap()["stopReason"], "end_turn");

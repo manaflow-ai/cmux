@@ -2,31 +2,22 @@
 //! feel like there should be better batching for messages from other sessions so you can get to
 //! things faster/more efficiently").
 //!
-//! A steer waits in Claude Code's command queue until its current step ends, one line per steer:
-//! ten agents' sends during a long step were ten lines, and after a Send now (an interrupt) Claude
-//! Code runs each waiting line as one more turn. Now another session's steer (`_meta.batch.from`,
-//! which the hub sets on a plain agent message, `hub/steer_end.rs`) that comes while the newest
-//! waiting line is other sessions' messages joins that line: Claude Code is asked to drop it
-//! (`cancel_async_message`, as a withdraw does, `steer_withdraw.rs`) and one line with all of them
-//! goes in its place. That line says how many messages from how many sessions, then gives each as
-//! it was sent, oldest first, under a line naming its sender. Nothing is dropped, cut or
-//! summarized. A line holds at most [`BATCH_MAX_BYTES`] of messages: past it the next message
-//! starts a new line, whole. Each steer keeps its own request: the line's echo answers every one
-//! `steered`.
-//! When Claude Code read the line first (`cancelled: false`) or cannot drop it, the line stands
-//! and the new messages go in as the next line. One line is written again at a time: messages
-//! that come while its drop is on its way wait for the answer, then go in the line written after
-//! it, so the lines reach Claude Code in the order their messages came.
+//! A steer waits in Claude Code's command queue until its step ends, one line per steer; after a
+//! Send now Claude Code runs each waiting line as one more turn. Now another session's steer
+//! (`_meta.batch.from`, set by the hub, `hub/steer_end.rs`) that comes while the newest waiting
+//! line is other sessions' messages joins it: Claude Code drops that line (`cancel_async_message`)
+//! and one line with all of them goes in its place, saying how many messages from how many
+//! sessions, then each as sent, oldest first, under its sender. Nothing is cut. A line holds at
+//! most [`BATCH_MAX_BYTES`]; past it the next message starts a new line, whole. Each steer keeps
+//! its request, answered `steered` at the line's echo. A line read first (`cancelled: false`) or
+//! one Claude Code cannot drop stands, and the new messages go next. One line is written again at
+//! a time; messages that come meanwhile go in the line written after it, keeping their order.
 //!
-//! A dropped line is always written again with at least the messages it held, so Claude Code
-//! always has a line to echo: a turn whose result came while the line waited (it runs the line as
-//! one more turn, `inbound.rs`) still ends. So a withdraw of one message of a batched line, or of
-//! one held for one, takes nothing back (`withdrawn: false`), as for a message Claude Code read
-//! first; the person's steers, the ones withdraws are for, are never batched.
-//!
-//! The person's steers, one read now (`steerNow`) and anything the hub did not mark are written at
-//! once, as before, never held. A turn that ends before a held message was written answers it
-//! `STEER_NO_TURN`, so the hub queues it for the next turn (`hub/steer_end.rs`).
+//! A dropped line is always written again with all it held, so Claude Code always has a line to
+//! echo and a turn whose result came meanwhile still ends. So a withdraw of a batched or held
+//! message takes nothing back (`withdrawn: false`), as for one read first; the person's steers,
+//! which withdraws are for, are never batched, nor is one read now (`steerNow`). A turn that ends
+//! before a held message was written answers it `STEER_NO_TURN`, and the hub queues it.
 
 use super::*;
 

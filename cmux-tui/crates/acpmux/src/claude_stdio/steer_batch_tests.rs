@@ -1,8 +1,5 @@
-//! Other sessions' messages steered into one step go in as one line (`steer_batch.rs`; Leo,
-//! 2026-10-27: "i also feel like there should be better batching for messages from other sessions
-//! so you can get to things faster/more efficiently"). `Queue` stands in for Claude Code's command
-//! queue: a user line written during the step waits there, and `cancel_async_message` drops one
-//! that still waits, as Claude Code does.
+//! Other sessions' messages steered into one step go in as one line (`steer_batch.rs`). `Queue`
+//! stands in for Claude Code's command queue, `cancel_async_message` included.
 
 use super::steer_batch::BATCH_MAX_BYTES;
 use super::*;
@@ -41,8 +38,7 @@ impl Queue {
                 let cancelled = self.waiting.len() < before;
                 let answer = json!({"type": "control_response", "response": {"subtype": "success", "request_id": drop["request_id"], "response": {"cancelled": cancelled}}});
                 out.extend(t.inbound(&answer).await);
-                let written = t.take_stdin_replies().await;
-                self.take(written);
+                self.take(t.take_stdin_replies().await);
             }
         }
         out
@@ -50,11 +46,9 @@ impl Queue {
 }
 
 fn steer(id: i64, text: &str, meta: Value) -> Message {
-    Message::request(
-        id,
-        method::SESSION_PROMPT,
-        json!({"sessionId": "acp-1", "prompt": [{"type": "text", "text": text}], "_meta": meta}),
-    )
+    let p =
+        json!({"sessionId": "acp-1", "prompt": [{"type": "text", "text": text}], "_meta": meta});
+    Message::request(id, method::SESSION_PROMPT, p)
 }
 
 /// Another session's message, as the hub marks it (`hub/steer_end.rs`).
