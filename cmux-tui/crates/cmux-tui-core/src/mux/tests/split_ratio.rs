@@ -1,4 +1,5 @@
-//! Split ratio commands: clamping, undo metadata, and stable split ids.
+//! Split ratio commands: clamping, undo metadata, and stable split ids. A ratio clamps to 0.001..=0.999, so a
+//! client can fold a pane to a bar at the edge (handoff pane-min.md) and the daemon keeps it there.
 
 use super::*;
 
@@ -25,7 +26,7 @@ fn set_ratio_updates_deepest_split_and_clamps() {
         let Node::Split { ratio, .. } = &s.workspaces[0].screens[0].root else {
             panic!("root should be split");
         };
-        assert_eq!(*ratio, 0.05);
+        assert_eq!(*ratio, 0.001);
     });
 
     assert!(mux.set_ratio_checked(p3, SplitDir::Right, 2.0).is_ok());
@@ -36,7 +37,7 @@ fn set_ratio_updates_deepest_split_and_clamps() {
         let Node::Split { ratio, .. } = a.as_ref() else {
             panic!("first child should be split");
         };
-        assert_eq!(*ratio, 0.95);
+        assert_eq!(*ratio, 0.999);
     });
 
     assert!(matches!(
@@ -94,7 +95,7 @@ fn set_split_ratio_updates_only_the_exact_split_and_clamps() {
             panic!("root should be split");
         };
         assert_eq!(*id, root_split);
-        assert_eq!(*root_ratio, 0.95);
+        assert_eq!(*root_ratio, 0.999);
         let Node::Split { id, ratio: inner_ratio, .. } = a.as_ref() else {
             panic!("first child should be split");
         };
@@ -108,6 +109,19 @@ fn set_split_ratio_updates_only_the_exact_split_and_clamps() {
         mux.set_split_ratio_checked(9999, 0.4),
         Err(LayoutRatioError::UnknownSplit { split: 9999 })
     ));
+}
+
+#[test]
+fn a_ratio_near_the_edge_is_kept_so_a_folded_pane_stays_folded() {
+    let mux = test_mux();
+    let (_, _, _, root_split, _) = seed_split_ratio_tree(&mux);
+    assert!(mux.set_split_ratio_checked(root_split, 0.004).is_ok());
+    mux.with_state(|s| {
+        let Node::Split { ratio, .. } = &s.workspaces[0].screens[0].root else {
+            panic!("root should be split");
+        };
+        assert_eq!(*ratio, 0.004);
+    });
 }
 
 #[test]
