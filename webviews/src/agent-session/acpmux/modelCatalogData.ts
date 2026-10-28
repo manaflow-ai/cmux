@@ -400,11 +400,12 @@ function catalogHarness(harness: CatalogHarness, members: AcpmuxHarness[], join:
     members.find((entry) => entry.id === harness.id) ??
     members[0];
   const probed = chosen?.models ?? [];
+  const live = session?.harness !== undefined && chosen?.id === session.harness ? session.configOptions : undefined;
+  const runs = chosen?.id === session?.harness ? runningModel(session, live) : undefined;
   const listed =
     harness.modelSource === "catalog"
-      ? harness.models.filter((model) => join.provisional || !isIdentityOnlyCurrentModel(model))
+      ? harness.models.filter((model) => join.provisional || model.id === runs || !isIdentityOnlyCurrentModel(model))
       : [];
-  const live = session?.harness !== undefined && chosen?.id === session.harness ? session.configOptions : undefined;
   const reported = reportedNames(probed, live);
   const hiddenReleases = hiddenReleaseIds(harness.id, harness.id, reported, join);
   const models: PickerModel[] = listed.map((model) => listedModel(model, harness.id, probed, join));
@@ -416,7 +417,6 @@ function catalogHarness(harness: CatalogHarness, members: AcpmuxHarness[], join:
   }
   addSessionModels(models, live, harness.id, listed, join, hiddenReleases);
   const releases = models.filter((model) => listed.some((pinned) => pinned.id === model.id));
-  const runs = chosen?.id === session?.harness ? runningModel(session, live) : undefined;
   const offered = foldAliases(models, releases, runs, reported, join, (release, alias) =>
     aliasRow(listed, release, alias, harness.id, probed, join),
   );
@@ -442,6 +442,7 @@ function catalogHarness(harness: CatalogHarness, members: AcpmuxHarness[], join:
 
 function uncataloguedHarness(entry: AcpmuxHarness, join: Join): PickerHarness {
   const live = entry.id === join.session?.harness ? join.session.configOptions : undefined;
+  const runs = entry.id === join.session?.harness ? runningModel(join.session, live) : undefined;
   // A profile of a catalogued agent ("claude-sr2" is Claude Code) runs that agent's releases: they
   // name the release its session pins, and the aliases the agent names as one fold into it.
   const key = agentKey(familyOf(entry));
@@ -454,7 +455,7 @@ function uncataloguedHarness(entry: AcpmuxHarness, join: Join): PickerHarness {
   // is not one of this profile's releases (applyUserLayer drops it so from its own harness).
   const listed = (kin?.models ?? []).filter(
     (model) =>
-      (join.provisional || !isIdentityOnlyCurrentModel(model)) &&
+      (join.provisional || model.id === runs || !isIdentityOnlyCurrentModel(model)) &&
       ![...(model.aliases ?? []), model.id].some((id) => isHiddenByUser(entry.id, id, join)) &&
       ![...reported].some(([id, name]) => isHiddenByUser(entry.id, id, join) && namesRelease(name, model, join)),
   );
@@ -463,7 +464,6 @@ function uncataloguedHarness(entry: AcpmuxHarness, join: Join): PickerHarness {
     .map((probe) => probedModel(probe, entry.id, join));
   addSessionModels(models, live, entry.id, listed, join, hiddenReleases);
   const releases = listed.map((model) => listedModel(model, entry.id, entry.models, join));
-  const runs = entry.id === join.session?.harness ? runningModel(join.session, live) : undefined;
   const offered = kin
     ? foldAliases(models, releases, runs, reported, join, (release, alias) =>
         aliasRow(listed, release, alias, entry.id, entry.models, join),

@@ -120,6 +120,27 @@ test("Retry keeps the running unavailable model and excludes unavailable alterna
   expect(ids(sections.latest)).not.toContain("gpt-6.1-terra");
 });
 
+for (const harnessId of ["codex", "codex-sr"]) {
+  test(`${harnessId}: a session-reported current release survives an empty live probe`, () => {
+    const current = "gpt-6.1-terra";
+    const catalog = buildPickerCatalog({
+      catalog: BUNDLED_MODEL_CATALOG,
+      acpmux: [
+        { id: harnessId, family: harnessId, name: "Codex", models: [] },
+        { id: "codex-other", family: "codex-other", name: "Other account", models: [] },
+      ],
+      session: { harness: harnessId, model: current },
+      provisional: false,
+    });
+    const harness = catalog.harnesses.find((entry) => entry.id === harnessId)!;
+    expect(ids(harness.models)).toContain(current);
+    expect(ids(harness.models)).not.toContain("gpt-6.1-luna");
+    const retry = retryModelSections(harness.models, current, harness.name, harness.topModels);
+    expect(ids([...retry.latest, ...retry.more])).toContain(current);
+    expect(ids(catalog.harnesses.find((entry) => entry.id === "codex-other")!.models)).not.toContain(current);
+  });
+}
+
 for (const harness of ["Codex", "Codex profile"]) {
   test(`Retry excludes unavailable ${harness} alternatives when no model is running`, () => {
     const sections = retryModelSections(
