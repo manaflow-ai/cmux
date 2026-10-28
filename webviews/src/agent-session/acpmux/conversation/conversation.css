@@ -34,7 +34,10 @@
      model.ts transcriptColumn mirrors it. */
   --cv-font-size: 14px;
   --cv-line-height: 22.75px;
-  --cv-column: clamp(720px, 62.5%, 800px);
+  /* CSS px grow with the page zoom. Divide the caps by the effective zoom so the column's
+     on-screen measure remains the same when Interface Scale or Agent Chat Zoom changes. */
+  --cv-ui-scale: var(--cmux-ui-scale, 1);
+  --cv-column: clamp(calc(720px / var(--cv-ui-scale)), 62.5%, calc(800px / var(--cv-ui-scale)));
   --cv-edge: var(--page-edge, 18px);
   /* Resolved where it is used: 100% is the pane's width there. */
   --cv-inset: max(var(--cv-edge), calc((100% - var(--cv-column)) / 2));
@@ -72,11 +75,11 @@
    everything at 960px; `wideBlocks` gives code, diffs, tables, tool output and cards 1120px while
    prose keeps the standard 800px measure (--cv-prose) at the column's left edge. */
 :root[data-chat-width="wide"] {
-  --cv-column: clamp(720px, 62.5%, 960px);
+  --cv-column: clamp(calc(720px / var(--cv-ui-scale)), 62.5%, calc(960px / var(--cv-ui-scale)));
 }
 :root[data-chat-width="wideBlocks"] {
-  --cv-column: clamp(720px, 70%, 1120px);
-  --cv-prose: 800px;
+  --cv-column: clamp(calc(720px / var(--cv-ui-scale)), 70%, calc(1120px / var(--cv-ui-scale)));
+  --cv-prose: calc(800px / var(--cv-ui-scale));
 }
 .cv-md > .cv-p,
 .cv-md > .cv-h,

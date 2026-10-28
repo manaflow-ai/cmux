@@ -332,9 +332,10 @@ public final class AgentPaneView: NSView {
             page.additionalZoom = zoom
             return
         }
-        webView.pageZoom = Double(DesignSettings.shared.uiScale) * zoom
+        let pageZoom = Double(DesignSettings.shared.uiScale) * zoom
+        webView.evaluateJavaScript(DesignSettings.shared.interfaceScaleScript(pageZoom: pageZoom), completionHandler: nil)
+        webView.pageZoom = pageZoom
         glassFeed.refresh() // the zoom moves the art's rect in CSS px
-        webView.evaluateJavaScript(DesignSettings.shared.interfaceScaleScript, completionHandler: nil)
     }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.

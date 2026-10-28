@@ -214,7 +214,7 @@ export function chatDisplayVariables(display: ChatDisplay): Record<string, strin
       ? null
       : display.fullWidth
         ? "100%"
-        : `clamp(${Math.min(720, display.width)}px, 100%, ${display.width}px)`,
+        : `clamp(calc(${Math.min(720, display.width)}px / var(--cmux-ui-scale, 1)), 100%, calc(${display.width}px / var(--cmux-ui-scale, 1)))`,
   };
 }
 
