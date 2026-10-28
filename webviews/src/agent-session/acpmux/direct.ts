@@ -4920,6 +4920,8 @@ export class AcpmuxDirectClient {
     // other chat. An ask from before the chat was shown again belongs to such a prompt: a send now
     // asks again, and the app names the turn that ask opened (a turn not run yet is named again).
     // A Retry keeps the id its prompt first went with, named or not: acpmux may hold that copy.
+    /// The turn this prompt claimed (`handoffTurnsSent`) and the claim before it.
+    let claim: { turn: number; before: number | undefined } | undefined;
     if (this.handoffTurn && !steer && !namesHandoffTurn(promptId) && !this.retriedPrompts.has(promptId)) {
       const generation = this.selectionGeneration;
       let named: number | undefined;
@@ -4941,6 +4943,7 @@ export class AcpmuxDirectClient {
       if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId)
         throw new Error(translate("error.notOpen"));
       if (named !== undefined) {
+        claim = { turn: named, before: this.handoffTurnsSent.get(sessionId) };
         this.handoffTurnsSent.set(sessionId, named);
         promptId = handoffPromptId(named, promptId);
       }
@@ -5163,6 +5166,12 @@ export class AcpmuxDirectClient {
       // The folder's trust question (the one route); the pane's sender adds the re-send.
       this.routeTrustRefusal(error);
       if (held) {
+        // Refused before acpmux took it, back in the composer: it never ran, so its turn is free for
+        // the next Send (an ambiguous failure keeps the claim: acpmux may run it).
+        if (claim && refused && !taken && this.handoffTurnsSent.get(sessionId) === claim.turn) {
+          if (claim.before === undefined) this.handoffTurnsSent.delete(sessionId);
+          else this.handoffTurnsSent.set(sessionId, claim.before);
+        }
         this.rows.delete(rowId);
         this.optimisticPromptRows.delete(promptId);
         this.optimisticPromptTexts.delete(promptId);

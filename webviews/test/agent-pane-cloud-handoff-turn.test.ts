@@ -10,7 +10,7 @@ const CHAT = "0190a000-0000-7000-8000-0000000000e1";
 const START = Date.UTC(2026, 9, 28, 10, 0, 0);
 
 /// A daemon with one idle chat that records every prompt it gets.
-function fakeDaemon(prompts: Record<string, unknown>[], refuse = 0) {
+function fakeDaemon(prompts: Record<string, unknown>[], refuse = 0, refusal?: string) {
   let socket: any;
   const session = {
     sessionId: CHAT,
@@ -50,7 +50,13 @@ function fakeDaemon(prompts: Record<string, unknown>[], refuse = 0) {
           prompts.push(message.params);
           queueMicrotask(() =>
             socket.onmessage?.({
-              data: JSON.stringify({ jsonrpc: "2.0", id: message.id, error: { code: -32603, message: "refused" } }),
+              data: JSON.stringify({
+                jsonrpc: "2.0",
+                id: message.id,
+                error: refusal
+                  ? { code: -32000, message: refusal, data: { code: refusal, origin: "native" } }
+                  : { code: -32603, message: "refused" },
+              }),
             }),
           );
           return;
@@ -68,12 +74,12 @@ function fakeDaemon(prompts: Record<string, unknown>[], refuse = 0) {
   };
 }
 
-async function client(prompts: Record<string, unknown>[], refuse = 0) {
+async function client(prompts: Record<string, unknown>[], refuse = 0, refusal?: string) {
   const connected = await AcpmuxDirectClient.connect(
     { protocolVersion: 1, transport: "acpmux-websocket", endpoint: "ws://127.0.0.1:1/", token: "t", sessionId: CHAT },
     () => undefined,
     undefined,
-    fakeDaemon(prompts, refuse),
+    fakeDaemon(prompts, refuse, refusal),
   );
   for (let i = 0; i < 5; i++) await new Promise((resolve) => setTimeout(resolve, 0));
   return connected;
@@ -190,4 +196,13 @@ test("a turn this page already sent a prompt under is never named for another pr
   chat.handoffTurn = async () => 3;
   await chat.send("third", [], "p-15");
   expect(prompts.map(promptIdOf)).toEqual(["handoff-2-p-13", "p-14", "handoff-3-p-15"]);
+});
+
+test("a prompt refused before acpmux took it, back in the composer, frees its turn for the next Send", async () => {
+  const prompts: Record<string, unknown>[] = [];
+  const chat = await client(prompts, 1, "transport.gesture_required");
+  chat.handoffTurn = async () => 4;
+  await chat.send("first", [], "p-16", () => undefined).catch(() => undefined);
+  await chat.send("first", [], "p-17", () => undefined);
+  expect(prompts.map(promptIdOf)).toEqual(["handoff-4-p-16", "handoff-4-p-17"]);
 });
