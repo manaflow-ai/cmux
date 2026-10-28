@@ -401,7 +401,7 @@ fn spawn_end_wait(
 /// state, a surface's runtime during a shutdown detach), so the record, a
 /// registry commit, never runs on it: it goes to the owner's terminal work
 /// pool (never refused for a full queue), else, without an owner or with no
-/// pool worker able to start, to a supervised `terminal-end` thread. The
+/// pool worker able to start, to a `terminal-end` thread. The
 /// callback keeps the surface alive until the end, as a wait thread would.
 /// `completion` is the surface's reset `reaper_completion`.
 #[cfg(unix)]
@@ -425,14 +425,22 @@ fn notify_end(
             },
             None => record,
         };
-        // No thread can start at all: the process cannot run the record
-        // anywhere without risking the reporter's locks; the shutdown
-        // deadline bounds every wait for it, and the error says why.
-        if let Err(error) = supervised::spawn(
+        // As a pool job: a panicking record is logged, never the daemon's
+        // end (the pool catches its jobs' panics). At the class of work no
+        // request waits on, as the wait thread it replaces. If no thread can
+        // start at all, the record cannot run anywhere without risking the
+        // reporter's locks; the shutdown deadline bounds every wait for it.
+        let caught = move || {
+            if std::panic::catch_unwind(std::panic::AssertUnwindSafe(record)).is_err() {
+                eprintln!("cmux-tui: a terminal's end record panicked");
+            }
+        };
+        if let Err(error) = supervised::spawn_at(
             "terminal-end",
+            cmux_tui_platform::qos::outside_request_class(),
             supervised::Fatal,
             supervised::ShutdownBehavior::Continue,
-            record,
+            caught,
         ) {
             eprintln!("cmux-tui: a terminal's end could not be recorded (no thread): {error}");
         }

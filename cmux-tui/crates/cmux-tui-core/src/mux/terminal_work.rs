@@ -494,6 +494,39 @@ mod tests {
         assert_eq!(results, (0..50).map(|index| index * 2).collect::<Vec<_>>());
     }
 
+    /// A terminal's end record is queued even when the bounded queue is
+    /// full: its reporter cannot run it inline (H2 review).
+    #[test]
+    fn an_end_record_is_queued_past_the_bound() {
+        let pool = TerminalWorkPool::for_test();
+        let (release_tx, release_rx) = std::sync::mpsc::channel::<()>();
+        let release_rx = Arc::new(Mutex::new(release_rx));
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        for _ in 0..MAX_TERMINAL_WORKERS {
+            let release = release_rx.clone();
+            let started = started_tx.clone();
+            let queued = pool.try_submit(Box::new(move || {
+                let _ = started.send(());
+                let _ = release.lock().unwrap().recv();
+            }));
+            assert!(queued.is_ok());
+        }
+        for _ in 0..MAX_TERMINAL_WORKERS {
+            started_rx.recv_timeout(Duration::from_secs(5)).expect("every worker runs a blocker");
+        }
+        for _ in 0..MAX_QUEUED_TERMINAL_JOBS {
+            assert!(pool.try_submit(Box::new(|| {})).is_ok());
+        }
+        assert!(pool.try_submit(Box::new(|| {})).is_err(), "the bounded queue is full");
+        let (ended_tx, ended_rx) = std::sync::mpsc::channel();
+        let queued = pool.submit_end(Box::new(move || {
+            let _ = ended_tx.send(());
+        }));
+        assert!(queued.is_ok(), "an end record was refused for a full queue");
+        drop(release_tx);
+        ended_rx.recv_timeout(Duration::from_secs(10)).expect("the end record ran");
+    }
+
     #[test]
     fn terminal_work_pool_survives_panicking_jobs() {
         fn failing_job() -> usize {
