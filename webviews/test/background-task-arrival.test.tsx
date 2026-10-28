@@ -98,6 +98,22 @@ test("the Inspector's new running task enters from the top; the ones it was draw
   expect(entering(container, "li.acpmux-chat-inspector-task--command")).toEqual(["pytest:top", "tsc:-"]);
 });
 
+test("a running task keeps its entry animation separate from the wave and clears arrival state", async () => {
+  const container = installDom();
+  const first = [command("a", "tsc --watch")];
+  await act(async () => {
+    root = createRoot(container);
+    root.render(<TasksSection commands={first} />);
+  });
+  await act(async () => root!.render(<TasksSection commands={[command("b", "pytest -x"), ...first]} />));
+  const row = container.querySelector<HTMLElement>('li[data-enter="top"]')!;
+  expect(row.querySelector(".acpmux-chat-inspector-task__wave.acpmux-wave-item")).not.toBeNull();
+  const waveCss = await Bun.file(new URL("../src/ui/wave.css", import.meta.url)).text();
+  expect(waveCss).toContain(".acpmux-chat-inspector-task__wave.acpmux-wave-item");
+  await played(row);
+  expect(row.dataset.enter).toBeUndefined();
+});
+
 test("the Summary's new running task enters from the top; the ones it was drawn with do not", async () => {
   const container = installDom();
   const first = [command("a", "tsc --watch")];

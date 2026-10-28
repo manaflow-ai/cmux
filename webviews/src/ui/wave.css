@@ -8,6 +8,7 @@
    a hidden page; a stopped item shows at full strength. */
 :root {
   --cmux-wave-period: 1.6s;
+  --cmux-wave-session-period: 2.4s;
   --cmux-wave-step: 120ms;
 }
 @keyframes cmux-wave {
@@ -28,4 +29,26 @@
     animation: cmux-wave var(--cmux-wave-period) ease-in-out infinite;
     animation-delay: calc(var(--wave-index, 0) * var(--cmux-wave-step) - 20 * var(--cmux-wave-period));
   }
+}
+[data-wave-speed="subtle"] .acpmux-wave-item {
+  --cmux-wave-session-period: 2s;
+}
+[data-wave-speed="balanced"] .acpmux-wave-item {
+  --cmux-wave-session-period: 2.4s;
+}
+[data-wave-speed="roomy"] .acpmux-wave-item {
+  --cmux-wave-session-period: 3s;
+}
+:root:not([data-cmux-motion="off"]):not([data-cmux-motion="reduced"]):not([data-status-indicators="static"]):not(
+    [data-cmux-page-hidden]
+  )
+  [data-wave-speed]
+  .acpmux-chat-inspector-task__wave.acpmux-wave-item,
+:root:not([data-cmux-motion="off"]):not([data-cmux-motion="reduced"]):not([data-status-indicators="static"]):not(
+    [data-cmux-page-hidden]
+  )
+  [data-wave-speed]
+  .acpmux-chat-inspector-server.acpmux-wave-item {
+  animation-duration: var(--cmux-wave-session-period);
+  animation-delay: calc(var(--wave-index, 0) * var(--cmux-wave-step) - 20 * var(--cmux-wave-session-period));
 }

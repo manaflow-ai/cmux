@@ -1,0 +1,94 @@
+/* Shared scroll-edge contract. Consumers set data-scroll-edge-variant on their surface; the band
+   stays CSS-only so scrolling never performs per-frame work. */
+:root {
+  --cmux-scroll-edge-band: 16px;
+  --cmux-scroll-edge-blur: 8px;
+  --cmux-scroll-edge-opacity: 0.82;
+}
+.ui-scroll-edge-fade {
+  position: sticky;
+  z-index: var(--layer-sticky);
+  top: 0;
+  isolation: isolate;
+  background: color-mix(
+    in srgb,
+    var(--glass-surface, var(--agent-page-bg)) 82%,
+    transparent
+  );
+}
+.ui-scroll-edge-fade > * {
+  position: relative;
+  z-index: var(--layer-raised);
+}
+.ui-scroll-edge-fade::after {
+  position: absolute;
+  z-index: var(--layer-base);
+  top: 100%;
+  right: 0;
+  left: 0;
+  height: var(--cmux-scroll-edge-band);
+  background: linear-gradient(
+    to bottom,
+    color-mix(
+      in srgb,
+      var(--glass-surface, var(--agent-page-bg))
+        calc(var(--cmux-scroll-edge-opacity) * 100%),
+      transparent
+    ),
+    transparent
+  );
+  content: "";
+  pointer-events: none;
+  -webkit-backdrop-filter: blur(var(--cmux-scroll-edge-blur));
+  backdrop-filter: blur(var(--cmux-scroll-edge-blur));
+  mask-image: linear-gradient(to bottom, #000, transparent);
+  opacity: 0;
+}
+/* A sticky Inspector header reveals its band only after its own card has scrolled. The section
+   state also keeps a folded disclosure from leaving a band below its one-line header. */
+.acpmux-chat-inspector-section[data-inspector-open="true"][data-fade-top] .ui-scroll-edge-fade::after {
+  opacity: 1;
+}
+/* The gallery alternatives: balanced is the shipped treatment; subtle integrates most quietly. */
+[data-scroll-edge-variant="subtle"] .ui-scroll-edge-fade {
+  --cmux-scroll-edge-band: 12px;
+  --cmux-scroll-edge-blur: 5px;
+  --cmux-scroll-edge-opacity: 0.58;
+}
+[data-scroll-edge-variant="roomy"] .ui-scroll-edge-fade {
+  --cmux-scroll-edge-band: 24px;
+  --cmux-scroll-edge-blur: 12px;
+  --cmux-scroll-edge-opacity: 0.9;
+}
+@media (prefers-reduced-transparency: reduce) {
+  .ui-scroll-edge-fade,
+  .ui-scroll-edge-fade::after {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  .ui-scroll-edge-fade::after {
+    background: linear-gradient(
+      to bottom,
+      var(--glass-surface, var(--agent-page-bg)),
+      transparent
+    );
+  }
+  .ui-scroll-edge-fade {
+    background: var(--glass-surface, var(--agent-page-bg));
+  }
+}
+:root[data-reduce-transparency] .ui-scroll-edge-fade,
+:root[data-reduce-transparency] .ui-scroll-edge-fade::after {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+:root[data-reduce-transparency] .ui-scroll-edge-fade::after {
+  background: linear-gradient(
+    to bottom,
+    var(--glass-surface, var(--agent-page-bg)),
+    transparent
+  );
+}
+:root[data-reduce-transparency] .ui-scroll-edge-fade {
+  background: var(--glass-surface, var(--agent-page-bg));
+}

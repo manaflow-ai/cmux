@@ -175,6 +175,14 @@ test("no section before the first background process; then running ones with ela
     "1m 16s",
     "1h 2m 3s",
   ]);
+  expect(
+    rows().map((row) => row.querySelector(".acpmux-chat-inspector-task__wave")?.classList.contains("acpmux-wave-item")),
+  ).toEqual([true, true]);
+  expect(
+    rows().map((row) =>
+      row.querySelector<HTMLElement>(".acpmux-chat-inspector-task__wave")?.style.getPropertyValue("--wave-index"),
+    ),
+  ).toEqual(["0", "1"]);
   expect(tasks.querySelector(".acpmux-chat-inspector-section__meta")?.textContent).toBe("2 running");
 
   // The finished ones fold behind their count; open, each with how long it ran and how it ended.

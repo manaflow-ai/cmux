@@ -17,6 +17,7 @@ import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import { openCommand } from "../processTerminal";
 import { useNow } from "../subagents/SubagentGroup";
+import { waveIndices, waveProps } from "../../../ui/wave";
 import type { SummaryWakeup } from "../summary/sessionSummary";
 import { arrivalKey, sendLabel, splitCommands, type BackgroundCommand } from "./processes";
 import { InspectorFold } from "./InspectorSection";
@@ -57,10 +58,18 @@ export function TasksSection({
   const t = useT();
   const [showFinished, setShowFinished] = useState(false);
   const { running, finished } = splitCommands(commands);
+  const wave = waveIndices(running, (command) => command.state === "running");
   const now = useNow(running.length > 0);
   // Every command's id, so opening the finished fold, or a command finishing, replays nothing.
   const { arrived, played } = useArrivals(commands.map(arrivalKey));
-  const row = (command: BackgroundCommand, time: string | undefined, state?: string, enters = false) => {
+  const row = (
+    command: BackgroundCommand,
+    time: string | undefined,
+    state?: string,
+    enters = false,
+    waveIndex?: number,
+  ) => {
+    const shimmer = waveProps(waveIndex);
     const toolCallId = command.toolCallId;
     // What a click opens: the terminal on this Mac (else the call, when the host refuses), the call
     // elsewhere; with neither, the row is not a button and its tooltip says why.
@@ -84,22 +93,27 @@ export function TasksSection({
           enters ? (event) => event.target === event.currentTarget && played(arrivalKey(command)) : undefined
         }
       >
-        <button
-          type="button"
-          className="acpmux-chat-inspector-task__open"
-          disabled={why !== undefined}
-          onClick={() => {
-            void openCommand(toolCallId, { local, showCall: onShowCall });
-          }}
+        <div
+          className={["acpmux-chat-inspector-task__wave", shimmer.className].filter(Boolean).join(" ")}
+          style={shimmer.style}
         >
-          <Icon name="terminal" size={ROW_ICON} row />
-          <span className="acpmux-chat-inspector-task__command">{sendLabel(t, command) ?? command.command}</span>
-          {time !== undefined && <span className="acpmux-chat-inspector-task__time">{time}</span>}
-          {state !== undefined && <span className="acpmux-chat-inspector-task__state">{state}</span>}
-        </button>
-        {command.state === "running" && command.processId && onStop && (
-          <StopButton id={command.processId} name={command.command} stop={onStop} />
-        )}
+          <button
+            type="button"
+            className="acpmux-chat-inspector-task__open"
+            disabled={why !== undefined}
+            onClick={() => {
+              void openCommand(toolCallId, { local, showCall: onShowCall });
+            }}
+          >
+            <Icon name="terminal" size={ROW_ICON} row />
+            <span className="acpmux-chat-inspector-task__command">{sendLabel(t, command) ?? command.command}</span>
+            {time !== undefined && <span className="acpmux-chat-inspector-task__time">{time}</span>}
+            {state !== undefined && <span className="acpmux-chat-inspector-task__state">{state}</span>}
+          </button>
+          {command.state === "running" && command.processId && onStop && (
+            <StopButton id={command.processId} name={command.command} stop={onStop} />
+          )}
+        </div>
       </li>
     );
   };
@@ -107,7 +121,7 @@ export function TasksSection({
     <div className="acpmux-chat-inspector-scroll" data-section="tasks">
       {(running.length > 0 || scheduled.length > 0) && (
         <ul className="acpmux-chat-inspector-list">
-          {running.map((command) =>
+          {running.map((command, index) =>
             row(
               command,
               // A task only the transcript knows may not say when it started.
@@ -116,6 +130,7 @@ export function TasksSection({
                 : t(COMMAND_STATE.running),
               undefined,
               arrived.has(arrivalKey(command)),
+              wave[index],
             ),
           )}
           {scheduled.map((wakeup) => (

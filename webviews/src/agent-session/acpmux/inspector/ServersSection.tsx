@@ -7,6 +7,7 @@ import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import { useNow } from "../subagents/SubagentGroup";
+import { waveIndices, waveProps } from "../../../ui/wave";
 import type { InspectorServer } from "./processes";
 import { StopButton } from "./TasksSection";
 
@@ -24,12 +25,18 @@ export function ServersSection({
 }) {
   const t = useT();
   const now = useNow(servers.length > 0);
+  const ordered = [...servers].sort((a, b) => b.startedAt - a.startedAt);
+  const wave = waveIndices(ordered, () => true);
   return (
     <ul className="acpmux-chat-inspector-list acpmux-chat-inspector-scroll" data-section="servers">
-      {[...servers]
-        .sort((a, b) => b.startedAt - a.startedAt)
-        .map((server) => (
-          <li key={server.id} className="acpmux-chat-inspector-server">
+      {ordered.map((server, index) => {
+        const shimmer = waveProps(wave[index]);
+        return (
+          <li
+            key={server.id}
+            className={["acpmux-chat-inspector-server", shimmer.className].filter(Boolean).join(" ")}
+            style={shimmer.style}
+          >
             <span className="acpmux-chat-inspector-server__dot" aria-hidden="true" />
             <span className="acpmux-chat-inspector-server__text">
               <span className="acpmux-chat-inspector-task__command">{server.command}</span>
@@ -59,7 +66,8 @@ export function ServersSection({
             </span>
             {onStop && <StopButton id={server.id} name={server.command} stop={onStop} />}
           </li>
-        ))}
+        );
+      })}
     </ul>
   );
 }
