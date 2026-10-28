@@ -87,16 +87,21 @@ def item_versions(item: str) -> set[str]:
     return found
 
 
+def element_pattern(name: str) -> re.Pattern[str]:
+    """The element, opened and closed or self-closing (the app reads a self-closing one as empty)."""
+    return re.compile(rf"<cmux:{name}\s*/>|<cmux:{name}>\s*([^<]*?)\s*</cmux:{name}>")
+
+
 def element_value(item: str, name: str) -> str | None:
-    match = re.search(rf"<cmux:{name}>\s*([^<]*?)\s*</cmux:{name}>", item)
-    return match.group(1) if match else None
+    match = element_pattern(name).search(item)
+    return None if match is None else (match.group(1) or "")
 
 
 def set_element(item: str, name: str, value: str) -> str:
-    pattern = re.compile(rf"<cmux:{name}>[^<]*</cmux:{name}>")
+    pattern = element_pattern(name)
     element = f"<cmux:{name}>{value}</cmux:{name}>"
     if pattern.search(item):
-        return pattern.sub(element, item, count=1)
+        return pattern.sub(lambda _: element, item, count=1)
     close = item.rindex("</item>")
     indent = re.search(r"\n([ \t]*)</item>$", item)
     child = (indent.group(1) + "    ") if indent else ""
@@ -249,6 +254,7 @@ def load_health() -> Any:
     if spec is None or spec.loader is None:
         raise RolloutError(f"cannot load {path}")
     module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module  # its dataclasses look the module up by name
     spec.loader.exec_module(module)
     return module
 

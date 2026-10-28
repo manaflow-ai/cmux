@@ -48,8 +48,12 @@ nonisolated public struct UpdateProber: Sendable {
     /// picks the newest item first and holds it there (`shouldProceedWithUpdate`), never falling
     /// back to an older one, so the probe does not either.
     func held(_ outcome: UpdateProbeOutcome) -> UpdateProbeOutcome {
-        guard case .updateAvailable(let item) = outcome, let rollout,
-              !rollout.offers(version: item.version, rawPercent: item.rolloutPercent) else { return outcome }
+        let item: AppcastItem
+        switch outcome {
+        case .updateAvailable(let newest), .requiresNewerSystem(let newest, _): item = newest
+        default: return outcome
+        }
+        guard let rollout, !rollout.offers(version: item.version, rawPercent: item.rolloutPercent) else { return outcome }
         return .upToDate(latest: nil)
     }
 
@@ -59,11 +63,7 @@ nonisolated public struct UpdateProber: Sendable {
     public func offered(_ identity: UpdateBuildIdentity, allowedChannels: Set<String>) async throws -> [AppcastItem] {
         let feed = identity.feed(architecture: architecture)
         guard let url = URL(string: feed.url) else { throw AppcastParseError(message: "invalid feed URL \(feed.url)") }
-        // A build this install's stage does not reach is not on the ring for it yet (``RingReturn``).
-        let rollout = rollout
-        return try AppcastParser.parse(try await fetcher.fetch(url)).filter {
-            $0.isOffered(allowing: allowedChannels) && rollout?.offers(version: $0.version, rawPercent: $0.rolloutPercent) != false
-        }
+        return try AppcastParser.parse(try await fetcher.fetch(url)).filter { $0.isOffered(allowing: allowedChannels) }
     }
 
     /// Off the main actor: network and XML parsing. Items whose `sparkle:channel` is not in

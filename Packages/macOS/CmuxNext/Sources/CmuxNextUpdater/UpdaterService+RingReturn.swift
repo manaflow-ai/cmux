@@ -23,7 +23,7 @@ extension UpdaterService {
         // A pulled build keeps its canary pass: the pulled list rules it out as a way back.
         let pulled = Set(await Self.pulled(in: folder).map(\.build))
         let decision = RingReturn.decide(installedBuild: identity.build, offered: offered, promoted: promoted,
-                                         pulled: pulled, kept: kept)
+                                         pulled: pulled, kept: kept, rollout: prober.rollout)
         guard case .goBack(let target) = decision else { return decision }
         let runs = (try? await UpdateDropBack(self).run(to: target.build, checkOnly: true,
                                                         stateDirectories: pulledWatch.stateDirectories())) != nil

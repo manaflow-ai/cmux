@@ -8,6 +8,7 @@ from __future__ import annotations
 import datetime
 import importlib.util
 import io
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -16,6 +17,7 @@ HERE = Path(__file__).resolve().parent
 spec = importlib.util.spec_from_file_location("stage_rollout", HERE / "stage-rollout.py")
 assert spec and spec.loader
 tool = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = tool  # dataclasses look the module up by name
 spec.loader.exec_module(tool)
 
 NOW = datetime.datetime(2026, 11, 2, 12, 0, tzinfo=datetime.timezone.utc)

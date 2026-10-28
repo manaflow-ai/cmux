@@ -26,7 +26,11 @@ nonisolated public enum RingReturn: Equatable, Sendable {
                               pulled: Set<String> = [], kept: [KeptVersion], rollout: StagedRollout? = nil) -> RingReturn {
         let onRing = Set(offered.map(\.version)).union(promoted).subtracting(pulled)
         if onRing.contains(installedBuild) { return .none }
-        if offered.contains(where: { AppcastSelector.isOlder(installedBuild, than: $0.version) }) { return .none }
+        // The way forward is the ring's newest build, as Sparkle picks it; one this install's staged
+        // rollout holds is none (Sparkle never steps back to an older item).
+        if let newest = offered.max(by: { AppcastSelector.isOlder($0.version, than: $1.version) }),
+           AppcastSelector.isOlder(installedBuild, than: newest.version),
+           rollout?.offers(version: newest.version, rawPercent: newest.rolloutPercent) != false { return .none }
         guard let target = kept.first(where: { onRing.contains($0.build) && AppcastSelector.isOlder($0.build, than: installedBuild) })
         else { return .waits }
         return .goBack(target)
