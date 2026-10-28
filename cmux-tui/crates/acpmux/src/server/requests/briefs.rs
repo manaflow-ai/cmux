@@ -126,10 +126,17 @@ pub(super) async fn list(
         return Ok(json!({ "briefs": rows }));
     }
     let mut rows = hub.briefs.list(status, limit);
-    for peer in hub.connected_peers() {
-        let Ok(remote) = peer.request(method::MUX_BRIEFS, json!({"limit": 500})).await else {
-            continue;
-        };
+    // As with the models catalog, every peer shares one deadline. A stalled peer leaves its
+    // cached briefs in place; healthy peers still refresh theirs. Timeout drops each pending
+    // request (ForgetPending), and there are no detached workers or retries to clean up.
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(10);
+    let peers = hub.connected_peers();
+    let replies = futures::future::join_all(peers.iter().map(|peer| {
+        tokio::time::timeout_at(deadline, peer.request(method::MUX_BRIEFS, json!({"limit": 500})))
+    }))
+    .await;
+    for reply in replies {
+        let Ok(Ok(remote)) = reply else { continue };
         for row in remote.get("briefs").and_then(Value::as_array).into_iter().flatten() {
             let Some(id) = row.get("briefId").and_then(Value::as_str) else { continue };
             if let Some(local) = rows
