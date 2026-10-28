@@ -67,9 +67,9 @@ await requireBrowserLane("transcript-continuation-spacing.test.ts", async () => 
     expect(actual.user).toBeCloseTo(16, 1);
     expect(actual.paddings).toEqual([8, 16, 16, 16]);
     await page.evaluate(() => {
-      const shell = document.querySelector<HTMLElement>(".acpmux-shell")!;
-      shell.style.setProperty("--ds-space-2", "10px");
-      shell.style.setProperty("--ds-space-4", "20px");
+      const root = document.documentElement;
+      root.style.setProperty("--ds-space-2", "10px");
+      root.style.setProperty("--ds-space-4", "20px");
     });
     await page.waitForFunction(
       () => getComputedStyle(document.querySelector('[data-row-id="continuation-footer-a"]')!).paddingBottom === "10px",
