@@ -122,6 +122,24 @@ import Testing
         #expect(shown.summaryLines(answer) == ["Pick: B"])
     }
 
+    /// An ACP question's choices are its permission options: "Dry run first" (not the first
+    /// allow) is an answer, not Cancelled as before; Decline (its reject option) stays a decline.
+    @Test(arguments: [("dry_run", "Dry run first"), ("stop", nil)])
+    func anACPQuestionAnswersWithAnyChoiceButItsReject(_ option: String, _ label: String?) throws {
+        let store = AgentChatStore(source: Silent())
+        var question = try #require(try AgentQuestionFixture(name: "acp-interactive").mapped())
+        question.state = .pending
+        store.apply(.batch(Array(Self.turn(0).dropLast()) + [.question(question)]))
+        store.apply(.permissionDecision(permissionId: question.id, optionId: option))
+        let shown = try #require(store.turns.last?.items.compactMap { if case .question(let q) = $0 { q } else { nil } }.first)
+        if let label {
+            guard case .answered(let answer) = shown.state else { Issue.record("not answered: \(shown.state)"); return }
+            #expect(shown.summaryLines(answer).first?.hasSuffix(label) == true)
+        } else {
+            #expect(shown.state == .cancelled)
+        }
+    }
+
     /// A chat with no history: its first live ask is news.
     @Test func firstLiveAskAfterEmptyHistoryIsNews() throws {
         let store = AgentChatStore(source: Silent())

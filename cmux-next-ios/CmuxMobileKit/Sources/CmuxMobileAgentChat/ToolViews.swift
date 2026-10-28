@@ -236,6 +236,8 @@ struct ThoughtRow: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .lineLimit(choice.chosen == true ? nil : 3)
+                    // Wrapped, the tail can be more than three lines: cut its start, never its newest words.
+                    .truncationMode(.head)
                     .padding(.leading, 26)
                     .transition(.opacity)
             }

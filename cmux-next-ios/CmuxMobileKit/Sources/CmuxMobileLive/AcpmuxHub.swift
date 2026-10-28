@@ -695,9 +695,18 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     /// from the last record applied, holding live records until that page is in, so the
     /// records in the gap are applied in order instead of skipped as older than `lastSeq`.
     func refill() {
+        // An attach in flight may have read its page before the Mac dropped records: refill
+        // once it ends.
+        guard !attaching else {
+            refillPending = true
+            return
+        }
         attached = false
         linkUp()
     }
+
+    /// A lag that came while an attach ran (`refill`).
+    private var refillPending = false
 
     func linkUp() {
         guard !attaching, let hub, hub.isReady else { return }
@@ -706,7 +715,13 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     }
 
     private func attach(_ hub: AcpmuxHub) async {
-        defer { attaching = false }
+        defer {
+            attaching = false
+            if refillPending, attached {
+                refillPending = false
+                refill()
+            }
+        }
         do {
             var params: [String: JSONValue] = [
                 "sessionId": .string(sessionID),
@@ -798,6 +813,14 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         } catch {
             endHistory()
             emit(.clientError(Self.message(error)))
+            // A reattach that failed (a lag refill, mostly) keeps the chat live: records held
+            // meanwhile are applied, as before it started; the gap waits for the next attach.
+            if lastSeq > 0 {
+                attached = true
+                let pending = held
+                held = []
+                for record in pending { receive(record: record) }
+            }
         }
     }
 

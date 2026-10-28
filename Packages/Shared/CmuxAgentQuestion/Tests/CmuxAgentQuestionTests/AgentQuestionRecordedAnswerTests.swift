@@ -44,4 +44,17 @@ import Testing
         let question = try #require(try AgentQuestionFixture(name: "pending-single").mapped())
         #expect(question.recordedAnswer(nil, optionId: nil).selections.isEmpty)
     }
+
+    /// A multi-select label that holds ", " (Claude joins choices with ", ") reads back whole.
+    @Test func aLabelWithACommaReadsBackWhole() throws {
+        var question = try #require(try AgentQuestionFixture(name: "pending-multi").mapped())
+        question.state = .pending
+        var item = try #require(question.items.first)
+        try #require(item.multiSelect && item.options.count >= 2)
+        item.options[0].label = "Red, Blue"
+        question.items[0] = item
+        let answer = AgentQuestionAnswer(selections: [item.id: .init(optionIDs: [item.options[0].id, item.options[1].id], other: "teal, too")])
+        let reply = try question.reply(answer)
+        #expect(question.recordedAnswer(reply.answers, optionId: reply.optionId) == answer)
+    }
 }

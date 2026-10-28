@@ -464,8 +464,11 @@ public final class AgentChatStore {
                 // A question resolves through the same decision: its answer option, or a decline.
                 if case .question(var question) = item, question.id == permissionId, question.isPending {
                     // An ACP question's choices are the permission options themselves: any one
-                    // chosen is its answer. Other harnesses answer through `answerOption`.
-                    let answered = optionId != nil && (question.source.harness == .acp || optionId == question.source.answerOption)
+                    // chosen is its answer, but its reject option (Decline) is a decline.
+                    // Other harnesses answer through `answerOption`.
+                    let answered = optionId != nil && (question.source.harness == .acp
+                        ? optionId != question.source.rejectOption
+                        : optionId == question.source.answerOption)
                     question.state = answered ? .answered(question.recordedAnswer(answers, optionId: optionId)) : .cancelled
                     return .question(question)
                 }

@@ -182,11 +182,29 @@ extension AgentQuestion {
         return AgentQuestionAnswer(selections: selections.filter { !$0.value.isEmpty })
     }
 
-    /// Claude's one string for an item: a label as a whole (it may hold ", "), else the
-    /// labels `reply(_:)` joined with ", ", with the Other text last.
+    /// Claude's one string for an item: the labels `reply(_:)` joined with ", ", with the
+    /// Other text last. A label may itself hold ", ", so the longest run of parts that is a
+    /// label wins; parts that make no label are the Other text, joined back.
     static func split(_ value: String, item: Item) -> [String] {
-        if item.options.contains(where: { $0.label == value }) || !item.multiSelect { return [value] }
-        return value.components(separatedBy: ", ")
+        guard item.multiSelect else { return [value] }
+        let labels = Set(item.options.map(\.label))
+        let parts = value.components(separatedBy: ", ")
+        var values: [String] = []
+        var other: [String] = []
+        var index = 0
+        while index < parts.count {
+            let run = (index + 1...parts.count).reversed().first { end in
+                labels.contains(parts[index..<end].joined(separator: ", "))
+            }
+            if let run {
+                values.append(parts[index..<run].joined(separator: ", "))
+                index = run
+            } else {
+                other.append(parts[index])
+                index += 1
+            }
+        }
+        return other.isEmpty ? values : values + [other.joined(separator: ", ")]
     }
 
     static func selection(_ item: Item, values: [String]) -> AgentQuestionAnswer.Selection {
