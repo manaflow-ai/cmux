@@ -4,11 +4,10 @@ import Testing
 
 /// Deterministic RPC outcomes for launch-warm error and sibling-session coverage.
 actor AcpmuxLaunchWarmPeer {
-    enum Reply: Sendable { case success, failed, lost, unsupported }
-    private var replies: [Reply]
+    private var replies: [AcpmuxLaunchWarmPeerReply]
     private(set) var requests: [[String]] = []
 
-    init(_ replies: [Reply]) { self.replies = replies }
+    init(_ replies: [AcpmuxLaunchWarmPeerReply]) { self.replies = replies }
 
     func reply(_ params: [String: any Sendable]) throws -> Bool {
         requests.append(params["sessionIds"] as? [String] ?? [])
