@@ -445,7 +445,7 @@ export function QuickModelMenu({
       </MenuRadioGroup>
       {rows.length === 0 && (
         <MenuItem disabled className="acpmux-quick-item acpmux-quick-note">
-          {query ? t("picker.noMatches") : (shown?.note ?? t("picker.noMatches"))}
+          {query ? t("picker.noMatches") : (shown?.note ?? t("picker.noModels"))}
         </MenuItem>
       )}
       {!query && shown?.note && shown.logIn && (

@@ -204,3 +204,31 @@ test("New Tab keeps Fast mode in the picker instead of adding a composer bolt", 
   expect(fast.getAttribute("role")).toBe("menuitemcheckbox");
   expect(fast.getAttribute("aria-checked")).toBe("false");
 });
+
+test("an empty harness list does not claim an empty search had no matches", async () => {
+  const container = installDom();
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <QuickModelMenu
+        open
+        onOpenChange={() => undefined}
+        trigger={{ current: null }}
+        chip={{ "data-menu": "model", label: "Model", title: "Model" }}
+        onMore={() => undefined}
+        menu={{
+          models: [],
+          current: undefined,
+          onModel: () => undefined,
+          families: { list: [{ id: "claude", name: "Claude Code", models: [], more: [] }], current: "claude", onPick: () => undefined },
+        }}
+      >
+        Model
+      </QuickModelMenu>,
+    );
+  });
+  await settle();
+  const text = document.querySelector(".acpmux-quick-note")?.textContent?.trim();
+  expect(text).toBe("No models yet. Refresh to ask the agent again.");
+  expect(text).not.toBe("No matching models");
+});
