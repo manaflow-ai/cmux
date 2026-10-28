@@ -30,9 +30,11 @@ STRICT MODE (--strict) fails on every difference except the signing time:
     digest and signature algorithms, and signed attributes; only signingTime
     (1.2.840.113549.1.9.5) may differ. The messageDigest and CodeDirectory-hash
     attributes are compared with each side's own CodeDirectory digests named,
-    so they may differ only where the CodeDirectories may. Each side's
-    signature must verify against its own leaf certificate (openssl cms
-    -verify -noverify, over its CodeDirectory); without openssl it fails;
+    so they may differ only where the CodeDirectories may, and each must hold
+    only digests of its own side's CodeDirectories. The signature value may
+    differ only when the signed attributes do. Each side's signature must
+    verify against its own leaf certificate (openssl cms -verify -noverify,
+    over its CodeDirectory), identical ones included; without openssl it fails;
   - the only unsigned attribute allowed is one timestamp token
     (1.2.840.113549.1.9.16.2.14), on both sides or neither; its contents may differ;
   - the same content framed differently (BER versus DER) fails, reported as
@@ -40,7 +42,12 @@ STRICT MODE (--strict) fails on every difference except the signing time:
   - every other signature blob must be byte-identical, except a
     CodeDirectory's CodeResources hash slot, and a CodeResources entry may
     differ only by the hash of a nested item (a Mach-O, a CodeResources) that
-    itself passes strict mode; then those hashes compare as equal.
+    itself passes strict mode; then those hashes compare as equal;
+  - a _CodeSignature directory must sit where a bundle signature goes, hold
+    the same regular files on both sides, and match byte for byte but for
+    CodeResources; missing or malformed inputs fail, never crash.
+An item that differs only by framing, or by hashes of such items, is labelled
+framing only in the report; it still fails.
 The report ends with `strict parity: PASS` or `strict parity: FAIL (<n> differences)`.
 """
 from __future__ import annotations
@@ -433,11 +440,14 @@ def code_resources_diff(a: str, b: str) -> list:
 
 SIGNING_TIME = "1.2.840.113549.1.9.5"
 TIMESTAMP_TOKEN = "1.2.840.113549.1.9.16.2.14"
+MESSAGE_DIGEST = "1.2.840.113549.1.9.4"
 APPLE_CDHASHES_PLIST = "1.2.840.113635.100.9.1"
-RSA_PKCS1 = {"1.2.840.113549.1.1.1", "1.2.840.113549.1.1.5", "1.2.840.113549.1.1.11",
-             "1.2.840.113549.1.1.12", "1.2.840.113549.1.1.13"}  # deterministic signatures
+APPLE_CDHASHES = "1.2.840.113635.100.9.2"
+CD_HASH_ATTRIBUTES = {MESSAGE_DIGEST, APPLE_CDHASHES_PLIST, APPLE_CDHASHES}
+CMS_WRAPPER_MAGIC = 0xFADE0B01
 STRING_TAGS = {3, 4, 12, 19, 20, 22, 23, 24, 26, 30}  # universal string types BER may chunk
 FRAMING = "framing only (the same content in a different BER/DER encoding): "
+FRAMING_CASCADE = FRAMING + "differs only by hashes of nested items whose own differences are framing only"
 
 
 class Node:
@@ -496,7 +506,7 @@ def read_tlv(data: bytes, pos: int = 0, path: str = "", depth: int = 0):
             length = int.from_bytes(raw, "big")
             pos += count
             if raw[:1] == b"\0" or length < 0x80:
-                node.issues.append("non-minimal length")
+                node.issues.append(f"non-minimal length ({length_byte:02x}{raw.hex()})")
         end = pos + length
         if end > len(data):
             raise ValueError("malformed DER: content runs past the end")
@@ -507,7 +517,10 @@ def read_tlv(data: bytes, pos: int = 0, path: str = "", depth: int = 0):
         else:
             node.value = data[pos:end]
     if node.constructed and node.cls == 0 and node.number in STRING_TAGS:
-        node.issues.append("constructed (chunked) string")
+        # Flattened to its value; the exact chunking stays in the issue, so two
+        # different BER encodings of the same string never read as the same.
+        node.issues.append("constructed (chunked) string, chunks " + ",".join(
+            f"{c.number}:{len(c.value)}" + "".join(f"<{i}>" for i in c.issues) for c in node.children))
         node.value = b"".join(c.value for c in node.children)
         node.constructed, node.children = False, []
     return node, end
@@ -620,14 +633,53 @@ def named(value, names: dict):
 
 
 def attribute_value(attr_oid: str, values: Node, names: dict):
-    """An attribute's content with its own CodeDirectories' digests named, so two
-    signatures whose CodeDirectories differ only in allowed ways compare equal."""
+    """An attribute's content for comparison. In the CodeDirectory-hash attributes
+    (messageDigest, Apple's cdhashes) the side's own CodeDirectory digests are
+    named, so two signatures whose CodeDirectories differ only in allowed ways
+    compare equal; every other attribute is compared as it is."""
+    if attr_oid not in CD_HASH_ATTRIBUTES:
+        return der(values)
     if attr_oid == APPLE_CDHASHES_PLIST and values.children:
         try:
             return named(plistlib.loads(values.children[0].value), names)
         except Exception:
             pass
     return named(der(values), names)
+
+
+def cd_hash_attribute_errors(attrs: list, names: dict, count: int) -> list:
+    """Each CodeDirectory-hash attribute must hold digests of this side's own
+    CodeDirectories, one per CodeDirectory, and nothing else."""
+    out = []
+    for attr_oid, values in attrs:
+        if attr_oid == MESSAGE_DIGEST:
+            digests = [v.value for v in values.children]
+        elif attr_oid == APPLE_CDHASHES_PLIST:
+            try:
+                plist = plistlib.loads(values.children[0].value) if len(values.children) == 1 else None
+                digests = list(plist["cdhashes"]) if isinstance(plist, dict) and list(plist) == ["cdhashes"] else None
+            except Exception:
+                digests = None
+            if digests is None or len(digests) != count:
+                out.append(f"{attr_oid}: not a cdhashes property list with one hash per CodeDirectory")
+                continue
+        elif attr_oid == APPLE_CDHASHES:
+            digests = []
+            for v in values.children:
+                if v.number != 16 or len(v.children) != 2 or v.children[1].number != 4:
+                    out.append(f"{attr_oid}: a value is not a (hash algorithm, digest) pair")
+                    break
+                digests.append(v.children[1].value)
+            if len(digests) != count:
+                out.append(f"{attr_oid}: {len(digests)} digests for {count} CodeDirectories")
+        else:
+            continue
+        if attr_oid == MESSAGE_DIGEST and len(digests) != 1:
+            out.append(f"{attr_oid}: {len(digests)} values")
+        for digest in digests:
+            if not isinstance(digest, bytes) or digest not in names:
+                out.append(f"{attr_oid}: a digest that is not of this signature's own CodeDirectories")
+    return out
 
 
 def openssl_verify(cms: bytes, content: bytes):
@@ -650,17 +702,46 @@ def openssl_verify(cms: bytes, content: bytes):
     return None if proc.returncode == 0 else "does not verify: " + (proc.stderr.strip().splitlines() or ["?"])[-1]
 
 
-def strict_cms(ca: bytes, cb: bytes, cds_a: dict, cds_b: dict, labels=("A", "B")) -> list:
-    """Differences between two CMS signatures other than the signing time. cds_*
-    are each side's CodeDirectories by slot: their digests in the signed
-    attributes are compared by name, and slot 0 is the signed content."""
-    if ca == cb:
-        return []
+def cms_side_errors(cms: dict, raw: bytes, cds: dict, label: str) -> list:
+    """What one CMS signature must hold on its own: one signer, only one
+    timestamp token unsigned, CodeDirectory-hash attributes that match its
+    CodeDirectories, and a signature that verifies against its own leaf
+    certificate over its CodeDirectory."""
     out = []
+    names = {k: v for slot, cd in cds.items() for k, v in hash_names(cd, f"CodeDirectory {slot:#x}").items()}
+    if len(cms["signers"]) != 1:
+        out.append(f"CMS ({label}): {len(cms['signers'])} signers")
+    for signer in cms["signers"]:
+        if signer["signed"] is None:
+            out.append(f"CMS ({label}): no signed attributes")
+        unsigned = attributes(signer["unsigned"])
+        if [o for o, _ in unsigned] not in ([], [TIMESTAMP_TOKEN]):
+            out.append(f"CMS ({label}): unsigned attributes other than one timestamp token "
+                       f"({', '.join(o for o, _ in unsigned)})")
+        signed = attributes(signer["signed"])
+        if MESSAGE_DIGEST not in [o for o, _ in signed]:
+            out.append(f"CMS ({label}): no messageDigest")
+        out += [f"CMS ({label}): {e}" for e in cd_hash_attribute_errors(signed, names, len(cds))]
+    reason = openssl_verify(raw, cds.get(0, b""))
+    if reason:
+        out.append(f"CMS ({label}): {reason}")
+    return out
+
+
+def strict_cms(ca: bytes, cb: bytes, cds_a: dict, cds_b: dict, labels=("A", "B")) -> list:
+    """Differences between two CMS signatures other than the signing time, and
+    what either signature lacks on its own (checked even when both are equal).
+    cds_* are each side's CodeDirectories by slot: their digests in the
+    CodeDirectory-hash attributes are compared by name, and slot 0 is the
+    signed content."""
     try:
         pa, pb = parse_cms(ca), parse_cms(cb)
-    except (ValueError, IndexError) as error:
+    except (ValueError, IndexError, AttributeError) as error:
         return [f"CMS: cannot parse ({error})"]
+    out = cms_side_errors(pa, ca, cds_a, labels[0])
+    out += cms_side_errors(pb, cb, cds_b, labels[1]) if cb != ca or cds_b != cds_a else []
+    if ca == cb:
+        return out
     for key in ("version", "digestAlgorithms", "encap"):
         if der(pa[key]) != der(pb[key]):
             out.append(f"CMS: SignedData {key} differs")
@@ -692,23 +773,14 @@ def strict_cms(ca: bytes, cb: bytes, cds_a: dict, cds_b: dict, labels=("A", "B")
                 if attribute_value(attr, va[attr], names_a) != attribute_value(attr, vb[attr], names_b):
                     out.append(f"{where}: signed attribute {attr} differs")
         unsigned_a, unsigned_b = attributes(sa["unsigned"]), attributes(sb["unsigned"])
-        for side, attrs in zip(labels, (unsigned_a, unsigned_b)):
-            extra = [o for o, _ in attrs if o != TIMESTAMP_TOKEN]
-            if extra or len(attrs) > 1:
-                out.append(f"{where}: {side} has unsigned attributes other than one timestamp token "
-                           f"({', '.join(o for o, _ in attrs)})")
         if bool(unsigned_a) != bool(unsigned_b):
             out.append(f"{where}: a timestamp token only in {labels[0] if unsigned_a else labels[1]}")
         for side_skip, attrs in zip(skip, (unsigned_a, unsigned_b)):
             side_skip += [v.path for o, v in attrs if o == TIMESTAMP_TOKEN]
+        # The signature may differ only because what it signs differs.
         same_signed = (sa["signed"] and der(sa["signed"])) == (sb["signed"] and der(sb["signed"]))
-        if same_signed and oid(sa["signatureAlgorithm"].children[0]) in RSA_PKCS1 \
-                and sa["signature"].value != sb["signature"].value:
+        if same_signed and sa["signature"].value != sb["signature"].value:
             out.append(f"{where}: the signature differs although the signed attributes are identical")
-    for side, cms, cds in zip(labels, (ca, cb), (cds_a, cds_b)):
-        reason = openssl_verify(cms, cds.get(0, b""))
-        if reason:
-            out.append(f"CMS ({side}): {reason}")
     fa = framing_issues(pa["root"], skip[0]) + (["trailing bytes after the CMS"] if pa["trailing"] else [])
     fb = framing_issues(pb["root"], skip[1]) + (["trailing bytes after the CMS"] if pb["trailing"] else [])
     for issue in sorted(set(fa) ^ set(fb)):
@@ -733,9 +805,8 @@ def cd_slots(cd: bytes):
 def strict_slice(a: bytes, b: bytes, labels=("A", "B")):
     """(differences, [(slot value A, slot value B)]) between two signings of one slice.
     The second list is the CodeResources hash slots that differ: allowed only when
-    those CodeResources are themselves equal but for signing time."""
-    if a == b:
-        return [], []
+    those CodeResources are themselves equal but for signing time. Identical
+    slices are still parsed and their signatures verified."""
     sa, sb = code_signature_command(a), code_signature_command(b)
     if sa != sb or len(a) != len(b):
         return ["signature reservation (LC_CODE_SIGNATURE offset or size) or slice length differs"], []
@@ -743,6 +814,11 @@ def strict_slice(a: bytes, b: bytes, labels=("A", "B")):
     if list(ba) != list(bb):
         return [f"signature blobs differ ({', '.join(map(hex, ba))} / {', '.join(map(hex, bb))})"], []
     out, slots = [], []
+    for side, blob in zip(labels, (ba.get(0x10000), bb.get(0x10000))):
+        if blob is None or struct.unpack(">I", blob[:4])[0] != CMS_WRAPPER_MAGIC:
+            out.append(f"no CMS signature blob ({side})" if blob is None else f"the CMS blob's magic is not 0xfade0b01 ({side})")
+    if out:
+        return out, slots
     masked_a, masked_b = bytearray(a), bytearray(b)
     for typ in ba:
         name = BLOB.get(typ, hex(typ))
@@ -775,12 +851,69 @@ def strict_slice(a: bytes, b: bytes, labels=("A", "B")):
     return out, slots
 
 
+def is_framing(diffs: list) -> bool:
+    return bool(diffs) and all(d.split("] ", 1)[-1].startswith(FRAMING) for d in diffs)
+
+
+def code_signature_dirs(root: str) -> dict:
+    """{relative path: sorted entries} of every real _CodeSignature directory."""
+    return {os.path.relpath(d, root): sorted(os.listdir(d)) for d, dirs, _ in os.walk(root)
+            if os.path.basename(d) == "_CodeSignature" and not os.path.islink(d)}
+
+
+def signature_dir_errors(a_root: str, b_root: str, labels) -> dict:
+    """The default compare leaves every _CodeSignature directory out of the
+    payload. In strict mode each must sit where a bundle's signature goes
+    (Contents/_CodeSignature or a framework's Versions/X/_CodeSignature), hold
+    regular files only, be on both sides with the same files, and every file
+    but CodeResources must be byte-identical."""
+    out = {}
+    da, db = code_signature_dirs(a_root), code_signature_dirs(b_root)
+    for rel in sorted(set(da) | set(db)):
+        parts = rel.split(os.sep)
+        errors = []
+        if not (len(parts) >= 2 and parts[-2] == "Contents" or len(parts) >= 3 and parts[-3] == "Versions"):
+            errors.append("a _CodeSignature directory where no bundle signature goes")
+        if rel not in da or rel not in db:
+            errors.append(f"only in {labels[0] if rel in da else labels[1]}")
+        elif da[rel] != db[rel]:
+            errors.append(f"different files ({', '.join(da[rel])} / {', '.join(db[rel])})")
+        for side, root, entries in ((labels[0], a_root, da.get(rel, [])), (labels[1], b_root, db.get(rel, []))):
+            for name in entries:
+                path = os.path.join(root, rel, name)
+                if os.path.islink(path) or not os.path.isfile(path):
+                    errors.append(f"{name} ({side}) is not a regular file")
+        for name in sorted(set(da.get(rel, [])) & set(db.get(rel, [])) - {"CodeResources"}):
+            pa, pb = os.path.join(a_root, rel, name), os.path.join(b_root, rel, name)
+            if os.path.isfile(pa) and os.path.isfile(pb):
+                with open(pa, "rb") as fa, open(pb, "rb") as fb:
+                    if fa.read() != fb.read():
+                        errors.append(f"{name} differs")
+        if errors:
+            out[rel] = errors
+    return out
+
+
+def manifest_errors(data: bytes) -> list:
+    try:
+        manifest = json.loads(data)
+    except ValueError:
+        return ["not JSON"]
+    binaries = manifest.get("binaries") if isinstance(manifest, dict) else None
+    if not isinstance(binaries, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in binaries.items()):
+        return ["no binaries map of names to checksums"]
+    return [f"{name}: not a plain file name" for name in binaries
+            if not name or "/" in name or "\\" in name or name in (".", "..")]
+
+
 def strict_compare(a_root, b_root, machos: dict, labels, failures: list) -> tuple:
-    """Strict verdicts: (report lines, number of differences). machos holds the
-    Mach-O files whose payload is equal, as (slices A, slices B, bytes A, bytes B).
-    A Mach-O or CodeResources passes once its only differences are the signing
-    time and hashes of items that passed; that repeats until nothing changes."""
-    known = ({}, {})  # digest -> name, per side, of every item that passed
+    """Strict verdicts: (report lines, number of differences, verdicts). machos
+    holds the Mach-O files whose payload is equal, as (slices A, slices B, bytes
+    A, bytes B). A Mach-O, CodeResources or manifest passes once its only
+    differences are the signing time and hashes of items that passed; that
+    repeats until nothing changes. Then, for the report only, an item whose
+    differences are framing, or hashes of items that differ only by framing,
+    is marked framing only; it still fails."""
     lines, verdicts, pending, raw = [], {}, {}, {}
     for rel, (pa, pb, da, db) in sorted(machos.items()):
         raw[rel] = (da, db)
@@ -792,10 +925,7 @@ def strict_compare(a_root, b_root, machos: dict, labels, failures: list) -> tupl
                 d, s = [f"cannot parse the signature ({error})"], []
             diffs += [f"[{arch}] {m}" for m in d]
             slots += s
-        if diffs:
-            verdicts[rel] = diffs
-        else:
-            pending[rel] = ("macho", slots, (da, db), (pa, pb))
+        pending[rel] = ("macho", diffs, slots, (da, db), (pa, pb))
 
     def resources(root):
         return {os.path.relpath(os.path.join(d, f), root) for d, _, fs in os.walk(root) for f in fs
@@ -808,47 +938,71 @@ def strict_compare(a_root, b_root, machos: dict, labels, failures: list) -> tupl
     for rel in sorted(ra & rb) + sorted(manifests):
         with open(os.path.join(a_root, rel), "rb") as ha, open(os.path.join(b_root, rel), "rb") as hb:
             raw[rel] = (ha.read(), hb.read())
-            pending[rel] = ("resources" if rel in ra else "manifest", [], raw[rel], None)
+        kind = "resources" if rel in ra else "manifest"
+        pre = [f"{e} ({side})" for side, x in zip(labels, raw[rel]) for e in manifest_errors(x)] if kind == "manifest" else []
+        pending[rel] = (kind, pre, [], raw[rel], None)
 
-    def check(rel):
-        kind, slots, (xa, xb), _ = pending[rel]
+    def check(rel, known):
+        kind, pre, slots, (xa, xb), _ = pending[rel]
+        out = list(pre)
         if kind == "macho":
             bad = [s for s in slots if not (known[0].get(s[0]) and known[0].get(s[0]) == known[1].get(s[1]))]
-            return [f"CodeResources hash slot differs, and not only by the signing time ({len(bad)} slots)"] if bad else []
+            if bad:
+                out.append(f"CodeResources hash slot differs, and not only by the signing time ({len(bad)} slots)")
+            return out
         if xa == xb:
-            return []
+            return out
         if kind == "manifest":  # its sha256 checksums of signed Mach-O files, in hex
             na, nb = (named(x, {d.hex().encode(): n.encode() for d, n in k.items() if len(d) == 32})
                       for x, k in ((xa, known[0]), (xb, known[1])))
-            return [] if na == nb else ["differs, and not only by checksums of files that differ only by signing time"]
+            return out + ([] if na == nb else ["differs, and not only by checksums of files that differ only by signing time"])
         try:
             pa, pb = plistlib.loads(xa), plistlib.loads(xb)
         except Exception:
-            return ["not a property list; bytes differ"]
+            return out + ["not a property list; bytes differ"]
         na, nb = named(pa, known[0]), named(pb, known[1])
         if na == nb:
-            return []
-        diffs = code_resources_diff_values(na, nb)
-        return [f"{d} (a hash not explained by a nested item that differs only by signing time)" for d in diffs]
+            return out
+        diffs = code_resources_diff_values(na, nb) or ["the property lists differ"]
+        return out + [f"{d} (a hash not explained by a nested item that differs only by signing time)" for d in diffs]
 
-    changed = True
-    while changed:
-        changed = False
-        for rel in list(pending):
-            diffs = check(rel)
-            verdicts[rel] = diffs
-            if diffs:
-                continue
-            kind, _, (xa, xb), parts = pending.pop(rel)
-            changed = True
-            for side, data, sl in ((0, xa, parts[0] if parts else []), (1, xb, parts[1] if parts else [])):
-                known[side].update(hash_names(data, rel))
-                for arch, body in sl:
-                    for typ, blob in blobs(body).items():
-                        if typ == 0 or 0x1000 <= typ < 0x2000:
-                            known[side].update(hash_names(blob, f"{rel} [{arch}] CodeDirectory {typ:#x}"))
-    count = len(failures)
-    identical = 0
+    def learn(known, rel):
+        _, _, _, (xa, xb), parts = pending[rel]
+        for side, data, sl in ((0, xa, parts[0] if parts else []), (1, xb, parts[1] if parts else [])):
+            known[side].update(hash_names(data, rel))
+            for arch, body in sl:
+                for typ, blob in blobs(body).items():
+                    if typ == 0 or 0x1000 <= typ < 0x2000:
+                        known[side].update(hash_names(blob, f"{rel} [{arch}] CodeDirectory {typ:#x}"))
+
+    def settle(known, accept):
+        """Accepts pending items until none changes; returns the accepted ones."""
+        done, changed = set(), True
+        while changed:
+            changed = False
+            for rel in sorted(set(pending) - done):
+                if accept(check(rel, known)):
+                    done.add(rel)
+                    learn(known, rel)
+                    changed = True
+        return done
+
+    known = ({}, {})  # digest -> name, per side, of every item that passed
+    passed = settle(known, lambda diffs: not diffs)
+    lenient = (dict(known[0]), dict(known[1]))
+    framed = settle(lenient, lambda diffs: not diffs or is_framing(diffs)) - passed
+    for rel in pending:
+        if rel in passed:
+            verdicts[rel] = []
+        elif rel in framed:
+            own = [d for d in check(rel, lenient) if d.split("] ", 1)[-1].startswith(FRAMING)]
+            verdicts[rel] = own + ([FRAMING_CASCADE] if check(rel, known) != own else [])
+        else:
+            verdicts[rel] = check(rel, known)
+    for rel, errors in signature_dir_errors(a_root, b_root, labels).items():
+        verdicts[rel] = verdicts.get(rel, []) + errors
+        raw.setdefault(rel, (None, b""))
+    count, identical, framing_only = len(failures), 0, 0
     for rel in sorted(verdicts):
         if not verdicts[rel]:
             same = raw[rel][0] == raw[rel][1]
@@ -857,16 +1011,33 @@ def strict_compare(a_root, b_root, machos: dict, labels, failures: list) -> tupl
                 lines.append(f"  PASS {rel}: differs only by the signing time")
             continue
         count += len(verdicts[rel])
-        framing = all(d.split("] ", 1)[-1].startswith(FRAMING) for d in verdicts[rel])
+        framing = is_framing(verdicts[rel])
+        framing_only += len(verdicts[rel]) if framing else 0
         lines.append(f"  FAIL {rel}{' (framing only)' if framing else ''}:")
         lines += [f"         {d}" for d in verdicts[rel]]
-    lines.insert(0, f"Strict compare {labels[0]} vs {labels[1]}: {len(verdicts)} signed files, CodeResources and manifests, {identical} byte-identical; "
-                    f"{len(failures)} payload differences")
-    lines.append("strict parity: PASS" if not count else f"strict parity: FAIL ({count} differences)")
+    lines.insert(0, f"Strict compare {labels[0]} vs {labels[1]}: {len(verdicts)} signed files, CodeResources and manifests, "
+                    f"{identical} byte-identical; {len(failures)} payload differences")
+    note = f", {framing_only} of them framing only" if framing_only else ""
+    lines.append("strict parity: PASS" if not count else f"strict parity: FAIL ({count} differences{note})")
     return lines, count, verdicts
 
 
 def main() -> int:
+    args = parse_args()
+    if args.strict:
+        bad = [p for p in (args.a, args.b) if os.path.islink(p) or not os.path.isdir(p)]
+        if bad:
+            print(f"strict parity: FAIL (not a directory: {', '.join(bad)})")
+            return 1
+        try:
+            return compare(args)
+        except Exception as error:  # a malformed input fails strict mode, never crashes it open
+            print(f"strict parity: FAIL (cannot compare: {type(error).__name__}: {error})")
+            return 1
+    return compare(args)
+
+
+def parse_args():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("a")
     parser.add_argument("b")
@@ -877,7 +1048,10 @@ def main() -> int:
                         "except the signing time (see STRICT MODE above)")
     parser.add_argument("--input", help="the unsigned app both were signed from: bytes past a new signature "
                         "superblob are accepted only when they are this input's bytes at the same offset")
-    args = parser.parse_args()
+    return parser.parse_args()
+
+
+def compare(args) -> int:
     la, lb = args.labels.split(",", 1)
     ta, tb = walk(args.a), walk(args.b)
     failures, records, signatures, resources, machos = [], [], {}, {}, {}

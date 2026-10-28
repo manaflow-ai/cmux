@@ -385,13 +385,15 @@ class Signer:
         tbs = spc.read_tlv(self.cert)[0].children[0].children
         self.issuer_serial = seq(spc.der(tbs[3]), spc.der(tbs[1]))
 
-    def cms(self, cd: bytes, *, time: str = "261028120000Z", extra_signed: bytes = b"", unsigned=None) -> bytes:
+    def cms(self, cd: bytes, *, time: str = "261028120000Z", extra_signed=b"", unsigned=None,
+            cdhash: bytes | None = None) -> bytes:
         """A detached CMS SignedData over a CodeDirectory, as a code signature carries it."""
         signed = [attribute("1.2.840.113549.1.9.3", der_oid("1.2.840.113549.1.7.1")),
                   attribute(spc.SIGNING_TIME, tlv(0x17, time.encode())),
                   attribute("1.2.840.113549.1.9.4", tlv(0x04, hashlib.sha256(cd).digest())),
                   attribute(spc.APPLE_CDHASHES_PLIST,
-                            tlv(0x04, plistlib.dumps({"cdhashes": [hashlib.sha256(cd).digest()[:20]]})))]
+                            tlv(0x04, plistlib.dumps({"cdhashes": [cdhash or hashlib.sha256(cd).digest()[:20]]})))]
+        extra_signed = extra_signed(cd) if callable(extra_signed) else extra_signed
         signed += [extra_signed] if extra_signed else []
         attrs = der_set(*signed)
         signature = subprocess.run(["openssl", "dgst", "-sha256", "-sign", str(self.key)], input=attrs,
@@ -433,7 +435,7 @@ class DerReaderTests(unittest.TestCase):
         self.assertIn("SEQUENCE: indefinite length", issues)
         self.assertTrue(any("constructed (chunked) string" in i for i in issues), issues)
         long_form = b"\x04\x81\x03abc"  # a long-form length for a short string
-        self.assertEqual(spc.read_tlv(long_form)[0].issues, ["non-minimal length"])
+        self.assertEqual(spc.read_tlv(long_form)[0].issues, ["non-minimal length (8103)"])
         unsorted = b"\x31\x06" + tlv(0x02, b"\x09") + tlv(0x02, b"\x01")
         self.assertIn("SET: SET OF elements not in DER order", spc.framing_issues(spc.read_tlv(unsorted)[0]))
 
@@ -443,8 +445,8 @@ class DerReaderTests(unittest.TestCase):
                 spc.read_tlv(bad)
 
 
-@unittest.skipUnless(shutil.which("openssl"), "openssl makes the test signatures")
-class StrictModeTests(unittest.TestCase):
+class StrictFixture(unittest.TestCase):
+    """Signed apps for the strict tests: a throwaway key, and apps built with it."""
     @classmethod
     def setUpClass(cls):
         cls.keys = tempfile.TemporaryDirectory()
@@ -479,6 +481,12 @@ class StrictModeTests(unittest.TestCase):
                               capture_output=True, text=True, env=env)
         return proc, json.loads(out.read_text())
 
+    def signer_cms_of(self, body: bytes) -> bytes:
+        return spc.blobs(body)[0x10000][8:]
+
+
+@unittest.skipUnless(shutil.which("openssl"), "openssl makes the test signatures")
+class StrictModeTests(StrictFixture):
     def test_signing_time_and_timestamp_only_pass(self):
         a, b = self.app("a"), self.app("b", time="261028130500Z")
         proc, result = self.strict(a, b)
@@ -526,9 +534,6 @@ class StrictModeTests(unittest.TestCase):
         self.assertIn("FAIL Contents/MacOS/Demo", proc.stdout)
         self.assertIn("framing only", proc.stdout)
 
-    def signer_cms_of(self, body: bytes) -> bytes:
-        return spc.blobs(body)[0x10000][8:]
-
     def test_a_signature_that_does_not_verify_fails(self):
         a, b = self.app("a"), self.app("b")
         exe = b / "Contents/MacOS/Demo"
@@ -562,6 +567,139 @@ class StrictModeTests(unittest.TestCase):
         proc, _ = self.strict(a, b)
         self.assertEqual(proc.returncode, 1)
         self.assertIn("CodeDirectory: pageSize differ", proc.stdout)
+
+
+
+@unittest.skipUnless(shutil.which("openssl"), "openssl makes the test signatures")
+class StrictReviewFindingTests(StrictFixture):
+    """Each way the first strict review found to pass two apps that differ, or to crash."""
+
+    def test_identical_signatures_are_still_verified(self):
+        a = self.app("a")
+        exe = a / "Contents/MacOS/Demo"
+        body = exe.read_bytes()
+        signature = spc.parse_cms(self.signer_cms_of(body))["signers"][0]["signature"].value
+        exe.write_bytes(body.replace(signature, signature[:-1] + bytes([signature[-1] ^ 1])))
+        b = self.root / "b"
+        shutil.copytree(a.parent, b, symlinks=True)
+        proc, _ = self.strict(a, b / a.name)
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("CMS (A): does not verify", proc.stdout)
+        empty = self.root / "empty-path"
+        empty.mkdir()
+        good = self.app("good")
+        proc, _ = self.strict(good, good, env={"PATH": str(empty)})
+        self.assertIn("openssl is not available", proc.stdout)
+
+    def test_the_cms_wrapper_magic_is_checked(self):
+        a, b = self.app("a"), self.app("b")
+        exe = b / "Contents/MacOS/Demo"
+        body = exe.read_bytes()
+        exe.write_bytes(body.replace(struct.pack(">I", 0xFADE0B01), struct.pack(">I", 0xFADE0B02)))
+        proc, _ = self.strict(a, b)
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("magic is not 0xfade0b01 (B)", proc.stdout)
+
+    def test_a_differing_signature_over_identical_attributes_fails(self):
+        self.assertEqual(spc.strict_cms(b"x", b"x", {}, {})[0][:4], "CMS:")
+        a, b = self.app("a"), self.app("b")
+        exe = b / "Contents/MacOS/Demo"
+        body = exe.read_bytes()
+        signature = spc.parse_cms(self.signer_cms_of(body))["signers"][0]["signature"].value
+        exe.write_bytes(body.replace(signature, bytes(len(signature))))
+        proc, _ = self.strict(a, b)
+        self.assertIn("the signature differs although the signed attributes are identical", proc.stdout)
+
+    def test_digests_are_named_only_in_the_code_directory_hash_attributes(self):
+        own_digest = lambda cd: attribute("1.2.840.113549.1.9.15", tlv(0x04, hashlib.sha256(cd).digest()))
+        a = make_app(self.root / "a", tool=macho(b"T" * 32, lambda cd: self.signer.cms(cd, extra_signed=own_digest), 12))
+        b = make_app(self.root / "b", tool=macho(b"T" * 32, lambda cd: self.signer.cms(cd, extra_signed=own_digest), 14))
+        proc, _ = self.strict(a, b)
+        self.assertIn("signed attribute 1.2.840.113549.1.9.15 differs", proc.stdout)
+
+    def test_cdhashes_must_be_this_signatures_own(self):
+        wrong = bytes(20)
+        a = make_app(self.root / "a", tool=macho(b"T" * 32, lambda cd: self.signer.cms(cd, cdhash=wrong)))
+        proc, _ = self.strict(a, a)
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("a digest that is not of this signature's own CodeDirectories", proc.stdout)
+
+    def test_a_missing_and_an_empty_code_resources_section_differ(self):
+        tool = lambda: macho(b"T" * 32, lambda cd: self.signer.cms(cd))
+        a = make_app(self.root / "a", tool=tool(), resources={"files": {}})
+        b = make_app(self.root / "b", tool=tool(), resources={"files": {}, "files2": {}})
+        proc, _ = self.strict(a, b)
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("the property lists differ", proc.stdout)
+
+    def test_different_chunkings_of_one_string_are_different_framing(self):
+        one = b"\x24\x80" + tlv(0x04, b"abc") + tlv(0x04, b"def") + b"\0\0"
+        two = b"\x24\x80" + tlv(0x04, b"ab") + tlv(0x04, b"cdef") + b"\0\0"
+        na, nb = spc.read_tlv(one)[0], spc.read_tlv(two)[0]
+        self.assertEqual(spc.der(na), spc.der(nb))
+        self.assertNotEqual(spc.framing_issues(na), spc.framing_issues(nb))
+
+    def test_a_malformed_code_directory_fails_without_a_crash(self):
+        good = bytearray(macho(b"T" * 32, b"c"))
+        sig_at = struct.unpack("<I", bytes(good[32 + 72 + 8:32 + 72 + 12]))[0]
+        cd_at = sig_at + struct.unpack(">I", bytes(good[sig_at + 16:sig_at + 20]))[0]
+        good[cd_at + 4:cd_at + 8] = struct.pack(">I", 8)  # a CodeDirectory of its header only
+        a = make_app(self.root / "a", tool=bytes(good))
+        b = make_app(self.root / "b", tool=macho(b"T" * 32, b"d"))
+        proc, _ = self.strict(a, b)
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("strict parity: FAIL", proc.stdout)
+        self.assertNotIn("Traceback", proc.stdout + proc.stderr)
+
+    def test_a_manifest_naming_a_path_fails(self):
+        a, b = self.app("a"), self.app("b")
+        for app in (a, b):
+            manifest = app / "Contents/Resources/bin/cmux-tui-ssh/manifest.json"
+            data = json.loads(manifest.read_text())
+            data["binaries"]["../../../MacOS/Demo"] = "0" * 64
+            manifest.write_text(json.dumps(data))
+        proc, _ = self.strict(a, b)
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("../../../MacOS/Demo: not a plain file name", proc.stdout)
+
+    def test_a_code_signature_directory_outside_a_bundle_signature_fails(self):
+        a, b = self.app("a"), self.app("b")
+        for app, text in ((a, "one"), (b, "two")):
+            (app / "Contents/Resources/x/_CodeSignature").mkdir(parents=True)
+            (app / "Contents/Resources/x/_CodeSignature/data").write_text(text)
+        proc, _ = self.strict(a, b)
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("where no bundle signature goes", proc.stdout)
+        self.assertIn("data differs", proc.stdout)
+
+    def test_missing_roots_fail(self):
+        proc = subprocess.run([sys.executable, "-I", str(SCRIPT), str(self.root / "nope-a"), str(self.root / "nope-b"),
+                               str(self.root / "out.json"), "--strict"], capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("strict parity: FAIL (not a directory", proc.stdout)
+
+    def test_hashes_of_framing_only_items_are_reported_as_framing(self):
+        a, b = self.app("a"), self.app("b", time="261028130500Z")
+        nested = b / NESTED
+        body = nested.read_bytes()
+        cms = self.signer_cms_of(body)
+        nested.write_bytes(body.replace(cms, indefinite(cms)))
+        b_tool = lambda sealed: macho(b"TEXT" * 8, lambda cd: self.signer.cms(cd, time="261028130500Z"),
+                                      resources_hash=hashlib.sha256(sealed).digest(), reserve=4096)
+        resources = plistlib.loads((b / "Contents/_CodeSignature/CodeResources").read_bytes())
+        resources["files2"]["Resources/bin/cmux-tui-ssh/cmux-tui-darwin-arm64"]["hash2"] = hashlib.sha256(nested.read_bytes()).digest()
+        sealed = plistlib.dumps(resources)
+        (b / "Contents/_CodeSignature/CodeResources").write_bytes(sealed)
+        (b / "Contents/MacOS/Demo").write_bytes(b_tool(sealed))
+        manifest = b / "Contents/Resources/bin/cmux-tui-ssh/manifest.json"
+        data = json.loads(manifest.read_text())
+        data["binaries"]["cmux-tui-darwin-arm64"] = hashlib.sha256(nested.read_bytes()).hexdigest()
+        manifest.write_text(json.dumps(data))
+        proc, _ = self.strict(a, b)
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("FAIL Contents/_CodeSignature/CodeResources (framing only)", proc.stdout)
+        self.assertIn("FAIL Contents/MacOS/Demo (framing only)", proc.stdout)
+        self.assertRegex(proc.stdout, r"strict parity: FAIL \((\d+) differences, \1 of them framing only\)")
 
 
 if __name__ == "__main__":
