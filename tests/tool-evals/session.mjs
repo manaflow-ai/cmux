@@ -40,47 +40,61 @@ export async function openSession({ cli, name, dir, allTools, setup = [], noApp 
   const daemon = spawn(cli, ["daemon", "start", "--session", name, "--socket", socket, "--ephemeral", "--headless"], {
     env, cwd: work, stdio: ["ignore", "ignore", "ignore"], detached: true,
   });
-  let ready = false;
-  for (let i = 0; i < 75 && !ready; i++) {
-    try { await cmux(["workspace", "list"]); ready = true; } catch { await sleep(200); }
-  }
-  if (!ready) throw new Error(`daemon ${name} did not start`);
-  const home = await cmux(["workspace", "create", "--name", "home", "--cwd", work]);
-  const origin = { workspace_id: home.workspace_id, screen_id: home.screen_id, pane_id: home.pane_id, tab_id: home.tab_id, terminal_id: home.terminal_id };
-  const aliases = await runSetup(cmux, setup, origin, work);
-  await cmux(["workspace", origin.workspace_id, "focus"]);
-  await cmux(["pane", origin.pane_id, "focus"]);
-
-  const app = noApp ? null : await standInApp(env.CMUX_SOCKET_PATH, cmux, origin);
-
-  // The agent runs in the origin terminal, so `current` is its workspace and pane.
-  // A terminal reaches its session through CMUX_TUI_SOCKET, not --session (which turns
-  // `current` into the focused object).
-  const agentEnv = { ...env, CMUX_TUI_SOCKET: socket, CMUX_TUI_TERMINAL_ID: origin.terminal_id };
-  const mcp = new McpClient(cli, ["mcp", "serve", ...(allTools ? ["--all-tools"] : [])], agentEnv, work);
-  const init = await mcp.request("initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "cmux-tool-evals", version: "1" } });
-  mcp.notify("notifications/initialized");
-  const { tools } = await mcp.request("tools/list", {});
-
-  /** Runs one agent shell command whose first word is `cmux`, against this session. */
-  const shell = async (argv) => {
-    try {
-      const { stdout, stderr } = await pexec(cli, argv, { env: agentEnv, cwd: work, maxBuffer: 16 << 20, timeout: 60_000 });
-      return { ok: true, output: `${stdout}${stderr}` };
-    } catch (e) {
-      return { ok: false, output: `${e.stdout ?? ""}${e.stderr ?? ""}`.trim() || String(e.message) };
-    }
-  };
-
-  const close = async () => {
-    mcp.close();
-    app?.close();
+  // Stops this sample's daemon and its terminals. A failed open stops it too: an open that
+  // threw after the spawn left the daemon running (1,115 daemons after one overloaded panel).
+  const stopDaemon = async () => {
     await pexec(cli, ["daemon", "stop", "--socket", socket, "--end-terminals", "--force"], { env }).catch(() => {});
     try { process.kill(-daemon.pid, "SIGTERM"); } catch {}
     for (const f of readdirSync("/tmp/cte")) if (f.startsWith(`${name}.sock`)) rmSync(join("/tmp/cte", f), { force: true });
     rmSync(work, { recursive: true, force: true });
   };
-  return { name, env: agentEnv, socket, cmux, mcp, tools, instructions: init.instructions ?? "", origin, aliases, shell, work, close };
+  let mcp = null;
+  let app = null;
+  try {
+    let ready = false;
+    for (let i = 0; i < 75 && !ready; i++) {
+      try { await cmux(["workspace", "list"]); ready = true; } catch { await sleep(200); }
+    }
+    if (!ready) throw new Error(`daemon ${name} did not start`);
+    const home = await cmux(["workspace", "create", "--name", "home", "--cwd", work]);
+    const origin = { workspace_id: home.workspace_id, screen_id: home.screen_id, pane_id: home.pane_id, tab_id: home.tab_id, terminal_id: home.terminal_id };
+    const aliases = await runSetup(cmux, setup, origin, work);
+    await cmux(["workspace", origin.workspace_id, "focus"]);
+    await cmux(["pane", origin.pane_id, "focus"]);
+
+    app = noApp ? null : await standInApp(env.CMUX_SOCKET_PATH, cmux, origin);
+
+    // The agent runs in the origin terminal, so `current` is its workspace and pane.
+    // A terminal reaches its session through CMUX_TUI_SOCKET, not --session (which turns
+    // `current` into the focused object).
+    const agentEnv = { ...env, CMUX_TUI_SOCKET: socket, CMUX_TUI_TERMINAL_ID: origin.terminal_id };
+    mcp = new McpClient(cli, ["mcp", "serve", ...(allTools ? ["--all-tools"] : [])], agentEnv, work);
+    const init = await mcp.request("initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "cmux-tool-evals", version: "1" } });
+    mcp.notify("notifications/initialized");
+    const { tools } = await mcp.request("tools/list", {});
+
+    /** Runs one agent shell command whose first word is `cmux`, against this session. */
+    const shell = async (argv) => {
+      try {
+        const { stdout, stderr } = await pexec(cli, argv, { env: agentEnv, cwd: work, maxBuffer: 16 << 20, timeout: 60_000 });
+        return { ok: true, output: `${stdout}${stderr}` };
+      } catch (e) {
+        return { ok: false, output: `${e.stdout ?? ""}${e.stderr ?? ""}`.trim() || String(e.message) };
+      }
+    };
+
+    const close = async () => {
+      mcp.close();
+      app?.close();
+      await stopDaemon();
+    };
+    return { name, env: agentEnv, socket, cmux, mcp, tools, instructions: init.instructions ?? "", origin, aliases, shell, work, close };
+  } catch (error) {
+    mcp?.close();
+    app?.close();
+    await stopDaemon();
+    throw error;
+  }
 }
 
 async function runSetup(cmux, setup, origin, work) {

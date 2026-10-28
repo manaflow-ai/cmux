@@ -99,7 +99,7 @@ const GENERIC_TOOLS = [
 ];
 const GENERIC_NAMES = { bash: "Bash", read: "Read", write: "Write", edit: "Edit" };
 /** The runner's tool name for a generic harness tool name. */
-const internalName = (name) => GENERIC_NAMES[name] ?? (name.startsWith("cmux_") ? PREFIX + name.slice(5) : name);
+const internalName = (name) => (Object.hasOwn(GENERIC_NAMES, name) ? GENERIC_NAMES[name] : name.startsWith("cmux_") ? PREFIX + name.slice(5) : name);
 
 function buildGenericBase(surface, session) {
   const { tools, instructions } = surface === "cli" ? { tools: [], instructions: "" } : overlaid(session.tools, session.instructions);
@@ -243,6 +243,7 @@ let jobSeq = 0;
 
 // ---------- OpenRouter (OpenAI chat format) ----------
 const OPENROUTER_KEY = process.env.OPENROUTER_API_KEY ?? "";
+if (OPENROUTER && !OPENROUTER_KEY) throw new Error("openrouter models need OPENROUTER_API_KEY (~/.secrets/openrouter.env, or 1Password Employee/OpenRouter API Key)");
 
 /** The runner's Messages-shaped request as an OpenAI chat request. */
 function toChat(body) {
@@ -282,7 +283,9 @@ async function callOpenRouter(body) {
     const text = res ? await res.text() : "";
     let data = null;
     try { data = JSON.parse(text); } catch {}
-    const retry = !res || res.status === 429 || res.status >= 500 || (data && !data.choices && attempt < 6);
+    // A dropped connection, rate limit, server error, or a 200 with no choice (an upstream
+    // provider failed) is tried again; any other 4xx is final.
+    const retry = !res || res.status === 429 || res.status >= 500 || (res.ok && !data?.choices?.length);
     if (res?.ok && data?.choices?.length) {
       const choice = data.choices[0];
       const msg = choice.message ?? {};
