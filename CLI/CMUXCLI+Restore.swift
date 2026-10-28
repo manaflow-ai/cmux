@@ -284,7 +284,9 @@ extension CMUXCLI {
         workspaceID: String?,
         client: SocketClient
     ) throws {
-        _ = try? applyRestoreWorkingDirectory(requestedRestoreWorkingDirectory(for: record))
+        // A missing directory can hide a valid transcript on an unmounted volume.
+        // Preserve its binding until the directory can be entered and retried.
+        _ = try applyRestoreWorkingDirectory(requestedRestoreWorkingDirectory(for: record))
         let bindingCheckpointID = normalizedHookValue(
             (bindingPayload?["checkpoint_id"] as? String)
                 ?? (bindingPayload?["checkpointId"] as? String)

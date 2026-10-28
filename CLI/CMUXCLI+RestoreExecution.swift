@@ -105,13 +105,10 @@ extension CMUXCLI {
 
     func execLegacyRestoreRecord(
         _ command: String,
-        record: RestoreRecord,
+        appliedWorkingDirectory: String?,
         environment: [String: String],
         client: SocketClient
     ) throws {
-        let appliedWorkingDirectory = try applyRestoreWorkingDirectory(
-            requestedRestoreWorkingDirectory(for: record)
-        )
         var legacyEnvironment = environment
         if let appliedWorkingDirectory {
             legacyEnvironment["PWD"] = appliedWorkingDirectory
