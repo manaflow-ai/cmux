@@ -179,10 +179,12 @@ impl Controller {
             inner.node = Some(node.clone());
         }
         let this = Arc::clone(self);
+        let watch_node = node.clone();
         if let Err(error) = std::thread::Builder::new()
             .name("acpmux-tailnet-watch".into())
-            .spawn(move || this.watch(node, generation))
+            .spawn(move || this.watch(watch_node, generation))
         {
+            release_node(node);
             self.clear_node("error");
             self.update(|snapshot| snapshot.error = Some(error.to_string()));
             return Err(error.to_string());
@@ -210,12 +212,17 @@ impl Controller {
         }
         let node = self.node();
         if let Some(node) = node {
-            tokio::task::spawn_blocking(move || {
+            let result = tokio::task::spawn_blocking(move || {
                 node.logout().map_err(|e| e.0)?;
                 node.close().map_err(|e| e.0)
             })
             .await
-            .map_err(|error| error.to_string())??;
+            .map_err(|error| error.to_string())?;
+            if let Err(error) = result {
+                self.clear_node("error");
+                self.update(|snapshot| snapshot.error = Some(error.clone()));
+                return Err(error);
+            }
         }
         self.clear_node("stopped");
         Ok(self.snapshot())
@@ -229,9 +236,14 @@ impl Controller {
             inner.generation = inner.generation.wrapping_add(1);
         }
         if let Some(node) = self.node() {
-            tokio::task::spawn_blocking(move || node.close().map_err(|e| e.0))
+            let result = tokio::task::spawn_blocking(move || node.close().map_err(|e| e.0))
                 .await
-                .map_err(|error| error.to_string())??;
+                .map_err(|error| error.to_string())?;
+            if let Err(error) = result {
+                self.clear_node("error");
+                self.update(|snapshot| snapshot.error = Some(error.clone()));
+                return Err(error);
+            }
         }
         self.clear_node("stopped");
         Ok(())
@@ -242,9 +254,9 @@ impl Controller {
         match result {
             Ok(watch) => {
                 for notify in watch {
-                    self.update_if_current(generation, |snapshot| {
-                        snapshot.apply_notify(&notify, Some(&node))
-                    });
+                    let mut snapshot = self.snapshot();
+                    snapshot.apply_notify(&notify, Some(&node));
+                    self.publish_if_current(generation, snapshot);
                 }
                 self.clear_if_same(&node, generation, "stopped");
             }
@@ -260,13 +272,17 @@ impl Controller {
 
     fn clear_node(&self, state: &'static str) {
         let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
-        inner.node = None;
+        let node = inner.node.take();
         inner.starting = false;
         inner.snapshot.state = state;
         inner.snapshot.browse_to_url = None;
         inner.snapshot.dns_name = None;
         inner.snapshot.ips.clear();
         self.publish_locked(&inner.snapshot);
+        drop(inner);
+        if let Some(node) = node {
+            release_node(node);
+        }
     }
 
     fn clear_if_same(&self, node: &Arc<Node>, generation: u64, state: &'static str) {
@@ -295,9 +311,25 @@ impl Controller {
         self.publish_locked(&inner.snapshot);
     }
 
+    fn publish_if_current(&self, generation: u64, snapshot: Snapshot) {
+        let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
+        if inner.generation != generation {
+            return;
+        }
+        inner.snapshot = snapshot;
+        self.publish_locked(&inner.snapshot);
+    }
+
     fn publish_locked(&self, snapshot: &Snapshot) {
         let _ = self.changes.send(snapshot.clone());
     }
+}
+
+/// libtailscale owns a background runtime. Never let its final `Arc<Node>`
+/// drop on a Tokio worker or request task.
+fn release_node(node: Arc<Node>) {
+    let _ =
+        std::thread::Builder::new().name("acpmux-tailnet-release".into()).spawn(move || drop(node));
 }
 
 pub fn state_dir(home: &Path) -> PathBuf {
