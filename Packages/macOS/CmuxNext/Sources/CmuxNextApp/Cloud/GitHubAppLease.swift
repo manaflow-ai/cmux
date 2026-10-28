@@ -15,9 +15,11 @@ import os
 /// back. It goes over a connection whose daemon was checked first (``AcpmuxPersonLine``), again
 /// before it expires, and every few minutes so a restarted daemon has it soon.
 ///
-/// Lends and clears go one at a time, in order (`tail`), and each carries the `seq` of its
-/// account change, which only grows: the daemon refuses an older one, so a lend that arrives
-/// after the sign-out that outdated it never restores the sign-in. On a switch of user or team
+/// Lends and clears of one account change go one at a time, in order (`tail`), and each carries
+/// the `seq` of its account change, which only grows: the daemon refuses an older one, so a lend
+/// that arrives after the sign-out that outdated it never restores the sign-in. A later change
+/// waits for none of an earlier one's (a token fetch can hang): its newer `seq` already
+/// outranks whatever the earlier one still sends, which never retries past it. On a switch of user or team
 /// the earlier sign-in is cleared before the new one is fetched, so a failure leaves none.
 @MainActor final class GitHubAppLease {
     /// One `_acpmux/github_app_lease` call; the daemon's reply, nil if none.
@@ -37,6 +39,11 @@ import os
     private var failures = 0
     /// The last lend or clear queued; the next waits for it.
     private var tail: Task<Void, Never>?
+    /// The account change (`generation`) `tail` is for.
+    private var tailGeneration = -1
+    /// Every lend and clear not done yet, by when it was queued; each removes itself (``settled()``).
+    private var running: [Int: Task<Void, Never>] = [:]
+    private var queued = 0
 
     /// Lend again this long before the token's `exp`.
     nonisolated static let renewMargin: TimeInterval = 90
@@ -128,18 +135,18 @@ import os
 
     /// Every lend and clear queued so far has run (for tests).
     func settled() async {
-        await tail?.value
+        while let task = running.values.first { await task.value }
     }
 
     private func clear(_ generation: Int) {
-        enqueue { [weak self] in await self?.clearNow(generation) }
+        enqueue(generation) { [weak self] in await self?.clearNow(generation) }
     }
 
     /// One clear; if the daemon did not take it, again after the next retry delay, until it
     /// does or the account changes again.
     private func clearNow(_ generation: Int) async {
         guard generation == self.generation else { return }
-        if await take(["seq": seq, "clear": true]) {
+        if await take(["seq": seq, "clear": true], generation) {
             failures = 0
             return
         }
@@ -152,11 +159,13 @@ import os
     /// Sends `params` (with the current `seq`); whether the daemon took it. One it refused as
     /// older than what it holds (a daemon that outlived an app run whose clock was ahead) moves
     /// `seq` past the daemon's and goes once more.
-    private func take(_ params: [String: Any]) async -> Bool {
+    private func take(_ params: [String: Any], _ generation: Int) async -> Bool {
         var params = params
         for _ in 0..<2 {
             guard let reply = await call(params) else { return false }
             guard reply["stale"] as? Bool == true else { return true }
+            // An earlier account change's call never goes again past a later one's.
+            guard generation == self.generation else { return false }
             let held = (reply["seq"] as? NSNumber)?.uint64Value ?? seq
             seq = max(seq, held) + 1
             params["seq"] = seq
@@ -165,13 +174,19 @@ import os
     }
 
     /// Runs `operation` after every one queued before it.
-    private func enqueue(_ operation: @escaping @MainActor () async -> Void) {
-        let previous = tail
+    private func enqueue(_ generation: Int, _ operation: @escaping @MainActor () async -> Void) {
+        let previous = generation == tailGeneration ? tail : nil
+        tailGeneration = generation
+        queued += 1
+        let id = queued
         // task-owner: one lend or clear, after the one before it; ends with its reply or deadline
-        tail = Task { @MainActor in
+        let task = Task { @MainActor [weak self] in
             await previous?.value
             await operation()
+            self?.running[id] = nil
         }
+        tail = task
+        running[id] = task
     }
 
     func stop() {
@@ -180,7 +195,7 @@ import os
     }
 
     private func lend(_ generation: Int) {
-        enqueue { [weak self] in await self?.lendNow(generation) }
+        enqueue(generation) { [weak self] in await self?.lendNow(generation) }
     }
 
     private func lendNow(_ generation: Int) async {
@@ -190,7 +205,7 @@ import os
             guard let origin, let team, let user else { throw Failure.noTeam }
             // The sign-in before this change goes first: if what follows fails, none is in use.
             if !fenced {
-                guard await take(["seq": seq, "clear": true]) else { throw Failure.noDaemon }
+                guard await take(["seq": seq, "clear": true], generation) else { throw Failure.noDaemon }
                 guard generation == self.generation else { return }
                 fenced = true
                 seq += 1
@@ -205,7 +220,7 @@ import os
             let params: [String: Any] = [
                 "seq": seq, "origin": origin, "bearer": token, "team": team, "expiresAtMs": expiresAtMs,
             ]
-            guard await take(params) else { throw Failure.noDaemon }
+            guard await take(params, generation) else { throw Failure.noDaemon }
             failures = 0
             let remaining = TimeInterval(expiresAtMs) / 1000 - Date().timeIntervalSince1970
             wait = .seconds(max(10, min(Self.resend, remaining - Self.renewMargin)))

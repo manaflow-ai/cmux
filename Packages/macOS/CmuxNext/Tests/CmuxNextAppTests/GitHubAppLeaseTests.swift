@@ -35,8 +35,11 @@ import Testing
     @MainActor final class Daemon {
         var calls: [[String: Any]] = []
         var replies: [[String: Any]] = []
+        /// Told of each call: whether it was a clear.
+        var onCall: ((Bool) -> Void)?
         func call(_ params: [String: Any]) -> [String: Any]? {
             calls.append(params)
+            onCall?(params["clear"] as? Bool == true)
             return replies.isEmpty ? ["lent": params["clear"] == nil] : replies.removeFirst()
         }
         func seq(_ i: Int) -> UInt64? { (calls[i]["seq"] as? UInt64) }
@@ -120,5 +123,33 @@ import Testing
         #expect(daemon.calls.count == lent + 1)
         #expect(daemon.calls.last?["clear"] as? Bool == true)
         #expect((daemon.seq(lent) ?? 0) > (daemon.seq(lent - 1) ?? .max), "newer than the lend")
+    }
+
+    /// Review of the lender at d506d1f: a sign-out's clear queued behind a renewal whose token
+    /// fetch hung, so the daemon kept the sign-in (and could mint with it) while it did.
+    @MainActor @Test(.timeLimit(.minutes(1))) func aSignOutsClearNeverWaitsForATokenFetch() async {
+        let daemon = Daemon()
+        let (calls, called) = AsyncStream.makeStream(of: Bool.self)
+        daemon.onCall = { called.yield($0) }
+        let (fetches, fetching) = AsyncStream.makeStream(of: Void.self)
+        let (gate, open) = AsyncStream.makeStream(of: Void.self)
+        let token = jwt(user: "user_a", team: "team_1")
+        let lease = GitHubAppLease(origin: "https://cloud-api.cmux.dev", call: { daemon.call($0) }, tokens: { _ in
+            fetching.yield()
+            var wait = gate.makeAsyncIterator()
+            _ = await wait.next()
+            return token
+        })
+        var call = calls.makeAsyncIterator()
+        var fetch = fetches.makeAsyncIterator()
+        lease.accountChanged(user: "user_a", team: "team_1")
+        #expect(await call.next() == true, "the fence")
+        _ = await fetch.next()
+        lease.signOutStarted()
+        #expect(await call.next() == true, "the clear goes while the fetch still hangs")
+        open.yield()
+        await lease.settled()
+        lease.stop()
+        #expect(!daemon.calls.contains { $0["bearer"] != nil }, "the fetch that hung lends nothing")
     }
 }
