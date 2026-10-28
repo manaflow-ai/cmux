@@ -517,6 +517,10 @@ export function NewTabScreen(props: Props) {
     const model = entry.models.find((option) => option.id === chipSnapshot.summary?.model)?.name;
     return { harness, agent: entry.name, ...(model ? { model } : {}) };
   }, [snapshot.catalog, harness, chipSnapshot.summary?.model]);
+  // The advertised command token owns this draft, including an empty argument list.
+  // Do not let the omnibar reinterpret `/review ` as the absolute file path `/review`.
+  const commandToken = text.trimStart().split(/\s/, 1)[0];
+  const commandPrompt = snapshot.commands?.some((command) => commandToken === `/${command.name}`) ?? false;
   const commandQuery = slashQuery(text, text.length);
   const commandMatches = commandQuery === undefined ? [] : matchCommands(snapshot.commands ?? [], commandQuery);
   const commandsOpen = commandQuery !== undefined && commandDismissed !== text && commandMatches.length > 0;
@@ -553,7 +557,7 @@ export function NewTabScreen(props: Props) {
   );
   const suggested = useMemo(
     () =>
-      touched && !shell && commandQuery === undefined
+      touched && !shell && !commandPrompt && commandQuery === undefined
         ? screenRows(text, {
             omnibar,
             home,
@@ -563,7 +567,7 @@ export function NewTabScreen(props: Props) {
             ...(props.suggestionOrder ? { order: props.suggestionOrder } : {}),
           })
         : [],
-    [touched, shell, text, omnibar, home, ask, creates, commandQuery, props.suggestionOrder, nt],
+    [touched, shell, text, omnibar, home, ask, creates, commandPrompt, commandQuery, props.suggestionOrder, nt],
   );
   const rows = text !== dismissed ? suggested : [];
   // New tabs or pages from the host can shorten the rows under a highlight.
@@ -815,6 +819,7 @@ export function NewTabScreen(props: Props) {
     if (!shell && pairingLinkRefused(text)) return props.onOpen(text.trim());
     // A screenshot pasted a moment ago is still being read: Return goes once its chip is ready.
     if (holdForAttachments(() => submitNow.current())) return;
+    if (commandPrompt) return harness ? askChat(harness, text.trim(), project, chipModel) : undefined;
     // Closed suggestions still answer Return: their top row ("reddit" opens reddit.com). So does an
     // address with no row selected (↑ from the top row): there is no prompt to send.
     const list = rows.length ? rows : suggested;
@@ -850,7 +855,7 @@ export function NewTabScreen(props: Props) {
     const prompt = shell ? "" : text.trim();
     const asked = askChat(
       harness,
-      prompt && !isAddress(prompt, home) && !pairingLinkRefused(prompt) ? prompt : "",
+      prompt && (commandPrompt || !isAddress(prompt, home)) && !pairingLinkRefused(prompt) ? prompt : "",
       project,
       chipModel,
     );
