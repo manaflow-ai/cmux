@@ -29,20 +29,47 @@ WORKFLOWS = ROOT / ".github/workflows"
 FORK = "github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04'"
 
 
+def _daemon_job(document: dict) -> dict:
+    return document["jobs"]["cmux-next-daemon-tests"]
+
+
+def _lint_row(document: dict) -> dict:
+    [row] = document["jobs"]["lint"]["strategy"]["matrix"]["include"]
+    return row
+
+
+def _load(text: str) -> dict:
+    # BaseLoader keeps every scalar a string, as GitHub reads them.
+    return yaml.load(text, Loader=yaml.BaseLoader)
+
+
 def daemon_runs_on(text: str) -> str:
-    return yaml.load(text, Loader=yaml.BaseLoader)["jobs"]["cmux-next-daemon-tests"]["runs-on"]
+    return _daemon_job(_load(text))["runs-on"]
 
 
 def lint_runner(text: str) -> str:
-    [row] = yaml.load(text, Loader=yaml.BaseLoader)["jobs"]["lint"]["strategy"]["matrix"]["include"]
-    return row["runner"]
+    return _lint_row(_load(text))["runner"]
 
 
-# (workflow, how to read the runs-on, the values each described variable may hold)
+def mutate(text: str, node, key: str, value: str) -> str:
+    """The workflow with `node(document)[key]` set to `value`, serialized as YAML (quoting is YAML's job)."""
+    document = _load(text)
+    node(document)[key] = value
+    return yaml.safe_dump(document, sort_keys=False)
+
+
+# (workflow, how to read the runs-on, where it lives, the values each described variable may hold)
 SITES = (
-    ("cmux-tui-artifacts.yml", daemon_runs_on, {}),
-    ("cmux-tui.yml", lint_runner, {"LINUX_RUNNER": linux_runner_values()}),
+    ("cmux-tui-artifacts.yml", daemon_runs_on, (_daemon_job, "runs-on"), {}),
+    ("cmux-tui.yml", lint_runner, (_lint_row, "runner"), {"LINUX_RUNNER": linux_runner_values()}),
 )
+
+
+def wrapped(runs_on: str, bad: str) -> str:
+    """`${{ vars.CI_MUTATION && '<bad>' || <runs_on> }}`, for a bare label or any expression."""
+    inner = re.fullmatch(r"\$\{\{(.*)\}\}", runs_on.strip(), re.DOTALL)
+    original = f"({inner.group(1).strip()})" if inner else "'" + runs_on.strip().replace("'", "''") + "'"
+    return "${{ vars.CI_MUTATION && '" + bad + "' || " + original + " }}"
 
 
 class ResolveLabels(unittest.TestCase):
@@ -149,27 +176,36 @@ class DisallowedLabels(unittest.TestCase):
 
 class Workflows(unittest.TestCase):
     def test_the_current_workflows_pass(self):
-        for name, read, allow in SITES:
+        for name, read, _, allow in SITES:
             with self.subTest(workflow=name):
                 runs_on = read((WORKFLOWS / name).read_text(encoding="utf-8"))
                 self.assertEqual(disallowed_labels(runs_on, variables=allow), {}, runs_on)
 
     def test_a_mutated_workflow_with_a_hosted_label_or_a_personal_machine_fails(self):
         # The mutation wraps the job's whole runs-on, whatever its form (a bare label, any expression, any
-        # size), in a branch a variable can take: `${{ vars.CI_MUTATION && '<bad>' || <runs-on> }}`.
-        for name, read, allow in SITES:
+        # size), in a branch a variable can take, and writes it back through YAML.
+        for name, read, (node, key), allow in SITES:
             text = (WORKFLOWS / name).read_text(encoding="utf-8")
-            runs_on = read(text)
-            inner = re.fullmatch(r"\$\{\{(.*)\}\}", runs_on.strip(), re.DOTALL)
-            original = f"({inner.group(1).strip()})" if inner else "'" + runs_on.strip().replace("'", "''") + "'"
-            for bad in ("ubuntu-latest", "ubuntu-24.04", "macos-26", PERSONAL_WORKSTATION_LABEL):
-                wrapped = "${{ vars.CI_MUTATION && '" + bad + "' || " + original + " }}"
-                mutated = text.replace(runs_on, wrapped)
-                with self.subTest(workflow=name, label=bad):
-                    self.assertNotEqual(mutated, text)
-                    self.assertEqual(read(mutated), wrapped)
-                    labels = disallowed_labels(read(mutated), variables={**allow, "CI_MUTATION": {"1"}})
-                    self.assertEqual(set(labels), {bad}, labels)
+            self.check_mutations(name, text, read, node, key, allow)
+
+    def test_the_mutation_handles_a_quoted_bare_runner(self):
+        # A correct single-quoted bare label must pass and mutate like an expression does.
+        text = ("jobs:\n  lint:\n    strategy:\n      matrix:\n        include:\n"
+                "          - os: linux\n            runner: 'blacksmith-64vcpu-ubuntu-2404'\n")
+        self.assertEqual(disallowed_labels(lint_runner(text)), {})
+        self.check_mutations("fixture", text, lint_runner, _lint_row, "runner", {})
+
+    def check_mutations(self, name, text, read, node, key, allow):
+        runs_on = read(text)
+        for bad in ("ubuntu-latest", "ubuntu-24.04", "macos-26", PERSONAL_WORKSTATION_LABEL):
+            expression = wrapped(runs_on, bad)
+            mutated = mutate(text, node, key, expression)
+            with self.subTest(workflow=name, label=bad):
+                self.assertEqual(read(mutated), expression)
+                labels = disallowed_labels(read(mutated), variables={**allow, "CI_MUTATION": {"1"}})
+                self.assertEqual(set(labels), {bad}, labels)
+                # Unmutated, the same path through the serializer still passes.
+                self.assertEqual(disallowed_labels(read(mutate(text, node, key, runs_on)), variables=allow), {})
 
     def test_linux_runner_read_without_a_guard_fails(self):
         # LINUX_RUNNER can hold the overflow switch's hosted ubuntu-24.04; a guard has to keep it out.
