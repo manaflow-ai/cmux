@@ -41,9 +41,10 @@ impl Mux {
     }
 
     /// The host id of the terminal an attach names, by its tab's placement
-    /// `slot` or by its public id, while its host still adopts here. `None`
-    /// for a terminal with a runtime, an ended one, or one this build cannot
-    /// adopt. Takes the state lock and then this table's, each briefly.
+    /// `slot` or by its public id, while its host still adopts or its shell
+    /// respawns here. `None` for a terminal with a runtime, an ended one, or
+    /// one this build cannot adopt. Takes the state lock and then this
+    /// table's, each briefly.
     pub(crate) fn adopting_terminal_for_attach(
         &self,
         slot: Option<SurfaceId>,
@@ -64,8 +65,10 @@ impl Mux {
         };
         let pending = self.pending_terminals.lock().recover_poison();
         match pending.get(&public_id)? {
-            (host_id, PendingTerminal::Adopting) => Some(host_id.clone()),
-            _ => None,
+            (host_id, PendingTerminal::Adopting | PendingTerminal::Respawning) => {
+                Some(host_id.clone())
+            }
+            (_, PendingTerminal::Unadoptable { .. }) => None,
         }
     }
 

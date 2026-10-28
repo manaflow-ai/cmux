@@ -1,9 +1,12 @@
-//! An attach to a terminal whose host still adopts after a restart. A
-//! restarted owner answers before it adopted its surviving hosts, and adopts
-//! them a few at a time (`ADOPTION_REPLAYS`), in record order. The app
-//! attaches the terminals it shows: such an attach moves that terminal's
-//! adoption ahead of the queued ones (`Permits::promote`) and waits for it,
-//! at most [`ATTACH_ADOPTION_WAIT`], then attaches. Chrome's session restore
+//! An attach to a terminal whose host still adopts after a restart, or
+//! whose shell respawns (a cold start: every host is dead). A restarted
+//! owner answers before it adopted its surviving hosts or ended its dead
+//! ones, and does both a few at a time (`ADOPTION_REPLAYS`), in record
+//! order; the respawns follow in the background (`terminal_respawn/launches.rs`).
+//! The app attaches the terminals it shows: such an attach moves that
+//! terminal's adoption, then its respawn, ahead of the queued ones
+//! (`Permits::promote`) and waits for them, at most [`ATTACH_ADOPTION_WAIT`]
+//! together, then attaches. Chrome's session restore
 //! loads the shown tab first and the background tabs after it
 //! (chrome/browser/sessions/tab_loader.cc); before, the attach failed with
 //! "unknown surface" and the app retried until the queue reached it.
@@ -17,14 +20,15 @@ use super::*;
 use cmux_threads::work::{Lane, Priority, Shutdown};
 use std::time::Duration;
 
-/// The longest an attach waits for its terminal's adoption. One promoted
-/// adoption takes at most the host handshake bound (2 s) and its replay;
-/// past this the attach runs and fails as before, and the app retries.
+/// The longest an attach waits for its terminal's adoption and respawn. One
+/// promoted adoption takes at most the host handshake bound (2 s) and its
+/// replay, a respawn one host launch; past this the attach runs and fails as
+/// before, and the app retries.
 const ATTACH_ADOPTION_WAIT: Duration = Duration::from_secs(4);
 
 /// The host id of the terminal `cmd` attaches to, when it is an attach of
 /// this machine's client to a terminal that has no runtime yet because its
-/// host still adopts.
+/// host still adopts or its shell respawns.
 pub(super) fn adopting_target(mux: &Mux, client: u64, cmd: &Command) -> Option<String> {
     let Command::AttachSurface(params) = cmd else { return None };
     // A remote client takes the relay gate's path, unchanged.
@@ -70,7 +74,7 @@ pub(super) fn start(
         move || {
             let reply = reply.start();
             cmux_threads::work::will_block(|| {
-                worker_mux.wait_for_terminal_adoption(&host_id, ATTACH_ADOPTION_WAIT);
+                worker_mux.wait_for_restored_terminal(&host_id, ATTACH_ADOPTION_WAIT);
             });
             let result =
                 handle_command_with_cancellation(&worker_mux, client, cmd, &worker_writer, None);

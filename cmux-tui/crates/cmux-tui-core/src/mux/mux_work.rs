@@ -229,8 +229,18 @@ struct LimitedBy {
 }
 
 impl RetryItem {
+    /// The priority of the next try: a person waits on a promoted one
+    /// ([`Permits::promote`]), so it runs at `UserBlocking` whatever it was
+    /// posted at (a background respawn the app now attaches to).
+    fn priority_now(&self) -> Priority {
+        let promoted = self.permits.as_ref().is_some_and(|limit| {
+            limit.permits.upgrade().is_some_and(|permits| permits.is_promoted(limit.key.as_deref()))
+        });
+        if promoted { Priority::UserBlocking } else { self.priority }
+    }
+
     fn post(self, work: &Work, delay: Duration) -> Result<(), Refused> {
-        let (priority, lane) = (self.priority, self.lane);
+        let (priority, lane) = (self.priority_now(), self.lane);
         work.post_delayed(delay, priority, lane, Shutdown::ContinueOnShutdown, move || self.run())
     }
 
@@ -361,6 +371,11 @@ impl Permits {
         if let Some(wake) = wake {
             wake();
         }
+    }
+
+    /// Whether a caller waits on the item of `key` now.
+    fn is_promoted(&self, key: Option<&str>) -> bool {
+        self.state.lock().unwrap_or_else(PoisonError::into_inner).is_urgent(key)
     }
 
     /// Ends one [`Self::promote`] of `key`.

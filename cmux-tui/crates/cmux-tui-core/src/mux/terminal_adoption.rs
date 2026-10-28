@@ -303,25 +303,11 @@ impl Mux {
                 }
                 anyhow::bail!("terminal {terminal_id} could not be marked adopting: {error}");
             }
-            if terminal_host_record_liveness(&record_path, &record) == TerminalHostLiveness::Dead {
-                // Commit the durable exit before deleting the record. The
-                // record is the only proof that this host ever existed, so a
-                // failed commit must leave the next startup able to retry
-                // instead of facing a lifecycle row with no evidence.
-                self.mark_terminal_ended(
-                    &terminal_id,
-                    "terminal-host-proven-dead",
-                    "host-process-ended-before-adoption",
-                    &options,
-                )?;
-                let _ = crate::terminal_host_runtime::remove_stale_terminal_host_record(
-                    &record_path,
-                    &record,
-                    panic_log,
-                );
-                handled_terminals.insert(terminal_id.clone());
-                continue;
-            }
+            // A dead host adopts as a live one does: its try finds it dead,
+            // commits its end and then removes its record (the record is the
+            // only proof the host existed, so the end commits first). Ending
+            // each here, one commit each, held a cold start's first answer
+            // (600 dead hosts: 10.5 s, terminal_adoption_deferred_end.rs).
             handled_terminals.insert(terminal_id.clone());
             if claimed_template.as_ref() == Some(&terminal_id) {
                 // A Cloud clone's first answer must already list the template
@@ -381,7 +367,7 @@ impl Mux {
                 self.record_terminal_end(&terminal.terminal_id);
                 continue;
             }
-            self.adopt_from_holder_or_end(&terminal, &options)?;
+            self.adopt_from_holder_or_end_later(&terminal, &options)?;
         }
         self.release_unclaimed_holder_terminals(&options);
         Ok(())
@@ -572,7 +558,23 @@ impl Mux {
         reason: &str,
         options: &SurfaceOptions,
     ) -> anyhow::Result<()> {
-        self.clear_pending_terminal(terminal_id);
+        let ended = self.mark_terminal_ended_with_marker(terminal_id, reason, options);
+        // The tab reads pending until the end committed (and a respawn's
+        // marker replaced this one), so no tree read shows it dead first.
+        if self.clear_pending_terminal(terminal_id) {
+            self.emit(MuxEvent::TreeChanged);
+        }
+        ended
+    }
+
+    #[cfg(any(unix, windows))]
+    #[track_caller]
+    fn mark_terminal_ended_with_marker(
+        self: &Arc<Self>,
+        terminal_id: &str,
+        reason: &str,
+        options: &SurfaceOptions,
+    ) -> anyhow::Result<()> {
         if self.terminal_is_respawning(terminal_id) {
             return Ok(());
         }
@@ -907,3 +909,6 @@ mod retry;
 
 #[path = "terminal_adoption_startup.rs"]
 mod startup;
+
+#[path = "terminal_adoption_deferred_end.rs"]
+mod deferred_end;

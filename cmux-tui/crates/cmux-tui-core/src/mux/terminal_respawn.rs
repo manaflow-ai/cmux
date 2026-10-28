@@ -34,6 +34,7 @@
 
 #[cfg(any(unix, windows))]
 pub(super) mod launch;
+mod launches;
 pub(crate) mod manual;
 #[cfg(any(unix, windows))]
 mod prefill;
@@ -49,8 +50,6 @@ use crate::terminal_host_protocol::TerminalExit;
 #[cfg(any(unix, windows))]
 use crate::terminal_loss_log::Prefilled;
 
-#[cfg(any(unix, windows))]
-use cmux_threads::work::{Lane, Priority, Shutdown};
 #[cfg(any(unix, windows))]
 use supervisor::PendingRespawn;
 pub(crate) use supervisor::RespawnGuard;
@@ -96,6 +95,8 @@ pub(crate) struct TerminalRespawns {
     /// yet (Reopen Closed of an archived terminal, ARCHIVE-1). The launch
     /// takes it; the creator removes it when the creation fails.
     seeds: Mutex<HashMap<String, Vec<u8>>>,
+    /// The launch permits and the requests that wait on a respawn.
+    launches: launches::RespawnLaunches,
 }
 
 /// At most this many command argvs are kept; the oldest goes first.
@@ -140,6 +141,7 @@ impl TerminalRespawns {
             guard: Mutex::new(RespawnGuard::from_env()),
             argv: Mutex::default(),
             seeds: Mutex::default(),
+            launches: launches::RespawnLaunches::default(),
         }
     }
 
@@ -249,25 +251,11 @@ impl Mux {
             }
         };
         let delay = plan.delay.max(self.terminal_respawns.delay.unwrap_or_default());
-        let mut pending = PendingRespawn { plan: Some(plan), owner: self.work_owner() };
+        let pending = PendingRespawn { plan: Some(plan), owner: self.work_owner() };
         // A work item at the backoff's end (`supervisor.rs`), not a thread
-        // asleep for it. Dropped unrun at shutdown, `PendingRespawn`
-        // abandons the attempt.
-        let posted = self.post_mux_work_after(
-            delay,
-            Priority::UserVisible,
-            Lane::System,
-            Shutdown::ContinueOnShutdown,
-            move |owner| {
-                let Some(mux) = owner.upgrade() else { return };
-                if mux.respawn_stopping() {
-                    return;
-                }
-                let Some(plan) = pending.plan.take() else { return };
-                // The launch waits for the new host's handshake.
-                cmux_threads::work::will_block(|| mux.run_terminal_respawn(plan));
-            },
-        );
+        // asleep for it, a few at a time (`launches.rs`). Dropped unrun at
+        // shutdown, `PendingRespawn` abandons the attempt.
+        let posted = self.post_terminal_respawn(terminal_id, delay, pending);
         if posted.is_err() {
             self.abandon_terminal_respawn(terminal_id);
         }
@@ -406,6 +394,7 @@ impl Mux {
         self.pending_terminals.lock().unwrap_or_else(PoisonError::into_inner).retain(
             |_, (id, pending)| id != &terminal_id || *pending != PendingTerminal::Respawning,
         );
+        self.terminal_respawn_ended();
         match outcome {
             Ok(Some((surface, prefill))) => {
                 self.forget_terminal_end(public_id.as_str());

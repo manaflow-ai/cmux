@@ -10,31 +10,25 @@
 use super::*;
 
 impl Mux {
-    /// Re-attach `terminal` from the holder, or record its end when the
-    /// holder does not run it (`mark_terminal_ended`, reason
-    /// `missing-host-record`).
+    /// Re-attach `terminal` from the holder: whether it did (a failure is
+    /// logged). A terminal it does not run ends, after the first answer
+    /// (`adopt_from_holder_or_end_later`, reason `missing-host-record`).
     #[track_caller]
-    pub(in crate::mux) fn adopt_from_holder_or_end(
+    pub(in crate::mux) fn adopt_from_holder_or_none(
         self: &Arc<Self>,
         terminal: &RegistryTerminal,
         options: &SurfaceOptions,
-    ) -> anyhow::Result<()> {
+    ) -> bool {
         match self.adopt_from_holder(terminal, options) {
-            Ok(true) => return Ok(()),
-            Ok(false) => {}
+            Ok(adopted) => adopted,
             Err(error) => {
                 eprintln!(
                     "cmux-tui: re-attach terminal {} from the holder: {error:#}",
                     terminal.terminal_id
                 );
+                false
             }
         }
-        self.mark_terminal_ended(
-            &terminal.terminal_id,
-            "terminal-record-missing",
-            "missing-host-record",
-            options,
-        )
     }
 
     #[cfg(not(unix))]
