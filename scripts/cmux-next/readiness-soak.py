@@ -74,6 +74,19 @@ STUCK_TURN_S = 300
 # Each terminal prints until the quiet phase creates {stop}, then waits on its input (an idle shell).
 TERMINAL_WORK = ("i=0; while [ ! -e {stop} ]; do i=$((i+1)); echo \"soak $i $(date +%T)\"; ls -l /usr/bin | head -30; "
                  "sleep 2; done; echo soak quiet; exec cat")
+# pro-audits item 4 (scratch): a realistic 100-workspace day. Each kind is its own workspace.
+# build: a C compile with its log every --build-every seconds; ssh: an ssh session to this host (BatchMode, the
+# host's existing keys only, no known_hosts write) printing like a remote tail; idle: an interactive zsh.
+BUILD_SOURCE = "\n".join(f"int f{i}(int x){{int y=x;for(int k=0;k<{i % 50 + 10};k++)y=y*31+k;return y;}}" for i in range(4000))
+BUILD_WORK = ("i=0; while [ ! -e {stop} ]; do i=$((i+1)); echo \"build $i $(date +%T)\"; "
+              "xcrun clang -O2 -c {src} -o {obj} -ftime-report 2>&1 | tail -40; echo \"build $i done\"; "
+              "s=0; while [ $s -lt {every} ] && [ ! -e {stop} ]; do sleep 5; s=$((s+5)); done; done; echo soak quiet; exec cat")
+SSH_REMOTE = ("touch {ok}; i=0; while [ ! -e {stop} ]; do i=$((i+1)); echo \"remote $i $(date +%T)\"; "
+              "ps -axo pid,pcpu,comm | head -25; sleep 3; done; echo remote quiet; exec cat")
+SSH_WORK = ("ssh -tt -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "
+            "-o LogLevel=ERROR 127.0.0.1 {remote} || {{ echo SSH-UNAVAILABLE; exec cat; }}")
+IDLE_WORK = "exec /bin/zsh -i"
+PROC_PIDTASKINFO = 4
 STATIC_PAGE = "<!doctype html><title>soak static</title><h1>static</h1><p>no script</p>"
 TICKING_PAGE = ("<!doctype html><title>soak ticking</title><h1 id=t>0</h1>"
                 "<script>let n=0;setInterval(()=>{document.getElementById('t').textContent=++n},5000)</script>")
@@ -161,6 +174,65 @@ def own_copy(app, work):
     if signed.returncode:
         raise SystemExit(f"readiness-soak: signing the copy failed: {signed.stderr.strip()[-300:]}")
     return copy
+
+
+def task_threads(pid):
+    """Threads of pid (proc_pidinfo PROC_PIDTASKINFO pti_threadnum), or None when it is gone."""
+    buffer = ctypes.create_string_buffer(96)
+    if libproc().proc_pidinfo(ctypes.c_int(pid), PROC_PIDTASKINFO, ctypes.c_uint64(0), buffer, 96) != 96:
+        return None
+    return int.from_bytes(buffer.raw[84:88], "little")
+
+
+_TIMEBASE = None
+
+
+def usage6(pid):
+    """(energy nJ, cpu ns, wakeups, footprint bytes) from proc_pid_rusage RUSAGE_INFO_V6, or None."""
+    global _TIMEBASE
+    if _TIMEBASE is None:
+        class TB(ctypes.Structure):
+            _fields_ = [("numer", ctypes.c_uint32), ("denom", ctypes.c_uint32)]
+        _TIMEBASE = TB()
+        ctypes.CDLL("/usr/lib/libSystem.B.dylib").mach_timebase_info(ctypes.byref(_TIMEBASE))
+    buf = (ctypes.c_uint64 * 64)()
+    if libproc().proc_pid_rusage(ctypes.c_int(pid), ctypes.c_int(6), ctypes.byref(buf)) != 0:
+        return None
+    return buf[42], (buf[2] + buf[3]) * _TIMEBASE.numer // _TIMEBASE.denom, buf[4] + buf[5], buf[9]
+
+
+def tree_bytes(path):
+    total = 0
+    for root, _dirs, files in os.walk(path):
+        for name in files:
+            try:
+                total += os.lstat(os.path.join(root, name)).st_blocks * 512
+            except OSError:
+                pass
+    return total
+
+
+def system_cpu_percent():
+    """Whole-host CPU busy % from one `top -l 2` interval (the second sample is the interval's)."""
+    try:
+        out = run("top", "-l", "2", "-n", "0", "-s", "1", timeout=20).stdout
+    except (OSError, subprocess.SubprocessError):
+        return None
+    lines = [l for l in out.splitlines() if l.startswith("CPU usage:")]
+    m = re.search(r"([\d.]+)% idle", lines[-1]) if lines else None
+    return round(100 - float(m.group(1)), 1) if m else None
+
+
+def powermetrics_mw(seconds=5):
+    """Combined CPU+GPU+ANE power (mW) from powermetrics with passwordless sudo, else None."""
+    if run("sudo", "-n", "true", timeout=10).returncode != 0:
+        return None
+    out = run("sudo", "-n", "powermetrics", "-i", str(seconds * 1000), "-n", "1", "--samplers", "cpu_power,gpu_power",
+              timeout=seconds + 30).stdout
+    for line in out.splitlines():
+        if line.startswith("Combined Power"):
+            return float(line.split(":")[1].split()[0])
+    return None
 
 
 def acpmux_socket(home):
@@ -355,13 +427,29 @@ class Soak:
             self.setup["terminals"] = "no running daemon"
             return
         made = 0
-        for index in range(self.args.terminals):
-            reply = request(status["socket"], {"id": 10 + index, "cmd": "run", "argv": ["/bin/sh", "-c", TERMINAL_WORK.format(stop=shlex.quote(self.quiet_file))],
-                                               "new_workspace": True, "name": f"soak-terminal-{index + 1}"}, 30)
-            made += bool(reply.get("ok"))
-            if not reply.get("ok"):
-                self.setup.setdefault("terminal_errors", []).append(str(reply.get("error"))[:200])
+        stop = shlex.quote(self.quiet_file)
+        src = os.path.join(self.work, "build.c")
+        with open(src, "w") as handle:
+            handle.write(BUILD_SOURCE + "\n")
+        plan = [("terminal", i, TERMINAL_WORK.format(stop=stop)) for i in range(self.args.terminals)]
+        plan += [("build", i, BUILD_WORK.format(stop=stop, src=shlex.quote(src), obj=shlex.quote(os.path.join(self.work, f"build-{i}.o")),
+                                                 every=int(self.args.build_every))) for i in range(self.args.build_terminals)]
+        plan += [("ssh", i, SSH_WORK.format(remote=shlex.quote(SSH_REMOTE.format(ok=shlex.quote(os.path.join(self.work, f"ssh-ok-{i}")), stop=stop))))
+                 for i in range(self.args.ssh_terminals)]
+        plan += [("idle", i, IDLE_WORK) for i in range(self.args.idle_terminals)]
+        counts = {}
+        for index, (kind, number, work) in enumerate(plan):
+            reply = request(status["socket"], {"id": 10 + index, "cmd": "run", "argv": ["/bin/sh", "-c", work],
+                                               "new_workspace": True, "name": f"soak-{kind}-{number + 1}"}, 30)
+            ok = bool(reply.get("ok"))
+            counts[kind] = counts.get(kind, 0) + ok
+            if kind == "terminal":
+                made += ok
+            if not ok:
+                self.setup.setdefault("terminal_errors", []).append(f"{kind}: " + str(reply.get("error"))[:200])
         self.setup["terminals"] = made
+        self.setup["workspaces_by_kind"] = counts
+        self.setup["workspaces"] = sum(counts.values())
 
     def start_browsers(self):
         made = 0
@@ -512,15 +600,18 @@ class Soak:
     def sample(self, before, kinds, wall):
         rows = {}
         for pid, kind in kinds.items():
-            first, last = before.get(pid), usage(pid)
+            first, last = before.get(pid), usage6(pid)
             if first is None or last is None:
                 continue
-            row = rows.setdefault(kind, {"count": 0, "cpu_percent": 0.0, "footprint_mb": 0.0, "wakeups_per_s": 0.0, "fds": 0})
+            row = rows.setdefault(kind, {"count": 0, "cpu_percent": 0.0, "footprint_mb": 0.0, "wakeups_per_s": 0.0, "fds": 0,
+                                         "threads": 0, "energy_mw": 0.0})
             row["count"] += 1
             row["fds"] += open_fds(pid) or 0
-            row["cpu_percent"] += 100.0 * (last[0] - first[0]) / (wall * 1e9)
-            row["wakeups_per_s"] += (last[1] - first[1]) / wall
-            row["footprint_mb"] += last[2] / 1048576
+            row["threads"] += task_threads(pid) or 0
+            row["energy_mw"] += (last[0] - first[0]) / (wall * 1e6)
+            row["cpu_percent"] += 100.0 * (last[1] - first[1]) / (wall * 1e9)
+            row["wakeups_per_s"] += (last[2] - first[2]) / wall
+            row["footprint_mb"] += last[3] / 1048576
         return {kind: {k: round(v, 2) if isinstance(v, float) else v for k, v in row.items()} for kind, row in rows.items()}
 
     def loop(self):
@@ -534,10 +625,11 @@ class Soak:
         kinds = self.kinds()
         self.track(kinds)
         seen_reports = set(self.crash_reports())
-        before = {pid: usage(pid) for pid in kinds}
+        before = {pid: usage6(pid) for pid in kinds}
         for key in ("app", "daemon", "acpmux"):
             self.pids[key] = sorted(pid for pid, kind in kinds.items() if kind == key)
         tick = time.monotonic()
+        hour_rows, next_hour, disk, next_disk = [], time.monotonic() + 3600, None, 0.0
         while time.monotonic() < end:
             time.sleep(self.args.sample)  # soak script: the sampling interval
             if not quiet and time.monotonic() >= quiet_at:
@@ -549,7 +641,7 @@ class Soak:
             processes = self.sample(before, kinds, wall)
             kinds = self.kinds()
             self.track(kinds)
-            before = {pid: usage(pid) for pid in kinds}
+            before = {pid: usage6(pid) for pid in kinds}
             for key in ("app", "daemon", "acpmux"):
                 pids = sorted(pid for pid, kind in kinds.items() if kind == key)
                 if pids != self.pids[key]:
@@ -578,8 +670,60 @@ class Soak:
                       "ping_ms": ping_ms, "snapshot_ms": snapshot_ms,
                       "turns": sum(e["turns"] for e in self.agents.values()),
                       "turns_done": sum(e["done"] for e in self.agents.values())}
+            if time.monotonic() >= next_disk:
+                disk = self.disk()
+                next_disk = time.monotonic() + 600
+            record["disk"] = disk
+            record["system_cpu_percent"] = system_cpu_percent()
+            record["load1"] = round(os.getloadavg()[0], 2)
+            if len(hour_rows) % 10 == 0:
+                record["powermetrics_mw"] = powermetrics_mw()
             self.samples.write(json.dumps(record) + "\n")
             self.samples.flush()
+            hour_rows.append(record)
+            if time.monotonic() >= next_hour:
+                self.hourly(hour_rows)
+                hour_rows, next_hour = [], next_hour + 3600
+        if hour_rows:
+            self.hourly(hour_rows)
+
+    def disk(self):
+        """MB the soak's state takes (the work folder, the tag's state folders) and the boot volume's free GB."""
+        tag_state = [os.path.expanduser(p) for p in (f"~/Library/Application Support/cmux/tags/{self.tag}",
+                                                      f"~/Library/Application Support/{self.bundle_id}",
+                                                      f"~/Library/Application Support/cmux-next/{self.bundle_id}",
+                                                      f"~/Library/Caches/{self.bundle_id}",
+                                                      f"~/.cmux/chief/isolated/{self.tag}")]
+        stat = os.statvfs("/")
+        return {"work_mb": round(tree_bytes(self.work) / 1048576, 1),
+                "state_mb": round(sum(tree_bytes(p) for p in tag_state if os.path.isdir(p)) / 1048576, 1),
+                "free_gb": round(stat.f_bavail * stat.f_frsize / 1e9, 2)}
+
+    def hourly(self, rows):
+        """One HOURLY line per hour of samples: per kind the hour's mean CPU and energy, the last memory, fds and
+        threads; the soak's disk; the host's CPU and power. Also appended to hourly.jsonl."""
+        hour = round(rows[-1]["elapsed_s"] / 3600, 2)
+        out = {"hour": hour, "at": rows[-1]["at"], "phase": rows[-1]["phase"], "turns_done": rows[-1]["turns_done"],
+               "kinds": {}, "disk": rows[-1].get("disk")}
+        for kind in sorted({k for r in rows for k in r["processes"]}):
+            values = [r["processes"][kind] for r in rows if kind in r["processes"]]
+            last = values[-1]
+            out["kinds"][kind] = {"count": last["count"], "mem_mb": round(last["footprint_mb"], 1), "fds": last["fds"],
+                                  "threads": last.get("threads"),
+                                  "cpu_percent": round(statistics.fmean(v["cpu_percent"] for v in values), 2),
+                                  "energy_mw": round(statistics.fmean(v.get("energy_mw", 0) for v in values), 1),
+                                  "wakeups_per_s": round(statistics.fmean(v["wakeups_per_s"] for v in values), 1)}
+        cpu = [r["system_cpu_percent"] for r in rows if r.get("system_cpu_percent") is not None]
+        power = [r["powermetrics_mw"] for r in rows if r.get("powermetrics_mw") is not None]
+        out["system_cpu_percent"] = round(statistics.fmean(cpu), 1) if cpu else None
+        out["system_power_mw"] = round(statistics.fmean(power)) if power else None
+        out["owned_energy_mw"] = round(sum(k["energy_mw"] for k in out["kinds"].values()), 1)
+        with open(os.path.join(self.out, "hourly.jsonl"), "a") as handle:
+            handle.write(json.dumps(out) + "\n")
+        cells = " | ".join(f"{k} n={v['count']} mem={v['mem_mb']}MB fds={v['fds']} thr={v['threads']} cpu={v['cpu_percent']}% "
+                           f"e={v['energy_mw']}mW" for k, v in out["kinds"].items())
+        say(f"HOURLY h={hour} {out['phase']} turns={out['turns_done']} sys_cpu={out['system_cpu_percent']}% "
+            f"sys_power={out['system_power_mw']}mW owned_e={out['owned_energy_mw']}mW disk={out['disk']} :: {cells}")
 
     # ---- report --------------------------------------------------------------------------
 
@@ -630,6 +774,9 @@ class Soak:
                 "fds_mid": median(first, kind, "fds"),
                 "fds_end": median(last, kind, "fds"),
                 "idle_cpu_percent": mean(idle, kind, "cpu_percent"),
+                "idle_energy_mw": mean(idle, kind, "energy_mw"),
+                "threads_mid": median(first, kind, "threads"),
+                "threads_end": median(last, kind, "threads"),
                 "idle_wakeups_per_s": mean(idle, kind, "wakeups_per_s"),
             }
             row = summary[kind]
@@ -674,6 +821,11 @@ class Soak:
         hours = round((samples[-1]["elapsed_s"] if samples else 0) / 3600, 2)
         if hours < self.args.hours * 0.95:
             failures.append(f"ran {hours} h of {self.args.hours} h")
+        self.setup["ssh_connected"] = len(glob.glob(os.path.join(self.work, "ssh-ok-*")))
+        idle_power = [s["powermetrics_mw"] for s in idle if s.get("powermetrics_mw") is not None]
+        self.setup["idle_owned_energy_mw"] = round(sum((summary[k].get("idle_energy_mw") or 0) for k in summary), 1)
+        self.setup["idle_system_power_mw"] = round(statistics.fmean(idle_power)) if idle_power else None
+        self.setup["idle_hours"] = round((idle[-1]["elapsed_s"] - idle[0]["elapsed_s"]) / 3600, 2) if idle else 0
         pings = sorted(s["snapshot_ms"] for s in samples)
         result = {"ok": not failures, "failures": failures, "warnings": warnings, "hours": hours, "setup": self.setup,
                   "app": self.app, "summary": summary, "events": self.events,
@@ -733,6 +885,10 @@ def main():
     parser.add_argument("--agents", type=int, default=10)
     parser.add_argument("--terminals", type=int, default=10)
     parser.add_argument("--browsers", type=int, default=4)
+    parser.add_argument("--build-terminals", type=int, default=0)
+    parser.add_argument("--build-every", type=float, default=300)
+    parser.add_argument("--ssh-terminals", type=int, default=0)
+    parser.add_argument("--idle-terminals", type=int, default=0)
     parser.add_argument("--sample", type=float, default=60)
     parser.add_argument("--turn-every", type=float, default=300)
     parser.add_argument("--warmup", type=float, default=900, help="seconds before the first-hour memory baseline")
@@ -752,7 +908,7 @@ def main():
     parser.add_argument("--idle-cpu-gate", choices=("warn", "fail"), default="warn",
                         help="an idle CPU over its limit warns (default, until a 24h report shows real idle numbers) or fails")
     parser.add_argument("--out", default=os.path.join(os.getcwd(), "readiness-soak"))
-    args = parser.parse_args()
+    args, _ignored = parser.parse_known_args()  # split-spring-terminal.py's --tag/--json/--suite
     if args.warmup + args.idle >= args.hours * 3600:
         parser.error("--warmup plus --idle must leave a load phase within --hours")  # else every load check is empty
     soak = Soak(args)
