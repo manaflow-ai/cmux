@@ -104,6 +104,19 @@ while read -r hash url; do
 done <<<"$pairs"
 
 wanted="$(printf '%s' "$todo" | grep -c . || true)"
+pool="" watchdog="" list=""
+# Cancelled (the fetch, or the job, was stopped): stop the downloads too. They
+# run in a process group of their own that a signal to ours does not reach.
+stop_seed() {
+  if [[ -n "$watchdog" ]]; then kill "$watchdog" 2>/dev/null || true; fi
+  if [[ -n "$pool" ]] && kill -0 -- "-$pool" 2>/dev/null; then
+    kill -TERM -- "-$pool" 2>/dev/null || true; sleep 1; kill -KILL -- "-$pool" 2>/dev/null || true
+  fi
+  if [[ -n "$list" ]]; then rm -f "$list"; fi
+}
+trap stop_seed EXIT
+trap 'exit 143' TERM
+trap 'exit 130' INT
 if (( wanted > 0 )); then
   # In a process group of its own, so the deadline stops every download.
   set -m
@@ -125,7 +138,7 @@ if (( wanted > 0 )); then
   wait "$pool" 2>/dev/null || true
   kill "$watchdog" 2>/dev/null || true
   wait "$watchdog" 2>/dev/null || true
-  rm -f "$list"
+  watchdog="" pool=""
 fi
 seeded=0
 while read -r hash _url; do

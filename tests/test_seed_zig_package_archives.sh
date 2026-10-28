@@ -126,6 +126,21 @@ CMUX_ZIG_SEED_TIMEOUT=4 "$SEED" "$TMP/slow-cache" "$TMP/slow-src" > "$TMP/out" 2
 grep -q "stopped after 4s" "$TMP/out" || fail "the seed deadline was not reported"
 kill "$server_pid" 2>/dev/null; wait "$server_pid" 2>/dev/null || true; server_pid=""
 
+# Cancelling the seed (its fetch stopped) stops its downloads too.
+python3 "$TMP/slow.py" "$slow_port" >/dev/null 2>&1 &
+server_pid=$!
+for _ in $(seq 1 50); do curl -s -o /dev/null --max-time 1 "http://127.0.0.1:$slow_port/later.tar.gz" && break; sleep 0.1; done
+rm -rf "$TMP/slow-cache"; mkdir -p "$TMP/slow-cache"
+CMUX_ZIG_SEED_TIMEOUT=120 "$SEED" "$TMP/slow-cache" "$TMP/slow-src" > "$TMP/out" 2>&1 &
+seed_pid=$!
+sleep 2
+kill -TERM "$seed_pid"
+wait "$seed_pid" 2>/dev/null || true
+sleep 2
+left="$(pgrep -f "seed-zig-package-archives.sh --one $TMP/slow-cache" || true)"
+[[ -z "$left" ]] || { kill $left 2>/dev/null; fail "cancelling the seed left downloads running: $left"; }
+kill "$server_pid" 2>/dev/null; wait "$server_pid" 2>/dev/null || true; server_pid=""
+
 # The fetch seeds before Zig runs, unless CMUX_ZIG_SEED=0.
 grep -q 'seed-zig-package-archives.sh" "$cache"' "$ROOT/scripts/ci/fetch-ghostty-zig-packages.sh" \
   || fail "fetch-ghostty-zig-packages.sh no longer seeds the archives with curl"
