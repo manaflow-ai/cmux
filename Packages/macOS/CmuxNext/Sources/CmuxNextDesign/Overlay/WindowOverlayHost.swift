@@ -97,10 +97,14 @@ public final class WindowOverlayHost {
         }
     }
 
-    /// The host of `window`, made on first use; it goes away with the window.
+    /// The host of `window`, made on first use; it goes away with the window. A closed window keeps
+    /// its torn-down host (whose panel is closed and never attaches again) until it shows again:
+    /// work that reaches a closed window late (its controller's teardown, a task) makes no new
+    /// panel that nothing would close.
     public static func host(for window: NSWindow) -> WindowOverlayHost {
         let key = ObjectIdentifier(window)
-        if let host = hosts[key], host.window === window { return host }
+        if let host = hosts[key], host.window === window, !host.isTearingDown || !window.isVisible { return host }
+        hosts = hosts.filter { $0.value.window != nil }
         let host = WindowOverlayHost(window: window)
         hosts[key] = host
         host.observers.append(NotificationCenter.default.addObserver(
@@ -114,7 +118,7 @@ public final class WindowOverlayHost {
 
     /// The host of `window` if one exists (never makes one).
     public static func existingHost(for window: NSWindow) -> WindowOverlayHost? {
-        hosts[ObjectIdentifier(window)].flatMap { $0.window === window ? $0 : nil }
+        hosts[ObjectIdentifier(window)].flatMap { $0.window === window && !$0.isTearingDown ? $0 : nil }
     }
 
     /// The host for overlays with no window (its own small panel, centered on the main screen).
@@ -177,13 +181,7 @@ public final class WindowOverlayHost {
         removeAgentCursor()
         if let window {
             if panel.parent === window { window.removeChildWindow(panel) }
-            // The rest of the window's close (its controller's teardown) still reaches this host,
-            // not a new one with a new panel; once the close is over, the window shown again gets
-            // a new host.
-            let key = ObjectIdentifier(window)
-            Task { @MainActor [weak self] in
-                if let self, Self.hosts[key] === self { Self.hosts[key] = nil }
-            }
+            // Kept for the closed window (`host(for:)`); dropped once the window is gone.
         }
         // The window closed and the host goes with it: nothing orders this panel in again, so it
         // closes (ordered out only, it stayed in the app's window list, open, for good).
