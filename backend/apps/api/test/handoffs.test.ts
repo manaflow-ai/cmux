@@ -13,7 +13,8 @@ const call = async (method: string, path: string, headers: Record<string, string
 const as = (t: string) => ({ authorization: `Bearer ${t}` })
 const handOff = (t: string, key: string = crypto.randomUUID(), body: unknown = { sessionId: "acp_session_1", machine: "vm_aaaaaaaaaaaaaaaaaaaa", size: { vcpus: 4, memoryGb: 16, pick: "4 vCPU · 16 GB", reason: "picked from 3 earlier runs" } }) =>
   call("POST", "/v1/handoffs", { ...as(t), "idempotency-key": key }, body)
-const report = (id: string, cred: Record<string, string>, status: string, summary?: string) => call("POST", `/v1/handoffs/${id}/report`, cred, { status, ...(summary === undefined ? {} : { summary }) })
+const report = (id: string, cred: Record<string, string>, status: string, summary?: string, turn = 1) => call("POST", `/v1/handoffs/${id}/report`, cred, { turn, status, ...(summary === undefined ? {} : { summary }) })
+const begin = (id: string, t: string, after: number) => call("POST", `/v1/handoffs/${id}/turns`, as(t), { after })
 
 describe("hand-offs", { timeout: 60_000 }, () => {
   it("create answers the hand-off (starting, size and pick kept) and its machine token; a retry answers the same one; another request under the key conflicts", async () => {
@@ -21,7 +22,7 @@ describe("hand-offs", { timeout: 60_000 }, () => {
     const key = crypto.randomUUID()
     const first = await handOff(t, key)
     expect(first.status).toBe(201)
-    expect(first.body.handoff).toMatchObject({ sessionId: "acp_session_1", machine: "vm_aaaaaaaaaaaaaaaaaaaa", status: "starting", summary: null, version: 1, startedAt: null, finishedAt: null, size: { vcpus: 4, memoryGb: 16, pick: "4 vCPU · 16 GB", reason: "picked from 3 earlier runs" } })
+    expect(first.body.handoff).toMatchObject({ sessionId: "acp_session_1", machine: "vm_aaaaaaaaaaaaaaaaaaaa", turn: 1, state: "open", status: "starting", summary: null, version: 1, startedAt: null, finishedAt: null, size: { vcpus: 4, memoryGb: 16, pick: "4 vCPU · 16 GB", reason: "picked from 3 earlier runs" } })
     expect(first.body.handoff.id).toMatch(/^ho_[0-9a-f]{20}$/)
     expect(first.body.machineToken).toMatch(/^[0-9a-f]{64}$/)
     const again = await handOff(t, key)
@@ -36,7 +37,7 @@ describe("hand-offs", { timeout: 60_000 }, () => {
     expect((await handOff(t, undefined, { sessionId: "s", machine: "m" })).body.handoff.size).toEqual({ vcpus: null, memoryGb: null, pick: null, reason: null })
   })
 
-  it("the machine reports running, needs-you, then done with a summary; the owner's list follows; a finished hand-off refuses more", async () => {
+  it("the machine reports running, needs-you, then done with a summary; the owner's list follows; an ended turn refuses more but a retry of its last report passes", async () => {
     const t = await sessionToken("handoff-report")
     const { body } = await handOff(t)
     const id = body.handoff.id as string
@@ -49,9 +50,12 @@ describe("hand-offs", { timeout: 60_000 }, () => {
     expect(done.body.handoff.startedAt).not.toBeNull()
     expect(done.body.handoff.finishedAt).not.toBeNull()
     const late = await report(id, machine, "failed")
-    expect([late.status, late.body.error.code, late.body.handoff.status]).toEqual([409, "handoff.finished", "done"])
+    expect([late.status, late.body.error.code, late.body.handoff.status]).toEqual([409, "handoff.turn_finished", "done"])
+    const retry = await report(id, machine, "done", "Fixed the flaky test and opened a PR.")
+    expect([retry.status, retry.body.handoff.version]).toEqual([200, done.body.handoff.version])
+    expect((await report(id, machine, "running", undefined, 0)).status).toBe(400)
     const list = await call("GET", "/v1/handoffs", as(t))
-    expect(list.body.handoffs[0]).toMatchObject({ id, sessionId: "acp_session_1", status: "done", summary: "Fixed the flaky test and opened a PR." })
+    expect(list.body.handoffs[0]).toMatchObject({ id, sessionId: "acp_session_1", turn: 1, state: "open", status: "done", summary: "Fixed the flaky test and opened a PR." })
     expect(list.body.nextCursor).toBeNull()
   })
 
@@ -74,7 +78,7 @@ describe("hand-offs", { timeout: 60_000 }, () => {
     expect(tables).toEqual([])
   })
 
-  it("wait answers at once past its version, and wakes on the next change; cancel ends it and the machine learns", async () => {
+  it("wait answers at once past its version, and wakes on the next change; cancel ends the turn and the machine learns", async () => {
     const t = await sessionToken("handoff-wait")
     const { body } = await handOff(t)
     const id = body.handoff.id as string
@@ -88,10 +92,14 @@ describe("hand-offs", { timeout: 60_000 }, () => {
     expect(Date.now() - started).toBeLessThan(10_000)
     expect((await call("GET", `/v1/handoffs/${id}/wait?after=2&timeoutMs=0`, as(t))).body.handoff.version).toBe(2)
     const cancelled = await call("POST", `/v1/handoffs/${id}/cancel`, as(t))
-    expect(cancelled.body.handoff).toMatchObject({ status: "cancelled" })
+    expect(cancelled.body.handoff).toMatchObject({ status: "cancelled", state: "open", turn: 1 })
     expect((await call("POST", `/v1/handoffs/${id}/cancel`, as(t))).body.handoff.status).toBe("cancelled")
     const told = await report(id, machine, "done", "late")
-    expect([told.status, told.body.handoff.status, told.body.handoff.summary]).toEqual([409, "cancelled", null])
+    expect([told.status, told.body.error.code, told.body.handoff.status, told.body.handoff.summary]).toEqual([409, "handoff.turn_finished", "cancelled", null])
+    // An ended turn does not end the wait: it holds until the next change (or its deadline).
+    const held = Date.now()
+    expect((await call("GET", `/v1/handoffs/${id}/wait?after=${cancelled.body.handoff.version}&timeoutMs=300`, as(t))).body.handoff.status).toBe("cancelled")
+    expect(Date.now() - held).toBeGreaterThanOrEqual(250)
   })
 
   it("the list pages newest first", async () => {
@@ -120,7 +128,7 @@ describe("hand-offs", { timeout: 60_000 }, () => {
     await runIn(stub, async (instance, state) => {
       const real = instance.env
       instance.env = { ...real, HANDOFF_INDEX_DO: { idFromName: () => "x", get: () => ({ put: () => new Promise((_r, reject) => (release = reject)) }) } }
-      const report = instance.report({ token: body.machineToken }, "done", "finished while the index was away").catch(() => null)
+      const report = instance.report({ token: body.machineToken }, 1, "done", "finished while the index was away").catch(() => null)
       await new Promise((r) => setTimeout(r, 50))
       expect(await state.storage.getAlarm()).not.toBeNull()
       instance.env = real
@@ -131,6 +139,60 @@ describe("hand-offs", { timeout: 60_000 }, () => {
     await runDurableObjectAlarm(stub as never)
     expect((await call("GET", "/v1/handoffs", as(t))).body.handoffs[0]).toMatchObject({ status: "done", summary: "finished while the index was away" })
     expect(await runIn(stub, async (_i, state) => state.storage.getAlarm())).toBeNull()
+  })
+
+  it("a follow-up is a new turn of the same hand-off: turn 2 reports needs-you, a late turn-1 report changes nothing, the list and wait show turn 2", async () => {
+    const t = await sessionToken("handoff-turns")
+    const { body } = await handOff(t)
+    const id = body.handoff.id as string
+    const machine = { "x-cmux-handoff-token": body.machineToken as string }
+    await report(id, machine, "running")
+    // A turn still going takes steering, not a new turn.
+    expect((await begin(id, t, 1)).body.error.code).toBe("handoff.turn_running")
+    const one = await report(id, machine, "done", "turn one")
+    // A watcher waiting past turn 1's end wakes when the owner opens turn 2.
+    const waiting = call("GET", `/v1/handoffs/${id}/wait?after=${one.body.handoff.version}&timeoutMs=20000`, as(t))
+    await new Promise((r) => setTimeout(r, 100))
+    const two = await begin(id, t, 1)
+    expect(two.body.handoff).toMatchObject({ id, turn: 2, state: "open", status: "starting", summary: null, startedAt: null, finishedAt: null })
+    expect((await waiting).body.handoff).toMatchObject({ turn: 2, status: "starting" })
+    // A repeat answers the same turn; a caller that saw an older turn is refused.
+    expect((await begin(id, t, 1)).body.handoff).toEqual(two.body.handoff)
+    expect((await begin(id, t, 0)).body.error.code).toBe("handoff.turn_conflict")
+    // The machine never opens a turn, and a late or retried turn-1 report cannot touch turn 2.
+    expect((await report(id, machine, "running", undefined, 3)).body.error.code).toBe("handoff.turn_out_of_order")
+    const stale = await report(id, machine, "failed", "late turn one", 1)
+    expect([stale.status, stale.body.error.code, stale.body.handoff.turn, stale.body.handoff.status]).toEqual([409, "handoff.stale", 2, "starting"])
+    expect((await report(id, machine, "running", undefined, 2)).body.handoff).toMatchObject({ turn: 2, status: "running" })
+    const asks = await report(id, machine, "needs-you", undefined, 2)
+    expect(asks.body.handoff).toMatchObject({ turn: 2, status: "needs-you" })
+    expect(asks.body.handoff.version).toBeGreaterThan(two.body.handoff.version)
+    expect((await call("GET", "/v1/handoffs", as(t))).body.handoffs.filter((h: any) => h.sessionId === "acp_session_1")).toEqual([
+      expect.objectContaining({ id, turn: 2, state: "open", status: "needs-you" })
+    ])
+    expect((await call("GET", `/v1/handoffs/${id}/wait?after=0&timeoutMs=0`, as(t))).body.handoff).toMatchObject({ turn: 2, status: "needs-you" })
+  })
+
+  it("close is the one end: it cancels a turn still going, refuses turns and reports after, and ends a wait at once", async () => {
+    const t = await sessionToken("handoff-close")
+    const { body } = await handOff(t)
+    const id = body.handoff.id as string
+    const machine = { "x-cmux-handoff-token": body.machineToken as string }
+    await report(id, machine, "running")
+    const closed = await call("POST", `/v1/handoffs/${id}/close`, as(t))
+    expect(closed.body.handoff).toMatchObject({ state: "closed", status: "cancelled", turn: 1 })
+    expect(closed.body.handoff.finishedAt).not.toBeNull()
+    expect((await call("POST", `/v1/handoffs/${id}/close`, as(t))).body.handoff).toEqual(closed.body.handoff)
+    expect((await begin(id, t, 1)).body.error.code).toBe("handoff.closed")
+    const told = await report(id, machine, "done", "after close")
+    expect([told.status, told.body.error.code, told.body.handoff.state]).toEqual([409, "handoff.closed", "closed"])
+    const started = Date.now()
+    expect((await call("GET", `/v1/handoffs/${id}/wait?after=${closed.body.handoff.version}&timeoutMs=20000`, as(t))).body.handoff.state).toBe("closed")
+    expect(Date.now() - started).toBeLessThan(5_000)
+    expect((await call("GET", "/v1/handoffs", as(t))).body.handoffs[0]).toMatchObject({ id, state: "closed" })
+    const stranger = await sessionToken("handoff-close-stranger")
+    expect((await call("POST", `/v1/handoffs/${id}/close`, as(stranger))).status).toBe(404)
+    expect((await begin(id, stranger, 1)).status).toBe(404)
   })
 
   it("the VM install bound to the hand-off's machine may report; one bound to another machine may not", async () => {
