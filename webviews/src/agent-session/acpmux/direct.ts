@@ -2774,6 +2774,11 @@ export class AcpmuxDirectClient {
             : `peer ${peer} is ${typeof row?.state === "string" ? row.state : "unreachable"}`;
       throw new Error(detail);
     }
+    // A reconnect can settle without changing the session summary, so no
+    // `session_changed` notice is guaranteed to arrive. Take the held copy
+    // over directly once the daemon's doctor says this peer is connected.
+    const copy = this.peerCopy;
+    if (copy?.offline && copy.peer === peer) await this.reattachPeerCopy(copy.sessionId);
     return result;
   }
 

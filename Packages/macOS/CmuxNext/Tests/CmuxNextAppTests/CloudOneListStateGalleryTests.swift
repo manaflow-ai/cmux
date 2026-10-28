@@ -15,7 +15,8 @@ struct CloudOneListStateGalleryTests {
     static func sections(states: [SidebarMachine.Status]) -> [SidebarSection] {
         let cloudSections = states.enumerated().map { index, status in
             let machine = SidebarMachine(id: MachineID("cloud-\(index)"), name: "cloud-\(index + 1)", kind: .cloud, status: status)
-            let workspace = SidebarWorkspace(id: WorkspaceID("cloud-workspace-\(index)"), title: "Cloud workspace \(index + 1)")
+            let workspace = SidebarWorkspace(id: WorkspaceID("cloud-workspace-\(index)"), machineID: machine.id,
+                                             title: "Cloud workspace \(index + 1)")
             return SidebarSection(kind: .machine(machine), nodes: [.workspace(workspace)])
         }
         let localWorkspace = SidebarWorkspace(id: WorkspaceID("local-workspace"), title: "Local workspace")
@@ -59,8 +60,27 @@ struct CloudOneListStateGalleryTests {
         return image
     }
 
+    private static func archive(_ root: URL) async throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
+        process.currentDirectoryURL = root
+        process.arguments = ["cf", "cloud-one-list-state-gallery.tar", "cloud-one-list-state-gallery"]
+        let status = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Int32, any Error>) in
+            process.terminationHandler = { finished in
+                continuation.resume(returning: finished.terminationStatus)
+            }
+            do {
+                try process.run()
+            } catch {
+                process.terminationHandler = nil
+                continuation.resume(throwing: error)
+            }
+        }
+        guard status == 0 else { throw CocoaError(.fileWriteUnknown, userInfo: [NSLocalizedDescriptionKey: "tar exited \(status)"]) }
+    }
+
     @Test(.enabled(if: ProcessInfo.processInfo.environment["CMUX_TEST_REQUIRE_GUI"] == "1"))
-    func renderBeforeAfterGallery() throws {
+    func renderBeforeAfterGallery() async throws {
         let root = AANestedGroupsGalleryTests.packageRoot
         let out = root.appending(path: "cloud-one-list-state-gallery")
         try? FileManager.default.removeItem(at: out)
@@ -72,20 +92,14 @@ struct CloudOneListStateGalleryTests {
         let gap = 16
         let width = before.width + after.width + gap
         let height = max(before.height, after.height)
+        let colorSpace = try #require(CGColorSpace(name: CGColorSpace.sRGB))
         let ctx = try #require(CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
-                                         space: CGColorSpace(name: CGColorSpace.sRGB)!,
-                                         bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+                                         space: colorSpace, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
         ctx.setFillColor(CGColor(gray: 0.05, alpha: 1))
         ctx.fill(CGRect(x: 0, y: 0, width: width, height: height))
         ctx.draw(before, in: CGRect(x: 0, y: 0, width: before.width, height: before.height))
         ctx.draw(after, in: CGRect(x: before.width + gap, y: 0, width: after.width, height: after.height))
         try AAGroupHeaderDensityGalleryTests.write(try #require(ctx.makeImage()), to: out.appending(path: "all.png"))
-        let tar = Process()
-        tar.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
-        tar.currentDirectoryURL = root
-        tar.arguments = ["cf", "cloud-one-list-state-gallery.tar", "cloud-one-list-state-gallery"]
-        try tar.run()
-        tar.waitUntilExit()
-        #expect(tar.terminationStatus == 0)
+        try await Self.archive(root)
     }
 }
