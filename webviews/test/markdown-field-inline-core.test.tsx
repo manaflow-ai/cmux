@@ -186,3 +186,45 @@ test("Backspace and Delete treat an inline atom like a character", async () => {
   await settle();
   expect(handle.current!.inlineIds()).toEqual([]);
 });
+
+/// A clipboard as a browser hands it to copy and paste events: what a copy sets, a paste reads.
+function clipboardData() {
+  const data = new Map<string, string>();
+  return {
+    files: [] as File[],
+    get types() {
+      return [...data.keys()];
+    },
+    clearData: () => data.clear(),
+    setData: (type: string, value: string) => data.set(type, value),
+    getData: (type: string) => data.get(type) ?? "",
+  };
+}
+
+function clipboardEvent(type: "copy" | "paste", data: ReturnType<typeof clipboardData>) {
+  const event = new dom.window.Event(type, { bubbles: true, cancelable: true });
+  Object.defineProperty(event, "clipboardData", { value: data });
+  return event;
+}
+
+test("copying an inline atom and pasting it in the prompt brings a copy of the attachment", async () => {
+  const draft = `before ${inlineToken("one")} after`;
+  const editor = await render(draft, {
+    inlineAttachments: true,
+    isInlineAttachment: () => true,
+    onInlineViews: () => {},
+  });
+  handle.current!.selectAll();
+  const data = clipboardData();
+  editor.dispatchEvent(clipboardEvent("copy", data));
+  // The copy's plain text stays the text as shown, with no token characters in it.
+  expect(data.getData("text/plain")).toBe("before  after");
+  handle.current!.setCaret(handle.current!.value().length);
+  editor.dispatchEvent(clipboardEvent("paste", data));
+  await settle();
+  const ids = handle.current!.inlineIds();
+  expect(ids).toHaveLength(2);
+  expect(ids[0]).toBe("one");
+  expect(ids[1]).toStartWith("one~copy-");
+  expect(handle.current!.value()).toContain(inlineToken(ids[1]!));
+});
