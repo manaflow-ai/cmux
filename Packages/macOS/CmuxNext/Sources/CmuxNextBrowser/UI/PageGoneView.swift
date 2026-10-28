@@ -102,9 +102,10 @@ final class PageGoneView: ChromeFrameView {
     @objc private func reloadAll() { onReloadAll?() }
 
     #if DEBUG || CMUX_BENCH_HOOKS
-    /// `debug.browser.page_status`: the title, the message and the button the sad tab shows.
+    /// `debug.browser.page_status`: the title, the message and the buttons the sad tab shows, three lines
+    /// (the host-kill and child-crash e2e scripts read three); the buttons share the last, " · " between them.
     var debugText: String {
-        let buttons = [reloadButton, reloadAllButton].filter { !$0.isHidden }.map(\.title).joined(separator: "\n")
+        let buttons = [reloadButton, reloadAllButton].filter { !$0.isHidden }.map(\.title).joined(separator: " · ")
         return "\(titleLabel.stringValue)\n\(messageLabel.stringValue)\n\(buttons)"
     }
 

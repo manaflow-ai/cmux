@@ -46,7 +46,11 @@ extension CEFRuntimeHostExitTests {
         defer { wire.close() }
         let shown = [Self.tab(runtime, browser: 1), Self.tab(runtime, browser: 2)]
         let hidden = Self.tab(runtime, browser: 3)
-        for tab in shown + [hidden] { tab.load(Self.page) }
+        // In the routing table, as the panes `CEFRuntime.host(for:)` makes are.
+        for tab in shown + [hidden] {
+            runtime.hosts[tab.host.key] = tab.host
+            tab.load(Self.page)
+        }
         let container = NSView(frame: CGRect(x: 0, y: 0, width: 400, height: 300))
         for tab in shown { tab.host.present(tab, in: container) }
         let (status, area) = Self.statusViews(showing: shown[0])
