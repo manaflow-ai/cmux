@@ -71,6 +71,7 @@ export function WaitingMessagesCard({
           className="cv-waiting__toggle"
           aria-expanded={open}
           aria-controls={bodyId}
+          title={senders.join(", ")}
           onClick={() => show(!open)}
         >
           <span className="cv-waiting__icon">

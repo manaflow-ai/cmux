@@ -101,6 +101,10 @@ export default agentPaneEntry({
       note: "Eleven sessions' messages and one prompt of the person's wait for the running turn: one card with Read after this turn; the composer's queue is the person's one prompt.",
       snapshot: elevenAndMine,
     },
+    "turn-three": {
+      note: "Three sessions' messages wait for the running turn: one card, the whole chat on one screen.",
+      snapshot: chat(running, { isWorking: true, queue: queued.slice(0, 3) }),
+    },
     "turn-open": {
       note: "Play: the queued card opened: every message is its received card, each with its own ⋯ menu.",
       snapshot: elevenAndMine,
