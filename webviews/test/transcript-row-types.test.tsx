@@ -75,8 +75,14 @@ afterAll(() => {
   }
 });
 
-/// The thread's rows as markup, one tag per line, so a changed row reads as a small diff.
-const markup = (node: Element) => node.innerHTML.replace(/></g, ">\n<");
+/// The thread's rows as markup, one tag per line, so a changed row reads as a small diff. React's
+/// `useId` ids count across every root the run made, so each reads as its order in the row (id-1, ...).
+const markup = (node: Element) => {
+  const ids = new Map<string, string>();
+  return node.innerHTML
+    .replace(/></g, ">\n<")
+    .replace(/_r_[0-9a-z]+_/g, (id) => ids.get(id) ?? ids.set(id, `id-${ids.size + 1}`).get(id)!);
+};
 
 /// What the transcript draws for `type`'s rows.
 async function drawn(type: string): Promise<string> {
