@@ -639,7 +639,8 @@ class BaseReds(unittest.TestCase):
             {"id": 7, "name": "cmux-next generated files", "conclusion": "cancelled"},
             {"id": 8, "name": "cmux app scheme compile (Debug)", "conclusion": "failure"},
         ]}
-        self.assertEqual(controller.failing_on_base("b" * 40), {"cmux app scheme compile (Debug)"})
+        controller.gh.gh.return_value = subprocess.CompletedProcess([], 0, "2026-10-19T03:02:59.1Z error: x\n", "")
+        self.assertEqual(controller.failing_on_base("b" * 40), {"cmux app scheme compile (Debug): error error: x"})
         self.assertIn("event=push", controller.gh.runs.call_args.args[1])
 
     def test_a_stack_waits_once_for_the_bases_own_tree_run(self):
@@ -722,7 +723,29 @@ class BaseReds(unittest.TestCase):
         self.assertEqual(set(controller.failed_jobs(2, detail=True)) - base, {"cmux-next swift test"})
         crash = "2026-10-19T03:02:59.1Z error: Exited with unexpected signal code 5\n".replace("Exited", "exited")
         controller.gh.gh.return_value = subprocess.CompletedProcess([], 0, crash, "")
-        self.assertIn("cmux-next swift test: crash signal 5", set(controller.failed_jobs(3, detail=True)) - base)
+        stack = set(controller.failed_jobs(3, detail=True))
+        self.assertIn("cmux-next swift test: the test process crashed (signal 5) (job 8, never a base red)", stack - base)
+        # The same crash on the base excuses nothing: each crash is keyed by its own job.
+        controller.gh.api.return_value = {"jobs": [
+            {"id": 9, "name": "cmux-next swift test", "conclusion": "failure", "steps": steps}]}
+        self.assertEqual(stack - set(controller.failed_jobs(4, detail=True)), stack)
+
+    def test_a_non_test_jobs_crash_signal_still_keys_its_failure(self):
+        controller = self.controller()
+        steps = [{"name": "Build", "conclusion": "failure"}]
+        controller.gh.gh.return_value = subprocess.CompletedProcess(
+            [], 0, "2026-10-19T03:02:59.1Z the test helper died on signal 11\n", "")
+        self.assertIn("cmux app scheme compile (Debug): crash signal 11",
+                      controller.expand_job("cmux app scheme compile (Debug)", 5, {"steps": steps}))
+
+    def test_an_unreadable_log_fails_closed_only_for_a_test_job(self):
+        controller = self.controller()
+        steps = [{"name": "Build", "conclusion": "failure"}]
+        controller.gh.gh.return_value = subprocess.CompletedProcess([], 1, "", "boom")
+        self.assertEqual(controller.expand_job("cmux app scheme compile (Debug)", 5, {"steps": steps}),
+                         {"cmux app scheme compile (Debug)"})
+        self.assertEqual(controller.expand_job("cmux-next swift test", 6, {"steps": steps}),
+                         {"cmux-next swift test: log unreadable (job 6, never a base red)"})
 
     def test_a_probe_stopped_before_its_run_is_found_cancels_it(self):
         controller = self.controller()

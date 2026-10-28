@@ -102,7 +102,9 @@ await requireBrowserLane("agent-pane-transcript-spacing.test.ts", async () => {
     return `http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${CHAT}`;
   };
   const open = async (): Promise<Page> => {
-    const page = await browser!.newPage({ viewport: { width: 900, height: 900 } });
+    // Shorter than the chat, so it opens at its bottom and the last footer's gap to the composer is
+    // the transcript's runway; in a taller page a short chat sits at the top, far over the composer.
+    const page = await browser!.newPage({ viewport: { width: 900, height: 420 } });
     await installPaintedFrames(page);
     await page.goto(url());
     await page.getByText("Meanwhile the PR checks").waitFor();
@@ -222,13 +224,14 @@ await requireBrowserLane("agent-pane-transcript-spacing.test.ts", async () => {
     // A reply's footer starts right under the reply.
     expect(measured.replyToFooterText).toBeGreaterThanOrEqual(0);
     expect(measured.replyToFooterText).toBeLessThanOrEqual(10);
-    // Turns sit a fixed 24px apart: the footer's line to the next prompt.
-    expect(measured.footerToNextPrompt).toBeGreaterThanOrEqual(20);
-    expect(measured.footerToNextPrompt).toBeLessThanOrEqual(28);
+    // Turns sit a fixed 16px apart (--cv-turn-gap, tightened from 24px in 4ae4a48893cf): the
+    // footer's line to the next prompt.
+    expect(measured.footerToNextPrompt).toBeGreaterThanOrEqual(12);
+    expect(measured.footerToNextPrompt).toBeLessThanOrEqual(20);
     // The last footer uses that same turn gap before the floating composer; there is no extra
     // runway under every transcript.
-    expect(measured.lastFooterToComposer).toBeGreaterThanOrEqual(20);
-    expect(measured.lastFooterToComposer).toBeLessThanOrEqual(28);
+    expect(measured.lastFooterToComposer).toBeGreaterThanOrEqual(12);
+    expect(measured.lastFooterToComposer).toBeLessThanOrEqual(20);
     await page.close();
   });
 });

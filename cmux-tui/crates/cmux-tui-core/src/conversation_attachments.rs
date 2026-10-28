@@ -51,12 +51,10 @@ const UPLOAD_TTL: Duration = Duration::from_secs(15 * 60);
 const UNREFERENCED_GRACE_MS: u64 = 24 * 3_600_000;
 /// Records swept per upload begin (bounded work on the request path).
 const SWEEP_BATCH: i64 = 64;
-/// Most bytes the store keeps across every conversation, uploads in flight
-/// included (decimal, like the cloud owner's per-user stored-bytes quota).
-/// When a new upload does not fit, the oldest records no message references
-/// go first; when only referenced bytes are left the upload is refused with
-/// `storage_full`.
-pub(crate) const DEFAULT_STORAGE_CAP: u64 = 10_000_000_000;
+/// Advisory storage budget across conversations, including uploads in flight.
+/// Exceeding it warns but never refuses an original or deletes fresh/live data.
+/// Unreferenced records still expire through the normal grace-period sweep.
+pub(crate) const DEFAULT_STORAGE_BUDGET: u64 = 10_000_000_000;
 
 /// An attachment command the owner refused. The control socket reports it
 /// with `error_code` [`AttachmentRejected::CODE`] and the reason as the text.
@@ -215,8 +213,8 @@ struct Upload {
 pub(crate) struct Attachments {
     blobs: Blobs,
     uploads: HashMap<String, Upload>,
-    /// Total bytes the store may hold (`DEFAULT_STORAGE_CAP`).
-    storage_cap: u64,
+    /// Advisory total-byte threshold (`DEFAULT_STORAGE_BUDGET`).
+    storage_budget: u64,
     /// Download links by token (`ws-attachments-v1`, links.rs).
     links: HashMap<String, links::Link>,
     /// Signed cloud download URLs by conversation, hash and variant (cloud.rs).
@@ -245,7 +243,7 @@ impl Attachments {
         Ok(Self {
             blobs,
             uploads: HashMap::new(),
-            storage_cap: DEFAULT_STORAGE_CAP,
+            storage_budget: DEFAULT_STORAGE_BUDGET,
             links: HashMap::new(),
             cloud_urls: HashMap::new(),
         })
@@ -654,8 +652,8 @@ impl ConversationStore {
         if self.attachments.uploads.len() >= MAX_UPLOADS {
             return Err(refused("too_many_uploads"));
         }
-        let needed = pieces.iter().map(|(_, _, byte_count)| byte_count).sum();
-        self.make_room(needed)?;
+        let needed = pieces.iter().fold(0_u64, |sum, (_, _, bytes)| sum.saturating_add(*bytes));
+        self.warn_storage_budget(needed)?;
         let id = self.open_upload(client, actor, conversation, record, pieces, None)?;
         let needs = self.attachments.uploads[&id].pieces.iter().map(|piece| piece.piece).collect();
         Ok(BeginReply { upload: Some(id), needs, stored: None })
@@ -945,31 +943,20 @@ impl ConversationStore {
             // A cloud upload's bytes leave at its commit; they never take local room.
             .filter(|upload| upload.cloud.is_none())
             .flat_map(|upload| upload.pieces.iter().map(|piece| piece.byte_count))
-            .sum();
-        Ok(u64::try_from(stored).unwrap_or(0) + in_flight)
+            .fold(0_u64, u64::saturating_add);
+        Ok(u64::try_from(stored).unwrap_or(0).saturating_add(in_flight))
     }
 
-    /// Room for `needed` more bytes under the cap: evicts the oldest records
-    /// no message references (an upload never sent), one at a time, and
-    /// refuses with `storage_full` when only referenced bytes are left.
-    fn make_room(&mut self, needed: u64) -> anyhow::Result<()> {
-        while self.used_bytes()?.saturating_add(needed) > self.attachments.storage_cap {
-            let oldest: Option<(String, String, Option<String>)> = self
-                .connection
-                .query_row(
-                    "SELECT conversation, hash, derived_hash FROM attachment_record AS record
-                     WHERE NOT EXISTS (
-                       SELECT 1 FROM attachment_ref AS ref
-                       WHERE ref.conversation = record.conversation AND ref.hash = record.hash)
-                     ORDER BY created_at_ms, conversation, hash LIMIT 1",
-                    [],
-                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-                )
-                .optional()?;
-            let Some((conversation, hash, derived)) = oldest else {
-                return Err(refused("storage_full"));
-            };
-            self.drop_record(&conversation, &hash, derived)?;
+    /// Warn after the normal grace-period sweep. A local disk budget is not a
+    /// file-size limit, and a fresh unsent attachment may still be in a composer.
+    /// Filesystem write/sync failures remain errors on the upload that encounters them.
+    fn warn_storage_budget(&self, needed: u64) -> anyhow::Result<()> {
+        let projected = self.used_bytes()?.saturating_add(needed);
+        if projected > self.attachments.storage_budget {
+            eprintln!(
+                "cmux-tui: attachment storage exceeds advisory budget ({} bytes, budget {}); retaining live and recent attachments",
+                projected, self.attachments.storage_budget
+            );
         }
         Ok(())
     }
@@ -983,3 +970,7 @@ impl Attachments {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "conversation_attachment_budget_tests.rs"]
+mod budget_tests;

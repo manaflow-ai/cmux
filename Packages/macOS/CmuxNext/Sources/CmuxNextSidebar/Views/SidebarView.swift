@@ -76,6 +76,8 @@ public final class SidebarView: NSView {
     private(set) var chromeHover: PointerHover?
     /// Bands minimal mode hides right now (the fade's target, R54).
     var minimalHiddenBands: (top: Bool, bottom: Bool) = (false, false)
+    /// The hover chrome's last fade target; nil until the first reveal pass sets every piece.
+    var appliedChromeReveal: SidebarChromeReveal?
     var accessories: [SidebarAccessorySlot: NSView] = [:]
     let footer = NSView()
     /// Edit mode's Add Items and Done (`SidebarView+EditItems`); nil out of edit mode.
@@ -87,9 +89,10 @@ public final class SidebarView: NSView {
     public var spacesPosition: SpacesPosition = .bottom {
         didSet { if spacesPosition != oldValue { needsLayout = true } }
     }
-    /// `sidebar.spacesVisibility` (cx-5k3r): on hover the strip fades with the other hover chrome.
+    /// `sidebar.spacesVisibility` (cx-5k3r): Always keeps the strip shown with controls on hover too
+    /// (``SidebarChromeReveal``); On Hover lets it fade with the other controls.
     public var spacesVisibility: SpacesVisibilityMode = .hover {
-        didSet { if spacesVisibility != oldValue { profileBar.alphaValue = spacesAlpha(revealed: isChromeRevealed) } }
+        didSet { if spacesVisibility != oldValue { setChromeRevealed(isChromeRevealed) } }
     }
     var observation: Task<Void, Never>?
     private var clipObservers: [any NSObjectProtocol] = []
@@ -221,7 +224,7 @@ public final class SidebarView: NSView {
 
     private func buildHierarchy() {
         newButton.onPress = { [weak self] in self?.model.send(.newWorkspace(machine: nil, group: nil)) }; newButton.menuProvider = { [weak self] in self?.list.contextMenuProvider?(.background) }
-        newButton.alphaValue = 0
+        newButton.alphaValue = chromeReveal(revealed: false).newButton
         addSubview(newButton)
 
         scrollView.drawsBackground = false

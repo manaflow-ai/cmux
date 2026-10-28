@@ -296,8 +296,63 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       props: baseProps,
     },
     "folder-menu": {
-      note: "The folder popover: a search field over the recent projects (paths on hover), then Add project and Choose folder….",
+      note: "Project actions stay directly below search, above the recent projects (paths on hover).",
       props: baseProps,
+      play: openFolder,
+    },
+    "folder-pinned-search": {
+      note: "Typing a project keeps its row active while the actions stay pinned above it.",
+      props: {
+        ...baseProps,
+        onProject: (cwd) => {
+          document.documentElement.dataset.galleryProjectPicked = cwd;
+        },
+        onBrowseProject: () => {
+          document.documentElement.dataset.galleryProjectAction = "browse";
+        },
+        onNoProject: () => {
+          document.documentElement.dataset.galleryProjectAction = "none";
+        },
+      },
+      play: openFolder,
+    },
+    "folder-short-note": {
+      note: "A short pane with a private-folder explanation keeps project rows visible.",
+      props: {
+        ...repoProps,
+        summary: { ...repoProps.summary, cwd: "" },
+        folderNote: "New chats in this workspace start in a private folder.",
+      },
+      play: openFolder,
+    },
+    "folder-short-note-de": {
+      note: "A two-line German private-folder explanation in a short pane.",
+      props: {
+        ...repoProps,
+        summary: { ...repoProps.summary, cwd: "" },
+        folderNote: "Neue Chats in diesem Arbeitsbereich starten in einem privaten Ordner.",
+      },
+      play: openFolder,
+    },
+    "folder-short-note-fr": {
+      note: "A two-line French private-folder explanation in a short pane.",
+      props: {
+        ...repoProps,
+        summary: { ...repoProps.summary, cwd: "" },
+        folderNote: "Les nouvelles discussions de cet espace de travail démarrent dans un dossier privé.",
+      },
+      play: openFolder,
+    },
+    "folder-long-list": {
+      note: "Project actions stay below search while a long folder list scrolls; the thumb stays inside the right edge.",
+      props: {
+        ...baseProps,
+        projectChoices: Array.from({ length: 40 }, (_, index) => ({
+          cwd: `/demo/review-${index + 1}`,
+          label: `review-${index + 1}`,
+        })),
+        onNoProject: () => undefined,
+      },
       play: openFolder,
     },
     "folder-favicons": {
