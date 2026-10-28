@@ -3,5 +3,24 @@
   "maxP95Ms": 50,
   "maxRegressionRatio": 0.15,
   "maxRegressionDeltaMs": 5,
-  "topN": 10
+  "topN": 10,
+  "rawTraceRequired": true,
+  "expectedCases": [
+    "chromium/chat flows/chat.picker.model.pointer",
+    "chromium/chat flows/chat.picker.model.keyboard",
+    "chromium/chat flows/chat.picker.access.open",
+    "chromium/chat flows/chat.menu.add.open",
+    "chromium/chat flows/chat.menu.slash.open",
+    "chromium/chat flows/chat.menu.mention.open",
+    "chromium/chat flows/chat.type.character",
+    "chromium/chat flows/chat.send",
+    "chromium/chat flows/chat.session-info.open",
+    "chromium/chat flows/chat.session-info.close",
+    "chromium/chat flows/chat.session-info.command",
+    "chromium/chat flows/chat.new-tab.open",
+    "chromium/chat 3000 paged/chat.scroll.3000.paged",
+    "chromium/chat 3000 resident/chat.scroll.3000.resident",
+    "chromium/chat rail/chat.rail.drag",
+    "chromium/chat rail/chat.rail.drag.cadence"
+  ]
 }

@@ -20,6 +20,7 @@ import {
 } from "../../test/latency/measure";
 import { installLatencyProbe } from "../../test/latency/probe";
 import { installPaintedFrames } from "../../test/support/paintedFrames";
+import { startRawTrace } from "./trace";
 
 const webviews = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const ENGINES: Array<[string, BrowserType]> = [
@@ -43,6 +44,7 @@ export function parseOptions(args: string[]) {
         "--idle-ms",
         "--base",
         "--require",
+        "--trace-dir",
       ].includes(args[i]) &&
       args[i + 1] &&
       !args[i + 1].startsWith("--")
@@ -82,6 +84,7 @@ export function parseOptions(args: string[]) {
     engineFilter: values.get("--engine"),
     base: values.get("--base"),
     jsonOut: values.get("--json") ?? (ci ? path.join(webviews, "latency-results.json") : undefined),
+    traceDir: values.get("--trace-dir"),
   };
 }
 
@@ -306,13 +309,28 @@ export async function main(args = process.argv.slice(2)): Promise<number> {
               await page.goto(`${server.base}${spec.path}`);
               await page.waitForFunction(spec.ready, undefined, { timeout: 30_000 });
               await page.evaluate(() => document.fonts.ready);
-              const result = await measureAction(
-                page,
-                { page: spec.name, engine: engineName },
-                action,
-                options.runs,
-                metrics,
-              );
+              const traceSession =
+                options.traceDir && engineName === "chromium" ? await context.newCDPSession(page) : undefined;
+              const stopTrace = traceSession
+                ? await startRawTrace(
+                    traceSession,
+                    options.traceDir!,
+                    `${engineName}/${spec.name}/${action.id ?? action.name}`,
+                  )
+                : undefined;
+              let result: ActionResult;
+              try {
+                result = await measureAction(
+                  page,
+                  { page: spec.name, engine: engineName },
+                  action,
+                  options.runs,
+                  metrics,
+                );
+                if (stopTrace) result.rawTrace = await stopTrace();
+              } finally {
+                await traceSession?.detach().catch(() => undefined);
+              }
               if (!page.isClosed()) result.idle = await sampleIdle(page, options.idleMs, metrics);
               else {
                 result.unsupportedReasons.cpu = "adapter failure closed the page before idle CPU sampling";

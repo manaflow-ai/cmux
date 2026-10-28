@@ -1,14 +1,9 @@
 name: cmux-next web performance
 
-# Mandatory Linux Chromium evidence for every feat-cmux-next pull request. The
-# harness is production-only; this gate compares the PR head with a baseline
-# captured at the exact base SHA. No native perf cron or GUI benchmark is used.
+# Staged policy: enable the pull_request trigger only after trusted validator,
+# budget, and an actual ready baseline have landed on feat-cmux-next. Pending
+# baselines still fail validation. See webviews/test/latency/ACTIVATION.md.
 on:
-  pull_request:
-    branches: [feat-cmux-next]
-    paths:
-      - webviews/**
-      - .github/workflows/cmux-next-web-perf.yml
   workflow_dispatch:
     inputs:
       head_sha:
@@ -16,7 +11,7 @@ on:
         required: false
         type: string
       base_sha:
-        description: "full base SHA paired with the checked-in baseline"
+        description: "full current target base SHA containing trusted policy"
         required: false
         type: string
 
@@ -111,7 +106,8 @@ jobs:
           set +e
           # Explicit --no-fail delegates the product budget (50 ms p95) to the
           # trusted validator; harness evidence errors remain fatal under --ci.
-          bun scripts/latency/run.ts --ci --no-fail --engine chromium --runs 10 --base "$BASE_SHA" \
+          bun scripts/latency/run.ts --ci --no-fail --engine chromium --page chat --runs 10 --base "$BASE_SHA" \
+            --trace-dir "$RUNNER_TEMP/web-perf-traces" \
             --json "$RUNNER_TEMP/web-perf-results.json" --require longTasks,reactCommits,cpu
           status=$?
           echo "harness_status=$status" >> "$GITHUB_OUTPUT"
@@ -129,13 +125,15 @@ jobs:
 
       - name: Validate evidence and write PR report
         if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           bun "$RUNNER_TEMP/web-perf-validator/validate.ts" \
             --results "$RUNNER_TEMP/web-perf-results.json" \
             --baseline "$RUNNER_TEMP/web-perf-baseline.json" \
             --budget "$RUNNER_TEMP/web-perf-budget.json" \
-            --expected-head "$HEAD_SHA" --pr "$PR_NUMBER" \
+            --expected-head "$HEAD_SHA" --expected-base "$BASE_SHA" --pr "$PR_NUMBER" \
             --report "$RUNNER_TEMP/web-perf-report.md"
 
       - name: Upload exact-head evidence and report
@@ -149,6 +147,7 @@ jobs:
             ${{ runner.temp }}/web-perf-budget.json
             ${{ runner.temp }}/web-perf-validator
             ${{ runner.temp }}/web-perf-report.md
+            ${{ runner.temp }}/web-perf-traces
           if-no-files-found: warn
           retention-days: 30
 

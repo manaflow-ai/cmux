@@ -8,7 +8,8 @@ export function formatReport(result: ValidationResult, pullRequest?: string): st
   const title = pullRequest ? `Web UI performance gate (PR #${pullRequest})` : "Web UI performance gate";
   const lines = [`## ${title}`, ""];
   if (result.head) lines.push(`- head: \`${result.head}\``);
-  if (result.base) lines.push(`- baseline head: \`${result.base}\``);
+  if (result.base) lines.push(`- PR base head: \`${result.base}\``);
+  if (result.baselineHead) lines.push(`- measured baseline head: \`${result.baselineHead}\``);
   lines.push(`- verdict: **${result.ok ? "pass" : "fail"}**`, "");
 
   if (result.rows.length) {

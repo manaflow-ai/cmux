@@ -16,6 +16,8 @@ export interface BudgetConfig {
   maxRegressionRatio: number;
   maxRegressionDeltaMs: number;
   topN: number;
+  expectedCases: string[];
+  rawTraceRequired?: boolean;
 }
 
 export interface BaselineResult {
@@ -29,7 +31,14 @@ export interface BaselineDocument {
   schemaVersion: 1;
   status: "pending" | "ready";
   reason?: string;
-  source: { repository: string; head: string; base?: string; capturedAt?: string } | null;
+  source: {
+    repository: string;
+    head: string;
+    base?: string;
+    capturedAt?: string;
+    artifactUrl?: string;
+    evidenceSha256?: string;
+  } | null;
   expectedCases?: string[];
   results: Record<string, BaselineResult>;
 }
@@ -69,6 +78,7 @@ export interface ValidationResult {
   rows: ReportRow[];
   head: string | null;
   base: string | null;
+  baselineHead: string | null;
 }
 
 const SHA = /^[0-9a-f]{40}$/;
@@ -91,7 +101,7 @@ function validDistribution(value: unknown): value is { p50: number; p95: number;
 }
 
 function validFixingPr(value: unknown): value is string {
-  return typeof value === "string" && /(?:https:\/\/github\.com\/[^/]+\/[^/]+\/pull\/\d+|#\d+)/.test(value);
+  return typeof value === "string" && /^(?:https:\/\/github\.com\/manaflow-ai\/cmux\/pull\/|#)[1-9]\d*$/.test(value);
 }
 
 function validateBudget(value: unknown, errors: string[]): value is BudgetConfig {
@@ -106,6 +116,13 @@ function validateBudget(value: unknown, errors: string[]): value is BudgetConfig
   if (isFiniteNumber(value.topN) && (!Number.isInteger(value.topN) || value.topN < 1))
     errors.push("budget.topN must be a positive integer");
   if (isFiniteNumber(value.maxP95Ms) && value.maxP95Ms <= 0) errors.push("budget.maxP95Ms must be positive");
+  if (
+    !Array.isArray(value.expectedCases) ||
+    !value.expectedCases.length ||
+    value.expectedCases.some((id) => typeof id !== "string" || !id.startsWith("chromium/")) ||
+    new Set(value.expectedCases).size !== value.expectedCases.length
+  )
+    errors.push("budget.expectedCases must contain unique Chromium case IDs");
   return errors.length === before;
 }
 
@@ -133,7 +150,11 @@ function validateBaseline(value: unknown, errors: string[]): value is BaselineDo
   return errors.length === 0;
 }
 
-function parseEvidence(value: unknown, expectedHead: string | undefined, errors: string[]): EvidenceDocument | null {
+function parseEvidence(
+  value: unknown,
+  options: { expectedHead?: string; expectedBase?: string },
+  errors: string[],
+): EvidenceDocument | null {
   if (!isRecord(value)) {
     errors.push("results must be a JSON object");
     return null;
@@ -145,12 +166,26 @@ function parseEvidence(value: unknown, expectedHead: string | undefined, errors:
     errors.push("source.head must be a full commit SHA");
   if (!source || typeof source.base !== "string" || !SHA.test(source.base))
     errors.push("source.base must be a full commit SHA");
-  if (expectedHead && source?.head !== expectedHead)
-    errors.push(`results head ${source?.head ?? "missing"} does not match expected ${expectedHead}`);
+  if (
+    !source ||
+    !["git@github.com:manaflow-ai/cmux.git", "https://github.com/manaflow-ai/cmux.git"].includes(
+      source.repository ?? "",
+    )
+  )
+    errors.push("source.repository must identify manaflow-ai/cmux");
+  if (options.expectedHead && source?.head !== options.expectedHead)
+    errors.push(`results head ${source?.head ?? "missing"} does not match expected ${options.expectedHead}`);
+  if (options.expectedBase && source?.base !== options.expectedBase)
+    errors.push(`results base ${source?.base ?? "missing"} does not match expected ${options.expectedBase}`);
   if (source?.mode !== "production") errors.push("results must be production mode evidence");
   if (source?.dirty !== false) errors.push("results source.dirty must be false");
   if (source?.runner?.platform !== "linux") errors.push("results runner.platform must be linux");
-  if (!source?.browsers?.length || source.browsers.some((browser) => browser.engine !== "chromium"))
+  if (
+    source?.browsers?.length !== 1 ||
+    source.browsers.some(
+      (browser) => browser.engine !== "chromium" || typeof browser.version !== "string" || !browser.version.trim(),
+    )
+  )
     errors.push("results must contain only Chromium browser evidence");
   if (!Array.isArray(evidence.expectedCases) || evidence.expectedCases.length === 0)
     errors.push("expectedCases is empty or missing");
@@ -163,7 +198,7 @@ function parseEvidence(value: unknown, expectedHead: string | undefined, errors:
   return evidence;
 }
 
-function inspectResult(result: Record<string, unknown>, errors: string[]): boolean {
+function inspectResult(result: Record<string, unknown>, runs: number, errors: string[]): boolean {
   const id = typeof result.id === "string" ? result.id : "<missing id>";
   let valid = true;
   const metricTypes = new Set(["target_painted", "frame_time", "scroll_frame_time", "drag_target_painted"]);
@@ -176,8 +211,95 @@ function inspectResult(result: Record<string, unknown>, errors: string[]): boole
     errors.push(`${id}: invalid latencyMs distribution`);
     valid = false;
   }
-  if (!Array.isArray(result.samples) || result.samples.length === 0) {
-    errors.push(`${id}: samples are empty`);
+  const samples = Array.isArray(result.samples) ? result.samples : [];
+  const adapters = Array.isArray(result.adapterRuns) ? result.adapterRuns : [];
+  const numbers = (value: unknown): value is number[] =>
+    Array.isArray(value) && value.every((n) => isFiniteNumber(n) && n >= 0);
+  const commits = (value: unknown): value is number => isFiniteNumber(value) && Number.isInteger(value) && value >= 0;
+  const values: number[] = [];
+  const rawTasks: number[] = [];
+  let rawCommits = 0;
+  if ((samples.length ? samples.length : adapters.length) !== runs || (samples.length && adapters.length)) {
+    errors.push(`${id}: expected ${runs} raw samples or adapter runs`);
+    valid = false;
+  }
+  for (const sample of samples) {
+    if (
+      !isRecord(sample) ||
+      !isFiniteNumber(sample.work) ||
+      sample.work < 0 ||
+      !isFiniteNumber(sample.paint) ||
+      sample.paint < sample.work ||
+      !numbers(sample.frameGaps) ||
+      !numbers(sample.longTasks) ||
+      !commits(sample.reactCommits) ||
+      !isRecord(sample.instrumentation) ||
+      sample.instrumentation.longTasks !== true
+    ) {
+      errors.push(`${id}: invalid or uninstrumented raw sample`);
+      valid = false;
+      continue;
+    }
+    values.push(
+      ...(result.metricType === "frame_time" || result.metricType === "scroll_frame_time"
+        ? sample.frameGaps
+        : [sample.paint]),
+    );
+    rawTasks.push(...sample.longTasks);
+    rawCommits += sample.reactCommits;
+  }
+  for (const run of adapters) {
+    if (
+      !isRecord(run) ||
+      run.status !== "complete" ||
+      !Array.isArray(run.observations) ||
+      !run.observations.some((entry) => isRecord(entry) && entry.status === "painted") ||
+      !numbers(run.longTasks) ||
+      !commits(run.reactCommits) ||
+      !numbers(run.frameGaps)
+    ) {
+      errors.push(`${id}: incomplete or uninstrumented adapter run`);
+      valid = false;
+      continue;
+    }
+    if (result.metricType === "frame_time" || result.metricType === "scroll_frame_time") values.push(...run.frameGaps);
+    rawTasks.push(...run.longTasks);
+    rawCommits += run.reactCommits;
+    for (const entry of run.observations) {
+      if (
+        !isRecord(entry) ||
+        (entry.status !== "painted" && entry.status !== "superseded") ||
+        (entry.status === "superseded" && entry.latencyMs !== null) ||
+        (entry.status === "painted" &&
+          (!isFiniteNumber(entry.latencyMs) ||
+            entry.latencyMs < 0 ||
+            !isFiniteNumber(entry.inputAt) ||
+            !isFiniteNumber(entry.targetPaintAt) ||
+            Math.abs(entry.targetPaintAt - entry.inputAt - entry.latencyMs) > 0.1))
+      ) {
+        errors.push(`${id}: adapter observation lacks causal paint timestamps`);
+        valid = false;
+      } else if (
+        entry.status === "painted" &&
+        result.metricType !== "frame_time" &&
+        result.metricType !== "scroll_frame_time"
+      )
+        values.push(entry.latencyMs as number);
+    }
+  }
+  values.sort((a, b) => a - b);
+  const quantile = (q: number) => {
+    const i = (values.length - 1) * q;
+    return values[Math.floor(i)] + (values[Math.ceil(i)] - values[Math.floor(i)]) * (i - Math.floor(i));
+  };
+  if (
+    !values.length ||
+    !validDistribution(result.latencyMs) ||
+    Math.abs(result.latencyMs.p50 - quantile(0.5)) > 0.000001 ||
+    Math.abs(result.latencyMs.p95 - quantile(0.95)) > 0.000001 ||
+    Math.abs(result.latencyMs.max - values.at(-1)!) > 0.000001
+  ) {
+    errors.push(`${id}: latency distribution does not match raw observations`);
     valid = false;
   }
   if (!Array.isArray(result.errors) || result.errors.length)
@@ -198,30 +320,96 @@ function inspectResult(result: Record<string, unknown>, errors: string[]): boole
     errors.push(`${id}: required reactCommits instrumentation is missing or invalid`);
     valid = false;
   }
+  if (
+    isRecord(longTasks) &&
+    (longTasks.count !== rawTasks.length ||
+      longTasks.totalMs !== rawTasks.reduce((a, b) => a + b, 0) ||
+      longTasks.maxMs !== Math.max(0, ...rawTasks))
+  ) {
+    errors.push(`${id}: longTasks summary does not match raw observer entries`);
+    valid = false;
+  }
+  if (result.reactCommits !== rawCommits) {
+    errors.push(`${id}: reactCommits does not match raw Profiler deltas`);
+    valid = false;
+  }
   const idle = result.idle;
-  if (!isRecord(idle) || !isFiniteNumber(idle.cpuDurationMs) || idle.cpuDurationMs < 0) {
+  if (
+    !isRecord(idle) ||
+    !isFiniteNumber(idle.cpuDurationMs) ||
+    idle.cpuDurationMs < 0 ||
+    !isFiniteNumber(idle.sampleDurationMs) ||
+    idle.sampleDurationMs <= 0 ||
+    typeof idle.dataSource !== "string" ||
+    !idle.dataSource.includes("ThreadTime")
+  ) {
     errors.push(`${id}: required idle.cpuDurationMs instrumentation is missing or invalid`);
     valid = false;
   }
   if (
     isRecord(idle) &&
     idle.wakeups === null &&
-    (!isRecord(result.unsupportedReasons) || typeof result.unsupportedReasons.wakeups !== "string")
+    (!isRecord(idle.unsupportedReasons) ||
+      typeof idle.unsupportedReasons.wakeups !== "string" ||
+      !idle.unsupportedReasons.wakeups.trim())
   )
     errors.push(`${id}: null wakeups must include an explicit unsupported reason`);
   if (!isRecord(result.framesSummary)) errors.push(`${id}: framesSummary is missing`);
   return valid;
 }
 
+/** Bootstrap uses the same capture checks while the baseline is still pending. */
+export function validateCapture(
+  evidence: unknown,
+  budget: unknown,
+  options: { expectedHead?: string; expectedBase?: string } = {},
+): string[] {
+  const errors: string[] = [];
+  const parsed = parseEvidence(evidence, options, errors);
+  if (
+    !validateBudget(budget, errors) ||
+    !parsed ||
+    !Array.isArray(parsed.results) ||
+    !Array.isArray(parsed.expectedCases)
+  )
+    return errors;
+  const expected = new Set(budget.expectedCases);
+  if (parsed.expectedCases.length !== expected.size || parsed.expectedCases.some((id) => !expected.has(id)))
+    errors.push("results expectedCases does not match trusted budget.expectedCases");
+  const seen = new Set<string>();
+  for (const result of parsed.results) {
+    if (!isRecord(result) || typeof result.id !== "string") {
+      errors.push("result is missing a stable id");
+      continue;
+    }
+    if (seen.has(result.id)) errors.push(`duplicate result: ${result.id}`);
+    seen.add(result.id);
+    if (!expected.has(result.id)) errors.push(`unexpected result: ${result.id}`);
+    inspectResult(result, parsed.runs ?? 0, errors);
+    if (
+      budget.rawTraceRequired &&
+      (!isRecord(result.rawTrace) ||
+        typeof result.rawTrace.path !== "string" ||
+        !isFiniteNumber(result.rawTrace.bytes) ||
+        result.rawTrace.bytes <= 0 ||
+        typeof result.rawTrace.sha256 !== "string" ||
+        !/^[0-9a-f]{64}$/.test(result.rawTrace.sha256))
+    )
+      errors.push(`${result.id}: raw Chromium trace artifact is missing`);
+  }
+  for (const id of expected) if (!seen.has(id)) errors.push(`missing result: ${id}`);
+  return errors;
+}
+
 export function validateEvidence(
   evidence: unknown,
   baseline: unknown,
   budget: unknown,
-  options: { expectedHead?: string } = {},
+  options: { expectedHead?: string; expectedBase?: string; verifiedOpenPrs?: number[] } = {},
 ): ValidationResult {
-  const errors: string[] = [];
+  const errors: string[] = validateCapture(evidence, budget, options);
   const warnings: string[] = [];
-  const parsed = parseEvidence(evidence, options.expectedHead, errors);
+  const parsed = parseEvidence(evidence, options, []);
   const baselineErrors: string[] = [];
   const baselineShapeValid = validateBaseline(baseline, baselineErrors);
   errors.push(...baselineErrors);
@@ -251,7 +439,7 @@ export function validateEvidence(
         rows.push({ id, p50: null, p95: null, max: null, baselineP95: null, allowedP95: null, status: "missing" });
         continue;
       }
-      const valid = inspectResult(result, errors);
+      const valid = inspectResult(result, parsed.runs ?? 0, []);
       const distribution = validDistribution(result.latencyMs) ? result.latencyMs : null;
       const prior = baselineDoc?.results[id];
       if (!prior) {
@@ -271,6 +459,8 @@ export function validateEvidence(
         ? prior.p95 * (1 + budgetDoc.maxRegressionRatio) + budgetDoc.maxRegressionDeltaMs
         : null;
       const fixingPr = prior.fixingPr;
+      if (fixingPr && !options.verifiedOpenPrs?.includes(Number(fixingPr.match(/\d+$/)?.[0])))
+        errors.push(`${id}: fixing PR has not been verified open in manaflow-ai/cmux`);
       if (distribution && allowedP95 !== null && distribution.p95 > allowedP95 && !fixingPr)
         errors.push(
           `${id}: p95 ${distribution.p95.toFixed(1)}ms exceeds regression allowance ${allowedP95.toFixed(1)}ms`,
@@ -297,10 +487,6 @@ export function validateEvidence(
                 : "pass",
       });
     }
-    if (baselineDoc && parsed.source?.base !== baselineDoc.source?.head)
-      errors.push(
-        `baseline head ${baselineDoc.source?.head ?? "missing"} does not match results source.base ${parsed.source?.base ?? "missing"}`,
-      );
     if (baselineDoc) {
       const expected = new Set(parsed.expectedCases);
       for (const id of Object.keys(baselineDoc.results))
@@ -314,8 +500,6 @@ export function validateEvidence(
             `${row.id}: p95 ${row.p95.toFixed(1)}ms exceeds ${budgetDoc.maxP95Ms.toFixed(1)}ms without an open fixing PR`,
           );
       }
-      if (rows.some((row) => row.fixingPr))
-        warnings.push("A fixing PR link is an owner-supplied exception; verify that it remains open.");
     }
   }
   return {
@@ -325,6 +509,7 @@ export function validateEvidence(
     rows: rows.sort((a, b) => (b.p95 ?? -1) - (a.p95 ?? -1)),
     head,
     base,
+    baselineHead: baselineDoc?.source?.head ?? null,
   };
 }
 
@@ -358,6 +543,7 @@ export async function main(args = process.argv.slice(2)): Promise<number> {
       rows: [],
       head: null,
       base: null,
+      baselineHead: null,
     };
     const report = formatReport(result, option(args, "--pr"));
     if (reportPath) fs.writeFileSync(reportPath, report);
@@ -376,7 +562,44 @@ export async function main(args = process.argv.slice(2)): Promise<number> {
     budget = {};
     console.warn(String(error));
   }
-  const result = validateEvidence(evidence, baseline, budget, { expectedHead: option(args, "--expected-head") });
+  const verifiedOpenPrs: number[] = [];
+  if (isRecord(baseline) && isRecord(baseline.results)) {
+    const requested = new Set(
+      Object.values(baseline.results).flatMap((row) =>
+        isRecord(row) && validFixingPr(row.fixingPr) ? [Number(row.fixingPr.match(/\d+$/)![0])] : [],
+      ),
+    );
+    for (const number of requested) {
+      try {
+        const response = await fetch(`https://api.github.com/repos/manaflow-ai/cmux/pulls/${number}`, {
+          headers: {
+            Accept: "application/vnd.github+json",
+            ...(process.env.GH_TOKEN ? { Authorization: `Bearer ${process.env.GH_TOKEN}` } : {}),
+          },
+          signal: AbortSignal.timeout(10_000),
+        });
+        const pr = (await response.json()) as {
+          state?: string;
+          merged_at?: string | null;
+          base?: { repo?: { full_name?: string } };
+        };
+        if (
+          response.ok &&
+          pr.state === "open" &&
+          pr.merged_at === null &&
+          pr.base?.repo?.full_name === "manaflow-ai/cmux"
+        )
+          verifiedOpenPrs.push(number);
+      } catch {
+        /* An unreadable PR remains unverified and fails closed. */
+      }
+    }
+  }
+  const result = validateEvidence(evidence, baseline, budget, {
+    expectedHead: option(args, "--expected-head"),
+    expectedBase: option(args, "--expected-base"),
+    verifiedOpenPrs,
+  });
   const report = formatReport(result, option(args, "--pr"));
   if (reportPath) fs.writeFileSync(reportPath, report);
   if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, report);
