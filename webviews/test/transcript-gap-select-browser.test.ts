@@ -82,7 +82,12 @@ await requireBrowserLane("transcript-gap-select-browser.test.ts", async () => {
           if (!rects.length) continue;
           const first = rects[0]!,
             last = rects[rects.length - 1]!;
-          return { top: first.top, bottom: last.bottom, x: first.left + 30, y: first.top + first.height / 2 };
+          return {
+            top: first.top,
+            bottom: last.bottom,
+            x: first.left + 30,
+            y: first.top + first.height / 2,
+          };
         }
         throw new Error(`No visible text for ${id}`);
       };
@@ -107,6 +112,87 @@ await requireBrowserLane("transcript-gap-select-browser.test.ts", async () => {
       };
     });
   for (const name of ["chromium", "webkit"]) {
+    for (const lineDirection of ["rtl", "ltr"] as const)
+      test(`${name}: RTL document gaps and both gutters preserve ${lineDirection} line endpoints`, async () => {
+        const page = await open(name, "agent", "agent");
+        try {
+          await page.evaluate((direction) => {
+            document.documentElement.dir = "rtl";
+            const text =
+              direction === "rtl"
+                ? {
+                    upper: "אבגדה וזחטי כלמנס",
+                    lower: "עפצקר שתאבג דהוזח",
+                    after: "טיכלמ נסעפצ קרשתא",
+                  }
+                : { upper: "Upper keeper", lower: "Lower harbour", after: "After the watch" };
+            for (const id of ["upper", "lower", "after"] as const) {
+              const paragraph = document.querySelector<HTMLElement>(`[data-row-id="${id}"] .cv-md p`)!;
+              paragraph.textContent = text[id];
+              // The RTL case inherits the document; a local LTR line must keep its own endpoints.
+              if (direction === "ltr") paragraph.dir = "ltr";
+            }
+          }, lineDirection);
+          await paint(page);
+          const box = await page.evaluate(() => {
+            const line = (id: string) => {
+              const paragraph = document.querySelector<HTMLElement>(`[data-row-id="${id}"] .cv-md p`)!;
+              const range = document.createRange();
+              range.selectNodeContents(paragraph);
+              const rect = range.getBoundingClientRect();
+              return {
+                top: rect.top,
+                bottom: rect.bottom,
+                left: rect.left,
+                right: rect.right,
+                text: paragraph.textContent!,
+                direction: getComputedStyle(paragraph).direction,
+              };
+            };
+            const column = document.querySelector('[data-row-id="upper"]')!.getBoundingClientRect();
+            const view = document.querySelector(".acpmux-scroll")!.getBoundingClientRect();
+            return {
+              upper: line("upper"),
+              lower: line("lower"),
+              after: line("after"),
+              xs: [
+                (view.left + column.left) / 2,
+                (column.left + column.right) / 2,
+                (column.right + view.right - 16) / 2,
+              ],
+            };
+          });
+          expect(box.upper.direction).toBe(lineDirection);
+          expect(box.lower.direction).toBe(lineDirection);
+          expect(box.lower.top - box.upper.bottom).toBeGreaterThan(4);
+          const end = {
+            x: lineDirection === "rtl" ? box.after.left + 0.5 : box.after.right - 0.5,
+            y: (box.after.top + box.after.bottom) / 2,
+          };
+          for (const [row, y, offset] of [
+            ["upper", box.upper.bottom + 1, box.upper.text.length],
+            ["lower", box.lower.top - 1, 0],
+          ] as const)
+            for (const x of box.xs) {
+              await drag(page, { x, y }, end);
+              const selection = await page.evaluate(() => {
+                const value = getSelection()!;
+                return {
+                  row: value.anchorNode?.parentElement?.closest(".acpmux-row")?.getAttribute("data-row-id"),
+                  offset: value.anchorOffset,
+                  text: value.toString(),
+                };
+              });
+              const from = `${row} ${lineDirection} at ${x},${y}`;
+              expect(selection.row, from).toBe(row);
+              expect(selection.offset, from).toBe(offset);
+              expect(selection.text, from).toContain(box.lower.text);
+              expect(selection.text, from).not.toContain(box.upper.text);
+            }
+        } finally {
+          await page.close();
+        }
+      });
     for (const above of GAP_KINDS)
       for (const below of GAP_KINDS) {
         test(`${name}: ${above} to ${below} gap and side gutters restart at the nearest caret`, async () => {
