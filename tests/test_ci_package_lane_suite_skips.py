@@ -278,6 +278,22 @@ class SuiteSkipTest(unittest.TestCase):
         self.assertIn("::error title=Swift suite no result::MotionRootSpeedProbeTests", done.stdout)
         self.assertNotIn("suites passed", done.stdout)
 
+    def test_a_suite_skipped_for_want_of_a_display_says_how_to_get_one(self):
+        """The red step tells the lane what to do: the display traits' skips name a display, a screen or a GUI host."""
+        hint = "this suite needs a display; rerun with CMUX_TEST_REQUIRE_GUI=1"
+        for name in ("SidebarMultiViewHomeTests", "MotionRootSpeedProbeTests"):
+            with self.subTest(suite=name):
+                done = self.suite(name)
+                self.assertNotEqual(done.returncode, 0, done.stdout + done.stderr)
+                line = next(l for l in done.stdout.splitlines() if l.startswith("::error title=Swift suite no result::"))
+                self.assertIn(hint, line)
+        (self.outputs / "NoReasonTests.out").write_text("↷ Test a() skipped.\n✔ Test run with 1 test passed after 0.1 seconds.\n")
+        for name in ("XCSkippedTests", "NoReasonTests", "FirstLaunchTests"):
+            with self.subTest(suite=name):
+                done = self.suite(name)
+                self.assertNotEqual(done.returncode, 0, done.stdout + done.stderr)
+                self.assertNotIn(hint, done.stdout)
+
     def test_a_live_daemon_suite_without_its_cmux_tui_is_no_result(self):
         for name in ("FirstLaunchTests", "PartlyDaemonTests"):
             with self.subTest(suite=name):
