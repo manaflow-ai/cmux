@@ -79,6 +79,11 @@ KEYCHAIN_DELETE = re.compile(r"signing-keychain\.sh\s+delete\b")
 LITERAL_INDEX = re.compile(r"\[\s*'([A-Za-z0-9_-]+)'\s*\]|\[\s*\"([A-Za-z0-9_-]+)\"\s*\]")
 DYNAMIC_INDEX = re.compile(r"\b(?:secrets|needs|outputs)\s*\[")
 # Status functions that let a step run after an earlier step failed.
+# A picker that offers an owned Mac runs its own checked-out code with the routing token, from an environment with no
+# branch policy: each of its steps that names a secret runs only on a named ref (github.ref or github.ref_name in its
+# if), or only after such a step failed (steps.<that step>.outcome == 'failure').
+REF_CONDITION = re.compile(r"\bgithub\.ref(?:_name)?\b")
+AFTER_STEP = re.compile(r"^\s*steps\.([\w-]+)\.outcome\s*==\s*'failure'\s*$")
 RUNS_AFTER_FAILURE = re.compile(r"\b(?:always|failure|cancelled)\s*\(")
 
 
@@ -107,6 +112,22 @@ def signing_job(job: dict) -> bool:
     text = json.dumps(keychain_guard.inline_step_scripts(job))
     return "APPLE_CERTIFICATE_BASE64" in text or bool(keychain_guard.CREATE.search(text)) or any(
         script in text for script in keychain_guard.SCRIPT_MADE_KEYCHAINS.values())
+
+
+def picker_ref_failures(name: str, job: dict) -> list[str]:
+    """Why picker `name` could hold a secret on any ref; [] when each secret step is held to a named ref."""
+    failures, pinned = [], set()
+    for index, step in enumerate(job.get("steps") or []):
+        if not isinstance(step, dict):
+            continue
+        condition = str(step.get("if", ""))
+        after = AFTER_STEP.match(condition)
+        if REF_CONDITION.search(condition) or (after and after.group(1) in pinned):
+            pinned.add(str(step.get("id")))
+        elif "secrets." in json.dumps(step):
+            failures.append(f"picker {name} step {index} names a secret on any ref; its if must name the trusted ref "
+                            "(github.ref or github.ref_name)")
+    return failures
 
 
 def picker_scripts(jobs: dict, needed: str, output: str) -> list[str]:
@@ -153,6 +174,8 @@ def check(documents: dict[str, dict]) -> tuple[list[str], int]:
             if DYNAMIC_INDEX.search(json.dumps(job)) or DYNAMIC_INDEX.search(json.dumps(document.get("env") or {})):
                 failures.append(f"{label}: indexes secrets, needs or outputs with an expression the guard cannot read")
             owned_jobs += 1
+            for needed in dict.fromkeys(read.split(".")[1] for read in owned_reads):
+                failures.extend(f"{label}: {why}" for why in picker_ref_failures(needed, jobs.get(needed) or {}))
             if (workflow, name) not in SIGNING_JOBS:
                 failures.append(f"{label}: routed to owned Macs but not in SIGNING_JOBS (add it here and to glaeda's "
                                 "SIGNING_JOBS, which gives it the whole mini)")
@@ -264,6 +287,15 @@ class SigningOwnedMacTests(unittest.TestCase):
         failures, _ = check({"release.yml": {"jobs": {"pick": picker, "build-sign-notarize": {
             **good, "runs-on": "${{ fromJSON(needs[format('pi{0}', 'ck')].outputs.owned) }}"}}}})
         self.assertTrue(any("cannot read" in failure for failure in failures), failures)
+        open_picker = {**picker, "steps": [{"id": "mint", "if": "vars.X == '1'", "with": {"k": "${{ secrets.K }}"}},
+                                           *picker["steps"]]}
+        failures, _ = check({"release.yml": {"jobs": {"pick": open_picker, "build-sign-notarize": good}}})
+        self.assertTrue(any("names a secret on any ref" in failure for failure in failures), failures)
+        pinned = {**picker, "steps": [{"id": "mint", "if": "vars.X == '1' && github.ref == 'refs/heads/main'",
+                                       "with": {"k": "${{ secrets.K }}"}},
+                                      {"id": "again", "if": "steps.mint.outcome == 'failure'",
+                                       "with": {"k": "${{ secrets.K }}"}}, *picker["steps"]]}
+        self.assertEqual(check({"release.yml": {"jobs": {"pick": pinned, "build-sign-notarize": good}}}), ([], 1))
         other = {"outputs": {"owned": "${{ steps.pick.outputs.owned }}"},
                  "steps": [{"id": "pick", "run": "python3 scripts/ci/nightly_build_runner.py verify"}]}
         failures, _ = check({"release.yml": {"jobs": {"pick": other, "build-sign-notarize": good}}})
