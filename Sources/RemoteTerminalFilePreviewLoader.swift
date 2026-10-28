@@ -15,9 +15,23 @@ actor RemoteTerminalFilePreviewLoader {
         self.fileManager = fileManager
     }
 
-    func load(tokens: [String], workingDirectory: String?) async throws -> URL {
+    /// - Parameters:
+    ///   - workingDirectory: The terminal's reported directory, used when no live directory is known.
+    ///   - liveWorkingDirectory: Reads the remote shell's current directory. It is consulted only for
+    ///     relative tokens, because a reported directory can be the stale spawn directory.
+    func load(
+        tokens: [String],
+        workingDirectory: String?,
+        liveWorkingDirectory: (@MainActor @Sendable () async -> String?)? = nil
+    ) async throws -> URL {
         try Task.checkCancellation()
         let resolver = RemoteTerminalPathResolver()
+        var workingDirectory = workingDirectory
+        if let liveWorkingDirectory, resolver.needsWorkingDirectory(tokens: tokens),
+           let live = await liveWorkingDirectory(), live.hasPrefix("/") {
+            workingDirectory = live
+        }
+        try Task.checkCancellation()
         let needsHome = tokens.contains {
             let token = $0.trimmingCharacters(in: .whitespacesAndNewlines)
             return token.hasPrefix("~") || token.hasPrefix("\"~") || token.hasPrefix("'~")

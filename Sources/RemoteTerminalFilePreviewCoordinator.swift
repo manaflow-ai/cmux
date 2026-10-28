@@ -42,6 +42,7 @@ final class RemoteTerminalFilePreviewCoordinator {
             return true
         }
         let directory = workspace.effectivePanelDirectory(panelId: sourcePanelID)
+        let liveDirectory = workspace.remoteTerminalLiveWorkingDirectoryLookup(for: sourcePanelID)
         let provider = SSHFileExplorerProvider(
             destination: configuration.destination,
             port: configuration.port,
@@ -76,7 +77,11 @@ final class RemoteTerminalFilePreviewCoordinator {
             }
             do {
                 let localURL = try await withThrowingTaskGroup(of: URL.self) { group in
-                    group.addTask { try await loader.load(tokens: tokens, workingDirectory: directory) }
+                    group.addTask {
+                        try await loader.load(
+                            tokens: tokens, workingDirectory: directory, liveWorkingDirectory: liveDirectory
+                        )
+                    }
                     group.addTask {
                         // A genuine transfer deadline, not a delay used to synchronize UI state.
                         try await clock.sleep(for: timeout)

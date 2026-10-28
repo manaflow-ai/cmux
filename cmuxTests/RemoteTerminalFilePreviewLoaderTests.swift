@@ -46,6 +46,79 @@ import Testing
         #expect(workspace.terminalLinkIsRemoteTerminal(panelID))
     }
 
+    @Test func managedSSHTerminalReadsItsLiveDirectoryFromTheDaemon() async throws {
+        let workspace = Workspace()
+        let panelID = try #require(workspace.focusedPanelId)
+        let catalog = SurfaceCatalog.shared
+        let configuration = WorkspaceRemoteConfiguration(
+            destination: "fixture@remote.invalid", port: 2222, identityFile: nil,
+            sshOptions: [], localProxyPort: nil, relayPort: nil, relayID: nil, relayToken: nil,
+            localSocketPath: nil, terminalStartupCommand: nil, preserveAfterTerminalExit: true
+        )
+        workspace.remoteConfiguration = configuration
+        let provider = CloudTerminalPlacementTestProvider(
+            machine: SurfaceMachineID(rawValue: SSHTuiConnection(configuration: configuration).id)
+        )
+        catalog.register(provider)
+        defer {
+            catalog.endProjections(panelID: panelID, reason: .replaced)
+            catalog.unregister(machine: provider.machine)
+            workspace.teardownAllPanels()
+        }
+        #expect(workspace.remoteTerminalLiveWorkingDirectoryLookup(for: panelID) == nil)
+        let resource = provider.resource(key: "term_" + UUID().uuidString)
+        catalog.upsert(resource, from: provider)
+        catalog.record(SurfaceProjection(resource: resource.id, workspaceID: workspace.id, panelID: panelID,
+            remoteWorkspaceID: provider.remote.id, remoteTabID: "tab-live"))
+        let lookup = try #require(workspace.remoteTerminalLiveWorkingDirectoryLookup(for: panelID))
+        #expect(await lookup() == "/remote/project")
+    }
+
+    @Test func relativeTokensResolveAgainstTheLiveDirectoryNotTheSpawnDirectory() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let transport = PreviewDownloadTransport(files: ["/home/remote/repo/subdir/README.md": Data("live".utf8)])
+        let queries = LiveDirectoryQueries()
+        let result = try await makeLoader(transport: transport, cache: root).load(
+            tokens: ["subdir/README.md"], workingDirectory: "/home/remote",
+            liveWorkingDirectory: { await queries.answer("/home/remote/repo") }
+        )
+        #expect(try String(contentsOf: result, encoding: .utf8) == "live")
+        #expect(await transport.requests.paths == ["/home/remote/repo/subdir/README.md"])
+        #expect(await queries.count == 1)
+    }
+
+    @Test func liveDirectoryIsNotQueriedWithoutARelativeToken() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let transport = PreviewDownloadTransport(files: [
+            "/srv/notes.md": Data("absolute".utf8), "/home/remote/notes.md": Data("home".utf8),
+        ])
+        let queries = LiveDirectoryQueries()
+        let loader = makeLoader(transport: transport, cache: root)
+        for token in ["/srv/notes.md", "~/notes.md", "file:///srv/notes.md"] {
+            _ = try await loader.load(
+                tokens: [token], workingDirectory: nil,
+                liveWorkingDirectory: { await queries.answer("/elsewhere") }
+            )
+        }
+        #expect(await queries.count == 0)
+    }
+
+    @Test func unavailableLiveDirectoryFallsBackToTheReportedDirectory() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let transport = PreviewDownloadTransport(files: ["/reported/notes.md": Data("reported".utf8)])
+        let loader = makeLoader(transport: transport, cache: root)
+        for live in [nil, "", "relative/dir"] as [String?] {
+            let result = try await loader.load(
+                tokens: ["notes.md"], workingDirectory: "/reported",
+                liveWorkingDirectory: { live }
+            )
+            #expect(try String(contentsOf: result, encoding: .utf8) == "reported")
+        }
+    }
+
     @Test func downloadsRemoteBytesInsteadOfReadingLocalShadow() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -100,6 +173,14 @@ import Testing
             cacheDirectory: cache,
             fileManager: FileManager()
         )
+    }
+}
+
+private actor LiveDirectoryQueries {
+    var count = 0
+    func answer(_ directory: String?) -> String? {
+        count += 1
+        return directory
     }
 }
 
