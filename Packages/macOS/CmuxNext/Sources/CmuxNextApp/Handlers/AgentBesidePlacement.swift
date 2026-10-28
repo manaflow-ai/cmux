@@ -69,6 +69,16 @@ enum AgentBesidePlacement {
                 }
             }
         }
+        // A resized window may not have room for a second area. Keep the new document as a tab in
+        // the chat's pane below the 480pt chat floor; a zero bounds value is an unlaid-out test view
+        // and keeps the normal daemon placement path.
+        if let source = controller ?? services.paneController(for: anchor), source.view.bounds.width > 0,
+           source.view.bounds.width < RightPanePlacement.minimumChatWidth {
+            return { [weak source] surface in
+                then?(surface)
+                source?.selectWhenReported(surface: surface)
+            }
+        }
         // A lone chat docks left with the agent chat role and the new tab stays in its
         // pane (ChatColumnPlacement.dockChat, the rule a person's new tab follows), so
         // the column right of the chat is always in view; else the tab moves out.
