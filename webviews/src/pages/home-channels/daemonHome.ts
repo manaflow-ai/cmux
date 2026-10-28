@@ -8,7 +8,12 @@
 // build's Chief home's conversation owner (`owner` in `cmux.host.credential.load`): then the local
 // `conversation-*` commands and events go to that socket and the Cloud stays on the build daemon.
 // Slice 3 moves this projection into the daemon as `home.*` operations.
-import { pageError, type PageClient, type PageCallOptions, type PageHandler } from "../shared/pageClient";
+import {
+  pageError,
+  type PageClient,
+  type PageCallOptions,
+  type PageHandler,
+} from "../shared/pageClient";
 import { PAGE_CONNECTION } from "../shared/pageStreams";
 import type { DaemonError, DaemonSocket } from "../shared/daemonSocket";
 import { CloudHome, WS_CLOUD_CAPABILITY } from "./cloudHome";
@@ -51,7 +56,13 @@ const WS_ATTACHMENTS_CAPABILITY = "ws-attachments-v1";
 const CLOUD_ATTACHMENTS_CAPABILITY = "cloud-attachments-v1";
 /** The attachment steps the page may send (the owner checks every field). */
 const UPLOAD_STEPS = new Set(["begin", "chunk", "commit", "cancel"]);
-const CHIEF = { id: "agent_mux", kind: "agent", display_name: "Chief", agent_class: "mux", acp_session: "mux" };
+const CHIEF = {
+  id: "agent_mux",
+  kind: "agent",
+  display_name: "Chief",
+  agent_class: "mux",
+  acp_session: "mux",
+};
 const TAPBACK_EMOJI: Record<string, string> = {
   love: "❤️",
   like: "👍",
@@ -104,11 +115,17 @@ function part(raw: Json): HomePart {
         text: String(raw.text ?? ""),
         mentions: runs
           .filter((run) => typeof run.mention === "string")
-          .map((run) => ({ start: num(run.start), length: num(run.length), participant: String(run.mention) })),
+          .map((run) => ({
+            start: num(run.start),
+            length: num(run.length),
+            participant: String(run.mention),
+          })),
       };
     }
     case "work": {
-      const status = ["running", "waiting", "done", "failed"].includes(String(raw.status)) ? raw.status : "running";
+      const status = ["running", "waiting", "done", "failed"].includes(String(raw.status))
+        ? raw.status
+        : "running";
       return {
         type: "work",
         title: String(raw.session ?? ""),
@@ -128,7 +145,11 @@ function part(raw: Json): HomePart {
 function derivedImage(raw: unknown): HomeDerivedImage | undefined {
   if (!raw || typeof raw !== "object") return undefined;
   const image = raw as Json;
-  return { hash: String(image.hash ?? ""), mimeType: String(image.mime_type ?? ""), byteCount: num(image.byte_count) };
+  return {
+    hash: String(image.hash ?? ""),
+    mimeType: String(image.mime_type ?? ""),
+    byteCount: num(image.byte_count),
+  };
 }
 
 function attachmentPart(raw: Json): HomeAttachment {
@@ -151,7 +172,8 @@ function attachmentPart(raw: Json): HomeAttachment {
 
 /** The owner's wire form of an attachment part the page sends. */
 function wireAttachment(value: unknown): Json {
-  if (!value || typeof value !== "object") throw pageError("cmux.page.invalid_params", "attachments");
+  if (!value || typeof value !== "object")
+    throw pageError("cmux.page.invalid_params", "attachments");
   const part = value as HomeAttachment;
   const image = (derived: HomeDerivedImage) => ({
     hash: String(derived.hash),
@@ -176,7 +198,8 @@ function wireAttachment(value: unknown): Json {
 function reaction(raw: Json): HomeReaction {
   const kind = (raw.kind ?? {}) as { tapback?: string; emoji?: string };
   const base = { author: String(raw.author), partIndex: num(raw.part_index) };
-  if (kind.tapback) return { ...base, value: TAPBACK_EMOJI[kind.tapback] ?? kind.tapback, tapback: kind.tapback };
+  if (kind.tapback)
+    return { ...base, value: TAPBACK_EMOJI[kind.tapback] ?? kind.tapback, tapback: kind.tapback };
   return { ...base, value: String(kind.emoji ?? "") };
 }
 
@@ -213,12 +236,16 @@ export function message(raw: Json): HomeMessage {
 }
 
 const opt = <T>(value: T | undefined | null): T | undefined => (value === null ? undefined : value);
-const optNum = (value: unknown): number | undefined => (typeof value === "number" ? value : undefined);
-const optStr = (value: unknown): string | undefined => (typeof value === "string" ? value : undefined);
+const optNum = (value: unknown): number | undefined =>
+  typeof value === "number" ? value : undefined;
+const optStr = (value: unknown): string | undefined =>
+  typeof value === "string" ? value : undefined;
 
 /** A run as the owner sends it (`conversation-runs-v1`, snake_case), in the page's shape. */
 export function run(raw: Json): HomeRun {
-  const status = ["running", "done", "failed", "cancelled"].includes(String(raw.status)) ? raw.status : "running";
+  const status = ["running", "done", "failed", "cancelled"].includes(String(raw.status))
+    ? raw.status
+    : "running";
   const usage = raw.usage as Json | undefined;
   const session = raw.session as Json | undefined;
   const result: HomeRun = {
@@ -255,7 +282,11 @@ export function run(raw: Json): HomeRun {
       cacheWrite: optNum(usage.cache_write),
     };
   if (session && typeof session === "object")
-    result.session = { kind: String(session.kind), id: String(session.id), host: opt(optStr(session.host)) };
+    result.session = {
+      kind: String(session.kind),
+      id: String(session.id),
+      host: opt(optStr(session.host)),
+    };
   return result;
 }
 
@@ -274,7 +305,15 @@ export function liveFrame(raw: Json): HomeLiveFrame | undefined {
     const step = optStr(raw.step);
     const text = optStr(raw.text);
     if (!kind || !step || text === undefined || typeof raw.seq !== "number") return undefined;
-    const frame: HomeLiveFrame = { type: "step.delta", conversation, run, step, kind, seq: raw.seq, text };
+    const frame: HomeLiveFrame = {
+      type: "step.delta",
+      conversation,
+      run,
+      step,
+      kind,
+      seq: raw.seq,
+      text,
+    };
     if (raw.final === true) frame.final = true;
     if (typeof raw.author === "string") frame.author = raw.author;
     return frame;
@@ -330,7 +369,9 @@ export function liveSnapshot(raw: Json): HomeLiveSnapshot | undefined {
 /** A run step as the owner sends it, in the page's shape. */
 export function runStep(raw: Json): HomeRunStep {
   const kind = ["talk", "thought", "tool", "note"].includes(String(raw.kind)) ? raw.kind : "note";
-  const status = ["running", "done", "failed"].includes(String(raw.status)) ? raw.status : undefined;
+  const status = ["running", "done", "failed"].includes(String(raw.status))
+    ? raw.status
+    : undefined;
   const tool = raw.tool as Json | undefined;
   const result: HomeRunStep = {
     id: String(raw.id),
@@ -387,7 +428,9 @@ function plain(raw: Json | undefined): string | undefined {
     .join(" ")
     .trim();
   // A message of files only previews their names (the page has no wording here).
-  const files = parts.filter((item) => item.type === "attachment").map((item) => String(item.name ?? ""));
+  const files = parts
+    .filter((item) => item.type === "attachment")
+    .map((item) => String(item.name ?? ""));
   return (text || files.join(", ")).slice(0, 200);
 }
 
@@ -472,7 +515,8 @@ function threads(raw: unknown): HomeThreadStats[] {
 function chiefNames(params: Json): HomeChiefNames {
   const text = (field: string, max: number) => {
     const value = params[field];
-    if (typeof value !== "string" || value.length > max) throw pageError("cmux.page.invalid_params", field);
+    if (typeof value !== "string" || value.length > max)
+      throw pageError("cmux.page.invalid_params", field);
     return value;
   };
   return { name: text("name", 100), role: text("role", 200) };
@@ -480,7 +524,8 @@ function chiefNames(params: Json): HomeChiefNames {
 
 function str(params: Json, field: string, max = 256): string {
   const value = params[field];
-  if (typeof value !== "string" || !value || value.length > max) throw pageError("cmux.page.invalid_params", field);
+  if (typeof value !== "string" || !value || value.length > max)
+    throw pageError("cmux.page.invalid_params", field);
   return value;
 }
 
@@ -517,7 +562,9 @@ export class DaemonHomeClient implements PageClient {
 
   /** Starts each connection's daemon stream once (a page resubscribe adds a listener only). */
   private startStream(): Promise<void> {
-    return Promise.all(this.sockets.map((socket) => this.startSocketStream(socket))).then(() => undefined);
+    return Promise.all(this.sockets.map((socket) => this.startSocketStream(socket))).then(
+      () => undefined,
+    );
   }
 
   private startSocketStream(socket: DaemonSocket): Promise<void> {
@@ -577,7 +624,11 @@ export class DaemonHomeClient implements PageClient {
     const id = String(raw.id);
     let row: HomeConversation;
     if ("pinned" in raw || "marked_unread" in raw) {
-      this.listState.set(id, { pinned: raw.pinned, pin_position: raw.pin_position, marked_unread: raw.marked_unread });
+      this.listState.set(id, {
+        pinned: raw.pinned,
+        pin_position: raw.pin_position,
+        marked_unread: raw.marked_unread,
+      });
       row = conversation(raw, this.me);
     } else row = conversation({ ...raw, ...this.listState.get(id) }, this.me);
     const owned = this.homeRows.get(id);
@@ -606,10 +657,16 @@ export class DaemonHomeClient implements PageClient {
     try {
       return (await this.dispatch(op, params, options)) as R;
     } catch (error) {
-      if (error instanceof Error && (error as DaemonError).code !== undefined && error.name === "DaemonError") {
+      if (
+        error instanceof Error &&
+        (error as DaemonError).code !== undefined &&
+        error.name === "DaemonError"
+      ) {
         const code = (error as DaemonError).code;
-        if (code === "conversation_rejected") throw pageError("cmux.page.invalid_params", error.message);
-        if (code === "disconnected") throw pageError("cmux.page.unavailable", "the cmux instance is offline", true);
+        if (code === "conversation_rejected")
+          throw pageError("cmux.page.invalid_params", error.message);
+        if (code === "disconnected")
+          throw pageError("cmux.page.unavailable", "the cmux instance is offline", true);
         // The app signed out (or switched accounts): the cloud inbox is listed again.
         if (code === "cloud_signed_out") this.cloud.reset();
         throw pageError(`cmux.home.${code}`, error.message);
@@ -633,7 +690,11 @@ export class DaemonHomeClient implements PageClient {
       idempotency_key: key,
       op,
     });
-    return { rev: num(result.rev), replayed: result.replayed === true, conversation: conversationId };
+    return {
+      rev: num(result.rev),
+      replayed: result.replayed === true,
+      conversation: conversationId,
+    };
   }
 
   /** A read of the conversation's owner: the local one, or a cloud owner through the daemon. */
@@ -650,14 +711,19 @@ export class DaemonHomeClient implements PageClient {
         const mine = summaries
           .flatMap((entry) => (entry.participants as Json[]) ?? [])
           .find((entry) => entry.id === LOCAL_USER);
-        const me = mine ? participant(mine) : { id: LOCAL_USER, kind: "human" as const, name: "You", chief: false };
+        const me = mine
+          ? participant(mine)
+          : { id: LOCAL_USER, kind: "human" as const, name: "You", chief: false };
         this.me = me.id;
         // The owner's rows for the local conversations (an older daemon: the page projects them).
         this.homeRows.clear();
         if (await this.capable(HOME_INBOX_CAPABILITY)) {
           // A failed read leaves the page's own projection (never an empty list).
-          const home = await this.local.request<{ me?: string; rows?: Json[] }>("home-inbox").catch(() => undefined);
-          if (home && home.me === this.me) for (const row of home.rows ?? []) this.homeRows.set(String(row.id), row);
+          const home = await this.local
+            .request<{ me?: string; rows?: Json[] }>("home-inbox")
+            .catch(() => undefined);
+          if (home && home.me === this.me)
+            for (const row of home.rows ?? []) this.homeRows.set(String(row.id), row);
         }
         // The person's Cloud inbox through the same daemon; a Cloud failure never hides the local one.
         const cloud = await this.cloud.inbox(await this.cloudReady()).catch(() => []);
@@ -687,7 +753,10 @@ export class DaemonHomeClient implements PageClient {
           before_seq: num(params.beforeSeq),
           limit: bounded(params.limit, 100),
         });
-        return { messages: ((page.messages as Json[]) ?? []).map(message), threads: threads(page.threads) };
+        return {
+          messages: ((page.messages as Json[]) ?? []).map(message),
+          threads: threads(page.threads),
+        };
       }
       case HomeOps.thread: {
         const page = await this.read("conversation-thread", str(params, "conversation"), {
@@ -751,13 +820,17 @@ export class DaemonHomeClient implements PageClient {
         });
       case HomeOps.send: {
         const text = String(params.text ?? "").trim();
-        const files = Array.isArray(params.attachments) ? params.attachments.map(wireAttachment) : [];
+        const files = Array.isArray(params.attachments)
+          ? params.attachments.map(wireAttachment)
+          : [];
         if (files.length > 10) throw pageError("cmux.page.invalid_params", "attachments");
-        if ((!text && files.length === 0) || text.length > 40_000) throw pageError("cmux.page.invalid_params", "text");
+        if ((!text && files.length === 0) || text.length > 40_000)
+          throw pageError("cmux.page.invalid_params", "text");
         const key = this.key(params, options);
         const parts: Json[] = [...(text ? [{ type: "text", text }] : []), ...files];
         const send: Json = { kind: "message.send", client_msg_id: key, parts };
-        if (typeof params.threadRoot === "string" && params.threadRoot) send.thread_root = params.threadRoot;
+        if (typeof params.threadRoot === "string" && params.threadRoot)
+          send.thread_root = params.threadRoot;
         // The reply's parent at any depth (conversation-tree-v1): the owner keeps the top root.
         if (typeof params.replyTo === "string" && params.replyTo)
           send.reply_to = { message_id: params.replyTo, part_index: 0 };
@@ -804,7 +877,9 @@ export class DaemonHomeClient implements PageClient {
       case HomeOps.pin: {
         const pinned = params.pinned === true;
         // The pin time orders my pins across both owners (one merged list).
-        const op: Json = pinned ? { kind: "inbox.pin", pinned, position: Date.now() } : { kind: "inbox.pin", pinned };
+        const op: Json = pinned
+          ? { kind: "inbox.pin", pinned, position: Date.now() }
+          : { kind: "inbox.pin", pinned };
         return this.inboxOp(str(params, "conversation"), this.key(params, options), op);
       }
       case HomeOps.markUnread:
@@ -817,7 +892,8 @@ export class DaemonHomeClient implements PageClient {
         if (this.cloud.owns(id)) return this.cloudRuns(id, params);
         if (!(await this.capable(RUNS_CAPABILITY))) return { runs: [], hasMore: false };
         const turns = ((params.turns as unknown[] | undefined) ?? []).filter(
-          (turn): turn is string => typeof turn === "string" && turn.length > 0 && turn.length <= 128,
+          (turn): turn is string =>
+            typeof turn === "string" && turn.length > 0 && turn.length <= 128,
         );
         const request: Json = { conversation: id };
         if (turns.length > 0) request.turns = turns.slice(0, 200);
@@ -873,7 +949,11 @@ export class DaemonHomeClient implements PageClient {
         const avatar = (found?.avatar ?? null) as Json | null;
         return {
           avatar: avatar
-            ? { sha256: String(avatar.sha256), mediaType: String(avatar.media_type), data: String(avatar.data) }
+            ? {
+                sha256: String(avatar.sha256),
+                mediaType: String(avatar.media_type),
+                data: String(avatar.data),
+              }
             : null,
         };
       }
@@ -910,13 +990,20 @@ export class DaemonHomeClient implements PageClient {
           ? params.participants.filter((id) => typeof id === "string")
           : [];
         const title = typeof params.title === "string" ? params.title.slice(0, 200) : "";
-        return { conversation: await this.people.start(ids as string[], title, this.key(params, options)) };
+        return {
+          conversation: await this.people.start(ids as string[], title, this.key(params, options)),
+        };
       }
       case HomeOps.invite: {
         const id = str(params, "conversation");
         if (this.cloud.owns(id))
-          throw pageError("cmux.page.unavailable", "invites to cloud conversations are not here yet");
-        const ids = Array.isArray(params.participants) ? params.participants.filter((p) => typeof p === "string") : [];
+          throw pageError(
+            "cmux.page.unavailable",
+            "invites to cloud conversations are not here yet",
+          );
+        const ids = Array.isArray(params.participants)
+          ? params.participants.filter((p) => typeof p === "string")
+          : [];
         await this.people.invite(id, ids as string[], this.key(params, options));
         return { conversation: id };
       }
@@ -924,7 +1011,11 @@ export class DaemonHomeClient implements PageClient {
         return { chiefs: await this.people.chiefs() };
       case HomeOps.chiefUpdate:
         return {
-          chief: await this.people.renameChief(str(params, "chief", 64), chiefNames(params), this.key(params, options)),
+          chief: await this.people.renameChief(
+            str(params, "chief", 64),
+            chiefNames(params),
+            this.key(params, options),
+          ),
         };
       case HomeOps.chiefAvatarSet:
         return {
@@ -941,7 +1032,9 @@ export class DaemonHomeClient implements PageClient {
       case HomeOps.attachmentSupport:
         return {
           local: await this.capable(WS_ATTACHMENTS_CAPABILITY),
-          cloud: (await this.cloudReady()) && (await this.capable(CLOUD_ATTACHMENTS_CAPABILITY, this.daemon)),
+          cloud:
+            (await this.cloudReady()) &&
+            (await this.capable(CLOUD_ATTACHMENTS_CAPABILITY, this.daemon)),
         };
       case HomeOps.attachmentUpload:
         return this.attachmentUpload(params);
@@ -951,7 +1044,10 @@ export class DaemonHomeClient implements PageClient {
         if (typeof params.variant === "string") read.variant = params.variant;
         if (typeof params.offset === "number") read.offset = params.offset;
         if (typeof params.length === "number") read.length = params.length;
-        const bytes = await this.attachmentSocket(id).request<Json>(this.attachmentCommand(id, "read"), read);
+        const bytes = await this.attachmentSocket(id).request<Json>(
+          this.attachmentCommand(id, "read"),
+          read,
+        );
         return {
           mimeType: String(bytes.mime_type ?? ""),
           byteCount: num(bytes.byte_count),
@@ -969,7 +1065,10 @@ export class DaemonHomeClient implements PageClient {
         const link = await socket.request<Json>(this.attachmentCommand(id, "link"), request);
         // The link is a path on that owner connection's own listener: its origin.
         const base = socket.url.replace(/^ws/, "http");
-        return { url: new URL(String(link.path), base).toString(), expiresInMs: num(link.expires_in_ms) };
+        return {
+          url: new URL(String(link.path), base).toString(),
+          expiresInMs: num(link.expires_in_ms),
+        };
       }
       default:
         throw pageError("cmux.protocol.unknown_op", op);
@@ -983,7 +1082,11 @@ export class DaemonHomeClient implements PageClient {
     if (!(await this.capable(INBOX_STATE_CAPABILITY, owner)))
       throw pageError("cmux.page.unavailable", "this cmux instance keeps no pins");
     if (this.cloud.owns(conversationId)) {
-      await this.daemon.request("cloud-inbox-op", { conversation: conversationId, idempotency_key: key, op });
+      await this.daemon.request("cloud-inbox-op", {
+        conversation: conversationId,
+        idempotency_key: key,
+        op,
+      });
       return { conversation: conversationId };
     }
     // What the list state will be, at once: a conversation change that lands before the owner's
@@ -997,7 +1100,10 @@ export class DaemonHomeClient implements PageClient {
     this.listState.set(conversationId, next);
     this.ownInboxOps.set(conversationId, (this.ownInboxOps.get(conversationId) ?? 0) + 1);
     try {
-      const state = await this.local.request<Json>("conversation-inbox-op", { conversation: conversationId, op });
+      const state = await this.local.request<Json>("conversation-inbox-op", {
+        conversation: conversationId,
+        op,
+      });
       this.listState.set(conversationId, {
         pinned: state.pinned,
         pin_position: state.pin_position,
@@ -1035,7 +1141,8 @@ export class DaemonHomeClient implements PageClient {
     const op = str(params, "op", 16);
     if (!UPLOAD_STEPS.has(op)) throw pageError("cmux.page.invalid_params", "op");
     const upload = typeof params.upload === "string" ? params.upload : "";
-    const cloud = op === "begin" ? this.cloud.owns(str(params, "conversation")) : this.cloudUploads.has(upload);
+    const cloud =
+      op === "begin" ? this.cloud.owns(str(params, "conversation")) : this.cloudUploads.has(upload);
     const request: Json = { op };
     for (const field of [
       "conversation",
@@ -1057,14 +1164,18 @@ export class DaemonHomeClient implements PageClient {
     const reply = cloud
       ? await this.daemon.request<Json>("cloud-attachment-upload", request)
       : await this.local.request<Json>("conversation-attachment-upload", request);
-    if (op === "begin" && cloud && typeof reply.upload === "string") this.cloudUploads.add(reply.upload);
+    if (op === "begin" && cloud && typeof reply.upload === "string")
+      this.cloudUploads.add(reply.upload);
     if (op === "commit" || op === "cancel") this.cloudUploads.delete(upload);
     return reply;
   }
 
   /** A Cloud conversation's runs: each Chief of it keeps its own (the Cloud brain's reads, by
    * agent), merged newest first. A daemon without the proxy answers nothing. */
-  private async cloudRuns(id: string, params: Json): Promise<{ runs: HomeRun[]; hasMore: boolean }> {
+  private async cloudRuns(
+    id: string,
+    params: Json,
+  ): Promise<{ runs: HomeRun[]; hasMore: boolean }> {
     // The brain lists newest first only: a read by reply keys has nothing more to find.
     if (!(await this.capable(CLOUD_RUNS_CAPABILITY, this.daemon)) || Array.isArray(params.turns))
       return { runs: [], hasMore: false };
@@ -1094,12 +1205,17 @@ export class DaemonHomeClient implements PageClient {
       ),
     );
     const merged = lists.flatMap((list) => list.runs).sort((a, b) => b.startedAt - a.startedAt);
-    // Each agent is paged independently. Merge one global page for the Home client and preserve
+    // Keep every run tied at the page boundary. The cursor is timestamp-only and strict, so
+    // dropping one of those ties would make it unreachable on the next request.
+    const boundary = merged[limit - 1]?.startedAt;
+    const page =
+      boundary === undefined ? merged : merged.filter((entry) => entry.startedAt >= boundary);
+    // Each agent is paged independently. Merge one global page for Home client and preserve
     // either upstream cursor as `hasMore`; the next `before_started_at` request advances every
     // agent together, so no owner is treated as complete early.
     return {
-      runs: merged.slice(0, limit),
-      hasMore: lists.some((list) => list.hasMore) || merged.length > limit,
+      runs: page,
+      hasMore: lists.some((list) => list.hasMore) || page.length < merged.length,
     };
   }
 
@@ -1108,13 +1224,17 @@ export class DaemonHomeClient implements PageClient {
   private async createGroup(params: Json, options?: PageCallOptions): Promise<unknown> {
     const title = str(params, "title", 80).trim();
     if (!title) throw pageError("cmux.page.invalid_params", "title");
-    const ids = ((params.participants as unknown[]) ?? []).filter((id): id is string => typeof id === "string" && !!id);
+    const ids = ((params.participants as unknown[]) ?? []).filter(
+      (id): id is string => typeof id === "string" && !!id,
+    );
     const list = await this.local.request<{ conversations: Json[] }>("conversation-list");
     const known = new Map<string, Json>([[CHIEF.id, CHIEF]]);
     for (const summary of list.conversations ?? [])
       for (const entry of (summary.participants as Json[]) ?? [])
         if (!known.has(String(entry.id))) known.set(String(entry.id), entry);
-    const members: Json[] = [known.get(this.me) ?? { id: this.me, kind: "human", display_name: "You" }];
+    const members: Json[] = [
+      known.get(this.me) ?? { id: this.me, kind: "human", display_name: "You" },
+    ];
     for (const id of ids.length ? ids : [CHIEF.id]) {
       if (id === this.me || members.some((entry) => entry.id === id)) continue;
       const entry = known.get(id);
@@ -1126,14 +1246,20 @@ export class DaemonHomeClient implements PageClient {
       title,
       participants: members,
     });
-    return { rev: 0, replayed: created.replayed === true, conversation: String((created.conversation as Json).id) };
+    return {
+      rev: 0,
+      replayed: created.replayed === true,
+      conversation: String((created.conversation as Json).id),
+    };
   }
 
   async subscribe<E>(stream: string, onEvent: (data: E, seq: number) => void): Promise<() => void> {
     if (stream === PAGE_CONNECTION) {
       // The page's own link to its owners: these daemon connections (either one lost is offline).
       queueMicrotask(() => onEvent({ connected: true } as E, 1));
-      const offs = this.sockets.map((socket) => socket.onClose(() => onEvent({ connected: false } as E, 2)));
+      const offs = this.sockets.map((socket) =>
+        socket.onClose(() => onEvent({ connected: false } as E, 2)),
+      );
       return () => offs.forEach((off) => off());
     }
     if (stream !== HomeOps.events) throw pageError("cmux.protocol.unknown_op", stream);
@@ -1152,8 +1278,10 @@ export class DaemonHomeClient implements PageClient {
         });
     };
     const offCloud = (() => {
-      const listener = (summary: HomeConversation) => deliver((batch) => (batch.conversations ??= []).push(summary));
-      const people = (participants: string[]) => deliver((batch) => (batch.avatars ??= []).push(...participants));
+      const listener = (summary: HomeConversation) =>
+        deliver((batch) => (batch.conversations ??= []).push(summary));
+      const people = (participants: string[]) =>
+        deliver((batch) => (batch.avatars ??= []).push(...participants));
       this.cloudListeners.add(listener);
       this.peopleListeners.add(people);
       return () => {
@@ -1174,7 +1302,8 @@ export class DaemonHomeClient implements PageClient {
         deliver((batch) => {
           if (cloud.message) (batch.messages ??= []).push(message(cloud.message));
           if (cloud.conversation) (batch.conversations ??= []).push(cloud.conversation);
-          if (cloud.conversations?.length) (batch.conversations ??= []).push(...cloud.conversations);
+          if (cloud.conversations?.length)
+            (batch.conversations ??= []).push(...cloud.conversations);
           if (cloud.removed?.length) (batch.removed ??= []).push(...cloud.removed);
           if (cloud.stale) (batch.stale ??= []).push(cloud.stale);
           if (cloud.inboxStale) batch.inboxStale = true;
@@ -1218,7 +1347,8 @@ export class DaemonHomeClient implements PageClient {
             pinned: event.pinned === true,
             markedUnread: event.marked_unread === true,
           };
-          if (change.pinned && typeof event.pin_position === "number") change.pinPosition = event.pin_position;
+          if (change.pinned && typeof event.pin_position === "number")
+            change.pinPosition = event.pin_position;
           // This page's own pin or mark keeps the cheap path; any other is the owner saying a row left
           // my list (a deleted Chief's), or another view's change: read the rows again.
           const own = this.ownInboxOps.get(change.conversation) ?? 0;
@@ -1252,7 +1382,11 @@ export class DaemonHomeClient implements PageClient {
           });
           // The Chief stopped typing: its "working" on the owner's row may end.
           const owned = this.homeRows.get(String(event.conversation));
-          if (event.on !== true && owned?.chief === event.participant && owned?.chief_state === "working")
+          if (
+            event.on !== true &&
+            owned?.chief === event.participant &&
+            owned?.chief_state === "working"
+          )
             batch.inboxStale = true;
         });
       } else if (event.event === "conversation-draft") {
@@ -1270,7 +1404,10 @@ export class DaemonHomeClient implements PageClient {
             done: item.done === true,
           }),
         );
-      } else if (event.event === "participant-avatar-changed" && typeof event.participant === "string") {
+      } else if (
+        event.event === "participant-avatar-changed" &&
+        typeof event.participant === "string"
+      ) {
         const participant = event.participant;
         deliver((batch) => (batch.avatars ??= []).push(participant));
       } else if (event.event === "conversation-run-changed" && event.run) {
@@ -1281,9 +1418,14 @@ export class DaemonHomeClient implements PageClient {
           });
           // A run that ended may end its Chief's "working" on the owner's row (a run that starts
           // shows at once: the page's own runs make the Chief active).
-          if (this.homeRows.size > 0 && (event.run as Json).status !== "running") batch.inboxStale = true;
+          if (this.homeRows.size > 0 && (event.run as Json).status !== "running")
+            batch.inboxStale = true;
         });
-      } else if (event.event === "conversation-live" && event.frame && typeof event.frame === "object") {
+      } else if (
+        event.event === "conversation-live" &&
+        event.frame &&
+        typeof event.frame === "object"
+      ) {
         const frame = liveFrame(event.frame as Json);
         if (frame) deliver((batch) => (batch.live ??= []).push(frame));
       } else if (event.event === "overflow") {
@@ -1294,7 +1436,9 @@ export class DaemonHomeClient implements PageClient {
         this.ownInboxOps.clear();
         // Lost cloud events too: the cloud inbox is listed again with the inbox.
         if (fromCloud) this.cloud.reset();
-        void this.startSocketStream(socket).catch(() => deliver((batch) => (batch.connection = "offline")));
+        void this.startSocketStream(socket).catch(() =>
+          deliver((batch) => (batch.connection = "offline")),
+        );
         deliver((batch) => {
           batch.inboxStale = true;
           batch.stale = [...this.opened];
