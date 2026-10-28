@@ -539,6 +539,7 @@
         "cancelPlan": "Résilier le forfait",
         "resume": "Reprendre {plan}",
         "renewsOn": "Renouvellement le {date}",
+        "trialEndsOn": "L’essai se termine le {date}",
         "endsOn": "Se termine le {date}",
         "perMonth": "par mois",
         "perSeatMonth": "par siège et par mois",
@@ -5331,9 +5332,13 @@
   },
   "pricing": {
     "billingUnavailable": "La facturation n'est pas disponible pour le moment. Réessayez plus tard.",
+    "billingTrialUnavailable": "L'essai gratuit est disponible pour les nouveaux abonnés Cloud. Les abonnements existants peuvent toujours être mis à niveau ou gérer la facturation.",
     "signedOutNotice": "Vous n'êtes pas connecté. Connectez-vous pour voir votre forfait actuel ou restaurer un achat existant.",
     "signedOutSignIn": "Se connecter",
-    "manageInAppStore": "Gérer dans l’App Store"
+    "manageInAppStore": "Gérer dans l’App Store",
+    "pro": {
+      "trialCta": "Démarrer l’essai de 14 jours"
+    }
   },
   "platforms": {
     "macos": "macOS",

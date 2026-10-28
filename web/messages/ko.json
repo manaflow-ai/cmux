@@ -539,6 +539,7 @@
         "cancelPlan": "요금제 해지",
         "resume": "{plan} 재개",
         "renewsOn": "{date}에 갱신",
+        "trialEndsOn": "{date}에 체험이 종료됩니다",
         "endsOn": "{date}에 종료",
         "perMonth": "월",
         "perSeatMonth": "좌석당 월",
@@ -5326,9 +5327,13 @@
   },
   "pricing": {
     "billingUnavailable": "지금은 결제를 사용할 수 없습니다. 나중에 다시 시도해 주세요.",
+    "billingTrialUnavailable": "무료 체험은 새로운 Cloud 구독자에게 제공됩니다. 기존 구독은 계속 업그레이드하거나 결제를 관리할 수 있습니다.",
     "signedOutNotice": "로그인되어 있지 않습니다. 로그인하여 현재 요금제를 확인하거나 기존 구매를 복원하세요.",
     "signedOutSignIn": "로그인",
-    "manageInAppStore": "App Store에서 관리"
+    "manageInAppStore": "App Store에서 관리",
+    "pro": {
+      "trialCta": "14일 무료 체험 시작"
+    }
   },
   "platforms": {
     "macos": "macOS",

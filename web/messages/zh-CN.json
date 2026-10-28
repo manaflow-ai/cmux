@@ -539,6 +539,7 @@
         "cancelPlan": "取消套餐",
         "resume": "恢复 {plan}",
         "renewsOn": "{date} 续订",
+        "trialEndsOn": "试用期结束于 {date}",
         "endsOn": "{date} 结束",
         "perMonth": "每月",
         "perSeatMonth": "每席位每月",
@@ -5329,9 +5330,13 @@
   },
   "pricing": {
     "billingUnavailable": "目前无法使用结算功能。请稍后再试。",
+    "billingTrialUnavailable": "免费试用仅适用于新的 Cloud 订阅者。现有订阅仍可升级或管理账单。",
     "signedOutNotice": "你尚未登录。登录后可查看当前方案或恢复已有购买。",
     "signedOutSignIn": "登录",
-    "manageInAppStore": "在 App Store 中管理"
+    "manageInAppStore": "在 App Store 中管理",
+    "pro": {
+      "trialCta": "开始 14 天试用"
+    }
   },
   "platforms": {
     "macos": "macOS",

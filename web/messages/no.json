@@ -539,6 +539,7 @@
         "cancelPlan": "Avslutt plan",
         "resume": "Gjenoppta {plan}",
         "renewsOn": "Fornyes {date}",
+        "trialEndsOn": "Prøveperioden avsluttes {date}",
         "endsOn": "Avsluttes {date}",
         "perMonth": "per måned",
         "perSeatMonth": "per plass per måned",
@@ -5326,9 +5327,13 @@
   },
   "pricing": {
     "billingUnavailable": "Betaling er ikke tilgjengelig akkurat nå. Prøv igjen senere.",
+    "billingTrialUnavailable": "Gratis prøveperiode er tilgjengelig for nye Cloud-abonnenter. Eksisterende abonnementer kan fortsatt oppgraderes eller administreres.",
     "signedOutNotice": "Du er ikke logget inn. Logg inn for å se gjeldende abonnement eller gjenopprette et eksisterende kjøp.",
     "signedOutSignIn": "Logg inn",
-    "manageInAppStore": "Administrer i App Store"
+    "manageInAppStore": "Administrer i App Store",
+    "pro": {
+      "trialCta": "Start 14 dagers prøveperiode"
+    }
   },
   "platforms": {
     "macos": "macOS",

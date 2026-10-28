@@ -539,6 +539,7 @@
         "cancelPlan": "Anuluj plan",
         "resume": "Wznów {plan}",
         "renewsOn": "Odnawia się {date}",
+        "trialEndsOn": "Okres próbny kończy się {date}",
         "endsOn": "Kończy się {date}",
         "perMonth": "miesięcznie",
         "perSeatMonth": "za stanowisko miesięcznie",
@@ -5329,9 +5330,13 @@
   },
   "pricing": {
     "billingUnavailable": "Płatności są teraz niedostępne. Spróbuj ponownie później.",
+    "billingTrialUnavailable": "Bezpłatny okres próbny jest dostępny dla nowych subskrybentów Cloud. Istniejące subskrypcje można nadal ulepszać lub nimi zarządzać.",
     "signedOutNotice": "Nie jesteś zalogowany. Zaloguj się, aby zobaczyć bieżący plan lub przywrócić istniejący zakup.",
     "signedOutSignIn": "Zaloguj się",
-    "manageInAppStore": "Zarządzaj w App Store"
+    "manageInAppStore": "Zarządzaj w App Store",
+    "pro": {
+      "trialCta": "Rozpocznij 14-dniowy okres próbny"
+    }
   },
   "platforms": {
     "macos": "macOS",

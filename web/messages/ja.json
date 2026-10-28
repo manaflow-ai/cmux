@@ -852,6 +852,7 @@
         "cancelPlan": "プランを解約",
         "resume": "{plan} を再開",
         "renewsOn": "{date} に更新",
+        "trialEndsOn": "トライアルは{date}に終了",
         "endsOn": "{date} に終了",
         "perMonth": "月額",
         "perSeatMonth": "1 シートあたり月額",
@@ -1845,6 +1846,7 @@
     "pro": {
       "name": "Pro",
       "cta": "Pro を入手",
+      "trialCta": "14日間のトライアルを開始",
       "featuresLead": "Free のすべてに加えて:",
       "features": [
         "分離されたリモートサンドボックスの Cloud VM 上で動くクラウドエージェント",
@@ -2124,6 +2126,7 @@
     "welcomePendingAction": "再確認",
     "billingError": "チェックアウトの開始中に問題が発生しました。しばらくしてからもう一度お試しください。",
     "billingUnavailable": "現在、決済をご利用いただけません。時間をおいてお試しください。",
+    "billingTrialUnavailable": "無料トライアルは新しい Cloud サブスクライバー向けです。既存のサブスクリプションではアップグレードまたは請求を管理できます。",
     "billingCancelled": "チェックアウトはキャンセルされました。請求は発生していません。",
     "billingAnnualUnavailable": "年払いは Pro と Max でご利用いただけます。下のプランからお選びください。",
     "billingPlanUnavailable": "このプランはまだご利用いただけません。以下から Pro または Max をお選びください。",

@@ -539,6 +539,7 @@
         "cancelPlan": "إلغاء الخطة",
         "resume": "استئناف {plan}",
         "renewsOn": "تتجدد في {date}",
+        "trialEndsOn": "تنتهي التجربة في {date}",
         "endsOn": "تنتهي في {date}",
         "perMonth": "شهريًا",
         "perSeatMonth": "لكل مقعد شهريًا",
@@ -5326,9 +5327,13 @@
   },
   "pricing": {
     "billingUnavailable": "الفوترة غير متاحة الآن. يُرجى المحاولة مرة أخرى لاحقًا.",
+    "billingTrialUnavailable": "التجارب المجانية متاحة لمشتركي Cloud الجدد. يمكن للاشتراكات الحالية الترقية أو إدارة الفوترة.",
     "signedOutNotice": "لم تسجّل الدخول. سجّل الدخول لعرض خطتك الحالية أو استعادة عملية شراء سابقة.",
     "signedOutSignIn": "تسجيل الدخول",
-    "manageInAppStore": "الإدارة في App Store"
+    "manageInAppStore": "الإدارة في App Store",
+    "pro": {
+      "trialCta": "ابدأ تجربة لمدة 14 يومًا"
+    }
   },
   "platforms": {
     "macos": "macOS",

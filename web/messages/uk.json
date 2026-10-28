@@ -539,6 +539,7 @@
         "cancelPlan": "Скасувати тариф",
         "resume": "Відновити {plan}",
         "renewsOn": "Поновлюється {date}",
+        "trialEndsOn": "Пробний період завершується {date}",
         "endsOn": "Закінчується {date}",
         "perMonth": "на місяць",
         "perSeatMonth": "за місце на місяць",
@@ -5399,9 +5400,13 @@
   },
   "pricing": {
     "billingUnavailable": "Оплата зараз недоступна. Спробуйте ще раз пізніше.",
+    "billingTrialUnavailable": "Безкоштовний пробний період доступний новим передплатникам Cloud. Власники наявних передплат можуть і надалі змінювати план або керувати оплатою.",
     "signedOutNotice": "Ви не ввійшли в систему. Увійдіть, щоб переглянути поточний план або відновити наявну покупку.",
     "signedOutSignIn": "Увійти",
-    "manageInAppStore": "Керувати в App Store"
+    "manageInAppStore": "Керувати в App Store",
+    "pro": {
+      "trialCta": "Почати 14-денний пробний період"
+    }
   },
   "platforms": {
     "macos": "macOS",

@@ -539,6 +539,7 @@
         "cancelPlan": "បោះបង់គម្រោង",
         "resume": "បន្ត {plan}",
         "renewsOn": "បន្តនៅ {date}",
+        "trialEndsOn": "ការសាកល្បងបញ្ចប់នៅ {date}",
         "endsOn": "បញ្ចប់នៅ {date}",
         "perMonth": "ក្នុងមួយខែ",
         "perSeatMonth": "ក្នុងមួយកៅអីក្នុងមួយខែ",
@@ -5327,9 +5328,13 @@
   },
   "pricing": {
     "billingUnavailable": "ការទូទាត់មិនអាចប្រើបាននៅពេលនេះទេ។ សូមព្យាយាមម្តងទៀតនៅពេលក្រោយ។",
+    "billingTrialUnavailable": "ការសាកល្បងឥតគិតថ្លៃមានសម្រាប់អ្នកជាវ Cloud ថ្មី។ អ្នកដែលមានការជាវរួចហើយអាចដំឡើងគម្រោង ឬគ្រប់គ្រងការទូទាត់បាន។",
     "signedOutNotice": "អ្នកមិនទាន់បានចូលទេ។ ចូលដើម្បីមើលគម្រោងបច្ចុប្បន្នរបស់អ្នក ឬស្ដារការទិញដែលមានស្រាប់។",
     "signedOutSignIn": "ចូល",
-    "manageInAppStore": "គ្រប់គ្រងនៅក្នុង App Store"
+    "manageInAppStore": "គ្រប់គ្រងនៅក្នុង App Store",
+    "pro": {
+      "trialCta": "ចាប់ផ្តើមសាកល្បង 14 ថ្ងៃ"
+    }
   },
   "platforms": {
     "macos": "macOS",

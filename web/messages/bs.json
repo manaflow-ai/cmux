@@ -539,6 +539,7 @@
         "cancelPlan": "Otkaži plan",
         "resume": "Nastavi {plan}",
         "renewsOn": "Obnavlja se {date}",
+        "trialEndsOn": "Probni period završava {date}",
         "endsOn": "Završava se {date}",
         "perMonth": "mjesečno",
         "perSeatMonth": "po mjestu mjesečno",
@@ -5329,9 +5330,13 @@
   },
   "pricing": {
     "billingUnavailable": "Naplata trenutno nije dostupna. Pokušajte ponovo kasnije.",
+    "billingTrialUnavailable": "Besplatna probna verzija dostupna je novim Cloud pretplatnicima. Postojeće pretplate mogu nadograditi plan ili upravljati naplatom.",
     "signedOutNotice": "Niste prijavljeni. Prijavite se da vidite trenutni plan ili vratite postojeću kupovinu.",
     "signedOutSignIn": "Prijavite se",
-    "manageInAppStore": "Upravljajte u App Storeu"
+    "manageInAppStore": "Upravljajte u App Storeu",
+    "pro": {
+      "trialCta": "Započni 14-dnevni probni period"
+    }
   },
   "platforms": {
     "macos": "macOS",

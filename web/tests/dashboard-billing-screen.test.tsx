@@ -283,6 +283,16 @@ describe("dashboard billing screen", () => {
     expect(html).toContain("Manage payment method");
   });
 
+  test("labels a trial's end date before the first charge", async () => {
+    subscriptionRows = [stripeSubscriptionRow({ cancelAtPeriodEnd: false, status: "trialing" })];
+    customerRows = [{ id: "cus_trial" }];
+
+    const html = await renderBillingPage();
+
+    expect(html).toContain("Trial ends on");
+    expect(html).not.toContain("Renews on");
+  });
+
   test("prices every Stripe Pro subscription from its own price amount", async () => {
     customerRows = [{ id: "cus_123" }];
     const cases: Array<[string | undefined, number, "month" | "year", string]> = [

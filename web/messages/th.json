@@ -539,6 +539,7 @@
         "cancelPlan": "ยกเลิกแพ็กเกจ",
         "resume": "ใช้ {plan} ต่อ",
         "renewsOn": "ต่ออายุวันที่ {date}",
+        "trialEndsOn": "ช่วงทดลองใช้ฟรีสิ้นสุดในวันที่ {date}",
         "endsOn": "สิ้นสุดวันที่ {date}",
         "perMonth": "ต่อเดือน",
         "perSeatMonth": "ต่อที่นั่งต่อเดือน",
@@ -5334,9 +5335,13 @@
   },
   "pricing": {
     "billingUnavailable": "การเรียกเก็บเงินยังไม่พร้อมใช้งานในตอนนี้ โปรดลองอีกครั้งภายหลัง",
+    "billingTrialUnavailable": "ทดลองใช้ฟรีสำหรับผู้สมัครสมาชิก Cloud ใหม่ ผู้สมัครสมาชิกเดิมยังอัปเกรดหรือจัดการการเรียกเก็บเงินได้",
     "signedOutNotice": "คุณยังไม่ได้ลงชื่อเข้าใช้ ลงชื่อเข้าใช้เพื่อดูแผนปัจจุบันหรือกู้คืนการซื้อที่มีอยู่",
     "signedOutSignIn": "ลงชื่อเข้าใช้",
-    "manageInAppStore": "จัดการใน App Store"
+    "manageInAppStore": "จัดการใน App Store",
+    "pro": {
+      "trialCta": "เริ่มทดลองใช้ฟรี 14 วัน"
+    }
   },
   "platforms": {
     "macos": "macOS",

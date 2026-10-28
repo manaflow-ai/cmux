@@ -539,6 +539,7 @@
         "cancelPlan": "Plan kündigen",
         "resume": "{plan} fortsetzen",
         "renewsOn": "Verlängert sich am {date}",
+        "trialEndsOn": "Test endet am {date}",
         "endsOn": "Endet am {date}",
         "perMonth": "pro Monat",
         "perSeatMonth": "pro Platz und Monat",
@@ -5329,9 +5330,13 @@
   },
   "pricing": {
     "billingUnavailable": "Die Abrechnung ist derzeit nicht verfügbar. Bitte versuche es später erneut.",
+    "billingTrialUnavailable": "Die kostenlose Testphase ist für neue Cloud-Abonnements verfügbar. Mit bestehenden Abonnements kannst du weiterhin upgraden oder die Abrechnung verwalten.",
     "signedOutNotice": "Du bist nicht angemeldet. Melde dich an, um deinen aktuellen Tarif zu sehen oder einen bestehenden Kauf wiederherzustellen.",
     "signedOutSignIn": "Anmelden",
-    "manageInAppStore": "Im App Store verwalten"
+    "manageInAppStore": "Im App Store verwalten",
+    "pro": {
+      "trialCta": "14-tägigen Test starten"
+    }
   },
   "platforms": {
     "macos": "macOS",

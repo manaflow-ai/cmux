@@ -46,8 +46,12 @@ const redirect = mock((href: unknown) => {
   throw Object.assign(new Error("redirect"), { href });
 });
 const originalVaultEnabled = process.env.CMUX_VAULT_ENABLED;
+let pricingSearchParams = new URLSearchParams();
 
-const nextNavigationMock = createNextNavigationMock(redirect);
+const nextNavigationMock = {
+  ...createNextNavigationMock(redirect),
+  useSearchParams: () => pricingSearchParams,
+};
 
 mock.module("next/navigation", () => nextNavigationMock);
 mock.module("next/headers", () => ({ headers: async () => new Headers() }));
@@ -182,7 +186,7 @@ describe("localized pricing page", () => {
     expect(fallbackContentLocales).toEqual(["en", "ja"]);
   });
 
-  test("keeps paid-plan copy flat: no metering, trials, or CodeRouter", () => {
+  test("keeps paid-plan copy flat: no metering or CodeRouter", () => {
     expect(enMessages.pricing.team.features).toEqual([
       "Up to 5 Cloud VMs per paid seat, sharing 20 vCPUs and 40 GB RAM per paid seat across the team",
       "Centralized billing for your whole team",
@@ -227,8 +231,6 @@ describe("localized pricing page", () => {
       expect(flat).not.toContain("CodeRouter");
       expect(flat).not.toContain("compute-hour");
       expect(flat).not.toContain("usage-based");
-      expect(flat).not.toContain("trial");
-      expect(flat).not.toContain("トライアル");
       expect(flat).not.toContain("アクティブ計算時間");
       expect(flat).not.toContain("コンピュート時間");
       expect("sizes" in catalog).toBe(false);
@@ -257,6 +259,7 @@ describe("localized pricing page", () => {
     stackConfigured = false;
     currentUser = proUser;
     stripeSubscriptionRows = [];
+    pricingSearchParams = new URLSearchParams();
     getUser.mockClear();
     getUser.mockImplementation(async () => currentUser);
     proUser.update.mockClear();
@@ -285,6 +288,8 @@ describe("localized pricing page", () => {
     expect(html).toContain('href="/handler/sign-in?after_auth_return_to=');
     expect(html).toContain("plan%253Dpro");
     expect(html).toContain("plan%253Dteam");
+    expect(html).toContain("Start 14-day trial");
+    expect(html).toContain("trial%253D1");
     expect(html).toMatch(
       /href="\/handler\/sign-in\?after_auth_return_to=[^"]*plan%253Dpro[^"]*"[^>]*class="[^"]*h-12 px-5 text-\[15px\][^"]*"[^>]*><span>Get Pro/,
     );
@@ -300,6 +305,15 @@ describe("localized pricing page", () => {
     expect(html).not.toContain("CodeRouter");
     expect(html).not.toContain("Subrouter");
     expect(html).not.toContain("cmux Vault");
+  });
+
+  test("explains when an existing subscriber cannot start a trial", async () => {
+    pricingSearchParams = new URLSearchParams("billing=trial_unavailable");
+    const element = await PricingPage({ params: Promise.resolve({ locale: "en" }) });
+    const html = await renderSettled(element);
+
+    expect(html).toContain("Free trials are available to new Cloud subscribers");
+    expect(html).toContain("Existing subscriptions can still upgrade or manage billing");
   });
 
   test("sells Max monthly or yearly with the annual discount, between Pro and Team", async () => {

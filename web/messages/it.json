@@ -539,6 +539,7 @@
         "cancelPlan": "Annulla piano",
         "resume": "Riprendi {plan}",
         "renewsOn": "Si rinnova il {date}",
+        "trialEndsOn": "La prova termina il {date}",
         "endsOn": "Termina il {date}",
         "perMonth": "al mese",
         "perSeatMonth": "per postazione al mese",
@@ -5329,9 +5330,13 @@
   },
   "pricing": {
     "billingUnavailable": "La fatturazione non è disponibile al momento. Riprova più tardi.",
+    "billingTrialUnavailable": "La prova gratuita è disponibile per i nuovi abbonati Cloud. Gli abbonamenti esistenti possono comunque essere aggiornati o gestire la fatturazione.",
     "signedOutNotice": "Non hai effettuato l'accesso. Accedi per vedere il piano attuale o ripristinare un acquisto esistente.",
     "signedOutSignIn": "Accedi",
-    "manageInAppStore": "Gestisci nell’App Store"
+    "manageInAppStore": "Gestisci nell’App Store",
+    "pro": {
+      "trialCta": "Inizia la prova di 14 giorni"
+    }
   },
   "platforms": {
     "macos": "macOS",

@@ -539,6 +539,7 @@
         "cancelPlan": "Planı iptal et",
         "resume": "{plan} planını sürdür",
         "renewsOn": "{date} tarihinde yenilenir",
+        "trialEndsOn": "Deneme süresi {date} tarihinde sona erer",
         "endsOn": "{date} tarihinde sona erer",
         "perMonth": "aylık",
         "perSeatMonth": "koltuk başına aylık",
@@ -5327,9 +5328,13 @@
   },
   "pricing": {
     "billingUnavailable": "Faturalandırma şu anda kullanılamıyor. Lütfen daha sonra tekrar deneyin.",
+    "billingTrialUnavailable": "Ücretsiz deneme yeni Cloud abonelerine sunulur. Mevcut abonelikler yine de yükseltilebilir veya faturalandırma yönetilebilir.",
     "signedOutNotice": "Oturum açmadınız. Mevcut planınızı görmek veya önceki bir satın almayı geri yüklemek için oturum açın.",
     "signedOutSignIn": "Oturum aç",
-    "manageInAppStore": "App Store'da yönet"
+    "manageInAppStore": "App Store'da yönet",
+    "pro": {
+      "trialCta": "14 günlük denemeyi başlat"
+    }
   },
   "platforms": {
     "macos": "macOS",

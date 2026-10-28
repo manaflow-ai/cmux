@@ -539,6 +539,7 @@
         "cancelPlan": "Opsig plan",
         "resume": "Genoptag {plan}",
         "renewsOn": "Fornyes den {date}",
+        "trialEndsOn": "Prøveperioden slutter {date}",
         "endsOn": "Slutter den {date}",
         "perMonth": "pr. måned",
         "perSeatMonth": "pr. plads pr. måned",
@@ -5326,9 +5327,13 @@
   },
   "pricing": {
     "billingUnavailable": "Betaling er ikke tilgængelig lige nu. Prøv igen senere.",
+    "billingTrialUnavailable": "Gratisprøven er tilgængelig for nye Cloud-abonnenter. Eksisterende abonnementer kan stadig opgraderes eller administreres.",
     "signedOutNotice": "Du er ikke logget ind. Log ind for at se dit nuværende abonnement eller gendanne et tidligere køb.",
     "signedOutSignIn": "Log ind",
-    "manageInAppStore": "Administrer i App Store"
+    "manageInAppStore": "Administrer i App Store",
+    "pro": {
+      "trialCta": "Start 14-dages prøveperiode"
+    }
   },
   "platforms": {
     "macos": "macOS",

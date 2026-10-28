@@ -852,6 +852,7 @@
         "cancelPlan": "Cancel plan",
         "resume": "Resume {plan}",
         "renewsOn": "Renews on {date}",
+        "trialEndsOn": "Trial ends on {date}",
         "endsOn": "Ends on {date}",
         "perMonth": "per month",
         "perSeatMonth": "per seat per month",
@@ -1845,6 +1846,7 @@
     "pro": {
       "name": "Pro",
       "cta": "Get Pro",
+      "trialCta": "Start 14-day trial",
       "featuresLead": "Everything in Free, plus:",
       "features": [
         "Cloud agents on Cloud VMs in isolated remote sandboxes",
@@ -2124,6 +2126,7 @@
     "welcomePendingAction": "Check again",
     "billingError": "Something went wrong starting checkout. Please try again in a moment.",
     "billingUnavailable": "Billing is not available right now. Please try again later.",
+    "billingTrialUnavailable": "Free trials are available to new Cloud subscribers. Existing subscriptions can still upgrade or manage billing.",
     "billingCancelled": "Checkout cancelled. You have not been charged.",
     "billingAnnualUnavailable": "Annual billing is available for Pro and Max. Choose a plan below.",
     "billingPlanUnavailable": "This plan is not available yet. Choose Pro or Max below.",
