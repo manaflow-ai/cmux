@@ -6,7 +6,10 @@ import { freestyleCloud } from "./freestyle/cloud.ts"
  * Wiring: which provider implementation backs this deployment's direct Cloud transport. Each provider
  * folder exports one of these; its settings (key, URL, boot image) are its own env names. Only
  * Freestyle exists today; a new provider adds its folder and one line here, and CloudDO, the guard
- * and the domain stay as they are.
+ * and the domain stay as they are. A provider hosted outside this Worker (the VM API, or a separate
+ * cloud service exposing that same generated API) is not wired here: it is reached through the vm-api
+ * transport (cloud-vm-api.ts, CLOUD_VM_TRANSPORT=vm-api, CLOUD_VM_API_ORIGIN), which implements this
+ * same CloudProvider contract over HTTP.
  */
 export interface CloudProviderWiring {
   readonly id: string
