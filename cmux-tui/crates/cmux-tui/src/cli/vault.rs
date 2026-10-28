@@ -80,13 +80,19 @@ pub(super) fn parse(args: &[String]) -> Result<Command, UsageError> {
             _ => Err(usage()),
         },
         "scope" => match rest {
-            [name, scope] => Ok(Command::Scope { name: valid_name(name)?, scope: valid_scope(scope)? }),
+            [name, scope] => {
+                Ok(Command::Scope { name: valid_name(name)?, scope: valid_scope(scope)? })
+            }
             _ => Err(usage()),
         },
         "set" => {
             let (name, options) = rest.split_first().ok_or_else(usage)?;
             let options = options_of(options, &["--scope", "--note"])?;
-            let scope = options.iter().find(|(k, _)| k == "--scope").map(|(_, v)| valid_scope(v)).transpose()?;
+            let scope = options
+                .iter()
+                .find(|(k, _)| k == "--scope")
+                .map(|(_, v)| valid_scope(v))
+                .transpose()?;
             let note = options.iter().find(|(k, _)| k == "--note").map(|(_, v)| v.clone());
             Ok(Command::Set { name: valid_name(name)?, scope, note })
         }
@@ -101,9 +107,11 @@ pub(super) fn parse(args: &[String]) -> Result<Command, UsageError> {
         "log" => {
             let options = options_of(rest, &["--limit"])?;
             let limit = match options.iter().find(|(k, _)| k == "--limit") {
-                Some((_, v)) => v.parse::<u32>().ok().filter(|n| (1..=1000).contains(n)).ok_or_else(|| {
-                    UsageError::new(format!("--limit {v:?}: expected a number from 1 to 1000"))
-                })?,
+                Some((_, v)) => {
+                    v.parse::<u32>().ok().filter(|n| (1..=1000).contains(n)).ok_or_else(|| {
+                        UsageError::new(format!("--limit {v:?}: expected a number from 1 to 1000"))
+                    })?
+                }
                 None => 50,
             };
             Ok(Command::Log { limit })
@@ -115,7 +123,9 @@ pub(super) fn parse(args: &[String]) -> Result<Command, UsageError> {
 
 fn parse_exec(args: &[String]) -> Result<Command, UsageError> {
     let separator = args.iter().position(|a| a == "--").ok_or_else(|| {
-        UsageError::new("cmux vault exec needs `--` before the command: cmux vault exec --env NAME -- COMMAND")
+        UsageError::new(
+            "cmux vault exec needs `--` before the command: cmux vault exec --env NAME -- COMMAND",
+        )
     })?;
     let (flags, argv) = (&args[..separator], &args[separator + 1..]);
     if argv.is_empty() {
@@ -128,7 +138,10 @@ fn parse_exec(args: &[String]) -> Result<Command, UsageError> {
         let flag = flags[index].as_str();
         let spec = if flag == "--env" {
             index += 1;
-            flags.get(index).cloned().ok_or_else(|| UsageError::new("--env needs VAR or VAR=NAME"))?
+            flags
+                .get(index)
+                .cloned()
+                .ok_or_else(|| UsageError::new("--env needs VAR or VAR=NAME"))?
         } else if let Some(spec) = flag.strip_prefix("--env=") {
             spec.to_owned()
         } else if flag == "--no-mask" {
@@ -163,7 +176,9 @@ fn options_of(args: &[String], allowed: &[&str]) -> Result<Vec<(String, String)>
             Some((key, value)) if allowed.contains(&key) => (key.to_owned(), value.to_owned()),
             _ if allowed.contains(&arg.as_str()) => {
                 index += 1;
-                let value = args.get(index).ok_or_else(|| UsageError::new(format!("{arg} needs a value")))?;
+                let value = args
+                    .get(index)
+                    .ok_or_else(|| UsageError::new(format!("{arg} needs a value")))?;
                 (arg.clone(), value.clone())
             }
             _ => return Err(UsageError::new(format!("unexpected {arg:?}\n{USAGE}"))),
@@ -194,18 +209,44 @@ fn valid_name(name: &str) -> Result<String, UsageError> {
 /// Variables that steer what a process loads or runs (the loader, shells, interpreters, git's and
 /// ssh's helpers): a secret never fills one.
 const RESERVED_ENV: &[&str] = &[
-    "PATH", "HOME", "SHELL", "USER", "LOGNAME", "TMPDIR", "IFS", "ENV", "BASH_ENV", "PWD", "TERM", "ZDOTDIR", "PS4",
-    "PROMPT_COMMAND", "NODE_OPTIONS", "NODE_PATH", "PERL5OPT", "PERL5LIB", "PERLLIB", "RUBYOPT", "RUBYLIB",
-    "SSH_ASKPASS", "SUDO_ASKPASS", "EDITOR", "VISUAL", "PAGER", "BROWSER",
+    "PATH",
+    "HOME",
+    "SHELL",
+    "USER",
+    "LOGNAME",
+    "TMPDIR",
+    "IFS",
+    "ENV",
+    "BASH_ENV",
+    "PWD",
+    "TERM",
+    "ZDOTDIR",
+    "PS4",
+    "PROMPT_COMMAND",
+    "NODE_OPTIONS",
+    "NODE_PATH",
+    "PERL5OPT",
+    "PERL5LIB",
+    "PERLLIB",
+    "RUBYOPT",
+    "RUBYLIB",
+    "SSH_ASKPASS",
+    "SUDO_ASKPASS",
+    "EDITOR",
+    "VISUAL",
+    "PAGER",
+    "BROWSER",
 ];
-const RESERVED_ENV_PREFIXES: &[&str] = &["DYLD_", "LD_", "CMUX_", "BASH_FUNC_", "PYTHON", "GIT_", "LESS"];
+const RESERVED_ENV_PREFIXES: &[&str] =
+    &["DYLD_", "LD_", "CMUX_", "BASH_FUNC_", "PYTHON", "GIT_", "LESS"];
 
 /// An env variable a secret may fill: a vault name that the loader, the shell or cmux does not
 /// own, so a secret never redirects what runs (`PATH`, `DYLD_*`) or which cmux it talks to.
 fn valid_env_var(var: &str) -> Result<String, UsageError> {
     let var = valid_name(var)?;
     let upper = var.to_ascii_uppercase();
-    let reserved = RESERVED_ENV.contains(&upper.as_str()) || RESERVED_ENV_PREFIXES.iter().any(|p| upper.starts_with(p));
+    let reserved = RESERVED_ENV.contains(&upper.as_str())
+        || RESERVED_ENV_PREFIXES.iter().any(|p| upper.starts_with(p));
     if reserved {
         return Err(UsageError::new(format!("{var} is not an env variable a secret may fill")));
     }
@@ -215,7 +256,9 @@ fn valid_env_var(var: &str) -> Result<String, UsageError> {
 fn valid_scope(scope: &str) -> Result<String, UsageError> {
     let words: Vec<&str> = scope.split(',').map(str::trim).collect();
     if words.is_empty() || !words.iter().all(|w| *w == "user" || *w == "agents") {
-        return Err(UsageError::new(format!("scope {scope:?}: expected user, agents or user,agents")));
+        return Err(UsageError::new(format!(
+            "scope {scope:?}: expected user, agents or user,agents"
+        )));
     }
     Ok(words.join(","))
 }
@@ -227,7 +270,9 @@ fn caller() -> Option<Value> {
 }
 
 fn caller_is_agent(caller: &Option<Value>) -> bool {
-    caller.as_ref().is_some_and(|c| c.get("agent_session").is_some() || c.get("home_chat").is_some())
+    caller
+        .as_ref()
+        .is_some_and(|c| c.get("agent_session").is_some() || c.get("home_chat").is_some())
 }
 
 fn with_caller(mut params: Value) -> Value {
@@ -238,7 +283,8 @@ fn with_caller(mut params: Value) -> Value {
 }
 
 fn connect(global: &GlobalArgs) -> Result<UnixStream, i32> {
-    super::app::connect_command(global).map_err(|error| super::wire::print_local_error(&error, global.output, 1))
+    super::app::connect_command(global)
+        .map_err(|error| super::wire::print_local_error(&error, global.output, 1))
 }
 
 /// One vault request; Ok(the result) or the printed error's exit code.
@@ -247,7 +293,9 @@ fn call(global: &GlobalArgs, method: &str, params: Value, timeout: Duration) -> 
     match super::app::request(&mut stream, method, with_caller(params), timeout) {
         Ok(Ok(result)) => Ok(result),
         Ok(Err(error)) => Err(super::wire::print_local_error(&error, global.output, 1)),
-        Err(message) => Err(super::app::failure("app.transport", &format!("cmux: {message}"), global.output, 1)),
+        Err(message) => {
+            Err(super::app::failure("app.transport", &format!("cmux: {message}"), global.output, 1))
+        }
     }
 }
 
@@ -266,24 +314,40 @@ fn run(global: &GlobalArgs, command: Command) -> i32 {
             Ok(value) if output == OutputMode::Human => print_list(&value),
             other => done(other),
         },
-        Command::Rm { name } => done(call(global, "vault.remove", json!({ "name": name }), REQUEST_TIMEOUT)),
-        Command::Scope { name, scope } => {
-            done(call(global, "vault.scope", json!({ "name": name, "scope": scope }), REQUEST_TIMEOUT))
+        Command::Rm { name } => {
+            done(call(global, "vault.remove", json!({ "name": name }), REQUEST_TIMEOUT))
         }
-        Command::Log { limit } => done(call(global, "vault.audit", json!({ "limit": limit }), READ_TIMEOUT)),
+        Command::Scope { name, scope } => done(call(
+            global,
+            "vault.scope",
+            json!({ "name": name, "scope": scope }),
+            REQUEST_TIMEOUT,
+        )),
+        Command::Log { limit } => {
+            done(call(global, "vault.audit", json!({ "limit": limit }), READ_TIMEOUT))
+        }
         Command::Set { name, scope, note } => {
             // Before the prompt: nobody types a secret an agent caller could not store.
             if caller_is_agent(&caller()) {
                 return super::app::failure(
                     "vault.user_only",
-                    &format!("cmux: only the person adds vault secrets; ask them with `cmux vault request {name}`"),
+                    &format!(
+                        "cmux: only the person adds vault secrets; ask them with `cmux vault request {name}`"
+                    ),
                     output,
                     1,
                 );
             }
             let value = match read_value(&name) {
                 Ok(value) => value,
-                Err(error) => return super::app::failure("vault.input", &format!("cmux: {error}"), output, 1),
+                Err(error) => {
+                    return super::app::failure(
+                        "vault.input",
+                        &format!("cmux: {error}"),
+                        output,
+                        1,
+                    );
+                }
             };
             let mut params = json!({ "name": name, "value": value.as_str() });
             drop(value);
@@ -318,8 +382,11 @@ fn print_list(value: &Value) -> i32 {
     }
     for row in rows {
         let text = |key: &str| row.get(key).and_then(Value::as_str).unwrap_or("").to_owned();
-        let scope: Vec<&str> =
-            row.get("scope").and_then(Value::as_array).map(|s| s.iter().filter_map(Value::as_str).collect()).unwrap_or_default();
+        let scope: Vec<&str> = row
+            .get("scope")
+            .and_then(Value::as_array)
+            .map(|s| s.iter().filter_map(Value::as_str).collect())
+            .unwrap_or_default();
         let used = match row.get("uses").and_then(Value::as_u64) {
             Some(0) | None => "never used".to_owned(),
             Some(n) => format!("used {n}×, last by {}", text("last_used_by")),
@@ -353,13 +420,23 @@ fn exec(global: &GlobalArgs, env: Vec<(String, String)>, mask: bool, argv: Vec<S
     let mut secrets: Vec<(String, zeroize::Zeroizing<String>)> = Vec::new();
     for (var, name) in &env {
         let Some(value) = values.get(name).and_then(Value::as_str) else {
-            return super::app::failure("vault.missing", &format!("cmux: the app sent no value for {name}"), output, 1);
+            return super::app::failure(
+                "vault.missing",
+                &format!("cmux: the app sent no value for {name}"),
+                output,
+                1,
+            );
         };
         secrets.push((var.clone(), zeroize::Zeroizing::new(value.to_owned())));
     }
     drop(values);
     let masker = mask.then(|| {
-        Masker::new(env.iter().zip(&secrets).map(|((_, name), (_, value))| (value.as_bytes().to_vec(), name.clone())).collect())
+        Masker::new(
+            env.iter()
+                .zip(&secrets)
+                .map(|((_, name), (_, value))| (value.as_bytes().to_vec(), name.clone()))
+                .collect(),
+        )
     });
     let mut command = cmux_process::Command::new(&argv[0]);
     command.args(&argv[1..]).stdin(cmux_process::Stdio::inherit());
@@ -374,7 +451,12 @@ fn exec(global: &GlobalArgs, env: Vec<(String, String)>, mask: bool, argv: Vec<S
     let mut child = match command.spawn() {
         Ok(child) => child,
         Err(error) => {
-            return super::app::failure("vault.exec", &format!("cmux: cannot run {}: {error}", argv[0]), output, 127);
+            return super::app::failure(
+                "vault.exec",
+                &format!("cmux: cannot run {}: {error}", argv[0]),
+                output,
+                127,
+            );
         }
     };
     drop(command);
@@ -440,7 +522,8 @@ pub(super) struct Masker {
 
 impl Masker {
     pub(super) fn new(secrets: Vec<(Vec<u8>, String)>) -> Self {
-        let mut secrets: Vec<(Vec<u8>, String)> = secrets.into_iter().filter(|(value, _)| value.len() >= 4).collect();
+        let mut secrets: Vec<(Vec<u8>, String)> =
+            secrets.into_iter().filter(|(value, _)| value.len() >= 4).collect();
         // The longest first: a value that contains another is replaced whole.
         secrets.sort_by_key(|(value, _)| std::cmp::Reverse(value.len()));
         Self { secrets, pending: Vec::new() }
@@ -464,7 +547,12 @@ impl Masker {
             // The tail may be the start of a value the next read completes: wait for it before
             // taking any match, so a shorter value never wins over a longer one that starts the
             // same way (that would show the longer one's tail).
-            if !end && self.secrets.iter().any(|(value, _)| rest.len() < value.len() && value.starts_with(rest)) {
+            if !end
+                && self
+                    .secrets
+                    .iter()
+                    .any(|(value, _)| rest.len() < value.len() && value.starts_with(rest))
+            {
                 self.pending = rest.to_vec();
                 break;
             }
@@ -506,9 +594,16 @@ mod tests {
     fn a_value_never_comes_from_argv_and_names_follow_the_apps_rule() {
         assert_eq!(
             parse(&words("set OPENAI_API_KEY --scope agents --note work")),
-            Ok(Command::Set { name: "OPENAI_API_KEY".into(), scope: Some("agents".into()), note: Some("work".into()) })
+            Ok(Command::Set {
+                name: "OPENAI_API_KEY".into(),
+                scope: Some("agents".into()),
+                note: Some("work".into())
+            })
         );
-        assert!(parse(&words("set OPENAI_API_KEY sk-live-123")).is_err(), "a value on the command line");
+        assert!(
+            parse(&words("set OPENAI_API_KEY sk-live-123")).is_err(),
+            "a value on the command line"
+        );
         assert!(parse(&words("set 1BAD")).is_err());
         assert!(parse(&words("set A-B")).is_err());
         assert!(parse(&words("set KEY --scope everyone")).is_err());
@@ -529,14 +624,22 @@ mod tests {
     #[test]
     fn exec_maps_env_variables_to_names_and_refuses_the_ones_that_steer_a_process() {
         assert_eq!(
-            parse(&words("exec --env GH_TOKEN --env OPENAI_API_KEY=WORK_OPENAI -- gh pr list --json")),
+            parse(&words(
+                "exec --env GH_TOKEN --env OPENAI_API_KEY=WORK_OPENAI -- gh pr list --json"
+            )),
             Ok(Command::Exec {
-                env: vec![("GH_TOKEN".into(), "GH_TOKEN".into()), ("OPENAI_API_KEY".into(), "WORK_OPENAI".into())],
+                env: vec![
+                    ("GH_TOKEN".into(), "GH_TOKEN".into()),
+                    ("OPENAI_API_KEY".into(), "WORK_OPENAI".into())
+                ],
                 mask: true,
                 argv: words("gh pr list --json"),
             })
         );
-        assert!(matches!(parse(&words("exec --env=K --no-mask -- env")), Ok(Command::Exec { mask: false, .. })));
+        assert!(matches!(
+            parse(&words("exec --env=K --no-mask -- env")),
+            Ok(Command::Exec { mask: false, .. })
+        ));
         for bad in [
             "exec --env K",
             "exec --env K --",
@@ -556,8 +659,9 @@ mod tests {
     }
 
     fn mask_in_chunks(secrets: &[(&str, &str)], input: &str, chunk: usize) -> String {
-        let mut masker =
-            Masker::new(secrets.iter().map(|(v, n)| (v.as_bytes().to_vec(), (*n).to_owned())).collect());
+        let mut masker = Masker::new(
+            secrets.iter().map(|(v, n)| (v.as_bytes().to_vec(), (*n).to_owned())).collect(),
+        );
         let mut out = Vec::new();
         for piece in input.as_bytes().chunks(chunk) {
             out.extend(masker.push(piece));
@@ -569,7 +673,8 @@ mod tests {
     #[test]
     fn output_never_shows_a_value_whatever_the_read_boundaries() {
         let secrets = [("sk-live-abcdef123456", "OPENAI"), ("ghp_0123456789", "GH")];
-        let input = "token=sk-live-abcdef123456\nother ghp_0123456789ghp_0123456789 end sk-live-abc";
+        let input =
+            "token=sk-live-abcdef123456\nother ghp_0123456789ghp_0123456789 end sk-live-abc";
         let want = "token=[vault:OPENAI]\nother [vault:GH][vault:GH] end sk-live-abc";
         for chunk in 1..=input.len() {
             assert_eq!(mask_in_chunks(&secrets, input, chunk), want, "chunk {chunk}");
@@ -587,13 +692,18 @@ mod tests {
             );
         }
         // The reads that showed the longer value's tail before: `ab`, `cde`, `fgh`.
-        let mut masker = Masker::new(vec![(b"abcd".to_vec(), "A".into()), (b"abcdefgh".to_vec(), "B".into())]);
+        let mut masker =
+            Masker::new(vec![(b"abcd".to_vec(), "A".into()), (b"abcdefgh".to_vec(), "B".into())]);
         let mut out = Vec::new();
         for piece in ["ab", "cde", "fgh"] {
             out.extend(masker.push(piece.as_bytes()));
         }
         out.extend(masker.finish());
         assert_eq!(String::from_utf8(out).unwrap(), "[vault:B]");
-        assert_eq!(mask_in_chunks(&[("abc", "S")], "abc abc", 2), "abc abc", "under 4 bytes is not masked");
+        assert_eq!(
+            mask_in_chunks(&[("abc", "S")], "abc abc", 2),
+            "abc abc",
+            "under 4 bytes is not masked"
+        );
     }
 }

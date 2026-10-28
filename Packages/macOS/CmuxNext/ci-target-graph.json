@@ -268,6 +268,7 @@
         "CmuxNextControl",
         "CmuxNextCookieImport",
         "CmuxNextCrashReporting",
+        "CmuxNextCredentialVault",
         "CmuxNextDaemon",
         "CmuxNextDaemonRecovery",
         "CmuxNextDaemonService",
@@ -393,6 +394,7 @@
         "CmuxNextCookieImport",
         "CmuxNextCopyMode",
         "CmuxNextCrashReporting",
+        "CmuxNextCredentialVault",
         "CmuxNextDaemon",
         "CmuxNextDaemonRecovery",
         "CmuxNextDaemonService",
@@ -871,6 +873,34 @@
       "packages": [
         "CmuxSentryTelemetry"
       ]
+    },
+    "CmuxNextCredentialVault": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextCredentialVault",
+      "targets": [
+        "CmuxNextCompat",
+        "CmuxNextControl",
+        "CmuxNextDesign",
+        "CmuxNextDesignTokens",
+        "CmuxNextPages",
+        "CmuxNextSettings"
+      ],
+      "packages": []
+    },
+    "CmuxNextCredentialVaultTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextCredentialVaultTests",
+      "targets": [
+        "CmuxNextActions",
+        "CmuxNextCompat",
+        "CmuxNextControl",
+        "CmuxNextCredentialVault",
+        "CmuxNextDesign",
+        "CmuxNextPages",
+        "CmuxNextSettings"
+      ],
+      "packages": [],
+      "reads": []
     },
     "CmuxNextDaemon": {
       "kind": "regular",

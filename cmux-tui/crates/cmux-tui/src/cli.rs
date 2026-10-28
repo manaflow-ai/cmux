@@ -33,8 +33,6 @@ mod chief_target;
 mod cloud_machines;
 #[cfg(unix)]
 mod cloud_secret;
-#[cfg(unix)]
-mod vault;
 mod code_mode;
 #[cfg(unix)]
 mod coderouter;
@@ -52,6 +50,8 @@ mod frontend_browser;
 mod host_mount;
 mod launch_credential;
 mod lifecycle;
+#[cfg(unix)]
+mod vault;
 // Like the other scopes its dispatch is in (`run`, `#[cfg(unix)]`): Unix only.
 #[cfg(unix)]
 mod sandbox_run;
