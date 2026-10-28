@@ -117,6 +117,30 @@ struct LayoutTemplateTests {
         #expect(again.templates.map(\.name) == ["Side by side"])
     }
 
+    /// A templates file this build cannot read (a newer build's version or tab kind, or a damaged file) is
+    /// never written over: the next save used to read it as no templates and replace every one of them with
+    /// the new one (a downgrade from the nightly lost every saved layout). It is moved aside, whole, beside
+    /// the file, and the save starts a new file.
+    @Test func aTemplatesFileThatDoesNotDecodeIsMovedAsideNeverOverwritten() async throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("cn-layouts-\(UUID().uuidString.prefix(8))")
+        defer { try? FileManager.default.removeItem(at: folder) }
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let file = folder.appendingPathComponent("layout-templates.json")
+        let newer = Data(#"{"version":2,"templates":[{"id":"a","name":"From nightly","saved_at":"2026-10-28T00:00:00Z","blueprint":{"kind":"a tab kind this build lacks"}}]}"#.utf8)
+        try newer.write(to: file)
+
+        let repository = LayoutTemplateRepository(fileURL: file)
+        #expect(await repository.all().isEmpty, "an unreadable file shows as no templates")
+        _ = try await repository.put(name: "Solo", blueprint: Self.blueprint)
+
+        let aside = try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)
+            .filter { $0.lastPathComponent != file.lastPathComponent }
+        #expect(aside.count == 1, "the unreadable file is kept beside the new one: \(aside.map(\.lastPathComponent))")
+        #expect(try aside.first.map { try Data(contentsOf: $0) } == newer, "moved aside byte for byte")
+        let relaunched = LayoutTemplateRepository(fileURL: file)
+        #expect(await relaunched.all().map(\.name) == ["Solo"])
+    }
+
     /// Manage Layout Templates lists one row per template (Return builds a workspace from it,
     /// Rename and Delete are its row's actions); with none it refuses in words.
     @Test func manageLayoutTemplatesListsEveryTemplate() async throws {
