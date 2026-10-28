@@ -6,34 +6,32 @@ import { ToolGroupRow } from "./ToolGroupRow";
 import { ToolRun } from "./ToolRun";
 import { ThoughtRow } from "./ThoughtRow";
 import { CommandRow } from "./CommandRow";
-import { CopyButton } from "./CopyButton";
+import { SessionStartNote } from "./SessionStartNote";
 import type { AcpmuxActivity } from "../model";
 import { useEffect, type ReactNode } from "react";
 
 const commandItems: AcpmuxActivity[] = [
-  tool("Ran 31 commands, used a tool", "execute", "completed", { command: "bun test webviews" }),
-  tool("Ran a second command with a long description", "execute", "completed", { command: "git status" }),
+  tool("Run the focused tests", "execute", "completed", {
+    id: "chevron-command-a",
+    command: "bun test webviews",
+    description: "Run the focused tests",
+    output: "12 pass, 0 fail",
+    startedAt: 1000,
+    endedAt: 3500,
+  }),
+  tool("Inspect the worktree", "execute", "completed", {
+    id: "chevron-command-b",
+    command: "git status",
+    description: "Inspect the worktree",
+    output: "clean",
+    startedAt: 1000,
+    endedAt: 4200,
+  }),
 ];
 
-function CopySlot() {
+function Row({ children, label }: { children: ReactNode; label: string }) {
   return (
-    <CopyButton
-      text="Sample command run"
-      label="Copy"
-      className="acpmux-row__copy cv-iconbtn"
-      copy={async () => true}
-    />
-  );
-}
-
-function Row({ children, copy = false, label }: { children: ReactNode; copy?: boolean; label: string }) {
-  return (
-    <section
-      className="acpmux-row chevron-column-gallery__row"
-      data-label={label}
-      data-floating-copy={copy ? "true" : undefined}
-    >
-      {copy ? <CopySlot /> : null}
+    <section className="acpmux-row chevron-column-gallery__row" data-label={label}>
       <div className="cv-tools">{children}</div>
     </section>
   );
@@ -45,18 +43,25 @@ function ChevronColumnGallery() {
     <TranscriptDisclosureProvider sessionId="gallery-chevron-column">
       <main className="chevron-column-gallery" data-chevron-column>
         <Row label="start">
-          <ToolRun items={commandItems} disclosureKey="start">
+          <SessionStartNote
+            start={{
+              agent: "claude",
+              version: "2.1.303",
+              model: "claude-opus-5-5",
+              harness: "claude",
+              cwd: "/Users/you/src/sample",
+            }}
+          />
+        </Row>
+        <Row label="run">
+          <ToolRun items={commandItems} disclosureKey="run">
             {commandItems.map((item, index) => (
               <CommandRow key={index} item={item} />
             ))}
           </ToolRun>
         </Row>
-        <Row label="copy" copy>
-          <ToolRun items={commandItems} disclosureKey="copy">
-            {commandItems.map((item, index) => (
-              <CommandRow key={index} item={item} />
-            ))}
-          </ToolRun>
+        <Row label="command">
+          <CommandRow item={{ ...commandItems[0]!, tool: { ...commandItems[0]!.tool!, id: "chevron-lone-command" } }} />
         </Row>
         <Row label="group">
           <ToolGroupRow kind="commands" items={commandItems} disclosureKey="group" folded />
@@ -81,7 +86,7 @@ export default componentEntry<Record<string, never>>({
   area: "Agent pane",
   pane: true,
   experimental: true,
-  height: 300,
+  height: 640,
   widths: { narrow: 420, normal: 760, wide: 1100 },
   anchors: [{ selector: "[data-chevron-column]" }],
   covers: ["agent-session/acpmux/conversation/conversation.css"],
@@ -89,6 +94,9 @@ export default componentEntry<Record<string, never>>({
     Promise.all([import("../styles.css"), import("./conversation.css"), import("./ChevronColumn.gallery.css")]),
   load: async () => ChevronColumnGallery,
   variants: {
-    shipped: { props: {}, note: "Hover action slots stay left of a shared trailing chevron column." },
+    shipped: {
+      props: {},
+      note: "Real summary, command, group and thought controls share one trailing chevron column. Check/time are before it; Copy remains inside the opened Shell block.",
+    },
   },
 });

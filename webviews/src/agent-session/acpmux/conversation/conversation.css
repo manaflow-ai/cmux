@@ -1765,19 +1765,14 @@ pre.cv-math-source {
    at every width; the Shell card has its own in-flow actions and is unaffected. */
 .acpmux-row[data-floating-copy="true"] > .cv-tools > .cv-tool,
 .acpmux-row[data-floating-copy="true"] > .cv-tools > .cv-tool-run > .cv-tool {
-  /* Keep one action track between the row's metadata and its chevron. The copy button is an
-     absolute sibling, so end padding shifts only rows that expose it and makes their chevrons
-     disagree with the rest of the transcript. */
-  grid-template-columns: auto minmax(0, 1fr) auto 28px auto;
-  padding-right: 0;
+  padding-right: 8px;
 }
 .acpmux-row[data-floating-copy="true"] > .cv-tools > .cv-tool > .cv-tool__chevron,
 .acpmux-row[data-floating-copy="true"] > .cv-tools > .cv-tool-run > .cv-tool > .cv-tool__chevron {
-  grid-column: 5;
   margin-inline-start: 0;
 }
 .acpmux-row[data-floating-copy="true"] > .acpmux-row__copy {
-  right: 22px;
+  right: 24px;
 }
 /* A thought in full (while it streams, or with a Debug choice that folds only long ones): a muted
    "Thinking" (or "Thought for 12s" once done) on its own line, then its text under the opened
