@@ -28,6 +28,11 @@ extension DisplayClock {
         return !window.isVisible || window.occlusionState.contains(.visible)
     }
 
+    /// Core Graphics' state of the display: a sleeping display's link draws no frame.
+    static func systemIsAsleep(_ display: CGDirectDisplayID) -> Bool {
+        CGDisplayIsAsleep(display) != 0
+    }
+
     static func systemDisplay(_ window: NSWindow?) -> CGDirectDisplayID? {
         (window?.screen ?? NSScreen.main ?? NSScreen.screens.first).flatMap(number(of:))
     }

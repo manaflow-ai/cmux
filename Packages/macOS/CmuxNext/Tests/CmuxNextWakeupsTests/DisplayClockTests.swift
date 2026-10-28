@@ -414,6 +414,43 @@ import Testing
         hiddenClient.deactivate()
         #expect(displays.liveLinks == 0)
     }
+
+    /// While the display sleeps (the lid closed, the displays asleep) its link cannot fire. The stall deadline
+    /// still ticks the subscribers (the daemon drains keep moving), but it does not rebuild the link: a new link
+    /// of a sleeping display cannot fire either, and before this every 3 stalls (300 ms) made one, about
+    /// 12,000 links an hour while agents wrote output (pro-audits item 2). Once the display wakes, a link that
+    /// still stalls is rebuilt as before.
+    @Test func aSleepingDisplayTicksOnTheDeadlineWithoutRebuildingItsLink() {
+        let links = FakeLinks()
+        let media = TestMediaTime()
+        var asleep = true
+        let displays = DisplayClock(makeLink: links.make, displayOf: { _ in 1 }, isAsleep: { _ in asleep },
+                                    clock: ManualClock(), mediaTime: media.read)
+        let work = MainWorkScheduler(budget: MainFrameBudget(uptimeNanos: { 1_000_000_000 }), displays: displays)
+        var ticks = 0
+        let drain = FrameClient(owner: "drain", on: work.frames) { _ in ticks += 1; return true }
+        drain.activate()
+        #expect(displays.linksMade == 1)
+
+        let stalls = DisplayClock.stallsBeforeRebuild * 3
+        for _ in 0..<stalls {
+            media.now += 0.2
+            displays.stallTimerFired(1)
+        }
+        #expect(ticks == stalls, "the deadline ticks the drain while the display sleeps")
+        #expect(displays.linksMade == 1, "made \(displays.linksMade - 1) links for a sleeping display")
+        #expect(links.made.first?.invalidated == false, "the sleeping display keeps its link")
+        #expect(displays.lastStall(on: 1) == nil, "a sleeping display is not a stall")
+
+        asleep = false
+        for _ in 0..<DisplayClock.stallsBeforeRebuild {
+            media.now += 0.2
+            displays.stallTimerFired(1)
+        }
+        #expect(displays.linksMade == 2, "awake and still stalled: the link is rebuilt")
+        drain.deactivate()
+        #expect(displays.liveLinks == 0)
+    }
 }
 
 /// Four schedulers on one display clock: two windows, the app's and the budget holder's.

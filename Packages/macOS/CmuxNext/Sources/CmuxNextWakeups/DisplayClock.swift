@@ -59,6 +59,8 @@ public final class DisplayClock {
     public typealias DisplayResolver = @MainActor (_ window: NSWindow?) -> CGDirectDisplayID?
     /// Whether a person can see any of `window` (not occluded, not miniaturized).
     public typealias VisibilityResolver = @MainActor (_ window: NSWindow) -> Bool
+    /// Whether `display` sleeps now (`CGDisplayIsAsleep`): its link cannot fire until it wakes.
+    public typealias SleepResolver = @MainActor (_ display: CGDirectDisplayID) -> Bool
 
     /// Longest wait for a frame while a display has subscribers.
     public static let stallTimeout: Duration = .milliseconds(100)
@@ -77,6 +79,7 @@ public final class DisplayClock {
     private let makeLink: LinkFactory?
     private let displayOf: DisplayResolver
     private let isVisible: VisibilityResolver
+    private let isAsleep: SleepResolver
     private let clock: any Clock<Duration>
     private let ledger: WakeupLedger
     private let mediaTime: @MainActor () -> CFTimeInterval
@@ -118,13 +121,15 @@ public final class DisplayClock {
     ///   - displayOf: Resolves a window's display; nil: the window's screen, else the main screen.
     ///   - isVisible: Whether a window can be seen; nil: not miniaturized, the app not hidden, and,
     ///     while the window is on screen, some part of it visible.
+    ///   - isAsleep: Whether a display sleeps now; nil: `CGDisplayIsAsleep`.
     ///   - clock: Runs the stall deadlines.
     ///   - ledger: Where stalls and deadlines are recorded.
     ///   - mediaTime: Stands in for `CACurrentMediaTime`, the timebase of frame timestamps.
     ///   - followsClientRates: The links run at their clients' rates (``followsClientRates``).
     ///   - presents: The frame trace points of its ticks (``presents``); nil: one on the app's trace runtime.
     public init(hub: VSyncHub? = nil, makeLink: LinkFactory? = nil, displayOf: DisplayResolver? = nil,
-                isVisible: VisibilityResolver? = nil, clock: any Clock<Duration> = ContinuousClock(), ledger: WakeupLedger = .shared,
+                isVisible: VisibilityResolver? = nil, isAsleep: SleepResolver? = nil,
+                clock: any Clock<Duration> = ContinuousClock(), ledger: WakeupLedger = .shared,
                 mediaTime: @escaping @MainActor () -> CFTimeInterval = { CACurrentMediaTime() },
                 followsClientRates: Bool = false, presents: FramePresentEstimate? = nil) {
         self.presents = presents ?? FramePresentEstimate()
@@ -134,6 +139,7 @@ public final class DisplayClock {
         self.makeLink = makeLink
         self.displayOf = displayOf ?? { window in DisplayClock.systemDisplay(window) }
         self.isVisible = isVisible ?? { window in DisplayClock.systemIsVisible(window) }
+        self.isAsleep = isAsleep ?? { display in DisplayClock.systemIsAsleep(display) }
         self.clock = clock
         self.ledger = ledger
         self.mediaTime = mediaTime
