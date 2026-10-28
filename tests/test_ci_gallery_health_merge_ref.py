@@ -57,5 +57,46 @@ class GalleryHealthMergeRef(unittest.TestCase):
         self.assertLess(names.index("Record what was rendered"), names.index("Upload the health run"))
 
 
+class GalleryHealthBaseReds(unittest.TestCase):
+    """A pull request's red state that is red the same way on its base warns instead of failing.
+
+    Base reds are warnings, not failures (the rulebook). SHIP'd webview PRs sat held by health shards whose only
+    reds were base entries (streaming-text#jump-during-stream, narrow#model-menu, model-picker#many-harnesses).
+    """
+
+    def test_the_render_goes_on_to_the_base_judgement(self) -> None:
+        render = step("Render the gallery and judge it")
+        self.assertEqual(render.get("id"), "render")
+        self.assertIs(render.get("continue-on-error"), True)
+        judge = step("Judge the red states against the base")
+        self.assertIn("steps.render.outcome == 'failure'", judge["if"])
+        self.assertIn("!cancelled()", judge["if"])
+        names = [entry.get("name") for entry in steps()]
+        self.assertEqual(names.index("Judge the red states against the base"),
+                         names.index("Render the gallery and judge it") + 1)
+        self.assertLess(names.index("Judge the red states against the base"), names.index("Upload the health run"))
+
+    def test_the_base_is_the_merges_first_parent_rendered_by_the_same_checker(self) -> None:
+        judge = step("Judge the red states against the base")
+        self.assertIn("steps.resolve.outputs.base_sha", str(judge.get("env")))
+        run = judge["run"]
+        self.assertIn("git restore --source=\"$BASE_SHA\"", run)
+        self.assertIn("':(exclude)scripts/gallery-matrix'", run)
+        self.assertIn('--entries "$entries"', run)
+        self.assertIn("bun health.ts", run)
+
+    def test_one_classifier_judges_it_and_fails_closed(self) -> None:
+        run = step("Judge the red states against the base")["run"]
+        self.assertIn("scripts/ci/test_reds.py", run)
+        self.assertIn("gallery --head", run)
+        self.assertIn("--annotate", run)
+        # The classifier is copied before the base replaces it in the checkout.
+        self.assertLess(run.index("cp scripts/ci/test_reds.py"), run.index("git restore"))
+        # A push has no base to compare with; a failed render with no red state is a tool failure.
+        self.assertIn('[ "$EVENT" != pull_request ] || [ -z "$BASE_SHA" ]', run)
+        self.assertIn('[ "$rc" = 2 ]', run)
+        self.assertTrue(run.rstrip().endswith('exit "$rc"'))
+
+
 if __name__ == "__main__":
     unittest.main()
