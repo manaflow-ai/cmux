@@ -5,12 +5,13 @@ import Testing
 /// Reply validity is native request data only. It confers no person gesture: renderer redemption
 /// and a fresh current-generation check are separate requirements at the eventual send boundary.
 struct AgentPaneQuestionReplyTests {
-    static func prompt(harness: String = "claude", allowsOther: Any? = true, multi: Bool = false,
+    static func prompt(harness: String = "claude", allowsOther: Any? = true, multi: Any? = false,
                        label: String = "Glass", preview: String = "<b>preview</b>") -> [String: Any] {
         let options: [[String: Any]] = [["id": "glass", "label": label,
                                         "preview": ["text": preview.trimmingCharacters(in: .whitespacesAndNewlines), "format": "html"]],
                                        ["id": "paper", "label": "Paper"]]
-        var item: [String: Any] = ["id": "q", "prompt": "Choose?", "options": options, "multiSelect": multi]
+        var item: [String: Any] = ["id": "q", "prompt": "Choose?", "options": options]
+        if let multi { item["multiSelect"] = multi }
         if let allowsOther { item["allowsOther"] = allowsOther }
         let question: [String: Any] = ["harness": harness, "items": [item]]
         let request: [String: Any] = [
@@ -77,6 +78,23 @@ struct AgentPaneQuestionReplyTests {
                 #expect(try Self.failure(["optionId": "yes", "answers": ["Choose?": answer]],
                                         question: question) == .answers)
             }
+        }
+    }
+
+    @Test func multiSelectUsesStrictBooleanAndDefaultsToFalse() throws {
+        let malformed: [Any] = [0, 1, "true", ["enabled": true]]
+        for flag in malformed {
+            let question = try Self.fixture(Self.prompt(harness: "codex", multi: flag))
+            #expect(try Self.failure(["optionId": "yes", "answers": ["q": ["answers": ["Other"]]]],
+                                    question: question) == .answers)
+        }
+        let omittedOrNull: [Any?] = [nil, NSNull()]
+        for flag in omittedOrNull {
+            let question = try Self.fixture(Self.prompt(harness: "codex", multi: flag))
+            #expect(try Self.failure(["optionId": "yes", "answers": ["q": ["answers": ["Other"]]]],
+                                    question: question) == nil)
+            #expect(try Self.failure(["optionId": "yes", "answers": ["q": ["answers": ["Glass", "Paper"]]]],
+                                    question: question) == .answers)
         }
     }
 
