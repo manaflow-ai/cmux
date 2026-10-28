@@ -109,7 +109,8 @@ extension WindowState {
     /// Workspace `id` is drawn beside the focused one: in the `sidebar.multiView` set, a shown docked workspace, or
     /// the stage's workspace while a dock has the focus (`window.dockedWorkspaces`).
     func isOnScreenBeside(_ id: String) -> Bool {
-        viewSet?.contains(id) == true || docks.visible.contains { $0.workspace == id } || stageWorkspaceID == id
+        viewSet?.contains(id) == true
+            || (LayoutTunables.dockedWorkspaces.value && (docks.visible.contains { $0.workspace == id } || stageWorkspaceID == id))
     }
 
     /// The state saved for one window.
