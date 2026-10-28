@@ -961,8 +961,9 @@ asks for `_acpmux/github_action` over the unix socket and sends it up the link t
 it, and the Mac runs one fixed `gh` command and answers with its output. No token reaches the
 machine. The Mac serves only a peer whose saved config has `githubBroker: true`: Add Machine
 (`acpmux host enroll`) adds the person's machine with it, and turns it on for a machine added
-before at its next enroll; a plain `peer add`, a pairing and a Cloud lease never do. `"githubBroker": false` in
-`config.json` with `acpmux daemon reload` takes it back at once. Each decision is a
+before at its next enroll; `host doctor --fix`, a plain `peer add` without `githubBroker`, a pairing
+and a Cloud lease never do. `"githubBroker": false` in `config.json` with `acpmux daemon reload`
+takes it back at once, and only a new enroll turns it on again. Each decision is a
 `github_broker_action` event on the agent's session (action, repository, branch, number and
 outcome; never a title, body or output) and a log line on the Mac.
 

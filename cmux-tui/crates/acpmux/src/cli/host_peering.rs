@@ -81,9 +81,10 @@ impl Io for Live<'_> {
     }
 }
 
-/// `peer`: this daemon lists `t.name` at `ssh://t.host` and it connects.
-pub async fn peer(client: &Client, t: &PeerTarget<'_>, fix: bool) -> StepResult {
-    peer_with(&Live(Some(client)), t, fix).await
+/// `peer`: this daemon lists `t.name` at `ssh://t.host` and it connects. With `lend` (enroll,
+/// that is Add Machine), this Mac also lends it its GitHub login.
+pub async fn peer(client: &Client, t: &PeerTarget<'_>, fix: bool, lend: bool) -> StepResult {
+    peer_step(&Live(Some(client)), t, fix, lend).await
 }
 
 /// `peer-back`: the machine lists this one as an ssh peer that resolves
@@ -149,17 +150,33 @@ pub(crate) fn checked_name(name: &str) -> Result<&str, &'static str> {
     Ok(name)
 }
 
-/// The person's own machine: this Mac lends it its GitHub login (`github_broker.rs`), so an
-/// agent there needs no `gh auth login`.
-fn add_params(name: &str, url: &str) -> Value {
-    json!({"name": name, "url": url, "githubBroker": true, "wait": true})
+/// With `lend`, the person's own machine added with Add Machine: this Mac lends it its GitHub
+/// login (`github_broker.rs`), so an agent there needs no `gh auth login`. Without it the add
+/// leaves the peer as it was (`host doctor`).
+fn add_params(name: &str, url: &str, lend: bool) -> Value {
+    let mut p = json!({"name": name, "url": url, "wait": true});
+    if lend {
+        p["githubBroker"] = json!(true);
+    }
+    p
 }
 
 fn lends_github(p: &Value) -> bool {
     p.get("githubBroker").and_then(Value::as_bool) == Some(true)
 }
 
+/// The `peer` step of `host doctor`: it never changes what the peer is lent.
+#[cfg(test)]
 pub(crate) async fn peer_with(io: &impl Io, t: &PeerTarget<'_>, fix: bool) -> StepResult {
+    peer_step(io, t, fix, false).await
+}
+
+pub(crate) async fn peer_step(
+    io: &impl Io,
+    t: &PeerTarget<'_>,
+    fix: bool,
+    lend: bool,
+) -> StepResult {
     let fail = |detail: String| result(Step::Peer, StepState::Fail, detail);
     if let Err(e) = checked_host(t.host) {
         return fail(e.to_string()).with_fix("Give the host as [user@]name, without a port.");
@@ -189,22 +206,22 @@ pub(crate) async fn peer_with(io: &impl Io, t: &PeerTarget<'_>, fix: bool) -> St
                 "Pick another name for this machine, or remove that peer first (`acpmux host rm {name}`)."
             ))
         }
-        Some(p) if connected(p) && (!fix || lends_github(p)) => {
+        Some(p) if connected(p) && (!fix || !lend || lends_github(p)) => {
             result(Step::Peer, StepState::Ok, format!("{name} at {url}, connected"))
         }
         Some(p) if !fix => fail(format!("{name} at {url} is not connected{}", last_error(p)))
             .with_fix("Check again with --fix to reconnect it."),
-        // Added before Add Machine lent it GitHub: added again with it, under its own url, which
-        // also reconnects it.
-        Some(p) if !lends_github(p) => {
-            settle(io.rpc("_acpmux/peer_add", add_params(name, text(p, "url"))).await)
+        // Enrolled again, after it was added without GitHub: added again with it, under its own
+        // url (the daemon keeps its saved tokens), which also reconnects it.
+        Some(p) if lend && !lends_github(p) => {
+            settle(io.rpc("_acpmux/peer_add", add_params(name, text(p, "url"), true)).await)
         }
         Some(_) => settle(
             io.rpc("_acpmux/peer_reconnect", json!({"name": name, "wait": true})).await,
         ),
         None if !fix => fail(format!("no peer named {name}"))
             .with_fix(format!("Check again with --fix to add {name} at {url}.")),
-        None => settle(io.rpc("_acpmux/peer_add", add_params(name, &url)).await),
+        None => settle(io.rpc("_acpmux/peer_add", add_params(name, &url, lend)).await),
     }
 }
 

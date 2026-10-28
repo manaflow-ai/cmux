@@ -149,6 +149,8 @@ fn request(
         issue,
         title: p.values.remove("--title"),
         body,
+        // The daemon sets it when it sends the action on.
+        deadline_ms: None,
     })
 }
 
