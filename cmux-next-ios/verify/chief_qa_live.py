@@ -300,7 +300,9 @@ def main():  # noqa: C901 - one live run of several scenarios
             shot("alpha-mac-to-phone")
             labels = sorted(set(t for t in bubbles("mac to phone") if run_id in t))
             order = [next(i for i, s in enumerate(sent) if s in t) for t in labels if any(s in t for s in sent)]
-            dup = len([t for t in bubbles("mac to phone") if run_id in t]) != len(labels)
+            # Each bubble carries its text on two elements (the cell and its text).
+            raw = [t for t in phone_texts() if t.startswith("mac to phone") and run_id in t]
+            dup = any(raw.count(t) > 2 for t in labels)
             return {"pass": bool(ok) and order == sorted(order) and not dup, "seconds_all_shown": latency,
                     "labels": labels[:8], "duplicates": dup}
         scenario("mac_to_phone", mac_to_phone)
@@ -311,10 +313,13 @@ def main():  # noqa: C901 - one live run of several scenarios
             text = f"phone to mac {run_id}"
             t0 = time.time()
             phone_send(text)
-            ok, _ = wait_for(lambda: texts_of(conv_messages(convs["alpha"])).count(text) >= 1, 30)
+            # iOS capitalizes the first letter as it is typed.
+            def copies():
+                return [t.lower() for t in texts_of(conv_messages(convs["alpha"]))].count(text)
+            ok, _ = wait_for(lambda: copies() >= 1, 30)
             secs = round(time.time() - t0, 2)
             time.sleep(3)
-            count = texts_of(conv_messages(convs["alpha"])).count(text)
+            count = copies()
             shot("alpha-phone-to-mac")
             return {"pass": bool(ok) and count == 1, "seconds_on_mac": secs, "copies_on_mac": count}
         scenario("phone_to_mac", phone_to_mac)
@@ -363,9 +368,9 @@ def main():  # noqa: C901 - one live run of several scenarios
             open_row(names["alpha"], timeout=90)
             ok, secs = wait_for(lambda: phone_has(sent[-1]), 60)
             shot("alpha-after-offline")
-            raw = [t for t in bubbles("while phone off") if run_id in t]
+            raw = [t for t in phone_texts() if t.startswith("while phone off") and run_id in t]
             visible = sorted(set(raw), key=lambda t: int(t.split()[3]))
-            dup = len(raw) != len(visible)
+            dup = any(raw.count(t) > 2 for t in visible)
             nums = [int(t.split()[3]) for t in visible]
             return {"pass": bool(ok) and not dup and nums == sorted(nums), "newest_shown_s": secs,
                     "visible": nums, "duplicates": dup}
@@ -383,17 +388,22 @@ def main():  # noqa: C901 - one live run of several scenarios
             if not sim.wait(ident="conversation.composer.text", timeout=30):
                 raise RuntimeError("Mac Chief conversation never opened")
             mac.quit()
-            time.sleep(4)
             text = f"sent while mac away {run_id}"
-            phone_send(text)
-            time.sleep(3)
-            shot("mac-chief-mac-away")
-            phone_view = [t for t in phone_texts() if "Waiting" in t or "Not Delivered" in t or "away" in t.lower()]
-            mac.launch()
-            mac.wait_hostd(180)
-            ok, secs = wait_for(lambda: text in texts_of(conv_messages(main_conv)), 120)
+            try:
+                time.sleep(4)
+                phone_send(text)
+                time.sleep(3)
+                shot("mac-chief-mac-away")
+                phone_view = [t for t in phone_texts() if "Waiting" in t or "Not Delivered" in t or "away" in t.lower()]
+            finally:
+                # The Mac comes back whatever happened on the phone (later scenarios need it).
+                mac.launch()
+                mac.wait_hostd(180)
+            def copies():
+                return [t.lower() for t in texts_of(conv_messages(main_conv))].count(text)
+            ok, secs = wait_for(lambda: copies() >= 1, 120)
             time.sleep(4)
-            count = texts_of(conv_messages(main_conv)).count(text)
+            count = copies()
             shot("mac-chief-mac-back")
             return {"pass": bool(ok) and count == 1, "delivered_after_relaunch_s": secs, "copies_on_mac": count,
                     "phone_said_while_away": phone_view[:5]}

@@ -233,7 +233,10 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
     private func holdUnsentMessage() {
         guard presentedViewController == nil else { return }
         let text = composerTextView?.text.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let reason = session.unavailableReason ?? String(localized: "Chief isn't connected yet.")
+        var reason = session.unavailableReason ?? String(localized: "Chief isn't connected yet.")
+        // Reasons come with and without a final period ("Chief isn't connected
+        // to a Mac"); the alert read "…to a Mac Your message…".
+        if let last = reason.last, !".!?".contains(last) { reason += "." }
         let alert = UIAlertController(
             title: String(localized: "Message Not Sent"),
             message: String(localized: "\(reason) Your message is still in the box."),
