@@ -57,6 +57,7 @@ use super::ResponseErrorDelivery;
 use super::ServerSurfaceAdmissionError;
 use super::ServerSurfaceBytesPermit;
 use super::ServerSurfaceOperationAdmission;
+use super::WorkerClass;
 use super::connection_frame::PendingLine;
 use super::frame_dispatch::FrameCall;
 use super::handle_request_with_cancellation;
@@ -1090,7 +1091,8 @@ fn run_clear_history(
     surface: SurfaceId,
     writer: &MessageWriter,
 ) -> bool {
-    let Some(worker_permit) = scheduler.admission.try_reserve_worker() else {
+    let class = WorkerClass::of(writer.lock_caller.get());
+    let Some(worker_permit) = scheduler.admission.try_reserve_worker(class) else {
         let (id, reply) = (pending.request.id.clone(), pending.reply_writer(writer));
         drop(pending);
         scheduler.finish_clear(surface);

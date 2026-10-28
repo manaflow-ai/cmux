@@ -42,6 +42,7 @@ final class TitlebarView: NSView, TitlebarPressDeciding {
         if label.frame != frame { label.frame = frame }
     }
 
+    // visibility-walk-allow: one text color store, no layout or text measure; cheaper than a deferral
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         performWithTheme { label.textColor = Palette.textSecondary }

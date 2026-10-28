@@ -29,7 +29,8 @@ use cmux_threads::work::{Lane, Priority, Shutdown};
 /// under until this drops (`debug-daemon-locks`): the verified app is the
 /// frontend, every other connection automation. The origin gate keeps the
 /// class on the writer, so this reads an atomic and takes no lock.
-/// Scheduling telemetry only: no permission reads it.
+/// Scheduling only (lock telemetry, the frontend's reserved worker permits):
+/// no permission reads it.
 pub(super) fn lock_caller_scope(writer: &MessageWriter) -> LockCallerScope {
     LockCallerScope::enter(writer.lock_caller.get())
 }
@@ -43,6 +44,16 @@ pub(super) fn debug_assert_off_reader() {
         Some(WatchKind::MuxConn.name()),
         "a request handler ran on its connection's reader thread"
     );
+}
+
+/// The caller class of a `transport` connection whose writer is `writer`: a
+/// remote entry is automation whatever its origin, a local connection the
+/// class the origin gate keeps on its writer.
+pub(super) fn connection_caller(transport: ClientTransport, writer: &MessageWriter) -> LockCaller {
+    match transport {
+        ClientTransport::Remote => LockCaller::Automation,
+        ClientTransport::Unix | ClientTransport::WebSocket => writer.lock_caller.get(),
+    }
 }
 
 /// [`handle_connection_frame_at`] for a line that arrives now (tests). A
@@ -92,10 +103,7 @@ pub(super) fn handle_connection_frame_at(
     let _hang = request_hang_watch::RequestHang::frame();
     // The lock acquisitions the reader makes for this frame count under its
     // connection's caller class (`debug-daemon-locks`).
-    let _lock_caller = match transport {
-        ClientTransport::Remote => LockCallerScope::enter(LockCaller::Automation),
-        ClientTransport::Unix | ClientTransport::WebSocket => lock_caller_scope(writer),
-    };
+    let _lock_caller = LockCallerScope::enter(connection_caller(transport, writer));
     // Every frame is watched on this thread until it is sequenced: past
     // 250 ms it lands in server-stats `slow_requests` (request_watchdog.rs).
     // Its handler is watched again where it runs.
