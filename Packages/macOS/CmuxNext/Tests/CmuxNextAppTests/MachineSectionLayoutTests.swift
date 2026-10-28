@@ -106,7 +106,8 @@ import Testing
         #expect(view.rowViews["c1"] === kept)
         #expect(!view.shownLines.contains(AddMachineStrings.group(.ssh)!))
         view.layoutSubtreeIfNeeded()
-        let frames = view.subviews.map(\.frame)
+        let frames = view.subviews.map(\.frame).sorted { $0.minY < $1.minY }
+        #expect(view.subviews.count == 4) // This Mac, the Cloud header, atlas-web, Add Machine…
         #expect(frames.allSatisfy { $0.width == 280 })
         #expect(zip(frames, frames.dropFirst()).allSatisfy { $0.maxY <= $1.minY })
     }

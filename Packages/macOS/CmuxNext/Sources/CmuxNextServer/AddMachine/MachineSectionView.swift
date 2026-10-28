@@ -1,5 +1,5 @@
 public import AppKit
-public import CmuxNextDesign
+import CmuxNextDesign
 import CmuxNextIcons
 
 /// The right sidebar's Machines section (AppKit): this Mac, then a header per kind (Cloud, SSH,
