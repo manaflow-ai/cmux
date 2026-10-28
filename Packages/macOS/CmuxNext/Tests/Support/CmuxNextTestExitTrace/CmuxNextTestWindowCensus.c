@@ -117,6 +117,17 @@ static signed char read_closed(id self, SEL command) {
     return objc_getAssociatedObject(self, &closed_key) != nil;
 }
 
+// A window of a private AppKit class (TUINSWindow, SPRoundedWindow: not NSWindow or NSPanel
+// themselves), which AppKit makes and keeps on its own; the census counts these apart.
+static int is_appkits_own(id window) {
+    Class window_class = object_getClass(window);
+    while (window_class != Nil && strncmp(class_getName(window_class), "NSKVONotifying_", 15) == 0)
+        window_class = class_getSuperclass(window_class);
+    if (window_class == Nil || window_class == objc_getClass("NSWindow") || window_class == objc_getClass("NSPanel")) return 0;
+    const char *image = class_getImageName(window_class);
+    return image != NULL && strncmp(image, "/System/", 8) == 0;
+}
+
 static IMP swap(Class window_class, const char *name, IMP replacement) {
     Method method = class_getInstanceMethod(window_class, sel_registerName(name));
     return method != NULL ? method_setImplementation(method, replacement) : NULL;
@@ -134,7 +145,7 @@ static void census_at_exit(void) {
     signed char (*flag)(id, SEL) = (signed char (*)(id, SEL))objc_msgSend;
     id windows = send(*app_slot, sel_registerName("windows"));
     long total = (long)count_of(windows, sel_registerName("count"));
-    long open = 0, visible = 0, closed_alive = 0;
+    long open = 0, visible = 0, closed_alive = 0, appkits_own = 0;
     char line[1024];
     // One pass per suite that still has an open window: the window lists are small (hundreds).
     char *reported[max_suites];
@@ -142,17 +153,18 @@ static void census_at_exit(void) {
     for (long index = 0; index < total; index++) {
         id window = at(windows, sel_registerName("objectAtIndex:"), (unsigned long)index);
         if (read_closed(window, NULL)) { closed_alive++; continue; }
+        if (is_appkits_own(window)) { appkits_own++; continue; }
         open++;
         if (flag(window, sel_registerName("isVisible"))) visible++;
     }
     int length = snprintf(line, sizeof line,
                           "cmux-next window census at exit: %ld windows open (%ld on screen), %ld more closed but still alive, "
-                          "%ld suites created windows\n",
-                          open, visible, closed_alive, created_suite_total);
+                          "%ld of AppKit's own, %ld suites created windows\n",
+                          open, visible, closed_alive, appkits_own, created_suite_total);
     if (length > 0) write(STDERR_FILENO, line, (size_t)length < sizeof line ? (size_t)length : sizeof line - 1);
     for (long index = 0; index < total; index++) {
         id window = at(windows, sel_registerName("objectAtIndex:"), (unsigned long)index);
-        if (read_closed(window, NULL)) continue;
+        if (read_closed(window, NULL) || is_appkits_own(window)) continue;
         CFStringRef owner_value = (CFStringRef)read_owner(window, NULL);
         char owner[512] = "(created before the census was installed)\t";
         if (owner_value != NULL && !CFStringGetCString(owner_value, owner, sizeof owner, kCFStringEncodingUTF8)) strcpy(owner, "(unreadable)");
@@ -167,7 +179,7 @@ static void census_at_exit(void) {
         size_t details_length = 0;
         for (long other = index; other < total; other++) {
             id candidate = at(windows, sel_registerName("objectAtIndex:"), (unsigned long)other);
-            if (read_closed(candidate, NULL)) continue;
+            if (read_closed(candidate, NULL) || is_appkits_own(candidate)) continue;
             CFStringRef candidate_value = (CFStringRef)read_owner(candidate, NULL);
             char candidate_owner[512] = "(created before the census was installed)\t";
             if (candidate_value != NULL && !CFStringGetCString(candidate_value, candidate_owner, sizeof candidate_owner, kCFStringEncodingUTF8))

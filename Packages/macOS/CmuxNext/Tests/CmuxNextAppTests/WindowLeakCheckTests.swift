@@ -57,6 +57,27 @@ struct WindowLeakCheckTests {
         #expect(await WindowLeaks.closeLeaks(ofSuite: Self.suite).isEmpty)
     }
 
+    @Test func appKitsOwnWindowClassesAreNotLeaksButOursAndPlainOnesAre() {
+        let window = makeWindow()
+        defer { window.close() }
+        #expect(!WindowLeaks.isAppKitsOwn(window))
+        let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 40, height: 40), styleMask: [], backing: .buffered, defer: true)
+        panel.isReleasedWhenClosed = false
+        defer { panel.close() }
+        #expect(!WindowLeaks.isAppKitsOwn(panel))
+        let ours = LeakCheckTestWindow(contentRect: .zero, styleMask: [], backing: .buffered, defer: true)
+        ours.isReleasedWhenClosed = false
+        defer { ours.close() }
+        #expect(!WindowLeaks.isAppKitsOwn(ours))
+        // A private AppKit window class, as AppKit's text input window is.
+        if let appKitClass = NSClassFromString("TUINSWindow") as? NSWindow.Type {
+            let appKits = appKitClass.init(contentRect: .zero, styleMask: [], backing: .buffered, defer: true)
+            appKits.isReleasedWhenClosed = false
+            defer { appKits.close() }
+            #expect(WindowLeaks.isAppKitsOwn(appKits))
+        }
+    }
+
     @Test func orderingAClosedWindowBackInReopensIt() {
         let window = makeWindow()
         window.orderFront(nil)
@@ -67,3 +88,5 @@ struct WindowLeakCheckTests {
         #expect(WindowLeaks.wasClosed(window))
     }
 }
+
+private final class LeakCheckTestWindow: NSWindow {}

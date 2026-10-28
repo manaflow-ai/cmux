@@ -1,6 +1,7 @@
 public import AppKit
 public import Testing
 import Darwin
+import ObjectiveC
 
 /// A suite that opens windows closes them: `@Suite(.closesItsWindows)` on the top-level suite type.
 ///
@@ -94,9 +95,23 @@ public enum WindowLeaks {
         return read(window, closedSelector)
     }
 
-    /// The windows `suite`'s tests created that are still open.
+    /// The windows `suite`'s tests created that are still open. AppKit's own windows are left
+    /// out: the text input window (TUINSWindow) and the spelling window (SPRoundedWindow) are
+    /// made by AppKit while a test's field has focus, and AppKit keeps and reuses them.
     public static func openWindows(ofSuite suite: String) -> [NSWindow] {
-        NSApp?.windows.filter { owner(of: $0)?.suite == suite && !wasClosed($0) } ?? []
+        NSApp?.windows.filter { owner(of: $0)?.suite == suite && !wasClosed($0) && !isAppKitsOwn($0) } ?? []
+    }
+
+    /// A window of a private AppKit class (not NSWindow or NSPanel themselves), which no test opens.
+    public static func isAppKitsOwn(_ window: NSWindow) -> Bool {
+        var windowClass: AnyClass = type(of: window)
+        // KVO's dynamic subclass stands in for the real class.
+        while NSStringFromClass(windowClass).hasPrefix("NSKVONotifying_"), let superclass = class_getSuperclass(windowClass) {
+            windowClass = superclass
+        }
+        if windowClass == NSWindow.self || windowClass == NSPanel.self { return false }
+        guard let image = class_getImageName(windowClass) else { return false }
+        return String(cString: image).hasPrefix("/System/")
     }
 
     /// Closes the windows `suite` left open and returns what they were. A window released without
