@@ -54,7 +54,7 @@ const ISSUE_CALL = /\bgh\s+issue\s+([a-z][\w-]*)(?=\s|$)([^\n;&|]*)/g;
 const BROKER_CALL =
   /\bglaeda-gh\s+(?:[a-z][\w-]*\s+)*(pr-(?:comment|edit|close|reopen|merge|review|approve|request-changes|update-branch)|issue-(?:comment|edit|close|reopen|create|lock|unlock|delete|pin|unpin|transfer))(?=\s|$)([^\n;&|]*)/g;
 const EXECUTED_PR_COMMAND =
-  /^\s*(?:(?:[A-Za-z_]\w*=\S*|env|command|nohup|time)\s+|timeout(?:\s+--\S+)*\s+\S+\s+)*(?:[\w./~-]*\/)?(?:gh|glaeda-gh|gh-merge-green)(?:\s|$)/;
+  /^\s*(?:(?:[A-Za-z_]\w*=\S*|env|command|nohup|time)\s+|timeout(?:\s+(?:--\S+|-\S+|\S+))*\s+)*(?:[\w./~-]*\/)?(?:gh|glaeda-gh|gh-merge-green)(?:\s|$)/;
 /// One call that acts on a single pull request: a `gh pr` verb, `gh-merge-green`, or `glaeda-gh`
 /// with a `pr` argument (`wait pr`, `status pr`, `checks pr`), up to the end of the call.
 const CALL =
@@ -297,13 +297,12 @@ function toolFindings(tool: Tool): Finding[] {
   }
   for (const match of plain.matchAll(PR_URL))
     found.push({ how: "touched", ref: { kind: "full", repo: match[1]! }, number: Number(match[2]) });
-  if (!issueCall)
-    for (const match of plain.matchAll(REPO_REF))
-      found.push({
-        how: "mentioned",
-        ref: { kind: "full", repo: `${match[1]}/${match[2]}` },
-        number: Number(match[3]),
-      });
+  for (const match of plain.matchAll(REPO_REF))
+    found.push({
+      how: "mentioned",
+      ref: { kind: "full", repo: `${match[1]}/${match[2]}` },
+      number: Number(match[3]),
+    });
   for (const match of plain.matchAll(ISSUE_URL))
     found.push({ how: "mentioned", ref: { kind: "full", repo: match[1]! }, number: Number(match[2]), kind: "issue" });
   return found;
@@ -448,6 +447,7 @@ export function transcriptPullRequests(
     title?: string,
     changed = false,
     kind?: "pullRequest" | "issue",
+    encounter = at,
   ) => {
     if (number <= 0) return;
     const prUrl = urlOf(repo, number),
@@ -474,7 +474,7 @@ export function transcriptPullRequests(
         opened: how === "opened",
         ...(changed || how === "opened" ? { changed: true } : {}),
         ...(how === "mentioned" ? { mentioned: true } : {}),
-        firstTouched: at,
+        firstTouched: encounter,
         touched: at,
       });
       return;
@@ -489,15 +489,16 @@ export function transcriptPullRequests(
   };
   perRow.forEach((findings, index) => {
     const at = index + 1;
-    for (const finding of findings) {
+    findings.forEach((finding, findingIndex) => {
+      const encounter = index + findingIndex / 1000;
       if (finding.how === "opened") {
-        note(finding.repo, finding.number, "opened", at, finding.title, true, finding.kind);
-        continue;
+        note(finding.repo, finding.number, "opened", at, finding.title, true, finding.kind, encounter);
+        return;
       }
       const repo = resolve(finding.ref);
       if (finding.how !== "settle") {
-        if (repo) note(repo, finding.number, finding.how, at, finding.title, finding.changed, finding.kind);
-        continue;
+        if (repo) note(repo, finding.number, finding.how, at, finding.title, finding.changed, finding.kind, encounter);
+        return;
       }
       // Without a repository (no `-R`, no folder), a merge names every one with its number.
       for (const pr of found.values())
@@ -506,7 +507,7 @@ export function transcriptPullRequests(
           if (pr.state === "closed" && finding.at !== undefined) pr.closedAt = finding.at;
           else if (pr.state === "open") delete pr.closedAt;
         }
-    }
+    });
   });
   return [...found.values()];
 }
