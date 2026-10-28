@@ -4,10 +4,20 @@
 // cmuxterm-hq#4755): the chat's peer names one of the account's machines (any case); a running
 // machine offers Pause, stopping a running turn first and saying so; a paused one offers Resume;
 // one starting, failed or not the account's offers nothing. A pick runs one native call (the app
-// checks the click) and reads the account's list again, whatever the app answered.
+// checks the click) and reads the account's list again, whatever the app answered. Stop and
+// Pause pauses only once the turn has ended; the list is read until the machine's stage moves.
 import { expect, test } from "bun:test";
-import { chatCloudMachine, cloudMachineRows } from "../src/agent-session/acpmux/cloudMachineMenu";
-import type { CloudMachine } from "../src/agent-session/acpmux/cloudMachines";
+import {
+  chatCloudMachine,
+  cloudMachineRows,
+  createStopWaiter,
+} from "../src/agent-session/acpmux/cloudMachineMenu";
+import {
+  ACTION_READS_MS,
+  readUntilMoved,
+  setCloudMachinesForTest,
+  type CloudMachine,
+} from "../src/agent-session/acpmux/cloudMachines";
 import type { ChatMenuItem } from "../src/agent-session/acpmux/header/ChatHeaderTools";
 import { translate as t } from "../src/agent-session/acpmux/i18n";
 
@@ -26,7 +36,7 @@ test("a Cloud chat's machine is the account's machine of its peer name, any case
   expect(chatCloudMachine(undefined, machines)).toBeUndefined();
 });
 
-function rows(machine: CloudMachine | undefined, working: boolean) {
+function rows(machine: CloudMachine | undefined, working: boolean, stops = true) {
   const calls: [string, unknown][] = [];
   let reads = 0;
   const call = async (method: string, params?: Record<string, unknown>) => {
@@ -34,7 +44,17 @@ function rows(machine: CloudMachine | undefined, working: boolean) {
     if (method === "cloudMachine.pause" && params?.id === "vm_refused") throw new Error("gesture");
     return {};
   };
-  const items = cloudMachineRows(machine, working, t, call, () => (reads += 1));
+  const items = cloudMachineRows(
+    machine,
+    working,
+    t,
+    call,
+    () => (reads += 1),
+    async () => {
+      calls.push(["(turn ended?)", stops]);
+      return stops;
+    },
+  );
   const pick = async (index = 0) => {
     const item = items[index] as Exclude<ChatMenuItem, "separator">;
     item.onSelect!();
@@ -59,8 +79,30 @@ test("while the chat's turn runs, Pause says it stops the turn and stops it firs
   await r.pick();
   expect(r.calls).toEqual([
     ["chat.cancel", undefined],
+    ["(turn ended?)", true],
     ["cloudMachine.pause", { id: "vm_run" }],
   ]);
+});
+
+test("a turn that has not stopped is not frozen: no pause, and the list is read again", async () => {
+  const r = rows(machines[0], true, false);
+  await r.pick();
+  expect(r.calls).toEqual([
+    ["chat.cancel", undefined],
+    ["(turn ended?)", false],
+  ]);
+  expect(r.reads()).toBe(1);
+});
+
+test("a wait for the turn ends when the turn does, or after its timeout", async () => {
+  const waiter = createStopWaiter();
+  expect(await waiter.wait(() => false)).toBe(true);
+  const waiting = waiter.wait(() => true, 60_000);
+  waiter.ended();
+  expect(await waiting).toBe(true);
+  expect(await waiter.wait(() => true, 5)).toBe(false);
+  // A wait that ended is not resolved again by a later end.
+  waiter.ended();
 });
 
 test("a paused machine offers Resume; one starting or not the account's offers nothing", async () => {
@@ -78,4 +120,30 @@ test("a pick the app refuses still reads the list again", async () => {
   const r = rows({ id: "vm_refused", name: "x", stage: "ready" }, false);
   await r.pick();
   expect(r.reads()).toBe(1);
+});
+
+test("after a pick the list is read until the machine's stage moves, then no more", async () => {
+  setCloudMachinesForTest([]);
+  const stages = ["ready", "ready", "paused", "paused"];
+  const waits: number[] = [];
+  let reads = 0;
+  const call = async () => ({
+    signedIn: true,
+    loaded: true,
+    machines: [{ id: "vm_run", name: "Dev-VM-2", stage: stages[reads++] }],
+  });
+  await readUntilMoved(machines[0]!, call, async (ms) => void waits.push(ms));
+  expect(reads).toBe(3);
+  expect(waits).toEqual(ACTION_READS_MS.slice(1, 3));
+});
+
+test("the reads after a pick stop after the last wait when the stage never moves", async () => {
+  setCloudMachinesForTest([]);
+  let reads = 0;
+  const call = async () => {
+    reads += 1;
+    return { signedIn: true, loaded: true, machines: [{ id: "vm_run", name: "Dev-VM-2", stage: "ready" }] };
+  };
+  await readUntilMoved(machines[0]!, call, async () => undefined);
+  expect(reads).toBe(ACTION_READS_MS.length);
 });

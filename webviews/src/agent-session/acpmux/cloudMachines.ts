@@ -134,6 +134,29 @@ export function runCloudMachine(machine: CloudMachine, call: Call = postNative):
     .then(() => refreshCloudMachines(call));
 }
 
+/// After a pause or resume the app runs the action in the background and its list catches up
+/// when the action's own list read lands: the list is read at these waits (ms) after the pick,
+/// and the reads stop once the machine's stage moved on, or after the last one (15 s in all).
+export const ACTION_READS_MS = [0, 1_000, 2_000, 4_000, 8_000];
+
+const pause = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+/// Reads the list until `machine` (as it was when picked) shows another stage, or is gone.
+export async function readUntilMoved(
+  machine: CloudMachine,
+  call: Call = postNative,
+  wait: (ms: number) => Promise<void> = pause,
+): Promise<void> {
+  // A read already in flight was asked before the action.
+  await inFlight;
+  for (const ms of ACTION_READS_MS) {
+    if (ms > 0) await wait(ms);
+    await refreshCloudMachines(call);
+    const now = machines.find((candidate) => candidate.id === machine.id);
+    if (now?.stage !== machine.stage) return;
+  }
+}
+
 export function useCloudMachines(): readonly CloudMachine[] {
   return useSyncExternalStore(subscribe, snapshot, snapshot);
 }

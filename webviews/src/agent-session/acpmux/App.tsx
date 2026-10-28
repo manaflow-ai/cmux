@@ -165,8 +165,8 @@ import type { QuestionReply } from "./question/model";
 import { agentName } from "./agents";
 import { type Translate, translate, useT } from "./i18n";
 import { PeerCopyBanner } from "./PeerCopyBanner";
-import { chatCloudMachine, cloudMachineRows } from "./cloudMachineMenu";
-import { refreshCloudMachines, useCloudMachines } from "./cloudMachines";
+import { chatCloudMachine, cloudMachineRows, createStopWaiter } from "./cloudMachineMenu";
+import { readUntilMoved, refreshCloudMachines, useCloudMachines } from "./cloudMachines";
 import { useFolderTrustAsk } from "./useFolderTrustAsk";
 import { heldPrompts } from "./heldPrompt";
 import { StartingSends, type StartingSend } from "./startingSends";
@@ -8113,6 +8113,13 @@ function AcpmuxPane() {
   useEffect(() => {
     if (cloudChat) void refreshCloudMachines();
   }, [cloudChat, snapshot.sessionId]);
+  // Stop and Pause waits for the turn to end before it pauses (cloudMachineMenu.ts).
+  const stopWaiter = useMemo(createStopWaiter, []);
+  const chatWorking = useRef(snapshot.isWorking);
+  chatWorking.current = snapshot.isWorking;
+  useEffect(() => {
+    if (!snapshot.isWorking) stopWaiter.ended();
+  }, [snapshot.isWorking, stopWaiter]);
   const localCwd =
     summary && !summary.peer && !(summary.host && summary.hostKind !== "local") ? summary.cwd : undefined;
   instructionsFolder.current = localCwd;
@@ -8313,7 +8320,8 @@ function AcpmuxPane() {
             snapshot.isWorking,
             t,
             (method, params) => callNative(method, params),
-            () => void refreshCloudMachines(),
+            (picked) => void readUntilMoved(picked),
+            () => stopWaiter.wait(() => chatWorking.current),
           )
         : [];
     const copy = copyRow(

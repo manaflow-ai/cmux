@@ -325,6 +325,7 @@ const keyboardSubmenu: Play = async (ctx) => {
 // A Cloud chat's machine rows (cloudMachineMenu.ts), placed as the App places them: before Archive's group.
 const noop = () => undefined;
 const noCall = async () => undefined;
+const noStop = async () => true;
 const galleryT = translate;
 const withMachine = (machine: ChatMenuItem[]): ChatMenuItem[] => {
   const rows = menuRows();
@@ -594,7 +595,7 @@ export default componentEntry<HeaderToolsProps>({
         ...base,
         menu: () =>
           withMachine(
-            cloudMachineRows({ id: "vm_1", name: "dev-vm-2", stage: "ready" }, false, galleryT, noCall, noop),
+            cloudMachineRows({ id: "vm_1", name: "dev-vm-2", stage: "ready" }, false, galleryT, noCall, noop, noStop),
           ),
       },
       play: openMenu,
@@ -605,7 +606,7 @@ export default componentEntry<HeaderToolsProps>({
       props: {
         ...base,
         menu: () =>
-          withMachine(cloudMachineRows({ id: "vm_1", name: "dev-vm-2", stage: "ready" }, true, galleryT, noCall, noop)),
+          withMachine(cloudMachineRows({ id: "vm_1", name: "dev-vm-2", stage: "ready" }, true, galleryT, noCall, noop, noStop)),
       },
       play: openMenu,
     },
@@ -616,7 +617,7 @@ export default componentEntry<HeaderToolsProps>({
         ...base,
         menu: () =>
           withMachine(
-            cloudMachineRows({ id: "vm_1", name: "dev-vm-2", stage: "paused" }, false, galleryT, noCall, noop),
+            cloudMachineRows({ id: "vm_1", name: "dev-vm-2", stage: "paused" }, false, galleryT, noCall, noop, noStop),
           ),
       },
       play: openMenu,
