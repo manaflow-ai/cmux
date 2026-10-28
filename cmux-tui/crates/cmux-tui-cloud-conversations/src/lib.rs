@@ -10,8 +10,8 @@
 //! WebSocket seam. The cmux-tui binary installs the real backend
 //! (reqwest + tokio-tungstenite); tests install a scripted one.
 
-mod attachments;
 mod attachment_multipart;
+mod attachments;
 mod contract;
 mod error;
 mod host_replica;
