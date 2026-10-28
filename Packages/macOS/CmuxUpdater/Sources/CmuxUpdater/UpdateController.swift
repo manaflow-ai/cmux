@@ -147,6 +147,7 @@ public final class UpdateController {
         self.installWatchdog = InstallWatchdog(clock: clock, timeout: installWatchdogTimeout)
         let model = UpdateStateModel()
         let driver = UpdateDriver(model: model, log: log, clock: clock, isDevLikeBundle: isDevLikeBundle)
+        driver.stagedRollout = StagedRollout(defaults: defaults)
         self.driver = driver
         self.updater = updaterFactory(driver, hostBundle)
         driver.eventDelegate = self

@@ -127,6 +127,13 @@ final class UpdateDriver {
             setState(.idle)
             return reply(.dismiss)
         }
+        if !isUserInitiatedCheck, let stagedRollout, !stagedRollout.offers(appcastItem) {
+            let percent = appcastItem.rolloutPercent ?? ""
+            let bucket = stagedRollout.bucket(forVersion: appcastItem.versionString)
+            log.append("not offering \(appcastItem.versionString) yet: its staged rollout (\(percent) %) has not reached this Mac (bucket \(bucket) of \(StagedRollout.buckets))")
+            setState(.idle)
+            return reply(.dismiss)
+        }
         if !isUserInitiatedCheck, pendingDeltaWait?.shouldHold(appcastItem, now: now()) == true {
             log.append("not offering \(appcastItem.versionString) yet: its deltas are not listed; the next check takes it")
             setState(.idle)
