@@ -1,3 +1,4 @@
+#if DEBUG || CMUX_BENCH_HOOKS
 import AppKit
 import CmuxHomeCore
 @testable import CmuxNextApp
@@ -67,3 +68,4 @@ import Testing
         #expect(home.window.firstResponder === responder)
     }
 }
+#endif
