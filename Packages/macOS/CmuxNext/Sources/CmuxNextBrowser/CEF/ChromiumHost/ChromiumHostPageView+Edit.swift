@@ -22,8 +22,8 @@ nonisolated enum ChromiumHostEditCommand: String, CaseIterable, Sendable {
     case centerSelection = "CenterSelection"
 
     /// The first fork API with `cmux_browser_center_selection`: max + 1 of the numbers the app claims
-    /// (38 is ``CEFForkFeatures/surfaceCopyForkAPI``), which the fork task p01-process-242 sets with its pin.
-    static let centerSelectionForkAPI: Int32 = 39
+    /// (39 is ``CEFForkFeatures/pagePushForkAPI``), which the fork task p01-process-242 sets with its pin.
+    static let centerSelectionForkAPI: Int32 = 40
 
     /// Whether a page on fork API `forkAPI` runs the command: all of them, and center selection from
     /// ``centerSelectionForkAPI`` (below it the shim has no fork call to run it with).
