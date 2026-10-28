@@ -407,7 +407,8 @@ pub(super) struct ServedSession {
     pub(super) render_service: Arc<RenderService>,
     /// Reads every local connection of the session (p05-ipc-155). `None`
     /// when it could not start: each connection then reads on a `mux-conn`
-    /// thread of its own, as before.
+    /// thread of its own, as before, and so does each connection accepted
+    /// after the reactor thread ended.
     #[cfg(unix)]
     pub(super) reactor: Option<Arc<super::io_reactor::IoReactor>>,
 }
@@ -435,7 +436,7 @@ impl ServedSession {
 
     /// Serve one accepted connection (bounded by the session's connection
     /// permits): read by the IO reactor, or on its own thread where none
-    /// runs or the stream is not one socket.
+    /// runs (it never started, or it ended) or the stream is not one socket.
     pub(super) fn serve(&self, stream: Box<dyn transport::Stream>) {
         let Some(permit) = claim_connection(self.mux.connection_stats()) else {
             refuse_busy(stream);
@@ -443,6 +444,7 @@ impl ServedSession {
         };
         #[cfg(unix)]
         if let Some(reactor) = &self.reactor
+            && reactor.is_alive()
             && stream.socket_fd().is_some()
         {
             reactor.serve(self.mux.clone(), stream, self.render_service.clone(), permit);

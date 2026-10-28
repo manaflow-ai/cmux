@@ -40,6 +40,8 @@ use crate::diagnostics::{IpcTransport, JsonParseScope};
 
 use cmux_tui_platform::qos::WorkQos;
 
+#[cfg(unix)]
+use super::connection_scheduler::connection_qos::ConnectionClass;
 use super::connection_scheduler::connection_qos::{
     ConnectionClassCell, ReaderClass, TaskReaderClass,
 };
@@ -241,12 +243,26 @@ pub(super) fn serve_connection(
         frames,
         ReaderClass::new,
     );
-    let mut session = match opened {
+    let session = match opened {
         Ok(session) => session,
         Err(end) => return end,
     };
+    drive(session, ConnectionInput::new(stream))
+}
+
+/// Serves an opened session on the calling thread until its connection
+/// ends: the thread driver's loop, also for a connection the IO reactor
+/// could not take (io_reactor.rs).
+pub(super) fn drive<A, F, R>(
+    mut session: LineSession<A, F, R>,
+    mut input: ConnectionInput,
+) -> ConnectionEnd
+where
+    A: admission::LineAdmission,
+    F: FrameLane,
+    R: ReaderFollow,
+{
     let carries_frames = session.carries_frames();
-    let mut input = ConnectionInput::new(stream);
     // A panic while serving (a handler's, or a blocking call's in the
     // detector's panic mode) still ends the connection below, then goes on
     // as the thread's panic. Before, the teardown never ran: the client
@@ -417,6 +433,10 @@ pub(super) struct LineSession<A, F, R> {
     writer: MessageWriter,
     scheduler: Arc<ConnectionSurfaceScheduler>,
     hello: client_hello::HelloGate,
+    /// The connection's client class (task 224), read where its messages
+    /// are scheduled (io_reactor.rs).
+    #[cfg(unix)]
+    class: Arc<ConnectionClassCell>,
     follow: R,
     admission: A,
     frames: F,
@@ -515,6 +535,8 @@ where
         let hello = client_hello::HelloGate::new(transport);
         let class = mux.control_clients.connection_class(client);
         let follow = follow(class.clone(), mux.request_qos());
+        #[cfg(unix)]
+        let session_class = class.clone();
         let scheduler = Arc::new(
             ConnectionSurfaceScheduler::new_inner(
                 mux.surface_operation_admission.clone(),
@@ -529,6 +551,8 @@ where
             writer,
             scheduler,
             hello,
+            #[cfg(unix)]
+            class: session_class,
             follow,
             admission,
             frames,
@@ -552,6 +576,30 @@ where
     /// client holds the frames grant, asked again for every frame: a later
     /// `set-client-info` or `client-hello` can end it (p05-ipc-060).
     pub(super) fn handle(&mut self, item: Inbound) -> Handled {
+        self.handle_in(item, true)
+    }
+
+    /// [`Self::handle`] on the IO reactor, which routes a frame at its own
+    /// class: a thread every connection shares never enters one
+    /// connection's class.
+    #[cfg(unix)]
+    pub(super) fn handle_on_reactor(&mut self, item: Inbound) -> Handled {
+        self.handle_in(item, false)
+    }
+
+    /// The daemon this session serves.
+    #[cfg(unix)]
+    pub(super) fn mux(&self) -> &Arc<Mux> {
+        &self.mux
+    }
+
+    /// The connection's client class now.
+    #[cfg(unix)]
+    pub(super) fn connection_class(&self) -> ConnectionClass {
+        self.class.get()
+    }
+
+    fn handle_in(&mut self, item: Inbound, enter_class: bool) -> Handled {
         match item {
             Inbound::Line(line) => self.handle_line(line),
             Inbound::FrameGate if self.frames_granted() => Handled::FramesOpen,
@@ -559,7 +607,7 @@ where
             Inbound::Frame { .. } if !self.frames_granted() => not_negotiated(),
             Inbound::Frame { frame, arrived } => {
                 self.ipc.frame_received(frame.header().kind(), frame.header().frame_len());
-                let _class = self.follow.before_frame();
+                let _class = if enter_class { self.follow.before_frame() } else { None };
                 let connection = FrameConnection {
                     mux: &self.mux,
                     client: self.client,

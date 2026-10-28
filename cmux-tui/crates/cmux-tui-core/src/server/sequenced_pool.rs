@@ -490,6 +490,12 @@ impl std::fmt::Debug for Sequence {
 }
 
 impl Sequence {
+    /// The priority it runs at, for life.
+    #[cfg(unix)]
+    pub(crate) fn priority(&self) -> SequencePriority {
+        self.priority
+    }
+
     /// Queues `task` behind every task posted to this sequence before it.
     pub(crate) fn post<F>(&self, task: F) -> Result<(), PostError>
     where

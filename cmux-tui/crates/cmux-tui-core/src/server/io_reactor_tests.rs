@@ -9,21 +9,23 @@ use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
+use cmux_threads::sync::{Mutex, MutexGuard};
 use serde_json::{Value, json};
 
+use crate::panic_free::RecoverPoison;
 use crate::server::listen::ServedSession;
 use crate::server::*;
 
-struct Served {
-    mux: Arc<Mux>,
-    session: ServedSession,
-    listener: transport::Listener,
-    path: PathBuf,
+pub(super) struct Served {
+    pub(super) mux: Arc<Mux>,
+    pub(super) session: ServedSession,
+    pub(super) listener: transport::Listener,
+    pub(super) path: PathBuf,
     _directory: cmux_unix_socket::TestDir,
 }
 
 impl Served {
-    fn new(label: &str) -> Self {
+    pub(super) fn new(label: &str) -> Self {
         let mux =
             Mux::new_for_test(format!("io-reactor-{label}"), crate::SurfaceOptions::default());
         let directory = cmux_unix_socket::short_test_dir("io-reactor");
@@ -34,21 +36,19 @@ impl Served {
         Served { mux, session, listener, path, _directory: directory }
     }
 
-    fn reactor(&self) -> &io_reactor::IoReactor {
+    pub(super) fn reactor(&self) -> &io_reactor::IoReactor {
         self.session.reactor.as_deref().unwrap()
     }
 
     /// A client whose accepted end the session serves.
-    fn connect(&self) -> Client {
+    pub(super) fn connect(&self) -> Client {
         let socket = UnixStream::connect(&self.path).unwrap();
         self.session.serve(self.listener.accept().unwrap());
-        let read_half = socket.try_clone().unwrap();
-        read_half.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
-        Client { socket, replies: BufReader::new(read_half) }
+        Client::over(socket)
     }
 
     /// Waits until the reactor reads `count` connections.
-    fn wait_connections(&self, count: usize) {
+    pub(super) fn wait_connections(&self, count: usize) {
         let deadline = Instant::now() + Duration::from_secs(10);
         while self.reactor().connections() != count {
             assert!(Instant::now() < deadline, "{} connections", self.reactor().connections());
@@ -78,18 +78,25 @@ impl Drop for Served {
     }
 }
 
-struct Client {
-    socket: UnixStream,
+pub(super) struct Client {
+    pub(super) socket: UnixStream,
     replies: BufReader<UnixStream>,
 }
 
 impl Client {
-    fn send(&mut self, bytes: &[u8]) {
+    /// The client end of a connection the daemon serves.
+    pub(super) fn over(socket: UnixStream) -> Self {
+        let read_half = socket.try_clone().unwrap();
+        read_half.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+        Client { socket, replies: BufReader::new(read_half) }
+    }
+
+    pub(super) fn send(&mut self, bytes: &[u8]) {
         self.socket.write_all(bytes).unwrap();
     }
 
     /// The next reply (events skipped); `None` once the daemon closed.
-    fn reply(&mut self) -> Option<Value> {
+    pub(super) fn reply(&mut self) -> Option<Value> {
         loop {
             let mut line = String::new();
             if self.replies.read_line(&mut line).unwrap() == 0 {
@@ -102,20 +109,28 @@ impl Client {
         }
     }
 
-    fn ping(&mut self, id: u64) {
+    pub(super) fn ping(&mut self, id: u64) {
         self.send(&ping(id));
         let reply = self.reply().expect("a reply");
         assert_eq!((reply["id"].clone(), reply["ok"].clone()), (json!(id), json!(true)), "{reply}");
     }
 }
 
-fn ping(id: u64) -> Vec<u8> {
+pub(super) fn ping(id: u64) -> Vec<u8> {
     format!("{}\n", json!({"id": id, "cmd": "ping"})).into_bytes()
 }
 
 /// Threads of `name` in the process now.
-fn threads_named(name: &str) -> usize {
+pub(super) fn threads_named(name: &str) -> usize {
     cmux_threads::snapshot().into_iter().filter(|row| row.name == name).count()
+}
+
+/// Held by the tests that count `mux-conn` threads or start them (a
+/// reactor that ended hands its connections to them), so one never counts
+/// the other's.
+pub(super) fn mux_conn_threads() -> MutexGuard<'static, ()> {
+    static THREADS: Mutex<()> = Mutex::new(());
+    THREADS.lock().recover_poison()
 }
 
 /// The acceptance: CLI connections, held open together up to the
@@ -123,6 +138,7 @@ fn threads_named(name: &str) -> usize {
 /// start no reader thread; the reactor reads them all.
 #[test]
 fn io_reactor_cli_connections_add_no_reader_thread() {
+    let _threads = mux_conn_threads();
     let served = Served::new("threads");
     let mut held: Vec<Client> = (0..60).map(|_| served.connect()).collect();
     for (id, client) in held.iter_mut().enumerate() {

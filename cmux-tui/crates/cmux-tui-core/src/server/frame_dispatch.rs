@@ -244,7 +244,7 @@ impl fmt::Display for CallRefusal {
 /// The production frame lane: the grant is the client's recorded
 /// capability; REQUEST and CANCEL frames are routed, and INPUT frames on a
 /// stream; every other kind is a bad message. Owned by the connection's
-/// reader thread.
+/// session.
 pub(super) struct RequestFrames {
     tables: &'static MethodTables,
     /// Requests by id, from arrival until a sweep after their reply.
@@ -252,6 +252,10 @@ pub(super) struct RequestFrames {
     sweep_at: usize,
     /// The streams the client announced.
     streams: ClientStreams,
+    /// Every route panics, as a handler that reaches a blocking call in the
+    /// detector's panic mode does.
+    #[cfg(test)]
+    panics: bool,
 }
 
 impl Default for RequestFrames {
@@ -261,12 +265,19 @@ impl Default for RequestFrames {
             in_flight: HashMap::new(),
             sweep_at: SWEEP_MIN,
             streams: ClientStreams::default(),
+            #[cfg(test)]
+            panics: false,
         }
     }
 }
 
 #[cfg(test)]
 impl RequestFrames {
+    /// A lane whose every route panics.
+    pub(super) fn panicking() -> Self {
+        RequestFrames { panics: true, ..RequestFrames::default() }
+    }
+
     /// A lane whose streams tell `probe` when an opener targets one and
     /// when an item is posted.
     pub(super) fn with_stream_probe(probe: Arc<dyn super::pending_streams::StreamProbe>) -> Self {
@@ -286,6 +297,8 @@ impl FrameLane for RequestFrames {
         frame: Frame,
         connection: &FrameConnection<'_>,
     ) -> Result<bool, ConnectionBadMessage> {
+        #[cfg(test)]
+        assert!(!self.panics, "a frame handler panicked");
         let header = *frame.header();
         match (header.kind(), header.call()) {
             (FrameKind::Request, Some(call)) => {
