@@ -643,10 +643,10 @@ whenever the SDK generator loads the schema.
 
 ### Binary payload layouts
 
-The hot messages (p05-ipc-183) are binary: the requests and results of
-`resize-attached-view`, `set-client-sizing`, `scroll-surface` and
-`snapshot-request`, and the `size-state`, `scroll-changed` and
-`surface-resized` events. `title-changed` and every other message stay JSON.
+The hot messages (p05-ipc-183) have binary layouts: the requests and results
+of `resize-attached-view`, `set-client-sizing`, `scroll-surface` and
+`snapshot-request`, and the `size-state`, `scroll-changed`, `surface-resized`
+and `digest` events. `title-changed` and every other message stay JSON.
 cmux-ipc `build.rs` (`build-support/hot_codec.rs`, module `cmux_ipc::hot`)
 and CmuxNextWireGen's HotEmitter (CmuxNextIPC `Hot…` types and
 `HotLayout`) generate the codec from the schema; both write the bytes of
@@ -664,17 +664,43 @@ names. Values are written as follows:
 | integers, floats | Little-endian at their width (`uint16` 2 bytes, `int64` 8 bytes, `float64` IEEE 754 bits). |
 | `enum` | The u8 index of the value in the schema's `values`. |
 | `string` | u16 byte length, at most the field's `max_bytes`, then the UTF-8. |
-| `array` | u16 count, at most `max_items`, then the items. |
+| `array` | u16 count, at most the field's `max_items` (else the array type's), then the items. |
 | `ref`, `alias` | The type they name. |
+
+A field's `max_bytes` and `max_items` bound the binary layout only. JSON
+decoders (the SDKs) do not read them, so a value over a bound is still a
+valid message: it goes as JSON. An array type's own `max_items` bounds the
+data on every path.
 
 A decoder refuses another `layout_version`, a tag or boolean byte other than
 0 or 1, an enum index past the values, a length over its bound, invalid
 UTF-8, a payload that ends inside a value, and bytes after the body; any of
-these is `bad_message`. Frames are granted only at equal API revisions, so
-the two ends share one layout; the version byte makes a mismatch a refusal,
-never a misread. An encoder refuses a value over its layout's bounds, and the
-sender then writes that message as JSON. A layout change needs a higher
+these is `bad_message` (`bad_layout`). Frames are granted only at equal API
+revisions, so the two ends share one layout; the version byte makes a
+mismatch a refusal, never a misread. A layout change needs a higher
 `layout_version` (`api-compat-check`) and new golden bytes.
+
+The frame's `binary` call flag selects the decoder of its payload, and JSON
+is always allowed:
+
+- A REQUEST with `binary` carries its method's request layout. Only a method
+  with `payload: "binary"` takes the flag; on any other it is `bad_message`
+  (`flags_refused`). The daemon decodes the body straight into the method's
+  command and runs the handler its line runs, with no JSON parse, and answers
+  with the reply its JSON frame gets. A remote-relay client's `binary`
+  REQUEST is `bad_message` (`remote_binary`): the relay policy reads JSON.
+- A REQUEST without `binary` carries the JSON line, for every framed method,
+  binary ones included, and `identify {revisions}` lists the binary methods
+  in `framed_methods`. When an encoder refuses a value over its layout's
+  bounds, the sender writes this JSON frame instead: the same method on the
+  same stream, so its order is kept.
+- A REPLY, ERROR or TYPED_EVENT frame with `binary` carries the result or
+  event layout; without it, the JSON object. A receiver decodes each frame by
+  its own flag, so a JSON fallback is never read as a layout.
+
+The daemon answers `binary` requests now. Its replies and events are still
+JSON (lines, or frames without `binary`) until its outbound queue carries
+binary payloads.
 
 ### Assigning method ids
 

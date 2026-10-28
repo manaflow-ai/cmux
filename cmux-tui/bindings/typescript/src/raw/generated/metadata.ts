@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 99e73aee9192019e034f4e1ba084e0a43098939861f28b4a564a8580bce4c2a5. */
+/* cmux-tui mux protocol 12, IR 70a0882534fe515742fe63dd1681da342b8b36a26b05e34028364ffe93492b61. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "99e73aee9192019e034f4e1ba084e0a43098939861f28b4a564a8580bce4c2a5" as const;
+export const SDK_IR_SHA256 = "70a0882534fe515742fe63dd1681da342b8b36a26b05e34028364ffe93492b61" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -4888,6 +4888,14 @@ export const EVENT_METADATA = {
       "attach-byte",
       "attach-render",
       "attach-browser"
+    ],
+    "emission": "emitted"
+  },
+  "digest": {
+    "since": 12,
+    "capability": "terminal-snapshot-v1",
+    "streams": [
+      "attach-byte"
     ],
     "emission": "emitted"
   },
@@ -15945,6 +15953,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         ],
         "default": [],
         "max_bytes": 256,
+        "max_items": 32,
         "nullable": false,
         "presence": "optional",
         "type": {
@@ -15952,8 +15961,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
             "kind": "scalar",
             "name": "string"
           },
-          "kind": "array",
-          "max_items": 32
+          "kind": "array"
         }
       }
     },
@@ -15992,6 +16000,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       },
       "owners": {
         "max_bytes": 256,
+        "max_items": 64,
         "nullable": false,
         "presence": "required",
         "type": {
@@ -15999,11 +16008,11 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
             "kind": "scalar",
             "name": "string"
           },
-          "kind": "array",
-          "max_items": 64
+          "kind": "array"
         }
       },
       "participants": {
+        "max_items": 64,
         "nullable": false,
         "presence": "required",
         "type": {
@@ -16011,8 +16020,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
             "kind": "ref",
             "name": "SizeParticipant"
           },
-          "kind": "array",
-          "max_items": 64
+          "kind": "array"
         }
       },
       "policy": {
@@ -37825,6 +37833,65 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "digest": {
+    "additional_properties": false,
+    "constraints": [
+      "Sent on a snapshot attach (snapshot:\"ghostsnp\") 2 s after output goes idle, only when the viewer has every byte up to offset. A viewer of the same version hashes its own READY the same way and sends snapshot-request (reason digest_mismatch) on a mismatch."
+    ],
+    "fields": {
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "digest"
+        }
+      },
+      "generation": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "offset": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "sha256": {
+        "description": "Lowercase hex SHA-256 (64 characters) of the host's READY encoding.",
+        "max_bytes": 64,
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "surface": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Id"
+        }
+      },
+      "version": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint16"
         }
       }
     },

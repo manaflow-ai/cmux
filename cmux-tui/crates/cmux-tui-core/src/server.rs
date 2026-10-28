@@ -161,6 +161,7 @@ mod command_args;
 mod frame_dispatch;
 #[cfg(unix)]
 mod fs_wire;
+mod hot_requests;
 mod line_connection;
 use command_args::{
     parse_direction, parse_split_dir, parse_zoom_mode, present_nullable, workspace_mutation,
@@ -2503,7 +2504,8 @@ mod routes;
 use connection_frame::write_vt_state_command_json;
 use connection_frame::{
     auth_token, connection_caller, constant_time_eq, handle_connection_frame_at,
-    handle_request_with_cancellation, lock_caller_scope, pairing_request, zeroize_string,
+    handle_decoded_frame_at, handle_request_with_cancellation, lock_caller_scope, pairing_request,
+    zeroize_string,
 };
 #[cfg(test)]
 use connection_frame::{handle_connection_frame, handle_request};

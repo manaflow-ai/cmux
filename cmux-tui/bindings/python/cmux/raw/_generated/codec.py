@@ -755,6 +755,7 @@ MODEL_BY_PATH = {
     'events/conversation-typing/payload': models.ConversationTypingEvent,
     'events/daemon-shutdown/payload': models.DaemonShutdownEvent,
     'events/detached/payload': models.DetachedEvent,
+    'events/digest/payload': models.DigestEvent,
     'events/empty/payload': models.EmptyEvent,
     'events/frame/payload': models.FrameEvent,
     'events/frontend-projection-changed/payload': models.FrontendProjectionChangedEvent,

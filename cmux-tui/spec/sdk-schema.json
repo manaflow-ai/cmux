@@ -122,7 +122,7 @@
   "terminal-stream-events": {
    "id": 192,
    "description": "Content of an attach stream: output, render state, frames and sizes.",
-   "next_ordinal": 14
+   "next_ordinal": 15
   },
   "mux-events": {
    "id": 193,
@@ -7413,8 +7413,7 @@
       "items": {
        "kind": "scalar",
        "name": "string"
-      },
-      "max_items": 32
+      }
      },
      "presence": "optional",
      "nullable": false,
@@ -7422,7 +7421,8 @@
      "default": [],
      "constraints": [
       "Priority keys `<user_id or anon:id>/<device_kind>`, highest first."
-     ]
+     ],
+     "max_items": 32
     },
     "fixed": {
      "type": {
@@ -7683,12 +7683,12 @@
       "items": {
        "kind": "scalar",
        "name": "string"
-      },
-      "max_items": 64
+      }
      },
      "presence": "required",
      "nullable": false,
-     "max_bytes": 256
+     "max_bytes": 256,
+     "max_items": 64
     },
     "policy": {
      "type": {
@@ -7704,11 +7704,11 @@
       "items": {
        "kind": "ref",
        "name": "SizeParticipant"
-      },
-      "max_items": 64
+      }
      },
      "presence": "required",
-     "nullable": false
+     "nullable": false,
+     "max_items": 64
     }
    },
    "additional_properties": false
@@ -42314,6 +42314,77 @@
    },
    "event_id": 49164,
    "priority": "control"
+  },
+  "digest": {
+   "since": 12,
+   "capability": "terminal-snapshot-v1",
+   "streams": [
+    "attach-byte"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "digest"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "surface": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "generation": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "offset": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "version": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint16"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "sha256": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false,
+      "max_bytes": 64,
+      "description": "Lowercase hex SHA-256 (64 characters) of the host's READY encoding."
+     }
+    },
+    "additional_properties": false,
+    "constraints": [
+     "Sent on a snapshot attach (snapshot:\"ghostsnp\") 2 s after output goes idle, only when the viewer has every byte up to offset. A viewer of the same version hashes its own READY the same way and sends snapshot-request (reason digest_mismatch) on a mismatch."
+    ]
+   },
+   "event_id": 49166,
+   "priority": "control",
+   "encoding": "binary",
+   "layout_version": 1
   }
  }
 }

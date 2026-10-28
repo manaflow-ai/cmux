@@ -1709,6 +1709,14 @@
         "id": 49154,
         "priority": "control"
       },
+      "digest": {
+        "id": 49166,
+        "priority": "control",
+        "layout": {
+          "version": 1,
+          "fingerprint": "b1be3e606f367196"
+        }
+      },
       "empty": {
         "id": 49409,
         "priority": "control"
@@ -1854,7 +1862,7 @@
         "priority": "control",
         "layout": {
           "version": 1,
-          "fingerprint": "905145c3cb42d5ed"
+          "fingerprint": "cbb1a169e983f59f"
         }
       },
       "status": {

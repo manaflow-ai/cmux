@@ -42,6 +42,27 @@ private func binaryCommand(request: String) -> String {
         #expect(hot.messages.map(\.layoutVersion) == [3, 3])
     }
 
+    /// A field's `max_items` bounds the field's own array in the layout only (the array type, which
+    /// JSON decoders read, stays unbounded); an inner array still needs its own bound.
+    @Test func takesAFieldMaxItemsAsItsArrayBound() throws {
+        let request = #"{"kind": "object", "additional_properties": false, "fields": {"keys": "#
+            + #"{"type": {"kind": "array", "items": {"kind": "scalar", "name": "string"}}, "#
+            + #""presence": "required", "nullable": false, "max_bytes": 16, "max_items": 3}}}"#
+        let hot = try schema(command: binaryCommand(request: request))
+        let keys = try #require(hot.structs["HotRequest"]?.fields.first)
+        #expect(keys.type == .array(items: .string(maxBytes: 16), maxItems: 3))
+
+        let nested = #"{"kind": "object", "additional_properties": false, "fields": {"rows": "#
+            + #"{"type": {"kind": "array", "items": {"kind": "array", "items": {"kind": "scalar", "name": "uint16"}}}, "#
+            + #""presence": "required", "nullable": false, "max_items": 3}}}"#
+        do throws(HotSchemaError) {
+            _ = try schema(command: binaryCommand(request: nested))
+            Issue.record("accepted an unbounded inner array")
+        } catch {
+            #expect(error.path == "$.commands.hot.request.fields.rows.items" && error.message.contains("needs max_items"), "\(error)")
+        }
+    }
+
     @Test func refusesWhatALayoutCannotBound() throws {
         let field = { (type: String) in
             #"{"kind": "object", "additional_properties": false, "fields": {"f": {"type": \#(type), "presence": "required", "nullable": false}}}"#
@@ -75,7 +96,7 @@ private func binaryCommand(request: String) -> String {
             "scroll-surface request", "scroll-surface result",
             "set-client-sizing request", "set-client-sizing result",
             "snapshot-request request", "snapshot-request result",
-            "scroll-changed event", "size-state event", "surface-resized event",
+            "digest event", "scroll-changed event", "size-state event", "surface-resized event",
         ])
         let source = emitter.source()
         #expect(source == (try HotEmitter(sdkSchema: sdk)).source())

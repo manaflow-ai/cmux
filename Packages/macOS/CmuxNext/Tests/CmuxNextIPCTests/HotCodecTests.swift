@@ -85,6 +85,8 @@ private struct GoldenCase {
                 try Self.expectGolden(HotLayout<HotSnapshotRequestRequest>.snapshotRequestRequest, golden)
             case ("snapshot-request", "result"):
                 try Self.expectGolden(HotLayout<HotSnapshotRequestResult>.snapshotRequestResult, golden)
+            case ("digest", "event"):
+                try Self.expectGolden(HotLayout<HotDigestEvent>.digestEvent, golden)
             case ("scroll-changed", "event"):
                 try Self.expectGolden(HotLayout<HotScrollChangedEvent>.scrollChangedEvent, golden)
             case ("size-state", "event"):

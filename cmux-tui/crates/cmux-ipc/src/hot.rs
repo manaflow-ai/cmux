@@ -3,9 +3,10 @@
 //!
 //! The requests and results of `resize-attached-view`, `set-client-sizing`,
 //! `scroll-surface` and `snapshot-request`, and the `size-state`,
-//! `scroll-changed` and `surface-resized` events run on every resize, scroll
-//! and snapshot; their frames carry a fixed little-endian layout instead of
-//! JSON, so neither end parses JSON for them. The schema marks them
+//! `scroll-changed`, `surface-resized` and `digest` events run on every
+//! resize, scroll and snapshot; their frames carry a fixed little-endian
+//! layout instead of JSON, so neither end parses JSON for them. The schema
+//! marks them
 //! (`payload: "binary"` on a command, `encoding: "binary"` on an event, each
 //! with a `layout_version`), build.rs writes their types and one typed
 //! [`Layout`] constant per body from it (build-support/hot_codec.rs), and the
@@ -22,9 +23,11 @@
 //! ends of one revision need: no field is optional by version, every length
 //! is bounded by the schema, and nothing is left over.
 //!
-//! [`Layout::encode`] refuses a value its layout cannot carry (a string over
-//! its `max_bytes`, an array over its `max_items`); the sender then writes
-//! the message as JSON, which every peer still reads.
+//! The frame's `CallFlags::BINARY` selects the decoder: a frame with it
+//! carries the layout, a frame without it the JSON object, which every
+//! method takes. [`Layout::encode`] refuses a value its layout cannot carry
+//! (a string over its `max_bytes`, an array over its `max_items`); the
+//! sender then writes the same message as a JSON frame, without the flag.
 
 use std::fmt;
 use std::marker::PhantomData;

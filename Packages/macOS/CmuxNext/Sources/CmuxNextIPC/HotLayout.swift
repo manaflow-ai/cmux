@@ -2,8 +2,8 @@
 // layouts").
 //
 // The requests and results of `resize-attached-view`, `set-client-sizing`, `scroll-surface` and
-// `snapshot-request`, and the `size-state`, `scroll-changed` and `surface-resized` events, run on
-// every resize, scroll and snapshot. Their frames carry a fixed little-endian layout instead of JSON,
+// `snapshot-request`, and the `size-state`, `scroll-changed`, `surface-resized` and `digest` events,
+// run on every resize, scroll and snapshot. Their frames carry a fixed little-endian layout instead of JSON,
 // so neither end parses JSON for them. CmuxNextWireGen's HotEmitter writes `HotCodec+Schema.swift`
 // (one `Hot…` type per body and per type it reaches, and one ``HotLayout`` per body) into the plugin
 // work directory from cmux-tui/spec/sdk-schema.json; nothing generated is committed. The Rust twin is
@@ -13,7 +13,8 @@
 // A payload starts with its layout version; ``HotLayout/decode(_:)`` refuses any other, so a peer
 // built from another schema revision is refused rather than misread (Mojo's validated struct header,
 // mojo/public/cpp/bindings/lib/validation_util.h). ``HotLayout/encode(_:)`` refuses a value over its
-// layout's bounds; the sender then writes the message as JSON.
+// layout's bounds; the sender then writes the same message as a JSON frame. A frame's `binary` call
+// flag says which decoder reads its payload.
 
 import Foundation
 

@@ -333,6 +333,21 @@ import Testing
         #expect(framing.method(for: "wire-unlisted", bodyBytes: 10) == nil)
         #expect(framing.method(for: "wire-echo", bodyBytes: Int(FrameHeader.maxPayloadCap) + 1) == nil)
     }
+
+    /// A served binary method is framed too: its frame carries the JSON body, which every framed method
+    /// takes (cmux-tui frame_dispatch.rs `request_flags`), and has no `binary` flag.
+    @Test func aServedBinaryMethodIsFramedWithItsJSONBody() {
+        // Ordinal 0 of its family: a family's entries are indexed by ordinal.
+        let hot = MethodAttributes(id: MethodID(rawValue: 0x0100), name: "wire-hot", priority: .control,
+                                   ordering: .sequence, durability: .memory, payload: .binary(layoutVersion: 1),
+                                   streamScoped: false, crossesStreamOK: nil, maxBytes: nil, coalesce: nil, urgent: false)
+        let table = MethodTable(v12: [MethodTableFamily(id: 0x01, name: "wire-test", entries: [hot])], v2: [], events: [])
+        let framing = FramedRequests(table: table, served: [MethodID(rawValue: 0x0100)])
+        let method = framing.method(for: "wire-hot", bodyBytes: 10)
+        #expect(method?.id == MethodID(rawValue: 0x0100))
+        let frame = FramedRequests.requestFrame(Data("{}".utf8), requestID: 1, method: hot)
+        #expect(frame[15] == 0, "no binary flag: the body is JSON")
+    }
 }
 
 /// The real daemon answers the bench ops the same on a connection that negotiates frames and streams as on

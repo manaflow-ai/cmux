@@ -152,6 +152,48 @@ pub(super) fn handle_connection_frame_at(
     keep_open
 }
 
+/// [`handle_connection_frame_at`] for a REQUEST frame whose binary body
+/// already decoded into its `Command` (server/hot_requests.rs): the same
+/// gates in the same order, then the command's dispatch, with no line and
+/// no parse. `body_len` is the frame's payload length. Only a local
+/// connection sends one (frame_dispatch.rs refuses a remote-relay client's).
+pub(super) fn handle_decoded_frame_at(
+    mux: &Arc<Mux>,
+    client: u64,
+    request: Request,
+    body_len: usize,
+    writer: &MessageWriter,
+    scheduler: &Arc<ConnectionSurfaceScheduler>,
+    arrived: Instant,
+) -> bool {
+    let _hang = request_hang_watch::RequestHang::frame();
+    let _lock_caller = lock_caller_scope(writer);
+    let watched = mux.request_watchdog.begin(client, WatchedMethod::frame(FrameStage::Route));
+    if mux.daemon_shutdown_requested() || mux.daemon_handoff_committed() {
+        return false;
+    }
+    let (_, cause) = mux.frame_client(client);
+    let _cause = mux.request_qos().enter(cause);
+    if mux.daemon_handoff_in_progress() {
+        return pending_handoff::reject_request_during_pending_handoff(request, writer);
+    }
+    let _request_path = crate::request_path::RequestPathScope::enter(mux.request_path_stats());
+    let parses = crate::line_parses::LineParses::enter();
+    // A binary request has no line.
+    let line = LineFrame {
+        mux,
+        client,
+        message: "",
+        writer,
+        scheduler,
+        arrived,
+        watched: watched.as_ref(),
+    };
+    let keep_open = dispatch_command(&line, request, body_len);
+    cmux_trace::trace_instant!(daemon, "daemon.frame.json_parses", u64::from(parses.count()));
+    keep_open
+}
+
 /// Runs one line [`dispatch_line`] answers on the connection's request
 /// sequence (`Mux::post_connection_request`), in the order the reader read
 /// it, with the request context the reader set for it: its cause, its
@@ -290,7 +332,7 @@ impl LineFrame<'_> {
 /// the `Command` parse. The handler a request reaches parses the line once
 /// more; an error reply may parse it again for its `id`.
 pub(super) fn dispatch_line(line: &LineFrame<'_>, head: RequestHead<'_>) -> bool {
-    let LineFrame { mux, client, message, writer, scheduler, arrived, watched } = *line;
+    let LineFrame { mux, client, message, writer, arrived, .. } = *line;
     if head.is_resource()
         && let Some(keep_open) = resource_line(line, &head)
     {
@@ -320,10 +362,18 @@ pub(super) fn dispatch_line(line: &LineFrame<'_>, head: RequestHead<'_>) -> bool
             return span.reply(|| send_bad_request(writer, message, &error));
         }
     };
-    line.watch(WatchedMethod::command(&request.cmd));
     // Only a `cmd` the table names parses as a `Command`
     // (command_names_tests), so no route span is open here.
     drop(routed);
+    dispatch_command(line, request, message.len())
+}
+
+/// Runs a parsed `Command` request: on the connection's dispatcher, or here
+/// when the dispatcher hands it back. `retained_bytes` is what its message
+/// holds while it waits.
+fn dispatch_command(line: &LineFrame<'_>, request: Request, retained_bytes: usize) -> bool {
+    let LineFrame { mux, client, writer, scheduler, arrived, watched, .. } = *line;
+    line.watch(WatchedMethod::command(&request.cmd));
     let arrival = RequestArrival::parsed_now(arrived);
     let mut pending = Some(request);
     match scheduler.dispatch_at(
@@ -331,7 +381,7 @@ pub(super) fn dispatch_line(line: &LineFrame<'_>, head: RequestHead<'_>) -> bool
         client,
         &mut pending,
         arrival,
-        message.len(),
+        retained_bytes,
         writer.clone(),
     ) {
         Some(keep_open) => keep_open,

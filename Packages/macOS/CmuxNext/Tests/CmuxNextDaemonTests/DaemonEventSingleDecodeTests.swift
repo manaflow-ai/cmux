@@ -206,7 +206,7 @@ struct DaemonEventSingleDecodeTests {
     /// connection: the terminal stream, loopback, cloud mux). Q12's open list.
     static let unmodeledSchemaEvents: Set<String> = [
         "activity-changed", "browser-state", "chief-changed", "cloud-mux-resynced", "cloud-mux-wake", "colors-changed",
-        "config-reload-requested", "conversation-inbox-changed", "detached", "empty", "frame", "graphics-status",
+        "config-reload-requested", "conversation-inbox-changed", "detached", "digest", "empty", "frame", "graphics-status",
         "loopback-closed", "loopback-credit", "loopback-data", "loopback-eof", "machine-usage-changed", "output",
         "participant-avatar-changed", "program-status-changed", "render-delta", "render-state", "resized", "script-log",
         "server-diagnostic-site", "settings-changed", "size-state", "status", "surface-output", "surface-resize-failed", "terminal-input-unclaimed",

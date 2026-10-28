@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 99e73aee9192019e034f4e1ba084e0a43098939861f28b4a564a8580bce4c2a5. */
+/* cmux-tui mux protocol 12, IR 70a0882534fe515742fe63dd1681da342b8b36a26b05e34028364ffe93492b61. */
 
 
 import type * as T from "./types.js";
@@ -335,6 +335,16 @@ export type DetachedEvent = { event: "detached" } & {
   "scope"?: string;
   "surface": T.Id;
   "view"?: string;
+};
+
+/** Protocol v12; emission: emitted; streams: attach-byte. */
+export type DigestEvent = { event: "digest" } & {
+  "generation": bigint;
+  "offset": bigint;
+  /** Lowercase hex SHA-256 (64 characters) of the host's READY encoding. */
+  "sha256": string;
+  "surface": T.Id;
+  "version": number;
 };
 
 /** Protocol v5; emission: emitted; streams: subscribe. */
@@ -928,6 +938,7 @@ export type KnownCmuxEvent =
   | ConversationTypingEvent
   | DaemonShutdownEvent
   | DetachedEvent
+  | DigestEvent
   | EmptyEvent
   | FrameEvent
   | FrontendProjectionChangedEvent
@@ -1089,6 +1100,7 @@ export type KnownAttachEvent =
   | BrowserStateEvent
   | ColorsChangedEvent
   | DetachedEvent
+  | DigestEvent
   | FrameEvent
   | InputFailedEvent
   | NotificationEvent
@@ -1106,6 +1118,7 @@ export type KnownAttachEvent =
 export type KnownByteAttachEvent =
   | ColorsChangedEvent
   | DetachedEvent
+  | DigestEvent
   | InputFailedEvent
   | NotificationEvent
   | OutputEvent

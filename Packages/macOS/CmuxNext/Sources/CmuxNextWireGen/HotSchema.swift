@@ -10,7 +10,14 @@ import Foundation
 // with `encoding: "binary"` has one for its payload. An object's fields go in the byte order of their
 // wire names, without its literal fields; optional and nullable fields get a tag byte; an enum is
 // the u8 index of its value; a string is a u16 byte length (at most `max_bytes`) and its UTF-8; an
-// array a u16 count (at most `max_items`) and its items.
+// array a u16 count (at most its field's `max_items`, else its type's) and its items. A field's bounds
+// are the layout's only: JSON decoders do not read them, and a value over one goes as JSON.
+
+/// A field's layout bounds: `maxBytes` bounds each string it reaches, `maxItems` the field's own array.
+struct FieldBounds: Equatable {
+    var maxBytes: Int64?
+    var maxItems: Int64?
+}
 
 /// Why the hot layouts cannot be generated. `path` is a JSON path into sdk-schema.json.
 struct HotSchemaError: Error, Equatable, CustomStringConvertible {
@@ -151,14 +158,14 @@ struct HotSchema: Equatable {
 
     private mutating func body(_ expression: SchemaJSON, fallback: String, path: String) throws(HotSchemaError) -> String {
         var reached: [String] = []
-        guard case .object(let name) = try wireType(expression, context: fallback, bound: nil, path: path, reached: &reached) else {
+        guard case .object(let name) = try wireType(expression, context: fallback, bounds: FieldBounds(), path: path, reached: &reached) else {
             throw HotSchemaError(path: path, message: "a binary body must be an object")
         }
         return name
     }
 
     private mutating func wireType(
-        _ expression: SchemaJSON, context: String, bound: Int64?, path: String, reached: inout [String]
+        _ expression: SchemaJSON, context: String, bounds: FieldBounds, path: String, reached: inout [String]
     ) throws(HotSchemaError) -> WireType {
         switch expression["kind"]?.string ?? "" {
         case "ref":
@@ -169,22 +176,24 @@ struct HotSchema: Equatable {
             }
             reached.append(name)
             defer { reached.removeLast() }
-            return try wireType(target, context: name, bound: bound, path: "$.types.\(name)", reached: &reached)
+            return try wireType(target, context: name, bounds: bounds, path: "$.types.\(name)", reached: &reached)
         case "alias":
             guard let target = expression["target"] else { throw HotSchemaError(path: path, message: "an alias needs a target") }
-            return try wireType(target, context: context, bound: bound, path: path, reached: &reached)
+            return try wireType(target, context: context, bounds: bounds, path: path, reached: &reached)
         case "scalar":
-            return try Self.scalar(expression, bound: bound, path: path)
+            return try Self.scalar(expression, bound: bounds.maxBytes, path: path)
         case "enum":
             return try enumeration(expression, name: context, path: path)
         case "object":
             return try object(expression, name: context, path: path, reached: &reached)
         case "array":
-            guard let raw = expression["max_items"]?.integer, let maxItems = UInt16(exactly: raw) else {
+            // The field's bound is this array's; its items keep only the field's `max_bytes`.
+            guard let raw = bounds.maxItems ?? expression["max_items"]?.integer, let maxItems = UInt16(exactly: raw) else {
                 throw HotSchemaError(path: path, message: "a binary array needs max_items 0-65535")
             }
             guard let items = expression["items"] else { throw HotSchemaError(path: path, message: "no items") }
-            let item = try wireType(items, context: context, bound: bound, path: "\(path).items", reached: &reached)
+            let itemBounds = FieldBounds(maxBytes: bounds.maxBytes, maxItems: nil)
+            let item = try wireType(items, context: context, bounds: itemBounds, path: "\(path).items", reached: &reached)
             return .array(items: item, maxItems: maxItems)
         case let other:
             throw HotSchemaError(path: path, message: "\"\(other)\" has no binary layout")
@@ -249,8 +258,9 @@ struct HotSchema: Equatable {
                 literals.append(Literal(wire: wire, value: typeExpression["value"]?.string ?? ""))
                 continue
             }
-            let fieldType = try wireType(typeExpression, context: name + Self.pascal(wire), bound: field["max_bytes"]?.integer,
-                                     path: fieldPath, reached: &reached)
+            let bounds = FieldBounds(maxBytes: field["max_bytes"]?.integer, maxItems: field["max_items"]?.integer)
+            let fieldType = try wireType(typeExpression, context: name + Self.pascal(wire), bounds: bounds,
+                                         path: fieldPath, reached: &reached)
             let required = field["presence"]?.string == "required"
             let nullable = field["nullable"]?.bool == true
             fields.append(Field(wire: wire, type: fieldType, tagged: !required || nullable, writesNull: required && nullable))

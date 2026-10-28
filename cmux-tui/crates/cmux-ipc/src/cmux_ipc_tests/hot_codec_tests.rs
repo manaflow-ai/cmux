@@ -166,6 +166,32 @@ fn hot_codec_writes_and_reads_the_golden_bytes() {
         SurfaceResizedEvent { cause: None, cols: 80, reservation_id: None, rows: 24, surface: 5 },
     );
     assert_golden(&SIZE_STATE_EVENT, size_state_event());
+    assert_golden(
+        &DIGEST_EVENT,
+        DigestEvent {
+            generation: 3,
+            offset: 4096,
+            sha256: "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08".into(),
+            surface: 5,
+            version: 2,
+        },
+    );
+}
+
+/// A snapshot digest's sha256 is 64 hex digits, its layout's bound; one more
+/// byte goes as JSON.
+#[test]
+fn hot_codec_digest_carries_a_hex_sha256() {
+    let mut event =
+        DigestEvent { generation: 1, offset: 2, sha256: "f".repeat(64), surface: 3, version: 2 };
+    let mut out = Vec::new();
+    DIGEST_EVENT.encode(&event, &mut out).unwrap();
+    assert_eq!(DIGEST_EVENT.decode(&out).unwrap(), event);
+    event.sha256.push('f');
+    assert_eq!(
+        DIGEST_EVENT.encode(&event, &mut Vec::new()),
+        Err(HotEncodeError::StringTooLong { len: 65, max: 64 })
+    );
 }
 
 /// Every layout has a golden case and every golden case a layout.
@@ -233,6 +259,7 @@ fn hot_codec_layouts_agree_with_the_method_tables() {
             "scroll-surface",
             "set-client-sizing",
             "snapshot-request",
+            "digest",
             "scroll-changed",
             "size-state",
             "surface-resized",
@@ -353,6 +380,37 @@ fn hot_codec_reader_orders_fields_by_name() {
     assert_eq!(order, [("Alpha", true), ("alpha", true), ("zeta", false)]);
     assert_eq!(model.messages.len(), 2);
     assert_eq!(model.messages[0].layout_version, 3);
+}
+
+/// A field's `max_items` bounds the field's own array in the layout (the
+/// array type, which JSON decoders read, stays unbounded); an inner array
+/// still needs its own bound.
+#[test]
+fn hot_codec_reader_takes_a_field_max_items_as_its_array_bound() {
+    let request = json!({ "kind": "object", "additional_properties": false, "fields": {
+        "keys": {
+            "type": { "kind": "array", "items": { "kind": "scalar", "name": "string" } },
+            "presence": "required", "nullable": false, "max_bytes": 16, "max_items": 3
+        }
+    }});
+    let model = reader::read(&schema_with(binary_command(request), json!({}))).unwrap();
+    let keys = &model.structs["HotRequest"].fields[0];
+    assert_eq!(
+        keys.ty,
+        reader::Ty::Array { items: Box::new(reader::Ty::Str { max_bytes: 16 }), max_items: 3 }
+    );
+
+    let nested = json!({ "kind": "object", "additional_properties": false, "fields": {
+        "rows": {
+            "type": { "kind": "array", "items": {
+                "kind": "array", "items": { "kind": "scalar", "name": "uint16" }
+            }},
+            "presence": "required", "nullable": false, "max_items": 3
+        }
+    }});
+    let error = reader::read(&schema_with(binary_command(nested), json!({}))).unwrap_err();
+    assert!(error.contains("$.commands.hot.request.fields.rows.items"), "{error}");
+    assert!(error.contains("needs max_items"), "{error}");
 }
 
 /// What a layout cannot bound fails the build with its JSON path.

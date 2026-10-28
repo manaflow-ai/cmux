@@ -30,6 +30,8 @@ CLIENTS = ("macos", "ios", "cli", "sdk")
 # The frame header carries len as u32 capped at 32 MiB (p05-ipc design 3.2).
 MAX_FRAME_BYTES = 32 * 1024 * 1024
 LAYOUT_VERSION_RANGE = range(1, 0x100)
+# The largest count a u16 length prefix of a binary layout carries.
+MAX_PREFIXED = 0xFFFF
 
 # Request fields that name a surface, a terminal or an attached view: such a
 # command can pass input already queued on that surface's stream unless it is
@@ -59,7 +61,7 @@ COMMAND_ATTRIBUTES = frozenset(
 EVENT_ATTRIBUTES = frozenset(
     {"event_id", "priority", "priority_changed_reason", "encoding", "layout_version", "coalesce"}
 )
-FIELD_ATTRIBUTES = frozenset({"omit_nil", "max_bytes"})
+FIELD_ATTRIBUTES = frozenset({"omit_nil", "max_bytes", "max_items"})
 
 _FAMILY_NAME = re.compile(r"^[a-z][a-z0-9]*(-[a-z0-9]+)*$")
 _NUMERIC_SCALARS = frozenset(
@@ -414,6 +416,15 @@ class IpcMetaValidator:
             field_type = field.get("type")
             if not self._is_string(field_type) and not self._is_string_array(field_type):
                 self.issue(f"{path}.max_bytes", "bounds string fields and arrays of strings only")
+        if "max_items" in field:
+            # A binary layout bound only: JSON decoders read the type's
+            # max_items, which bounds the data everywhere.
+            items = field["max_items"]
+            if not _is_int(items) or not 0 <= items <= MAX_PREFIXED:
+                self.issue(f"{path}.max_items", f"must be an integer 0-{MAX_PREFIXED}")
+            resolved = self.resolve(field.get("type"))
+            if resolved is not None and resolved.get("kind") != "array":
+                self.issue(f"{path}.max_items", "bounds array fields only")
         if "default" in field:
             default = field["default"]
             if default is None:
@@ -471,9 +482,14 @@ class IpcMetaValidator:
         path: str,
         *,
         bound: Any = None,
+        items_bound: Any = None,
         seen: frozenset[str] = frozenset(),
     ) -> None:
-        """Require every length-prefixed part of a binary layout to be bounded."""
+        """Require every length-prefixed part of a binary layout to be bounded.
+
+        ``bound`` is a field's max_bytes (each string it reaches); ``items_bound``
+        a field's max_items, which bounds the field's own array only.
+        """
 
         while isinstance(expression, Mapping) and _text(expression, "kind") in ("ref", "alias"):
             if expression["kind"] == "alias":
@@ -504,10 +520,11 @@ class IpcMetaValidator:
                         field.get("type"),
                         f"{path}.fields.{field_name}",
                         bound=field.get("max_bytes"),
+                        items_bound=field.get("max_items"),
                         seen=seen,
                     )
         elif kind == "array":
-            if "max_items" not in expression:
+            if "max_items" not in expression and items_bound is None:
                 self.issue(path, "a binary array needs max_items")
             # A field max_bytes on an array of strings bounds each item.
             self.binary_layout(expression.get("items"), f"{path}.items", bound=bound, seen=seen)

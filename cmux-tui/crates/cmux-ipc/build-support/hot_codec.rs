@@ -11,7 +11,9 @@
 //! little-endian at their width; a boolean as 0 or 1; an enum as the u8 index
 //! of its value in schema order; a string as a u16 byte length (at most the
 //! field's `max_bytes`) and its UTF-8; an array as a u16 count (at most its
-//! `max_items`) and its items. Sorting by name makes the bytes independent of
+//! field's `max_items`, else its type's) and its items. A field's bounds are
+//! the layout's only: JSON decoders do not read them, and a value over one
+//! goes as JSON. Sorting by name makes the bytes independent of
 //! the order of the schema file, which is the order `api-compat-check`'s
 //! layout fingerprint ignores too.
 //!
@@ -190,6 +192,14 @@ fn wire_id(node: &Value, key: &str, path: &str) -> Result<u16, String> {
         .ok_or_else(|| format!("{path}.{key}: a binary layout needs a u16 {key}"))
 }
 
+/// A field's layout bounds: `max_bytes` bounds each string it reaches,
+/// `max_items` the field's own array.
+#[derive(Clone, Copy, Debug, Default)]
+struct Bounds {
+    max_bytes: Option<u64>,
+    max_items: Option<u64>,
+}
+
 struct Reader<'a> {
     types: &'a Map<String, Value>,
     model: HotModel,
@@ -199,20 +209,19 @@ impl Reader<'_> {
     /// The struct a message body is: a named object type keeps its name, an
     /// inline object gets `fallback`.
     fn body(&mut self, expr: &Value, fallback: &str, path: &str) -> Result<String, String> {
-        match self.ty(expr, fallback, None, path, &mut Vec::new())? {
+        match self.ty(expr, fallback, Bounds::default(), path, &mut Vec::new())? {
             Ty::Object(name) => Ok(name),
             _ => Err(format!("{path}: a binary body must be an object")),
         }
     }
 
     /// The wire type of `expr`. `context` names an inline enum or object;
-    /// `bound` is the field's `max_bytes`, which bounds a string or each
-    /// string of an array; `reached` stops a recursive type.
+    /// `bounds` are the field's; `reached` stops a recursive type.
     fn ty(
         &mut self,
         expr: &Value,
         context: &str,
-        bound: Option<u64>,
+        bounds: Bounds,
         path: &str,
         reached: &mut Vec<String>,
     ) -> Result<Ty, String> {
@@ -229,27 +238,31 @@ impl Reader<'_> {
                     return Err(format!("{path}: recursive type {name:?} has no binary layout"));
                 }
                 reached.push(name.to_owned());
-                let ty = self.ty(target, name, bound, &format!("$.types.{name}"), reached);
+                let ty = self.ty(target, name, bounds, &format!("$.types.{name}"), reached);
                 reached.pop();
                 ty
             }
             "alias" => {
                 let target =
                     expr.get("target").ok_or_else(|| format!("{path}: an alias needs a target"))?;
-                self.ty(target, context, bound, path, reached)
+                self.ty(target, context, bounds, path, reached)
             }
-            "scalar" => scalar(expr, bound, path),
+            "scalar" => scalar(expr, bounds.max_bytes, path),
             "enum" => self.enumeration(expr, context, path),
             "object" => self.object(expr, context, path, reached),
             "array" => {
-                let max_items = expr
-                    .get("max_items")
-                    .and_then(Value::as_u64)
+                // The field's bound is this array's; its items keep only the
+                // field's `max_bytes`.
+                let max_items = bounds
+                    .max_items
+                    .or_else(|| expr.get("max_items").and_then(Value::as_u64))
                     .filter(|n| *n <= MAX_PREFIXED)
                     .and_then(|n| u16::try_from(n).ok())
                     .ok_or_else(|| format!("{path}: a binary array needs max_items 0-65535"))?;
                 let items = expr.get("items").ok_or_else(|| format!("{path}: no items"))?;
-                let items = self.ty(items, context, bound, &format!("{path}.items"), reached)?;
+                let item_bounds = Bounds { max_items: None, ..bounds };
+                let items =
+                    self.ty(items, context, item_bounds, &format!("{path}.items"), reached)?;
                 Ok(Ty::Array { items: Box::new(items), max_items })
             }
             other => Err(format!("{path}: {other:?} has no binary layout")),
@@ -310,9 +323,12 @@ impl Reader<'_> {
             if ty_expr.get("kind").and_then(Value::as_str) == Some("literal") {
                 continue;
             }
-            let bound = field.get("max_bytes").and_then(Value::as_u64);
+            let bounds = Bounds {
+                max_bytes: field.get("max_bytes").and_then(Value::as_u64),
+                max_items: field.get("max_items").and_then(Value::as_u64),
+            };
             let context = format!("{name}{}", pascal(wire));
-            let ty = self.ty(ty_expr, &context, bound, &field_path, reached)?;
+            let ty = self.ty(ty_expr, &context, bounds, &field_path, reached)?;
             let tagged = field.get("presence").and_then(Value::as_str) != Some("required")
                 || field.get("nullable").and_then(Value::as_bool) == Some(true);
             fields.push(Field { wire: wire.clone(), ty, tagged });

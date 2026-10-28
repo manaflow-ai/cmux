@@ -767,6 +767,12 @@ def event_names() -> set[str]:
         module_constants = rust_string_constants(module_tokens)
         names.update(json_macro_event_names(module_tokens, module_constants))
 
+    # The snapshot attach's `digest` is in the raw SDK catalog (it has a
+    # binary layout, p05-ipc-183); the module's `snapshot` is not yet.
+    snapshot = TUI / "crates/cmux-tui-core/src/server/terminal_snapshot.rs"
+    if snapshot.exists():
+        names.update(function_event_names(snapshot.read_text(), "digest_json"))
+
     # The local conversation owner builds its subscribe-stream events itself.
     conversations = TUI / "crates/cmux-tui-core/src/conversation_store.rs"
     if conversations.exists():

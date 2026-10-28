@@ -684,6 +684,33 @@ class IpcMetaTests(unittest.TestCase):
         }
         self.assert_rejected(document, "a binary array needs max_items")
 
+    def test_accepts_a_field_max_items_as_the_layout_bound_only(self) -> None:
+        document = _framed_document()
+        document["types"]["Size"]["fields"]["cols"]["type"] = {
+            "kind": "array",
+            "items": {"kind": "scalar", "name": "uint16"},
+        }
+        document["types"]["Size"]["fields"]["cols"]["max_items"] = 8
+        ir = load_ir_document(document)
+        cols = ir.types["Size"]["fields"]["cols"]
+        self.assertEqual(cols["max_items"], 8)
+        # The type JSON decoders read stays unbounded.
+        self.assertNotIn("max_items", cols["type"])
+
+    def test_rejects_a_field_max_items_on_a_non_array(self) -> None:
+        document = _framed_document()
+        document["types"]["Size"]["fields"]["cols"]["max_items"] = 8
+        self.assert_rejected(document, "max_items: bounds array fields only")
+
+    def test_rejects_a_field_max_items_over_a_u16(self) -> None:
+        document = _framed_document()
+        document["types"]["Size"]["fields"]["cols"]["type"] = {
+            "kind": "array",
+            "items": {"kind": "scalar", "name": "uint16"},
+        }
+        document["types"]["Size"]["fields"]["cols"]["max_items"] = 0x10000
+        self.assert_rejected(document, "max_items: must be an integer 0-65535")
+
     def test_rejects_map_in_a_binary_layout(self) -> None:
         document = _framed_document()
         document["commands"]["resize-view"]["result"] = {

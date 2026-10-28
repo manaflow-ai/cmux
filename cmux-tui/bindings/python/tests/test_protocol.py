@@ -72,6 +72,30 @@ class GeneratedProtocolTests(unittest.TestCase):
         self.assertEqual(event.request, request)
         self.assertIsInstance(event.request, int)
 
+    def test_size_state_over_the_binary_layout_bounds_still_decodes(self) -> None:
+        # max_items 32 / 64 bound the binary layout only (p05-ipc-183): the
+        # daemon admits longer lists and sends such an event as JSON.
+        participant = {
+            "id": "p1", "user_id": None, "display_name": None, "device_kind": "mac",
+            "device_name": None, "device_id": None, "via": None,
+            "viewport": {"cols": 80, "rows": 24}, "counts_override": None,
+            "counts": True, "priority_key": "anon:1/mac",
+        }
+        event = decode_event({
+            "event": "size-state",
+            "surface": 5,
+            "state": {
+                "generation": 1, "cols": 80, "rows": 24, "reason": "priority",
+                "owners": [f"device:{i}" for i in range(65)],
+                "policy": {"mode": "priority", "priority": [f"anon:{i}/mac" for i in range(33)]},
+                "participants": [dict(participant, id=f"p{i}") for i in range(65)],
+            },
+        })
+        self.assertNotIsInstance(event, UnknownEvent)
+        self.assertEqual(len(event.state.owners), 65)
+        self.assertEqual(len(event.state.policy.priority), 33)
+        self.assertEqual(len(event.state.participants), 65)
+
     def test_unknown_events_survive_with_raw_payload(self) -> None:
         event = decode_event({"event": "protocol-11-added", "value": 42})
 

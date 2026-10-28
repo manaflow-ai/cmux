@@ -46031,6 +46031,89 @@ Result<DetachedEvent> Codec<DetachedEvent>::decode(const Json& value) {
     return result;
 }
 
+Result<Json> Codec<DigestEvent>::encode(const DigestEvent& value) {
+    (void)value;
+    Json::Object object;
+    object.emplace("event", Json(std::string("digest")));
+    auto encoded_generation = encode_value(value.generation);
+    if (!encoded_generation) return std::move(encoded_generation).error();
+    object.emplace("generation", std::move(encoded_generation).value());
+    auto encoded_offset = encode_value(value.offset);
+    if (!encoded_offset) return std::move(encoded_offset).error();
+    object.emplace("offset", std::move(encoded_offset).value());
+    auto encoded_sha256 = encode_value(value.sha256);
+    if (!encoded_sha256) return std::move(encoded_sha256).error();
+    object.emplace("sha256", std::move(encoded_sha256).value());
+    auto encoded_surface = encode_value(value.surface);
+    if (!encoded_surface) return std::move(encoded_surface).error();
+    object.emplace("surface", std::move(encoded_surface).value());
+    auto encoded_version = encode_value(value.version);
+    if (!encoded_version) return std::move(encoded_version).error();
+    object.emplace("version", std::move(encoded_version).value());
+    return Json(std::move(object));
+}
+
+Result<DigestEvent> Codec<DigestEvent>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    DigestEvent result{};
+    const Json* field_generation = value.find("generation");
+    if (!field_generation) {
+        return make_error(ErrorCode::decode, "missing required field 'generation'");
+    }
+    if (field_generation) {
+        auto decoded = decode_value<std::uint64_t>(*field_generation);
+        if (!decoded) return std::move(decoded).error();
+        result.generation = std::move(decoded).value();
+    }
+    const Json* field_offset = value.find("offset");
+    if (!field_offset) {
+        return make_error(ErrorCode::decode, "missing required field 'offset'");
+    }
+    if (field_offset) {
+        auto decoded = decode_value<std::uint64_t>(*field_offset);
+        if (!decoded) return std::move(decoded).error();
+        result.offset = std::move(decoded).value();
+    }
+    const Json* field_sha256 = value.find("sha256");
+    if (!field_sha256) {
+        return make_error(ErrorCode::decode, "missing required field 'sha256'");
+    }
+    if (field_sha256) {
+        auto decoded = decode_value<std::string>(*field_sha256);
+        if (!decoded) return std::move(decoded).error();
+        result.sha256 = std::move(decoded).value();
+    }
+    const Json* field_surface = value.find("surface");
+    if (!field_surface) {
+        return make_error(ErrorCode::decode, "missing required field 'surface'");
+    }
+    if (field_surface) {
+        auto decoded = decode_value<Id>(*field_surface);
+        if (!decoded) return std::move(decoded).error();
+        result.surface = std::move(decoded).value();
+    }
+    const Json* field_version = value.find("version");
+    if (!field_version) {
+        return make_error(ErrorCode::decode, "missing required field 'version'");
+    }
+    if (field_version) {
+        auto decoded = decode_value<std::uint16_t>(*field_version);
+        if (!decoded) return std::move(decoded).error();
+        result.version = std::move(decoded).value();
+    }
+    const Json* field_event = value.find("event");
+    if (!field_event) {
+        return make_error(ErrorCode::decode, "missing required field 'event'");
+    }
+    if (field_event) {
+        if (*field_event != Json(std::string("digest"))) {
+            return make_error(ErrorCode::decode, "field 'event' has the wrong literal value");
+        }
+    }
+    return result;
+}
+
 Result<Json> Codec<EmptyEvent>::encode(const EmptyEvent& value) {
     (void)value;
     Json::Object object;
@@ -52844,6 +52927,11 @@ Result<Event> Codec<Event>::decode(const Json& value) {
         if (!decoded) return std::move(decoded).error();
         return Event{Event::Variant(std::move(decoded).value()), value};
     }
+    if (name.value() == "digest") {
+        auto decoded = decode_value<DigestEvent>(value);
+        if (!decoded) return std::move(decoded).error();
+        return Event{Event::Variant(std::move(decoded).value()), value};
+    }
     if (name.value() == "empty") {
         auto decoded = decode_value<EmptyEvent>(value);
         if (!decoded) return std::move(decoded).error();
@@ -53762,7 +53850,7 @@ constexpr std::array<CommandMetadata, 363> kCommands{{
     {"ws-listen", "local-admin", 12U, "ws-listen-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"zoom-pane", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
 }};
-constexpr std::array<EventMetadata, 95> kEvents{{
+constexpr std::array<EventMetadata, 96> kEvents{{
     {"activity-changed", 12U, "vm-activity-v1", "control", "emitted"},
     {"agent-changed", 11U, "", "subscribe", "emitted"},
     {"agent-inventory-changed", 12U, "agent-inventory-watch-v1", "control", "emitted"},
@@ -53798,6 +53886,7 @@ constexpr std::array<EventMetadata, 95> kEvents{{
     {"conversation-typing", 12U, "local-conversations-v1", "subscribe", "emitted"},
     {"daemon-shutdown", 12U, "", "control", "emitted"},
     {"detached", 5U, "", "attach-byte,attach-render,attach-browser", "emitted"},
+    {"digest", 12U, "terminal-snapshot-v1", "attach-byte", "emitted"},
     {"empty", 5U, "", "subscribe", "emitted"},
     {"frame", 6U, "", "attach-browser", "emitted"},
     {"frontend-projection-changed", 7U, "", "subscribe", "emitted"},
