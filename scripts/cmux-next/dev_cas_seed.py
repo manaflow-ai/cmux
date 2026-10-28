@@ -65,6 +65,7 @@ MAX_BLOB_BYTES = 8 * 1024**3
 # the most entries it may hold: a seed past either is refused mid-stream, whatever its digest.
 EXTRACT_SLACK_BYTES = 64 * 1024**2
 MAX_MEMBERS = 2_000_000
+ZSTD_EXIT_SECONDS = 60
 CANDIDATES = 3
 KEY_ENV = (
     "CMUX_NEXT_CONFIGURATION", "CMUX_NEXT_SWIFT_COMPILATION_MODE", "CMUX_NEXT_PRODUCT_NAME",
@@ -260,13 +261,23 @@ def unpack(blob: Path, incoming: Path, env: dict[str, str], max_bytes: int) -> N
                     with target.open("wb") as sink:
                         left = copy_bounded(data, sink, left)
                     os.chmod(target, (member.mode & 0o755) | 0o600)
+            # The tar ended; zstd may still be writing its padding and exiting. Drain it to EOF,
+            # counted against the same bound, and let it finish on its own.
+            while chunk := zstd.stdout.read(1 << 20):
+                left -= len(chunk)
+                if left < 0:
+                    raise Miss("the seed unpacks to more than its record declares")
+            status = zstd.wait(timeout=ZSTD_EXIT_SECONDS)
         except tarfile.TarError as error:
             raise Miss(f"the seed is not a readable tar: {error}") from error
+        except subprocess.TimeoutExpired as error:
+            raise Miss(f"zstd did not exit within {ZSTD_EXIT_SECONDS} s of its output ending") from error
         finally:
-            zstd.stdout.close()
+            # Killed only when unpacking stopped early (a refused seed, a timeout, any error).
             if zstd.poll() is None:
                 zstd.kill()
-            status = zstd.wait()
+                zstd.wait()
+            zstd.stdout.close()
     if status:
         raise Miss(f"zstd exited {status} while unpacking")
 

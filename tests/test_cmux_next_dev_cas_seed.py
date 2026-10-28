@@ -216,6 +216,24 @@ class SeedTests(unittest.TestCase):
         marker = json.loads((self.root / "cas-origin.json").read_text())
         self.assertEqual((marker["sha"], marker["seeded_from_run"]), (SHA_B, 7))
 
+    def test_a_decompressor_that_exits_a_moment_after_its_output_is_a_success(self):
+        slow = self.root / "slow-zstd"
+        slow.write_text("#!/bin/sh\ncat\nsleep 1\nexit 0\n")
+        slow.chmod(0o755)
+        failing = self.root / "failing-zstd"
+        failing.write_text("#!/bin/sh\ncat\nsleep 1\nexit 3\n")
+        failing.chmod(0o755)
+        writer, reader = self.root / "w", self.root / "r"
+        make_cas(writer, "fresh objects")
+        make_cas(reader, "old objects")
+        seed.pack(writer, self.root / "out", self.env)
+        blob = self.root / "out" / seed.BLOB
+        with self.assertRaisesRegex(seed.Miss, "zstd exited 3"):
+            seed.extract(blob, reader, {**self.env, "CMUX_NEXT_DEV_CAS_ZSTD": str(failing)})
+        self.assertEqual((reader / seed.CAS_DIR / "v1.3/data").read_text(), "old objects")
+        seed.extract(blob, reader, {**self.env, "CMUX_NEXT_DEV_CAS_ZSTD": str(slow)})
+        self.assertEqual((reader / seed.CAS_DIR / "v1.3/data").read_text(), "fresh objects")
+
     def test_an_oversized_or_wrong_body_is_cut_off_and_leaves_no_file(self):
         fake_curl_bin(self.root)
         body, dest = self.root / "body", self.root / "dest"
