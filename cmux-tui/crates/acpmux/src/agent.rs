@@ -218,6 +218,9 @@ enum Writer {
     },
     /// A hosted agent: its host, proven by its start nonce's live lock.
     Hosted(crate::agent_host::HostRecord),
+    /// A host of this session (of every session: `None`) an adoption could not resolve
+    /// (`agent_host::unresolved`).
+    Unresolved(Option<String>),
 }
 
 impl std::fmt::Debug for Fence {
@@ -253,6 +256,27 @@ impl Fence {
 
     fn now(&self) -> u8 {
         *self.0.step.borrow()
+    }
+
+    /// A fenced line a previous daemon handed to `host`, held again at adoption
+    /// (`link::adopt_receipt`): its host has it, so only its receipt or its host's end settles
+    /// it, and a cut ends that host (`Self::cut_or_end`).
+    pub fn held_by_host(host: crate::agent_host::HostRecord) -> Self {
+        Self::taken_by(Writer::Hosted(host))
+    }
+
+    /// What a host of `session` (of every session: `None`) an adoption could not resolve may
+    /// still write (`agent_host::unresolved`): only a cut settles it, once that proves no such
+    /// host lives (fail closed).
+    pub fn unresolved(session: Option<String>) -> Self {
+        Self::taken_by(Writer::Unresolved(session))
+    }
+
+    fn taken_by(writer: Writer) -> Self {
+        let fence = Self::default();
+        let _ = fence.0.writer.set(writer);
+        fence.begin();
+        fence
     }
 
     /// The writer takes it: false when it was cut, and it is dropped.
@@ -342,6 +366,19 @@ impl Fence {
                 }
                 ended
             }
+            Some(Writer::Unresolved(session)) => {
+                let running = self.0.ending.lock().unwrap_or_else(|e| e.into_inner()).take();
+                let mut ending = running.unwrap_or_else(|| end_unresolved(session.clone()));
+                let Ok(ended) = tokio::time::timeout(budget * 4, &mut ending).await else {
+                    *self.0.ending.lock().unwrap_or_else(|e| e.into_inner()) = Some(ending);
+                    return false;
+                };
+                let ended = ended.unwrap_or(false);
+                if ended {
+                    self.failed();
+                }
+                ended
+            }
             None => false,
         }
     }
@@ -391,6 +428,13 @@ async fn end_direct(
 
 /// Ends the host behind `record` (`Fence::cut_or_end`) by its start nonce: proven by its live
 /// lock (`terminate_unadoptable`), with its harness. Its caller bounds the wait.
+/// [`crate::agent_host::unresolved::end_unresolved`], off the runtime.
+fn end_unresolved(session: Option<String>) -> tokio::task::JoinHandle<bool> {
+    tokio::task::spawn_blocking(move || {
+        crate::agent_host::unresolved::end_unresolved(session.as_deref())
+    })
+}
+
 fn end_hosted(record: crate::agent_host::HostRecord) -> tokio::task::JoinHandle<bool> {
     tokio::task::spawn_blocking(move || {
         for dir in crate::agent_host::live_lock_dirs(&record) {

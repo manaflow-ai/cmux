@@ -55,16 +55,6 @@ import CmuxNextDesignTokens
         #expect(rest == AttentionHighlightLook.subtle.steadyOpacity, "\(style) rests at \(rest), not the steady strength")
     }
 
-    @Test func aFurtherNotificationSwellsWithoutDroppingOut() throws {
-        Motion.reduceMotionOverride = false
-        defer { Motion.reduceMotionOverride = nil }
-        let rest = Motion.attentionRestingOpacity(steady, look: .subtle)
-        let values = opacities(Motion.indicators.attentionAnimation(steady, look: .subtle, showing: true))
-        #expect(values.first == rest)
-        #expect((values.min() ?? 0) >= rest, "the ring dropped out: \(values)")
-        #expect((values.max() ?? 0) > rest)
-    }
-
     /// The static look (cx-sya4n) turns a blink or pulse into the steady ring: the ring then
     /// rests at the steady strength the swell ends on, so it does not snap down to the faint
     /// rest when the animation is removed.

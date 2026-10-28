@@ -528,6 +528,7 @@ function shapeTurn(
     // The last "Worked for" of the turn's last part ended as the turn did ("You stopped after"),
     // whichever stretch it folds (a stretch with no work draws none).
     let lastWorked: AcpmuxRow | undefined;
+    let workedRows = 0;
     for (const segment of foldSegments(part.opener, part.rows)) {
       const said = segment.takeaway;
       const before = segment.rows;
@@ -559,6 +560,7 @@ function shapeTurn(
                   : Math.max(0, summary.at - from),
         };
         shaped.push(worked);
+        workedRows += 1;
         if (lastPart) lastWorked = worked;
         // Open, each run of its work folds into its summary line between the commentary, as in a
         // running turn (codexRuns). A run that edited folds too: its edits stay in sight between the
@@ -578,7 +580,13 @@ function shapeTurn(
       if (said) shaped.push(said);
       shaped.push(...after.filter((row) => !isEdit(row) && !later.includes(row)).map(endedPlan));
     }
-    if (lastWorked) lastWorked.status = summary.status;
+    if (lastWorked) {
+      lastWorked.status = summary.status;
+      // The turn's tokens (its `turn_result`'s) on its "Worked for" when that line is the turn's
+      // only one: an unsteered turn (its last part is its prompt's, its only part) folded into one
+      // stretch. A steered turn's, or a turn folded into several stretches, are not split by line.
+      if (lastPart && part.opener === user && workedRows === 1 && summary.tokens) lastWorked.tokens = summary.tokens;
+    }
   }
   shaped.push(...editsCard(edits));
   const preview = turnPreviewCardsOn() ? turnPreviewUrl(user, turn) : undefined;

@@ -6,6 +6,7 @@
 
 mod activity;
 pub(crate) mod admission;
+mod adopted_fences;
 mod adoption;
 mod agent_pairs;
 pub use agent_pairs::PairGuard;
@@ -731,13 +732,22 @@ impl Hub {
     pub(super) fn load_from_store(self: &Arc<Self>, deferred: bool) {
         let Ok(mut metas) = self.store.list().inspect_err(|e| tracing::warn!("store list: {e}"))
         else {
+            // Adoption still reaches every host this list hid: an off push waits for it
+            // (`full_access_turned_off`).
+            if deferred {
+                self.adoption_ready.send_replace(false);
+            }
             return;
         };
         // The small index the chat logs load by (`log_load.rs`): agent hosts still running.
-        let hosted = Self::live_host_sessions();
+        let read = Self::read_live_host_sessions();
+        // Records that can not be read may hide a host whose lines adoption holds again: an off
+        // push waits for adoption then too (`full_access_turned_off`).
+        let unknown = read.is_none();
+        let hosted = read.unwrap_or_default();
         let waiting =
             metas.iter().filter(|m| m.status == SessionStatus::Waiting).map(|m| m.id.clone());
-        if deferred && !hosted.is_empty() {
+        if deferred && (!hosted.is_empty() || unknown) {
             self.adoption_ready.send_replace(false);
         }
         *self.load_plan.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
