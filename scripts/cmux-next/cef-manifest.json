@@ -1,34 +1,25 @@
 {
-  "version": "cef-stage-c8953bc613cd-arm64-macos-arm64",
+  "version": "cef-stage-e110f7a37c80-arm64-macos-arm64",
   "cef": "154.0.0",
   "chromium": "154.0.8037.98",
   "arch": "arm64",
   "repo": "manaflow-ai/cef",
-  "asset": "cef-stage-c8953bc613cd-arm64-macos-arm64.tar",
-  "sha256": "ad5d77f20c1b26189d609d9270fb176462ced56b1c74876503ce05579b4d92af",
+  "asset": "cef-stage-e110f7a37c80-arm64-macos-arm64.tar",
+  "sha256": "fd683e0fe62465848ab5052e6fa5bc45a5bbb4c87036116067a9be2db1168bbe",
   "debug_symbols": "Chromium Embedded Framework.dSYM.tar.xz",
   "fork_branch": "cmux/8037-helper-items",
-  "fork_ref": "c8953bc613cdb3dc82708d3647a12fe9d5d3c72e",
+  "fork_ref": "e110f7a37c80aa932c419b0584d552ee508aeba8",
   "cmux_cef_api_version": 30,
   "missing_api": [
     28,
     29
   ],
-  "x86_64": {
-    "asset": "cef-stage-c8953bc613cd-x86-64-macos-x86_64.tar",
-    "sha256": "ef9a884de7fd0adcf35570ba24d82459eea33067a8f4e014bca392ad53710fec",
-    "dir": "cef-stage-c8953bc613cd-x86-64-macos-x86_64",
-    "debug_symbols": "Chromium Embedded Framework.dSYM.tar.xz",
-    "fork_ref": "c8953bc613cdb3dc82708d3647a12fe9d5d3c72e"
-  },
   "require_dcheck_off": true,
-  "require_official_pgo": false,
   "staging": {
     "note": "staging pin of fleet builds: no R2 object and no GitHub release; only the controller artifact store serves the sha256, until store_expires, and no Release build embeds it (scripts/cmux-next/cef-pin-staging.sh)",
     "jobs": {
-      "arm64": "aa052182b3e7cab153565f2f",
-      "x86_64": "77b41f9f86c83d4caf7a7f6d"
+      "arm64": "c8c95d78b5b2710a2f3a24b4"
     },
-    "store_expires": "2026-11-09"
+    "store_expires": "2026-11-11"
   }
 }
