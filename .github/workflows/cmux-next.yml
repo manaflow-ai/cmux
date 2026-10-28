@@ -2869,6 +2869,13 @@ jobs:
           shared-key: cmux-next-fast-tier-cargo
           save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
 
+      # ghostty-vt-sys's build.rs runs zig, which downloads the packages itself, once and
+      # unretried: a mid-stream read error failed the job (pkg/highway ReadFailed). Fetch
+      # them first, each attempt under a deadline and retried.
+      - name: Fetch the ghostty-next Zig packages (retried)
+        if: ${{ steps.reuse.outputs.hit != 'true' }}
+        run: ./scripts/ci/fetch-ghostty-zig-packages.sh ghostty-next
+
       - name: Run the fast tier (cargo entries)
         if: ${{ steps.reuse.outputs.hit != 'true' }}
         env:

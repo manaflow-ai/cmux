@@ -1338,6 +1338,11 @@ class FastTierBuildsLibghosttyVt(unittest.TestCase):
         zig = next(i for i, run in enumerate(runs) if "scripts/install-zig-ci.sh" in run)
         rust = next(i for i, step in enumerate(job["steps"]) if step.get("uses") == "./.github/actions/setup-cmux-tui-rust")
         self.assertLess(max(init, zig, rust), tier)
+        # The Zig packages come from the deadlined, retried fetch, not from build.rs's
+        # single unretried download (a pkg/highway ReadFailed failed the job).
+        fetch = next(i for i, run in enumerate(runs) if "scripts/ci/fetch-ghostty-zig-packages.sh ghostty-next" in run)
+        self.assertLess(zig, fetch)
+        self.assertLess(fetch, tier)
 
     def test_the_cargo_job_runs_on_linux_and_gates_like_the_mac_job(self):
         jobs = self.jobs()
