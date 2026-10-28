@@ -3252,8 +3252,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// malformed drafts never acquire connection ownership or start a dial.
     @discardableResult
     public func connectDiscoveredIrohMac(using path: CmxIrohCustomPrivatePathDraft) async -> Bool {
+        let pairingID = MobilePairedMac.pairingID(
+            macDeviceID: path.macDeviceID,
+            instanceTag: path.instanceTag
+        )
         guard path.isEnabled, !path.addresses.isEmpty,
-              path.addresses.count <= CmxIrohCustomPrivatePathDraft.maximumAddressCount else { return false }
+              path.addresses.count <= CmxIrohCustomPrivatePathDraft.maximumAddressCount else {
+            directDialCandidatesByPairingID.removeValue(forKey: pairingID)
+            return false
+        }
         let sockets: [CmxIrohLocalSocketAddress]
         do {
             sockets = try path.addresses.map { try CmxIrohLocalSocketAddress($0) }
@@ -3263,20 +3270,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let candidates = sockets.map {
             CmxIrohDirectDialCandidate(address: $0.address.value, port: $0.port)
         }
-        directDialCandidatesByPairingID[MobilePairedMac.pairingID(
-            macDeviceID: path.macDeviceID,
-            instanceTag: path.instanceTag
-        )] = candidates
+        directDialCandidatesByPairingID[pairingID] = candidates
         let connected = await connectDiscoveredIrohMac(
             macDeviceID: path.macDeviceID,
             instanceTag: path.instanceTag,
             directOnlyDialCandidates: candidates
         )
         if !connected {
-            directDialCandidatesByPairingID.removeValue(forKey: MobilePairedMac.pairingID(
-                macDeviceID: path.macDeviceID,
-                instanceTag: path.instanceTag
-            ))
+            directDialCandidatesByPairingID.removeValue(forKey: pairingID)
         }
         return connected
     }
@@ -4402,6 +4403,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             discoveredIrohMacs = []
             return
         }
+        await personalIrohDiscovery?.refreshDirectory()
         _ = await loadDirectoryCandidates(scope: scope)
     }
 

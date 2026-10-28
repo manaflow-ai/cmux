@@ -332,6 +332,7 @@ struct MacComputerDetailView: View {
                 L10n.string("mobile.common.remove", defaultValue: "Remove"),
                 role: .destructive
             ) {
+                if isDirectoryOnly { store.cancelPairing() }
                 irohSettingsModel?.removeCustomPrivatePath(
                     macDeviceID: macDeviceID,
                     instanceTag: instanceTag
@@ -422,11 +423,9 @@ struct MacComputerDetailView: View {
                         directoryTogglePairingTask = Task { @MainActor in
                             let saved = await model.upsertCustomPrivatePath(draft)
                             if saved, isDirectoryOnly {
-                                if draft.isEnabled {
-                                    let connected = await store.connectDiscoveredIrohMac(using: draft)
-                                    if !connected {
-                                        directoryToggleFailureMessage = store.connectionErrorGuidance ?? store.connectionError
-                                    }
+                                let connected = await store.connectDiscoveredIrohMac(using: draft)
+                                if draft.isEnabled, !connected {
+                                    directoryToggleFailureMessage = store.connectionErrorGuidance ?? store.connectionError
                                 }
                             }
                             guard !Task.isCancelled else { return }
