@@ -1416,9 +1416,9 @@ jobs:
           ZIG_TARBALL_CACHE_DIR: ${{ runner.temp }}/cmux-zig-tarballs
         run: ./scripts/install-zig-ci.sh
 
-      - name: Fetch the ghostty-next Zig packages (retried)
+      - name: Fetch the ghostty-next Zig packages (cached, deadlined, retried)
         if: steps.current.outputs.stale != 'true' && steps.marked.outputs.marked != 'true'
-        run: ./scripts/ci/fetch-ghostty-zig-packages.sh ghostty-next
+        uses: ./.github/actions/ghostty-zig-packages
 
       - name: Set up pinned Rust
         if: steps.current.outputs.stale != 'true' && steps.marked.outputs.marked != 'true'
@@ -2498,8 +2498,8 @@ jobs:
         with:
           version: ${{ steps.ghostty-zig-version.outputs.version }}
 
-      - name: Fetch the ghostty-next Zig packages (retried)
-        run: ./scripts/ci/fetch-ghostty-zig-packages.sh ghostty-next
+      - name: Fetch the ghostty-next Zig packages (cached, deadlined, retried)
+        uses: ./.github/actions/ghostty-zig-packages
 
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust
