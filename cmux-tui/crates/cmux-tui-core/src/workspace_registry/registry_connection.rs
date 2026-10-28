@@ -249,6 +249,11 @@ pub(crate) fn in_journal_writer_commit() -> bool {
 }
 
 impl RegistryConnection {
+    /// Whether admit then reply is on (feature `admitThenReply`, `admitted_reply`).
+    pub(crate) fn admit_then_reply_enabled(&self) -> bool {
+        self.admit.enabled()
+    }
+
     /// The connection of the registry stored at `database_path` (`None`:
     /// in memory). Its commits run `synchronous=NORMAL`; a file registry's
     /// WAL is flushed to disk by its syncer thread (`wal_durability`).
