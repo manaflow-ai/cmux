@@ -14,7 +14,12 @@ struct BranchAgentPresenceTests {
             let (_, _, surface) = try await h.workspaceWithTerminal("presence")
             // The store drops presence for a surface it has not indexed yet,
             // so the hook runs only once the store knows the tab.
-            try await h.store.waitUntil("tab indexed") { h.store.tab(surface: surface) != nil }
+            // `tab(surface:)` is not tracked; `tabListRevision` wakes the wait
+            // when the tab list changes.
+            try await h.store.waitUntil("tab indexed") {
+                _ = h.store.tabListRevision
+                return h.store.tab(surface: surface) != nil
+            }
 
             // The helper the installed hooks run, fed a Claude payload on stdin.
             // Returns what the terminal printed, so a `cmux-tui-hook:` error
