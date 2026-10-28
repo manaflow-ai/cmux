@@ -73,7 +73,8 @@ impl PeerStates {
         let Some(entry) = last.get_mut(name).filter(|l| l.speaker == Some(generation)) else {
             return;
         };
-        let gone = Observed { state: PeerLinkState::Offline, last_seen, error: Some(REMOVED.into()) };
+        let gone =
+            Observed { state: PeerLinkState::Offline, last_seen, error: Some(REMOVED.into()) };
         entry.speaker = None;
         entry.note = gone.note(name);
         self.send(entry.note.clone());
@@ -184,10 +185,10 @@ mod tests {
             .into_iter()
             .map(|v| serde_json::from_value(v[STATE_NOTE].clone()).unwrap())
             .collect();
-        assert_eq!(notes.iter().map(|n| (n.peer.as_str(), n.state)).collect::<Vec<_>>(), [
-            ("a", Connected),
-            ("b", Offline)
-        ]);
+        assert_eq!(
+            notes.iter().map(|n| (n.peer.as_str(), n.state)).collect::<Vec<_>>(),
+            [("a", Connected), ("b", Offline)]
+        );
         assert_eq!(notes[1].error.as_deref(), Some(REMOVED));
     }
 }
