@@ -91,7 +91,7 @@ public nonisolated struct CEFProfileStorage: Hashable, Sendable {
     /// Chromium starts. One rename: false when there was no log to keep.
     @discardableResult
     public func keepPreviousLog() -> Bool {
-        _ = blockingRename(logFile.path, previousLogFile.path) == 0
+        blockingRename(logFile.path, previousLogFile.path) == 0
     }
 
     /// Right before Chromium starts: the root exists and the last run's log is kept.

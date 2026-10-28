@@ -334,7 +334,7 @@ public final class ComputerUseHelperDaemon {
             case ENOENT:
                 let parent = (path as NSString).deletingLastPathComponent
                 guard (try? FileManager.default.createDirectory(atPath: parent, withIntermediateDirectories: true)) != nil,
-                      _ = blockingMkdir(path, 0o700) == 0 || errno == EEXIST else { return false }
+                      blockingMkdir(path, 0o700) == 0 || errno == EEXIST else { return false }
             default: return false
             }
         }
