@@ -628,6 +628,24 @@ export default componentEntry<GalleryProps>({
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-mp-login") !== null);
       },
     },
+    // The selected harness is signed out before its first turn: the closed control names the
+    // state and exposes Log In, while opening it keeps the same action beside an empty model list.
+    "signed-out-selected": {
+      props: {
+        ...base,
+        harness: "codex",
+        model: "gpt-6.1-sol",
+        label: "GPT-6.1-Sol",
+        signedOut: { codex: "codex login" },
+        onLogIn: () => undefined,
+      },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector('[data-auth-action="login"]') !== null);
+        await ctx.click({ selector: '[data-auth-action="login"]' });
+        await ctx.click({ role: "button", name: "Model" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-mp-login") !== null);
+      },
+    },
     // A folder profile is a machine choice, not a harness: it remains the selected model source,
     // while the rail contains only Claude/Codex harnesses.
     "profile-without-mark": {
