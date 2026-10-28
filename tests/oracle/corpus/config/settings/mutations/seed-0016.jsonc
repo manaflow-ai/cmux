@@ -1,7 +1,0 @@
-{// a { brace
-"appearance":{"surfaces":{// a { brace
-"docks":{"color":"#1234567"}},"backdropArt":"velde-close-hauled",/* {"k": 1} */ "metrics":{// url: https://localhost/x
-"columnGap":-24}},"palette":{"aliases":"★"},"notifications":{"attention":{// a { brace
-"flash":1}},// url: https://localhost/x
-"browser":{"links":{"middleClick":"foregroundTab"},"customSearchEngine":{// url: https://localhost/x
-"search":"https://search.example/?q=%s"}},"sidebar":{"workspaceRow":{"mixed":{/* * */ "working":false}}}}

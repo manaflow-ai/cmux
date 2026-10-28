@@ -8,6 +8,9 @@ The app (Swift `EffectiveSettings.merge` and `SettingDescriptor`) and the daemon
 `EffectiveSettings::merge`, `schema::accepts`) each read cmux.json. This tool writes the corpus both
 read, and compares what the two dump executables print for it:
 
+The corpus is not committed: `python3 -I scripts/cmux-next/oracle/corpus_store.py ensure --suite config` (or this
+tool) writes it before a dump.
+
   swift: swift run --package-path Packages/macOS/CmuxNext OracleConfigDump --corpus tests/oracle/corpus/config
   rust:  cargo run -p cmux-config --example oracle_effective -- --corpus tests/oracle/corpus/config
 
@@ -40,7 +43,9 @@ of the daemon's text), so `cmd++` normalized to `cmd+plus` shows as the divergen
 
 Usage:
   gen_config.py [--out DIR]          write the corpus (oracle.py gen --suite config)
-  gen_config.py --check [--out DIR]  exit 1 when the committed corpus differs from a fresh generation
+  gen_config.py --check [--out DIR]  exit 1 when DIR differs from a fresh generation. The repo corpus is not
+                                     committed (corpus_store.py writes it with this generator), so there it only
+                                     shows that the generator is deterministic
   gen_config.py diff --swift S.jsonl --rust R.jsonl [--out divergences.jsonl] [--show N]
       prints a summary; each divergence is one JSONL line {"file", "path", "swift", "rust"}, with a
       side omitted when that dump has no value at the path. Exit 0 when equal, 1 when not, 2 on bad input.
@@ -708,6 +713,11 @@ def cmd_gen(argv: Sequence[str]) -> int:
         print(f"gen_config: {error}", file=sys.stderr)
         return 2
     if args.check:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import corpus_store  # noqa: PLC0415 - sibling: the suite is written at use time, not committed
+
+        if args.out.name == "config":
+            corpus_store.ensure(args.out.parent, ["config"])
         problems = check_corpus(args.out, files)
         for problem in problems[:50]:
             print(problem)

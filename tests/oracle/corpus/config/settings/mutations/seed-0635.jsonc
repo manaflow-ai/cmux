@@ -1,6 +1,0 @@
-{"sidebar":{// a { brace
-"hoverCards":{"groups":{"delay":5000}},"workspaceRow":{"browser":{"notification":true}}},// a { brace
-"appearance":{// "quoted"
-"surfaces":{// "quoted"
-"markdown":{"color":"#12345"}},"statusIndicator":{// "quoted"
-"showPageLoading":true}},"focusRing":{/* * */ "width":-7}}
