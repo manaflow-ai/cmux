@@ -256,7 +256,7 @@ struct DeviceRouteSelectorTests {
             ticket: try CmxAttachTicket(workspaceID: "main", terminalID: nil, macDeviceID: studio.deviceID,
                 macDisplayName: "Studio", routes: [tailscale]),
             allowsStackAuthFallback: true, legacyTailscaleAuthorizationEvidence: evidence)
-        link.connection = .init(client: client, selection: .init(route: tailscale, evidence: evidence))
+        link.connection = (client: client, selection: .init(route: tailscale, evidence: evidence))
         if connected { link.transition(link.applyPolicy(.connectSucceeded)) }
         link.authorizationDidChange()
         #expect(link.connection?.client === client)

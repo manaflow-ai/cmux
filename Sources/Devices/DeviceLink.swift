@@ -89,11 +89,7 @@ final class DeviceLink {
     private let diagnostics: DeviceLinkDiagnostics?
     private var policy = DeviceLinkReconnectPolicy()
     /// The in-flight or active client and the route whose authority governs it.
-    struct Connection {
-        let client: MobileCoreRPCClient
-        let selection: DeviceRouteSelector.Selection
-    }
-    var connection: Connection?
+    var connection: (client: MobileCoreRPCClient, selection: DeviceRouteSelector.Selection)?
     private var client: MobileCoreRPCClient? { connection?.client }
     private var connectTask: Task<Void, Never>?
     private var eventTask: Task<Void, Never>?
