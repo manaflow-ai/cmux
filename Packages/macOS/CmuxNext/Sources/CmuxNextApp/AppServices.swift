@@ -261,6 +261,10 @@ final class AppServices {
     /// The cmux server menu bar item (DEV and NIGHTLY prototype; plans/cmux-next/server.md 14).
     private(set) lazy var serverMenuBar = ServerMenuBarController.app(services: self)
     /// Home: local conversations with the mux (plans/cmux-next/home.md).
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// Set only by isolated composition tests, before Home is made.
+    var homeComposition: HomeCompositionDependencies?
+    #endif
     private(set) lazy var home = HomeService(services: self)
     /// `cmux://bookmarks`: the manager pages.
     private(set) lazy var bookmarkPages = BookmarkPageService(services: self)
