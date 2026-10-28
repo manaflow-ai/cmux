@@ -219,6 +219,27 @@ class ReadSiteTests(unittest.TestCase):
                 code, _ = tree.main()
                 self.assertEqual(code, 0, f"{name} refused a push")
 
+    def test_an_indirect_read_or_a_debug_probe_is_never_refused(self):
+        """Second review of the check: a feature handle read indirectly (a list of gates, a stored handle), and a
+        working Release path that also has one `#if DEBUG` probe (a didSet; a chain past MAX_HOPS) are not
+        offenders."""
+        hops = "".join(f"    let h{i} = h{i - 1}\n" for i in range(1, check.MAX_HOPS + 2))
+        shapes = {
+            "gate list": "let gates: [Feature] = [.labsThing]\nfunc f() {\n    for g in gates where features.isEnabled(g) { go() }\n}\n",
+            "stored handle": "func f() {\n    let flag = Feature.labsThing\n    if features.isEnabled(flag) { go() }\n}\n",
+            "didSet with a debug probe": ("final class Store {\n    var labsOn = false { didSet { apply() } }\n}\nfunc f() {\n"
+                                          "    store.labsOn = features.isEnabled(.labsThing)\n    #if DEBUG\n    print(store.labsOn)\n"
+                                          "    #endif\n}\n"),
+            "long chain with a debug probe": ("func f() {\n    let h0 = features.isEnabled(.labsThing)\n    #if DEBUG\n    print(h0)\n"
+                                              "    #endif\n" + hops + f"    if h{check.MAX_HOPS + 1} {{ go() }}\n}}\n"),
+        }
+        for name, app in shapes.items():
+            with self.subTest(shape=name):
+                tree = self.tree(app)
+                verdict = tree.verdicts()["labsThing"]
+                self.assertNotEqual(verdict.status, "offender", f"{name}: {verdict.detail}")
+                self.assertEqual(tree.main()[0], 0, f"{name} refused a push")
+
     def test_a_broken_feature_file_gives_no_verdict_not_a_refusal(self):
         tree = self.tree("func f() {\n    if features.isEnabled(.labsThing) { go() }\n}\n")
         tree.feature("broken", '{"name": 5, "kind": "labs", "process": "app", "defaults": {"release": true}}')
