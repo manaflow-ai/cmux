@@ -8,7 +8,7 @@ use cmux_tailnet::Node;
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 
-use super::embedded::Controller;
+use super::embedded::{Controller, release_node};
 use crate::hub::Hub;
 
 const DRAIN_BOUND: Duration = Duration::from_secs(2);
@@ -44,7 +44,7 @@ impl Drop for Service {
 }
 
 struct Active {
-    node: Arc<Node>,
+    node: Option<Arc<Node>>,
     name: String,
     stop: watch::Sender<bool>,
     task: JoinHandle<anyhow::Result<()>>,
@@ -52,7 +52,7 @@ struct Active {
 
 impl Active {
     fn matches(&self, node: &Arc<Node>, name: &str) -> bool {
-        Arc::ptr_eq(&self.node, node) && self.name == name
+        self.node.as_ref().is_some_and(|current| Arc::ptr_eq(current, node)) && self.name == name
     }
 
     async fn stop(mut self) {
@@ -65,6 +65,9 @@ impl Drop for Active {
     fn drop(&mut self) {
         self.stop.send_replace(true);
         self.task.abort();
+        if let Some(node) = self.node.take() {
+            release_node(node);
+        }
     }
 }
 
@@ -115,7 +118,7 @@ async fn run(hub: Arc<Hub>, mut stopping: watch::Receiver<bool>) {
                     name.clone(),
                     stopping,
                 ));
-                active = Some(Active { node, name, stop, task });
+                active = Some(Active { node: Some(node), name, stop, task });
             }
         }
         tokio::select! {
@@ -131,8 +134,12 @@ async fn run(hub: Arc<Hub>, mut stopping: watch::Receiver<bool>) {
                 // A failed listener stays stopped until explicit retry. Do not
                 // spin against a port or certificate configuration failure.
                 if let Some(failed) = active.take() {
-                    let _ = tokio::time::timeout(NODE_CLOSE_BOUND,
-                        controller.listener_failed(&failed.node)).await;
+                    let failed_node = failed.node.as_ref().cloned();
+                    let _ = tokio::time::timeout(NODE_CLOSE_BOUND, async {
+                        if let Some(node) = failed_node {
+                            controller.listener_failed(&node).await;
+                        }
+                    }).await;
                 }
             }
             change = changes.recv() => {
