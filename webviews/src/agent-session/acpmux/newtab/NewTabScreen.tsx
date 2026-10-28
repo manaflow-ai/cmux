@@ -289,7 +289,6 @@ export function NewTabScreen(props: Props) {
   const editing = useWidgetEditing(onEditWidgets);
   const order = shownMovable(widgets);
   const [text, setText] = useState(location ?? "");
-  const command = useNewTabCommand(text, setText, props);
   const [commandActive, setCommandActive] = useState(0);
   const [commandDismissed, setCommandDismissed] = useState<string>();
   const requestedCommands = useRef<string | undefined>(undefined);
@@ -385,6 +384,12 @@ export function NewTabScreen(props: Props) {
     pasteTarget: (target) => (!shell && field.current?.contains(target) ? { uploads: false } : undefined),
     ...(props.upload ? { upload: props.upload } : {}),
     ...(props.localPaths ? { localPaths: props.localPaths } : {}),
+  });
+  const command = useNewTabCommand(text, setText, props, {
+    attachments,
+    setAttachments,
+    pending: reading,
+    cancel,
   });
   // Unlike a chat's composer, the new tab waits for uploads too (#25191): the page goes when the
   // chat starts, so a file still streaming has no next prompt to go with. A video's read is waited

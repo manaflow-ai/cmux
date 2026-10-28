@@ -383,7 +383,6 @@ export function NewTabPage({
   );
   const chipModel = useNewTabChipModel(chipSnapshot);
   const [text, setText] = useState(location ?? "");
-  const command = useNewTabCommand(text, setText, { onCmuxCommand, onImportFile });
   /// The last open was refused (the host made no tab): a note under the field until the next edit.
   const [openFailed, setOpenFailed] = useState(false);
   const attachmentRef = useRef<ComposerAttachment[]>([]);
@@ -427,6 +426,17 @@ export function NewTabPage({
       pasteTarget: (target) => (kind === "agent" && field.current?.contains(target) ? { uploads: false } : undefined),
       dropZone: () => field.current?.closest(".acpmux-newtab") ?? null,
     });
+  const command = useNewTabCommand(
+    text,
+    setText,
+    { onCmuxCommand, onImportFile },
+    {
+      attachments,
+      setAttachments,
+      pending,
+      cancel,
+    },
+  );
   attachmentRef.current = attachments;
   const holdForAttachments = useSendWhenAttached(unsettled);
   // WEB-SWAP: a web update's reload would lose what this page holds only in its state: a typed

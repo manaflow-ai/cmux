@@ -1,6 +1,7 @@
 import React, { useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { composerCommand, type CmuxCommand, type CmuxCommandResult } from "../cmuxCommands";
 import { useT } from "../i18n";
+import type { ComposerAttachment } from "../attachments";
 
 export type NewTabCommandActions = {
   onCmuxCommand?(command: CmuxCommand, args?: string): CmuxCommandResult;
@@ -12,6 +13,12 @@ export function useNewTabCommand(
   text: string,
   setText: Dispatch<SetStateAction<string>>,
   actions: NewTabCommandActions,
+  intake: {
+    attachments: readonly ComposerAttachment[];
+    setAttachments: Dispatch<SetStateAction<ComposerAttachment[]>>;
+    pending: readonly { id: string }[];
+    cancel(id: string): void;
+  },
 ) {
   const t = useT();
   const [refusal, setRefusal] = useState<{ text: string; message: string }>();
@@ -27,6 +34,10 @@ export function useNewTabCommand(
     }
     if (pending.current) return true;
     const clear = () => {
+      // Consume only this dispatch's chips. A later paste survives an asynchronous command.
+      const went = new Set(intake.attachments.map((attachment) => attachment.id));
+      intake.setAttachments((current) => current.filter((attachment) => !went.has(attachment.id)));
+      for (const attachment of intake.pending) intake.cancel(attachment.id);
       setText((current) => (current === text ? "" : current));
       setRefusal(undefined);
     };
