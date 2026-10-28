@@ -523,6 +523,18 @@ Behavior notes:
 - Remote, SSH, and cloud panes are never touched.
 - `cmux session-priority` shows each workspace's tier, difficulty, target and state, and sets difficulty and the manual flag.
 
+### Automatic difficulty
+
+With `automation.sessionPriority.enabled` on, cmux also rates how hard a Claude session's current task is, so the difficulty needs no manual setting. There is no separate toggle.
+
+- **When it runs**: at the end of each Claude turn, from the same `Stop` hook as [workspace auto-naming](workspace-auto-naming.md). A session is rated at most once every 3 minutes, and only one rating call is in flight at a time (a call that never reports back is dropped after 75 seconds). Nested agents and sessions that are no longer the workspace's current one are skipped.
+- **What is sent**: the last user message and the last assistant reply of the turn, each cut to 1,500 characters. Nothing is read or sent while the feature is off, while the workspace has a difficulty you set, or while it is marked **Don't Adjust Claude Effort Here**.
+- **Which model**: the one auto-naming uses: `ANTHROPIC_SMALL_FAST_MODEL` when set, otherwise `haiku`. cmux runs `claude -p` with tools and MCP off and without saving a session, with a 60 second timeout, on the account of the Claude session that ended the turn.
+- **The answer**: the model must reply with exactly `easy`, `normal` or `hard`. Anything else, a failure or a timeout is ignored and the difficulty stays as it was.
+- **Stopping it**: a difficulty you set (right-click > **Claude Difficulty**, the command palette, or `cmux session-priority difficulty easy|normal|hard`) and **Don't Adjust Claude Effort Here** stop it. `cmux session-priority difficulty auto` (or **Auto** in the menu) hands control back.
+- **Sidebar row**: an automatic difficulty shows as, for example, `Hard (auto)`.
+- **Cost**: each rating is one small call that counts against the usage of that Claude account.
+
 ## `agentMessages.enabled`
 
 The app-wide switch for `cmux agent message`. When `false`, sends fail with "Agent messages are turned off (agentMessages.enabled is false).", nothing is stored, and messages already queued are marked `failed` instead of being delivered. Turning it back on does not resend them.
