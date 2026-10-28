@@ -20,6 +20,7 @@ import CmuxNextFloating
 import CmuxNextFavicons
 import CmuxNextHibernation
 import CmuxNextHomeEngine
+import CmuxNextHostedChief
 import CmuxNextIcons
 import CmuxNextPalette
 import CmuxNextPages

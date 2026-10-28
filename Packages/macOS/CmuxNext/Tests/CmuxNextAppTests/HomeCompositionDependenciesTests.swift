@@ -90,8 +90,8 @@ struct HomeCompositionDependenciesTests {
 /// Sendable: the snapshot is immutable, the stream/continuation are Sendable, and
 /// the only mutable counter is protected by lock on every read and write.
 private nonisolated final class CompositionHomeSource: HomeSource, @unchecked Sendable {
-    let id = ConversationID("conv_chief")
-    private let base = MockHomeSource(options: .init(chiefHistory: 1, latency: .zero, replyDelay: .zero))
+    let id: ConversationID
+    private let base: MockHomeSource
     private let snapshot: InboxSnapshot
     private let stream: AsyncStream<HomeEvent>
     private let continuation: AsyncStream<HomeEvent>.Continuation
@@ -100,8 +100,12 @@ private nonisolated final class CompositionHomeSource: HomeSource, @unchecked Se
     var submissions: Int { lock.withLock { sent } }
 
     init(cloud: Bool) async throws {
-        var inbox = try await base.inbox()
-        inbox.conversations = inbox.conversations.filter { $0.id == id }
+        let owner = MockHomeSource(options: .init(chiefHistory: 1, latency: .zero, replyDelay: .zero))
+        let conversation = ConversationID("conv_chief")
+        base = owner
+        id = conversation
+        var inbox = try await owner.inbox()
+        inbox.conversations = inbox.conversations.filter { $0.id == conversation }
         for index in inbox.conversations.indices {
             inbox.conversations[index].owner = cloud ? .cloud : .local
             inbox.conversations[index].lastSeq = 0
