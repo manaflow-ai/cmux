@@ -88,6 +88,16 @@ pub(super) const DECIDE_WAIT: Duration = Duration::from_secs(120);
 /// ... or this long after its continuation was scheduled (the longest wait `autoResumeDelaysMs`
 /// takes is an hour).
 pub(super) const RETRY_WAIT_MAX: Duration = Duration::from_secs(65 * 60);
+/// A turn's end the store did not get (unreachable past its retries, the agent not answering
+/// or gone) is sent again after these waits (about 45 minutes in all), then given up.
+const LATER: [Duration; 4] = [
+    Duration::from_secs(30),
+    Duration::from_secs(120),
+    Duration::from_secs(600),
+    Duration::from_secs(1800),
+];
+/// Turn ends waiting to be sent again, at most.
+const MAX_LATER: usize = 4096;
 /// A finished turn's summary: the start of its last reply.
 const DONE_CHARS: usize = 600;
 /// A failed turn's summary, and what a permission or question asks.
@@ -200,7 +210,11 @@ fn ask_text(request: &Value) -> Option<String> {
 /// the first [`INPUT_CHARS`] are read.
 pub(super) fn cut(text: &str, max: usize) -> String {
     let head = match text.char_indices().nth(INPUT_CHARS) {
-        Some((at, _)) => text.get(..at).unwrap_or(text),
+        // The word the cut goes through is dropped: a secret's head would not be masked.
+        Some((at, _)) => {
+            let read = text.get(..at).unwrap_or("");
+            read.rfind(char::is_whitespace).map_or("", |end| &read[..end])
+        }
         None => text,
     };
     let masked = crate::secret_scan::mask(head);
@@ -320,6 +334,19 @@ pub(super) struct Reporter<I: Io> {
     handoff_closed: Remembered,
     /// Until when the agent is not asked: it did not answer the last report.
     silent_until: Option<tokio::time::Instant>,
+    /// Turn ends the store did not get, by session: sent again later ([`LATER`]).
+    later: HashMap<String, Later>,
+}
+
+/// A turn's end to send again.
+#[derive(Debug, Clone)]
+struct Later {
+    turn: u64,
+    status: &'static str,
+    note: Option<String>,
+    /// Tries made after the first.
+    tries: usize,
+    at: tokio::time::Instant,
 }
 
 impl<I: Io> Reporter<I> {
@@ -330,6 +357,7 @@ impl<I: Io> Reporter<I> {
             closed: Remembered::default(),
             handoff_closed: Remembered::default(),
             silent_until: None,
+            later: HashMap::new(),
         }
     }
 
@@ -364,17 +392,8 @@ impl<I: Io> Reporter<I> {
         {
             return;
         }
-        if self.silent() {
-            // Nothing is sent now. A turn being reported stops being followed (its steps meanwhile
-            // are not sent); a failed turn waiting for its continuation stays, and is reported
-            // once the agent is asked again.
-            if let Some(track) = self.tracks.get_mut(session)
-                && matches!(track.now, Now::Reporting { .. })
-            {
-                track.now = Now::Quiet;
-            }
-            return;
-        }
+        // While the agent is left alone (`silent`), steps still move the session's state;
+        // `report` sends nothing then, and a turn's end waits in `later`.
         if !self.tracks.contains_key(session) {
             self.make_room();
             if self.tracks.len() >= MAX_TRACKS {
@@ -450,8 +469,39 @@ impl<I: Io> Reporter<I> {
             End::Failed { why, retried: false } => ("failed", Some(why).filter(|w| !w.is_empty())),
             End::Cancelled => ("failed", Some("Stopped before it finished.".to_owned())),
         };
-        self.report(session, turn, status, note).await;
+        self.finish(session, turn, status, note).await;
         self.set_now(session, Now::Quiet);
+    }
+
+    /// A turn's end: sent now, or again later if the store did not get it.
+    async fn finish(
+        &mut self,
+        session: &str,
+        turn: u64,
+        status: &'static str,
+        note: Option<String>,
+    ) {
+        // A newer end of the session replaces one still waiting (the store keeps one turn).
+        self.later.remove(session);
+        if self.report(session, turn, status, note.clone()).await == Outcome::Unsent {
+            self.send_later(
+                session,
+                Later { turn, status, note, tries: 0, at: tokio::time::Instant::now() },
+            );
+        }
+    }
+
+    fn send_later(&mut self, session: &str, mut later: Later) {
+        let Some(wait) = LATER.get(later.tries) else {
+            tracing::warn!(session, turn = later.turn, "hand-off report given up");
+            return;
+        };
+        if self.later.len() >= MAX_LATER && !self.later.contains_key(session) {
+            tracing::warn!(session, "hand-off reports: too many waiting, a turn's end dropped");
+            return;
+        }
+        later.at = tokio::time::Instant::now() + *wait;
+        self.later.insert(session.to_owned(), later);
     }
 
     /// A failed turn acpmux was to continue gets no continuation: reported failed now.
@@ -460,21 +510,18 @@ impl<I: Io> Reporter<I> {
         else {
             return;
         };
-        self.report(session, turn, "failed", Some(why).filter(|w| !w.is_empty())).await;
+        self.finish(session, turn, "failed", Some(why).filter(|w| !w.is_empty())).await;
         self.set_now(session, Now::Quiet);
     }
 
     /// When the next failed turn waiting for its continuation is to be reported failed: not
     /// before the agent is asked again, if it is left alone now.
     pub(super) fn next_deadline(&self) -> Option<tokio::time::Instant> {
-        let due = self
-            .tracks
-            .values()
-            .filter_map(|t| match t.now {
-                Now::Retrying { until, .. } => Some(until),
-                _ => None,
-            })
-            .min()?;
+        let retrying = self.tracks.values().filter_map(|t| match t.now {
+            Now::Retrying { until, .. } => Some(until),
+            _ => None,
+        });
+        let due = retrying.chain(self.later.values().map(|l| l.at)).min()?;
         Some(match self.silent_until {
             Some(quiet) if quiet > due => quiet,
             _ => due,
@@ -496,9 +543,24 @@ impl<I: Io> Reporter<I> {
         for (session, turn) in due {
             // An agent that stopped answering is not asked again for each due turn.
             if self.silent() {
-                break;
+                return;
             }
             self.give_up_retry(&session, turn).await;
+        }
+        let again: Vec<String> =
+            self.later.iter().filter(|(_, l)| l.at <= now).map(|(id, _)| id.clone()).collect();
+        for session in again {
+            if self.silent() {
+                return;
+            }
+            let Some(later) = self.later.remove(&session) else { continue };
+            if self.handoff_closed.contains(&session) {
+                continue;
+            }
+            let answer = self.report(&session, later.turn, later.status, later.note.clone()).await;
+            if answer == Outcome::Unsent {
+                self.send_later(&session, Later { tries: later.tries + 1, ..later });
+            }
         }
     }
 
@@ -518,7 +580,7 @@ impl<I: Io> Reporter<I> {
     async fn close(&mut self, session: &str) {
         self.closed.insert(session);
         let Some(track) = self.tracks.remove(session) else { return };
-        if self.handoff_closed.contains(session) || self.silent() || !self.io.present() {
+        if self.handoff_closed.contains(session) {
             return;
         }
         let closed = || Some("The session was closed before the turn finished.".to_owned());
@@ -530,7 +592,7 @@ impl<I: Io> Reporter<I> {
             _ => None,
         };
         if let Some((turn, note)) = ended {
-            self.report(session, turn, "failed", note).await;
+            self.finish(session, turn, "failed", note).await;
         }
     }
 
@@ -611,7 +673,7 @@ impl<I: Io> Reporter<I> {
         }
         let line = json!({ "handoff_report": Value::Object(fields) }).to_string();
         let mut answer = Outcome::Unsent;
-        if self.silent() {
+        if self.silent() || !self.io.present() {
             return answer;
         }
         for wait in std::iter::once(None).chain(RETRY_AFTER.iter().map(Some)) {

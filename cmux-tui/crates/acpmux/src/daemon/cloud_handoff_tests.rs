@@ -616,12 +616,12 @@ async fn due_turns_stop_at_an_agent_that_stopped_answering() {
     // The other due turn waits for the agent, not a timer that fires again at once.
     let next = r.next_deadline().expect("acp_b still waits");
     assert!(next >= tokio::time::Instant::now() + SILENT_FOR - Duration::from_secs(1), "{next:?}");
-    // Once the agent is asked again, it is reported.
+    // Once the agent is asked again, both are reported: b's failure, and a's again.
     tokio::time::advance(SILENT_FOR).await;
-    fake.answer([ok(1, "failed")]);
+    fake.answer([ok(1, "failed"), ok(1, "failed")]);
     r.expire().await;
     let sent = std::mem::take(&mut fake.0.lock().unwrap().sent);
-    assert_eq!(sent.len(), 1, "{sent:?}");
+    assert_eq!(sent.len(), 2, "{sent:?}");
     assert_eq!(r.next_deadline(), None);
 }
 
@@ -638,4 +638,79 @@ async fn a_closed_hand_off_stays_closed_after_the_session_reopens() {
     r.step(S, began(2)).await;
     r.step(S, Step::Ended(End::Completed(None), Some(2))).await;
     assert_eq!(fake.take(), [s(1, "running", None)]);
+}
+
+/// A turn's end the store did not get is sent again later, then given up after the last wait.
+#[tokio::test(start_paused = true)]
+async fn a_turn_end_the_store_did_not_get_is_sent_again_later() {
+    let (mut r, fake) = reporter();
+    fake.answer([ok(1, "running"), busy(), busy(), busy()]);
+    r.step(S, began(1)).await;
+    r.step(S, done(1, "Done.")).await;
+    assert_eq!(fake.take().len(), 4);
+    tokio::time::advance(LATER[0]).await;
+    fake.answer([ok(1, "done")]);
+    r.expire().await;
+    assert_eq!(fake.take(), [s(1, "done", Some("Done."))]);
+    assert_eq!(r.next_deadline(), None);
+    // One the store never gets is given up after the last wait.
+    fake.answer([ok(2, "running"), busy(), busy(), busy()]);
+    r.step(S, began(2)).await;
+    r.step(S, done(2, "Done.")).await;
+    fake.take();
+    for wait in LATER {
+        tokio::time::advance(wait).await;
+        fake.answer([busy(), busy(), busy()]);
+        r.expire().await;
+    }
+    assert_eq!(fake.take().len(), 3 * LATER.len());
+    assert_eq!(r.next_deadline(), None);
+}
+
+/// A turn whose continuation ran and finished while the agent was left alone is reported done
+/// once the agent is asked again, never failed.
+#[tokio::test(start_paused = true)]
+async fn a_turn_that_finished_while_the_agent_was_silent_is_reported_done() {
+    let (mut r, fake) = reporter();
+    fake.answer([ok(1, "running")]);
+    r.step(S, began(1)).await;
+    r.step(S, cut_off(1)).await;
+    r.silent_until = Some(tokio::time::Instant::now() + SILENT_FOR);
+    r.step(S, Step::RetryScheduled).await;
+    r.step(S, began(1)).await;
+    r.step(S, done(1, "Back.")).await;
+    assert_eq!(fake.take(), [s(1, "running", None)]);
+    tokio::time::advance(SILENT_FOR + LATER[0]).await;
+    fake.answer([ok(1, "done")]);
+    r.expire().await;
+    assert_eq!(fake.take(), [s(1, "done", Some("Back."))]);
+    assert_eq!(r.next_deadline(), None);
+}
+
+/// A session closed while its turn waits for a continuation and the agent is left alone still
+/// reports the turn failed once the agent is asked again.
+#[tokio::test(start_paused = true)]
+async fn a_held_turn_closed_while_the_agent_is_silent_is_reported_later() {
+    let (mut r, fake) = reporter();
+    fake.answer([ok(1, "running")]);
+    r.step(S, began(1)).await;
+    r.step(S, cut_off(1)).await;
+    r.silent_until = Some(tokio::time::Instant::now() + SILENT_FOR);
+    r.step(S, Step::Closed).await;
+    assert_eq!(fake.take(), [s(1, "running", None)]);
+    tokio::time::advance(SILENT_FOR + LATER[0]).await;
+    fake.answer([ok(1, "failed")]);
+    r.expire().await;
+    assert_eq!(fake.take(), [s(1, "failed", Some("stream disconnected"))]);
+}
+
+/// The word the input cut goes through is dropped: a secret's head never goes out unmasked,
+/// even when whitespace before it collapses into the summary.
+#[test]
+fn a_word_through_the_input_cut_is_dropped() {
+    let text = format!("{}{}", " ".repeat(INPUT_CHARS - 4), "SECRETHEADTAIL");
+    let out = cut(&text, NOTE_CHARS);
+    assert!(!out.contains("SECR"), "{out}");
+    let text = format!("ok {}{}", " ".repeat(INPUT_CHARS - 7), "SECRETHEADTAIL");
+    assert_eq!(cut(&text, NOTE_CHARS), "ok…");
 }
