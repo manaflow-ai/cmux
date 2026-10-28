@@ -112,6 +112,8 @@ fn input_bytes_paste_multi_line_messages_as_one_and_leave_enter_out() {
     );
     // A paste end inside the message cannot end the paste early.
     assert_eq!(reply::input_bytes("a\x1b[201~b", true), b"\x1b[200~ab\x1b[201~".to_vec());
+    // Nor can one that removing the first rebuilds.
+    assert_eq!(reply::input_bytes("a\x1b[20\x1b[201~1~b", true), b"\x1b[200~ab\x1b[201~".to_vec());
     assert_eq!(reply::input_bytes("ls -la\r\n", false), b"ls -la".to_vec());
 }
 

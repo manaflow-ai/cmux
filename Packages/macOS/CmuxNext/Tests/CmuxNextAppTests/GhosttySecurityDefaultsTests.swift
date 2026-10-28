@@ -6,8 +6,9 @@ import Testing
 @MainActor
 @Suite("Ghostty security defaults", .serialized)
 struct GhosttySecurityDefaultsTests {
-    /// Program clipboard writes (OSC 52, e.g. Claude Code copying text) are
-    /// silent by default, as in Ghostty and classic cmux: no consent dialog.
+    /// `clipboard-write` stays Ghostty's `allow` by default; cmux then asks
+    /// for a program write only when the person is not using the terminal
+    /// (``TerminalClipboardRequests/writeDecision(userInitiated:requiresConfirmation:focused:sinceInput:)``).
     @Test(arguments: ["", "clipboard-write = allow\n"])
     func programClipboardWritesAreAllowedByDefault(_ text: String) throws {
         #expect(try resolvedString("clipboard-write", configText: text) == "allow")
@@ -17,16 +18,45 @@ struct GhosttySecurityDefaultsTests {
         #expect(try resolvedString("clipboard-write", configText: "clipboard-write = ask\n") == "ask")
     }
 
-    @Test func programWriteWithoutConfirmationIsCommittedSilently() {
-        #expect(TerminalClipboardRequests.writeDecision(userInitiated: false, requiresConfirmation: false) == .write)
+    /// A program write the person can see coming (the terminal has focus and they typed or clicked in it a
+    /// moment ago, e.g. Claude Code's copy) is committed silently, as Ghostty does.
+    @Test func programWriteRightAfterInputInTheFocusedTerminalIsCommittedSilently() {
+        #expect(TerminalClipboardRequests.writeDecision(userInitiated: false, requiresConfirmation: false,
+                                                        focused: true, sinceInput: .seconds(1)) == .write)
+    }
+
+    /// Output of a terminal the person is not using (a background tab, or long after their last input) could
+    /// put a command on the clipboard for a later paste: it asks first.
+    @Test func programWriteFromATerminalWithoutFocusAsks() {
+        #expect(TerminalClipboardRequests.writeDecision(userInitiated: false, requiresConfirmation: false,
+                                                        focused: false, sinceInput: .seconds(1)) == .confirm)
+    }
+
+    @Test func programWriteLongAfterTheLastInputAsks() {
+        #expect(TerminalClipboardRequests.writeDecision(userInitiated: false, requiresConfirmation: false,
+                                                        focused: true, sinceInput: .seconds(60)) == .confirm)
+        #expect(TerminalClipboardRequests.writeDecision(userInitiated: false, requiresConfirmation: false,
+                                                        focused: true, sinceInput: nil) == .confirm)
     }
 
     @Test func programWriteGhosttyAsksAboutShowsTheDialog() {
-        #expect(TerminalClipboardRequests.writeDecision(userInitiated: false, requiresConfirmation: true) == .confirm)
+        #expect(TerminalClipboardRequests.writeDecision(userInitiated: false, requiresConfirmation: true,
+                                                        focused: true, sinceInput: .zero) == .confirm)
     }
 
     @Test func userCopyNeverShowsTheDialog() {
-        #expect(TerminalClipboardRequests.writeDecision(userInitiated: true, requiresConfirmation: true) == .write)
+        #expect(TerminalClipboardRequests.writeDecision(userInitiated: true, requiresConfirmation: true,
+                                                        focused: false, sinceInput: nil) == .write)
+    }
+
+    /// The input window: input within it lets a focused terminal's program write; older input does not.
+    @Test func theRecentInputWindowIsShort() {
+        let window = TerminalClipboardRequests.programWriteInputWindow
+        #expect(window <= .seconds(10))
+        #expect(TerminalClipboardRequests.writeDecision(userInitiated: false, requiresConfirmation: false,
+                                                        focused: true, sinceInput: window) == .write)
+        #expect(TerminalClipboardRequests.writeDecision(userInitiated: false, requiresConfirmation: false,
+                                                        focused: true, sinceInput: window + .milliseconds(1)) == .confirm)
     }
 
     @Test func explicitClipboardWriteDenyStaysDenied() throws {

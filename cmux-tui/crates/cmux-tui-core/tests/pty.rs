@@ -2222,6 +2222,69 @@ fn send_paste_wraps_only_while_dec_mode_2004_is_enabled() {
 }
 
 #[test]
+fn a_paste_end_marker_inside_a_bracketed_paste_never_ends_it() {
+    // The text holds an end marker, and one that a single removal pass would
+    // rebuild; the program must read one framed paste of "abc" (15 bytes).
+    let script =
+        "stty -echo -icanon min 1 time 0; printf 'paste-ready\\n'; od -An -tx1 -N 15; sleep 30";
+    let mux = Mux::new(unique_session("test-paste-end-marker"), shell_opts(script));
+    let surface = mux.new_workspace(None, Some((80, 8))).unwrap();
+    wait_for(
+        || {
+            surface
+                .with_terminal(|term| {
+                    term.viewport_text().ok().filter(|text| text.contains("paste-ready"))
+                })
+                .flatten()
+        },
+        Duration::from_secs(10),
+    )
+    .expect("paste reader ready");
+    let sock_path = cmux_tui_core::server::serve(mux.clone(), None).unwrap();
+    let stream = connect(&sock_path);
+    let mut writer = stream.try_clone_box().unwrap();
+    let mut reader = BufReader::new(stream);
+    surface.try_with_terminal(|term| term.vt_write(b"\x1b[?2004h")).unwrap();
+    wait_for(
+        || surface.with_terminal(|term| term.mode(2004, false).then_some(())).flatten(),
+        Duration::from_secs(10),
+    )
+    .expect("DEC mode 2004 enabled");
+    socket_request(
+        &mut writer,
+        &mut reader,
+        serde_json::json!({
+            "id": 1,
+            "cmd": "send",
+            "surface": surface.id,
+            "text": "a\u{1b}[201~b\u{1b}[20\u{1b}[201~1~c",
+            "paste": true,
+        }),
+    );
+    // ESC [ 2 0 0 ~ a b c ESC [ 2 0 1 ~
+    let framed = "1b 5b 32 30 30 7e 61 62 63 1b 5b 32 30 31 7e";
+    wait_for(
+        || {
+            surface
+                .with_terminal(|term| {
+                    term.viewport_text()
+                        .ok()
+                        .map(|text| text.split_whitespace().collect::<Vec<_>>().join(" "))
+                        .filter(|text| text.contains(framed))
+                })
+                .flatten()
+        },
+        Duration::from_secs(10),
+    )
+    .unwrap_or_else(|| {
+        let text = surface.with_terminal(|term| term.viewport_text().unwrap_or_default());
+        panic!("the paste was not one frame of its text; the program read: {text:?}");
+    });
+    mux.close_surface(surface.id).unwrap();
+    cmux_tui_core::server::cleanup(&sock_path);
+}
+
+#[test]
 fn new_tab_on_empty_headless_session_creates_workspace() {
     // A headless session receives new-tab before any workspace exists;
     // it must create a workspace around the new tab instead of panicking.
