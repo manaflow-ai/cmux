@@ -583,15 +583,36 @@ test("pinned picker actions precede scrolling suggestions and remain keyboard se
   );
   const pinned = host.querySelector(".ui-combobox-pinned")!;
   const scroll = host.querySelector(".ui-combobox-scroll")!;
-  expect([...pinned.querySelectorAll("button")].map((node) => node.textContent)).toEqual(["No project", "Add project"]);
+  expect([...pinned.querySelectorAll(".ui-combobox-item")].map((node) => node.textContent)).toEqual([
+    "No project",
+    "Add project",
+  ]);
   expect([...scroll.querySelectorAll('[role="option"]')].map((node) => node.textContent)).toEqual(["Atlas", "Relay"]);
   const field = host.querySelector<HTMLInputElement>("input")!;
   await act(async () => field.focus());
   await key(field, "ArrowDown");
   await key(field, "Enter");
-  expect(calls).toEqual(["Atlas"]);
-  await click(pinned.querySelector<HTMLButtonElement>("button")!);
-  expect(calls).toEqual(["Atlas", "No project"]);
+  expect(calls).toEqual(["No project"]);
+});
+
+test("an empty pinned action list does not add an orphan divider", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { Combobox } = await import("../src/ui/Combobox");
+  root = createRoot(host);
+  await act(async () =>
+    root!.render(
+      <Combobox
+        suggestions={["Atlas"]}
+        pinnedSuggestions={[]}
+        onQuery={() => {}}
+        onSubmit={() => {}}
+        onCancel={() => {}}
+        label="Projects"
+        inline
+      />,
+    ),
+  );
+  expect(host.querySelector(".ui-combobox-pinned")).toBeNull();
 });
 
 test("scrollbar blur keeps a searchable menu open while outside blur cancels", async () => {
