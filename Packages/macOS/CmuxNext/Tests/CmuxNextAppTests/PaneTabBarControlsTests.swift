@@ -8,9 +8,9 @@ import Foundation
 import Testing
 
 /// Lawrence 2026-10-27: "too many buttons here" (the pane's top bar showed a terminal, a browser and
-/// "⋮") and "i dont like dropdown design here" (the strip's "+" carried a chevron that opened the type
-/// menu on press). The top bar keeps only "⋮", whose menu holds the same creation rows, and the strip's
-/// "+" is a plain button: a press opens the default tab, a hold or a right-click opens the type menu.
+/// "⋮") and the follow-up top-left request: the pane tab bar's "+" carries a compact chevron and
+/// opens the new-tab chooser (terminal, browser, agent…) on press. The top bar keeps only "⋮", whose
+/// menu holds the same creation rows.
 @MainActor @Suite(.serialized) struct PaneTabBarControlsTests {
     private static func tree(_ surfaces: [UInt64]) -> DaemonTree {
         let pane = PaneSnapshot(id: PaneID(rawValue: 1), tabs: surfaces.map { TabSnapshot(surface: SurfaceID(rawValue: $0), title: "~") })
@@ -32,7 +32,7 @@ import Testing
         #expect(toolbar.view.hasMore, "the ⋮ stays for the pane's actions")
     }
 
-    @Test func thePaneStripPlusIsAPlainButtonWithoutATypeMenuOnPress() throws {
+    @Test func thePaneStripPlusOpensTheCompactNewTabChooser() throws {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
         let store = services.daemon.store
@@ -43,9 +43,9 @@ import Testing
         let pane = PaneController(pane: model, daemon: services.daemon, layoutPaneID: LayoutPaneID(model.id), services: services, state: WindowState(record: record))
         defer { pane.teardown() }
         let plus = pane.view.stripView.newTabButton
-        #expect(!pane.view.stripView.opensNewTabMenuOnPress, "a press opens the default tab, not the type menu")
-        #expect(!plus.showsChevron, "no caret on the pane's +")
-        #expect(plus.accessibilityRole() == .button)
+        #expect(pane.view.stripView.opensNewTabMenuOnPress, "the pane tab bar's + opens its chooser on press")
+        #expect(plus.showsChevron, "the pane tab bar's + shows its compact chooser chevron")
+        #expect(plus.accessibilityRole() == .popUpButton)
     }
 
     @Test func theScreenBarPlusIsTheOneWithACaret() throws {
