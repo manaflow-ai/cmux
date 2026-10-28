@@ -97,7 +97,8 @@ final class CEFBuiltInExtensionLoader {
         case atFirstTab = "at_first_tab"
         /// On `--load-extension`: into every profile Chromium starts.
         case atStart = "at_start"
-        /// Nowhere.
+        /// Nowhere: the feature is on, the fork has no first-tab load and the person did not turn the ad blocker
+        /// on. `--load-extension` would put it into Chromium's root profile, which no cmux tab uses.
         case off
     }
 
@@ -111,18 +112,25 @@ final class CEFBuiltInExtensionLoader {
 
         /// The switch set's built-in inputs for `folders` (the plan's) and its `keepsUnpackedEnabled`.
         func switchInputs(folders: [String], keepsUnpackedEnabled: Bool) -> (folders: [String], atFirstTab: Bool, keepsUnpackedEnabled: Bool) {
-            (folders, placement == .atFirstTab, keepsUnpackedEnabled)
+            placement == .off ? ([], false, false) : (folders, placement == .atFirstTab, keepsUnpackedEnabled)
         }
     }
 
     /// The last start's decision (nil before Chromium started).
     private(set) var lastStart: Start?
 
-    /// A Chromium start (also a Chromium Host's restart): where `folders` load. A tab that waited for the
-    /// previous Chromium's load asks again, against this one.
+    /// A Chromium start (also a Chromium Host's restart): where `folders` load. The feature off loads them at
+    /// start, as shipped. The feature on loads them at each profile's first tab on a fork with the call; on a fork
+    /// without it, at start only when the person turned `browser.builtInAdBlocker` on (`personChose`), else
+    /// nowhere: the start-time load reaches Chromium's root profile too, the double copy the feature is meant to
+    /// end. A tab that waited for the previous Chromium's load asks again, against this one.
     func start(_ folders: [String], forkSupports: Bool, personChose: Bool = false) -> Placement {
-        let atFirstTab = featureOn && forkSupports && !folders.isEmpty
-        let placement: Placement = atFirstTab ? .atFirstTab : .atStart
+        let placement: Placement = if folders.isEmpty || !featureOn { .atStart }
+            else if forkSupports { .atFirstTab }
+            else if personChose { .atStart }
+            else { .off }
+        let atFirstTab = placement == .atFirstTab
+        if placement == .off { logger.notice("built-in extensions: off (this fork has no first-tab load and browser.builtInAdBlocker is not set)") }
         lastStart = Start(placement: placement, feature: featureOn, forkSupports: forkSupports, personChose: personChose, folders: folders.count)
         loads.started(folders: atFirstTab ? folders : [])
         for load in pending.values { _ = load.deadlines.cancel(load.deadline) }

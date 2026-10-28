@@ -16,4 +16,10 @@ public nonisolated struct BuiltInAdBlockerSetting: Sendable {
         }
         return (enabled, nil)
     }
+
+    /// The person set it to `true` (not its default): the built-in ad blocker still loads on a Chromium fork
+    /// without the first-tab load.
+    func chosen(_ root: JSONValue) -> Bool {
+        root.value(at: configPath)?.boolValue == true
+    }
 }
