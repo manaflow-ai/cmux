@@ -55,6 +55,24 @@ describe("PlacedHeightIndex", () => {
     expect(index.upperBoundTop(12)).toBe(5);
   });
 
+  test("normalizes invalid measurements without shifting rows", () => {
+    const index = PlacedHeightIndex.fromHeights([1, Number.NaN, Number.POSITIVE_INFINITY, -4, 2]);
+    expect([...index.materializeHeights()]).toEqual([1, 0, 0, 0, 2]);
+    expect(index.count).toBe(5);
+    expect(index.totalHeight).toBe(3);
+    expect(index.topAt(4)).toBe(1);
+    const appended = index.append([Number.NaN, 3]);
+    expect([...appended.materializeHeights()]).toEqual([1, 0, 0, 0, 2, 0, 3]);
+  });
+
+  test("re-sums fractional leaves when corrections settle to zero", () => {
+    const values = [0.1, 0.2, ...Array.from({ length: 63 }, () => 0)];
+    const index = PlacedHeightIndex.fromHeights(values).update(0, 0).update(1, 0);
+    expect(index.totalHeight).toBe(0);
+    expect(index.topAt(64)).toBe(0);
+    expect(index.upperBoundTop(0)).toBe(65);
+  });
+
   test("updates stay logarithmic in the number of rows", () => {
     const small = PlacedHeightIndex.fromHeights(new Float64Array(4_096).fill(20));
     const large = PlacedHeightIndex.fromHeights(new Float64Array(262_144).fill(20));

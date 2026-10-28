@@ -9,6 +9,12 @@
 
 const BLOCK_SIZE = 64;
 
+// Layout geometry is monotone and finite. Invalid measurements are treated as
+// a zero-height row, preserving their position in the transcript.
+function normalizeHeight(value: number): number {
+  return Number.isFinite(value) && value >= 0 ? value : 0;
+}
+
 type Leaf = {
   readonly values: Float64Array;
   readonly sum: number;
@@ -29,7 +35,7 @@ function makeLeaf(values: ArrayLike<number>, start: number, count: number): Leaf
   const copied = new Float64Array(count);
   let sum = 0;
   for (let index = 0; index < count; index += 1) {
-    const value = values[start + index] ?? 0;
+    const value = normalizeHeight(values[start + index] ?? 0);
     copied[index] = value;
     sum += value;
   }
@@ -63,7 +69,12 @@ function updateLeaf(
     if (previous.values[offset] === value) return node;
     const values = Float64Array.from(previous.values);
     values[offset] = value;
-    const leaf = { values, sum: previous.sum + value - (previous.values[offset] ?? 0) };
+    // Re-sum the copied bounded leaf instead of subtracting floating-point
+    // values from the old aggregate. Repeated 0.1/0.2 corrections must settle
+    // exactly when all entries become zero.
+    let sum = 0;
+    for (const entry of values) sum += entry;
+    const leaf = { values, sum };
     return { leaf, sum: leaf.sum };
   }
   const middle = low + ((high - low) >>> 1);
@@ -156,8 +167,7 @@ export class PlacedHeightIndex {
     for (let index = 0; index < values.length; index += 1) {
       const base = next ?? this;
       const rowIndex = base.count;
-      const value = values[index] ?? 0;
-      if (!Number.isFinite(value) || value < 0) continue;
+      const value = normalizeHeight(values[index] ?? 0);
       next = base.appendOne(rowIndex, value);
     }
     return next ?? this;
