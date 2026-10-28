@@ -201,10 +201,13 @@ final class HomeFirstRunView: NSView {
 
     private func applySpacing() {
         stack.spacing = 6 * scale
-        stack.setCustomSpacing(14 * scale, after: pet)
-        stack.setCustomSpacing(14 * scale, after: starters)
-        stack.setCustomSpacing(Self.heroGap * scale, after: hero)
-        stack.setCustomSpacing(Self.heroGap * scale, after: intro)
+        // NSStackView raises when custom spacing is set after a view that is not arranged, and the
+        // intro is arranged only while it has text (`arrange`), so set spacing on arranged views only.
+        let arranged = stack.arrangedSubviews
+        let spacings: [(NSView, CGFloat)] = [
+            (pet, 14 * scale), (starters, 14 * scale), (hero, Self.heroGap * scale), (intro, Self.heroGap * scale),
+        ]
+        for (view, spacing) in spacings where arranged.contains(view) { stack.setCustomSpacing(spacing, after: view) }
     }
 
     /// The space between the hero and the first row.
