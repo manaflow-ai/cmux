@@ -34,9 +34,10 @@ extension TabContentCache {
     /// does, so the keys the stand-in sent by terminal id and the ones still in its input lane reach the PTY in order
     /// (first-seconds-evidence.md). Nil when `tab` is a stand-in itself, has no terminal id, or no stand-in chose it.
     func adoptStandIn(for tab: TabModel, daemon: DaemonService) -> TerminalEntry? {
-        guard !ProvisionalTab.isProvisional(surface: tab.surface), let terminal = tab.terminalID?.rawValue, terminals[tab.id] == nil,
-              let (key, entry) = terminals.first(where: { $0.key != tab.id && $0.value.gate != nil && $0.value.standInTerminalID == terminal })
+        guard !ProvisionalTab.isProvisional(surface: tab.surface), let terminal = tab.terminalID, terminals[tab.id] == nil,
+              let (key, entry) = terminals.first(where: { $0.key != tab.id && $0.value.gate != nil && $0.value.standIn?.terminal == terminal })
         else { return nil }
+        entry.standIn = nil // once: no later tab with that id takes it from `tab`
         terminals[key] = nil
         moveNode(key, to: tab.id) // the view's node goes with it
         createTabs.rekey(key, to: tab.id) // the daemon's tab waits for the stand-in's first frame
@@ -45,6 +46,16 @@ extension TabContentCache {
         goneTabs.track(tab.id, in: daemon.store) { [weak self] in self?.release($0) }
         awaitConfirm(entry, of: tab, daemon: daemon)
         contentDidMount(tab.id)
+        onStandInAdopted?(key, tab.id)
         return entry
+    }
+
+    /// Stand-in `key`, which a pane withdraws (it shows another tab: its daemon tab, in `showSelectionNow`, which then
+    /// asks for that tab's content), goes to its daemon tab now when the store has it, instead of to the warm set,
+    /// whose eviction would close its input lane with keys in it. True when it moved.
+    func adoptsWithdrawnStandIn(_ key: String) -> Bool {
+        guard let link = terminals[key]?.standIn, let daemon = link.daemon,
+              let tab = daemon.store.tab(terminal: link.terminal), !ProvisionalTab.isProvisional(surface: tab.surface) else { return false }
+        return adoptStandIn(for: tab, daemon: daemon) != nil
     }
 }
