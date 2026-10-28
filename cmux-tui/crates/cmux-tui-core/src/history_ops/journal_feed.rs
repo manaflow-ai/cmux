@@ -30,6 +30,7 @@ use serde_json::Value;
 
 use crate::Mux;
 use crate::journal_kernel::SharedJournalRead;
+use crate::panic_free::JsonFields;
 use crate::workspace_registry::SessionJournalRecord;
 
 const PAGE: usize = 512;
@@ -44,7 +45,7 @@ fn folded(kind: &str) -> bool {
 /// True for a resource commit that upserted or deleted a closed item
 /// (`state_upsert`/`state_delete` of resource `closed` in its changes).
 fn changes_closed(record: &SessionJournalRecord) -> bool {
-    record.payload["changes"].as_array().is_some_and(|changes| {
+    record.payload.field("changes").as_array().is_some_and(|changes| {
         changes.iter().any(|change| {
             change["resource"] == "closed"
                 && matches!(change["kind"].as_str(), Some("state_upsert" | "state_delete"))
@@ -152,10 +153,12 @@ pub(super) fn start(mux: &Arc<Mux>) {
     }
     let weak = Arc::downgrade(mux);
     let kernel = mux.shared_journal_handle();
-    let spawned =
-        cmux_threads::spawn("mux-history-feed", cmux_threads::ThreadQos::Utility, move || {
-            run(&weak, &kernel);
-        });
+    let spawned = crate::thread_qos::spawn_raisable(
+        "mux-history-feed",
+        crate::thread_qos::ThreadType::Utility.qos(),
+        None,
+        move || run(&weak, &kernel),
+    );
     if let Err(error) = spawned {
         eprintln!("cmux-tui: history feed did not start: {error}");
         mux.history.release_feed();

@@ -56,3 +56,4 @@ unused_qualifications = "warn"
 # cmux-tui/clippy.toml disallows std thread spawns and sleep; the crate roots deny them
 # outside tests (p02-threads 218).
 disallowed_methods = "allow"
+disallowed_types = "allow"

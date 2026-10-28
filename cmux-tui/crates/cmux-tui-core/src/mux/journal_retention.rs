@@ -252,8 +252,10 @@ impl Mux {
             let mux = Arc::downgrade(self);
             let spawned = cmux_threads::spawn(
                 "journal-retention",
-                cmux_threads::ThreadQos::Utility,
-                move || run_retention_worker(&shared, &mux),
+                crate::request_qos::UPKEEP_THREAD_QOS,
+                move || {
+                    run_retention_worker(&shared, &mux);
+                },
             );
             if let Err(error) = spawned {
                 retention.worker_started.store(false, Ordering::Release);
@@ -407,7 +409,10 @@ fn run_retention_worker(shared: &RetentionShared, mux: &Weak<Mux>) {
         // Hold the mux only for the capture: the last owner may drop it here,
         // and its drop must not find this worker holding the schedule.
         let outcome = match mux.upgrade() {
-            Some(mux) => mux.capture_coalesced_checkpoint(&batch),
+            Some(mux) => {
+                let _pass = mux.request_qos().enter_upkeep_pass();
+                mux.capture_coalesced_checkpoint(&batch)
+            }
             None => return,
         };
         schedule = shared.schedule.lock().unwrap_or_else(PoisonError::into_inner);

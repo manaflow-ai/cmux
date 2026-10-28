@@ -43,6 +43,7 @@ use sha2::{Digest, Sha256};
 
 use super::acpmux_energy::AcpmuxEnergy;
 use super::{Mux, NotificationLevel, NotificationSource};
+use crate::panic_free::JsonFields;
 use crate::resource::ContentPublicId;
 use crate::state::conversation_tabs_store::ConversationTabRecord;
 use crate::{Actor, SurfaceId};
@@ -68,15 +69,18 @@ impl Mux {
         self.set_acpmux_socket(socket.clone());
         let Some(socket) = socket else { return };
         self.start_agent_message_pump();
-        let energy = AcpmuxEnergy::start(self.energy.mode());
+        let energy = AcpmuxEnergy::start(self.energy.mode(), &self.memory);
         if energy.is_err() {
             self.report_internal_diagnostic("acpmux energy relay not started");
         }
         let mux = Arc::downgrade(self);
-        let spawned = cmux_threads::spawn(
+        let spawned = crate::thread_qos::spawn_raisable(
             "mux-agent-chat-notices",
-            cmux_threads::ThreadQos::Utility,
-            move || watch(&mux, &socket, energy.ok().as_ref()),
+            crate::thread_qos::ThreadType::Utility.qos(),
+            None,
+            move || {
+                watch(&mux, &socket, energy.ok().as_ref());
+            },
         );
         if spawned.is_err() {
             self.report_internal_diagnostic("agent chat notifications not started");
@@ -209,10 +213,12 @@ fn follow(
         }
         let Ok(message) = serde_json::from_slice::<Value>(&line) else { continue };
         let Some(mux) = mux.upgrade() else { return Ok(()) };
-        if message["id"] == 2 {
+        if message.field("id") == 2 {
             // What the watch knew before this connection: the page is a change from it.
             let mut before = std::mem::take(chats);
-            for summary in message["result"]["sessions"].as_array().into_iter().flatten() {
+            for summary in
+                message.field("result").field("sessions").as_array().into_iter().flatten()
+            {
                 let Some(next) = Chat::of(summary) else { continue };
                 let known = before.remove(&next.session);
                 if known.is_none() && next.needs_nobody() {
@@ -222,10 +228,10 @@ fn follow(
                 apply(&mux, known.as_ref(), next, chats);
             }
             watching = true;
-        } else if watching && message["method"] == "_acpmux/session_changed" {
-            changed(&mux, &message["params"], chats);
-        } else if watching && message["method"] == "_acpmux/permission_pending" {
-            asked(&mux, &message["params"], chats);
+        } else if watching && message.field("method") == "_acpmux/session_changed" {
+            changed(&mux, message.field("params"), chats);
+        } else if watching && message.field("method") == "_acpmux/permission_pending" {
+            asked(&mux, message.field("params"), chats);
         }
     }
 }
@@ -335,10 +341,15 @@ impl Chat {
             indicator: summary["indicator"].as_str().unwrap_or_default().to_owned(),
             unread: summary["unread"].as_bool() == Some(true),
             shown: summary["shown"].as_bool() == Some(true),
-            muted: summary["tags"][MUTE_TAG] == MUTED,
+            muted: summary.field("tags").field(MUTE_TAG) == MUTED,
             last_turn,
             notified_turn: None,
-            last_message: summary["lastMessage"]["text"].as_str().unwrap_or_default().to_owned(),
+            last_message: summary
+                .field("lastMessage")
+                .field("text")
+                .as_str()
+                .unwrap_or_default()
+                .to_owned(),
             last_seq: summary["lastSeq"].as_u64().unwrap_or(0),
             asks: HashSet::new(),
         })

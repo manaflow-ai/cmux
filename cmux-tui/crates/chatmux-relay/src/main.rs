@@ -74,8 +74,9 @@ fn hostname() -> String {
         let result =
             unsafe { libc::gethostname(buffer.as_mut_ptr().cast::<libc::c_char>(), buffer.len()) };
         if result == 0 {
-            let end = buffer.iter().position(|byte| *byte == 0).unwrap_or(buffer.len());
-            if let Ok(name) = std::str::from_utf8(&buffer[..end])
+            // The name ends at its NUL, or fills the buffer.
+            if let Some(name) = buffer.split(|byte| *byte == 0).next()
+                && let Ok(name) = std::str::from_utf8(name)
                 && !name.is_empty()
             {
                 return name.to_owned();
@@ -280,14 +281,21 @@ struct Runtime {
 async fn shutdown_signal() {
     #[cfg(unix)]
     {
-        let mut terminate =
-            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-                .expect("failed to install SIGTERM handler");
-        tokio::select! {
-            result = tokio::signal::ctrl_c() => {
-                let _ = result;
+        match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+            Ok(mut terminate) => {
+                tokio::select! {
+                    result = tokio::signal::ctrl_c() => {
+                        let _ = result;
+                    }
+                    _ = terminate.recv() => {}
+                }
             }
-            _ = terminate.recv() => {}
+            Err(error) => {
+                // SIGTERM keeps its default action (the process ends without
+                // the graceful drain); Ctrl-C still drains.
+                eprintln!("chatmux-relay: could not install the SIGTERM handler: {error}");
+                let _ = tokio::signal::ctrl_c().await;
+            }
         }
     }
 
@@ -571,8 +579,32 @@ fn print_status(config_path: &Path) -> ! {
     std::process::exit(0);
 }
 
-#[tokio::main]
-async fn main() {
+/// The relay's tokio runtime is cmux-blocking's (Chrome's ThreadPool with
+/// `MayBlock` compensation, base/task/thread_pool/thread_group.cc): a wrapped
+/// blocking call on a worker hands the worker's queue to another thread. The
+/// body runs as a task on a worker; the main thread only waits for it.
+fn main() -> std::process::ExitCode {
+    let runtime = match cmux_blocking::runtime::multi_thread(
+        "chatmux-relay",
+        cmux_threads::ThreadQos::UserInitiated,
+    )
+    .build()
+    {
+        Ok(runtime) => runtime,
+        Err(error) => {
+            eprintln!("could not start the relay runtime: {error}");
+            return std::process::ExitCode::FAILURE;
+        }
+    };
+    let body = runtime.spawn(run());
+    match cmux_blocking::runtime::block_on(&runtime, body) {
+        Ok(()) => std::process::ExitCode::SUCCESS,
+        Err(error) if error.is_panic() => std::panic::resume_unwind(error.into_panic()),
+        Err(_) => std::process::ExitCode::FAILURE,
+    }
+}
+
+async fn run() {
     // The workspace pins rustls to the ring provider (tungstenite does the
     // same); reqwest's rustls-no-provider build needs it installed as the
     // process default before any TLS client is built.

@@ -277,7 +277,7 @@ impl RemoteSurfaceAttachExecutor {
             let worker_shared = shared.clone();
             let spawned = cmux_threads::spawn(
                 format!("surface-attach-{worker}"),
-                cmux_threads::ThreadQos::UserInitiated,
+                cmux_tui_core::thread_qos::ThreadType::Interactive.qos(),
                 move || {
                     loop {
                         let (job, background) = {

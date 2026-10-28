@@ -11,8 +11,8 @@ use crate::Actor;
 use crate::diagnostics::LockCaller;
 use crate::panic_free::RecoverPoison;
 use crate::request_origin::{
-    CONFIRMATION_TTL_MS, HelloRole, LocalPeer, PeerProcess, RequestOrigin, forbidden, mint_token,
-    needs_user, valid_sha256_hex,
+    CONFIRMATION_TTL_MS, HelloRole, LocalPeer, OpenStreamRefusal, PeerProcess, RequestOrigin,
+    forbidden, mint_token, needs_user, valid_sha256_hex,
 };
 use crate::resource::RequestEnvelope;
 use cmux_threads::checked::fs as files;
@@ -119,7 +119,7 @@ fn classify_local_peer(
     LocalPeer::Other
 }
 
-fn peer_pid(key: &str) -> Option<u32> {
+pub(super) fn peer_pid(key: &str) -> Option<u32> {
     let (pid, version) = key.strip_prefix("token:")?.split_once('.')?;
     let pid = pid.parse().ok()?;
     (!version.is_empty() && pid > 0).then_some(pid)
@@ -203,7 +203,7 @@ fn sync_lock_caller(record: &ClientRecord) {
 }
 
 /// The origin `client` derives; a client with no record is an agent.
-fn derived_origin(mux: &Mux, client: u64) -> RequestOrigin {
+pub(super) fn derived_origin(mux: &Mux, client: u64) -> RequestOrigin {
     let state = mux.control_clients.state.lock().recover_poison();
     state.clients.get(&client).map_or(RequestOrigin::Agent, |record| record.origin.derive())
 }
@@ -301,19 +301,20 @@ pub(super) fn set_scoped_page(mux: &Mux, client: u64, page: String) {
 /// The conversation events a page-bound connection of the Channels page
 /// hears (and `chief-changed`, its Chiefs, and `participant-avatar-changed`,
 /// the pictures it draws); every other page-bound connection hears none.
-static CHANNELS_SCOPED_EVENTS: std::sync::LazyLock<[String; 8]> = std::sync::LazyLock::new(|| {
-    [
-        "conversation-changed",
-        "conversation-typing",
-        "conversation-draft",
-        "conversation-run-changed",
-        "conversation-live",
-        "conversation-inbox-changed",
-        "chief-changed",
-        "participant-avatar-changed",
-    ]
-    .map(String::from)
-});
+pub(super) static CHANNELS_SCOPED_EVENTS: std::sync::LazyLock<[String; 8]> =
+    std::sync::LazyLock::new(|| {
+        [
+            "conversation-changed",
+            "conversation-typing",
+            "conversation-draft",
+            "conversation-run-changed",
+            "conversation-live",
+            "conversation-inbox-changed",
+            "chief-changed",
+            "participant-avatar-changed",
+        ]
+        .map(String::from)
+    });
 
 /// The subscribe events a page relay connection hears (page-router.json
 /// `events` of its page; none for a relay without a page), a page-bound
@@ -352,8 +353,10 @@ pub(super) fn require_user(mux: &Mux, client: u64) -> Result<(), crate::apps::Ap
 }
 
 /// Fixes `client`'s hello role (step 1), and `verified_app` when prover A
-/// (the app's code signature) passed for a role-main hello. False when the
-/// client is gone or already has a role; nothing changes then.
+/// (the app's code signature) passed for a role-main hello. A page relay
+/// serves one `page`, or with `streams` opens page streams instead
+/// (`page-streams-v1`). False when the client is gone or already has a
+/// role; nothing changes then.
 pub(super) fn set_hello(
     mux: &Mux,
     client: u64,
@@ -361,6 +364,7 @@ pub(super) fn set_hello(
     peer_key: Option<String>,
     signature_proved: bool,
     page: Option<String>,
+    streams: bool,
 ) -> bool {
     let mut state = mux.control_clients.state.lock().recover_poison();
     let Some(record) = state.clients.get_mut(&client) else { return false };
@@ -372,35 +376,93 @@ pub(super) fn set_hello(
         record.origin.peer_key = peer_key;
     }
     record.origin.page = page;
+    record.origin.page_streams =
+        (role == HelloRole::PageRelay && streams).then(crate::request_origin::PageStreams::default);
     record.origin.verified_app = role == HelloRole::Main && signature_proved;
     sync_lock_caller(record);
+    let verified_process = record.origin.verified_app.then(|| record.origin.peer_key.clone());
+    if let Some(Some(peer_key)) = verified_process {
+        state.reclassify_process(&peer_key);
+    }
     true
 }
 
-/// Records kernel peer identity at accept, before a legacy client can skip hello.
-pub(super) fn set_peer_identity_at_accept(
+/// Opens page stream `stream` of `page` on `client`, a streamed page relay,
+/// and returns its relay id (the `relay_connection_id` of a confirmation for
+/// it). The id comes from the connection id counter, so it never names a
+/// connection or an earlier stream. A relay holds at most as many streams
+/// as the daemon holds connections: each stream stands for what was one
+/// page relay connection.
+pub(super) fn open_page_stream(
     mux: &Mux,
     client: u64,
+    stream: std::num::NonZeroU16,
+    page: String,
+) -> Result<u64, OpenStreamRefusal> {
+    let relay_id = mux.control_clients.next_id.fetch_add(1, Ordering::Relaxed);
+    let mut state = mux.control_clients.state.lock().recover_poison();
+    let record = state.clients.get_mut(&client).ok_or(OpenStreamRefusal::NotStreamed)?;
+    record.origin.open_page_stream(stream, page, relay_id, MAX_SERVER_CONNECTIONS)?;
+    Ok(relay_id)
+}
+
+/// Closes page stream `stream` of `client` and every token issued for it.
+/// False when it was not open.
+pub(super) fn close_page_stream(mux: &Mux, client: u64, stream: std::num::NonZeroU16) -> bool {
+    let mut state = mux.control_clients.state.lock().recover_poison();
+    state.clients.get_mut(&client).is_some_and(|record| record.origin.close_page_stream(stream))
+}
+
+/// The accepted peer's kernel identity: its process key, whether it runs in
+/// one of this session's terminals, whether it is this build's bundled
+/// phone host, and its process class.
+///
+/// [`AcceptedPeer::resolve`] reads the peer's executable (procfs on Linux,
+/// the audit token on macOS) and canonicalizes paths, which may block. A
+/// connection's reader resolves it as its setup, before it disallows
+/// blocking (`spawn_connection_reader`), as Chromium does file work in a
+/// `MayBlock` task and never on a thread that serves messages
+/// (p02-threads 309). A blocking call there stalls only that connection,
+/// before its first message.
+pub(super) struct AcceptedPeer {
     peer_key: Option<String>,
-    peer_token: Option<cmux_link::app_caller::PeerToken>,
-    peer_uid: Option<u32>,
-) {
-    let local_peer = classify_local_peer(mux, peer_key.as_deref(), peer_session_id);
-    let executable = peer_executable(peer_key.as_deref(), peer_token.as_ref());
-    let mobile_host = executable.as_deref().is_some_and(is_bundled_mobile_host_path);
-    // Windows sockets pass no descriptors: no peer there is direct.
-    #[cfg(unix)]
-    let peer_process = classify_peer_process(
-        peer_uid,
-        executable.as_deref(),
-        platform::effective_uid(),
-        daemon_executable(),
-    );
-    #[cfg(not(unix))]
-    let peer_process = {
-        let _ = peer_uid;
-        PeerProcess::Unverified
-    };
+    local_peer: LocalPeer,
+    mobile_host: bool,
+    peer_process: PeerProcess,
+}
+
+impl AcceptedPeer {
+    /// Reads `stream`'s peer identity. May block: never call it on a thread
+    /// that disallows blocking.
+    pub(super) fn resolve(mux: &Mux, stream: &dyn transport::Stream) -> Self {
+        let peer_key = stream.peer_process_key();
+        let peer_token = stream.peer_token();
+        let peer_uid = stream.peer_uid();
+        let local_peer = classify_local_peer(mux, peer_key.as_deref(), peer_session_id);
+        let executable = peer_executable(peer_key.as_deref(), peer_token.as_ref());
+        let mobile_host = executable.as_deref().is_some_and(is_bundled_mobile_host_path);
+        // Windows sockets pass no descriptors: no peer there is direct.
+        #[cfg(unix)]
+        let peer_process = classify_peer_process(
+            peer_uid,
+            executable.as_deref(),
+            platform::effective_uid(),
+            daemon_executable(),
+        );
+        #[cfg(not(unix))]
+        let peer_process = {
+            let _ = peer_uid;
+            PeerProcess::Unverified
+        };
+        AcceptedPeer { peer_key, local_peer, mobile_host, peer_process }
+    }
+}
+
+/// Records the accepted peer's identity on `client`, before a legacy client
+/// can skip hello. Memory only: the identity was resolved before the reader
+/// disallowed blocking.
+pub(super) fn set_peer_identity_at_accept(mux: &Mux, client: u64, peer: AcceptedPeer) {
+    let AcceptedPeer { peer_key, local_peer, mobile_host, peer_process } = peer;
     let mut state = mux.control_clients.state.lock().recover_poison();
     if let Some(record) = state.clients.get_mut(&client) {
         record.origin.peer_key = peer_key;
@@ -408,6 +470,11 @@ pub(super) fn set_peer_identity_at_accept(
         record.origin.mobile_host = mobile_host;
         record.origin.peer_process = peer_process;
     }
+    drop(state);
+    // The peer is known now: a connection of the daemon's own journal plugin
+    // no longer counts as a client (orphan_shutdown.rs `client_count`), so the
+    // exit watchers look again.
+    mux.control_clients.notify_client_presence();
 }
 
 /// cmux's own executables beside the daemon's that splice a far client's
@@ -567,6 +634,9 @@ pub(super) fn set_install_proved(mux: &Mux, client: u64, install_id: &str) -> bo
     record.origin.verified_app = true;
     record.origin.install_id = Some(install_id.to_string());
     sync_lock_caller(record);
+    if let Some(peer_key) = record.origin.peer_key.clone() {
+        state.reclassify_process(&peer_key);
+    }
     true
 }
 
@@ -635,13 +705,30 @@ fn issue(
         return Err(needs_user(derived));
     }
     let caller_peer = caller.peer_key.clone();
-    let same_peer_relay = state.clients.get_mut(&relay).filter(|record| {
-        relay != client
-            && record.origin.role == HelloRole::PageRelay
-            && caller_peer.is_some()
-            && record.origin.peer_key == caller_peer
+    // `relay` names a one-page relay connection, or one page stream of a
+    // streamed relay; a streamed relay's own connection id names none of
+    // its pages, so a token for it would act for no page and is refused.
+    let endpoint = state
+        .clients
+        .get(&relay)
+        .filter(|record| record.origin.page_streams.is_none())
+        .map(|_| (relay, None))
+        .or_else(|| {
+            let mut streamed = state.clients.iter();
+            streamed
+                .find(|(_, record)| record.origin.has_page_stream(relay))
+                .map(|(id, _)| (*id, Some(relay)))
+        });
+    let same_peer_relay = endpoint.and_then(|(connection, endpoint)| {
+        let record = state.clients.get_mut(&connection).filter(|record| {
+            connection != client
+                && record.origin.role == HelloRole::PageRelay
+                && caller_peer.is_some()
+                && record.origin.peer_key == caller_peer
+        })?;
+        Some((record, endpoint))
     });
-    let Some(relay_record) = same_peer_relay else {
+    let Some((relay_record, endpoint)) = same_peer_relay else {
         return Err(forbidden(
             "the relay connection is not a page relay of the same app",
             json!({"required": "user", "derived": derived.wire_name(), "reason": "relay_mismatch"}),
@@ -651,6 +738,7 @@ fn issue(
         token.clone(),
         operation,
         params_sha256,
+        endpoint,
         deadline_ms,
         now_ms,
     );
@@ -745,6 +833,10 @@ mod tests;
 #[cfg(all(test, unix))]
 #[path = "page_access_tests.rs"]
 mod page_access_tests;
+
+#[cfg(all(test, unix))]
+#[path = "page_stream_tests.rs"]
+mod page_stream_tests;
 
 #[cfg(all(test, unix))]
 #[path = "pairing_gate_tests.rs"]

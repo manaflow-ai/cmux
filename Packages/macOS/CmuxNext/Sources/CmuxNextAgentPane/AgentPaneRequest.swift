@@ -27,6 +27,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case framePacing([Double])
     /// Applies the page's adaptive rate decision; fixed-rate panes ignore it.
     case renderRate(Bool)
+    /// The page probe's key-to-paint histogram (`pane.keyToPaint`), sent only while the host has it on.
+    case keyToPaint(AgentPaneKeyToPaint)
     /// The new tab page chose a terminal or browser: replace the tab with
     /// one, running or opening `text` (a command, a URL or a search), a
     /// terminal in `cwd` when the page picked a folder.

@@ -160,6 +160,7 @@ public final class MainJobGateDiagnostics: Sendable {
 
     /// A main-actor job was enqueued while input is pending or dispatching (the MainJobGate hook):
     /// keeps the caller's stack, `origin` and `priority` (the job's raw `TaskPriority`).
+    // perf-hot: 2us main-job-gate
     @inline(never)
     public func recordEnqueue(turn: InputTurn, origin: Origin, priority: UInt8) {
         var record = HopRecord(lane: .swift, origin: origin.rawValue, priority: priority, turn: turn)

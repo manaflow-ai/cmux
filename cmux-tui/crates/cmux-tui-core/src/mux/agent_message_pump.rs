@@ -26,9 +26,10 @@
 // Off unix nothing starts the pump (no acpmux), and nothing is handed over.
 #![cfg_attr(not(unix), allow(dead_code))]
 
+use cmux_threads::sync::Mutex;
 use std::collections::{HashMap, HashSet};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, SyncSender, sync_channel};
-use std::sync::{Arc, Mutex, MutexGuard, Weak};
+use std::sync::{Arc, MutexGuard, Weak};
 use std::time::Duration;
 
 use cmux_threads::checked;
@@ -101,7 +102,7 @@ impl Mux {
         let mux = Arc::downgrade(self);
         let spawned = cmux_threads::spawn_with_stack(
             "mux-agent-message-pump",
-            cmux_threads::ThreadQos::Utility,
+            cmux_tui_platform::qos::outside_request_class(),
             256 * 1024,
             move || run(&mux, &woken),
         );
@@ -197,10 +198,10 @@ impl Mux {
         let mux = Arc::clone(self);
         let (session_id, id_owned, recipient_owned) =
             (session_id.to_owned(), id.to_owned(), recipient.to_owned());
-        let spawned = cmux_threads::spawn_with_stack(
+        let spawned = crate::thread_qos::spawn_raisable(
             "mux-agent-message-handover",
-            cmux_threads::ThreadQos::UserInitiated,
-            HANDOVER_THREAD_STACK_BYTES,
+            crate::thread_qos::ThreadType::Utility.qos(),
+            Some(HANDOVER_THREAD_STACK_BYTES),
             move || mux.hand_over(&session_id, &message, &id_owned, &recipient_owned),
         );
         if spawned.is_err() {

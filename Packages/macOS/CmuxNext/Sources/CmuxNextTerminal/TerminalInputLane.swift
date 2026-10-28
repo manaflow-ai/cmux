@@ -33,7 +33,7 @@ public nonisolated final class TerminalInputLane: Sendable {
     // records) or to swap the overflow's array out (the drain queue, O(1)), never across a call out; the
     // main thread's common path, a free ring, never waits (``TerminalInputRing/push(_:)``).
     // TerminalInputLaneTests measures the main thread's push while the consumer takes a large overflow.
-    private let overflow = Mutex(TerminalInputOverflow())
+    private let overflow = Mutex(TerminalInputOverflow(), rank: .terminalInputLaneOverflow)
     /// True while records wait in the overflow: the main thread appends there too, so it never passes them.
     private let overflowing = Atomic<Bool>(false)
     private let closed = Atomic<Bool>(false)
@@ -57,6 +57,7 @@ public nonisolated final class TerminalInputLane: Sendable {
     /// Adds `record` after every record this thread pushed before, and wakes the drain. Never waits for
     /// the drain. Returns false when it dropped the record: the lane is closed, or the overflow holds
     /// ``overflowByteLimit`` bytes (a `.bytes` record) or ``overflowRecordLimit`` records.
+    // perf-hot: 2us terminal-input-lane
     @discardableResult
     public func push(_ record: TerminalInputRecord) -> Bool {
         guard !closed.load(ordering: .acquiring) else { return false }

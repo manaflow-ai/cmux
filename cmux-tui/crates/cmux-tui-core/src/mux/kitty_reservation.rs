@@ -1,6 +1,7 @@
 //! Kitty image budget reservation for a new terminal.
 
 use super::*;
+use crate::panic_free::RecoverPoison;
 
 /// How long creating a terminal waits for existing terminals to shrink their
 /// Kitty quota before the new terminal starts with graphics disabled (the
@@ -17,7 +18,7 @@ impl Mux {
         surface: SurfaceId,
     ) -> anyhow::Result<KittyImageBudgetReservation> {
         {
-            let mut budget = self.kitty_image_budget.lock().unwrap();
+            let mut budget = self.kitty_image_budget.lock().recover_poison();
             Self::prune_dead_kitty_image_surfaces(&mut budget);
             anyhow::ensure!(
                 !budget.entries.contains_key(&surface),
@@ -29,21 +30,15 @@ impl Mux {
             if owns_quota {
                 budget.capacity = kitty_image_budget_capacity(owner_count + 1, budget.capacity);
             }
-            budget.entries.insert(
-                surface,
-                KittyImageBudgetEntry {
-                    surface: None,
-                    applied: KittyGraphicsLimits::disabled(),
-                    owns_quota,
-                    removing: false,
-                },
-            );
+            // A new terminal is about to be shown: it ranks as the most
+            // recently shown one.
+            budget.reserve_entry(surface, owns_quota);
         }
         self.start_kitty_image_budget_worker();
         let deadline = Instant::now() + KITTY_RESERVATION_WAIT;
         let initial_limits =
             loop {
-                let mut budget = self.kitty_image_budget.lock().unwrap();
+                let mut budget = self.kitty_image_budget.lock().recover_poison();
                 if !budget.blocked_surfaces.is_empty() {
                     let entry = budget.entries.get_mut(&surface).ok_or_else(|| {
                         anyhow::anyhow!("Kitty image budget reservation disappeared")
@@ -61,11 +56,19 @@ impl Mux {
                 if !owns_quota {
                     break KittyGraphicsLimits::disabled();
                 }
-                let target = kitty_image_limits_for_capacity(budget.capacity);
+                let plan = budget.plan();
+                let target = budget
+                    .entries
+                    .get(&surface)
+                    .map_or(KittyGraphicsLimits::disabled(), |entry| plan.desired(surface, entry));
                 if !budget.expansion_in_flight
                     && kitty_image_limits_enabled(target)
                     && budget.entries.iter().all(|(&id, entry)| {
-                        id == surface || kitty_image_limits_within(entry.applied, target)
+                        id == surface
+                            || kitty_image_limits_within(
+                                entry.applied,
+                                plan.admission_ceiling(id, entry),
+                            )
                     })
                 {
                     let entry = budget.entries.get_mut(&surface).ok_or_else(|| {
@@ -99,7 +102,7 @@ impl Mux {
                     budget,
                     remaining,
                 )
-                .unwrap();
+                .recover_poison();
                 drop(next);
             };
         Ok(KittyImageBudgetReservation {

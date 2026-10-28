@@ -343,9 +343,10 @@ pub fn install_host_replica(mux: &Arc<Mux>, replica: HostReplica) -> bool {
     }
     let weak = Arc::downgrade(mux);
     let mut events = mux.subscribe_launch_snapshot();
-    let spawned = cmux_threads::spawn(
+    let spawned = crate::thread_qos::spawn_raisable(
         "mux-host-replica-changes",
-        cmux_threads::ThreadQos::Utility,
+        crate::thread_qos::ThreadType::Utility.qos(),
+        None,
         move || {
             loop {
                 // mq14-allow: this watcher thread waits for its own events.
@@ -369,9 +370,10 @@ pub fn install_host_replica(mux: &Arc<Mux>, replica: HostReplica) -> bool {
     }
     let weak = Arc::downgrade(mux);
     let mut chats = mux.subscribe_conversations();
-    let spawned = cmux_threads::spawn(
+    let spawned = crate::thread_qos::spawn_raisable(
         "mux-host-replica-chief",
-        cmux_threads::ThreadQos::Utility,
+        crate::thread_qos::ThreadType::Utility.qos(),
+        None,
         move || {
             loop {
                 // mq14-allow: this watcher thread waits for its own events.

@@ -217,7 +217,7 @@ public actor AppLog {
     /// base/synchronization/lock.h with `GUARDED_BY` state).
     final class Acknowledgement: Sendable {
         private struct State {
-            var continuation: CheckedContinuation<Bool, Never>?
+            var continuation: OnceContinuation<Bool, OnceContinuationError>?
             var result: Bool?
         }
 
@@ -225,17 +225,20 @@ public actor AppLog {
         // cancellation and timeout races across producer tasks.
         private let state = Mutex(State())
 
-        func wait(timeoutNanoseconds: UInt64) async -> Bool {
+        func wait(timeout: Duration, on clock: any Clock<Duration>) async -> Bool {
             let timeoutTask = Task.detached { [self] in
                 do {
-                    try await Task.sleep(nanoseconds: timeoutNanoseconds)
+                    // wakeup-allow: deadline the acknowledgement times out once; an earlier answer cancels it.
+                    try await clock.sleep(for: timeout, tolerance: timeout.flexibleWakeTolerance)
                     resolve(false)
                 } catch {
                     // The waiter completed before the deadline.
                 }
             }
             let result = await withTaskCancellationHandler(operation: {
-                await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+                // The state holds the continuation until resolve(), so it is never abandoned; false (as a
+                // timeout answers) if it ever were.
+                (try? await withOnceContinuation { (continuation: OnceContinuation<Bool, OnceContinuationError>) in
                     let resolved = state.withLock { state -> Bool? in
                         if let result = state.result { return result }
                         state.continuation = continuation
@@ -244,7 +247,7 @@ public actor AppLog {
                     if let resolved {
                         continuation.resume(returning: resolved)
                     }
-                }
+                }) ?? false
             }, onCancel: {
                 resolve(false)
             })
@@ -257,7 +260,7 @@ public actor AppLog {
         }
 
         private func resolve(_ result: Bool) {
-            let continuation = state.withLock { state -> CheckedContinuation<Bool, Never>? in
+            let continuation = state.withLock { state -> OnceContinuation<Bool, OnceContinuationError>? in
                 guard state.result == nil else { return nil }
                 state.result = result
                 let continuation = state.continuation
@@ -329,36 +332,31 @@ public actor AppLog {
             }
         }
 
-        /// The next admitted batch, nil once finished. `wakes` is the drain
-        /// task's own iterator of ``wakes``; it waits there while the queue is empty.
+        /// The entries admitted since the last batch, nil once the ingress is
+        /// finished and empty. `wakes` is the drain task's own iterator of
+        /// ``wakes``; it waits there while the queue is empty.
         func nextBatch(wakes: inout AsyncStream<Void>.Iterator) async -> [Entry]? {
-            while true {
-                if let batch = withStateLock({ state -> [Entry]? in
-                    guard !state.entries.isEmpty else {
-                        return state.finished ? nil : []
-                    }
-                    let batch = state.entries
-                    state.entries.removeAll(keepingCapacity: true)
-                    state.bufferedDroppableCount = 0
-                    return batch
-                }) {
-                    if !batch.isEmpty { return batch }
-                } else {
-                    return nil
-                }
-
+            var batch = takeBatch()
+            while batch?.isEmpty == true {
                 guard await wakes.next() != nil else {
-                    if let batch = withStateLock({ state -> [Entry]? in
-                        guard !state.entries.isEmpty else { return nil }
-                        let batch = state.entries
-                        state.entries.removeAll(keepingCapacity: true)
-                        state.bufferedDroppableCount = 0
-                        return batch
-                    }) {
-                        return batch
-                    }
-                    return nil
+                    return takeBatch().flatMap { $0.isEmpty ? nil : $0 }
                 }
+                batch = takeBatch()
+            }
+            return batch
+        }
+
+        /// Everything admitted so far, `[]` when nothing is waiting, or nil
+        /// when the ingress is finished and empty.
+        private func takeBatch() -> [Entry]? {
+            withStateLock { state -> [Entry]? in
+                guard !state.entries.isEmpty else {
+                    return state.finished ? nil : []
+                }
+                let batch = state.entries
+                state.entries.removeAll(keepingCapacity: true)
+                state.bufferedDroppableCount = 0
+                return batch
             }
         }
 
@@ -640,14 +638,16 @@ public actor AppLog {
     private let supplementalAppLogURLs: @Sendable () -> [URL]
     private let flushSupplementalAppLog: @Sendable () async -> Bool
     private let supplementalAppLogSnapshot: @Sendable () async -> [Data]?
+    private let timeoutClock: any Clock<Duration>
 
-    private static let drainWaitTimeoutNanoseconds: UInt64 = 5_000_000_000
+    private static let drainWaitTimeout = Duration.seconds(5)
     private static let exportTimeoutNanoseconds: UInt64 = 10_000_000_000
     private static let ingressCapacity = 2_048
     private static let controlReserve = 16
 
     /// Create a log writing to the given locations. Passing `nil` for a URL
     /// disables that file (used by tests exercising one file at a time).
+    /// `timeoutClock` runs the drain and export deadlines.
     public init(
         appFileURL: URL?,
         networkFileURL: URL?,
@@ -658,7 +658,8 @@ public actor AppLog {
         now: @escaping @Sendable () -> Date = { Date() },
         supplementalAppLogURLs: @escaping @Sendable () -> [URL] = { [] },
         flushSupplementalAppLog: @escaping @Sendable () async -> Bool = { true },
-        supplementalAppLogSnapshot: @escaping @Sendable () async -> [Data]? = { nil }
+        supplementalAppLogSnapshot: @escaping @Sendable () async -> [Data]? = { nil },
+        timeoutClock: any Clock<Duration> = ContinuousClock()
     ) {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -666,6 +667,7 @@ public actor AppLog {
         self.supplementalAppLogURLs = supplementalAppLogURLs
         self.flushSupplementalAppLog = flushSupplementalAppLog
         self.supplementalAppLogSnapshot = supplementalAppLogSnapshot
+        self.timeoutClock = timeoutClock
         Self.removeStaleExportArchives()
         let started = formatter.string(from: now())
         if let appFileURL {
@@ -793,7 +795,7 @@ public actor AppLog {
         guard await flushSupplementalAppLog() else { return nil }
         let acknowledgement = Acknowledgement()
         ingress.enqueue(.barrier(acknowledgement))
-        guard await acknowledgement.wait(timeoutNanoseconds: Self.drainWaitTimeoutNanoseconds),
+        guard await acknowledgement.wait(timeout: Self.drainWaitTimeout, on: timeoutClock),
               !Task.isCancelled else {
             return nil
         }
@@ -806,9 +808,11 @@ public actor AppLog {
             }
             completion.resolve(Self.writeExportArchive(inputs: inputs))
         }
-        let timeoutTask = Task.detached {
+        let exportTimeout = Duration.nanoseconds(Self.exportTimeoutNanoseconds)
+        let timeoutTask = Task.detached { [timeoutClock] in
             do {
-                try await Task.sleep(nanoseconds: Self.exportTimeoutNanoseconds)
+                // wakeup-allow: deadline the export times out once; its completion cancels the wait.
+                try await timeoutClock.sleep(for: exportTimeout, tolerance: exportTimeout.flexibleWakeTolerance)
                 completion.resolve(nil)
                 exportTask.cancel()
             } catch {
@@ -980,12 +984,11 @@ public actor AppLog {
             }
             let destinationHandle = try FileHandle(forWritingTo: destination)
             defer { try? destinationHandle.close() }
-            while !Task.isCancelled {
-                let chunk = try sourceHandle.read(upToCount: 64 * 1024) ?? Data()
-                if chunk.isEmpty { return true }
+            while let chunk = try sourceHandle.read(upToCount: 64 * 1024), !chunk.isEmpty {
+                guard !Task.isCancelled else { return false }
                 try destinationHandle.write(contentsOf: chunk)
             }
-            return false
+            return !Task.isCancelled
         } catch {
             try? FileManager.default.removeItem(at: destination)
             return false
@@ -999,7 +1002,7 @@ public actor AppLog {
     public func clear() async -> Bool {
         let acknowledgement = Acknowledgement()
         ingress.enqueue(.clear(acknowledgement))
-        let didClear = await acknowledgement.wait(timeoutNanoseconds: Self.drainWaitTimeoutNanoseconds)
+        let didClear = await acknowledgement.wait(timeout: Self.drainWaitTimeout, on: timeoutClock)
         if didClear {
             Self.removeStaleExportArchives()
         }
@@ -1019,7 +1022,7 @@ public actor AppLog {
     /// `Mutex`, so it is plainly `Sendable`.
     private final class ExportCompletion: Sendable {
         private struct State {
-            var continuation: CheckedContinuation<URL?, Never>?
+            var continuation: OnceContinuation<URL?, OnceContinuationError>?
             var result: URL??
         }
 
@@ -1028,7 +1031,8 @@ public actor AppLog {
         private let state = Mutex(State())
 
         func wait() async -> URL? {
-            await withCheckedContinuation { continuation in
+            // An abandoned wait answers nil, as a failed export does.
+            try? await withOnceContinuation { (continuation: OnceContinuation<URL?, OnceContinuationError>) in
                 let resolved = state.withLock { state -> URL?? in
                     if let result = state.result { return .some(result) }
                     state.continuation = continuation
@@ -1042,7 +1046,7 @@ public actor AppLog {
 
         func resolve(_ result: URL?) {
             let (isFirst, continuation) = state.withLock {
-                state -> (Bool, CheckedContinuation<URL?, Never>?) in
+                state -> (Bool, OnceContinuation<URL?, OnceContinuationError>?) in
                 guard state.result == nil else { return (false, nil) }
                 state.result = .some(result)
                 let continuation = state.continuation

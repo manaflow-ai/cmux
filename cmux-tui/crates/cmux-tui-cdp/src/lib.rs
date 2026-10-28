@@ -26,6 +26,7 @@
         clippy::exit
     )
 )]
+#![forbid(unsafe_code)]
 
 mod client;
 

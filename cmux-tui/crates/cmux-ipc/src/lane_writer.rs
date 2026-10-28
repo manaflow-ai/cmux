@@ -42,8 +42,9 @@
 //!
 //! A payload longer than `chunk_bytes` leaves as several frames; the chunk is
 //! the preemption boundary. Call kinds set `CallFlags::MORE` on every chunk but
-//! the last; OUTPUT and REPLAY chunks carry the PTY offset of their first byte;
-//! a SNAPSHOT continues as SNAPSHOT_MORE. Other kinds are written whole.
+//! the last; OUTPUT chunks carry the PTY offset of their first byte; a REPLAY
+//! (a meta envelope, not PTY bytes) keeps its cut offset on every chunk; a
+//! SNAPSHOT continues as SNAPSHOT_MORE. Other kinds are written whole.
 //! Chunks share the pushed payload (`Bytes::slice`), and a pop allocates
 //! nothing.
 //!
@@ -356,6 +357,9 @@ impl Fifo {
 enum ChunkRule {
     /// Each chunk carries the PTY offset of its first byte.
     Offset,
+    /// Every chunk keeps the frame's kind and aux: the payload is an
+    /// envelope whose bytes are not PTY bytes, so the offset stays the cut.
+    SameAux,
     /// SNAPSHOT, then SNAPSHOT_MORE with the same offset.
     Snapshot,
     /// The same call aux, with MORE on every chunk but the last and FDS only
@@ -365,7 +369,8 @@ enum ChunkRule {
 
 const fn chunk_rule(kind: FrameKind) -> Option<ChunkRule> {
     match kind {
-        FrameKind::Output | FrameKind::Replay => Some(ChunkRule::Offset),
+        FrameKind::Output => Some(ChunkRule::Offset),
+        FrameKind::Replay => Some(ChunkRule::SameAux),
         FrameKind::Snapshot | FrameKind::SnapshotMore => Some(ChunkRule::Snapshot),
         FrameKind::Request | FrameKind::Reply | FrameKind::Error | FrameKind::TypedEvent => {
             Some(ChunkRule::Call)

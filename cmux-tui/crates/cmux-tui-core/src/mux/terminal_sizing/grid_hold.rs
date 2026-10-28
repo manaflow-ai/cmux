@@ -99,16 +99,16 @@ impl Mux {
     }
 
     /// Ends the hold at its deadline (an intentional bounded delay, the
-    /// hold's own). False when no timer can run (the mux is not owned yet, or
-    /// no thread): then no hold is set, since nothing would end it.
+    /// hold's own) with a delayed work item, not a thread asleep for it.
+    /// False when nothing would end it (the mux is not owned yet, or
+    /// shutdown began): then no hold is set.
     fn schedule_terminal_grid_hold_end(&self, runtime: SurfaceId, grace: Duration) -> bool {
-        let Some(mux) = self.exit_settles.owner() else { return false };
-        let mux = Arc::downgrade(&mux);
-        cmux_threads::spawn(
-            "terminal-grid-hold",
-            cmux_threads::ThreadQos::UserInitiated,
-            move || {
-                crate::request_path::sleep(grace);
+        self.post_mux_work_after(
+            grace,
+            cmux_threads::work::Priority::UserVisible,
+            cmux_threads::work::Lane::Cpu,
+            cmux_threads::work::Shutdown::SkipOnShutdown,
+            move |mux| {
                 if let Some(mux) = mux.upgrade() {
                     mux.end_expired_terminal_grid_hold(runtime);
                 }

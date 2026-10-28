@@ -2,7 +2,8 @@
 // once, the preinit replay log (latest values) goes first at every attach, the attach queue never
 // drops and coalesces state ops, optional ops need the HELLO, ids are minted from 1 << 20, mirror
 // values pushed before an EVENT are read in that event's callback, a post's pending keys hide
-// the old value until the ack, and a bad frame ends the host. Built and run by
+// the old value until the ack, a lock push reaches cmux's lock fn (and a host's end unlocks
+// what it held), and a bad frame ends the host. Built and run by
 // scripts/cmux-next/tests/remote-shim-abi.test.sh; needs no CEF. One translation unit with the
 // client, for the generated op ids (generated/remote_shim.inc also defines the exports).
 #include "remote_shim.mm"
@@ -440,6 +441,356 @@ void TestOrderingThroughTheRuntime() {
   PumpUntil([] { return false; }, std::chrono::milliseconds(100));
   ::close(host.fd);
 }
+// Every frame the fake host has within `quiet` of the last one.
+std::vector<Message> Drain(Host* host, std::chrono::milliseconds quiet = std::chrono::milliseconds(200)) {
+  std::vector<Message> out;
+  for (;;) {
+    PumpUntil([] { return false; }, std::chrono::milliseconds(20));
+    pollfd p{host->fd, POLLIN, 0};
+    if (host->buffer.empty() && ::poll(&p, 1, static_cast<int>(quiet.count())) <= 0) return out;
+    const std::vector<Message> got = host->Read(1);
+    if (got.empty()) return out;
+    out.push_back(got[0]);
+  }
+}
+
+// The saver frames among `messages`: "<version> <enabled> <scheme or <null>>".
+std::vector<std::string> SaverFrames(const std::vector<Message>& messages) {
+  std::vector<std::string> out;
+  for (const Message& m : messages) {
+    if (m.op != cmux_host::kOpEnergySaver) continue;
+    TlvReader r(m.fields);
+    const int32_t version = r.I32();
+    const int32_t enabled = r.I32();
+    const std::optional<std::string> scheme = r.Str();
+    CHECK(r.ok() && r.AtEnd() && m.token == 0);
+    out.push_back(std::to_string(version) + " " + std::to_string(enabled) + " " + scheme.value_or("<null>"));
+  }
+  return out;
+}
+
+// A host HELLO of this wire listing `exports`.
+Message HelloListing(std::vector<const char*> exports) {
+  TlvWriter w;
+  w.Str(cmux_remote::kWireID);
+  w.StrList(exports.data(), static_cast<int>(exports.size()));
+  Message message;
+  message.op = cmux_host::control::kOpHello;
+  message.fields = w.Take();
+  return message;
+}
+
+void SayHello(Host* host, std::vector<const char*> exports) {
+  const int ready = seen.ready;
+  host->Send(HelloListing(std::move(exports)));
+  CHECK(PumpUntil([&] { return seen.ready == ready + 1; }));
+}
+
+// cmux_shim_set_energy_saver in host mode (task p14-energy-045): the host's end sees kOpEnergySaver,
+// versioned, on each edge; the call answers 1 only for a host whose HELLO listed the saver; a new
+// host gets the saver once while it is on, and nothing while it is off; a host without the saver
+// gets no frame.
+void TestEnergySaver() {
+  const std::string want_on = std::to_string(cmux_host::kEnergySaverVersion) + " 1 cmux-page";
+  const std::string want_off = std::to_string(cmux_host::kEnergySaverVersion) + " 0 cmux-page";
+
+  // No host: kept for the next one, answered 0.
+  CHECK(cmux_remote_shim_attached() == 0);
+  CHECK(cmux_shim_set_energy_saver(1, "cmux-page") == 0);
+  Host first;
+  CHECK(AttachNew(&first) == 1);
+  CHECK(SaverFrames(Drain(&first)).empty());  // it waits for the HELLO, which says whether the host has it
+  SayHello(&first, {cmux_host::kEnergySaverHelloName});
+  CHECK(SaverFrames(Drain(&first)) == std::vector<std::string>({want_on}));
+  // Each edge is one frame.
+  CHECK(cmux_shim_set_energy_saver(0, "cmux-page") == 1);
+  CHECK(cmux_shim_set_energy_saver(1, nullptr) == 1);
+  CHECK(cmux_shim_set_energy_saver(0, "cmux-page") == 1);
+  CHECK(SaverFrames(Drain(&first)) ==
+        std::vector<std::string>({want_off, std::to_string(cmux_host::kEnergySaverVersion) + " 1 <null>", want_off}));
+  cmux_remote_shim_detach();
+  ::close(first.fd);
+
+  // Off: a new host starts with it off and gets no frame.
+  Host second;
+  CHECK(AttachNew(&second) == 1);
+  SayHello(&second, {cmux_host::kEnergySaverHelloName});
+  CHECK(SaverFrames(Drain(&second)).empty());
+  CHECK(cmux_shim_set_energy_saver(1, "cmux-page") == 1);
+  CHECK(SaverFrames(Drain(&second)) == std::vector<std::string>({want_on}));
+  cmux_remote_shim_detach();
+  ::close(second.fd);
+  // On: the next host gets it after its HELLO. An edge before that HELLO waits for it too, and
+  // the call cannot say whether it applies.
+  Host third;
+  CHECK(AttachNew(&third) == 1);
+  CHECK(cmux_shim_set_energy_saver(1, "cmux-page") == 0);
+  CHECK(SaverFrames(Drain(&third)).empty());
+  SayHello(&third, {cmux_host::kEnergySaverHelloName});
+  CHECK(SaverFrames(Drain(&third)) == std::vector<std::string>({want_on, want_on}));
+  cmux_remote_shim_detach();
+  ::close(third.fd);
+
+  // A host whose fork has no saver: no frame, and the call answers 0.
+  Host fourth;
+  CHECK(AttachNew(&fourth) == 1);
+  SayHello(&fourth, {});
+  CHECK(cmux_shim_set_energy_saver(0, "cmux-page") == 0);
+  CHECK(SaverFrames(Drain(&fourth)).empty());
+  cmux_remote_shim_detach();
+  ::close(fourth.fd);
+  PumpUntil([] { return false; }, std::chrono::milliseconds(100));
+}
+
+// The host watch (task p01-process-084): a host whose HELLO lists kHangWatchHelloName has the
+// seqs cmux_remote_shim_order_input gives counted against its kOpInputDispatched. The callback
+// hears the first waiting seq, a dispatch that leaves later ones waiting, the dispatch that
+// settles them, and each kOpHostHang; a detach settles what waited. A host without the name
+// counts nothing, and a malformed ack ends the host.
+struct WatchEvent {
+  int32_t event;
+  int64_t a;
+  int64_t b;
+  bool operator==(const WatchEvent& other) const { return event == other.event && a == other.a && b == other.b; }
+};
+std::vector<WatchEvent> watch_events;
+void OnHostWatch(void*, int32_t event, int64_t a, int64_t b) {
+  watch_events.push_back({event, a, b});
+}
+
+void TestHostWatch() {
+  namespace hang = cmux_host::hang;
+  cmux_remote_shim_set_host_watch(nullptr, &OnHostWatch);
+  watch_events.clear();
+
+  Host watched;
+  CHECK(AttachNew(&watched) == 1);
+  SayHello(&watched, {hang::kHangWatchHelloName});
+  uint32_t ctl = 0;
+  const uint32_t first = cmux_remote_shim_order_input(&ctl);
+  const uint32_t second = cmux_remote_shim_order_input(&ctl);
+  const uint32_t third = cmux_remote_shim_order_input(&ctl);
+  CHECK(first != 0 && second != 0 && third != 0);
+  CHECK(watch_events == std::vector<WatchEvent>({{CMUX_REMOTE_HOST_INPUT_OUTSTANDING, 0, 0}}));
+  watch_events.clear();
+  watched.Send(hang::DispatchedMessage(second));
+  CHECK(PumpUntil([] { return !watch_events.empty(); }));
+  CHECK(watch_events == std::vector<WatchEvent>({{CMUX_REMOTE_HOST_INPUT_PROGRESS, 0, 0}}));
+  watch_events.clear();
+  watched.Send(hang::HangMessage({300'000'000, hang::kHangDumped}));
+  watched.Send(hang::DispatchedMessage(third));
+  CHECK(PumpUntil([] { return watch_events.size() == 2; }));
+  CHECK(watch_events == std::vector<WatchEvent>({{CMUX_REMOTE_HOST_HANG, 300'000'000, hang::kHangDumped},
+                                                  {CMUX_REMOTE_HOST_INPUT_SETTLED, 0, 0}}));
+  watch_events.clear();
+  // Waiting input goes with the host.
+  CHECK(cmux_remote_shim_order_input(&ctl) != 0);
+  CHECK(watch_events.size() == 1 && watch_events[0].event == CMUX_REMOTE_HOST_INPUT_OUTSTANDING);
+  watch_events.clear();
+  cmux_remote_shim_detach();
+  ::close(watched.fd);
+  CHECK(watch_events == std::vector<WatchEvent>({{CMUX_REMOTE_HOST_INPUT_SETTLED, 0, 0}}));
+  watch_events.clear();
+
+  // Control-channel input (the wheel, until the ring carries it): each goes with a token, and the
+  // host's kOpAck of it, sent once the op ran, is its ack. A wheel waits from its post on.
+  Host wheels;
+  CHECK(AttachNew(&wheels) == 1);
+  SayHello(&wheels, {hang::kHangWatchHelloName});
+  Drain(&wheels);
+  watch_events.clear();
+  CHECK(cmux_shim_browser_send_wheel(7, 10, 20, 0, -3, 1, 0, 0, 0) == 1);
+  CHECK(watch_events == std::vector<WatchEvent>({{CMUX_REMOTE_HOST_INPUT_OUTSTANDING, 0, 0}}));
+  CHECK(cmux_shim_browser_send_wheel(7, 10, 20, 0, -3, 1, 0, 0, 0) == 1);
+  CHECK(watch_events.size() == 1);  // the second joins the wait
+  watch_events.clear();
+  std::vector<uint32_t> wheel_tokens;
+  for (const Message& message : wheels.Read(2)) {
+    CHECK(message.op == cmux_remote::kOpBrowserSendWheel && message.token != 0);
+    wheel_tokens.push_back(message.token);
+  }
+  CHECK(wheel_tokens.size() == 2 && wheel_tokens[0] != wheel_tokens[1]);
+  auto host_ack = [](uint32_t token) {
+    Message ack;
+    ack.op = cmux_remote::kOpAck;
+    ack.reply = true;
+    ack.token = token;
+    return ack;
+  };
+  if (wheel_tokens.size() == 2) {
+    wheels.Send(host_ack(wheel_tokens[0]));
+    CHECK(PumpUntil([] { return !watch_events.empty(); }));
+    CHECK(watch_events == std::vector<WatchEvent>({{CMUX_REMOTE_HOST_INPUT_PROGRESS, 0, 0}}));
+    watch_events.clear();
+    wheels.Send(host_ack(wheel_tokens[1]));
+    CHECK(PumpUntil([] { return !watch_events.empty(); }));
+    CHECK(watch_events == std::vector<WatchEvent>({{CMUX_REMOTE_HOST_INPUT_SETTLED, 0, 0}}));
+    watch_events.clear();
+  }
+  // Ring and control input wait together: the ring's dispatch alone is progress, the wheel's ack
+  // settles both.
+  const uint32_t ring = cmux_remote_shim_order_input(&ctl);
+  CHECK(cmux_shim_browser_send_locked_mouse_move(7, 1, 1, 0) == 1);
+  CHECK(watch_events == std::vector<WatchEvent>({{CMUX_REMOTE_HOST_INPUT_OUTSTANDING, 0, 0}}));
+  watch_events.clear();
+  const std::vector<Message> moved = wheels.Read(1);
+  CHECK(moved.size() == 1 && moved[0].op == cmux_remote::kOpBrowserSendLockedMouseMove && moved[0].token != 0);
+  wheels.Send(hang::DispatchedMessage(ring));
+  CHECK(PumpUntil([] { return !watch_events.empty(); }));
+  CHECK(watch_events == std::vector<WatchEvent>({{CMUX_REMOTE_HOST_INPUT_PROGRESS, 0, 0}}));
+  watch_events.clear();
+  if (moved.size() == 1) wheels.Send(host_ack(moved[0].token));
+  CHECK(PumpUntil([] { return !watch_events.empty(); }));
+  CHECK(watch_events == std::vector<WatchEvent>({{CMUX_REMOTE_HOST_INPUT_SETTLED, 0, 0}}));
+  watch_events.clear();
+  // A wheel the host never acks (it stopped) waits until the host goes.
+  CHECK(cmux_shim_browser_send_wheel(7, 10, 20, 0, -3, 1, 0, 0, 0) == 1);
+  CHECK(watch_events == std::vector<WatchEvent>({{CMUX_REMOTE_HOST_INPUT_OUTSTANDING, 0, 0}}));
+  watch_events.clear();
+  PumpUntil([] { return false; }, std::chrono::milliseconds(50));
+  CHECK(watch_events.empty());
+  cmux_remote_shim_detach();
+  ::close(wheels.fd);
+  CHECK(watch_events == std::vector<WatchEvent>({{CMUX_REMOTE_HOST_INPUT_SETTLED, 0, 0}}));
+  watch_events.clear();
+
+  // A host that does not ack its dispatch: nothing is counted (no busy banner for it), and its
+  // wheels carry no token.
+  Host plain;
+  CHECK(AttachNew(&plain) == 1);
+  SayHello(&plain, {});
+  Drain(&plain);
+  CHECK(cmux_remote_shim_order_input(&ctl) != 0);
+  CHECK(cmux_shim_browser_send_wheel(7, 10, 20, 0, -3, 1, 0, 0, 0) == 1);
+  {
+    const std::vector<Message> got = plain.Read(1);
+    CHECK(got.size() == 1 && got[0].op == cmux_remote::kOpBrowserSendWheel && got[0].token == 0);
+  }
+  CHECK(watch_events.empty());
+  cmux_remote_shim_detach();
+  ::close(plain.fd);
+  CHECK(watch_events.empty());
+
+  // A malformed ack (seq 0) is a bad message: the host is ended.
+  Host bad;
+  CHECK(AttachNew(&bad) == 1);
+  SayHello(&bad, {hang::kHangWatchHelloName});
+  seen.ended = -1;
+  Message zero = hang::DispatchedMessage(1);
+  zero.fields[0].integer = 0;
+  bad.Send(zero);
+  CHECK(PumpUntil([] { return seen.ended == CMUX_REMOTE_END_MALFORMED; }));
+  ::close(bad.fd);
+  cmux_remote_shim_set_host_watch(nullptr, nullptr);
+  PumpUntil([] { return false; }, std::chrono::milliseconds(100));
+}
+
+// The lock fn's calls: "<event> <browser> <detail>".
+std::vector<std::string> lock_calls;
+void OnLock(void* context, int event, int browser_id, int detail) {
+  CHECK(context == &lock_calls);
+  lock_calls.push_back(std::to_string(event) + " " + std::to_string(browser_id) + " " + std::to_string(detail));
+}
+
+Message LockPush(int event, int browser, int detail) {
+  TlvWriter w;
+  w.I32(CMUX_SHIM_LOCK);
+  w.I32(browser);
+  w.I32(event);
+  w.I64(detail);
+  w.I64(0);
+  w.Str("");
+  w.Str("");
+  Message message;
+  message.op = cmux_remote::kOpEvent;
+  message.fields = w.Take();
+  return message;
+}
+
+// The lock handler frames among `messages`: their installed flag.
+std::vector<int> LockHandlerFrames(const std::vector<Message>& messages) {
+  std::vector<int> out;
+  for (const Message& m : messages) {
+    if (m.op != cmux_remote::kOpSetLockHandler) continue;
+    const std::optional<bool> installed = cmux_host::DecodeLockHandler(m.fields);
+    CHECK(installed.has_value() && m.token == 0);
+    out.push_back(installed.value_or(false) ? 1 : 0);
+  }
+  return out;
+}
+
+// cmux_shim_set_lock_handler in host mode (task 229): only the handler's on/off goes to a host
+// whose HELLO listed kLocksHelloName, again to every later host; the host's CMUX_SHIM_LOCK
+// pushes reach cmux's lock fn and never its event fn; a host that ends unlocks every lock it may
+// hold; a host without the delegate gets no frame and the call answers 0.
+void TestLocks() {
+  lock_calls.clear();
+  CHECK(cmux_remote_shim_attached() == 0);
+  CHECK(cmux_shim_set_lock_handler(&OnLock, &lock_calls) == 0);  // no host: kept for the next one
+  Host first;
+  CHECK(AttachNew(&first) == 1);
+  CHECK(LockHandlerFrames(Drain(&first)).empty());  // it waits for the HELLO
+  SayHello(&first, {cmux_host::kLocksHelloName});
+  CHECK(LockHandlerFrames(Drain(&first)) == std::vector<int>({1}));
+  const int events = seen.events;
+  const int browser = cmux_remote::kFirstMintedBrowserID;
+  first.Send(LockPush(CMUX_SHIM_POINTER_LOCK_REQUESTED, browser, 1));
+  first.Send(LockPush(CMUX_SHIM_KEYBOARD_LOCK_REQUESTED, browser + 1, 1));
+  first.Send(LockPush(CMUX_SHIM_KEYBOARD_LOCK_REQUESTED, browser + 2, 0));
+  first.Send(LockPush(CMUX_SHIM_KEYBOARD_UNLOCKED, browser + 2, 0));
+  first.Send(LockPush(9, browser, 0));  // an event this side does not know: dropped
+  CHECK(PumpUntil([] { return lock_calls.size() == 4; }));
+  const std::string b0 = std::to_string(browser), b1 = std::to_string(browser + 1), b2 = std::to_string(browser + 2);
+  CHECK(lock_calls == std::vector<std::string>({"0 " + b0 + " 1", "2 " + b1 + " 1", "2 " + b2 + " 0", "3 " + b2 + " 0"}));
+  CHECK(seen.events == events);  // cmux's event fn never sees a lock push
+  // The host ends: what it may hold is unlocked, pointer first.
+  lock_calls.clear();
+  cmux_remote_shim_detach();
+  CHECK(lock_calls == std::vector<std::string>({"1 " + b0 + " 0", "3 " + b1 + " 0"}));
+  ::close(first.fd);
+
+  // A host whose fork has no lock delegate: no frame, and the call answers 0.
+  lock_calls.clear();
+  Host second;
+  CHECK(AttachNew(&second) == 1);
+  SayHello(&second, {});
+  CHECK(LockHandlerFrames(Drain(&second)).empty());
+  CHECK(cmux_shim_set_lock_handler(&OnLock, &lock_calls) == 0);
+  CHECK(LockHandlerFrames(Drain(&second)).empty());
+  cmux_remote_shim_detach();
+  CHECK(lock_calls.empty());
+  ::close(second.fd);
+
+  // The next host gets the handler after its HELLO; removing it sends off, once.
+  Host third;
+  CHECK(AttachNew(&third) == 1);
+  SayHello(&third, {cmux_host::kLocksHelloName});
+  CHECK(LockHandlerFrames(Drain(&third)) == std::vector<int>({1}));
+  CHECK(cmux_shim_set_lock_handler(nullptr, nullptr) == 1);
+  CHECK(cmux_shim_set_lock_handler(nullptr, nullptr) == 0);  // already off: nothing to send
+  CHECK(LockHandlerFrames(Drain(&third)) == std::vector<int>({0}));
+  third.Send(LockPush(CMUX_SHIM_POINTER_LOCK_REQUESTED, browser, 0));
+  PumpUntil([] { return false; }, std::chrono::milliseconds(100));
+  CHECK(lock_calls.empty());  // with no handler a push is dropped
+  cmux_remote_shim_detach();
+  ::close(third.fd);
+  PumpUntil([] { return false; }, std::chrono::milliseconds(100));
+}
+
+// The fence rights cmux_remote_shim_page_resize sent (cmux_remote_shim_set_fence_sender): there
+// is no Mach off macOS, so the fenced path is driven through this one.
+struct FenceSend {
+  unsigned int channel;
+  unsigned int fence;
+  uint64_t seq;
+};
+std::vector<FenceSend> fence_sends;
+int fence_send_result = 1;
+int RecordFenceSend(unsigned int channel, unsigned int fence, uint64_t seq) {
+  fence_sends.push_back({channel, fence, seq});
+  return fence_send_result;
+}
+
 }  // namespace
 
 int main() {
@@ -626,6 +977,50 @@ int main() {
     cmux_remote_shim_set_reply(nullptr, &OnReply);
   }
 
+  // A password reveal's REPLY goes to its own sink, never to the reply callback (task
+  // p01-process-025).
+  {
+    static std::vector<std::pair<uint32_t, std::string>> revealed;
+    static bool null_password = false;
+    const cmux_remote::PasswordRevealedFn sink = [](uint32_t answered, const char* password, size_t length) {
+      null_password = password == nullptr;
+      revealed.emplace_back(answered, password ? std::string(password, length) : std::string());
+      return true;
+    };
+    CHECK(!cmux_remote::PostPasswordReveal(0, "/profile", "id1", sink));
+    CHECK(!cmux_remote::PostPasswordReveal(cmux_remote::NextToken(), "/profile", "id1", nullptr));
+    const uint32_t token = cmux_remote::NextToken();
+    CHECK(cmux_remote::PostPasswordReveal(token, "/profile", "id1", sink));
+    const std::vector<Message> sent = host.Read(1);
+    CHECK(sent.size() == 1 && sent[0].op == cmux_remote::kOpPasswordReveal && sent[0].token == token);
+    if (sent.size() == 1) {
+      TlvReader request(sent[0].fields);
+      CHECK(request.Str() == std::optional<std::string>("/profile"));
+      CHECK(request.Str() == std::optional<std::string>("id1") && request.ok() && request.AtEnd());
+    }
+    cmux_host::control::TlvWriter password;
+    password.Bytes("s3cret", 6);
+    Message answer;
+    answer.op = cmux_remote::kOpReply;
+    answer.token = token;
+    answer.fields = password.Take();
+    host.Send(answer);
+    CHECK(PumpUntil([] { return !revealed.empty(); }));
+    CHECK(revealed.size() == 1 && revealed[0] == std::make_pair(token, std::string("s3cret")) && !null_password);
+    CHECK(seen.replies.size() == 2);  // the reply callback never saw it
+
+    const uint32_t missing = cmux_remote::NextToken();
+    CHECK(cmux_remote::PostPasswordReveal(missing, "/profile", "id2", sink));
+    CHECK(host.Read(1).size() == 1);
+    Message none;
+    none.op = cmux_remote::kOpReply;
+    none.token = missing;
+    host.Send(none);
+    CHECK(PumpUntil([] { return revealed.size() == 2; }));
+    CHECK(revealed.size() == 2 && revealed[1].first == missing && null_password);
+    CHECK(seen.replies.size() == 2);
+  }
+
   // A mirror value pushed before its EVENT is what the event's callback reads.
   const int browser = cmux_remote::kFirstMintedBrowserID;
   host.Send(Mirror(cmux_remote::kOpTabNavigationState, browser, "{\"index\":1}"));
@@ -748,6 +1143,62 @@ int main() {
     }
   }
 
+  // A page resize (task 052) is an ordered op too. With no fence channel (and no Mach off macOS)
+  // it goes unfenced: fence seq 0, no token, nothing to answer.
+  {
+    CHECK(cmux_remote_shim_set_resize_fence_channel(0) == 1);
+    CHECK(cmux_remote_shim_page_resize(9, browser, 640, 480, 0x1103u, 1) == CMUX_REMOTE_RESIZE_UNFENCED);
+    CHECK(cmux_remote_shim_last_reply_token() == 0);
+    CHECK(cmux_remote_shim_page_resize(0, browser, 640, 480, 0, 1) == CMUX_REMOTE_RESIZE_NOT_SENT);  // no view
+    const std::vector<Message> got = host.Read(1);
+    CHECK(got.size() == 1 && got[0].op == cmux_host::kOpPageResize && got[0].token == 0 && got[0].ctl_seq == 7 &&
+          got[0].after_input == 5);
+    const std::optional<cmux_host::PageResize> resize =
+        got.empty() ? std::nullopt : cmux_host::DecodePageResize(got[0].fields);
+    CHECK(resize && resize->view == 9 && resize->browser == browser && resize->width == 640 &&
+          resize->height == 480 && resize->fence_seq == 0 && resize->deadline_frames == 1);
+  }
+
+  // With a fence channel, the fence right goes to the host's inbox first, under the next fence
+  // seq, and the op carries that seq and a token the host answers. A fence the inbox did not take
+  // sends the op unfenced and takes no seq.
+  {
+    cmux_remote_shim_set_fence_sender(&RecordFenceSend);
+    CHECK(cmux_remote_shim_set_resize_fence_channel(0x2201u) == 1);
+    CHECK(cmux_remote_shim_page_resize(9, browser, 700, 480, 0x1103u, 1) == CMUX_REMOTE_RESIZE_FENCED);
+    const uint32_t first = cmux_remote_shim_last_reply_token();
+    CHECK(first != 0);
+    CHECK(cmux_remote_shim_page_resize(9, browser, 720, 480, 0x1104u, 1) == CMUX_REMOTE_RESIZE_FENCED);
+    const uint32_t second = cmux_remote_shim_last_reply_token();
+    CHECK(second != 0 && second != first);
+    fence_send_result = 0;
+    CHECK(cmux_remote_shim_page_resize(9, browser, 740, 480, 0x1105u, 1) == CMUX_REMOTE_RESIZE_UNFENCED);
+    CHECK(cmux_remote_shim_last_reply_token() == 0);
+    fence_send_result = 1;
+    CHECK(cmux_remote_shim_page_resize(9, browser, 760, 480, 0, 1) == CMUX_REMOTE_RESIZE_UNFENCED);  // no fence
+    CHECK(cmux_remote_shim_page_resize(9, browser, 780, 480, 0x1106u, 1) == CMUX_REMOTE_RESIZE_FENCED);
+    const uint32_t third = cmux_remote_shim_last_reply_token();
+    CHECK(fence_sends.size() == 4);
+    if (fence_sends.size() == 4) {
+      CHECK(fence_sends[0].channel == 0x2201u && fence_sends[0].fence == 0x1103u && fence_sends[0].seq == 1);
+      CHECK(fence_sends[1].fence == 0x1104u && fence_sends[1].seq == 2);
+      CHECK(fence_sends[2].fence == 0x1105u && fence_sends[2].seq == 3);  // not taken
+      CHECK(fence_sends[3].fence == 0x1106u && fence_sends[3].seq == 3);  // the seq the failed one did not take
+    }
+    const std::vector<Message> got = host.Read(5);
+    CHECK(got.size() == 5);
+    const uint64_t seqs[] = {1, 2, 0, 0, 3};
+    const uint32_t tokens[] = {first, second, 0, 0, third};
+    for (size_t i = 0; i < got.size() && i < 5; ++i) {
+      const std::optional<cmux_host::PageResize> resize = cmux_host::DecodePageResize(got[i].fields);
+      CHECK(got[i].op == cmux_host::kOpPageResize && got[i].token == tokens[i] && got[i].ctl_seq != 0);
+      CHECK(resize && resize->view == 9 && resize->width == 700 + 20 * static_cast<int32_t>(i) &&
+            resize->fence_seq == seqs[i]);
+    }
+    cmux_remote_shim_set_fence_sender(nullptr);
+    CHECK(cmux_remote_shim_set_resize_fence_channel(0) == 1);
+  }
+
   // A host that never reads: posts still return at once, and the geometry of a page waits
   // coalesced to one frame.
   cmux_remote_shim_get_stats(&stats);
@@ -848,11 +1299,20 @@ int main() {
     CHECK(got.size() == 1 && got[0].op == cmux_remote::kOpSetFocus && got[0].ctl_seq == 2 &&
           got[0].after_input == 1);
   }
-  // Its HELLO from another generation of the op table ends it.
+  // Its HELLO from another generation of the op table ends it. cmux_remote_shim_set_ended moves
+  // the end to another sink and its ctx (CEFRemoteShim's, task 091).
   seen.ended = -1;
-  second.Send(Hello("another-wire"));
-  CHECK(PumpUntil([] { return seen.ended >= 0; }));
-  CHECK(seen.ended == CMUX_REMOTE_END_MALFORMED);
+  {
+    static std::vector<std::pair<void*, int>> ends;
+    int end_ctx = 0;
+    cmux_remote_shim_set_ended(&end_ctx, [](void* ctx, int reason) { ends.emplace_back(ctx, reason); });
+    second.Send(Hello("another-wire"));
+    CHECK(PumpUntil([] { return !ends.empty(); }));
+    CHECK(ends.size() == 1 && ends[0].first == &end_ctx && ends[0].second == CMUX_REMOTE_END_MALFORMED);
+    CHECK(seen.ended == -1);
+    CHECK(cmux_remote_shim_attached() == 0);
+    cmux_remote_shim_set_ended(nullptr, &OnEnded);
+  }
   CHECK(seen.ready == 1);
   ::close(second.fd);
   PumpUntil([] { return false; }, std::chrono::milliseconds(100));
@@ -898,11 +1358,132 @@ int main() {
   seen.ended = -1;
   cmux_remote_shim_detach();
   CHECK(cmux_remote_shim_attached() == 0);
+  // With no host a fence channel would name a host that is gone, and a resize goes nowhere.
+  CHECK(cmux_remote_shim_set_resize_fence_channel(0) == 0);
+  CHECK(cmux_remote_shim_page_resize(9, 1, 640, 480, 0x1103u, 1) == CMUX_REMOTE_RESIZE_NOT_SENT);
   PumpUntil([] { return false; }, std::chrono::milliseconds(100));
   CHECK(seen.ended == -1);
   ::close(third.fd);
+  PumpUntil([] { return false; }, std::chrono::milliseconds(100));
+
+  // A reveal no answer reaches ends once as not found, revealed(token, NULL, 0): a detach, the
+  // host's exit, a malformed answer, a queued op that was then not sent (task p01-process-025).
+  {
+    static std::vector<std::pair<uint32_t, bool>> ended;  // token, and whether password was NULL
+    const cmux_remote::PasswordRevealedFn sink = [](uint32_t token, const char* password, size_t) {
+      ended.emplace_back(token, password == nullptr);
+      return true;
+    };
+    // Reads an attach's frames up to the first reveal; true when it is `token`'s.
+    const auto read_reveal = [](Host& h, uint32_t token) {
+      for (int i = 0; i < 64; ++i) {
+        const std::vector<Message> got = h.Read(1);
+        if (got.empty()) return false;
+        if (got[0].op == cmux_remote::kOpPasswordReveal) return got[0].token == token;
+      }
+      return false;
+    };
+    const auto ended_once = [](uint32_t token) { return ended == std::vector<std::pair<uint32_t, bool>>{{token, true}}; };
+    const auto answer = [](Host& h, uint32_t token, const cmux_host::control::TlvWriter& fields) {
+      Message reply;
+      reply.op = cmux_remote::kOpReply;
+      reply.token = token;
+      reply.fields = fields.fields();
+      h.Send(reply);
+    };
+    const auto settle = [](Host& h) {
+      ::close(h.fd);
+      PumpUntil([] { return false; }, std::chrono::milliseconds(100));  // the old channel's end
+    };
+
+    // A detach cmux asks for.
+    {
+      Host h;
+      CHECK(AttachNew(&h) == 1);
+      const uint32_t token = cmux_remote::NextToken();
+      CHECK(cmux_remote::PostPasswordReveal(token, "/profile", "id", sink));
+      CHECK(read_reveal(h, token));
+      CHECK(ended.empty());
+      cmux_remote_shim_detach();
+      CHECK(ended_once(token));
+      settle(h);
+      CHECK(ended_once(token));  // never twice
+      ended.clear();
+    }
+    // The host's exit.
+    {
+      Host h;
+      CHECK(AttachNew(&h) == 1);
+      const uint32_t token = cmux_remote::NextToken();
+      CHECK(cmux_remote::PostPasswordReveal(token, "/profile", "id", sink));
+      CHECK(read_reveal(h, token));
+      seen.ended = -1;
+      ::close(h.fd);
+      CHECK(PumpUntil([] { return seen.ended >= 0; }));
+      CHECK(ended_once(token));
+      ended.clear();
+    }
+    // A malformed answer ends the host, and the reveal with it: two fields, or a field of
+    // another type.
+    for (int shape = 0; shape < 2; ++shape) {
+      Host h;
+      CHECK(AttachNew(&h) == 1);
+      const uint32_t token = cmux_remote::NextToken();
+      CHECK(cmux_remote::PostPasswordReveal(token, "/profile", "id", sink));
+      CHECK(read_reveal(h, token));
+      cmux_host::control::TlvWriter fields;
+      if (shape == 0) {
+        fields.Bytes("a", 1);
+        fields.Bytes("b", 1);
+      } else {
+        fields.I32(7);
+      }
+      seen.ended = -1;
+      answer(h, token, fields);
+      CHECK(PumpUntil([] { return seen.ended >= 0; }));
+      CHECK(seen.ended == CMUX_REMOTE_END_MALFORMED);
+      CHECK(ended_once(token));
+      ended.clear();
+      settle(h);
+    }
+    // Queued behind an optional op before the HELLO, then a detach.
+    {
+      Host h;
+      CHECK(AttachNew(&h) == 1);
+      CHECK(cmux_shim_tab_set_frozen(first, 1) == 1);  // waits for the HELLO
+      const uint32_t token = cmux_remote::NextToken();
+      CHECK(cmux_remote::PostPasswordReveal(token, "/profile", "id", sink));
+      cmux_remote_shim_detach();
+      CHECK(ended_once(token));
+      ended.clear();
+      settle(h);
+    }
+    // Queued before the HELLO, then not sendable when the HELLO flushes the queue (shared fields
+    // over kMaxSharedBytes): its true stands, and it ends as not found. Sent at once and refused,
+    // it is false and the sink never runs.
+    {
+      const std::string huge(cmux_host::control::kMaxSharedBytes + 1, 'p');
+      Host h;
+      CHECK(AttachNew(&h) == 1);
+      CHECK(cmux_shim_tab_set_frozen(first, 1) == 1);
+      const uint32_t token = cmux_remote::NextToken();
+      CHECK(cmux_remote::PostPasswordReveal(token, huge.c_str(), "id", sink));
+      CHECK(ended.empty());
+      h.Send(Hello(cmux_remote::kWireID));
+      CHECK(PumpUntil([] { return !ended.empty(); }));
+      CHECK(ended_once(token));
+      ended.clear();
+      CHECK(!cmux_remote::PostPasswordReveal(cmux_remote::NextToken(), huge.c_str(), "id", sink));
+      cmux_remote_shim_detach();
+      CHECK(ended.empty());
+      settle(h);
+    }
+  }
 
   TestOrderingThroughTheRuntime();
+  TestEnergySaver();
+  TestHostWatch();
+  TestLocks();
 
   // View tokens: cmux passes the page view's token where the ABI takes a parent NSView*, and it
   // travels as is (never a pointer the client reads); NULL is 0.

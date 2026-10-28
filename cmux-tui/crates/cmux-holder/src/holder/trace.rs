@@ -31,7 +31,9 @@ pub trait TraceControl {
 
 /// The process's own tracer (`cmux_trace`). The first start maps the
 /// recording ring on the one-shot `cmux-holder-trace-map` thread, which
-/// wakes the loop when it is done; the start then runs in memory.
+/// wakes the loop when it is done; the start then runs in memory. The map
+/// thread starts through cmux_threads at Utility (QOS_CLASS_UTILITY on
+/// macOS), never at the loop's echo class.
 pub struct ProcessTrace {
     /// Set by the map thread once the recording ring is mapped.
     mapped: Arc<AtomicBool>,
@@ -41,12 +43,18 @@ pub struct ProcessTrace {
     waiting: Option<u64>,
     /// Wakes the holder's loop (its self-pipe).
     wake: fn(),
+    /// Maps the recording ring, on the map thread.
+    map: fn(),
 }
 
 impl ProcessTrace {
     /// The tracer of this process; `wake` wakes the loop that polls it.
     pub fn new(wake: fn()) -> Self {
-        Self { mapped: Arc::default(), mapping: false, waiting: None, wake }
+        Self::with_map(wake, map_ring)
+    }
+
+    fn with_map(wake: fn(), map: fn()) -> Self {
+        Self { mapped: Arc::default(), mapping: false, waiting: None, wake, map }
     }
 
     /// Bytes of the holder's recording ring ("Sizes by role"): what a
@@ -80,13 +88,12 @@ impl TraceControl for ProcessTrace {
             return Self::start_now(request.categories);
         }
         if !self.mapping {
-            let (mapped, wake) = (self.mapped.clone(), self.wake);
+            let (mapped, wake, map) = (self.mapped.clone(), self.wake, self.map);
             cmux_threads::spawn(
                 "cmux-holder-trace-map",
                 cmux_threads::ThreadQos::Utility,
                 move || {
-                    // A failure shows in the start that follows.
-                    let _ = cmux_trace::prepare_recording();
+                    map();
                     mapped.store(true, Ordering::Release);
                     wake();
                 },
@@ -111,6 +118,11 @@ impl TraceControl for ProcessTrace {
         }
         self.waiting.take().map(Self::start_now)
     }
+}
+
+/// Maps the recording ring; a failure shows in the start that follows.
+fn map_ring() {
+    let _ = cmux_trace::prepare_recording();
 }
 
 impl Holder {
@@ -202,5 +214,33 @@ mod tests {
         mapped(&waiting);
         let failed = waiting.poll().expect("the start ran").unwrap_err();
         assert_eq!(failed, cmux_trace::TraceError::NotInitialized.to_string());
+    }
+
+    /// p02-threads-207: the loop runs at USER_INTERACTIVE, and the map
+    /// thread it starts runs at UTILITY, not at the class it inherits.
+    #[test]
+    fn the_map_thread_runs_at_utility_below_the_loop() {
+        use cmux_threads::{LiveQos, QosChange, ThreadQos};
+        static SEEN: std::sync::Mutex<Option<LiveQos>> = std::sync::Mutex::new(None);
+        fn record() {
+            *SEEN.lock().unwrap() = Some(cmux_threads::current());
+        }
+        std::thread::spawn(|| {
+            if cfg!(target_vendor = "apple") {
+                assert_eq!(
+                    cmux_threads::set_current(ThreadQos::UserInteractive),
+                    QosChange::Applied
+                );
+            }
+            let mut trace = ProcessTrace::with_map(|| {}, record);
+            trace.start(wire::TraceStart { categories: 1, budget_bytes: 0 }).unwrap();
+            mapped(&trace);
+        })
+        .join()
+        .unwrap();
+        let seen = SEEN.lock().unwrap().expect("the map ran");
+        if cfg!(target_vendor = "apple") {
+            assert_eq!(seen, LiveQos::Class(ThreadQos::Utility));
+        }
     }
 }

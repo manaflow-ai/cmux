@@ -56,6 +56,12 @@ pub(crate) struct RequestQos {
 }
 
 impl RequestQos {
+    /// Whether the feature is on: requests and connection threads
+    /// (server/connection_qos.rs) change class.
+    pub(crate) const fn enabled(self) -> bool {
+        self.enabled
+    }
+
     /// Makes `cause` this thread's cause and, with the feature on, its class
     /// ([`EventCause::request_qos`]) until the scope drops.
     pub(crate) fn enter(self, cause: EventCause) -> CauseScope {
@@ -67,7 +73,70 @@ impl RequestQos {
         }
         CauseScope { _qos: class.map(WorkQos::enter), _cause: cause_scope }
     }
+
+    /// With the feature on, runs this thread at `class` until the scope
+    /// drops, as a request of that class: a daemon thread's work that no
+    /// request waits on (the journal writer between receipts).
+    pub(crate) fn enter_class(self, class: cmux_threads::ThreadQos) -> Option<WorkQos> {
+        #[cfg(test)]
+        if self.enabled {
+            tests::note_entered(class);
+        }
+        self.enabled.then(|| WorkQos::enter(class))
+    }
+
+    /// One pass of a daemon upkeep thread (output store writer, journal
+    /// retention and maintenance) at [`UPKEEP_PASS_QOS`], with the feature
+    /// on. The thread is declared at [`UPKEEP_THREAD_QOS`] and lowered per
+    /// pass as a [`WorkQos`], so a ranked lock the pass holds (a terminal
+    /// slot a PTY reader waits for, the workspace registry a request waits
+    /// for) raises it to `LOCK_HOLDER_QOS` until it is released
+    /// (`crate::lock_rank`), as it raises a thread declared utility.
+    pub(crate) fn enter_upkeep_pass(self) -> Option<WorkQos> {
+        self.enter_class(UPKEEP_PASS_QOS)
+    }
+
+    /// Starts one-shot thread `name` to finish the request running on the
+    /// calling thread (an agent call, a Chief query, a URL open: its reply
+    /// waits on the thread). It starts at [`REQUEST_HELPER_QOS`], the
+    /// dispatcher's class, never at the class it would inherit (the echo
+    /// class of a person's reader), and with the feature on runs at the
+    /// class of the request's cause, as Chromium posts a task with the
+    /// priority of the work it serves (base/task/task_traits.h). `stack`
+    /// is its stack size in bytes, `None` for the platform default.
+    pub(crate) fn spawn_helper<F, T>(
+        self,
+        name: &str,
+        stack: Option<usize>,
+        f: F,
+    ) -> std::io::Result<std::thread::JoinHandle<T>>
+    where
+        F: FnOnce() -> T + Send + 'static,
+        T: Send + 'static,
+    {
+        let class = if self.enabled { EventCause::current().request_qos() } else { None };
+        let body = move || {
+            let _class = class.map(WorkQos::enter);
+            f()
+        };
+        match stack {
+            Some(bytes) => cmux_threads::spawn_with_stack(name, REQUEST_HELPER_QOS, bytes, body),
+            None => cmux_threads::spawn(name, REQUEST_HELPER_QOS, body),
+        }
+    }
 }
+
+/// The class a request's one-shot helper thread starts at
+/// ([`RequestQos::spawn_helper`]): the request dispatcher's.
+pub(crate) const REQUEST_HELPER_QOS: cmux_threads::ThreadQos =
+    crate::thread_qos::ThreadType::Interactive.qos();
+
+/// The class a daemon upkeep thread is started at
+/// ([`RequestQos::enter_upkeep_pass`]).
+pub(crate) const UPKEEP_THREAD_QOS: cmux_threads::ThreadQos = cmux_threads::ThreadQos::Default;
+
+/// The class of one upkeep pass with the feature on.
+pub(crate) const UPKEEP_PASS_QOS: cmux_threads::ThreadQos = cmux_threads::ThreadQos::Utility;
 
 /// A request's cause and class on this thread. The class drops first, then
 /// the cause.

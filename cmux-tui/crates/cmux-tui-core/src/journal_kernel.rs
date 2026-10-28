@@ -295,8 +295,10 @@ impl JournalKernel {
         let weak = Arc::downgrade(kernel);
         let tailer = cmux_threads::spawn(
             "mux-session-journal-fanout",
-            cmux_threads::ThreadQos::Utility,
-            move || run_tailer(weak, reader, head_sequence),
+            crate::thread_qos::ThreadType::Utility.qos(),
+            move || {
+                run_tailer(weak, reader, head_sequence);
+            },
         )?;
         *kernel.tailer.lock().recover_poison() = Some(tailer);
         Ok(())

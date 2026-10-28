@@ -49,6 +49,7 @@ public final class ForcedQuitExit {
         armDeadline(limit)
         let save = save, end = end
         // task-owner: the forced quit's last save; the process ends after it or at the deadline
+        // main-hop-allow: the forced quit's last job: its save runs even while classes are held, bounded by the exit deadline
         return Task { @MainActor in
             await save()
             end()

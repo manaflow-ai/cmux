@@ -12,9 +12,9 @@ protocol RemoteEventTapPort: AnyObject {
 }
 
 /// Makes a tap port for the events in `mask`, calling `callback` with
-/// `refcon`; nil when macOS refuses it (no Accessibility).
+/// `refcon` (a `CallbackToken`'s context); nil when macOS refuses it (no Accessibility).
 typealias RemoteEventTapPortFactory = @MainActor (
-    _ mask: CGEventMask, _ callback: CGEventTapCallBack, _ refcon: UnsafeMutableRawPointer
+    _ mask: CGEventMask, _ callback: CGEventTapCallBack, _ refcon: UnsafeMutableRawPointer?
 ) -> (any RemoteEventTapPort)?
 
 /// A session event tap on the main run loop, enabled from creation.
@@ -23,9 +23,9 @@ final class QuartzEventTapPort: RemoteEventTapPort {
     private let port: CFMachPort
     private let source: CFRunLoopSource
 
-    init?(mask: CGEventMask, callback: CGEventTapCallBack, refcon: UnsafeMutableRawPointer) {
-        // SAFETY: the caller guarantees `refcon` names a live object until `invalidate()`
-        // returns (RemoteSystemShortcutTap.installedSelf); Quartz only hands it back.
+    init?(mask: CGEventMask, callback: CGEventTapCallBack, refcon: UnsafeMutableRawPointer?) {
+        // SAFETY: `refcon` is a token the callback reads back, never a pointer anything
+        // dereferences; Quartz only hands it back.
         guard let port = unsafe CGEvent.tapCreate(
             tap: .cgSessionEventTap, place: .headInsertEventTap, options: .defaultTap,
             eventsOfInterest: mask, callback: callback, userInfo: refcon

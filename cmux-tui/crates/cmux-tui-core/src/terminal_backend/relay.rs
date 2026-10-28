@@ -176,7 +176,7 @@ impl Accept {
         let (links, channel, emit) = (self.links.clone(), self.channel.clone(), self.emit.clone());
         let _ = cmux_threads::spawn(
             "cmux-link-out",
-            cmux_threads::ThreadQos::UserInitiated,
+            crate::thread_qos::ThreadType::Interactive.qos(),
             move || {
                 while let Ok(bytes) = links.channels().wait_received(&channel, CHUNK) {
                     if writer.write_all(&bytes).is_err() {
@@ -195,7 +195,7 @@ impl Accept {
         let (stopped, gone) = (self.stopped.clone(), self.gone.clone());
         let _ = cmux_threads::spawn(
             "cmux-link-in",
-            cmux_threads::ThreadQos::UserInitiated,
+            crate::thread_qos::ThreadType::Interactive.qos(),
             move || {
                 let mut buf = vec![0u8; CHUNK];
                 loop {

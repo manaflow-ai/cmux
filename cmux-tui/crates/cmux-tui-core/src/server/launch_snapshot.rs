@@ -118,9 +118,10 @@ pub fn start_launch_snapshot_writer_with(
     let thread_writes = writes.clone();
     let shared_events = events.clone();
     let mut thread_events = events.lock().recover_poison().clone();
-    let thread = cmux_threads::spawn(
+    let thread = crate::thread_qos::spawn_raisable(
         "mux-launch-snapshot",
-        cmux_threads::ThreadQos::UserInitiated,
+        crate::thread_qos::ThreadType::Utility.qos(),
+        None,
         move || {
             // Write once at start, so a relaunch finds the current layout even
             // if nothing changes while this daemon runs.

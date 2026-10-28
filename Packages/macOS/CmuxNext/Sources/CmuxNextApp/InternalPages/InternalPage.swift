@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 import CmuxNextHibernation
 import CmuxNextIcons
 import CmuxNextPages
@@ -175,7 +176,7 @@ extension NSView {
             let next = queue[index]
             index += 1
             if let scroll = next as? NSScrollView, matches(scroll) { return scroll }
-            queue.append(contentsOf: next.subviews)
+            queue.append(contentsOf: next.subviewsIncludingGated)
         }
         return nil
     }

@@ -78,35 +78,33 @@ pub(super) fn handle_with(
         Err(error) => return send_resource_response(writer, id, operation, Err(error)),
     };
     let line = tool_line(operation, &request.fields);
-    let (mux, thread_writer, reply_id) = (mux.clone(), writer.clone(), id.clone());
-    let spawned = cmux_threads::spawn(
-        "mux-chief-control",
-        cmux_threads::ThreadQos::UserInitiated,
-        move || {
-            let chief = match &route {
-                Route::Default(_) => DEFAULT_CHIEF.to_owned(),
-                Route::Named(chief) => chief.clone(),
-            };
-            let socket = match route {
-                Route::Default(socket) => Ok(socket),
-                Route::Named(chief) => named_socket(&mux, operation, &chief).map(Some),
-            };
-            let answer = socket.and_then(|socket| {
-                disabled_unless_answered(operation, ask(operation, &line, socket.as_deref()))
-            });
-            let answer = result(&mux, operation, answer);
-            // The record is the backend's one source (u2586): a set the brain
-            // took is written into the Chief's record too.
-            if operation == ResourceOperation::ChiefEngineSet
-                && let Ok(value) = &answer
-                && let Some(choice) = value.pointer("/value/choice")
-            {
-                super::chief_registry_resource::record_brain_engine(&mux, &chief, choice);
-            }
-            send_resource_response(&thread_writer, reply_id, operation, answer);
-        },
-    );
-    spawned.is_ok()
+    let (worker_mux, thread_writer, reply_id) = (mux.clone(), writer.clone(), id.clone());
+    // The ask waits on the brain's tools socket (`request_wait.rs`).
+    let posted = mux.post_request_wait(move || {
+        let mux = worker_mux;
+        let chief = match &route {
+            Route::Default(_) => DEFAULT_CHIEF.to_owned(),
+            Route::Named(chief) => chief.clone(),
+        };
+        let socket = match route {
+            Route::Default(socket) => Ok(socket),
+            Route::Named(chief) => named_socket(&mux, operation, &chief).map(Some),
+        };
+        let answer = socket.and_then(|socket| {
+            disabled_unless_answered(operation, ask(operation, &line, socket.as_deref()))
+        });
+        let answer = result(&mux, operation, answer);
+        // The record is the backend's one source (u2586): a set the brain
+        // took is written into the Chief's record too.
+        if operation == ResourceOperation::ChiefEngineSet
+            && let Ok(value) = &answer
+            && let Some(choice) = value.pointer("/value/choice")
+        {
+            super::chief_registry_resource::record_brain_engine(&mux, &chief, choice);
+        }
+        send_resource_response(&thread_writer, reply_id, operation, answer);
+    });
+    posted.is_ok()
         || send_resource_response(
             writer,
             id,
@@ -114,7 +112,7 @@ pub(super) fn handle_with(
             Err(ResourceError::operation_failed(
                 operation.wire_name(),
                 "unavailable",
-                json!({"message": "cannot start the Chief control request"}),
+                json!({"message": "the daemon is shutting down"}),
             )),
         )
 }
@@ -209,7 +207,7 @@ fn named_socket(
         // The supervisor says at once when no brain process runs (restart
         // backoff, a start that failed): then do not wait.
         if let Some(answer) = mux.chiefs().brains.start_for_control(chief)
-            && !cmux_threads::checked::ipc_reply(|| {
+            && !crate::server::request_hang_watch::ipc_reply(|| {
                 cmux_threads::checked::sync::recv_timeout(
                     &answer,
                     std::time::Duration::from_secs(5),

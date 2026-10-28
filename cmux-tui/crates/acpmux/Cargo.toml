@@ -16,6 +16,11 @@ categories = ["command-line-utilities", "development-tools"]
 name = "acpmux"
 path = "src/main.rs"
 
+# The agent tool relay (src/mcp_relay.rs): std and serde_json only, under 1 MB.
+[[bin]]
+name = "acpmux-mcp-relay"
+path = "src/mcp_relay_main.rs"
+
 [lints.rust]
 # The stability lab builds with RUSTFLAGS="--cfg tokio_unstable" (cmux-tui/lab/stability.env).
 unexpected_cfgs = { level = "warn", check-cfg = ["cfg(tokio_unstable)"] }
@@ -23,6 +28,10 @@ unexpected_cfgs = { level = "warn", check-cfg = ["cfg(tokio_unstable)"] }
 [features]
 # The lab's tokio slow-poll detector (cmux-blocking; RUSTFLAGS="--cfg tokio_unstable").
 cmux-stability = ["cmux-blocking/cmux-stability"]
+# Crash injectors for the fleet's crash matrix (`_acpmux/debug_panic`,
+# src/debug_crash_inject.rs): code behind cfg(any(debug_assertions,
+# feature = "bench")), so release builds never have it. Off by default.
+bench = []
 
 [dependencies]
 # Named threads at a declared QoS (plans/cmux-next/chrome-parity/p02-threads.md).
@@ -31,8 +40,9 @@ cmux-blocking.workspace = true
 cmux-lock-rank.workspace = true
 # Memory pressure and the consumer registry (`src/memory.rs`); a leaf crate, no tokio.
 cmux-memory.workspace = true
-# The daemon's feature lists (CMUX_ENABLE_FEATURES): `memoryAcpmuxPressure`.
-cmux-features.workspace = true
+# The daemon's features and their sources, shared with the cmux-tui owner (the leftover
+# daemon idle exit, src/daemon_lifecycle.rs), and `memoryAcpmuxPressure`.
+cmux-features = { workspace = true, features = ["sources"] }
 cmux-chat-index.workspace = true
 cmux-coderouter.workspace = true
 cmux-local-auth.workspace = true
@@ -43,6 +53,8 @@ anyhow = "1"
 cmux-agent-pane-policy.workspace = true
 cmux-unix-socket.workspace = true
 cmux-panic-log.workspace = true
+# The daemon's blocking-pool items and sync threads are hang-watched (p09-observability-074).
+cmux-hang-watch.workspace = true
 # The launchd process-roles table (units::LaunchdJob) for the daemon's agent plist.
 cmux-server-core.workspace = true
 clap = { version = "4.5", features = ["derive"] }
@@ -123,3 +135,4 @@ tracing-log = "0.2"
 [lints.clippy]
 # cmux-tui/clippy.toml disallows std thread spawns and sleep; this package has not opted in.
 disallowed_methods = "allow"
+disallowed_types = "allow"

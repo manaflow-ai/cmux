@@ -293,8 +293,14 @@ fn start_poller_with_source(
     let stop = Arc::new(Notify::new());
     let stop_for_thread = stop.clone();
     let spawn =
-        cmux_threads::spawn("machine-usage-poll", cmux_threads::ThreadQos::Utility, move || {
-            let runtime = match tokio::runtime::Builder::new_current_thread().enable_all().build() {
+        cmux_threads::spawn("machine-usage-poll", cmux_threads::ThreadQos::Background, move || {
+            let runtime = match cmux_threads::tokio::builder(
+                "machine-usage-poll",
+                cmux_threads::ThreadQos::Background,
+                cmux_threads::tokio::Flavor::CurrentThread,
+            )
+            .build()
+            {
                 Ok(runtime) => runtime,
                 Err(error) => {
                     crate::client_log::log(
@@ -305,7 +311,10 @@ fn start_poller_with_source(
                     return;
                 }
             };
-            runtime.block_on(poll_loop(mux, source, stop_for_thread, startup_delay, interval));
+            cmux_threads::tokio::block_on(
+                &runtime,
+                poll_loop(mux, source, stop_for_thread, startup_delay, interval),
+            );
         });
     match spawn {
         Ok(thread) => Some(UsagePoller { stop, thread: Some(thread) }),

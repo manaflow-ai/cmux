@@ -22,8 +22,9 @@ use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
 use super::remote_entry::{RemoteGate, RemotePeer};
+use super::routes::{Route, RouteLine, RouteName};
 use super::{
-    BoundedOutbound, ClientTransport, MAX_JSON_LINE_BYTES, MessageWriter, QueuedSink,
+    BoundedOutbound, ClientTransport, FrameStage, MAX_JSON_LINE_BYTES, MessageWriter, QueuedSink,
     RenderService, SinkControl, transport,
 };
 use crate::fs_ops::stream::{self, StreamRequest};
@@ -47,23 +48,26 @@ impl RemoteGate for FsGate {
 }
 
 /// The `cmd` names this module answers (server/routes.rs).
-pub(in crate::server) const ROUTES: &[crate::server::routes::Route] =
-    &[crate::server::routes::Route {
-        names: &[crate::server::routes::RouteName::OneOf(&crate::fs_ops::FS_COMMANDS)],
-        stage: crate::server::FrameStage::Fs,
-        entry: |line| try_handle(line.mux, line.client, line.message, line.writer),
-    }];
+pub(in crate::server) const ROUTES: &[Route] = &[Route {
+    names: &[RouteName::OneOf(&crate::fs_ops::FS_COMMANDS)],
+    stage: FrameStage::Fs,
+    entry: handle,
+}];
 
-/// Handles an `fs.*` line; `None` when the message is not one.
-pub(super) fn try_handle(
-    mux: &Arc<Mux>,
-    client: u64,
-    message: &str,
-    writer: &MessageWriter,
-) -> Option<bool> {
-    if !message.contains("\"fs.") {
-        return None;
-    }
+/// True when `cmd` names one of the seven `fs-v1` ops: the lines
+/// [`handle`] answers. The remote relay finds its fs lines by it, as the
+/// connection's dispatch finds them by [`ROUTES`].
+pub(super) fn is_fs_op(cmd: &str) -> bool {
+    crate::fs_ops::FS_COMMANDS.contains(&cmd)
+}
+
+/// Answers a line whose `cmd` is an `fs-v1` op (found by name: the route,
+/// or the remote relay through [`is_fs_op`]). The line's one decode is its
+/// `Value`. `None` for a line with no `Value` (a number past `f64`, a lone
+/// surrogate) or one with a `protocol` member (not an fs frame,
+/// [`object_command`]); the caller's next handler answers it.
+pub(super) fn handle(line: &RouteLine<'_>) -> Option<bool> {
+    let RouteLine { mux, client, message, writer, .. } = *line;
     let Ok(Value::Object(request)) = crate::line_parses::parse::<Value>(message) else {
         return None;
     };
@@ -297,12 +301,16 @@ fn serve_stream(
     // Closing the client (a kick, a handoff, the entry's shutdown, or the
     // end of the stream) closes its queue; this thread then shuts the
     // socket down, which ends a blocked read or write of the stream at once.
-    let watcher =
-        cmux_threads::spawn("mux-fs-stream-close", cmux_threads::ThreadQos::Utility, move || {
+    let watcher = crate::thread_qos::spawn_raisable(
+        "mux-fs-stream-close",
+        crate::thread_qos::ThreadType::Utility.qos(),
+        None,
+        move || {
             // mq14-allow: the close watcher waits for its own queue (a checked wait).
             while outbound.recv().is_some() {}
             let _ = closer.shutdown(std::net::Shutdown::Both);
-        });
+        },
+    );
     if watcher.is_err() {
         return;
     }
@@ -341,7 +349,7 @@ fn serve_stream(
 /// shutting down, so their sockets are shut down and their transfers end.
 pub(super) fn close_remote_clients(mux: &Arc<Mux>) {
     let remote: Vec<u64> = {
-        // Safety: this list only closes streams; a stale id closes nothing.
+        // Poison recovery: this list only closes streams; a stale id closes nothing.
         let state =
             mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         state

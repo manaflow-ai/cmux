@@ -133,8 +133,10 @@ pub(super) fn start(mux: Arc<Mux>, client: u64, writer: MessageWriter, start: Ev
     let (worker_mux, worker_writer) = (mux.clone(), writer.clone());
     let spawned = cmux_threads::spawn(
         "mux-resource-conversation-events",
-        cmux_threads::ThreadQos::UserInitiated,
-        move || run(&worker_mux, client, &worker_writer, start),
+        crate::thread_qos::ThreadType::Interactive.qos(),
+        move || {
+            run(&worker_mux, client, &worker_writer, start);
+        },
     );
     if spawned.is_err() {
         let _ = mux.control_clients.take_resource_stream(client, &stream_id);

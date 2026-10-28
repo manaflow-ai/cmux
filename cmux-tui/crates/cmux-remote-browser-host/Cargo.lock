@@ -35,6 +35,10 @@ name = "cmux-encode"
 version = "0.1.0"
 
 [[package]]
+name = "cmux-ffi-guard"
+version = "0.1.0"
+
+[[package]]
 name = "cmux-rd-core"
 version = "0.1.0"
 dependencies = [
@@ -53,6 +57,7 @@ dependencies = [
 name = "cmux-rd-ffi"
 version = "0.1.0"
 dependencies = [
+ "cmux-ffi-guard",
  "cmux-rd-core",
  "cmux-rd-proto",
  "cmux-remote-browser",

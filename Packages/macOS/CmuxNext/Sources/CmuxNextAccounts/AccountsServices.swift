@@ -44,9 +44,11 @@ public protocol AccountsServices: AnyObject {
     /// Opens the provider's key page in a browser tab.
     func openConsole(_ url: URL)
 
-    /// Saves a pasted key to cmux's Keychain item (never cmux.json).
-    func saveKey(_ key: String, for provider: AIProvider) throws
-    func deleteSavedKey(for provider: AIProvider) throws
+    /// Saves a pasted key to cmux's Keychain item (never cmux.json). The Keychain write waits for
+    /// securityd, so it runs off the main thread; `done` gets its error (nil when saved) on the main actor.
+    func saveKey(_ key: String, for provider: AIProvider, done: @escaping @MainActor @Sendable ((any Error)?) -> Void)
+    /// Deletes the saved key, off the main thread like ``saveKey(_:for:done:)``.
+    func deleteSavedKey(for provider: AIProvider, done: @escaping @MainActor @Sendable ((any Error)?) -> Void)
 }
 
 extension AccountsServices {

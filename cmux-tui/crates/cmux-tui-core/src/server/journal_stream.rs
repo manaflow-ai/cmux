@@ -544,8 +544,10 @@ pub(super) fn start_session_journal_stream(
     let worker_writer = writer.clone();
     let spawn = cmux_threads::spawn(
         "mux-resource-session-journal",
-        cmux_threads::ThreadQos::UserInitiated,
-        move || run_session_journal_stream(&worker_mux, client, &worker_writer, start),
+        crate::thread_qos::ThreadType::Interactive.qos(),
+        move || {
+            run_session_journal_stream(&worker_mux, client, &worker_writer, start);
+        },
     );
     if spawn.is_err() {
         let _ = mux.control_clients.take_resource_stream(client, &stream_id);

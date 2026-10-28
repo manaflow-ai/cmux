@@ -69,10 +69,12 @@ typedef enum {
   CMUX_SHIM_DEVTOOLS_OPENED = 21, // a = DevTools browser id, b = 1 docked
   CMUX_SHIM_DEVTOOLS_CLOSED = 22, // a = DevTools browser id
   // The tab's renderer process ended unexpectedly (Chromium's "Aw, Snap!").
-  // a = cef_termination_status_t, b = error code (exit code or signal),
-  // s1 = Chromium's error string. request = 1 for the first browser of the
-  // renderer's end, 2 for each other browser it hosted (Chromium tells them
-  // all in one task), 0 when the shim cannot name the process.
+  // a = cef_termination_status_t, b = error code (exit code or signal) in
+  // the low 32 bits | the renderer's client id (its --renderer-client-id,
+  // 0 when the shim cannot name it) << 32, s1 = Chromium's error string.
+  // request = 1 for the first browser of the renderer's end, 2 for each
+  // other browser it hosted (Chromium tells them all in one task), 0 when
+  // the shim cannot name the process.
   CMUX_SHIM_RENDER_TERMINATED = 23,
   // The renderer stopped processing input for 15 s (hang monitor). The host
   // answers with cmux_shim_unresponsive_reply; until then Chromium waits.
@@ -204,7 +206,88 @@ typedef enum {
   // the drag's destination returns the last one (Chrome's WebDragDest
   // -setCurrentOperation:).
   CMUX_SHIM_DRAG_OPERATION = 55,
+  // 56 is the Chromium Host's CMUX_SHIM_WHEEL_ACK (HOST/src/host_wheel_ack.h).
+  // The page's tooltip changed (CefDisplayHandler::OnTooltip), only after
+  // cmux_shim_set_cursor_events(1): s1 = the text, UTF-8; "" hides it.
+  // Chromium shows no tooltip of its own then.
+  CMUX_SHIM_TOOLTIP = 57,
+  // A page opened a <select> popup, only after cmux_shim_set_popup_menus(1):
+  // a = the popup's token; s1 = JSON {"x", "y", "width", "height": the
+  // <select>'s rect in the page view's DIPs from its top left; "fontSize":
+  // the items' size in points; "selected": the selected item's index, -1 for
+  // none; "rightAligned"; "items": [{"label", "toolTip", "type" (0 option,
+  // 1 checkable option, 2 group label, 3 separator, 4 submenu), "enabled",
+  // "checked", "rtl", "directionOverride"}]}. The page has at most one open
+  // popup. Answer it once with cmux_shim_browser_popup_menu_reply.
+  CMUX_SHIM_POPUP_MENU = 58,
+  // Chromium closed popup a (the token) before cmux answered it (the page
+  // removed or closed the <select>, navigated, was hidden or closed): close
+  // its menu with no answer (Chrome's PopupMenuRunner.Hide).
+  CMUX_SHIM_POPUP_MENU_HIDE = 59,
+  // A field's autofill, password or <datalist> suggestions, which the app
+  // draws (only after cmux_shim_set_suggestion_events(1); fork API 31's
+  // suggestion handler, tasks p01-process-172 and 061): request =
+  // cmux_shim_suggestion_event_t, a = the rows' token (0 for ANNOUNCE).
+  // SHOW: s1 = JSON {"x","y","width","height" (the field in the page view's
+  // DIP, top left origin), "rtl", "selected" (-1 none), "rows":[{"kind" (0
+  // entry, 1 separator, 2 title, 3 footer), "type" (Chromium's
+  // autofill::SuggestionType), "main", "minor", "label" (one line per label
+  // line), "voice_over", "selectable", "acceptable", "loading"}]}: it shows
+  // the rows or replaces the shown ones and their token. SELECT: b = the row
+  // a key selected, -1 none. HIDE: the token's rows close. ANNOUNCE: s1 =
+  // what VoiceOver reads.
+  CMUX_SHIM_SUGGESTIONS = 60,
+  // Host mode only (task p01-process-228): the Chromium Host's pushes of the
+  // fork API 31 color chooser, device chooser and screen-share picker
+  // handlers, which it installs while the app has set
+  // cmux_shim_set_color_chooser_handler, _set_device_chooser_handler or
+  // _set_desktop_media_handler. request = that handler's event
+  // (CMUX_SHIM_COLOR_CHOOSER_OPEN ...), a = token, b = the color (color
+  // chooser), s1 = the fork struct's fields as bytes
+  // (ChromiumHost/src/host_choosers.h). The remote shim calls the handler's
+  // fn with them; they never reach the event fn, and the in-process shim
+  // never sends them.
+  CMUX_SHIM_COLOR_CHOOSER = 61,
+  CMUX_SHIM_DEVICE_CHOOSER = 62,
+  CMUX_SHIM_DESKTOP_MEDIA = 63,
+  // A frame other than a browser's main frame gained or lost its renderer
+  // (CefFrameHandler::OnFrameAttached and OnFrameDetached): browser_id;
+  // request = the frame's renderer client id (its render process host id, the
+  // renderer's --renderer-client-id); a = 1 attached, 0 detached; s1 = the
+  // frame's identifier (CefFrame::GetIdentifier). A renderer's
+  // death detaches its frames too (WebContentsObserver::RenderFrameDeleted),
+  // before or after the app sees the process end. The app names the pages a
+  // renderer's crash leaves a sad frame in from it (Chrome's
+  // DiscardPageWithCrashedSubframePolicy reads the dead process's frame nodes).
+  CMUX_SHIM_SUBFRAME_RENDERER = 64,
+  // Host mode only: one call of the fork's lock handler, pushed by the
+  // Chromium Host while cmux's remote shim has a lock handler
+  // (cmux_shim_set_lock_handler, task p01-process-229): request =
+  // cmux_shim_lock_event_t, a = its detail. The remote shim calls cmux's
+  // lock fn with them; cmux's event fn never sees this kind.
+  CMUX_SHIM_LOCK = 65,
+  // A window request the shim decided with the policy cmux pushed
+  // (cmux_shim_set_window_request_policy), while no window_request_fn is
+  // installed: the Chromium Host decides inside Chromium's navigation and
+  // cmux applies the result. browser_id = the requesting tab, or 0;
+  // request = the Chromium window of the anchor (INSERT), else 0; a = the
+  // anchor whose window gets the new tab (INSERT), else 0; b's low 32 bits =
+  // cmux_shim_window_outcome_t | cmux_shim_new_tab_t << 8 | the request's
+  // kind << 16 | its cef_window_open_disposition_t (7 bits) << 24 |
+  // user_gesture << 31, and its high 32 bits the id the Chromium Host minted
+  // for an INSERT's tab (0: none; the shim leaves them 0); s1 = the URL;
+  // s2 = "x,y,width,height" (or nothing), ";", the request's store (the
+  // source pane's, else the normalized profile directory). An INSERT's tab
+  // comes in its own AFTER_CREATED, which names it by that minted id.
+  CMUX_SHIM_WINDOW_REQUEST_RESULT = 66,
 } cmux_shim_event_kind_t;
+
+typedef enum {
+  CMUX_SHIM_SUGGESTIONS_SHOW = 0,
+  CMUX_SHIM_SUGGESTIONS_SELECT = 1,
+  CMUX_SHIM_SUGGESTIONS_HIDE = 2,
+  CMUX_SHIM_SUGGESTIONS_ANNOUNCE = 3,
+} cmux_shim_suggestion_event_t;
 
 typedef enum {
   CMUX_SHIM_DEVTOOLS_SHOW = 1,        // open, or focus the open DevTools
@@ -444,6 +527,29 @@ CMUX_SHIM_EXPORT int cmux_shim_browser_drag_target_over(int browser_id, int x, i
                                                         int modifiers);
 CMUX_SHIM_EXPORT int cmux_shim_browser_drag_target_leave(int browser_id);
 CMUX_SHIM_EXPORT int cmux_shim_browser_drag_target_drop(int browser_id, int x, int y, int modifiers);
+// Suggestions as data (fork API 31, task p01-process-172): a field's
+// autofill, password and <datalist> suggestions come as CMUX_SHIM_SUGGESTIONS
+// events for every browser, new ones included, while enabled is 1, and
+// Chromium's popup shows them again after 0. The field keeps Chrome's keys
+// (arrows, Page Up and Down select; Return and Tab accept; Shift+Delete
+// removes; Escape dismisses). Nothing changes with a fork below API 31. Any
+// time, also before cmux_shim_initialize.
+CMUX_SHIM_EXPORT void cmux_shim_set_suggestion_events(int enabled);
+// The app's answer for the shown rows of token: SHOWN once they are on screen
+// (Chrome takes an ACCEPT only 500 ms after it), SELECT the row under the
+// pointer (-1 none: Chrome previews the row's values), ACCEPT a clicked row,
+// REMOVE an autocomplete row's delete button, DISMISS a click outside. index
+// is ignored for SHOWN and DISMISS. Returns 0 for a token that is not shown,
+// an index outside the rows, or a refused ACCEPT or REMOVE (the fork's
+// cmux_browser_suggestion_action).
+typedef enum {
+  CMUX_SHIM_SUGGESTION_SHOWN = 0,
+  CMUX_SHIM_SUGGESTION_SELECT = 1,
+  CMUX_SHIM_SUGGESTION_ACCEPT = 2,
+  CMUX_SHIM_SUGGESTION_REMOVE = 3,
+  CMUX_SHIM_SUGGESTION_DISMISS = 4,
+} cmux_shim_suggestion_action_t;
+CMUX_SHIM_EXPORT int cmux_shim_browser_suggestion_action(int browser_id, int64_t token, int action, int index);
 // Fork API 31 (p01-process task 227): Chromium's own windows for these would
 // open in the helper-app browser process, which has no visible window, so the
 // app shows its own UI from data and answers by token. Each returns 0 when
@@ -510,8 +616,11 @@ CMUX_SHIM_EXPORT int cmux_shim_desktop_media_answer(int64_t token, int source_ty
                                                     int tab_browser_id, int audio);
 // Pointer lock and keyboard lock: the app decides, hides and frees its own
 // cursor and forwards the raw movement. Escape exits with by_user 1 (Chrome's
-// 1.25 s cooldown for that page). escape_locked is 1 when a keyboard lock
-// also takes Escape (the app still exits on a long Escape, as Chrome does).
+// 1.25 s cooldown for that page). detail: for KEYBOARD_LOCK_REQUESTED 1 when
+// the lock also takes Escape (the app still exits on a held Escape, as Chrome
+// does); for POINTER_LOCK_REQUESTED 1 when the page asked for unadjusted
+// movement (requestPointerLock({unadjustedMovement: true}), the fork's next
+// train; 0 before it); 0 otherwise.
 typedef enum {
   // Answer with cmux_shim_browser_pointer_lock_answer.
   CMUX_SHIM_POINTER_LOCK_REQUESTED = 0,
@@ -522,7 +631,7 @@ typedef enum {
   // The keyboard lock ended: route reserved keys as usual again.
   CMUX_SHIM_KEYBOARD_UNLOCKED = 3,
 } cmux_shim_lock_event_t;
-CMUX_SHIM_EXPORT int cmux_shim_set_lock_handler(void (*fn)(void* context, int event, int browser_id, int escape_locked),
+CMUX_SHIM_EXPORT int cmux_shim_set_lock_handler(void (*fn)(void* context, int event, int browser_id, int detail),
                                                 void* context);
 CMUX_SHIM_EXPORT int cmux_shim_browser_pointer_lock_answer(int browser_id, int allowed);
 CMUX_SHIM_EXPORT int cmux_shim_browser_keyboard_lock_answer(int browser_id, int allowed);
@@ -538,6 +647,25 @@ CMUX_SHIM_EXPORT int cmux_shim_browser_send_locked_mouse_move(int browser_id, do
 // refresh rate. display_id 0 follows the parent view's window again.
 CMUX_SHIM_EXPORT int cmux_shim_browser_set_page_display(int browser_id, unsigned int display_id, double screen_x,
                                                         double screen_y);
+// What the app shows of a detached page (cmux_browser_set_page_visibility),
+// as Chrome's WebContentsViewCocoa gives its WebContents its visibility
+// (content/app_shim_remote_cocoa/web_contents_view_cocoa.mm). It applies to
+// browser_id's Chromium window, every tab of it.
+typedef enum {
+  // Shown: the page draws.
+  CMUX_SHIM_PAGE_VISIBLE = 0,
+  // Not shown (its pane or workspace hidden, its view out of a window, its
+  // window minimized, the app hidden): visibilityState "hidden", no frames.
+  CMUX_SHIM_PAGE_HIDDEN = 1,
+  // On screen but covered: Chromium's Visibility::OCCLUDED, one second later
+  // as Chrome coalesces occlusion.
+  CMUX_SHIM_PAGE_OCCLUDED = 2,
+} cmux_shim_page_visibility_t;
+// visibility is a cmux_shim_page_visibility_t. The fork takes it only while
+// the page window is detached and makes the page visible again when it stops
+// being detached. Returns 1, or 0 for a page that is not detached, an unknown
+// value, or a fork without the call. UI thread.
+CMUX_SHIM_EXPORT int cmux_shim_browser_set_page_visibility(int browser_id, int visibility);
 // Page state per history entry: entry `index`'s encoded page state (freed
 // with cmux_shim_free; NULL for an unknown browser or index); a watch that
 // calls fn(context, browser_id, index) when an entry commits or its page state
@@ -816,9 +944,89 @@ CMUX_SHIM_EXPORT int cmux_shim_omnibox_input(int browser_id, const char* extensi
                                              const char* text, int value);
 
 // Chromium never shows a window of its own (fork API 8). The handler
-// chooses where each window request goes; without one the fork uses the
-// requesting tab's window. No-op on older forks.
+// chooses where each window request goes; without one the shim decides
+// with the policy of cmux_shim_set_window_request_policy and reports each
+// decision as CMUX_SHIM_WINDOW_REQUEST_RESULT. No-op on older forks.
 CMUX_SHIM_EXPORT void cmux_shim_set_window_request_handler(cmux_shim_window_request_fn handler);
+// The policy the shim decides window requests with while no
+// window_request_fn is installed (the Chromium Host, where cmux cannot
+// answer inside Chromium's navigation), by the rule CEFWindowPolicy follows
+// in process (CEFShim/src/window_request_policy.h). Until the first call
+// no window has a store, so nothing opens in Chromium.
+typedef enum {
+  CMUX_SHIM_WINDOW_INSERT = 1,              // Chromium adds the tab to the anchor's window
+  CMUX_SHIM_WINDOW_OPEN_IN_NEW_TAB = 2,     // no window of the store: cmux opens the URL
+  CMUX_SHIM_WINDOW_LOAD_IN_SOURCE = 3,      // the requesting tab loads the URL
+  CMUX_SHIM_WINDOW_DOWNLOAD_IN_SOURCE = 4,  // the requesting tab downloads the URL
+  CMUX_SHIM_WINDOW_OFF_THE_RECORD = 5,      // cmux opens the URL in an incognito window
+  CMUX_SHIM_WINDOW_REFUSE_NO_WINDOW = 6,    // an off-the-record store with no window: nothing opens
+} cmux_shim_window_outcome_t;
+// BrowserNewTabDisposition.
+typedef enum {
+  CMUX_SHIM_NEW_TAB_FOREGROUND = 0,
+  CMUX_SHIM_NEW_TAB_BACKGROUND = 1,
+  CMUX_SHIM_NEW_TAB_LINK_PLACEMENT = 2,
+  CMUX_SHIM_NEW_TAB_POPUP = 3,
+  CMUX_SHIM_NEW_TAB_NEW_WINDOW = 4,
+} cmux_shim_new_tab_t;
+// BrowserLinkAction: what a modified link click does.
+typedef enum {
+  CMUX_SHIM_LINK_CURRENT_TAB = 0,
+  CMUX_SHIM_LINK_BACKGROUND_TAB = 1,
+  CMUX_SHIM_LINK_FOREGROUND_TAB = 2,
+  CMUX_SHIM_LINK_PLACEMENT = 3,
+  CMUX_SHIM_LINK_NEW_WINDOW = 4,
+  CMUX_SHIM_LINK_DOWNLOAD = 5,
+} cmux_shim_link_action_t;
+// BrowserLinkGesture.
+typedef enum {
+  CMUX_SHIM_GESTURE_PLAIN = 0,
+  CMUX_SHIM_GESTURE_CMD = 1,
+  CMUX_SHIM_GESTURE_CMD_SHIFT = 2,
+  CMUX_SHIM_GESTURE_SHIFT = 3,
+  CMUX_SHIM_GESTURE_OPTION = 4,
+  CMUX_SHIM_GESTURE_MIDDLE = 5,
+  CMUX_SHIM_GESTURE_MIDDLE_SHIFT = 6,
+} cmux_shim_link_gesture_t;
+// cmux_shim_window_policy_window.flags bits.
+typedef enum {
+  CMUX_SHIM_WINDOW_CANDIDATE = 1,             // a live pane window a request may go to (no popup panel, no spare)
+  CMUX_SHIM_WINDOW_LAST_SHOWN = 2,            // the pane that showed a Chromium tab most recently
+  CMUX_SHIM_WINDOW_VISIBLE = 4,               // the pane is on screen
+  CMUX_SHIM_WINDOW_OFF_THE_RECORD_STORE = 8,  // the store is in memory only
+} cmux_shim_window_flag_t;
+// One pane window, by one of its tabs (the anchor). A popup panel names the
+// anchor of its opener's pane (its requests go to that window), else 0.
+// Swift writes the rows at these offsets: anchor_browser_id 0,
+// opener_browser_id 8, flags 16, store 24, store_length 32 (40 bytes).
+typedef struct {
+  int64_t anchor_browser_id;
+  int64_t opener_browser_id;
+  int64_t flags;      // cmux_shim_window_flag_t bits
+  const char* store;  // the pane's store as cmux compares it (CEFRuntime.storeKey)
+  size_t store_length;
+} cmux_shim_window_policy_window;
+// The last left or middle mouse-up on a page: Chromium's dispositions do not
+// carry the click's modifiers. uptime_ms is NSEvent.timestamp in ms
+// (CLOCK_UPTIME_RAW). Offsets: browser_id 0, gesture 8, uptime_ms 16 (24 bytes).
+typedef struct {
+  int64_t browser_id;
+  int64_t gesture;  // cmux_shim_link_gesture_t
+  int64_t uptime_ms;
+} cmux_shim_window_policy_click;
+// windows sorted by anchor; profile_root = the normalized directory of
+// cmux's persistent Profile-* stores; the five actions are cmux.json
+// browser.links.* (cmux_shim_link_action_t). Replaces the previous policy.
+CMUX_SHIM_EXPORT void cmux_shim_set_window_request_policy(const cmux_shim_window_policy_window* windows,
+                                                          int window_count,
+                                                          const cmux_shim_window_policy_click* clicks,
+                                                          int click_count,
+                                                          const char* profile_root,
+                                                          int cmd_click,
+                                                          int cmd_shift_click,
+                                                          int shift_click,
+                                                          int option_click,
+                                                          int middle_click);
 // Browsers (windows) Chromium created outside cmux and never showed since
 // start (fork API 8); -1 on older forks.
 CMUX_SHIM_EXPORT int cmux_shim_foreign_browser_count(void);
@@ -1016,6 +1224,16 @@ CMUX_SHIM_EXPORT void cmux_shim_free_owned(char* s);
 // that host a frame of browser_id: the main frame and every out-of-process
 // iframe. Returns how many it wrote; 0 when the browser is gone.
 CMUX_SHIM_EXPORT int cmux_shim_renderer_client_ids(int browser_id, int* out, int capacity);
+// Every frame of every browser the shim holds, by browser and renderer
+// (memory per hidden workspace, p09-observability-061): entry i says that
+// browser_ids[i] has frame_counts[i] frames (the main frame and every
+// iframe) in renderer client_ids[i] (as above). Covering every browser
+// (tabs, popups, popup windows, spares, DevTools) gives each renderer's
+// whole frame count. Stock CEF API only (CefBrowser::GetFrameIdentifiers);
+// the app finds each renderer's pid from its helper's --renderer-client-id.
+// Writes at most `capacity` entries and returns how many there are, which
+// can be more; 0 in host mode.
+CMUX_SHIM_EXPORT int cmux_shim_renderer_frames(int* browser_ids, int* client_ids, int* frame_counts, int capacity);
 // The pid of the renderer process that hosts browser_id's main frame
 // (p14-energy-124, the fork's cmux_cef_browser_renderer_pid); same-site
 // tabs can share it. 0 while there is none (no renderer yet, gone, a
@@ -1143,11 +1361,76 @@ CMUX_SHIM_EXPORT int cmux_shim_page_resource_respond(int token, int status, cons
 // Returns 1 when the fork took the vote, 0 when the fork lacks the call,
 // for a level out of range, or once quit began (nothing changes).
 CMUX_SHIM_EXPORT int cmux_shim_memory_pressure_vote(int level);
-// 1: page cursors come to the host as CMUX_SHIM_CURSOR and Chromium sets no
-// NSCursor of its own (the Chromium Host, whose page windows never show: the
-// page view in cmux shows the cursor). 0 (the default): Chromium sets the
-// cursor over its page window. UI thread.
+// 1: page cursors come to the host as CMUX_SHIM_CURSOR and tooltips as
+// CMUX_SHIM_TOOLTIP, and Chromium sets no NSCursor and shows no tooltip of
+// its own (the Chromium Host, whose page windows never show: the page view in
+// cmux shows both). 0 (the default): Chromium shows them over its page
+// window. UI thread.
 CMUX_SHIM_EXPORT void cmux_shim_set_cursor_events(int enabled);
+// Fork API 37 (cmux_tab_set_visibility; cmux p06-scheduler-212): the app
+// gives browser_id's WebContents the visibility of its tab in cmux's
+// visibility tree (window, workspace, pane, selected tab), as Chrome's tab
+// strip hides a background tab (WebContentsImpl::UpdateWebContentsVisibility,
+// content/public/browser/visibility.h). The value caps what the page window
+// and its view ask for (the lower of the two applies), so Blink's hidden-page
+// throttling and document.visibilityState follow the tab in the call's turn.
+typedef enum {
+  // No cap: the page window and its view decide (the default).
+  CMUX_SHIM_TAB_VISIBILITY_VIEW = 0,
+  CMUX_SHIM_TAB_VISIBILITY_VISIBLE = 1,
+  // Occluded: the page draws no frames (Chrome's covered window).
+  CMUX_SHIM_TAB_VISIBILITY_OCCLUDED = 2,
+  // Hidden: the page is hidden (document.visibilityState 'hidden').
+  CMUX_SHIM_TAB_VISIBILITY_HIDDEN = 3,
+} cmux_shim_tab_visibility_t;
+// A capture of the tab while cmux shows it nowhere, as
+// WebContents::IncrementCapturerCount(stay_hidden): a screenshot, a
+// screencast, the phone's browser host, screen share.
+typedef enum {
+  CMUX_SHIM_TAB_CAPTURE_NONE = 0,
+  // The page keeps painting and stays hidden to script (kHiddenButPainting).
+  CMUX_SHIM_TAB_CAPTURE_HIDDEN = 1,
+  // The page paints and reads visible (a capturer that does not stay hidden).
+  CMUX_SHIM_TAB_CAPTURE_VISIBLE = 2,
+} cmux_shim_tab_capture_t;
+// visibility is a cmux_shim_tab_visibility_t, capture a
+// cmux_shim_tab_capture_t; the fork holds one capture per browser and
+// replaces it on each call. Returns 1, or 0 for an unknown value or browser
+// or a fork without the call. UI thread.
+CMUX_SHIM_EXPORT int cmux_shim_tab_set_visibility(int browser_id, int visibility, int capture);
+// 1 when the fork loads built-in extensions at a profile's first tab
+// (cmux_ext_load_command_line_async, p13-webui-055); ask before
+// cmux_shim_initialize decides --load-extension.
+CMUX_SHIM_EXPORT int cmux_shim_ext_load_later_supported(void);
+// Loads the unpacked extension at `path` into the persistent profile of
+// profile_cache_path as --load-extension does (command-line location, not
+// loaded again at the next start), with the folder read off the UI thread;
+// creates the context when no tab opened it yet. Replies once with
+// CMUX_SHIM_REPLY (`reply`, a = 1: installed, its background page through its
+// first load; 0: failed), never inside this call. Main thread, after
+// cmux_shim_initialize. Returns 1 when the load started, 0 for an
+// off-the-record key, an empty path or a fork without the call (no reply).
+CMUX_SHIM_EXPORT int cmux_shim_ext_load_command_line(const char* profile_cache_path, int reply, const char* path);
+// The page push channel (fork API 39, cmux_tab_page_push; p13-webui-079): `text` (UTF-8) to the
+// receiver the browser's cmux-page document registered with cmuxPageListen, as data: no script runs
+// for it and nothing answers. Pushes keep their order with each other and with the frame's scripts,
+// and the renderer keeps them until the receiver registers or a frozen page runs again. Returns 1
+// when sent, 0 for NULL text, an unknown browser, a page whose document is not a cmux-page one, or
+// a fork without the call. UI thread.
+CMUX_SHIM_EXPORT int cmux_shim_tab_page_push(int browser_id, const char* text);
+// <select> popups (fork API 31's cmux_browser_set_popup_menu_handler, task
+// p01-process-171). 1: every browser's popups, now and later, come to the
+// host as CMUX_SHIM_POPUP_MENU, and Chromium shows no NSMenu of its own (the
+// Chromium Host, which is never the active app: cmux shows the menu). 0 (the
+// default): Chromium shows its own menu. Nothing changes without the fork
+// call. UI thread.
+CMUX_SHIM_EXPORT void cmux_shim_set_popup_menus(int enabled);
+// Answers a CMUX_SHIM_POPUP_MENU of browser_id once: index = the chosen
+// item, -1 when the menu closed with no choice (the page gets a change event
+// for a choice, as with Chrome's menu). An item the page cannot take (a
+// group label, a separator, a disabled option) closes the popup as -1 does.
+// An answered or hidden token does nothing. UI thread.
+CMUX_SHIM_EXPORT void cmux_shim_browser_popup_menu_reply(int browser_id, int64_t token, int index);
 
 // Chromium tracing through stock CEF (include/cef_trace.h, CEFShim/src/shim_tracing.mm; task
 // p09-observability-050). These are not cmux_shim_* exports, so the Chromium Host wire does not

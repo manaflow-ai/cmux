@@ -431,9 +431,11 @@ pub(super) fn start_terminal_resource_attach(
     let (worker_start, worker_committed) = std::sync::mpsc::sync_channel(1);
     let worker_mux = mux.clone();
     let worker_writer = writer.clone();
+    // A control stream, not an echo-path thread: it waits for the attach to
+    // commit, and echo-path threads disallow blocking.
     let spawn = cmux_threads::spawn(
         "mux-resource-terminal-attach",
-        cmux_threads::ThreadQos::UserInitiated,
+        crate::thread_qos::ThreadType::Interactive.qos(),
         move || {
             if waits::recv(&worker_committed).is_err() {
                 return;
@@ -664,7 +666,7 @@ pub(super) fn start_browser_resource_attach(
     let worker_writer = writer.clone();
     let spawn = cmux_threads::spawn(
         "mux-resource-browser-attach",
-        cmux_threads::ThreadQos::UserInitiated,
+        crate::thread_qos::ThreadType::Interactive.qos(),
         move || {
             if waits::recv(&worker_committed).is_err() {
                 return;
@@ -851,7 +853,7 @@ pub(super) fn start_sidebar_resource_attach(
     let worker_writer = writer.clone();
     let spawn = cmux_threads::spawn(
         "mux-resource-sidebar-attach",
-        cmux_threads::ThreadQos::UserInitiated,
+        crate::thread_qos::ThreadType::Interactive.qos(),
         move || {
             let mut sequence = 0u64;
             if !send_resource_uncursored_stream_item(

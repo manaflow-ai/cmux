@@ -33,8 +33,9 @@ Modes (each prints `WEBUI-ROW` lines, one per row, and writes OUT/webui-<mode>.j
   open      D4, light or STRESS. Cmd-T into the preloaded New Tab (`debug.new_tab bench_open`: key turn, cover
             frame = `visible_ms`) and its Cmd-W; Cmd-, Settings warm (--runs) and cold (the first open and
             --cold-runs opens after its renderer was killed), timed on the app's uptime clock from the key's
-            `debug.action_budget` start to the page's `debug.page` painted_uptime, and its Cmd-W; a frozen chat of
-            --chat-turns turns shown again --runs times. D4 rows with no app signal yet print `unscored`.
+            `debug.action_budget` start to the page's `debug.page` painted_uptime, and its Cmd-W (with the engine
+            page closes `debug.webui` `retire` stamps in the key's turn); a frozen chat of --chat-turns turns
+            shown again --runs times. D4 rows with no app signal yet print `unscored`.
   crash     D5. 5 privileged pages, 1 shown; kill -9 of the shown page's renderer --kills times: cmux survives, the
             shown page paints again (until the group cap, 3 per 600 s), hidden pages do not reload.
   pressure  D6. A browser tab and a chat, then pages; `debug.hibernation.pressure critical` (the memory coordinator's
@@ -44,6 +45,13 @@ Modes (each prints `WEBUI-ROW` lines, one per row, and writes OUT/webui-<mode>.j
             darwinbg) within --priority-wait s.
   delivery  D3's delivery rows alone: events and native pushes to frozen pages over --measure s while
             `debug.webui publish` drives one stream per page at 10 Hz and the appearance toggles every second.
+  push      Task 079's A/B (the page push channel, feature `pagePushChannel`, fork API 39): the ten pages open,
+            and over --measure s each gets --push-hz host calls a second (`debug.page ping`, answered
+            `unknown_op`). Rows: the call's round trip (p50 to p99, the delivery into the page plus the same reply
+            path in both arms), page renderer CPU per 1,000 deliveries, and the deliveries the census counted as
+            scripts and as data. Run it with and without `--enable-feature pagePushChannel` on one host and one
+            build; the push channel lands only with a gain beyond the off arm's spread. The run turns
+            `browser.freezeHiddenTabs` off: a frozen page would thaw at each call.
 
 The page census is `debug.webui` (task 001). A build without it (the base of the program) gets `unscored` for the
 census rows and still measures the process rows. Keys read, per row of its `rows` list: `row` (page, spare or
@@ -85,7 +93,7 @@ import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
-MODES = ("home", "pages10", "open", "crash", "pressure", "priority", "delivery")
+MODES = ("home", "pages10", "open", "crash", "pressure", "priority", "delivery", "push")
 # D3's ten pages: (page id, the action that opens it, its arguments; "{md}" and "{txt}" are scratch files).
 PAGES10 = [("cmux.settings", "openSettings", {}), ("cmux.history", "history.show", {}),
            ("cmux.cloud", "palette.openCloudPane", {}), ("cmux.apps", "appStore.show", {}),
@@ -98,7 +106,11 @@ GPU_KINDS = ("gpu", "webkit-gpu")  # procs.kind_of names of the CEF and the WebK
 HIDDEN_WAKEUPS_PER_S = 0.2  # MQ5's bound for a hidden page's renderer and the GPU (D2's WebContent bound)
 BACKGROUND_PRI = 4  # `ps -o pri` of a darwinbg task: Chrome backgrounds a hidden renderer so (base/process/process_mac.cc)
 GROUP_CAP = 3  # crash budget per group in 600 s (section 3.C)
+PUSH_FEATURE = "pagePushChannel"  # task 079's default-off feature
+PUSH_FORK_API = 39  # CEFForkFeatures.pagePushForkAPI
 LATENCY_STEP = 0.005  # s between polls of a timed wait (bench-pages.py polls at 10 ms); setup waits poll at 50 ms
+# s after a Cmd-W's start that count as its turn and frames for engine page closes; PageRetirer.delay (500 ms) is later.
+CLOSE_TURN_WINDOW = 0.25
 # Task 052's spike switches (CMUX_NEXT_CEF_EXTRA_SWITCHES, colon-separated): the fork copies the first to every renderer.
 CODE_CACHE_SWITCHES = ("cmux-code-cache-schemes=cmux-page", "enable-features=WebUICodeCache")
 CODE_CACHE_MARK = "--" + CODE_CACHE_SWITCHES[0]
@@ -224,7 +236,9 @@ class Census:
                          "keep_reasons": [r for r in page.get("keep_reasons") or [] if r != "visible"],
                          "renderer_pid": pid, "webkit_pid": page.get("webkit_pid"),
                          "hidden_deliveries": page.get("deliveries_while_hidden"),
-                         "hidden_pushes": page.get("pushes_while_hidden")})
+                         "hidden_pushes": page.get("pushes_while_hidden"),
+                         "script_deliveries": page.get("script_deliveries"),
+                         "data_deliveries": page.get("data_deliveries")})
         for spare in (s for s in reply.get("spares") or [] if isinstance(s, dict)):
             rows.append({"row": "spare", "spare_kind": "preload" if spare.get("spare") == "new_tab" else spare.get("spare"),
                          "state": spare.get("state"), "renderer_pid": next(iter(spare.get("renderer_pids") or []), None),
@@ -683,6 +697,55 @@ class Bench:
         self.settle(self.opts.hide_settle, "pages hide and freeze")
         self.delivery_window(self.census())
 
+    def push(self):
+        """Task 079's A/B: --push-hz host calls per page per second to the ten pages over --measure s."""
+        channel = PUSH_FEATURE in self.opts.enable_feature
+        self.open_pages(PAGES10)
+        self.check_engine("push")
+        before = self.census()
+        renderers = self.page_renderers(before)
+        pages = [page_id for page_id, _, _ in PAGES10]
+        trips = []
+
+        def load(seconds):
+            started = self.clock.monotonic()
+            tick = 0
+            while True:
+                due = started + tick / self.opts.push_hz
+                if due - started >= seconds:
+                    return
+                self.settle(due - self.clock.monotonic(), "push pace", quiet=True)  # bench: the load's own pace
+                for page_id in pages:
+                    reply = self.rpc("debug.page", {"page": page_id, "action": "ping"}, timeout=10)
+                    ok = isinstance(reply, dict) and not reply.get("error") and isinstance(reply.get("ms"), (int, float))
+                    trips.append(round(reply["ms"], 3) if ok else None)
+                tick += 1
+
+        window = self.instance.window(self.opts.measure, during=load, per_pid=True)
+        after = self.census()
+        calls = sum(1 for trip in trips if trip is not None)
+        cpu_s = sum((entry.get("cpu_pct") or 0) / 100 * (window.get("seconds") or self.opts.measure)
+                    for entry in window.get("pids") or [] if isinstance(entry, dict) and entry.get("pid") in renderers)
+        arm = "on" if channel else "off"
+
+        def delivered(key):
+            if before is None or after is None:
+                return None
+            total = lambda census: sum(int(p.get(key) or 0) for p in census.pages())  # noqa: E731
+            return total(after) - total(before) if any(p.get(key) is not None for p in after.pages()) else None
+
+        scripts, data = delivered("script_deliveries"), delivered("data_deliveries")
+        events = (scripts or 0) + (data or 0) if scripts is not None or data is not None else 2 * calls
+        api = self.fork_api()
+        self.add(series(f"push.round_trip_ms.{arm}", trips, note=f"fork api {api}", tier="train"),
+                 row(f"push.renderer_cpu_ms_per_1000.{arm}", round(cpu_s * 1000 / (events / 1000), 3) if events and renderers else None,
+                     unit="ms", tier="train",
+                     note=f"{len(renderers)} page renderers, {events} deliveries" if renderers else "no page renderer"),
+                 row(f"push.script_deliveries.{arm}", scripts, ("==", 0) if channel and api >= PUSH_FORK_API else None,
+                     tier="train", note="" if scripts is not None else "no delivery counts in this build's census"),
+                 row(f"push.data_deliveries.{arm}", data, tier="train"))
+        self.facts.update(push_window=window)
+
     def budget_runs(self):
         reply = self.rpc("debug.action_budget", {"limit": 64})
         recent = reply.get("recent") if isinstance(reply, dict) else None
@@ -727,9 +790,7 @@ class Bench:
         # D4 rows with no app signal yet: printed unscored, so the gap shows in every run.
         self.add(row("cef.window_built_on_key_turn", built if isinstance(built, (int, float)) else None, ("==", 0),
                      note="" if isinstance(built, (int, float)) else "debug.cef reports no window_built_on_key_turn"),
-                 row("second_page_same_pane_windows", None, ("==", 0), note="no per-open window count in debug.cef or debug.webui"),
-                 row("settings.cmd_w_engine_close_calls", None, ("==", 0),
-                     note="no count of engine close calls in the key's turn yet"))
+                 row("second_page_same_pane_windows", None, ("==", 0), note="no per-open window count in debug.cef or debug.webui"))
         if self.opts.chat_turns > 0:
             self.frozen_chat()
 
@@ -782,12 +843,36 @@ class Bench:
         return result
 
     def settings_close(self):
-        """Cmd-W on the Settings tab: (its commit ms, the renderer pid that held the page)."""
+        """Cmd-W on the Settings tab: (its commit ms, the renderer pid that held the page, the engine page closes in
+        the key's turn or None when the build stamps none)."""
         sequence = self.budget_sequence()
         pid = Census.pid((self.census() or Census([])).page("cmux.settings") or {})
+        before = self.retire()
+        sent = self.uptime()
         self.key("w", "cmd")
         self.until(lambda: not self.live("cmux.settings"), self.opts.open_timeout)
-        return self.commit_ms("closeTab", sequence), pid
+        run = self.budget_run("closeTab", sequence) or {}
+        start = run["start_uptime_ns"] / 1e9 if isinstance(run.get("start_uptime_ns"), (int, float)) else sent
+        return run.get("commit_ms"), pid, self.engine_closes_in_turn(before, self.retire(), start)
+
+    def retire(self):
+        """`debug.webui` `retire` ({engine_closes, engine_close_uptimes, ...}), or None when the build has none."""
+        reply = self.rpc("debug.webui")
+        retire = reply.get("retire") if isinstance(reply, dict) else None
+        valid = isinstance(retire, dict) and isinstance(retire.get("engine_closes"), (int, float)) \
+            and isinstance(retire.get("engine_close_uptimes"), list)
+        return retire if valid else None
+
+    @staticmethod
+    def engine_closes_in_turn(before, after, start):
+        """The engine page closes stamped between the `before` and `after` reads (`retire`) from `start` to
+        CLOSE_TURN_WINDOW after it: the key's turn and its frames (the retirer's deadline comes later). None when a
+        read had no `retire`."""
+        if before is None or after is None:
+            return None
+        new = int(after["engine_closes"] - before["engine_closes"])
+        stamps = after["engine_close_uptimes"][-new:] if new > 0 else []
+        return sum(1 for t in stamps if isinstance(t, (int, float)) and start <= t < start + CLOSE_TURN_WINDOW)
 
     def drop_renderer(self, pid):
         """Kills the renderer that held the closed Settings page, so the next open starts a fresh one. Refused
@@ -802,7 +887,7 @@ class Bench:
         """Cmd-, Settings: the first open and --cold-runs opens after its renderer was killed (cold), --runs opens
         with the renderer live (warm), each with its Cmd-W."""
         view = _Envelope(self.rpc)
-        warm, cold, open_turns, close_turns = [], [], [], []
+        warm, cold, open_turns, close_turns, engine_closes = [], [], [], [], []
         preloaded = polled = skipped = 0
 
         def sample(into, first=False):
@@ -815,8 +900,9 @@ class Bench:
             polled += int(result["polled"])
             if not result["preloaded"]:
                 into.append(result["ms"])
-            turn, pid = self.settings_close()
+            turn, pid, closes = self.settings_close()
             close_turns.append(turn)
+            engine_closes.append(closes)
             return pid
 
         pid = sample(cold, first=True)
@@ -838,7 +924,18 @@ class Bench:
                  row("settings.cover_frame_ms", None, ("p99", "<=", 16.7), "ms",
                      note="no frame signal for Settings while preloaded yet"),
                  series("settings.key_turn_ms", open_turns, ("p99", "<=", 4)),
-                 series("settings.cmd_w_key_turn_ms", close_turns, ("p99", "<=", 4)))
+                 series("settings.cmd_w_key_turn_ms", close_turns, ("p99", "<=", 4)),
+                 self.engine_close_row(engine_closes))
+
+    @staticmethod
+    def engine_close_row(closes):
+        """p13-webui-064: every Settings Cmd-W makes 0 engine page closes in its turn (PageRetirer ends the page at its
+        deadline). Unscored when a close had no `debug.webui` `retire` to read."""
+        if not closes or any(c is None for c in closes):
+            return row("settings.cmd_w_engine_close_calls", None, ("==", 0),
+                       note="no debug.webui retire (engine_close_uptimes) in this build")
+        return row("settings.cmd_w_engine_close_calls", sum(closes), ("==", 0),
+                   note=f"engine page closes within {int(CLOSE_TURN_WINDOW * 1000)} ms of {len(closes)} Cmd-W keys")
 
     def conversation_tabs(self):
         """{tab id: pane id} of every chat tab."""
@@ -1065,7 +1162,7 @@ def launch_config(opts):
     """The app's cmux-next.json for a run. --every-page-hidden turns page freezing off (p13-webui.md section 3.C:
     `browser.freezeHiddenTabs` "off" is a freeze-only keep reason), so its window measures pages that still run."""
     browser = {"defaultEngine": opts.engine}
-    if opts.every_page_hidden:
+    if opts.every_page_hidden or opts.mode == "push":
         browser["freezeHiddenTabs"] = "off"
     return {"browser": browser, "appearance": {"backgroundOpacity": 1}}
 
@@ -1086,15 +1183,20 @@ def parse(argv):
     parser.add_argument("--cold-runs", type=int, default=20, help="Settings opens after its renderer was killed")
     parser.add_argument("--chat-turns", type=int, default=2000, help="turns of the frozen chat (0: no chat row)")
     parser.add_argument("--kills", type=int, default=GROUP_CAP + 1)
+    parser.add_argument("--push-hz", type=float, default=10, help="push: host calls per page per second")
     parser.add_argument("--every-page-hidden", action="store_true",
                         help="pages10: hide all ten pages, then measure page renderer and GPU wakeups (task 037, MQ5)")
     parser.add_argument("--page-code-cache", action="store_true",
                         help="task 052's A/B: Chromium with the code cache spike's switches (Debug development bundles)")
+    parser.add_argument("--enable-feature", action="append", default=[], metavar="NAME",
+                        help="a feature to turn on for the run (CMUX_ENABLE_FEATURES), repeatable: an off feature's arm")
     parser.add_argument("--out")
     opts = parser.parse_args(argv)
     for name in ("settle", "measure", "hide_settle", "discard_settle", "open_timeout", "priority_wait"):
         if getattr(opts, name) < 0:
             parser.error(f"--{name.replace('_', '-')} must be >= 0")
+    if opts.push_hz <= 0:
+        parser.error("--push-hz must be > 0")
     if opts.runs < 1 or opts.kills < 1 or opts.cold_runs < 0:
         parser.error("--runs and --kills must be >= 1, --cold-runs >= 0")
     if opts.every_page_hidden and opts.mode != "pages10":
@@ -1105,8 +1207,11 @@ def parse(argv):
 
 
 def launch_env(opts, tunables):
-    """The app's environment: the React page tunables file, and with --page-code-cache task 052's switches."""
+    """The app's environment: the React page tunables file, --enable-feature's features, and with --page-code-cache
+    task 052's switches."""
     env = {"CMUX_NEXT_DEBUG_TUNABLES_FILE": tunables}
+    if opts.enable_feature:
+        env["CMUX_ENABLE_FEATURES"] = ",".join(opts.enable_feature)
     if opts.page_code_cache:
         env["CMUX_NEXT_CEF_EXTRA_SWITCHES"] = ":".join(CODE_CACHE_SWITCHES)
     return env
