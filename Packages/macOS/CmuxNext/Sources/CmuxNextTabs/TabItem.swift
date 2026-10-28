@@ -71,8 +71,9 @@ public struct TabItem: Identifiable, Hashable, Sendable {
     public var presence: TabPresence?
     /// A browser tab playing sound, or muted: a speaker after the title.
     public var audio: TabAudio?
-    /// What the hover card says beyond the title and subtitle (Leo 2026-10-14).
-    public var hover = TabHoverFacts()
+    // What the hover card says beyond the title and subtitle is not here: it follows terminal output and
+    // agent state, which the strip never draws, so the card reads it when it shows
+    // (`TabStripModel.hoverFacts`) and a change of it costs the strip nothing.
 
     public init(
         id: TabID,

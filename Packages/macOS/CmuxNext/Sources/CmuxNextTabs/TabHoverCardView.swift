@@ -49,6 +49,7 @@ final class TabHoverCardView: NSView {
     static let maxGroupLines = 8
     /// The tab the card shows (nil for a group) and its latest sample.
     private var item: TabItem?
+    private var facts = TabHoverFacts()
     private var report: ResourceReport?
     /// The tab's CPU of each sample since its card showed, newest last (the memory row's bars).
     private var cpuHistory: [Double] = []
@@ -126,12 +127,13 @@ final class TabHoverCardView: NSView {
 
     func configure(_ content: TabHoverCardContent) {
         switch content {
-        case .tab(let item):
+        case .tab(let item, let facts):
             if self.item?.id != item.id {
                 report = nil
                 cpuHistory.removeAll()
             }
             self.item = item
+            self.facts = facts
             setActivity(item.indicator, style: item.busyStyle)
             render()
             // The thumbnail frame is the controller's: it shows or hides once the tab's own is known.
@@ -173,9 +175,8 @@ final class TabHoverCardView: NSView {
 
     private func render() {
         guard let item else { return }
-        let lines = TabHoverCardLines.make(item, report: report, now: Date())
+        let lines = TabHoverCardLines.make(item, facts: facts, report: report, now: Date())
         titleLabel.stringValue = lines.title
-        let facts = item.hover
         let placeIcon: NSImage? = switch facts.kind {
         case .browser: favicon(item) ?? NSImage.icon(.linkWeb, size: Self.iconSize)
         case .terminal, .agentChat: NSImage.icon(.folder, size: Self.iconSize)
@@ -183,7 +184,7 @@ final class TabHoverCardView: NSView {
         }
         set(placeRow, lines.place.map { HoverCardRowContent(text: $0) }, icon: placeIcon, truncation: .byTruncatingMiddle)
         // The run state as a dot in its color, unless the title's indicator already shows it.
-        let tone = TabHoverCardLines.tone(item)
+        let tone = TabHoverCardLines.tone(item, facts: facts)
         set(statusRow, lines.status.map {
             HoverCardRowContent(text: $0, accessory: activity.isHidden ? tone.map(HoverCardAccessory.dot) : nil)
         }, icon: NSImage.icon(facts.kind == .terminal ? .terminal : .agentActivity, size: Self.iconSize))

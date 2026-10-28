@@ -8,6 +8,9 @@ extension TabStripView {
 
     func beginDrag(_ press: TabStripPress) {
         guard let start = displayed.first(where: { $0.id == press.id }), placed[press.id] != nil else { return }
+        // A scroll in flight (the press's reveal) ends where it shows: the scrolling layer's bounds carry it,
+        // and the lifted tab must sit exactly under the pointer.
+        settleScroll()
         // The tab is lifted where it shows now (a move may be in flight), then follows the pointer from there.
         let shown = shownX(press.id) ?? placed[press.id]?.x ?? 0
         let local = convert(press.start, to: tabsClip)
@@ -212,10 +215,13 @@ extension TabStripView {
     /// The drag image of `layers` (`TabSnapshotRenderer`), on a window-colored card only in an
     /// opaque window, and whether it was drawn for glass (no card): decided in this strip's scope,
     /// which the drag ghost must follow.
+    /// `frame` is in `tabsClip`'s coordinates; the layers draw in their own layer's (one tab's, or a group's in
+    /// the scrolling layer), so the image is cut there.
     func snapshot(of layers: [CALayer], frame: CGRect) -> (image: TabImage?, onGlass: Bool) {
         let backdrop = WindowBackdrop.dragPreview(themeScope)
         let background = performWithTheme { backdrop.dragCardFill(Palette.windowBackground)?.cgColor }
-        let image = TabSnapshotRenderer(metrics: metrics, scale: window?.backingScaleFactor ?? 2, background: background).image(of: layers, frame: frame)
+        let local = layers.first?.superlayer.flatMap { parent in tabsClip.layer.map { parent.convert(frame, from: $0) } } ?? frame
+        let image = TabSnapshotRenderer(metrics: metrics, scale: window?.backingScaleFactor ?? 2, background: background).image(of: layers, frame: local)
         return (image, backdrop.dragsOnGlass)
     }
 
@@ -279,7 +285,7 @@ extension TabStripView {
     /// Where `id`'s cell shows now, its center in window coordinates; nil when it shows nowhere.
     public func tabCenterInWindow(_ id: TabID) -> CGPoint? {
         guard let cell = cells[id] else { return nil }
-        let frame = (cell.layer.presentation() ?? cell.layer).frame
+        let frame = shownFrame(cell.layer)
         return tabsClip.convert(CGPoint(x: frame.midX, y: tabsClip.bounds.midY), to: nil)
     }
 }

@@ -39,6 +39,7 @@ extension TabStripView {
             chip.font = Typography.caption
             chip.themeScope = themeScope
             chip.scale = window?.backingScaleFactor ?? 2
+            chip.clipLayer = tabsClip.layer
             chip.accessibility.setAccessibilityParent(self)
             chip.accessibility.setAccessibilityIdentifier("cmux.tabs.group.\(group.rawValue)")
             chip.accessibility.onPress = { [weak self] in self?.model.send(.toggleGroupCollapsed(group)) }
@@ -67,11 +68,9 @@ extension TabStripView {
 
     // MARK: - Frames
 
-    /// Positions chips and bands at their places; with `move`, each one that moved animates there.
-    /// `offset`: the unpinned region's (`TabScrollMapping.offset(isPinned: false)`); chips are never pinned.
-    /// `scroll`: the view x the scroll alone moved them by in `move` (`TabStripMove.addScroll`).
-    func applyGroupFrames(offset: CGFloat, tabY: CGFloat, tabHeight: CGFloat, pixel: (CGFloat) -> CGFloat, move: TabStripMove? = nil,
-                          scroll: CGFloat = 0) {
+    /// Positions chips and bands at their places, in the scrolling layer's content coordinates (the scroll
+    /// moves its bounds, not them); with `move`, each one that moved animates there. Chips are never pinned.
+    func applyGroupFrames(tabY: CGFloat, tabHeight: CGFloat, pixel: (CGFloat) -> CGFloat, move: TabStripMove? = nil) {
         var memberMaxX: [TabGroupID: CGFloat] = [:]
         for item in displayed {
             guard let group = item.groupID, let place = placed[item.id] else { continue }
@@ -87,23 +86,24 @@ extension TabStripView {
             let id = TabID.groupChip(group)
             guard let place = placed[id] else { continue }
             let width = max(0, place.width)
-            let minX = pixel(place.x - offset)
-            let frame = CGRect(x: minX, y: tabY, width: pixel(place.x - offset + width) - minX, height: tabHeight)
+            let minX = pixel(place.x)
+            let frame = CGRect(x: minX, y: tabY, width: pixel(place.x + width) - minX, height: tabHeight)
             let alpha = Float(min(max(place.alpha, 0), 1))
             let direct = groups.isDragged(id)
             var moved = false
-            if let move, frame != chip.frame || alpha != chip.layer.opacity || abs(scroll) > 0.01 {
+            let changed = frame != chip.layer.frame || alpha != chip.layer.opacity
+            if let move, changed {
                 let before = TabStripMove.snapshot(chip.layer)
-                chip.frame = frame
+                chip.setLayerFrame(frame)
                 chip.layer.opacity = alpha
-                moved = move.animate(from: before, scroll: scroll)
-            } else {
-                chip.frame = frame
+                moved = move.animate(from: before)
+            } else if changed {
+                chip.setLayerFrame(frame)
                 chip.layer.opacity = alpha
             }
             if direct { TabStripMove.cancelPosition(chip.layer) }
             if let move { noteClosing(id, moved: moved, move: move) }
-            chip.accessibility.setAccessibilityFrameInParentSpace(tabsClip.convert(chip.frame, to: self))
+            chip.accessibility.updateFrameInParentSpace(tabsClip.convert(chip.frame, to: self))
             guard let band = groups.bands[group] else { continue }
             let pillMinX = place.x + metrics.groupChipOuterInset
             let chipMaxX = place.x + width
@@ -119,16 +119,16 @@ extension TabStripView {
             let wash = move.flatMap { _ in bandMoves ? TabStripMove.snapshot(band.washLayer, depth: 0) : nil }
             let line = move.flatMap { _ in bandMoves ? TabStripMove.snapshot(band.lineLayer, depth: 0) : nil }
             band.apply(
-                span: CGRect(x: pixel(chipMaxX - offset), y: tabY, width: pixel(members), height: tabHeight),
+                span: CGRect(x: pixel(chipMaxX), y: tabY, width: pixel(members), height: tabHeight),
                 lineWidth: members > 0.5 ? pixel(end - pillMinX) : 0,
                 lineHeight: metrics.groupUnderlineHeight,
                 cornerRadius: metrics.cornerRadius,
                 opacity: alpha
             )
-            band.lineLayer.frame.origin.x = pixel(pillMinX - offset)
+            band.lineLayer.frame.origin.x = pixel(pillMinX)
             if let move, let wash, let line {
-                move.animate(from: wash, scroll: scroll, pinsEnd: pinsEnd)
-                move.animate(from: line, scroll: scroll, pinsEnd: pinsEnd)
+                move.animate(from: wash, pinsEnd: pinsEnd)
+                move.animate(from: line, pinsEnd: pinsEnd)
             }
         }
     }
@@ -156,9 +156,10 @@ extension TabStripView {
     /// `group`'s summary card (`GroupHoverCardSummary`), the same card a sidebar group shows.
     func groupHoverSummary(_ group: TabGroupItem, options: GroupHoverCardOptions, now: Date) -> GroupHoverCardSummary {
         let members = displayed.filter { $0.groupID == group.id }.map { tab in
-            GroupHoverCardMember(title: tab.title.isEmpty ? Strings.untitled : tab.title,
-                                 activity: tab.isWaiting ? .waiting : GroupHoverCardMember.Activity(tab.indicator),
-                                 unread: tab.isUnread ? 1 : 0, lastActivity: tab.hover.since, branch: tab.hover.branch)
+            let facts = model.hoverFacts(tab.id)
+            return GroupHoverCardMember(title: tab.title.isEmpty ? Strings.untitled : tab.title,
+                                        activity: tab.isWaiting ? .waiting : GroupHoverCardMember.Activity(tab.indicator),
+                                        unread: tab.isUnread ? 1 : 0, lastActivity: facts.since, branch: facts.branch)
         }
         let title = group.name.isEmpty ? Strings.groupTabCount(members.count) : group.name
         return GroupHoverCardSummary.make(title: title, kind: .tabGroup, members: members, options: options, now: now)

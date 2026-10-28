@@ -78,6 +78,11 @@ enum TabOcclusion {
         }
     }
 
+    /// The selected tab's pill, `height` high, for its layer's frame `frame` (in that layer's coordinates).
+    static func pill(of frame: CGRect, height: CGFloat, metrics: TabStripMetrics) -> CGRect {
+        metrics.pillFrame(slotWidth: frame.width, height: height).offsetBy(dx: frame.minX, dy: frame.minY)
+    }
+
     /// The part of a cell `frame` wide to keep visible under `cover` (both in the cell's layer), in the
     /// cell's coordinates: the larger side the pill leaves; nil when the pill does not cover it.
     static func visible(frame: CGRect, cover: CGRect) -> CGRect? {
@@ -90,7 +95,7 @@ enum TabOcclusion {
 
     /// `band`: the fixed pinned band (`TabScrollMapping.band`). With one, pinned and unpinned tabs never
     /// cross (the unpinned ones scroll under the band, clipped), so a pill covers only its own region's tabs.
-    /// Both regions' layers (tabsClip's, the scrolling layer) have the clip's coordinates.
+    /// Two tabs that cross share a layer (tabsClip's, or the scrolling layer's), so their layers' frames compare.
     static func crosses(_ cell: TabCell, _ id: TabID, selected: TabID, cover: TabCell, band: CGFloat) -> Bool {
         id != selected && !cell.isLifted && (band <= 0 || cell.item.isPinned == cover.item.isPinned)
     }
@@ -103,19 +108,19 @@ enum TabOcclusion {
     /// keyframes end (then the strip calls this again: at rest no mask is left).
     @MainActor
     /// `settle`: a path that ends within it counts as ended (the strip's move completion).
-    static func update(cells: [TabID: TabCell], selected: TabID?, band: CGFloat, settle: CFTimeInterval = 0.001) -> [TabID: CFTimeInterval] {
+    /// `only`: the tabs to look at (the rest keep their masks); nil, every tab.
+    static func update(cells: [TabID: TabCell], selected: TabID?, band: CGFloat, settle: CFTimeInterval = 0.001,
+                       only: Set<TabID>? = nil) -> [TabID: CFTimeInterval] {
         let now = CACurrentMediaTime()
-        guard let selected, let cover = cells[selected], cover.frame.width > 0 else {
-            for cell in cells.values { cell.occlude(visible: nil) }
+        guard let selected, let cover = cells[selected], cover.layer.frame.width > 0 else {
+            for (id, cell) in cells where only?.contains(id) ?? true { cell.occlude(visible: nil) }
             return [:]
         }
         let coverPath = Path(cover, now: now)
         let height = cover.layer.bounds.height
-        func pill(_ frame: CGRect) -> CGRect {
-            cover.metrics.pillFrame(slotWidth: frame.width, height: height).offsetBy(dx: frame.minX, dy: frame.minY)
-        }
+        func pill(_ frame: CGRect) -> CGRect { Self.pill(of: frame, height: height, metrics: cover.metrics) }
         var masked: [TabID: CFTimeInterval] = [:]
-        for (id, cell) in cells {
+        for (id, cell) in cells where only?.contains(id) ?? true {
             guard crosses(cell, id, selected: selected, cover: cover, band: band) else {
                 cell.occlude(visible: nil)
                 continue
@@ -123,15 +128,15 @@ enum TabOcclusion {
             let path = Path(cell, now: now)
             let end = max(coverPath.end, path.end)
             guard end > now + settle else {
-                cell.occlude(visible: visible(frame: cell.frame, cover: pill(cover.frame)))
+                cell.occlude(visible: visible(frame: cell.layer.frame, cover: pill(cover.layer.frame)))
                 continue
             }
             let times = MotionPath.times(from: now, to: end, count: MotionPath.sampleCount(seconds: end - now))
             var crossed = false
             let rects = times.enumerated().map { index, time -> CGRect in
                 let last = index == times.count - 1
-                let frame = last ? cell.frame : path.frame(at: time)
-                let rect = visible(frame: frame, cover: pill(last ? cover.frame : coverPath.frame(at: time)))
+                let frame = last ? cell.layer.frame : path.frame(at: time)
+                let rect = visible(frame: frame, cover: pill(last ? cover.layer.frame : coverPath.frame(at: time)))
                 crossed = crossed || rect != nil
                 return rect ?? CGRect(origin: .zero, size: frame.size)
             }

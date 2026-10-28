@@ -54,37 +54,35 @@ import Testing
     }
 
     @Test func aBlankPageHasNoAddressForATitleOrPlace() {
-        var blank = TabItem(id: TabID("blank"), title: "about:blank", subtitle: "about:blank")
-        blank.hover = TabHoverFacts(kind: .browser)
-        let lines = TabHoverCardLines.make(blank, report: nil, now: Date())
+        let blank = TabItem(id: TabID("blank"), title: "about:blank", subtitle: "about:blank")
+        let lines = TabHoverCardLines.make(blank, facts: TabHoverFacts(kind: .browser), report: nil, now: Date())
         #expect(lines.title == CmuxNextTabs.Strings.untitled)
         #expect(lines.place == nil)
     }
 
     @Test func aTerminalTitledByItsFolderSaysTheFolderOnce() {
         var shell = TabItem(id: TabID("home"), title: "~", subtitle: "~")
-        shell.hover = TabHoverFacts(kind: .terminal)
-        #expect(TabHoverCardLines.make(shell, report: nil, now: Date()).place == nil)
+        let terminal = TabHoverFacts(kind: .terminal)
+        #expect(TabHoverCardLines.make(shell, facts: terminal, report: nil, now: Date()).place == nil)
         shell.title = "cargo build"
-        #expect(TabHoverCardLines.make(shell, report: nil, now: Date()).place == "~")
+        #expect(TabHoverCardLines.make(shell, facts: terminal, report: nil, now: Date()).place == "~")
     }
 
     @Test func aTerminalSaysHowItsLastCommandEnded() {
-        var failed = TabItem(id: TabID("t-failed"), title: "swift test", status: .failure)
-        failed.hover = TabHoverFacts(kind: .terminal)
-        #expect(TabHoverCardLines.make(failed, report: nil, now: Date()).status == CmuxNextTabs.Strings.axFailure)
-        #expect(TabHoverCardLines.tone(failed) == .danger)
+        let failed = TabItem(id: TabID("t-failed"), title: "swift test", status: .failure)
+        let terminal = TabHoverFacts(kind: .terminal)
+        #expect(TabHoverCardLines.make(failed, facts: terminal, report: nil, now: Date()).status == CmuxNextTabs.Strings.axFailure)
+        #expect(TabHoverCardLines.tone(failed, facts: terminal) == .danger)
         var done = failed
         done.status = .success
-        #expect(TabHoverCardLines.make(done, report: nil, now: Date()).status == CmuxNextTabs.Strings.axSuccess)
-        #expect(TabHoverCardLines.tone(done) == .success)
+        #expect(TabHoverCardLines.make(done, facts: terminal, report: nil, now: Date()).status == CmuxNextTabs.Strings.axSuccess)
+        #expect(TabHoverCardLines.tone(done, facts: terminal) == .success)
     }
 
     @Test func theTabCardsRowsAreTheSharedRowIn13Points() {
-        var item = TabItem(id: TabID("t"), title: "cargo build", subtitle: "~/Projects/cmux")
-        item.hover = TabHoverFacts(kind: .terminal, activity: .running, since: Date().addingTimeInterval(-5))
+        let item = TabItem(id: TabID("t"), title: "cargo build", subtitle: "~/Projects/cmux")
         let card = TabHoverCardView()
-        card.configure(.tab(item))
+        card.configure(.tab(item, facts: TabHoverFacts(kind: .terminal, activity: .running, since: Date().addingTimeInterval(-5))))
         let rows = Self.rows(in: card).filter { !$0.isHidden }
         #expect(rows.count == 3, "place, status and the memory dash: \(card.reportedLines)")
         #expect(rows.allSatisfy { $0.textLabel.font?.pointSize == Typography.body.pointSize })

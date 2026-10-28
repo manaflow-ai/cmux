@@ -43,7 +43,11 @@ struct TabSeparatorVisibility {
     @MainActor static func apply(to strip: TabStripView) {
         strip.rowPasses.separators &+= 1
         let row = strip.result.slots.filter { !$0.isCollapsed }
-        func index(of id: TabID?) -> Int? { id.flatMap { id in row.firstIndex { $0.id == id } } }
+        // Each tab's first place in the row, built once: a lookup per selected tab, not a scan (O(n), not O(n·m)).
+        var places: [TabID: Int] = [:]
+        places.reserveCapacity(row.count)
+        for (offset, slot) in row.enumerated() where places[slot.id] == nil { places[slot.id] = offset }
+        func index(of id: TabID?) -> Int? { id.flatMap { places[$0] } }
         let visible = visibleSeparators(
             tabCount: row.count,
             selected: index(of: strip.model.selectedID),

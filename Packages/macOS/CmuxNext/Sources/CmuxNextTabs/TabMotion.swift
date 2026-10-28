@@ -110,16 +110,44 @@ struct TabStripMove {
         return moved
     }
 
-    /// Adds `animation` under this move's key `name`, starting at `begin`.
+    /// Adds `animation` under this move's key `name`, starting at `begin`. The moves of earlier changes that
+    /// are over come off first: their completion can trail by frames, and a layer retargeted quickly (a drag
+    /// passing tabs) would otherwise carry one per change, which every path read sums (`MotionPath`).
     func add(_ animation: CAAnimation, to layer: CALayer, as name: String) {
+        Self.removeEnded(on: layer, at: begin, keeping: generation)
         animation.beginTime = layer.convertTime(begin, from: nil)
         layer.add(animation, forKey: key + name)
+    }
+
+    /// Removes `layer`'s strip moves of other generations that ended by `now`: each is additive and ends at
+    /// zero, so it adds nothing any more and nothing shown moves.
+    static func removeEnded(on layer: CALayer, at now: CFTimeInterval, keeping generation: Int) {
+        let own = "\(keyPrefix)\(generation)."
+        for key in layer.animationKeys() ?? [] where key.hasPrefix(keyPrefix) && !key.hasPrefix(own) {
+            guard let animation = layer.animation(forKey: key), (animation as? CAPropertyAnimation)?.isAdditive == true, animation.fillMode != .forwards,
+                  animation.fillMode != .both else { continue }
+            let duration = (animation as? CASpringAnimation).map { $0.duration > 0 ? $0.duration : $0.settlingDuration } ?? animation.duration
+            let start = animation.beginTime > 0 ? layer.convertTime(animation.beginTime, to: nil) : now
+            if start + duration / Double(max(animation.speed, .ulpOfOne)) <= now { layer.removeAnimation(forKey: key) }
+        }
+    }
+
+    /// The scroll part of a move on the scrolling layer, whose bounds move every layer in it: `offset` (the view x
+    /// its content showed minus the one now) is its bounds' x moving from the scroll before to the one now.
+    func addScroll(boundsOf layer: CALayer, _ offset: CGFloat) {
+        guard abs(offset) > 0.01 else { return }
+        add(motion.additive("bounds.origin.x", from: NSNumber(value: Double(-offset)), to: NSNumber(value: 0)), to: layer, as: "scroll")
     }
 
     /// The scroll part of a move on `layer`: `offset` (the view x it showed minus the one now) to 0.
     func addScroll(_ offset: CGFloat, to layer: CALayer) {
         guard abs(offset) > 0.01 else { return }
         add(motion.additive("position.x", from: NSNumber(value: Double(offset)), to: NSNumber(value: 0)), to: layer, as: "scroll")
+    }
+
+    /// Whether a strip move runs on `layer` (its own, not its parts').
+    static func isMoving(_ layer: CALayer) -> Bool {
+        layer.animationKeys()?.contains { $0.hasPrefix(keyPrefix) } ?? false
     }
 
     /// Ends every strip move on `root`'s tree at once (a tab dropped back starts where the drop gap is).

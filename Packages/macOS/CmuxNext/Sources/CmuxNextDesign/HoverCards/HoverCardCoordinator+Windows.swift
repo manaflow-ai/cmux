@@ -1,4 +1,4 @@
-import AppKit
+public import AppKit
 
 // Which window is on top under the pointer, and whether the pointer is between a source's
 // targets there (`HoverCardCoordinator`'s hit tests).
@@ -13,10 +13,25 @@ extension HoverCardCoordinator {
         }
     }
 
+    /// The pointer moved over one of `source`'s views, to `point` (screen coordinates), told by that view's
+    /// own pointer event (a tracking area's enter or move): the window server sent the event to the window
+    /// under the pointer, so that move asks it nothing (``topWindowNumber(at:)``), and `hit` is the source's
+    /// own hit test at the point (nil: on none of its targets), which no source repeats. Content moving under
+    /// a still pointer (``geometryChanged(in:)``) still asks, at most once a frame.
+    public func pointerMoved(to point: CGPoint, from source: any HoverCardSource, hit: HoverCardHit?) {
+        guard let window = source.hoverCardWindow, window.frame.contains(point) else { return pointerMoved(to: point) }
+        reportedPointer = ReportedPointer(point: point, window: window.windowNumber, source: WeakSource(source), hit: hit)
+        defer { reportedPointer = nil }
+        pointerMoved(to: point)
+    }
+
     /// The window on top at a screen point, never the card. Asks the window server (a round trip) once per
     /// point and display frame (``topWindowCache``): a burst of relayouts in one frame under a still pointer
     /// reuses the answer; the next frame asks again.
     func topWindowNumber(at point: CGPoint) -> Int {
+        // A source's own pointer event there names the window under it (a no-activate run's synthesized
+        // events reach a window under other runs' windows: it asks its own windows).
+        if let reported = reportedPointer, reported.point == point, !WindowPlacement.noActivate { return reported.window }
         let time = now()
         if let cached = topWindowCache, cached.point == point, time - cached.at < Self.topWindowLifetime, time >= cached.at {
             return cached.number
@@ -41,4 +56,13 @@ extension HoverCardCoordinator {
         guard let card, top == card else { return top }
         return NSWindow.windowNumber(at: point, belowWindowWithWindowNumber: card)
     }
+}
+
+/// A pointer event a source reported with its own hit (``HoverCardCoordinator/pointerMoved(to:from:hit:)``).
+struct ReportedPointer {
+    let point: CGPoint
+    /// The number of the window the event came to: the one on top at `point`.
+    let window: Int
+    let source: WeakSource
+    let hit: HoverCardHit?
 }
