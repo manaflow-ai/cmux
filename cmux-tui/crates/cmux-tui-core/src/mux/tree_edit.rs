@@ -70,7 +70,7 @@ pub(super) fn clamp_split_ratio(ratio: f32) -> f32 {
     ratio.clamp(0.05, 0.95)
 }
 
-#[expect(
+#[allow(
     clippy::expect_used,
     reason = "INVARIANT: the pane list holds at least the pane just pushed, and a non-empty list always lays out"
 )]
@@ -462,7 +462,7 @@ pub(super) fn fence_layout_undo_for_tab_membership(state: &mut State, panes: &[P
 /// pane, and collapse emptied panes/screens. An emptied workspace stays
 /// here; the close plan closes it (`close_emptied_workspaces_locked`). Returns the removed surface and whether
 /// split ownership or positional indexes changed. Runs under the state lock.
-#[expect(
+#[allow(
     clippy::expect_used,
     reason = "INVARIANT: the screen was located under this &mut State and removing a pane never removes a screen"
 )]
@@ -568,7 +568,7 @@ pub(super) fn remove_surface(
     (removed, true)
 }
 
-#[expect(
+#[allow(
     clippy::expect_used,
     reason = "INVARIANT: the screen was located under this &mut State and removing a pane never removes a screen"
 )]

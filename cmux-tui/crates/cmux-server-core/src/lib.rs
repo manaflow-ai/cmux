@@ -37,6 +37,7 @@
         clippy::exit
     )
 )]
+#![forbid(unsafe_code)]
 
 pub mod access;
 pub mod catalog;

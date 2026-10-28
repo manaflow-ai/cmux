@@ -229,7 +229,7 @@ pub(in crate::mux) fn structural_tab_move_plan(
             {
                 overwrite_layout_snapshot(screen, source_layout);
             }
-            #[expect(
+            #[allow(
                 clippy::expect_used,
                 reason = "INVARIANT: the plan was built from this state under the same lock, and moving one tab keeps the target screen"
             )]

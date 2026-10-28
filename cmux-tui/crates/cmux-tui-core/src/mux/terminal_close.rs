@@ -303,7 +303,14 @@ impl Mux {
                 .terminal_host_root
                 .clone();
             let Some(root) = root else { return };
-            terminate_discovered_terminal_host_in(&root, terminal_id, incarnation);
+            let panic_log = self.host_panic_log();
+            terminate_discovered_terminal_host_in(
+                &self.work_owner(),
+                &root,
+                terminal_id,
+                incarnation,
+                panic_log.as_ref(),
+            );
         }
         #[cfg(not(any(unix, windows)))]
         let _ = (terminal_id, incarnation);

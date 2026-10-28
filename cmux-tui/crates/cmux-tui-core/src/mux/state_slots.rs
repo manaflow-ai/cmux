@@ -97,7 +97,7 @@ impl State {
     /// The screen a mutation plan resolved, for its infallible apply step
     /// (crate::resource_mutation): the step runs under the state lock the
     /// plan read the slot under, so the slot is live (Chrome's CHECK).
-    #[expect(
+    #[allow(
         clippy::expect_used,
         reason = "INVARIANT: a mutation plan's apply step runs under the state lock its plan resolved this slot in"
     )]
@@ -107,7 +107,7 @@ impl State {
     }
 
     /// The workspace a mutation plan resolved (see [`Self::planned_screen_mut`]).
-    #[expect(
+    #[allow(
         clippy::expect_used,
         reason = "INVARIANT: a mutation plan's apply step runs under the state lock its plan resolved this slot in"
     )]
@@ -117,7 +117,7 @@ impl State {
     }
 
     /// The pane a mutation plan resolved (see [`Self::planned_screen_mut`]).
-    #[expect(
+    #[allow(
         clippy::expect_used,
         reason = "INVARIANT: a mutation plan's apply step runs under the state lock its plan resolved this slot in"
     )]
@@ -128,7 +128,7 @@ impl State {
 
     /// The workspace and screen indexes of a pane a mutation plan resolved
     /// (see [`Self::planned_screen_mut`]).
-    #[expect(
+    #[allow(
         clippy::expect_used,
         reason = "INVARIANT: a mutation plan's apply step runs under the state lock its plan resolved this slot in"
     )]
@@ -140,7 +140,7 @@ impl State {
 
 /// The tree entity of a resource the caller just wrote under the state lock
 /// it still holds, for the tree delta that announces it.
-#[expect(
+#[allow(
     clippy::expect_used,
     reason = "INVARIANT: the caller holds the state lock it wrote the resource under, so the tree snapshot holds it"
 )]

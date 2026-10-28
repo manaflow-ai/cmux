@@ -168,7 +168,7 @@ impl Hub {
             let hub = self.clone();
             tokio::spawn(async move {
                 let installed = || {
-                    tokio::task::spawn_blocking(|| {
+                    crate::daemon::spawn_blocking(|| {
                         crate::registry::installed(&crate::config::home())
                     })
                 };

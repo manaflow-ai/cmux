@@ -23,6 +23,8 @@ const _: () = if let Some(reason) = check(BAKED_SPEC) {
     panic!("{}", reason);
 };
 
+const BAD_ENTRY: &str = "CMUX_SERVER_RELEASE_KEYS entry is not <id>:<64 hex>";
+
 /// Parses `<id>:<hex>[,…]`. Ids are `[A-Za-z0-9._-]+` and unique; keys are
 /// 64 hex digits. Whitespace around an entry is ignored; an empty spec is
 /// no keys. Any malformed entry rejects the whole spec.
@@ -33,16 +35,16 @@ pub fn parse(spec: &str) -> Result<Vec<TrustedKey>, &'static str> {
     if spec.trim().is_empty() {
         return Ok(Vec::new());
     }
-    const BAD: &str = "CMUX_SERVER_RELEASE_KEYS entry is not <id>:<64 hex>";
     spec.split(',')
         .map(|entry| {
-            let (id, hex) = entry.trim().split_once(':').ok_or(BAD)?;
+            let (id, hex) = entry.trim().split_once(':').ok_or(BAD_ENTRY)?;
             let mut public_key = [0u8; 32];
-            for (i, pair) in hex.as_bytes().chunks(2).enumerate() {
-                let (Some(hi), Some(lo)) = (nibble(pair[0]), nibble(pair[1])) else {
-                    return Err(BAD);
+            for (byte, pair) in public_key.iter_mut().zip(hex.as_bytes().chunks_exact(2)) {
+                let &[hi, lo] = pair else { return Err(BAD_ENTRY) };
+                let (Some(hi), Some(lo)) = (nibble(hi), nibble(lo)) else {
+                    return Err(BAD_ENTRY);
                 };
-                public_key[i] = (hi << 4) | lo;
+                *byte = (hi << 4) | lo;
             }
             Ok(TrustedKey { id: id.to_owned(), public_key })
         })
@@ -73,105 +75,127 @@ const fn is_id_byte(b: u8) -> bool {
     b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-')
 }
 
-/// One entry of `spec` that starts at `start`: the trimmed `[begin, end)`
-/// and the index after its comma (`spec.len() + 1` after the last entry).
-const fn entry(spec: &[u8], start: usize) -> (usize, usize, usize) {
-    let mut stop = start;
-    while stop < spec.len() && spec[stop] != b',' {
-        stop += 1;
+/// `bytes` without leading and trailing whitespace.
+const fn trim(mut bytes: &[u8]) -> &[u8] {
+    while let [first, rest @ ..] = bytes
+        && is_space(*first)
+    {
+        bytes = rest;
     }
-    let (mut begin, mut end) = (start, stop);
-    while begin < end && is_space(spec[begin]) {
-        begin += 1;
+    while let [rest @ .., last] = bytes
+        && is_space(*last)
+    {
+        bytes = rest;
     }
-    while end > begin && is_space(spec[end - 1]) {
-        end -= 1;
-    }
-    (begin, end, stop + 1)
+    bytes
 }
 
-/// The first `:` in `[begin, end)`.
-const fn colon(spec: &[u8], begin: usize, end: usize) -> Option<usize> {
-    let mut i = begin;
-    while i < end {
-        if spec[i] == b':' {
-            return Some(i);
+/// The bytes before the first `separator` and the bytes after it.
+const fn split_once(bytes: &[u8], separator: u8) -> Option<(&[u8], &[u8])> {
+    let mut rest = bytes;
+    let mut at = 0;
+    while let [first, tail @ ..] = rest {
+        if *first == separator {
+            return match bytes.split_at_checked(at) {
+                Some((head, _)) => Some((head, tail)),
+                None => None,
+            };
         }
-        i += 1;
+        rest = tail;
+        at += 1;
     }
     None
 }
 
-const fn same(spec: &[u8], a: usize, a_end: usize, b: usize, b_end: usize) -> bool {
-    if a_end - a != b_end - b {
-        return false;
+/// One entry of a spec and the spec after its comma (`None` after the last).
+const fn next_entry(spec: &[u8]) -> (&[u8], Option<&[u8]>) {
+    match split_once(spec, b',') {
+        Some((entry, rest)) => (entry, Some(rest)),
+        None => (spec, None),
     }
-    let mut i = 0;
-    while i < a_end - a {
-        if spec[a + i] != spec[b + i] {
-            return false;
+}
+
+const fn same(mut a: &[u8], mut b: &[u8]) -> bool {
+    loop {
+        match (a, b) {
+            ([], []) => return true,
+            ([x, a_rest @ ..], [y, b_rest @ ..]) if *x == *y => {
+                a = a_rest;
+                b = b_rest;
+            }
+            _ => return false,
         }
-        i += 1;
     }
-    true
+}
+
+/// The id of a trimmed entry, or why the entry is malformed.
+const fn check_entry(entry: &[u8]) -> Result<&[u8], &'static str> {
+    if entry.is_empty() {
+        return Err("CMUX_SERVER_RELEASE_KEYS has an empty entry");
+    }
+    let Some((id, key)) = split_once(entry, b':') else {
+        return Err(BAD_ENTRY);
+    };
+    if id.is_empty() {
+        return Err("CMUX_SERVER_RELEASE_KEYS entry has an empty id");
+    }
+    let mut rest = id;
+    while let [first, tail @ ..] = rest {
+        if !is_id_byte(*first) {
+            return Err("CMUX_SERVER_RELEASE_KEYS id is not [A-Za-z0-9._-]+");
+        }
+        rest = tail;
+    }
+    if key.len() != 64 {
+        return Err("CMUX_SERVER_RELEASE_KEYS key is not 64 hex digits");
+    }
+    rest = key;
+    while let [first, tail @ ..] = rest {
+        if nibble(*first).is_none() {
+            return Err("CMUX_SERVER_RELEASE_KEYS key is not 64 hex digits");
+        }
+        rest = tail;
+    }
+    Ok(id)
+}
+
+/// Whether a valid entry of `earlier` (entries each ended by a comma) has
+/// the id `id`.
+const fn has_id(mut earlier: &[u8], id: &[u8]) -> bool {
+    while let Some((entry, rest)) = split_once(earlier, b',') {
+        if let Some((other, _)) = split_once(trim(entry), b':')
+            && same(other, id)
+        {
+            return true;
+        }
+        earlier = rest;
+    }
+    false
 }
 
 /// `None` when `spec` is valid, else why not. `const` so the build-time
 /// value is checked by the compiler with the same rules [`parse`] uses.
 const fn check(spec: &str) -> Option<&'static str> {
     let spec = spec.as_bytes();
-    let mut only_space = true;
-    let mut i = 0;
-    while i < spec.len() {
-        if !is_space(spec[i]) {
-            only_space = false;
-        }
-        i += 1;
-    }
-    if only_space {
+    if trim(spec).is_empty() {
         return None;
     }
-    let mut start = 0;
-    while start <= spec.len() {
-        let (begin, end, next) = entry(spec, start);
-        if begin == end {
-            return Some("CMUX_SERVER_RELEASE_KEYS has an empty entry");
-        }
-        let Some(sep) = colon(spec, begin, end) else {
-            return Some("CMUX_SERVER_RELEASE_KEYS entry is not <id>:<64 hex>");
+    let mut rest = spec;
+    loop {
+        let (entry, next) = next_entry(rest);
+        let id = match check_entry(trim(entry)) {
+            Ok(id) => id,
+            Err(reason) => return Some(reason),
         };
-        if sep == begin {
-            return Some("CMUX_SERVER_RELEASE_KEYS entry has an empty id");
-        }
-        let mut j = begin;
-        while j < sep {
-            if !is_id_byte(spec[j]) {
-                return Some("CMUX_SERVER_RELEASE_KEYS id is not [A-Za-z0-9._-]+");
-            }
-            j += 1;
-        }
-        if end - sep - 1 != 64 {
-            return Some("CMUX_SERVER_RELEASE_KEYS key is not 64 hex digits");
-        }
-        j = sep + 1;
-        while j < end {
-            if nibble(spec[j]).is_none() {
-                return Some("CMUX_SERVER_RELEASE_KEYS key is not 64 hex digits");
-            }
-            j += 1;
-        }
         // Ids are unique: compare with every earlier entry.
-        let mut earlier = 0;
-        while earlier < start {
-            let (b, e, n) = entry(spec, earlier);
-            if let Some(c) = colon(spec, b, e)
-                && same(spec, b, c, begin, sep)
-            {
-                return Some("CMUX_SERVER_RELEASE_KEYS repeats a key id");
-            }
-            earlier = n;
+        if let Some((earlier, _)) = spec.split_at_checked(spec.len() - rest.len())
+            && has_id(earlier, id)
+        {
+            return Some("CMUX_SERVER_RELEASE_KEYS repeats a key id");
         }
-        start = next;
+        match next {
+            Some(after) => rest = after,
+            None => return None,
+        }
     }
-    None
 }

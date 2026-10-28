@@ -39,7 +39,7 @@ import Testing
     /// A session shown in `window`, its first host running page a.
     private func running(in window: NSWindow, launcher: Fake.FakeLauncher, rig: IdleDeadlineRig,
                          idleExit: Duration? = idle, quitLimit: Duration = .seconds(15)) async throws -> (ChromiumHostSession, Fake.FakeHost) {
-        let session = ChromiumHostSession(configuration: Fake.configuration, launcher: launcher, now: { ContinuousClock.now },
+        let session = ChromiumHostSession(configuration: Fake.configuration, launcher: launcher,
                                           quitLimit: quitLimit,
                                           idleExit: idleExit.map { ChromiumHostIdleExit(after: $0, deadlines: rig.deadlines) },
                                           standInPicture: { Self.picture() })
@@ -215,7 +215,7 @@ import Testing
 
     @Test func theReportKeepsAFractionalIdleDeadline() {
         let rig = IdleDeadlineRig()
-        let session = ChromiumHostSession(configuration: Fake.configuration, launcher: Fake.FakeLauncher(), now: { ContinuousClock.now },
+        let session = ChromiumHostSession(configuration: Fake.configuration, launcher: Fake.FakeLauncher(),
                                           idleExit: ChromiumHostIdleExit(after: .milliseconds(1500), deadlines: rig.deadlines))
         #expect(session.report["idle_exit_s"] as? Double == 1.5)
     }
@@ -227,7 +227,7 @@ import Testing
         ChromiumHostPrototype(makeConfiguration: { Fake.configuration }, isOn: { true },
                               mainWork: MainWorkScheduler(budget: MainFrameBudget()), deadlines: rig.deadlines,
                               idleExitAfter: Self.idle) { configuration, idleExit in
-            ChromiumHostSession(configuration: configuration, launcher: launcher, now: { ContinuousClock.now }, idleExit: idleExit)
+            ChromiumHostSession(configuration: configuration, launcher: launcher, idleExit: idleExit)
         }
     }
 

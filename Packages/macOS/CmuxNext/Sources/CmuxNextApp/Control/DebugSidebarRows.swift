@@ -14,9 +14,11 @@ import CmuxNextSidebar
 enum DebugSidebarRows {
     static func report(_ params: [String: JSONValue] = [:], services: AppServices) -> JSONValue {
         if params["refuse_next_close"] == .bool(true) { ClosingWorkspaces.shared.refusesNext = true; return .object(["refuse_next_close": .bool(true)]) }
+        #if DEBUG || CMUX_BENCH_HOOKS
         if let motion = params["motion"]?.stringValue {
             return services.windows.controllers.first.map { json($0.sidebar.container.sidebarView.debugMotionReport(start: motion == "start")) } ?? .null
         }
+        #endif
         guard let x = params["menu_x"]?.doubleValue, let y = params["menu_y"]?.doubleValue else { return rows(services: services) }
         let menu = services.windows.controllers.first.flatMap {
             $0.sidebar.container.debugMenu(atWindowPoint: CGPoint(x: x, y: y))

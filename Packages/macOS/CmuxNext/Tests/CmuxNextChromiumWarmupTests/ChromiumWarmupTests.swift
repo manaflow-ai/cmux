@@ -99,11 +99,11 @@ import Testing
         await idle.posted(2)
         #expect(idle.queued.map(\.owner) == ["ChromiumWarmup.initialize"], "posted once the framework is mapped")
         #expect(idle.queued.first?.maxDelay == .seconds(5), "an app that never goes idle still starts Chromium")
-        #expect(engine.warmStarts.isEmpty)
+        #expect(engine.initializes.isEmpty)
 
         idle.runPeriod()
-        await idle.posted(3)
-        #expect(engine.warmStarts == ["launch"])
+        #expect(engine.initializes == ["launch"], "CefInitialize runs in the idle task's own turn, not a later one")
+        #expect(engine.warmStarts.isEmpty, "the idle step awaits nothing")
         #expect(idle.queued.map(\.owner) == ["ChromiumWarmup.spare"])
         #expect(idle.queued.first?.maxDelay == .milliseconds(500), "the refill runs as background work past 500 ms")
         #expect(engine.prepared.isEmpty)
@@ -188,7 +188,7 @@ import Testing
         await idle.posted(2)
         key(.milliseconds(60))
         idle.runPeriod()
-        #expect(engine.warmStarts.isEmpty, "CefInitialize ran 60 ms after a key")
+        #expect(engine.initializes.isEmpty, "CefInitialize ran 60 ms after a key")
         #expect(idle.afters.count == 1)
         warmup.stop()
     }
@@ -344,7 +344,7 @@ import Testing
         #expect(warmup.pending.isEmpty)
         memory.send(.normal)
         await idle.posted(3)
-        #expect(engine.warmStarts == ["newTabMenu"])
+        #expect(engine.initializes == ["newTabMenu"])
         warmup.stop()
     }
 
@@ -423,6 +423,23 @@ import Testing
         #expect(engine.prepared.isEmpty)
         engine.onSpareWindowNeeded?()
         #expect(idle.queued.isEmpty)
+    }
+
+    /// p08-startup-018: the idle `CefInitialize` step runs Chromium's start in the slot it was given
+    /// (`initializeLoaded`, no await), so the start lands in the idle period the scheduler picked
+    /// after the input quiet, and the spare step is posted from that same turn.
+    @Test func theIdleInitializeStepStartsChromiumInItsOwnTurn() async {
+        let engine = FakeWarmupEngine(running: false)
+        let warmup = warmup(engine: engine)
+        started(warmup)
+        warmup.chromiumLikely(.palette)
+        await idle.posted(2)
+        #expect(engine.initializes.isEmpty, "nothing starts before the idle task runs")
+        idle.runPeriod()
+        #expect(engine.initializes == ["palette"])
+        #expect(engine.isRunning)
+        #expect(idle.queued.map(\.owner) == ["ChromiumWarmup.spare"], "the spare is posted from the same turn")
+        warmup.stop()
     }
 
     @Test func theDefaultPolicy() {
@@ -548,7 +565,10 @@ import Testing
     private(set) var closes = 0
     private(set) var spareWindowCount = 0
     private(set) var preloads = 0
+    /// The reason of each `warmStart` (the host's launch start, which awaits the load).
     private(set) var warmStarts: [String] = []
+    /// The reason of each `initializeLoaded` (the idle step's start, on its own turn).
+    private(set) var initializes: [String] = []
     var onSpareWindowNeeded: (@MainActor () -> Void)?
 
     init(running: Bool = true) {
@@ -562,6 +582,12 @@ import Testing
     func warmStart(reason: String) async {
         warmStarts.append(reason)
         isRunning = true
+    }
+
+    func initializeLoaded(reason: String) -> Bool {
+        initializes.append(reason)
+        isRunning = true
+        return true
     }
 
     func prepareSpareWindow(pages: Bool) -> Bool {

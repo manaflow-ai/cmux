@@ -141,6 +141,32 @@ import Testing
         _ = springs
     }
 
+    /// A frame client the input stage wakes ticks in the same frame (p04-input-032): a ghost spring
+    /// that settled while the pointer rested, woken by the frame's move, steps at this vsync, not the
+    /// next (Blink's `WidgetBase::BeginMainFrame` dispatches rAF-aligned input before the frame's rAF).
+    /// One a frame client wakes ticks next frame.
+    @Test func aFrameClientTheInputWakesTicksInTheSameFrame() {
+        let (scheduler, _) = Self.scheduler()
+        let coalescer = FrameInputCoalescer(scheduler: scheduler, clock: ManualClock(), ledger: WakeupLedger())
+        var log: [String] = []
+        let late = FrameClient(owner: "late", on: scheduler) { _ in log.append("late"); return false }
+        let spring = FrameClient(owner: "spring", on: scheduler) { _ in
+            log.append("spring")
+            late.activate()
+            return false
+        }
+        // The spring is idle; the coalescer's client keeps the scheduler on its display.
+        coalescer.post(.drag, owner: "drag", sample: Self.sample(0)) { _, _, _ in
+            log.append("input")
+            spring.activate()
+        }
+        scheduler.frameDidFire(timestamp: 1000, refreshInterval: 1.0 / 120)
+        #expect(log == ["input", "spring"], "the woken spring did not tick in the input's frame: \(log)")
+        scheduler.frameDidFire(timestamp: 1000 + 1.0 / 120, refreshInterval: 1.0 / 120)
+        #expect(log == ["input", "spring", "late"])
+        coalescer.invalidate()
+    }
+
     /// With the display link stopped, the one-frame fallback delivers the frame's posts once, and no
     /// timer stays armed after it.
     @Test func withTheLinkDownTheFallbackFiresOnce() async throws {
