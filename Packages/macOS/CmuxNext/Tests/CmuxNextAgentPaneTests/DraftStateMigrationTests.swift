@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import Testing
 @testable import CmuxNextCompat
@@ -182,8 +183,16 @@ nonisolated struct DraftStateMigrationTests {
         try fixture.write("source/agent-unsent-drafts.json", #"{"new":"A"}"#)
         if state != "missing" { try FileManager.default.createDirectory(at: fixture.url("destination"), withIntermediateDirectories: true) }
         if state == "current" { try fixture.write("destination/agent-unsent-drafts.json", #"{"old":"B"}"#) }
+        if state != "missing" {
+            try FileManager.default.setAttributes([.posixPermissions: 0o750], ofItemAtPath: fixture.url("destination").path)
+        }
         let before = try? FileManager.default.contentsOfDirectory(atPath: fixture.url("destination").path)
-        DraftStateMigration.adopt(from: [fixture.url("source")], to: fixture.url("destination"), renameItem: { _, _, _ in -1 }) {
+        DraftStateMigration.adopt(from: [fixture.url("source")], to: fixture.url("destination"), renameItem: { source, target, flags in
+            #expect(flags == UInt32(state == "missing" ? RENAME_EXCL : RENAME_SWAP))
+            #expect(FileManager.default.fileExists(atPath: source.appending(path: "agent-unsent-drafts.json").path))
+            #expect(target == fixture.url("destination"))
+            return -1
+        }) {
             try FileManager.default.copyItem(at: $0, to: $1)
         }
         #expect((try? FileManager.default.contentsOfDirectory(atPath: fixture.url("destination").path)) == before)
@@ -192,6 +201,8 @@ nonisolated struct DraftStateMigrationTests {
         let drafts = try fixture.object("destination/agent-unsent-drafts.json")
         #expect(drafts["new"] as? String == "A")
         if state == "current" { #expect(drafts["old"] as? String == "B") }
+        let permissions = try FileManager.default.attributesOfItem(atPath: fixture.url("destination").path)[.posixPermissions] as? NSNumber
+        #expect(permissions?.intValue == (state == "missing" ? 0o700 : 0o750))
         #expect(try FileManager.default.contentsOfDirectory(atPath: fixture.root.path).allSatisfy { !$0.hasPrefix(".draft-adoption-") })
     }
 

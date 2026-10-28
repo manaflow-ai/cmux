@@ -23,7 +23,7 @@ public enum DraftStateMigration {
     }
 
     static func adopt(from roots: [URL], to destination: URL, fileManager: CheckedFileManager = FileManager.checked,
-                      renameItem: (URL, URL, UInt32) -> Int32 = renameDirectory,
+                      renameItem: ((URL, URL, UInt32) -> Int32)? = nil,
                       copyItem: (URL, URL) throws -> Void) {
         guard !fileManager.fileExists(atPath: destination.appending(path: ".adopted-v1").path) else { return }
         let staging = destination.deletingLastPathComponent().appending(path: ".draft-adoption-\(UUID().uuidString)")
@@ -38,20 +38,25 @@ public enum DraftStateMigration {
             }
             try adoptArtifacts(from: roots, staging: staging, destination: destination,
                                fileManager: fileManager, copyItem: copyItem)
-            // The artifact and its settled marker become visible together, before draft readers start.
             let exists = fileManager.fileExists(atPath: destination.path)
-            guard renameItem(staging, destination, exists ? UInt32(RENAME_SWAP) : UInt32(RENAME_EXCL)) == 0 else { return }
             if exists {
-                _ = try fileManager.replaceItemAt(destination, withItemAt: staging)
-            } else {
-                try fileManager.moveItem(at: staging, to: destination)
+                let attributes = try fileManager.attributesOfItem(atPath: destination.path)
+                    .filter { [FileAttributeKey.posixPermissions, .creationDate, .modificationDate, .ownerAccountID, .groupOwnerAccountID].contains($0.key) }
+                try fileManager.setAttributes(attributes, ofItemAtPath: staging.path)
             }
+            // A single same-volume rename publishes data and tombstones together. On failure,
+            // neither path changes; on exchange success, only our staging name holds the old root.
+            let publish = renameItem ?? renameDirectory
+            guard publish(staging, destination, exists ? UInt32(RENAME_SWAP) : UInt32(RENAME_EXCL)) == 0 else { return }
         } catch {
             // The live root remains intact if staging fails; a later launch can retry.
         }
     }
 
-    private static func renameDirectory(_ source: URL, _ target: URL, _ flags: UInt32) -> Int32 { 0 }
+    private static func renameDirectory(_ source: URL, _ target: URL, _ flags: UInt32) -> Int32 {
+        assertBlockingAllowed(.fileIO)
+        return renamex_np(source.path, target.path, flags)
+    }
 
     private static func adoptArtifacts(from roots: [URL], staging: URL, destination: URL,
                                        fileManager: CheckedFileManager, copyItem: (URL, URL) throws -> Void) throws {
@@ -61,6 +66,21 @@ public enum DraftStateMigration {
             // The marker also protects a later intentional removal from legacy resurrection.
             guard !fileManager.fileExists(atPath: settled.path) else { continue }
             let target = staging.appending(path: artifact)
+            var owned = Set<String>()
+            if artifact == "agent-draft-attachments" || artifact == "agent-pane-wake-attachments" {
+                let ledger = staging.appending(path: ".owned-v1-\(artifact).json")
+                if fileManager.fileExists(atPath: ledger.path) {
+                    owned = Set(try JSONDecoder().decode([String].self, from: Data(blockingContentsOf: ledger)))
+                }
+                let current = destination.appending(path: artifact)
+                if fileManager.fileExists(atPath: current.path) {
+                    owned.formUnion(try fileManager.contentsOfDirectory(atPath: current.path))
+                }
+                // Current chat names remain owned even if source copying fails and the user
+                // removes that chat's folder before the next retry.
+                try JSONEncoder().encode(owned.sorted()).blockingWrite(to: ledger, options: [.atomic])
+                try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: ledger.path)
+            }
             let source = roots
                 .filter { $0.standardizedFileURL != destination.standardizedFileURL }
                 .map { $0.appending(path: artifact) }
@@ -71,7 +91,7 @@ public enum DraftStateMigration {
                     if artifact == "agent-unsent-drafts.json" || artifact == "agent-composer-drafts.json" {
                         try mergeDrafts(from: source, to: target, unsent: artifact == "agent-unsent-drafts.json", fileManager: fileManager)
                     } else if artifact != "quick-composer-draft.json" || !fileManager.fileExists(atPath: target.path) {
-                        try copyMissing(from: source, to: target, fileManager: fileManager, copyItem: copyItem)
+                        try copyMissing(from: source, to: target, fileManager: fileManager, copyItem: copyItem, owned: owned)
                     }
                 }
                 try settle(settled, fileManager: fileManager)
@@ -172,7 +192,7 @@ public enum DraftStateMigration {
     }
 
     private static func copyMissing(from source: URL, to target: URL, fileManager: CheckedFileManager,
-                                    copyItem: (URL, URL) throws -> Void) throws {
+                                    copyItem: (URL, URL) throws -> Void, owned: Set<String> = []) throws {
         let sourceIsDirectory = (try? source.blockingResourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true
         if sourceIsDirectory {
             try fileManager.createDirectory(at: target, withIntermediateDirectories: true,
@@ -180,7 +200,7 @@ public enum DraftStateMigration {
             for child in try fileManager.contentsOfDirectory(at: source, includingPropertiesForKeys: [.isDirectoryKey, .fileSizeKey])
                 .sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
                 let destination = target.appending(path: child.lastPathComponent)
-                if !isNonEmpty(destination, fileManager: fileManager) {
+                if !owned.contains(child.lastPathComponent) && !isNonEmpty(destination, fileManager: fileManager) {
                     try copyMissing(from: child, to: destination, fileManager: fileManager, copyItem: copyItem)
                 }
             }
