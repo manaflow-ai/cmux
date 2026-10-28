@@ -44,7 +44,8 @@ import Testing
         let windows = harness.services.windows
         let shellA = try #require(harness.a.window), shellB = try #require(harness.b.window)
         harness.services.keyWindowSource = { shellB }
-        #expect(windows.active === harness.b, "outside an event the key window decides")
+        windows.didActivate(harness.b)  // B became key: the window records it
+        #expect(windows.active === harness.b, "outside an event the window the person used last decides")
         let during = windows.dispatching(eventFrom: shellA) { windows.active }
         #expect(during === harness.a, "a click in window A ran its action in window \(during === harness.b ? "B" : "?")")
         #expect(windows.active === harness.b, "the event's scope ends with its dispatch")
