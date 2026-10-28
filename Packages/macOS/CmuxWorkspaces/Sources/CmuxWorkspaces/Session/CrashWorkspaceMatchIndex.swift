@@ -2,17 +2,11 @@ import Foundation
 
 /// Indexes one immutable generation; each workspace can be matched only once.
 struct CrashWorkspaceMatchIndex {
-    private struct TitleKey: Hashable {
-        let title: String
-        let description: String?
-        let directory: String
-    }
-
     private let workspaces: [CrashWorkspaceSignature]
     private var stableIDs: [UUID: [Int]] = [:]
     private var workspaceIDs: [UUID: [Int]] = [:]
     private var checkpoints: [String: Set<Int>] = [:]
-    private var titles: [TitleKey: [Int]] = [:]
+    private var titles: [CrashWorkspaceTitleKey: [Int]] = [:]
 
     nonisolated init(_ workspaces: [CrashWorkspaceSignature]) {
         self.workspaces = workspaces
@@ -57,6 +51,6 @@ struct CrashWorkspaceMatchIndex {
 
     private nonisolated func titleKey(_ workspace: CrashWorkspaceSignature) -> TitleKey? {
         guard let title = workspace.title, !title.isEmpty, !workspace.directory.isEmpty else { return nil }
-        return TitleKey(title: title, description: workspace.description, directory: workspace.directory)
+        return CrashWorkspaceTitleKey(title: title, description: workspace.description, directory: workspace.directory)
     }
 }
