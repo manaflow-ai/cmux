@@ -472,6 +472,61 @@ struct AgentRestoreLiveOwnerAdmissionTests {
         #expect(!validator.currentProcess(process, matches: snapshot, hermesSessionValidation: .cachedSnapshot))
     }
 
+    @Test("Claude resume titles defer to the current hook identity")
+    func claudeResumeTitleDefersToCurrentHookIdentity() {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: "current-session",
+            workingDirectory: nil
+        )
+        let process = CmuxTopProcessArguments(
+            arguments: ["/usr/local/bin/claude", "--resume", "validate ubn fix"],
+            environment: ["CMUX_AGENT_SESSION_ID": "old-session"]
+        )
+        let validator = CachedAgentProcessIdentityValidator()
+        #expect(validator.currentProcess(process, matches: snapshot, hermesSessionValidation: .currentHookRecord))
+        #expect(!validator.currentProcess(process, matches: snapshot, hermesSessionValidation: .cachedSnapshot))
+    }
+
+    @Test("Hook-backed Claude resume titles survive index revalidation")
+    func claudeResumeTitleSurvivesIndexRevalidation() throws {
+        let fixture = try makeFixture(
+            kind: .claude,
+            ownerState: .live,
+            launchSessionArguments: ["--resume", "validate ubn fix"],
+            scopedProcess: true
+        )
+        defer { fixture.cleanup() }
+        let identity = try #require(AgentPIDProcessIdentity(pid: pid_t(fixture.processID)))
+        let revalidated = fixture.index.revalidatingCachedProcesses(
+            against: CmuxTopProcessSnapshot(
+                processes: [],
+                sampledAt: Date(),
+                includesProcessDetails: true
+            ),
+            processArgumentsProvider: { processID in
+                guard processID == fixture.processID else { return nil }
+                return CmuxTopProcessArguments(
+                    arguments: fixture.agent.launchCommand?.arguments ?? [],
+                    environment: [
+                        "CMUX_WORKSPACE_ID": fixture.ownerWorkspaceID.uuidString,
+                        "CMUX_SURFACE_ID": fixture.ownerSurfaceID.uuidString,
+                    ]
+                )
+            },
+            processIdentityProvider: { processID in
+                processID == fixture.processID ? identity : nil
+            }
+        )
+        #expect(
+            revalidated.entryForStablePanel(
+                workspaceId: fixture.ownerWorkspaceID,
+                panelId: fixture.ownerSurfaceID,
+                revalidateProcessEvidence: false
+            )?.processLiveness == .running
+        )
+    }
+
     @Test("Claude session switching does not authorize a reused PID")
     func claudeInProcessSwitchRejectsReusedProcess() throws {
         let fixture = try makeFixture(
