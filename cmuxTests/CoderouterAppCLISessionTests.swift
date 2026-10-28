@@ -521,6 +521,7 @@ struct CoderouterSetupTerminalTests {
                 contentRect: NSRect(x: 0, y: 0, width: 1_000, height: 700),
                 styleMask: [.titled], backing: .buffered, defer: false
             )
+            window.isReleasedWhenClosed = false
             window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(app.windowID.uuidString)")
             let context = try #require(app.appDelegate.mainWindowContexts.values.first { $0.windowId == app.windowID })
             context.window = window
