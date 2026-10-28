@@ -42,13 +42,13 @@ enum PaletteLayout {
         max(1, Typography.body.pointSize / Metrics.scale(Metrics.tokens.levelBodySize))
     }
 
-    /// The extra line height of `font` over the same style at the density's own text size, on
+    /// The extra line height of `font` over the same face at the density's own text size, on
     /// whole points: a row keeps its density's padding and grows only by the taller line, so a
     /// roomy row (or a height the person set) is not inflated in proportion.
     static func textGrowth(_ font: NSFont) -> CGFloat {
         let scale = textScale
         guard scale > 1 else { return 0 }
-        let base = Typography.system(.default, size: font.pointSize / scale, weight: .regular)
+        let base = NSFont(descriptor: font.fontDescriptor, size: font.pointSize / scale) ?? font
         return max(0, ceil(lineHeight(font) - lineHeight(base)))
     }
 
