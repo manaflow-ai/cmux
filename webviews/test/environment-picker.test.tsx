@@ -492,6 +492,32 @@ test("⌥⌘1 on the environment already chosen stays the app's", async () => {
   expect(calls).toEqual([]);
 });
 
+test("⌥⌘1 on the chat's own machine while the App says it is down reconnects it", async () => {
+  const { setMachineLink } = await import("../src/agent-session/acpmux/machineLink");
+  setMachineLink({ machine: "m-1", link: "offline", words: "Offline" });
+  try {
+    const calls = await mount(true, { onReconnectMachine: (id: string) => calls.push(["reconnect", id]) });
+    const prompt = host.querySelector("textarea")!;
+    prompt.focus();
+    const event = new dom.window.KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      key: "¡",
+      code: "Digit1",
+      altKey: true,
+      metaKey: true,
+    });
+    await act(async () => {
+      prompt.dispatchEvent(event);
+    });
+    expect(event.defaultPrevented).toBe(true);
+    expect(calls).toEqual([["reconnect", "local"]]);
+    expect(doc().activeElement).toBe(prompt);
+  } finally {
+    setMachineLink(null);
+  }
+});
+
 // hq#2569 #9: a new chat chooses a worktree beside its folder, as Codex's Worktree and Claude's chips do.
 const inFolder = {
   summary: { sessionId: "", harness: "claude", host: "This Mac", hostKind: "local", cwd: "/Users/you/src/cmux" },
