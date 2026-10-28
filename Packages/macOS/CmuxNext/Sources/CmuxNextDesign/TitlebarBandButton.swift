@@ -81,7 +81,7 @@ public final class TitlebarBandButton: NSButton {
 
     override public func accessibilityPerformPress() -> Bool {
         guard isEnabled, !isHiddenOrHasHiddenAncestor else { return false }
-        guard pressMenu != nil else { return super.accessibilityPerformPress() }
+        guard pressMenu != nil else { return sendAction(action, to: target) }
         performPressMenu()
         return true
     }
