@@ -35,7 +35,8 @@ fn fake_gh() {
         let bin = std::env::temp_dir().join(format!("ghb-bin-{}", std::process::id()));
         std::fs::create_dir_all(&bin).unwrap();
         let gh = bin.join("gh");
-        let script = "#!/bin/sh\necho \"gh $*\"\n[ -n \"$GH_TOKEN$GITHUB_TOKEN\" ] && echo token-seen\nexit 0\n";
+        // For `o/leak` it fails printing a token, and for `o/print` it prints one.
+        let script = "#!/bin/sh\ncase \"$*\" in\n*o/leak*) echo \"gh: bad credentials gho_secretB\" >&2; exit 1;;\n*o/print*) echo \"ok github_pat_secretC\"; exit 0;;\nesac\necho \"gh $*\"\n[ -n \"$GH_TOKEN$GITHUB_TOKEN\" ] && echo token-seen\nexit 0\n";
         std::fs::write(&gh, script).unwrap();
         std::fs::set_permissions(&gh, std::fs::Permissions::from_mode(0o755)).unwrap();
         let path = format!("{}:{}", bin.display(), std::env::var("PATH").unwrap_or_default());
@@ -193,6 +194,22 @@ async fn the_mac_runs_an_added_machines_action_with_its_own_gh_and_no_other_peer
     // A peer added any other way is lent nothing.
     let v = mac_answers(&mut app, "plain", None, read.clone()).await;
     assert_eq!(v["error"]["data"]["reason"], "github.denied", "{v}");
+}
+
+/// Review of #24797 at c43d357: what `gh` printed went back as it was, so a token it printed (a
+/// debug setting, a wrapper) reached the machine.
+#[tokio::test]
+async fn no_token_gh_prints_goes_back_to_the_machine() {
+    fake_gh();
+    let a = hub();
+    let mut app = C::new(&a, None).await;
+    let leak = json!({"sessionId": "s-1", "action": "read", "repo": "o/leak"});
+    let v = mac_answers(&mut app, "leaky", Some(true), leak).await;
+    assert_eq!(v["error"]["data"]["reason"], "github.command_failed", "{v}");
+    assert!(!v.to_string().contains("secretB"), "{v}");
+    let print = json!({"sessionId": "s-1", "action": "read", "repo": "o/print"});
+    let v = mac_answers(&mut app, "leaky2", Some(true), print).await;
+    assert_eq!(v["result"]["output"], "ok [redacted]\n", "{v}");
 }
 
 /// The review of #24797 at 758863e: a lent peer was served before its handshake finished, and

@@ -105,3 +105,14 @@ async fn the_mac_lends_nothing_to_a_peer_it_is_off_for() {
         .unwrap_err();
     assert_eq!(e.code, -32602, "an unknown field is refused, not ignored");
 }
+
+/// Review of #24797 at c43d357: every kind of GitHub token, whole or cut off, at a word start.
+#[test]
+fn every_github_token_is_cut_out_whole_or_cut_off() {
+    let text = "a ghp_x1 b gho_y2. c ghu_z ghs_w ghr_v github_pat_11A_b2 cut ghs_ab";
+    let want =
+        "a [redacted] b [redacted]. c [redacted] [redacted] [redacted] [redacted] cut [redacted]";
+    assert_eq!(redact_github_tokens(text), want);
+    assert_eq!(redact_github_tokens("xghp_kept é ok"), "xghp_kept é ok");
+    assert_eq!(redact_github_tokens("(ghp_q)…"), "([redacted])…");
+}

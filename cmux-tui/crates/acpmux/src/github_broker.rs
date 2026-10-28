@@ -234,6 +234,35 @@ fn clean_output(bytes: &[u8]) -> String {
     out
 }
 
+/// GitHub token prefixes: classic and fine-grained personal, OAuth, user-to-server,
+/// server-to-server (App installation) and refresh tokens.
+const TOKEN_PREFIXES: [&str; 6] = ["github_pat_", "ghp_", "gho_", "ghu_", "ghs_", "ghr_"];
+
+/// `text` with every GitHub token in it (one of `TOKEN_PREFIXES` at the start of a word, whole
+/// or cut off) replaced by `[redacted]`: whatever `gh` prints (a debug setting, a wrapper), no
+/// token goes back to the machine.
+pub(crate) fn redact_github_tokens(text: &str) -> String {
+    let word = |c: char| c.is_ascii_alphanumeric() || c == '_';
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    let mut after_word = false;
+    while let Some(c) = rest.chars().next() {
+        let prefix = TOKEN_PREFIXES.iter().find(|p| !after_word && rest.starts_with(**p));
+        if let Some(prefix) = prefix {
+            let tail = &rest[prefix.len()..];
+            let end = tail.find(|c: char| !word(c)).unwrap_or(tail.len());
+            out.push_str("[redacted]");
+            rest = &tail[end..];
+            after_word = true;
+            continue;
+        }
+        out.push(c);
+        after_word = word(c);
+        rest = &rest[c.len_utf8()..];
+    }
+    out
+}
+
 /// What one decision records: never the title, body or output.
 pub fn audit_payload(r: &GithubActionParams, status: &str, error: Option<&RpcError>) -> Value {
     json!({
@@ -264,6 +293,9 @@ async fn execute(r: &GithubActionParams) -> Result<String, RpcError> {
         .env(SHIM_REFUSAL_ENV, "1")
         .env("GH_PROMPT_DISABLED", "1")
         .env("GH_NO_UPDATE_NOTIFIER", "1")
+        // `gh` prints its HTTP traffic with these set; it has no business doing so here.
+        .env_remove("GH_DEBUG")
+        .env_remove("DEBUG")
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -285,11 +317,11 @@ async fn execute(r: &GithubActionParams) -> Result<String, RpcError> {
     if !status.success() {
         return Err(RpcError::new(
             -32041,
-            format!("GitHub refused the action: {}", clean_output(&stderr)),
+            format!("GitHub refused the action: {}", redact_github_tokens(&clean_output(&stderr))),
         )
         .with_data(json!({"reason": "github.command_failed"})));
     }
-    Ok(clean_output(&stdout))
+    Ok(redact_github_tokens(&clean_output(&stdout)))
 }
 
 /// The Mac's gate for `peer`'s request, before anything is spawned: `enabled` is that peer's
