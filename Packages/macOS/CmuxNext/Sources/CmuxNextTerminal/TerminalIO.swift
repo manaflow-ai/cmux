@@ -55,6 +55,11 @@ public nonisolated protocol TerminalIO: Sendable {
     /// (the latest active client holds geometry).
     func focusGained() async
 
+    /// The surface gained keyboard focus, told on the main actor in the order focus moves between views,
+    /// before the ordered ``focusGained()``: an IO that ranks its output against other views' takes the
+    /// app's one focused rank here, so focus changes of different views apply in the person's order.
+    @MainActor func streamFocusGained()
+
     /// Take over ("Sized for" chip): this view sets the grid with a new claim even when it
     /// believes it holds it. `setLatest`: the terminal's policy picks by size, so it becomes last
     /// active first. Ordered with `write`.
@@ -91,6 +96,7 @@ public extension TerminalIO {
     @MainActor func appliesViewGrid(reporting: Bool) -> Bool { false }
     @MainActor func resizeOnMain(cols: Int, rows: Int, final: Bool, window: NSWindow?) -> Bool { false }
     func focusGained() async {}
+    @MainActor func streamFocusGained() {}
     func takeOverSize(setLatest: Bool) async {}
     func reconnectRequested() async {}
     func resyncRequested() async {}

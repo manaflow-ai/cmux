@@ -674,7 +674,11 @@ QoS with them, and ThreadsControlTests fails when a label or QoS here and there 
   `cmux.files.fsevents` (utility: a watcher; FolderWatchStream still asks user-initiated, which `debug.threads`
   reports as a mismatch), `cmux.files.tree-fsevents` (utility),
   `com.cmuxterm.home.cache` (user-initiated; the `HomeCache` actor's executor: its file writes block this queue,
-  never a pool thread, so the forced quit's last draft write runs with the pool full; CmuxHomeCore, shared with iOS)
+  never a pool thread, so the forced quit's last draft write runs with the pool full; CmuxHomeCore, shared with iOS),
+  `com.cmuxterm.next.files.table-widths` (user-initiated; the `MarkdownTableWidthRepository` actor's executor),
+  `com.cmuxterm.next.onboarding.classic-migration` (user-initiated; the `ClassicMigrationRepository` actor's
+  executor), `com.cmuxterm.next.agent-pane.saved-environments` (user-initiated; the `SavedEnvironments` actor's
+  executor); each actor's file calls block its own queue, never a pool thread (p02-threads-141..144)
 - Energy: `com.cmuxterm.next.energy.power-source` (utility; PowerSourceMonitor in CmuxNextEnergy: the notify
   power-source and charge notifications and one IOKit snapshot each; it hops to main only on a new edge)
 - Remote and mobile: `com.cmuxterm.next.remote-localhost` (user-initiated),

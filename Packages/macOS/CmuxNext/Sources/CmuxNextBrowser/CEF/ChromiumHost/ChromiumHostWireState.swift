@@ -206,7 +206,7 @@ nonisolated final class ChromiumHostWireState: Sendable {
         while open {
             let room = chunk.count
             // SAFETY: read writes at most `room` bytes, the array's size, into its buffer during the call.
-            let count = unsafe Darwin.read(fd, &chunk, room)
+            let count = unsafe blockingRead(fd, &chunk, room)
             if count < 0, errno == EINTR { continue }
             guard count > 0 else { break }  // EOF: the host ended, or close() shut the socket down
             buffer.append(contentsOf: chunk[0..<count])

@@ -1,6 +1,7 @@
 import Foundation
 import CryptoKit
 import Darwin
+import CmuxNextCompat
 public import CmuxNextWakeups
 
 /// Downloads, verifies and installs the Chromium runtime pack an app build is
@@ -278,10 +279,10 @@ public actor ChromiumRuntimeInstaller {
 
     /// The lowercase hex sha256 of `file`, read in 1 MiB chunks.
     static func sha256(of file: URL) -> String? {
-        guard let handle = try? FileHandle(forReadingFrom: file) else { return nil }
+        guard let handle = try? FileHandle.blockingForReading(from: file) else { return nil }
         defer { try? handle.close() }
         var hasher = SHA256()
-        while let chunk = try? handle.read(upToCount: 1 << 20), !chunk.isEmpty {
+        while let chunk = try? handle.blockingRead(upToCount: 1 << 20), !chunk.isEmpty {
             hasher.update(data: chunk)
         }
         return hasher.finalize().map { String(format: "%02x", $0) }.joined()
@@ -306,11 +307,10 @@ public actor ChromiumRuntimeInstaller {
     /// Refuses a symlink whose target resolves outside `root`.
     static func checkSymlinks(in root: URL) throws(ChromiumRuntimeInstallError) {
         let rootPath = root.standardizedFileURL.path
-        let fileManager = FileManager.default
-        guard let enumerator = fileManager.enumerator(atPath: rootPath) else { throw .missing("pack") }
-        while let relative = enumerator.nextObject() as? String {
+        guard let relatives = try? FileManager.checked.subpathsOfDirectory(atPath: rootPath) else { throw .missing("pack") }
+        for relative in relatives {
             let path = rootPath + "/" + relative
-            guard let destination = try? fileManager.destinationOfSymbolicLink(atPath: path) else { continue }
+            guard let destination = try? FileManager.checked.destinationOfSymbolicLink(atPath: path) else { continue }
             let base = URL(filePath: path).deletingLastPathComponent()
             let resolved = destination.hasPrefix("/") ? URL(filePath: destination) : base.appending(path: destination)
             let target = resolved.standardizedFileURL.path

@@ -2358,6 +2358,23 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// Each terminal view on a stream tells the daemon whether it is focused, visible or hidden: the focused view's output goes ahead of the others, and a hidden view gets no output until it shows, then one snapshot of its screen.
+    public static let terminalStreamPriority = Feature(
+        index: 135,
+        name: "terminalStreamPriority",
+        owner: "PL-ghostty",
+        description: "Each terminal view on a stream tells the daemon whether it is focused, visible or hidden: the focused view's output goes ahead of the others, and a hidden view gets no output until it shows, then one snapshot of its screen.",
+        kind: .perfPath,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: "2026-12-24",
+        params: [],
+        stories: ["typing-flood-stress", "idle-tabs", "tab-switch"],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// Terminal views attach as client-minted streams on the app's one control connection to each daemon, with no connection or identify handshake of their own; off keeps one connection per view.
     public static let terminalStreams = Feature(
         index: 136,
@@ -2832,6 +2849,7 @@ nonisolated extension Feature {
         .terminalPointerFrames,
         .terminalPreCommitPresent,
         .terminalSizingPerApp,
+        .terminalStreamPriority,
         .terminalStreams,
         .topPageDiscard,
         .traceControl,
@@ -2991,6 +3009,7 @@ nonisolated extension Feature {
         .terminalPointerFrames,
         .terminalPreCommitPresent,
         .terminalSizingPerApp,
+        .terminalStreamPriority,
         .terminalStreams,
         .topPageDiscard,
         .traceControl,
