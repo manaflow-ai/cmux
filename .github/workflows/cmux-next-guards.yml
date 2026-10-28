@@ -44,7 +44,7 @@ jobs:
   pinned-asset-store:
     name: pinned assets exist in store
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -160,6 +160,19 @@ jobs:
           elif [[ "$BEFORE" =~ ^[0-9a-f]{40}$ && ! "$BEFORE" =~ ^0+$ ]] \
             && git fetch --no-tags --depth=1 origin "$BEFORE"; then
             base="$BEFORE"
+            # The checkout holds HEAD and its parent only, so a push of more than one commit leaves
+            # the previous tip in a separate shallow history and `git merge-base` (the SwiftPM
+            # lockfile policy's comparison, PACKAGE_RESOLVED_POLICY_BASE_REF) finds nothing. Deepen
+            # HEAD's history, commits and trees only, until it reaches the previous tip; a force-push
+            # whose tip is not reached within 400 commits keeps no base, as an unreadable tip does.
+            for _ in 1 2 3 4 5 6 7 8; do
+              git merge-base "$BEFORE" HEAD >/dev/null 2>&1 && break
+              git fetch --no-tags --filter=blob:none --deepen=50 origin "$GITHUB_SHA" || break
+            done
+            if ! git merge-base "$BEFORE" HEAD >/dev/null 2>&1; then
+              echo "::warning::the previous tip $BEFORE shares no history with HEAD within reach"
+              base=""
+            fi
           fi
           if [[ -n "$base" ]] && git diff --name-only --no-renames "$base" HEAD > "$RUNNER_TEMP/changed-files.txt"; then
             echo "$(wc -l < "$RUNNER_TEMP/changed-files.txt") changed files against $base"
@@ -584,6 +597,15 @@ jobs:
       - name: The package lane's prebuild-one compiles or fails (package-test-lane.sh)
         if: ${{ !cancelled() }}
         run: python3 tests/test_ci_package_lane_prebuild.py
+
+      # cmux-ci sends a package-test-lane suite step that names a display suite to a display
+      # worker; the list it reads is derived from the suites' own display skip traits, so a
+      # Swift change that adds or drops such a trait without the list fails here.
+      - name: The display suite list matches the suites' display skip traits (display_suites.py)
+        if: ${{ !cancelled() }}
+        run: |
+          python3 scripts/ci/display_suites.py --check
+          python3 tests/test_ci_display_suites.py
 
       - name: The exact-run SwiftPM test product transport (swiftpm_test_product.py)
         if: ${{ !cancelled() }}

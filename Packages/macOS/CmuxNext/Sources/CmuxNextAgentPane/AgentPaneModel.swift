@@ -226,9 +226,9 @@ public final class AgentPaneModel {
         self.allowsTabConversion = allowsTabConversion
         self.host = host
         self.transport = transport
-        self.sessionId = sessionId
-        self.seed = seed
+        (self.sessionId, self.seed) = (sessionId, seed)
         self.newTab = sessionId == nil ? newTab : nil
+        sandboxRuns.restore(seed?.sandboxResult)
         transport.roots = { [weak self] in self?.roots() ?? [] }
         transport.gestureRoots = { [weak self] in self?.gestureRoots() ?? [] }
         transport.primaryRoot = { [weak self] in self?.primaryRoot() }

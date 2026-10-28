@@ -15,6 +15,16 @@ final class CEFHostView: NSView {
             postGeometryChange()
         }
     }
+    /// Rounded native UI over the page (the prompt and find bars), in this
+    /// view's coordinates. They leave the clip path (`cmuxClipPath`) with their
+    /// corners, so the page shows around a rounded bar's corners instead of a
+    /// square hole of pane ground, and the mouse inside them goes to the bar.
+    var roundedOcclusions: [CEFClipShape.RoundedRect] = [] {
+        didSet {
+            guard roundedOcclusions != oldValue else { return }
+            postGeometryChange()
+        }
+    }
     private var windowObserver: (any NSObjectProtocol)?
     /// The shown page's own background (`CEFTab.pageBackdropColor`). While
     /// the window live-resizes, this view fills with it instead of the pane

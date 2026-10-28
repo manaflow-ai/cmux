@@ -1395,6 +1395,7 @@ impl Brain {
         } else {
             super::reply_ledger::WHY_SILENT
         });
+        self.schedule_outcome_checks();
         // After the reply: a client drops the draft as the message lands.
         if let (Some(done), Some(conversation)) = (outcome_done, &done_conversation) {
             self.publish_draft(conversation, &done);
