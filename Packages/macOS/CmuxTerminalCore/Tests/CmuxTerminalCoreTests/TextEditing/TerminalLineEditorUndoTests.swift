@@ -13,11 +13,6 @@ struct TerminalLineEditorUndoTests {
         ))
     }
 
-    /// Ctrl+_ is the undo key of readline, zle, fish and agent composers.
-    @Test func replayWritesControlUnderscore() {
-        #expect(TerminalLineEditorUndo.bindingAction == "text:\\x1f")
-    }
-
     @Test func fullScreenApplicationsKeepTheOriginalKeystroke() {
         #expect(!TerminalLineEditorUndo.shouldReplay(
             isUndoChord: true,

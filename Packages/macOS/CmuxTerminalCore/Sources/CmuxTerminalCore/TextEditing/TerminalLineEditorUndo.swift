@@ -2,16 +2,20 @@
 ///
 /// A terminal has no text model of its own: the characters at a prompt belong
 /// to the shell's line editor (readline, zle, fish, or an agent's composer),
-/// and only that editor can restore a deleted word. Each of them reads
-/// `Ctrl+_` (byte `0x1F`) as undo, so Cmd+Z sends that byte instead of the
-/// Super-modified `z` that macOS terminals encode as nothing at all
-/// (https://github.com/manaflow-ai/cmux/issues/26459).
+/// and only that editor can restore a deleted word. Their default emacs-style
+/// keymaps read `Ctrl+_` (byte `0x1F`) as undo, so Cmd+Z sends that byte
+/// instead of the Super-modified `z` that macOS terminals encode as nothing
+/// at all (https://github.com/manaflow-ai/cmux/issues/26459).
+///
+/// The terminal cannot tell a line editor from any other program reading the
+/// main screen, so a program without one (`cat`, a plain `read`) receives the
+/// byte as input, as it would from a typed `Ctrl+_`.
 public enum TerminalLineEditorUndo {
     /// The Ghostty binding action that writes `Ctrl+_` to the pty.
     ///
     /// A raw byte rather than a synthesized key event: no layout has a
-    /// `Ctrl+_` key that every keyboard protocol encodes the same way, and every
-    /// line editor reads the legacy C0 byte even after negotiating `CSI u`.
+    /// `Ctrl+_` key that every keyboard protocol encodes the same way, and line
+    /// editors read the legacy C0 byte even after negotiating `CSI u`.
     public static let bindingAction = "text:\\x1f"
 
     /// Whether a keystroke should be replayed as line-editor undo.
