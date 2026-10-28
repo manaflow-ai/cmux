@@ -1,4 +1,4 @@
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 import QuartzCore
 
 /// Runs work right after the current Core Animation transaction committed.

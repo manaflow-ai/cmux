@@ -4,6 +4,7 @@
   "targets": {
     "CCmuxAppFFI": {"layer": "core"},
     "CmuxNextCompat": {"layer": "core"},
+    "CmuxNextCompatAppKit": {"layer": "core", "plan": "exception to core (DESIGN section 2: AppKit value types only): Compat's AppKit side effects (p15-oracle 119/121: LaunchServices and Finder opens and queries, terminate, menu item titles, CATransaction completion), stateless wrappers that Cloud (service) and ui targets call; relabel to service in a push that changes its sources"},
     "CmuxNextCompatCore": {"layer": "core", "note": "what the privileged server helper shares with the app (runOnOwnThread, the signing-team read); no swift-atomics"},
     "CmuxNextWakeups": {"layer": "core"},
     "CmuxNextWakeupsTestSupport": {"layer": "core"},

@@ -174,7 +174,9 @@ pub(super) fn remote_root(root: &str) -> Option<String> {
     let root = root.trim_end_matches('/');
     let plain = root.starts_with('/')
         && root.len() <= MAX_REMOTE_BYTES
-        && root[1..].split('/').all(|name| !matches!(name, "" | "." | ".."))
+        && root
+            .get(1..)
+            .is_some_and(|names| names.split('/').all(|name| !matches!(name, "" | "." | "..")))
         && !root.chars().any(char::is_control);
     plain.then(|| root.to_string())
 }
@@ -185,7 +187,7 @@ pub(super) fn remote_root(root: &str) -> Option<String> {
 /// folder never lands on a moved one (those go right under `<root>`).
 pub(super) fn remote_of(root: &str, folder: &Path) -> String {
     let digest = Sha256::digest(folder.as_os_str().as_encoded_bytes());
-    let hash: String = digest[..6].iter().map(|byte| format!("{byte:02x}")).collect();
+    let hash: String = digest.iter().take(6).map(|byte| format!("{byte:02x}")).collect();
     let name = folder.file_name().map(|name| name.to_string_lossy().into_owned());
     let mut name: String = name
         .unwrap_or_default()

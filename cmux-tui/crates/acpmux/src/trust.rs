@@ -29,6 +29,7 @@ use std::collections::BTreeMap;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
+use crate::no_panic::JsonExt;
 use serde_json::{Value, json};
 
 /// A folder's trust: what the pane shows and asks about.
@@ -397,7 +398,7 @@ impl SessionTrust {
 pub fn session_trust(paths: &Paths, cwd: &str, family: &str) -> Result<SessionTrust, Failure> {
     let reply = get(paths, cwd)?;
     Ok(SessionTrust {
-        cwd: reply["cwd"].as_str().unwrap_or_default().to_owned(),
+        cwd: reply.field("cwd").as_str().unwrap_or_default().to_owned(),
         level: level_in(&reply, family, true),
         decided: level_in(&reply, family, false),
     })

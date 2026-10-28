@@ -93,6 +93,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.HistorySearchRequest, "kinds");
     try expectExplicitNullRejected(protocol.IdentifyRequest, "machine_metadata");
     try expectExplicitNullRejected(protocol.IdentifyRequest, "revisions");
+    try expectExplicitNullRejected(protocol.IdentifyRequest, "startup_marks");
     try expectExplicitNullRejected(protocol.ImportBookmarksRequest, "replace");
     try expectExplicitNullRejected(protocol.ImportSessionOrganizationRequest, "groups");
     try expectExplicitNullRejected(protocol.ImportSessionOrganizationRequest, "workspaces");
@@ -325,6 +326,15 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.ConversationThreadSummary, "resolved_by");
     try expectExplicitNullRejected(protocol.ConversationThreadSummary, "status");
     try expectExplicitNullRejected(protocol.ConversationThreadSummary, "title");
+    try expectExplicitNullRejected(protocol.DaemonStartupMarks, "config_loaded");
+    try expectExplicitNullRejected(protocol.DaemonStartupMarks, "first_identify_served");
+    try expectExplicitNullRejected(protocol.DaemonStartupMarks, "launch_snapshot_writer_started");
+    try expectExplicitNullRejected(protocol.DaemonStartupMarks, "lifecycle_ready");
+    try expectExplicitNullRejected(protocol.DaemonStartupMarks, "mux_restored");
+    try expectExplicitNullRejected(protocol.DaemonStartupMarks, "owner_event_loop");
+    try expectExplicitNullRejected(protocol.DaemonStartupMarks, "owner_prepared");
+    try expectExplicitNullRejected(protocol.DaemonStartupMarks, "socket_bound");
+    try expectExplicitNullRejected(protocol.DaemonStartupMarks, "websocket_ready");
     try expectExplicitNullRejected(protocol.FrontendProjection, "replayed");
     try expectExplicitNullRejected(protocol.FsEntry, "hidden");
     try expectExplicitNullRejected(protocol.FsEntry, "revision");

@@ -338,6 +338,8 @@ struct Workers {
     idle: usize,
     /// Notified idle workers that have not woken yet.
     waking: usize,
+    /// Started workers that have not taken the lock yet.
+    starting: usize,
     /// Tasks of this priority that are blocked (see the module docs).
     blocked: usize,
 }
@@ -565,6 +567,15 @@ impl Sequence {
             return Ok(());
         }
         state.ready[priority].push_back(self.id);
+        // A worker notified or starting pops the ready queue once it runs,
+        // whichever sequence it came for: one whose sequence another worker
+        // took first takes this one. Wakes and starts follow the ready
+        // sequences, not the posts (Chrome's `ThreadGroupImpl` keeps as many
+        // workers awake as there are task sources to run).
+        let coming = state.workers[priority].waking + state.workers[priority].starting;
+        if coming >= state.ready[priority].len() {
+            return Ok(());
+        }
         if !self.shared.wake_or_reserve(&mut state, priority) {
             return Ok(());
         }
@@ -759,9 +770,17 @@ impl Shared {
         }
         if workers.live < limit {
             workers.live += 1;
+            workers.starting += 1;
             return true;
         }
         false
+    }
+
+    /// A reserved worker that did not start gives its slot back.
+    fn unreserve(state: &mut PoolState, priority: SequencePriority) {
+        let workers = &mut state.workers[priority];
+        workers.live -= 1;
+        workers.starting = workers.starting.saturating_sub(1);
     }
 
     /// A task of `priority` blocked: it stops counting, and a temporary
@@ -800,8 +819,7 @@ impl Shared {
     fn spawn_worker(self: &Arc<Self>, priority: SequencePriority) {
         if let Err(error) = self.start_worker(priority) {
             eprintln!("cmux: could not start {} worker: {error}", priority.thread_name());
-            let mut state = self.lock();
-            state.workers[priority].live -= 1;
+            Self::unreserve(&mut self.lock(), priority);
         }
     }
 
@@ -817,7 +835,7 @@ impl Shared {
             Ok(()) => true,
             Err(error) => {
                 eprintln!("cmux: could not start {} worker: {error}", priority.thread_name());
-                state.workers[priority].live -= 1;
+                Self::unreserve(state, priority);
                 false
             }
         }
@@ -841,6 +859,8 @@ impl Shared {
         set_blocking_observer(Some(&WORKER_OBSERVER));
         let _clear = ClearWorker;
         let mut state = self.lock();
+        let workers = &mut state.workers[priority];
+        workers.starting = workers.starting.saturating_sub(1);
         loop {
             if state.shut_down {
                 state.workers[priority].live -= 1;

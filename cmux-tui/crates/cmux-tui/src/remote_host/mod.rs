@@ -66,11 +66,11 @@ pub(crate) fn handles(raw_args: &[String]) -> bool {
     if raw_args.first().map(String::as_str) != Some("host") {
         return false;
     }
-    let rest = &raw_args[1..];
+    let rest = crate::panic_free::rest_after(raw_args, 1);
     match rest.first().map(String::as_str) {
         Some(verb) if VERBS.contains(&verb) => true,
         Some(verb) if PAIRING_VERBS.contains(&verb) => cfg!(unix),
-        Some("status") => status_is_remote(&rest[1..]),
+        Some("status") => status_is_remote(crate::panic_free::rest_after(rest, 1)),
         _ => false,
     }
 }
@@ -91,7 +91,7 @@ fn status_is_remote(args: &[String]) -> bool {
 /// Runs `cmux host <rest>`; returns the exit code.
 pub(crate) fn run(rest: &[String]) -> i32 {
     let verb = rest.first().map(String::as_str).unwrap_or_default();
-    let args = &rest[1.min(rest.len())..];
+    let args = crate::panic_free::rest_after(rest, 1);
     if verb == "dial" {
         return dial(args);
     }

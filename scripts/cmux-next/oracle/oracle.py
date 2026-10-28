@@ -408,10 +408,15 @@ def load_case(path: Path, case_id: str, *, check_id: bool = True) -> Tuple[Optio
     return Case(case_id, suite, path, data), None
 
 
-def load_corpus(root: Path) -> Tuple[List[Case], List[str]]:
-    """Every tests/oracle/corpus/<suite>/**/<case>.json; the id is the path without .json."""
+def load_corpus(root: Path, suites: Optional[Sequence[str]] = None) -> Tuple[List[Case], List[str]]:
+    """Every tests/oracle/corpus/<suite>/**/<case>.json; the id is the path without .json. The stored suites
+    (tests/oracle/corpus-store.json; `suites` of them, default all) are written first; one that cannot be is an error."""
+    if str(HERE) not in sys.path:
+        sys.path.insert(0, str(HERE))
+    import corpus_store  # noqa: PLC0415 - sibling
+
     cases: List[Case] = []
-    errors: List[str] = []
+    errors: List[str] = corpus_store.load_errors(root, suites)
     if not root.is_dir():
         return cases, [f"{root}: no corpus directory"]
     for path in sorted(root.rglob("*.json")):
@@ -2330,7 +2335,7 @@ def switch_roots(registry: Path) -> Any:
 
 
 def run_one(options: RunOptions, *, open_session: Optional[SessionOpener] = None) -> Tuple[Dict[str, Any], int]:
-    cases, errors = load_corpus(options.corpus)
+    cases, errors = load_corpus(options.corpus, options.suites)
     if errors:
         raise UsageError("corpus errors (run `oracle.py check`):\n  " + "\n  ".join(errors[:20]))
     store = run_expectations(options)
