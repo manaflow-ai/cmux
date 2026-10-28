@@ -14,3 +14,6 @@ Packages/Shared/CmuxTerminalStream  CmuxTerminalStreamTests  -
 Packages/Shared/CmuxTerminalClient  CmuxTerminalClientModelTests  CMUX_TERMINAL_CLIENT_MODEL_ONLY=1
 Packages/Shared/CmuxAgentQuestion  CmuxAgentQuestionTests  -
 Packages/Shared/CMUXAuthCore  CMUXAuthCoreTests  -
+Packages/Shared/CmuxFeedPushCore  CmuxFeedPushCoreTests  CMUX_SWIFTPM_TARGET_LINUX=1
+Packages/Shared/CmuxInstallAuthCore  CmuxInstallAuthCoreTests  CMUX_SWIFTPM_TARGET_LINUX=1
+Packages/Shared/CmuxTextConfirmCore  CmuxTextConfirmCoreTests  CMUX_SWIFTPM_TARGET_LINUX=1
