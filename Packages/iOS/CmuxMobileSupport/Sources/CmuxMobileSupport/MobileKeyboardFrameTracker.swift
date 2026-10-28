@@ -26,12 +26,17 @@ public final class MobileKeyboardFrameTracker {
     /// The keyboard's most recent end frame in screen coordinates, or `nil`
     /// before the first keyboard notification observed by this instance.
     public private(set) var lastEndFrame: CGRect?
-    /// Whether the last will-show / will-hide said the keyboard is on screen.
+    /// Whether the latest end frame puts the keyboard on screen. A hidden
+    /// keyboard's frame starts where a shown one ends (the screen's bottom
+    /// edge, in whatever coordinates UIKit posted), so this holds even when
+    /// the frames are in another screen's points (an iPhone app on an iPad).
     public private(set) var isShown = false
+    /// The bottom edge of the latest on-screen frame.
+    private var shownBottom: CGFloat?
 
     /// Which keyboard notification a subscriber hears.
     public enum Change: Sendable {
-        case willChangeFrame, didChangeFrame, willShow, willHide
+        case willChangeFrame, didChangeFrame
     }
 
     private var subscribers: [(owner: () -> AnyObject?, handler: @MainActor (Notification, Change) -> Void)] = []
@@ -48,8 +53,6 @@ public final class MobileKeyboardFrameTracker {
         let changes: [(Notification.Name, Change)] = [
             (UIResponder.keyboardWillChangeFrameNotification, .willChangeFrame),
             (UIResponder.keyboardDidChangeFrameNotification, .didChangeFrame),
-            (UIResponder.keyboardWillShowNotification, .willShow),
-            (UIResponder.keyboardWillHideNotification, .willHide),
         ]
         tokens = changes.map { name, change in
             notificationCenter.addObserver(
@@ -74,12 +77,11 @@ public final class MobileKeyboardFrameTracker {
     }
 
     private func record(_ notification: Notification, change: Change, endFrame: CGRect?) {
-        switch change {
-        case .willShow: isShown = true
-        case .willHide: isShown = false
-        case .willChangeFrame, .didChangeFrame: break
+        if let endFrame {
+            lastEndFrame = endFrame
+            isShown = endFrame.height > 0 && endFrame.minY < (shownBottom ?? .greatestFiniteMagnitude) - 0.5
+            if isShown { shownBottom = endFrame.maxY }
         }
-        if let endFrame { lastEndFrame = endFrame }
         subscribers.removeAll { $0.owner() == nil }
         for subscriber in subscribers { subscriber.handler(notification, change) }
     }
