@@ -168,14 +168,17 @@ extension SidebarListViewComponents {
         let insertsWorkspace = layout.rows.contains { if case .workspace = $0.key { old.row(for: $0.key) == nil } else { false } }
         let animate = !adopting && animated && !old.rows.isEmpty && (!insertsWorkspace || Motion.sidebar.animates(.newWorkspace))
         // New rows open from their run's top, so only the rows below move. A row still opening that the next update
-        // moves (Cmd-N held: each new workspace lands at the top and pushes the ones still opening down) keeps its
-        // view, its content and its open: its frame retargets on the additive springs from what shows, its fade goes
-        // on to 1, and it clips until its own open ends (Lawrence 2026-10-28, sidebar-burst-motion.md: reopening it
-        // in a new, empty and transparent view on every key left only empty slots until the repeat stopped).
+        // only pushes (Cmd-N held: each new workspace lands at the top and pushes the ones still opening down) keeps
+        // its view, its content and its open: its frame retargets on the additive springs from what shows, its fade
+        // goes on to 1, and it clips until its own open ends (Lawrence 2026-10-28, sidebar-burst-motion.md: reopening
+        // it in a new, empty and transparent view on every key left only empty slots until the repeat stopped). A row
+        // still opening that moved by itself (shown at the daemon's slot, then placed below the current one) opens
+        // again there, in a new view: carried across the list half open, it would cross the rows (cx-ai79).
         let now = CACurrentMediaTime()
         openingRows = openingRows.filter { now - $0.value < Motion.sidebar.spring(.move).settlingTime() }
-        for row in layout.rows where animate && old.row(for: row.key) == nil { openingRows[row.key] = now } // only animated applies open rows (hq-1d)
-        let insertRuns = SidebarRowTransition.runTops(of: layout, missingFrom: old)
+        let reopened = animate ? Self.movedByThemselves(openingRows.keys, from: old, to: layout) : []
+        for row in layout.rows where animate && (old.row(for: row.key) == nil || reopened.contains(row.key)) { openingRows[row.key] = now } // only animated applies open rows (hq-1d)
+        let insertRuns = SidebarRowTransition.runTops(of: layout, missingFrom: old, reopened: reopened)
         // Without motion the rows that leave park first (as they would after the loop), so the rows that
         // come take their views: a space switch reuses the old space's views, it makes none (space-switch-fast).
         if !animate, !adopting {
@@ -186,6 +189,7 @@ extension SidebarListViewComponents {
         }
         for row in layout.rows {
             let target = frame(for: row)
+            if reopened.contains(row.key) { rowViews.removeValue(forKey: row.key)?.removeFromSuperview() }
             let existing = rowViews[row.key]
             guard existing != nil || target.intersects(realize) else { continue }
             keep.insert(row.key)
@@ -195,7 +199,10 @@ extension SidebarListViewComponents {
             view.targetSize = target.size
             // A recycled view (a block's region from another time) takes its content at once, not on a spring.
             configure(view, row: row, animated: animate || (adopting && existing != nil))
-            let opens = animate && existing == nil && old.row(for: row.key) == nil
+            // A row new to the layout, one that moved by itself, or one still opening that scrolls in with no view
+            // (it opens in place, as `RowMotion.place` opens one on a scroll).
+            let opens = animate && existing == nil
+                && (old.row(for: row.key) == nil || reopened.contains(row.key) || openingRows[row.key] != nil)
             if existing == nil || opens {
                 // The start state never animates: a recycled view shows no
                 // frame of its previous row (cx-bqm6).
@@ -280,6 +287,28 @@ extension SidebarListViewComponents {
         RowMotion(targets: targets, appearing: appearing, leaving: leaving, lines: lines, companions: history)
             .run(in: self, from: old, to: layout, animated: animate)
     }
+    /// The rows of `keys` (still opening) that `layout` moved by themselves, not with the rows around them: the row
+    /// before each, among the rows of both layouts, changed. A row an insert or a removal above only pushes keeps
+    /// its neighbours.
+    static func movedByThemselves(_ keys: some Collection<SidebarRowKey>, from old: SidebarLayout, to layout: SidebarLayout) -> Set<SidebarRowKey> {
+        guard !keys.isEmpty else { return [] }
+        let both = Set(old.rows.map(\.key)).intersection(layout.rows.map(\.key))
+        func before(_ rows: [SidebarRow]) -> [SidebarRowKey: SidebarRowKey?] {
+            var previous: SidebarRowKey?
+            var result: [SidebarRowKey: SidebarRowKey?] = [:]
+            for row in rows where both.contains(row.key) {
+                result[row.key] = previous
+                previous = row.key
+            }
+            return result
+        }
+        let was = before(old.rows), now = before(layout.rows)
+        return Set(keys.filter { key in
+            guard let then = was[key], let next = now[key] else { return false }
+            return then != next
+        })
+    }
+
     func configure(_ view: SidebarRowView, row: SidebarRow, animated: Bool) {
         SidebarPerfCounters.add(.rowConfigures)
         view.isHovered = hoveredKey == row.key && drag == nil

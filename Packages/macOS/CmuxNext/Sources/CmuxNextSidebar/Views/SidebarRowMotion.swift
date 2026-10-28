@@ -55,7 +55,7 @@ struct RowMotion {
         let ended = RowMotionEnd { [weak list, appearing, opens, leaving, leavingLines = lines.leaving] in
             leavingLines.forEach { $0.removeFromSuperview() }
             guard let list else { return }
-            // A row that opened again since (a recycled view) keeps clipping until its own open ends.
+            // A row reopened since keeps clipping until its own open ends.
             for ((view, _), open) in zip(appearing, opens) where view.opens == open { view.clipsToBounds = false }
             for (view, _) in leaving where !list.rowViews.values.contains(where: { $0 === view }) { Self.closed(view, in: list) }
             if list.rowMoves == move { Self.land(list) }
