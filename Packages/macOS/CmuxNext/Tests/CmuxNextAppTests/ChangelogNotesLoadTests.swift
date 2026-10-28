@@ -6,7 +6,7 @@ import CryptoKit
 import Foundation
 import Testing
 
-/// What's New paints its first screen inside the 500 ms paint hold only when
+/// What's New paints its first screen inside the pane's paint hold only when
 /// `cmux.changelog.get` answers fast: a build's verified notes come from the
 /// local cache once fetched, and a fetch asks for the notes and their
 /// signature together (perceived speed, What's New first frame).

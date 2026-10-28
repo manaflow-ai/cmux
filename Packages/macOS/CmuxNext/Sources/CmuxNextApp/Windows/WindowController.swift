@@ -391,9 +391,12 @@ final class WindowController: NSWindowController, NSWindowDelegate {
 /// (`FocusResponderClassifier`), and keeps app overlays above Chromium page
 /// windows (`WindowOverlayLayer`).
 final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionProviding, TitlebarAccessoryHosting, WindowChromeHosting,
-    CursorRectHoldHosting, TrafficLightsResting, ContentAreaMotionHosting, WindowZoomFinishing, WindowLayoutPassHosting, PageSurfaceHosting {
+    CursorRectHoldHosting, TrafficLightsResting, ContentAreaMotionHosting, WindowZoomFinishing, WindowLayoutPassHosting, PageSurfaceHosting,
+    PaintHoldWindow {
     /// Views that follow an ancestor's move read their place after each outermost layout pass (`layoutIfNeeded`).
     let layoutPasses = WindowLayoutPasses()
+    /// The paint holds on screen in this window: the person's input ends them first (``PaintHoldWindow``).
+    let paintHolds = WindowPaintHolds()
     /// The traffic lights' last windowed place: their left edge, their top's distance from the window's top,
     /// and their size (the window may come back from full screen at another height).
     private var windowedLights: (x: CGFloat, fromTop: CGFloat, size: CGSize)?

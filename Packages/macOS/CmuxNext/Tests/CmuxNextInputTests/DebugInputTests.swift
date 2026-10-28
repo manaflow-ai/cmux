@@ -97,6 +97,7 @@ struct DebugInputTests {
             FixedSource(section: .pump, value: pump, resets: resets),
             FixedSource(section: .scrollViews, value: [Opaque(count: 3)], resets: resets),
             FixedSource(section: .chromium, value: Opaque(count: 4), resets: resets),
+            FixedSource(section: .holds, value: [Opaque(count: 5)], resets: resets),
             FixedSource(section: .prewarm, value: prewarm, resets: resets),
         ]
     }
@@ -135,6 +136,7 @@ struct DebugInputTests {
         #expect(try Self.decode([Opaque].self, reply["scroll_views"]) == [Opaque(count: 3)])
         #expect(try Self.decode(Opaque.self, reply["chromium"]) == Opaque(count: 4))
         #expect(try Self.decode(DebugInputPrewarm.self, reply["prewarm"]) == Self.prewarm)
+        #expect(try Self.decode([Opaque].self, reply["holds"]) == [Opaque(count: 5)])
 
         let tapSection = try Self.decode(DebugInputTap.self, reply["tap"])
         #expect(tapSection.subscribers.map(\.eventClass) == InputEventClass.allCases.map { String(describing: $0) })
@@ -150,7 +152,7 @@ struct DebugInputTests {
 
     @Test func theSectionKeysAreTheSpecdNames() throws {
         #expect(DebugInputSection.allCases.map(\.rawValue)
-            == ["latency", "interactions", "gate", "coalescer", "tap", "pump", "scroll_views", "chromium", "prewarm"])
+            == ["latency", "interactions", "gate", "coalescer", "tap", "pump", "scroll_views", "chromium", "prewarm", "holds"])
         let gate = try Self.object(JSONValue.parse(JSONEncoder().encode(Self.gate)))
         #expect(Set(gate.keys) == ["held_by_origin", "exempt_by_rule", "max_input_wait_behind_jobs_ms",
                                    "jobs_deferred_over_one_frame", "nonswift_blocks_while_input_pending"])

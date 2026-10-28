@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextAgentPane
 import CmuxNextDesign
 import CmuxNextFeatures
 import CmuxNextInput
@@ -12,6 +13,8 @@ extension ShellWindow {
     /// top-row tab bar's empty space drags its pane instead (`PaneSwapDrag`).
     override func sendEvent(_ event: NSEvent) {
         cursorRectHold?.windowWillSend(event, in: self)
+        // A paint hold never keeps what the person left over where their input lands (`WindowPaintHolds`).
+        paintHolds.willSend(event.type)
         // A hover under an overlay of the window's top layer reaches only the overlay (feature `overlayTopLayer`).
         if WindowOverlayHost.isCoverableHover(event.type), WindowOverlayHost.existingHost(for: self)?.routeCoveredHover(event) == true { return }
         // A press in a workspace shown beside the focused one (`sidebar.multiView`) focuses it before it lands there.

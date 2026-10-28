@@ -32,6 +32,9 @@
 public final class MainDeadlineScheduler {
     /// Where deadline actions are posted, each in its deadline's class.
     public let work: MainWorkScheduler
+    /// The measured stage of every hold whose limit is placed here and that keeps what the person switched to off
+    /// the screen (`debug.input` section `holds`).
+    public let holds = VisibleHolds()
 
     private let wakeups: AlignedWakeups
     /// Each hidden node's wake-up budget pool, Blink's per-page `WakeUpBudgetPool`.

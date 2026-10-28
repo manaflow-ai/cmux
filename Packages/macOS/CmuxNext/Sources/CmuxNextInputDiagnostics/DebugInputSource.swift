@@ -21,6 +21,9 @@ public nonisolated enum DebugInputSection: String, CaseIterable, Sendable, Codab
     case chromium
     /// ``DebugInputPrewarm``: intent prewarm's counters, hover and press apart (tasks 042, 043).
     case prewarm
+    /// ``VisibleHolds``: each wait that keeps what the person switched to off the screen, its limit, its longest
+    /// hold and how its holds ended (audit B, hold-class.md rule 1).
+    case holds
 }
 
 /// The producer of one `debug.input` section. Its owner keeps the counters off the main thread (an

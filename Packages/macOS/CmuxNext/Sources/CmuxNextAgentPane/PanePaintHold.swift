@@ -14,11 +14,22 @@ public protocol PaneFirstPaintGated: AnyObject {
 /// The outgoing view a container (a pane, or the window's content area
 /// under a top page) keeps on screen while the incoming one, above it and
 /// invisible, has not painted.
+///
+/// The person switched to the incoming view and it has the keyboard, so the hold is short and
+/// never outlives input (audit B1/B2, input-principles.md): it ends when the incoming view paints,
+/// at ``limit`` (two 60 Hz frames), or when a key, click or scroll comes to its window, before that
+/// event is delivered (``WindowPaintHolds/endAll()``), so no input goes to a view the person cannot
+/// see. Content that has no frame by then shows its own first frame: an agent page its loading
+/// state, a page tab its stand-in. Each hold's length and end is a row of ``VisibleHolds``
+/// (`debug.input` `holds`).
 @MainActor
 public final class PanePaintHold {
-    /// The longest the outgoing view stays: a page that never reports its
-    /// first frame shows as it is after this.
-    public static let limit: Duration = .milliseconds(500)
+    /// The longest the outgoing view stays: two 60 Hz frames. A page that has not reported its frame
+    /// by then shows as it is (its loading state or stand-in). Under the precise-deadline bound
+    /// (`DelayPolicy.maxPreciseDelay`), so the wake is not moved later.
+    public static let limit: Duration = .milliseconds(33)
+    /// What a hold waits for, as ``VisibleHolds`` names it.
+    static let reason = "switched-to content not painted"
 
     private weak var outgoing: NSView?
     private weak var incoming: NSView?
@@ -28,12 +39,21 @@ public final class PanePaintHold {
     private var ended: (() -> Void)?
     /// The hold's limit: `visible`, since the person waits on the pane it keeps.
     private let deadline: MainDeadline
+    private let owner: String
+    private let holds: VisibleHolds
+    /// When the hold on screen began (``VisibleHolds/now()``).
+    private var began: UInt64 = 0
+    /// The window's holds this hold is listed in while it holds.
+    private weak var window: WindowPaintHolds?
 
     /// - Parameters:
-    ///   - owner: The limit's owner on the board.
-    ///   - deadlines: The app's one deadline placer (`AppServices.mainDeadlines`).
+    ///   - owner: The limit's owner on the board, and the hold's row in ``VisibleHolds``.
+    ///   - deadlines: The app's one deadline placer (`AppServices.mainDeadlines`); its ``MainDeadlineScheduler/holds``
+    ///     measures each hold.
     public init(owner: String, deadlines: MainDeadlineScheduler) {
-        deadline = MainDeadline(owner: owner, workClass: .visible, scheduler: deadlines)
+        self.owner = owner
+        holds = deadlines.holds
+        deadline = MainDeadline(owner: owner, workClass: .visible, alignment: .precise, scheduler: deadlines)
     }
 
     /// Whether `view` replacing `hosted` waits for its first frame. Content
@@ -52,6 +72,9 @@ public final class PanePaintHold {
         guard let gated = incoming as? PaneFirstPaintGated else { return }
         token &+= 1
         let token = token
+        began = VisibleHolds.now()
+        window = (host.window as? PaintHoldWindow)?.paintHolds
+        window?.add(self)
         self.outgoing = outgoing
         self.incoming = incoming
         holding = true
@@ -65,10 +88,10 @@ public final class PanePaintHold {
         #if DEBUG || CMUX_BENCH_HOOKS
         ChatOpenTrace.shared.mark(.holdBegin, view: incoming)
         #endif
-        gated.whenFirstPainted { [weak self] in self?.end(token) }
+        gated.whenFirstPainted { [weak self] in self?.finish(token, how: .shown) }
         // A later hold replaces this deadline; the token keeps it to its own hold.
         deadline.schedule(after: Self.limit) { [weak self] in
-            self?.end(token)
+            self?.finish(token, how: .limit)
         }
     }
 
@@ -82,6 +105,8 @@ public final class PanePaintHold {
         guard holding else { return }
         holding = false
         deadline.cancel()
+        unlist()
+        holds.record(owner: owner, reason: Self.reason, limit: Self.limit, began: began, end: .replaced)
         release = nil
         ended = nil
         if let incoming {
@@ -96,9 +121,25 @@ public final class PanePaintHold {
     /// Ends the hold (only hold `token`, when given): the outgoing view goes
     /// and the incoming one shows, in one frame.
     public func end(_ token: UInt64? = nil) {
+        finish(token, how: .replaced)
+    }
+
+    /// Ends the hold because the person's input in its window is about to be delivered.
+    func endForInput() {
+        finish(nil, how: .input)
+    }
+
+    private func unlist() {
+        window?.remove(self)
+        window = nil
+    }
+
+    private func finish(_ token: UInt64?, how: VisibleHolds.End) {
         guard holding, token == nil || self.token == token else { return }
         holding = false
         deadline.cancel()
+        unlist()
+        holds.record(owner: owner, reason: Self.reason, limit: Self.limit, began: began, end: how)
         let release = release
         let ended = ended
         self.release = nil

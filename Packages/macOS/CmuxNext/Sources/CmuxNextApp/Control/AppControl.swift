@@ -197,6 +197,7 @@ final class AppControl {
                                                DebugCEF.histogramSource(services.cache.chromium),
                                                IntentPrewarmDebugSource { [weak services] in services?.cache.hibernation?.intentPrewarm?.service },
                                                MainJobGateDebugSource { (NSApp as? CmuxApplication)?.jobGate?.gate },
+                                               VisibleHoldsDebugSource(holds: services.mainDeadlines.holds),
                                                ScrollViewAuditSource { [mainWork = services.mainWork] in
                                                    // A job the scheduler dropped audits nothing.
                                                    (try? await withOnceContinuation { (continuation: OnceContinuation<DebugInputScrollViews, OnceContinuationError>) in
