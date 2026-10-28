@@ -145,36 +145,13 @@ impl Profile {
     /// the base rules. None for the default Chief with no profile text, so
     /// its prompt stays what it was before Chiefs had records.
     pub fn render(&self) -> Option<String> {
-        let (role, personality, added) = (
-            self.role.trim(),
-            self.personality.trim(),
-            self.instructions.trim(),
-        );
-        let plain_default = self.is_default
-            && role.is_empty()
-            && personality.is_empty()
-            && added.is_empty()
-            && matches!(self.display_name.trim(), "" | "Chief");
-        if plain_default {
-            return None;
-        }
-        let mut me = vec![format!("Name: {}", self.display_name.trim())];
-        if !role.is_empty() {
-            me.push(format!("Role: {role}"));
-        }
-        if !personality.is_empty() {
-            me.push(format!("Personality: {personality}"));
-        }
-        let mut text = format!(
-            "## This Chief (the rules above come first)\n{}",
-            me.join("\n")
-        );
-        if !added.is_empty() {
-            text.push_str(&format!(
-                "\n\n## Added instructions (the rules above come first)\n{added}"
-            ));
-        }
-        Some(text)
+        chief_kernel::render_record(&chief_kernel::Record {
+            display_name: self.display_name.clone(),
+            role: self.role.clone(),
+            personality: self.personality.clone(),
+            instructions: self.instructions.clone(),
+            is_default: self.is_default,
+        })
     }
 }
 

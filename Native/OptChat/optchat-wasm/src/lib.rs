@@ -637,3 +637,18 @@ mod tests {
         assert_eq!(js_offsets(ascii, &[3]), vec![3]);
     }
 }
+
+/// The system text of a Chief turn, exactly as the Mac host renders it
+/// (chief-kernel `render_system`; cloud-chief-durable-DESIGN.md section 13,
+/// export 1). `profile_json`: `{person?, instructions?, channels?, record?}`;
+/// `engine`: `claude`, `codex`, `pi-durable`, ...; `tools_json`: `{mode?,
+/// chief?, profile_tool?, chiefs_tool?}`. Throws on bad JSON, an unknown
+/// engine, or a cli engine without its launcher path.
+#[wasm_bindgen(js_name = renderSystem)]
+pub fn render_system(
+    profile_json: &str,
+    engine: &str,
+    tools_json: &str,
+) -> Result<String, JsError> {
+    chief_kernel::render_system(profile_json, engine, tools_json).map_err(|e| JsError::new(&e))
+}
