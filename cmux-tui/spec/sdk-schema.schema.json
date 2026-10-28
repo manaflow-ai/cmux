@@ -327,6 +327,19 @@
         "priority_changed_reason": {
           "$ref": "#/$defs/ipcReason"
         },
+        "encoding": {
+          "description": "How a TYPED_EVENT frame carries the payload: its JSON object, or a binary layout (the payload's fields without the event literal).",
+          "enum": [
+            "json",
+            "binary"
+          ]
+        },
+        "layout_version": {
+          "description": "Version byte of a binary event layout; bumped on every layout change.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 255
+        },
         "coalesce": {
           "$ref": "#/$defs/coalesce"
         }

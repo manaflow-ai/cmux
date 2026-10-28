@@ -440,6 +440,55 @@ fn api_compat_wire_binary_layout_change_needs_a_version_bump() {
     assert_eq!(rules(&compat, &docs, &operations()), vec![]);
 }
 
+/// An event's binary layout (`encoding: "binary"`, its `payload` the
+/// layout) follows the same rule: recorded first, then a change needs a bump.
+#[test]
+fn api_compat_wire_binary_event_layout_change_needs_a_version_bump() {
+    let compat = recorded();
+    let mut binary = sdk();
+    let moved = &mut binary["events"]["tab-moved"];
+    moved["encoding"] = json!("binary");
+    moved["layout_version"] = json!(1);
+    moved["payload"]["fields"]["size"] =
+        json!({"type": {"kind": "ref", "name": "Size"}, "presence": "required"});
+    let report = check_all(&compat, &files(&binary, &operations()));
+    assert!(report.problems.is_empty(), "{:?}", report.problems);
+    let next = report.ledgers;
+    // Editing the type the payload reaches changes its layout and the
+    // command's that reaches it too; each needs its own bump.
+    let mut bad = binary.clone();
+    bad["types"]["Size"]["fields"]["rows"] = json!({"type": uint16(), "presence": "required"});
+    let refused: BTreeSet<_> = rules(&next, &bad, &operations()).into_iter().collect();
+    let expected: BTreeSet<_> = sdk_rule("tab-moved", WireRule::LayoutWithoutVersionBump)
+        .into_iter()
+        .chain(sdk_rule("resize-attached-view", WireRule::LayoutWithoutVersionBump))
+        .collect();
+    assert_eq!(refused, expected);
+    bad["commands"]["resize-attached-view"]["layout_version"] = json!(2);
+    assert_eq!(
+        rules(&next, &bad, &operations()),
+        sdk_rule("tab-moved", WireRule::LayoutWithoutVersionBump)
+    );
+    bad["events"]["tab-moved"]["layout_version"] = json!(2);
+    assert_eq!(rules(&next, &bad, &operations()), vec![]);
+    // Going back to JSON keeps the recorded layout: a later binary layout
+    // still needs a version above it.
+    let mut json_again = binary.clone();
+    json_again["events"]["tab-moved"]["encoding"] = json!("json");
+    json_again["events"]["tab-moved"].as_object_mut().unwrap().remove("layout_version");
+    assert_eq!(rules(&next, &json_again, &operations()), vec![]);
+    // An encoding without a version, a version on JSON, or another word
+    // cannot be read.
+    let mut unread = binary.clone();
+    unread["events"]["tab-moved"].as_object_mut().unwrap().remove("layout_version");
+    assert!(ids_from_sdk_schema(&unread).is_err());
+    let mut unread = sdk();
+    unread["events"]["tab-moved"]["layout_version"] = json!(1);
+    assert!(ids_from_sdk_schema(&unread).is_err());
+    unread["events"]["tab-moved"]["encoding"] = json!("cbor");
+    assert!(ids_from_sdk_schema(&unread).is_err());
+}
+
 /// `description` and `constraints` are annotations on a type or field, but
 /// in a `fields` map they are wire field names.
 #[test]

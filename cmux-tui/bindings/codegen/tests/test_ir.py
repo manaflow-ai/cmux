@@ -712,6 +712,41 @@ class IpcMetaTests(unittest.TestCase):
         document["commands"]["send-text"]["layout_version"] = 1
         self.assert_rejected(document, "layout_version: needs payload 'binary'")
 
+    def test_accepts_a_binary_event_encoding(self) -> None:
+        document = _framed_document()
+        document["events"]["workspace-created"].update({"encoding": "binary", "layout_version": 2})
+        ir = load_ir_document(document)
+        self.assertEqual(ir.event("workspace-created")["layout_version"], 2)
+
+    def test_rejects_binary_event_encoding_without_layout_version(self) -> None:
+        document = _framed_document()
+        document["events"]["workspace-created"]["encoding"] = "binary"
+        self.assert_rejected(document, "a binary encoding needs layout_version")
+
+    def test_rejects_layout_version_on_a_json_event(self) -> None:
+        document = _framed_document()
+        document["events"]["workspace-created"]["layout_version"] = 1
+        self.assert_rejected(document, "layout_version: needs encoding 'binary'")
+
+    def test_rejects_an_unknown_event_encoding(self) -> None:
+        document = _framed_document()
+        document["events"]["workspace-created"]["encoding"] = "cbor"
+        self.assert_rejected(document, "encoding: must be one of json, binary")
+
+    def test_rejects_unbounded_string_in_a_binary_event(self) -> None:
+        document = _framed_document()
+        event = document["events"]["workspace-created"]
+        event.update({"encoding": "binary", "layout_version": 1})
+        event["payload"]["fields"]["title"] = {
+            "type": {"kind": "scalar", "name": "string"},
+            "presence": "optional",
+            "nullable": False,
+        }
+        self.assert_rejected(
+            document,
+            "$.events.workspace-created.payload.fields.title: a binary string field needs max_bytes",
+        )
+
     def test_rejects_max_bytes_above_the_frame_limit(self) -> None:
         document = _framed_document()
         document["commands"]["resize-view"]["max_bytes"] = 32 * 1024 * 1024 + 1

@@ -80,6 +80,13 @@ fn check_coalesce(coalesce: Option<Coalesce>, node: &Value, name: &str) {
 fn check_event(attrs: &EventAttrs, name: &str, node: &Value) {
     assert_eq!(attrs.name, name);
     assert_eq!(attrs.priority.schema_name(), node["priority"].as_str().unwrap(), "{name}");
+    let payload = match node.get("encoding").and_then(Value::as_str).unwrap_or("json") {
+        "json" => Payload::Json,
+        _ => Payload::Binary {
+            layout_version: u8::try_from(node["layout_version"].as_u64().unwrap()).unwrap(),
+        },
+    };
+    assert_eq!(attrs.payload, payload, "{name}");
     check_coalesce(attrs.coalesce, node, name);
 }
 

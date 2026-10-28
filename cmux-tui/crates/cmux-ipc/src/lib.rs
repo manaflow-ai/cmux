@@ -28,6 +28,10 @@
 //! arrive in order: the holder link uses it, and so do the daemon's frame lanes.
 //! It is the only module with `unsafe` (libc `sendmsg`/`recvmsg`).
 //!
+//! [`hot`] is the binary codec of the hot messages (resize, sizing, scroll,
+//! snapshot-request and their events): fixed little-endian layouts built
+//! from the schema, so their frames carry no JSON (task 183).
+//!
 //! [`lane_writer`] is the outbound priority policy (design 3.4): input
 //! streams, then the one control FIFO, then bulk, then background, with
 //! per-stream turns, a starvation bound, chunking and a byte bound.
@@ -65,6 +69,7 @@ pub mod client;
 )]
 pub mod fds;
 pub mod frame;
+pub mod hot;
 pub mod lane_writer;
 pub mod methods;
 pub mod reader;

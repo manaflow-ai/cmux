@@ -20,9 +20,14 @@
 //!   daemon expands them into its request params and `Command` variants for
 //!   the families `server-families.json` lists, with its `refused_fields`
 //!   and `boxed` variants.
+//! - `hot_codec.rs` (task 183): the binary layouts of the hot messages, the
+//!   ones the schema marks `payload: "binary"` (commands) or
+//!   `encoding: "binary"` (events), which `src/hot.rs` includes.
 
 #[path = "build-support/client_requests.rs"]
 mod client_requests;
+#[path = "build-support/hot_codec.rs"]
+mod hot_codec;
 #[path = "build-support/method_tables.rs"]
 mod method_tables;
 #[path = "src/schema_digest.rs"]
@@ -115,6 +120,7 @@ fn main() -> Result<(), BuildError> {
     println!("cargo:rerun-if-changed=build-support/method_tables.rs");
     println!("cargo:rerun-if-changed=build-support/client_requests.rs");
     println!("cargo:rerun-if-changed=build-support/server_families.rs");
+    println!("cargo:rerun-if-changed=build-support/hot_codec.rs");
     let manifest = PathBuf::from(env("CARGO_MANIFEST_DIR")?);
     let out_dir = PathBuf::from(env("OUT_DIR")?);
     let schemas = Schemas::read(&manifest, SDK_SCHEMA, RESOURCE_OPERATIONS)?;
@@ -122,6 +128,7 @@ fn main() -> Result<(), BuildError> {
     write(&out_dir, "method_tables.rs", &method_tables(&schemas, "TABLES")?)?;
     write(&out_dir, "client_requests.rs", &client_requests(&schemas.sdk)?)?;
     write(&out_dir, "server_families.rs", &server_families(&manifest, &schemas)?)?;
+    write(&out_dir, "hot_codec.rs", &hot_codec(&schemas.sdk)?)?;
     let fixture = Schemas::read(&manifest, TABLE_FIXTURE_SDK, TABLE_FIXTURE_RESOURCE)?;
     write(&out_dir, "method_tables_fixture.rs", &method_tables(&fixture, "FIXTURE_TABLES")?)
 }
@@ -173,6 +180,14 @@ fn method_tables(schemas: &Schemas, name: &str) -> Result<String, BuildError> {
 fn client_requests(sdk: &SchemaFile) -> Result<String, BuildError> {
     client_requests::emit(&sdk.doc, client_requests::CLI)
         .map_err(|e| BuildError(format!("{}: {e}", sdk.path.display())))
+}
+
+/// The binary layouts of the hot messages and their types. A layout the
+/// codec cannot carry fails the build with its JSON path.
+fn hot_codec(sdk: &SchemaFile) -> Result<String, BuildError> {
+    let model = hot_codec::read(&sdk.doc)
+        .map_err(|e| BuildError(format!("{}: {e}", sdk.path.display())))?;
+    Ok(hot_codec::emit(&model))
 }
 
 /// The `<family>_params!` and `server_command_enum!` macros for the families

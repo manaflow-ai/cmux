@@ -1205,7 +1205,11 @@
       },
       "resize-attached-view": {
         "id": 1282,
-        "priority": "input"
+        "priority": "input",
+        "layout": {
+          "version": 1,
+          "fingerprint": "93f6e194ce4fedd5"
+        }
       },
       "resize-surface": {
         "id": 1281,
@@ -1249,7 +1253,11 @@
       },
       "scroll-surface": {
         "id": 777,
-        "priority": "input"
+        "priority": "input",
+        "layout": {
+          "version": 1,
+          "fingerprint": "4121d1f3f1ac28e2"
+        }
       },
       "select-screen": {
         "id": 2322,
@@ -1293,7 +1301,11 @@
       },
       "set-client-sizing": {
         "id": 1280,
-        "priority": "control"
+        "priority": "control",
+        "layout": {
+          "version": 1,
+          "fingerprint": "58c92a82f35742d2"
+        }
       },
       "set-column-dock": {
         "id": 1545,
@@ -1393,7 +1405,11 @@
       },
       "snapshot-request": {
         "id": 791,
-        "priority": "control"
+        "priority": "control",
+        "layout": {
+          "version": 1,
+          "fingerprint": "1b01eb996b8ad4ce"
+        }
       },
       "split": {
         "id": 1541,
@@ -1819,7 +1835,11 @@
       },
       "scroll-changed": {
         "id": 49161,
-        "priority": "control"
+        "priority": "control",
+        "layout": {
+          "version": 1,
+          "fingerprint": "c2f3f80b29a2c23b"
+        }
       },
       "server-diagnostic-site": {
         "id": 49676,
@@ -1831,7 +1851,11 @@
       },
       "size-state": {
         "id": 49163,
-        "priority": "control"
+        "priority": "control",
+        "layout": {
+          "version": 1,
+          "fingerprint": "905145c3cb42d5ed"
+        }
       },
       "status": {
         "id": 49420,
@@ -1855,7 +1879,11 @@
       },
       "surface-resized": {
         "id": 49424,
-        "priority": "control"
+        "priority": "control",
+        "layout": {
+          "version": 1,
+          "fingerprint": "d88db0176f5262a2"
+        }
       },
       "tab-added": {
         "id": 49425,

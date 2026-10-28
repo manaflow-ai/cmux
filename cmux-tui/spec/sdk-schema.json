@@ -714,6 +714,7 @@
      },
      "presence": "optional",
      "nullable": false,
+     "max_bytes": 256,
      "since": 12,
      "capability": "shared-sizing-v1"
     }
@@ -7412,10 +7413,12 @@
       "items": {
        "kind": "scalar",
        "name": "string"
-      }
+      },
+      "max_items": 32
      },
      "presence": "optional",
      "nullable": false,
+     "max_bytes": 256,
      "default": [],
      "constraints": [
       "Priority keys `<user_id or anon:id>/<device_kind>`, highest first."
@@ -7446,6 +7449,7 @@
      },
      "presence": "optional",
      "nullable": true,
+     "max_bytes": 256,
      "default": null,
      "constraints": [
       "Asserted by the client; the daemon does not verify it."
@@ -7458,6 +7462,7 @@
      },
      "presence": "optional",
      "nullable": true,
+     "max_bytes": 256,
      "default": null
     },
     "device_kind": {
@@ -7467,6 +7472,7 @@
      },
      "presence": "optional",
      "nullable": true,
+     "max_bytes": 32,
      "default": null,
      "constraints": [
       "mac, iphone, ipad, tui, browser, linux, windows; anything else is unknown."
@@ -7479,6 +7485,7 @@
      },
      "presence": "optional",
      "nullable": true,
+     "max_bytes": 256,
      "default": null
     },
     "device_id": {
@@ -7488,6 +7495,7 @@
      },
      "presence": "optional",
      "nullable": true,
+     "max_bytes": 256,
      "default": null,
      "constraints": [
       "Stable per-install device id; tells two devices of one user apart."
@@ -7542,7 +7550,8 @@
       "name": "string"
      },
      "presence": "required",
-     "nullable": false
+     "nullable": false,
+     "max_bytes": 256
     },
     "user_id": {
      "type": {
@@ -7550,7 +7559,8 @@
       "name": "string"
      },
      "presence": "required",
-     "nullable": true
+     "nullable": true,
+     "max_bytes": 256
     },
     "display_name": {
      "type": {
@@ -7558,7 +7568,8 @@
       "name": "string"
      },
      "presence": "required",
-     "nullable": true
+     "nullable": true,
+     "max_bytes": 256
     },
     "device_kind": {
      "type": {
@@ -7574,7 +7585,8 @@
       "name": "string"
      },
      "presence": "required",
-     "nullable": true
+     "nullable": true,
+     "max_bytes": 256
     },
     "device_id": {
      "type": {
@@ -7582,7 +7594,8 @@
       "name": "string"
      },
      "presence": "required",
-     "nullable": true
+     "nullable": true,
+     "max_bytes": 256
     },
     "via": {
      "type": {
@@ -7590,7 +7603,8 @@
       "name": "string"
      },
      "presence": "required",
-     "nullable": true
+     "nullable": true,
+     "max_bytes": 256
     },
     "viewport": {
      "type": {
@@ -7622,7 +7636,8 @@
       "name": "string"
      },
      "presence": "required",
-     "nullable": false
+     "nullable": false,
+     "max_bytes": 512
     }
    },
    "additional_properties": false
@@ -7668,10 +7683,12 @@
       "items": {
        "kind": "scalar",
        "name": "string"
-      }
+      },
+      "max_items": 64
      },
      "presence": "required",
-     "nullable": false
+     "nullable": false,
+     "max_bytes": 256
     },
     "policy": {
      "type": {
@@ -7687,7 +7704,8 @@
       "items": {
        "kind": "ref",
        "name": "SizeParticipant"
-      }
+      },
+      "max_items": 64
      },
      "presence": "required",
      "nullable": false
@@ -8029,6 +8047,7 @@
      },
      "presence": "optional",
      "nullable": true,
+     "max_bytes": 128,
      "default": null
     },
     "reason": {
@@ -8038,6 +8057,7 @@
      },
      "presence": "optional",
      "nullable": true,
+     "max_bytes": 64,
      "default": null
     }
    },
@@ -13764,6 +13784,8 @@
    "method_id": 1280,
    "priority": "control",
    "durability": "reply_before_journal",
+   "payload": "binary",
+   "layout_version": 1,
    "stream_scoped": true,
    "clients": [
     "macos",
@@ -19125,6 +19147,7 @@
       },
       "presence": "optional",
       "nullable": true,
+      "max_bytes": 256,
       "default": null
      },
      "view": {
@@ -19134,6 +19157,7 @@
       },
       "presence": "optional",
       "nullable": true,
+      "max_bytes": 128,
       "default": null,
       "since": 12,
       "capability": "shared-sizing-v1",
@@ -19210,6 +19234,8 @@
    "method_id": 1282,
    "priority": "input",
    "durability": "memory",
+   "payload": "binary",
+   "layout_version": 1,
    "stream_scoped": true,
    "clients": [
     "macos",
@@ -19709,6 +19735,8 @@
    "method_id": 777,
    "priority": "input",
    "durability": "memory",
+   "payload": "binary",
+   "layout_version": 1,
    "stream_scoped": true,
    "clients": [
     "sdk"
@@ -28966,6 +28994,7 @@
       },
       "presence": "optional",
       "nullable": true,
+      "max_bytes": 32,
       "default": null
      },
      "have": {
@@ -28984,6 +29013,7 @@
       },
       "presence": "optional",
       "nullable": true,
+      "max_bytes": 128,
       "default": null
      },
      "stream": {
@@ -29017,6 +29047,8 @@
    "method_id": 791,
    "priority": "control",
    "durability": "memory",
+   "payload": "binary",
+   "layout_version": 1,
    "stream_scoped": true,
    "clients": [
     "macos",
@@ -38587,7 +38619,9 @@
     "additional_properties": false
    },
    "event_id": 49161,
-   "priority": "control"
+   "priority": "control",
+   "encoding": "binary",
+   "layout_version": 1
   },
   "status": {
    "since": 5,
@@ -38867,7 +38901,9 @@
     "additional_properties": false
    },
    "event_id": 49424,
-   "priority": "control"
+   "priority": "control",
+   "encoding": "binary",
+   "layout_version": 1
   },
   "tab-added": {
    "since": 7,
@@ -40216,7 +40252,8 @@
        "name": "string"
       },
       "presence": "optional",
-      "nullable": false
+      "nullable": false,
+      "max_bytes": 256
      },
      "cause": {
       "type": {
@@ -40233,7 +40270,9 @@
     "additional_properties": false
    },
    "event_id": 49163,
-   "priority": "control"
+   "priority": "control",
+   "encoding": "binary",
+   "layout_version": 1
   },
   "tab-changed": {
    "since": 12,

@@ -56,7 +56,9 @@ COMMAND_ATTRIBUTES = frozenset(
         "clients",
     }
 )
-EVENT_ATTRIBUTES = frozenset({"event_id", "priority", "priority_changed_reason", "coalesce"})
+EVENT_ATTRIBUTES = frozenset(
+    {"event_id", "priority", "priority_changed_reason", "encoding", "layout_version", "coalesce"}
+)
 FIELD_ATTRIBUTES = frozenset({"omit_nil", "max_bytes"})
 
 _FAMILY_NAME = re.compile(r"^[a-z][a-z0-9]*(-[a-z0-9]+)*$")
@@ -312,16 +314,10 @@ class IpcMetaValidator:
         if node.get("spawns_terminal") is True and node.get("durability") == "read_only":
             self.issue(f"{path}.durability", "a terminal-spawning command is not read_only")
 
-        layout = node.get("layout_version")
         if node.get("payload") == "binary":
-            if layout is None:
-                self.issue(path, "a binary payload needs layout_version")
             self.binary_layout(request, f"{path}.request")
             self.binary_layout(node.get("result"), f"{path}.result")
-        elif "layout_version" in node:
-            self.issue(f"{path}.layout_version", "needs payload 'binary'")
-        if layout is not None and (not _is_int(layout) or layout not in LAYOUT_VERSION_RANGE):
-            self.issue(f"{path}.layout_version", "must be an integer 1-255")
+        self._layout_version(node, "payload", path)
 
     def event(self, name: str, node: JsonObject, path: str) -> None:
         if not self.framed and not EVENT_ATTRIBUTES & set(node):
@@ -337,6 +333,23 @@ class IpcMetaValidator:
             self._coalesce(
                 node["coalesce"], self._object_fields(node.get("payload")), f"{path}.coalesce"
             )
+        # An event's `payload` is its type, so its wire form is `encoding`.
+        self._enum(node, "encoding", path, PAYLOADS)
+        if node.get("encoding") == "binary":
+            self.binary_layout(node.get("payload"), f"{path}.payload")
+        self._layout_version(node, "encoding", path)
+
+    def _layout_version(self, node: JsonObject, kind_key: str, path: str) -> None:
+        """A binary ``kind_key`` needs layout_version 1-255, and only a binary one has it."""
+
+        layout = node.get("layout_version")
+        if node.get(kind_key) == "binary":
+            if layout is None:
+                self.issue(path, f"a binary {kind_key} needs layout_version")
+        elif "layout_version" in node:
+            self.issue(f"{path}.layout_version", f"needs {kind_key} 'binary'")
+        if layout is not None and (not _is_int(layout) or layout not in LAYOUT_VERSION_RANGE):
+            self.issue(f"{path}.layout_version", "must be an integer 1-255")
 
     def _object_fields(self, expression: Any) -> JsonObject:
         resolved = self.resolve(expression)

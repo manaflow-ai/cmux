@@ -25,14 +25,16 @@ struct CmuxNextWireGenPlugin: BuildToolPlugin {
         return [try Self.schemaBindings(tool: tool.url, spec: spec, work: work, target: target.name)]
     }
 
-    /// The identity, `MethodTable.schema` (task 023) and the app's `cmux.protocol/2` requests
-    /// (task 024) of cmux-tui/spec. `DaemonWireEvent+Schema.swift` joins them once TypeEmitter's
+    /// The identity, `MethodTable.schema` (task 023), the app's `cmux.protocol/2` requests
+    /// (task 024) and the hot-message codec (task 183) of cmux-tui/spec. `DaemonWireEvent+Schema.swift` joins them once TypeEmitter's
     /// payload types build (p05-ipc-020, then p05-ipc-195).
     private static func schemaBindings(tool: URL, spec: URL, work: URL, target: String) throws -> Command {
         let sdkSchema = spec.appending(path: "sdk-schema.json", directoryHint: .notDirectory)
         let resourceOperations = spec.appending(path: "resource-operations-v2.json", directoryHint: .notDirectory)
         let identity = work.appending(path: "WireSchemaIdentity+Built.generated.swift", directoryHint: .notDirectory)
         let methodTable = work.appending(path: "MethodTable+Schema.swift", directoryHint: .notDirectory)
+        // The binary codec of the hot messages (p05-ipc-183, HotEmitter).
+        let hotCodec = work.appending(path: "HotCodec+Schema.swift", directoryHint: .notDirectory)
         // ResourceEmitter writes one file of shared types and errors and one per operation family.
         let resourceFiles = resourceFileNames(appResourceOperations).map {
             work.appending(path: $0, directoryHint: .notDirectory)
@@ -54,9 +56,10 @@ struct CmuxNextWireGenPlugin: BuildToolPlugin {
                 "--resource-output-dir", work.path(percentEncoded: false),
                 "--resource-operation-names", appResourceOperations.joined(separator: ","),
                 "--types-output-dir", work.path(percentEncoded: false),
+                "--hot-output", hotCodec.path(percentEncoded: false),
             ],
             inputFiles: [sdkSchema, resourceOperations],
-            outputFiles: [identity, methodTable] + resourceFiles + wireTypes
+            outputFiles: [identity, methodTable, hotCodec] + resourceFiles + wireTypes
         )
     }
 

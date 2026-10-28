@@ -83,7 +83,7 @@ struct TableEmitter {
     // Rows ------------------------------------------------------------------
 
     private func method(_ m: MethodTableSchema.Method) -> String {
-        let payload = m.binaryLayout.map { ".binary(layoutVersion: \($0))" } ?? ".json"
+        let payload = Self.payload(m.binaryLayout)
         return "MethodAttributes(id: MethodID(rawValue: \(Self.hex(m.id, width: 4))), name: \(Self.literal(m.name)), "
             + "priority: .\(m.priority), ordering: .\(m.ordering), durability: .\(m.durability), "
             + "payload: \(payload), streamScoped: \(m.streamScoped), "
@@ -94,7 +94,11 @@ struct TableEmitter {
 
     private func event(_ e: MethodTableSchema.Event) -> String {
         "EventAttributes(id: EventID(rawValue: \(Self.hex(e.id, width: 4))), name: \(Self.literal(e.name)), "
-            + "priority: .\(e.priority), coalesce: \(Self.coalesce(e.coalesce)))"
+            + "priority: .\(e.priority), coalesce: \(Self.coalesce(e.coalesce)), payload: \(Self.payload(e.binaryLayout)))"
+    }
+
+    private static func payload(_ binaryLayout: UInt8?) -> String {
+        binaryLayout.map { ".binary(layoutVersion: \($0))" } ?? ".json"
     }
 
     private static func coalesce(_ coalesce: MethodTableSchema.Coalesce?) -> String {

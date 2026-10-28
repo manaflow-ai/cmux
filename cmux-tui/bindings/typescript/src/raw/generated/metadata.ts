@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR bd628b182fbf46b7af5765359211ddc10dd59e37005342d5083854986ee46aa9. */
+/* cmux-tui mux protocol 12, IR 99e73aee9192019e034f4e1ba084e0a43098939861f28b4a564a8580bce4c2a5. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "bd628b182fbf46b7af5765359211ddc10dd59e37005342d5083854986ee46aa9" as const;
+export const SDK_IR_SHA256 = "99e73aee9192019e034f4e1ba084e0a43098939861f28b4a564a8580bce4c2a5" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -7077,6 +7077,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       },
       "participant": {
         "capability": "shared-sizing-v1",
+        "max_bytes": 256,
         "nullable": false,
         "presence": "optional",
         "since": 12,
@@ -15833,6 +15834,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         }
       },
       "device_id": {
+        "max_bytes": 256,
         "nullable": true,
         "presence": "required",
         "type": {
@@ -15849,6 +15851,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         }
       },
       "device_name": {
+        "max_bytes": 256,
         "nullable": true,
         "presence": "required",
         "type": {
@@ -15857,6 +15860,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         }
       },
       "display_name": {
+        "max_bytes": 256,
         "nullable": true,
         "presence": "required",
         "type": {
@@ -15865,6 +15869,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         }
       },
       "id": {
+        "max_bytes": 256,
         "nullable": false,
         "presence": "required",
         "type": {
@@ -15873,6 +15878,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         }
       },
       "priority_key": {
+        "max_bytes": 512,
         "nullable": false,
         "presence": "required",
         "type": {
@@ -15881,6 +15887,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         }
       },
       "user_id": {
+        "max_bytes": 256,
         "nullable": true,
         "presence": "required",
         "type": {
@@ -15889,6 +15896,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         }
       },
       "via": {
+        "max_bytes": 256,
         "nullable": true,
         "presence": "required",
         "type": {
@@ -15936,6 +15944,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "Priority keys `<user_id or anon:id>/<device_kind>`, highest first."
         ],
         "default": [],
+        "max_bytes": 256,
         "nullable": false,
         "presence": "optional",
         "type": {
@@ -15943,7 +15952,8 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
             "kind": "scalar",
             "name": "string"
           },
-          "kind": "array"
+          "kind": "array",
+          "max_items": 32
         }
       }
     },
@@ -15981,6 +15991,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         }
       },
       "owners": {
+        "max_bytes": 256,
         "nullable": false,
         "presence": "required",
         "type": {
@@ -15988,7 +15999,8 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
             "kind": "scalar",
             "name": "string"
           },
-          "kind": "array"
+          "kind": "array",
+          "max_items": 64
         }
       },
       "participants": {
@@ -15999,7 +16011,8 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
             "kind": "ref",
             "name": "SizeParticipant"
           },
-          "kind": "array"
+          "kind": "array",
+          "max_items": 64
         }
       },
       "policy": {
@@ -16037,6 +16050,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "Stable per-install device id; tells two devices of one user apart."
         ],
         "default": null,
+        "max_bytes": 256,
         "nullable": true,
         "presence": "optional",
         "type": {
@@ -16049,6 +16063,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "mac, iphone, ipad, tui, browser, linux, windows; anything else is unknown."
         ],
         "default": null,
+        "max_bytes": 32,
         "nullable": true,
         "presence": "optional",
         "type": {
@@ -16058,6 +16073,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       },
       "device_name": {
         "default": null,
+        "max_bytes": 256,
         "nullable": true,
         "presence": "optional",
         "type": {
@@ -16067,6 +16083,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       },
       "display_name": {
         "default": null,
+        "max_bytes": 256,
         "nullable": true,
         "presence": "optional",
         "type": {
@@ -16079,6 +16096,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "Asserted by the client; the daemon does not verify it."
         ],
         "default": null,
+        "max_bytes": 256,
         "nullable": true,
         "presence": "optional",
         "type": {
@@ -16133,6 +16151,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     "fields": {
       "reason": {
         "default": null,
+        "max_bytes": 64,
         "nullable": true,
         "presence": "optional",
         "type": {
@@ -16142,6 +16161,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       },
       "request_id": {
         "default": null,
+        "max_bytes": 128,
         "nullable": true,
         "presence": "optional",
         "type": {
@@ -32006,6 +32026,7 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
         },
         "lease": {
           "default": null,
+          "max_bytes": 256,
           "nullable": true,
           "presence": "optional",
           "type": {
@@ -32055,6 +32076,7 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "Relay sub-view name, 1-128 printable characters; exactly one of lease or view."
           ],
           "default": null,
+          "max_bytes": 128,
           "nullable": true,
           "presence": "optional",
           "since": 12,
@@ -34303,6 +34325,7 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
         },
         "reason": {
           "default": null,
+          "max_bytes": 32,
           "nullable": true,
           "presence": "optional",
           "type": {
@@ -34312,6 +34335,7 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
         },
         "request_id": {
           "default": null,
+          "max_bytes": 128,
           "nullable": true,
           "presence": "optional",
           "type": {
@@ -39659,6 +39683,7 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         }
       },
       "self_participant": {
+        "max_bytes": 256,
         "nullable": false,
         "presence": "optional",
         "type": {

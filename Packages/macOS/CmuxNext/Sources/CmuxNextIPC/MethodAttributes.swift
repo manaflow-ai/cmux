@@ -53,11 +53,21 @@ public struct EventAttributes: Hashable, Sendable {
     public let name: String
     public let priority: MethodPriority
     public let coalesce: MethodCoalesce?
+    /// The schema `encoding`: how a TYPED_EVENT frame carries the payload. A binary one is the
+    /// event's ``HotLayout`` of that version.
+    public let payload: MethodPayload
 
-    public init(id: EventID, name: String, priority: MethodPriority, coalesce: MethodCoalesce?) {
+    public init(
+        id: EventID,
+        name: String,
+        priority: MethodPriority,
+        coalesce: MethodCoalesce?,
+        payload: MethodPayload = .json
+    ) {
         self.id = id
         self.name = name
         self.priority = priority
         self.coalesce = coalesce
+        self.payload = payload
     }
 }

@@ -87,6 +87,8 @@ pub struct Event {
     pub id: u16,
     pub name: String,
     pub priority: &'static str,
+    /// `None` is JSON; `Some(v)` is a binary layout of version `v` (`encoding`).
+    pub binary_layout: Option<u8>,
     pub coalesce: Option<Coalesce>,
 }
 
@@ -286,6 +288,7 @@ fn events(doc: &Value, declared: &BTreeMap<u8, String>) -> Result<Vec<Family<Eve
             id,
             name: name.clone(),
             priority: priority(SDK, &path, node)?,
+            binary_layout: binary_layout(SDK, &path, node, "encoding")?,
             coalesce: coalesce(SDK, &path, node)?,
         };
         grouper.place(&format!("{path}.event_id"), id, event)?;
@@ -329,6 +332,46 @@ fn variant(
     })
 }
 
+/// `None` for JSON, `Some(version)` for a binary layout. `kind_key` is
+/// `payload` for a command or operation and `encoding` for an event (whose
+/// `payload` is its type); a binary one needs `layout_version` 1-255 and
+/// only a binary one may have it.
+pub fn binary_layout(
+    file: &'static str,
+    path: &str,
+    node: &Value,
+    kind_key: &str,
+) -> Result<Option<u8>, TableError> {
+    let binary = variant(
+        file,
+        path,
+        node,
+        kind_key,
+        &[("json", "Json"), ("binary", "Binary")],
+        Some("Json"),
+    )? == "Binary";
+    match (binary, node.get("layout_version")) {
+        (false, None) => Ok(None),
+        (false, Some(_)) => Err(error(
+            file,
+            format!("{path}.layout_version"),
+            format!("needs {kind_key} \"binary\""),
+        )),
+        (true, layout) => layout
+            .and_then(Value::as_u64)
+            .and_then(|v| u8::try_from(v).ok())
+            .filter(|v| *v >= 1)
+            .map(Some)
+            .ok_or_else(|| {
+                error(
+                    file,
+                    format!("{path}.layout_version"),
+                    format!("a binary {kind_key} needs a layout version 1-255"),
+                )
+            }),
+    }
+}
+
 fn priority(file: &'static str, path: &str, node: &Value) -> Result<&'static str, TableError> {
     variant(
         file,
@@ -361,33 +404,7 @@ fn method(
     id: u16,
     node: &Value,
 ) -> Result<Method, TableError> {
-    let binary = variant(
-        file,
-        path,
-        node,
-        "payload",
-        &[("json", "Json"), ("binary", "Binary")],
-        Some("Json"),
-    )? == "Binary";
-    let binary_layout = match (binary, node.get("layout_version")) {
-        (false, None) => None,
-        (false, Some(_)) => {
-            return Err(error(file, format!("{path}.layout_version"), "needs payload \"binary\""));
-        }
-        (true, layout) => Some(
-            layout
-                .and_then(Value::as_u64)
-                .and_then(|v| u8::try_from(v).ok())
-                .filter(|v| *v >= 1)
-                .ok_or_else(|| {
-                error(
-                    file,
-                    format!("{path}.layout_version"),
-                    "a binary payload needs a layout version 1-255",
-                )
-            })?,
-        ),
-    };
+    let binary_layout = binary_layout(file, path, node, "payload")?;
     let crosses_stream_ok = match node.get("crosses_stream_ok") {
         None => None,
         Some(reason) => Some(
@@ -523,12 +540,7 @@ fn emit_method(out: &mut String, m: &Method) {
         "Some(MethodAttrs {{ id: MethodId::new(0x{:04X}), name: {:?}, priority: PriorityHint::{}, ordering: Ordering::{}, durability: Durability::{}, payload: ",
         m.id, m.name, m.priority, m.ordering, m.durability
     );
-    match m.binary_layout {
-        None => out.push_str("Payload::Json"),
-        Some(version) => {
-            let _ = write!(out, "Payload::Binary {{ layout_version: {version} }}");
-        }
-    }
+    emit_payload(out, m.binary_layout);
     let _ = write!(
         out,
         ", stream_scoped: {}, crosses_stream_ok: {:?}, max_bytes: {:?}, coalesce: ",
@@ -541,11 +553,22 @@ fn emit_method(out: &mut String, m: &Method) {
 fn emit_event(out: &mut String, e: &Event) {
     let _ = write!(
         out,
-        "Some(EventAttrs {{ id: EventId::new(0x{:04X}), name: {:?}, priority: PriorityHint::{}, coalesce: ",
+        "Some(EventAttrs {{ id: EventId::new(0x{:04X}), name: {:?}, priority: PriorityHint::{}, payload: ",
         e.id, e.name, e.priority
     );
+    emit_payload(out, e.binary_layout);
+    out.push_str(", coalesce: ");
     emit_coalesce(out, e.coalesce.as_ref());
     out.push_str(" }),\n");
+}
+
+fn emit_payload(out: &mut String, binary_layout: Option<u8>) {
+    match binary_layout {
+        None => out.push_str("Payload::Json"),
+        Some(version) => {
+            let _ = write!(out, "Payload::Binary {{ layout_version: {version} }}");
+        }
+    }
 }
 
 /// One `[Option<&FamilyTable<T>>; N]` literal, indexed by family id - first.

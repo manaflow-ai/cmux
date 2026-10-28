@@ -28,15 +28,20 @@ impl std::fmt::Display for ReadError {
 impl std::error::Error for ReadError {}
 
 /// Reads the wire ids of `spec/sdk-schema.json`. A command's binary layout
-/// covers its request and result; an event has no binary layout (its
-/// `payload` is its type).
+/// (`payload: "binary"`) covers its request and result; an event's
+/// (`encoding: "binary"`, since its `payload` is its type) covers its payload.
 pub fn ids_from_sdk_schema(schema: &Value) -> Result<WireIds, ReadError> {
     let types = TypeTables::new(schema, &["types"]);
     let mut ids = WireIds { families: families(schema)?, ..WireIds::default() };
-    let commands =
-        Section { name: "commands", id_key: "method_id", bodies: &["request", "result"] };
+    let commands = Section {
+        name: "commands",
+        id_key: "method_id",
+        kind_key: "payload",
+        bodies: &["request", "result"],
+    };
     read_entries(schema, &commands, &types, &mut ids.methods)?;
-    let events = Section { name: "events", id_key: "event_id", bodies: &[] };
+    let events =
+        Section { name: "events", id_key: "event_id", kind_key: "encoding", bodies: &["payload"] };
     read_entries(schema, &events, &types, &mut ids.events)?;
     Ok(ids)
 }
@@ -47,8 +52,12 @@ pub fn ids_from_sdk_schema(schema: &Value) -> Result<WireIds, ReadError> {
 pub fn ids_from_resource_operations(schema: &Value) -> Result<WireIds, ReadError> {
     let types = TypeTables::new(schema, &["types", "generics"]);
     let mut ids = WireIds { families: families(schema)?, ..WireIds::default() };
-    let operations =
-        Section { name: "operations", id_key: "method_id", bodies: &["params", "result"] };
+    let operations = Section {
+        name: "operations",
+        id_key: "method_id",
+        kind_key: "payload",
+        bodies: &["params", "result"],
+    };
     read_entries(schema, &operations, &types, &mut ids.methods)?;
     let local = schema.get("local_operations").and_then(Value::as_object);
     for (name, entry) in local.into_iter().flatten() {
@@ -71,8 +80,9 @@ const WIRE_KEYS: [&str; 5] =
 struct Section<'a> {
     name: &'a str,
     id_key: &'a str,
-    /// The members a binary layout covers; empty when the section has no
-    /// binary payloads.
+    /// The member that says `"json"` or `"binary"`.
+    kind_key: &'a str,
+    /// The members a binary layout covers.
     bodies: &'a [&'a str],
 }
 
@@ -122,11 +132,7 @@ fn read_entries(
             Some(Value::String(text)) => Ok(Some(text.clone())),
             Some(other) => Err(section.error(name, key, format!("{other} is not a string"))),
         };
-        let layout = if section.bodies.is_empty() {
-            None
-        } else {
-            binary_layout(section, name, entry, types)?
-        };
+        let layout = binary_layout(section, name, entry, types)?;
         let priority_changed_reason =
             text("priority_changed_reason")?.filter(|reason| !reason.trim().is_empty());
         let wire = WireEntry { id, priority: text("priority")?, priority_changed_reason, layout };
@@ -135,32 +141,38 @@ fn read_entries(
     Ok(())
 }
 
-/// `payload` is `"json"` (the default) or `"binary"`; a binary payload needs
-/// `layout_version` 1-255 beside it, and only a binary one may have it.
+/// The section's kind key (`payload`, or an event's `encoding`) is `"json"`
+/// (the default) or `"binary"`; a binary one needs `layout_version` 1-255
+/// beside it, and only a binary one may have it.
 fn binary_layout(
     section: &Section<'_>,
     name: &str,
     entry: &Value,
     types: &TypeTables<'_>,
 ) -> Result<Option<LayoutRecord>, ReadError> {
-    let binary = match entry.get("payload") {
+    let kind_key = section.kind_key;
+    let binary = match entry.get(kind_key) {
         None => false,
         Some(Value::String(kind)) if kind == "json" => false,
         Some(Value::String(kind)) if kind == "binary" => true,
         Some(other) => {
             let why = format!("{other} is neither \"json\" nor \"binary\"");
-            return Err(section.error(name, "payload", why));
+            return Err(section.error(name, kind_key, why));
         }
     };
     let version = entry.get("layout_version");
     if !binary {
         return match version {
             None => Ok(None),
-            Some(_) => Err(section.error(name, "layout_version", "needs payload \"binary\"")),
+            Some(_) => {
+                let why = format!("needs {kind_key} \"binary\"");
+                Err(section.error(name, "layout_version", why))
+            }
         };
     }
     let Some(version) = version else {
-        return Err(section.error(name, "payload", "a binary payload needs a layout_version"));
+        let why = format!("a binary {kind_key} needs a layout_version");
+        return Err(section.error(name, kind_key, why));
     };
     let version =
         version.as_u64().and_then(|v| u8::try_from(v).ok()).filter(|v| *v >= 1).ok_or_else(

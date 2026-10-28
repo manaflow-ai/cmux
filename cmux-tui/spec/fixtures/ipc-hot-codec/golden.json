@@ -1,0 +1,163 @@
+{
+  "description": "Golden bytes of the binary hot-message layouts (spec/transports.md, Binary payload layouts; p05-ipc-183). Each case is a body as its JSON form and as the payload a frame carries, layout version byte first. cmux-ipc (src/cmux_ipc_tests/hot_codec_tests.rs) and CmuxNextIPC (Tests/CmuxNextIPCTests/HotCodecTests.swift) must encode the JSON to these bytes and decode the bytes back. After a layout_version bump, update the bytes from the new layout.",
+  "cases": [
+    {
+      "name": "resize-attached-view",
+      "part": "request",
+      "json": {
+        "surface": 42,
+        "view": "phone-1",
+        "identity": {
+          "user_id": "u1",
+          "device_kind": "iphone",
+          "device_name": "Pocket"
+        },
+        "cols": 120,
+        "rows": 40,
+        "stream": 3
+      },
+      "hex": "01780001000106006970686f6e65010600506f636b65740001020075310028000103002a0000000000000001070070686f6e652d31"
+    },
+    {
+      "name": "resize-attached-view",
+      "part": "result",
+      "json": {
+        "accepted": true,
+        "reservation_id": null,
+        "outcome": "applied",
+        "participant": "p-7"
+      },
+      "hex": "010100010300702d3700"
+    },
+    {
+      "name": "set-client-sizing",
+      "part": "request",
+      "json": {
+        "surface": 9,
+        "client": 77,
+        "enabled": true,
+        "exclusive": false
+      },
+      "hex": "01014d000000000000000101000900000000000000"
+    },
+    {
+      "name": "set-client-sizing",
+      "part": "result",
+      "json": {},
+      "hex": "01"
+    },
+    {
+      "name": "scroll-surface",
+      "part": "request",
+      "json": {
+        "surface": 5,
+        "delta": -3
+      },
+      "hex": "01fdffffffffffffff0500000000000000"
+    },
+    {
+      "name": "scroll-surface",
+      "part": "result",
+      "json": {},
+      "hex": "01"
+    },
+    {
+      "name": "snapshot-request",
+      "part": "request",
+      "json": {
+        "surface": 12,
+        "reason": "digest_mismatch",
+        "have": {
+          "generation": 4,
+          "offset": 1048576,
+          "snapshot_version": 2
+        },
+        "request_id": "r-1"
+      },
+      "hex": "0101010400000000000000010000100000000000010200010f006469676573745f6d69736d61746368010300722d31000c00000000000000"
+    },
+    {
+      "name": "snapshot-request",
+      "part": "result",
+      "json": {
+        "status": "snapshot_throttled",
+        "surface": 12,
+        "retry_after_ms": 250,
+        "request_id": "r-1"
+      },
+      "hex": "0100010300722d3101fa00000000000000020c00000000000000"
+    },
+    {
+      "name": "scroll-changed",
+      "part": "event",
+      "json": {
+        "event": "scroll-changed",
+        "surface": 5,
+        "offset": 300,
+        "at_bottom": false,
+        "cause": "frontend"
+      },
+      "hex": "010001002c010000000000000500000000000000"
+    },
+    {
+      "name": "surface-resized",
+      "part": "event",
+      "json": {
+        "event": "surface-resized",
+        "surface": 5,
+        "cols": 80,
+        "rows": 24,
+        "reservation_id": null
+      },
+      "hex": "010050000018000500000000000000"
+    },
+    {
+      "name": "size-state",
+      "part": "event",
+      "json": {
+        "event": "size-state",
+        "surface": 5,
+        "state": {
+          "generation": 7,
+          "cols": 100,
+          "rows": 30,
+          "reason": "priority-fallback",
+          "owners": [
+            "mac",
+            "device:ipad-1"
+          ],
+          "policy": {
+            "mode": "priority",
+            "priority": [
+              "anon:1/mac"
+            ],
+            "fixed": {
+              "cols": 80,
+              "rows": 24
+            }
+          },
+          "participants": [
+            {
+              "id": "p1",
+              "user_id": null,
+              "display_name": "Lawrence",
+              "device_kind": "mac",
+              "device_name": null,
+              "device_id": "d-1",
+              "via": null,
+              "viewport": {
+                "cols": 100,
+                "rows": 30
+              },
+              "counts_override": null,
+              "counts": true,
+              "priority_key": "anon:1/mac"
+            }
+          ]
+        },
+        "self_participant": "p1"
+      },
+      "hex": "0100010200703164000700000000000000020003006d61630d006465766963653a697061642d3101000100010300642d3100000108004c617772656e6365020070310a00616e6f6e3a312f6d616300000164001e00015000180001030101000a00616e6f6e3a312f6d6163061e000500000000000000"
+    }
+  ]
+}

@@ -616,7 +616,10 @@ Command attributes:
 | `clients` | Non-empty subset of `macos`, `ios`, `cli`, `sdk`; absent means every client. The Rust method tables hold every framed method; the Swift method table (p05-ipc-023) holds only methods whose `clients` include `macos`, and the client generators will do the same (p05-ipc-020 for Swift, p05-ipc-048 for iOS). |
 
 Event attributes: `event_id` (u16 in a declared event family), `priority`,
-`priority_changed_reason` and `coalesce` (fields of the payload).
+`priority_changed_reason`, `coalesce` (fields of the payload), and
+`encoding` (`json`, the default, or `binary`) with `layout_version`: an
+event's `payload` is its type, so the wire form has its own name. A binary
+event needs `layout_version`, and only a binary one may have it.
 
 Field attributes: `omit_nil` (an optional member is omitted instead of written
 as `null`; not allowed on a required member), `max_bytes` (UTF-8 bound of a
@@ -637,6 +640,41 @@ types have no binary layout.
 
 `bindings/codegen/validate.py` (through `ipc_meta.py`) enforces these rules
 whenever the SDK generator loads the schema.
+
+### Binary payload layouts
+
+The hot messages (p05-ipc-183) are binary: the requests and results of
+`resize-attached-view`, `set-client-sizing`, `scroll-surface` and
+`snapshot-request`, and the `size-state`, `scroll-changed` and
+`surface-resized` events. `title-changed` and every other message stay JSON.
+cmux-ipc `build.rs` (`build-support/hot_codec.rs`, module `cmux_ipc::hot`)
+and CmuxNextWireGen's HotEmitter (CmuxNextIPC `Hot…` types and
+`HotLayout`) generate the codec from the schema; both write the bytes of
+`spec/fixtures/ipc-hot-codec/golden.json`.
+
+A payload is the `layout_version` byte, then the body. The body of a command
+part is its `request` or `result`; the body of an event is its `payload`
+without its literal `event` member, which the frame header's id already
+names. Values are written as follows:
+
+| Value | Bytes |
+| --- | --- |
+| object | Its fields in ascending byte order of their wire names; literal fields are not written. An optional or nullable field starts with a tag byte: 0 for absent or `null` (nothing follows), 1 for a value. |
+| `boolean` | One byte, 0 or 1. |
+| integers, floats | Little-endian at their width (`uint16` 2 bytes, `int64` 8 bytes, `float64` IEEE 754 bits). |
+| `enum` | The u8 index of the value in the schema's `values`. |
+| `string` | u16 byte length, at most the field's `max_bytes`, then the UTF-8. |
+| `array` | u16 count, at most `max_items`, then the items. |
+| `ref`, `alias` | The type they name. |
+
+A decoder refuses another `layout_version`, a tag or boolean byte other than
+0 or 1, an enum index past the values, a length over its bound, invalid
+UTF-8, a payload that ends inside a value, and bytes after the body; any of
+these is `bad_message`. Frames are granted only at equal API revisions, so
+the two ends share one layout; the version byte makes a mismatch a refusal,
+never a misread. An encoder refuses a value over its layout's bounds, and the
+sender then writes that message as JSON. A layout change needs a higher
+`layout_version` (`api-compat-check`) and new golden bytes.
 
 ### Assigning method ids
 
