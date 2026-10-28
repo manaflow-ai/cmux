@@ -59,7 +59,7 @@ extension WorkspaceTabsSource {
         guard pendingTabTitle == nil else { return }
         pendingTabTitle = "New Terminal"
         defer { pendingTabTitle = nil }
-        let title = title(of: pane)
+        let title = self.title(of: pane)
         await onMac(verb, title) { backend, workspace in
             let tab = try await open(backend, workspace)
             if store.workspace(id: workspaceID)?.tabs.contains(where: { $0.id == tab.id }) == true { activate(tab.id) }

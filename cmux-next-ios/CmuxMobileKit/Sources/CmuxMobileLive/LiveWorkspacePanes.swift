@@ -1,4 +1,5 @@
 import CmuxMobileModel
+import CmuxMobileTransport
 import Foundation
 
 /// The Mac's pane and layout actions from a phone (verify/parity-mac.md, Panes). Every line is
@@ -26,6 +27,16 @@ extension LiveWorkspaceCreationBackend: WorkspacePaneBackend {
         sync.tree?.workspaces.first { $0.id == workspace.id }?.layout ?? sync.tree?.homeWorkspaces.first { $0.id == workspace.id }?.layout
     }
 
+    /// Sends `command`, then lists the Mac's tree again (the Panes page shows the change).
+    private func perform(_ client: DaemonClient, _ command: String, _ params: sending [String: Any]) async throws {
+        do {
+            try WorkspaceSync.check(await client.request(command, params: params))
+            _ = try? await sync.listNow()
+        } catch let error as DaemonReplyError {
+            throw WorkspaceCreationError(error.message)
+        }
+    }
+
     /// Sends `command`, then reads the tab the reply names (`surface`) from a fresh list.
     private func openTab(_ client: DaemonClient, _ command: String, _ params: sending [String: Any]) async throws -> WorkspaceTab {
         do {
@@ -45,37 +56,37 @@ extension LiveWorkspaceCreationBackend: WorkspacePaneBackend {
     }
 
     public func split(_ pane: Int, _ direction: PaneSplit, in workspace: Workspace) async throws -> WorkspaceTab {
-        let client = try client(for: pane, in: workspace)
+        let client = try self.client(for: pane, in: workspace)
         let tab = try await openTab(client, "split", ["pane": pane, "dir": direction.daemonDirection])
         guard direction.swapsAfter else { return tab }
         // The daemon puts the new pane right of or below the old one; Split Left / Up then
         // swaps the two (the Mac's fork to the left does the same).
         guard let created = sync.tree?.tabPlaces[tab.id]?.pane else { throw WorkspaceCreationError("The Mac doesn't list the new pane") }
-        try await run(client, "swap-pane", ["pane": pane, "target": created])
+        try await perform(client, "swap-pane", ["pane": pane, "target": created])
         return tab
     }
 
     public func newPane(from pane: Int, column: Bool, in workspace: Workspace) async throws -> WorkspaceTab {
-        let client = try client(for: pane, in: workspace)
+        let client = try self.client(for: pane, in: workspace)
         return try await openTab(client, column ? "new-pane-right" : "new-pane", ["pane": pane])
     }
 
     public func toggleZoom(_ pane: Int, in workspace: Workspace) async throws {
-        try await run(client(for: pane, in: workspace), "zoom-pane", ["pane": pane, "mode": "toggle"])
+        try await perform(client(for: pane, in: workspace), "zoom-pane", ["pane": pane, "mode": "toggle"])
     }
 
     public func swap(_ pane: Int, _ direction: PaneSwap, in workspace: Workspace) async throws {
-        try await run(client(for: pane, in: workspace), "swap-pane", ["pane": pane, "dir": direction.rawValue])
+        try await perform(client(for: pane, in: workspace), "swap-pane", ["pane": pane, "dir": direction.rawValue])
     }
 
     public func renamePane(_ pane: Int, to name: String, in workspace: Workspace) async throws {
-        try await run(client(for: pane, in: workspace), "rename-pane", ["pane": pane, "name": name])
+        try await perform(client(for: pane, in: workspace), "rename-pane", ["pane": pane, "name": name])
     }
 
     /// `close-pane`, then `close-terminal` for each of its terminals no other tab shows, as the
     /// phone's Close Tab ends a closed tab's terminal (the phone has no undo for it).
     public func closePane(_ pane: Int, in workspace: Workspace) async throws {
-        let client = try client(for: pane, in: workspace)
+        let client = try self.client(for: pane, in: workspace)
         let tabs = (sync.tree?.tabPlaces ?? [:]).filter { $0.value.pane == pane }.map(\.key)
         let terminals = sync.tree?.terminalsEndedByClosing(tabs) ?? []
         do {
@@ -158,13 +169,13 @@ extension LiveWorkspaceCreationBackend: WorkspacePaneBackend {
         guard (sync.tree?.tabPlaces ?? [:]).values.contains(where: { $0.pane == place.pane && $0.index != place.index }) else {
             throw WorkspaceCreationError("This is the pane's only tab. Split the pane instead.", isForPerson: true)
         }
-        try await run(client, "move-tab-to-split", ["surface": surface, "pane": place.pane, "edge": edge.daemonEdge])
+        try await perform(client, "move-tab-to-split", ["surface": surface, "pane": place.pane, "edge": edge.daemonEdge])
     }
 
     public func moveTabToNewColumn(_ tab: WorkspaceTab, in workspace: Workspace) async throws {
         let (client, surface) = try target(tab, in: workspace)
         guard let place = sync.tree?.tabPlaces[tab.id] else { throw WorkspaceCreationError("The Mac doesn't list this tab") }
-        try await run(client, "move-tab-to-column", ["surface": surface, "pane": place.pane])
+        try await perform(client, "move-tab-to-column", ["surface": surface, "pane": place.pane])
     }
 
     /// `move-tab` to the end of `pane`'s tabs (its insertion point past the last).
@@ -175,7 +186,7 @@ extension LiveWorkspaceCreationBackend: WorkspacePaneBackend {
         }
         guard sync.tree?.tabPlaces[tab.id]?.pane != pane else { return }
         let count = (sync.tree?.tabPlaces ?? [:]).values.filter { $0.pane == pane }.count
-        try await run(client, "move-tab", ["surface": surface, "pane": pane, "index": count])
+        try await perform(client, "move-tab", ["surface": surface, "pane": pane, "index": count])
     }
 
     /// Fork Conversation to a destination, as the Mac's `openFork`: the copy opens as a tab

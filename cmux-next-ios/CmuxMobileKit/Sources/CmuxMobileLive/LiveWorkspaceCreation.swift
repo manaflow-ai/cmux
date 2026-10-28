@@ -854,7 +854,7 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
         return (client, surface)
     }
 
-    func run(_ client: DaemonClient, _ command: String, _ params: sending [String: Any]) async throws {
+    private func run(_ client: DaemonClient, _ command: String, _ params: sending [String: Any]) async throws {
         do {
             try WorkspaceSync.check(await client.request(command, params: params))
             _ = try? await sync.listNow()
