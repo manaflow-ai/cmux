@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextBridge
+import CmuxNextDesign
 @testable import CmuxNextDaemon
 import CmuxNextSidebar
 import Foundation
@@ -324,6 +325,12 @@ import Testing
         static let home = "mwh-home"
 
         func shown() -> [String?] { [w1, w2, w3].map(\.state.workspaceID) }
+        /// What each window shows: "Home" for its Home (the home workspace, or its own Home page), else its workspace.
+        func showing() -> [String] {
+            [w1, w2, w3].map { window in
+                window.state.page == .home || (window.state.page == nil && window.state.workspaceID == Self.home) ? "Home" : window.state.workspaceID ?? "nothing"
+            }
+        }
         func close() { for controller in services.windows.controllers { controller.window?.close() } }
     }
 
@@ -363,8 +370,8 @@ import Testing
         let shell2 = try #require(world.w2.window), shell3 = world.w3.window
         world.services.keyWindowSource = { shell3 }
         world.services.windows.dispatching(eventFrom: shell2) { world.w2.sidebar.activate(.builtIn(.home)) }
-        #expect(world.shown() == ["mwh-1", HomeWorld.home, "mwh-3"],
-                "Home clicked in window 2: windows 1, 2, 3 show \(world.shown().map { $0 ?? "nothing" })")
+        #expect(world.showing() == ["mwh-1", "Home", "mwh-3"], "Home clicked in window 2: windows 1, 2, 3 show \(world.showing())")
+        #expect(world.services.windows.registry.value.owner(of: HomeWorld.home) == world.w1.state.id, "Home moved out of window 1")
     }
 
     /// Home from its key or the menu while window 2 is key: the same.
@@ -374,24 +381,32 @@ import Testing
         let shell2 = world.w2.window
         world.services.keyWindowSource = { shell2 }
         _ = world.services.registry.perform("home.show", invocation: ActionInvocation(origin: .user))
-        #expect(world.shown() == ["mwh-1", HomeWorld.home, "mwh-3"],
-                "Home from the menu in window 2: windows 1, 2, 3 show \(world.shown().map { $0 ?? "nothing" })")
+        #expect(world.showing() == ["mwh-1", "Home", "mwh-3"], "Home from the menu in window 2: windows 1, 2, 3 show \(world.showing())")
     }
 
-    /// Window 1 lists only Home: Home asked for in window 2 brings window 1 forward instead of taking Home
-    /// from it (that would close window 1, which the person did not ask for).
-    @Test func homeNeverClosesTheWindowThatListsOnlyHome() throws {
+    /// One Home per window (audit-findings-1 C: every window shows Home when it has nothing else; Home never
+    /// closes). Window 1 shows only Home; Home clicked in window 2: window 2 shows Home, window 1 still shows
+    /// Home, and the key window does not change (no window comes forward, none closes).
+    @Test func homeClickedInWindowTwoLeavesWindowOnesHome() throws {
         let world = try Self.homeWorld()
         defer { world.close() }
         let windows = world.services.windows
         _ = windows.moveWorkspaces(["mwh-1"], toWindow: world.w3.state.id, select: false)
+        windows.show(workspaceID: HomeWorld.home, in: world.w1.state)
         let listed = windows.registry.members(of: world.w1.state.id)
-        try #require(listed == [HomeWorld.home], "window 1 lists \(listed)")
-        let shell2 = world.w2.window
-        world.services.keyWindowSource = { shell2 }
-        _ = world.services.registry.perform("home.show", invocation: ActionInvocation(origin: .user))
-        #expect(windows.controllers.contains { $0 === world.w1 }, "Home asked for in window 2 closed window 1")
-        #expect(world.w1.state.workspaceID == HomeWorld.home && world.w2.state.workspaceID == "mwh-2")
+        try #require(listed == [HomeWorld.home] && world.w1.state.workspaceID == HomeWorld.home, "window 1 lists \(listed)")
+        let shell2 = try #require(world.w2.window), shell3 = world.w3.window
+        world.services.keyWindowSource = { shell3 }  // a stale key record: window 3
+        var ordered: [NSWindow] = []
+        let previous = WindowActivation.didOrder
+        WindowActivation.didOrder = { window, inFront in ordered.append(window); previous?(window, inFront) }
+        defer { WindowActivation.didOrder = previous }
+        windows.dispatching(eventFrom: shell2) { world.w2.sidebar.activate(.builtIn(.home)) }
+        #expect(windows.controllers.contains { $0 === world.w1 }, "Home clicked in window 2 closed window 1")
+        #expect(world.showing() == ["Home", "Home", "mwh-3"], "Home clicked in window 2: windows 1, 2, 3 show \(world.showing())")
+        #expect(windows.registry.value.owner(of: HomeWorld.home) == world.w1.state.id, "Home moved out of window 1")
+        #expect(ordered.isEmpty, "Home clicked in window 2 ordered \(ordered.count) window(s) in front")
+        #expect(world.services.keyWindowSource() === shell3, "the key window changed")
     }
 
     /// A workspace row clicked in window 2's sidebar (the row of a workspace window 1 lists): window 2 shows
