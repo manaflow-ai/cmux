@@ -210,10 +210,14 @@ impl Controller {
     }
 
     pub(crate) fn note_listener_error(&self) {
-        self.update(|snapshot| {
-            snapshot.state = "error";
-            snapshot.error = Some("The tailnet listener stopped. Start it again to retry.".into());
-        });
+        let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
+        if self.stopping.load(Ordering::Acquire) {
+            return;
+        }
+        inner.snapshot.state = "error";
+        inner.snapshot.error =
+            Some("The tailnet listener stopped. Start it again to retry.".into());
+        self.publish_locked(&inner.snapshot);
     }
 
     pub(crate) fn begin_shutdown(&self) {
@@ -540,6 +544,8 @@ mod tests {
         let start = tokio::spawn(async move { queued.start().await });
         tokio::task::yield_now().await;
         controller.begin_shutdown();
+        controller.note_listener_error();
+        assert_eq!(controller.snapshot().state, "stopped");
         drop(lock);
         assert!(start.await.unwrap().is_err());
         assert!(controller.node().is_none());
