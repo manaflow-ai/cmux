@@ -448,6 +448,57 @@ import Testing
         #endif
     }
 
+    // MARK: What the host's end keeps (behavior audit 4, P8)
+
+    /// The host's end takes the tab's Chromium back/forward list with it (Chromium kept it, cmux only mirrored
+    /// it), but cmux keeps the entries it last saw: the Reload on the next host loads the page with those
+    /// entries as its Back list, as Chrome's session restore gives a crashed tab its entries. An incognito tab
+    /// too: its entries were only in memory, and cmux's copy outlives the host.
+    @Test func aReloadAfterTheHostEndedKeepsTheTabsBackForwardEntries() async throws {
+        let (runtime, supervisor, wire) = try await Self.startedRuntime(forkAPI: CEFTab.backForwardListForkAPI)
+        defer { wire.close() }
+        let tab = Self.tab(runtime, browser: 1, offTheRecord: true)
+        let first = URL(string: "https://example.com/a")!, second = URL(string: "https://example.com/b")!
+        HostWire.state.withLock {
+            $0.navigationEntries[1] = #"{"entries":[{"url":"https://example.com/a","title":"A"},{"url":"https://example.com/b","title":"B"}],"current":1}"#
+        }
+        tab.load(second)
+        runtime.handle(.address(browser: 1, url: second.absoluteString))
+        runtime.handle(.loadingState(browser: 1, loading: false, canGoBack: true, canGoForward: false))
+        #expect(tab.navigationList()?.entries.map(\.url) == [first, second])
+
+        supervisor.onHostEnded?(Self.hostKilled)
+        tab.reload()
+        for _ in 0..<1_000 where supervisor.asked < 2 { await Task.yield() }
+        try await runtime.start(layout: nil, environment: [:], trigger: "test")
+        for _ in 0..<1_000 where tab.state.processExit != nil { await Task.yield() }
+        #expect(tab.state.processExit == nil, "the page did not start loading again")
+        runtime.register(tab, browser: 11)
+
+        #expect(tab.navigationList()?.entries.map(\.url) == [first, second], "the host's end wiped the tab's Back list")
+        #expect(tab.state.canGoBack, "Back is not offered after the Reload")
+    }
+
+    /// An incognito tab's sign-ins and site data lived only in the dead host's memory: its crash page says
+    /// they are gone, which a normal tab's (whose data is on disk) does not.
+    @Test func anIncognitoTabsCrashPageSaysItsSiteDataIsGone() async throws {
+        let (runtime, supervisor, wire) = try await Self.startedRuntime()
+        defer { wire.close() }
+        let normal = Self.tab(runtime, browser: 1)
+        let incognito = Self.tab(runtime, browser: 2, offTheRecord: true)
+        let (normalStatus, normalArea) = Self.statusViews(showing: normal)
+        let (incognitoStatus, incognitoArea) = Self.statusViews(showing: incognito)
+        defer { withExtendedLifetime((normalArea, incognitoArea)) {} }
+
+        supervisor.onHostEnded?(Self.hostKilled)
+
+        #expect(!normalStatus.goneView.isHidden && !incognitoStatus.goneView.isHidden)
+        #if DEBUG
+        #expect(incognitoStatus.goneView.debugText != normalStatus.goneView.debugText,
+                "the incognito tab's crash page does not say its sign-ins and site data are gone")
+        #endif
+    }
+
     #if DEBUG
     /// The supervisor's path from a real host process to the runtime (task 080 conforms the same way): a
     /// stand-in host launched with the host launcher, SIGKILLed, its end mapped with `pageExit` and reported
@@ -529,8 +580,9 @@ import Testing
     }
 
     /// A tab of `profile` in a pane of its own whose browser is `browser`.
-    private static func tab(_ runtime: CEFRuntime, browser: Int32, profile: BrowserProfileID = .default) -> CEFTab {
-        let host = CEFPaneHost(key: CEFPaneKey(pane: BrowserPaneID(rawValue: UUID().uuidString), profile: profile), runtime: runtime)
+    private static func tab(_ runtime: CEFRuntime, browser: Int32, profile: BrowserProfileID = .default, offTheRecord: Bool = false) -> CEFTab {
+        let key = CEFPaneKey(pane: BrowserPaneID(rawValue: UUID().uuidString), profile: profile, offTheRecord: offTheRecord)
+        let host = CEFPaneHost(key: key, runtime: runtime)
         host.endOfTurn = { $0() }
         let tab = CEFTab(id: .random(), profile: profile, host: host, runtime: runtime)
         host.add(tab)
@@ -650,6 +702,8 @@ private nonisolated enum HostWire {
         var restoredStates: [String] = []
         /// Each `cmux_shim_create_window` call's URL while a wire is attached.
         var createdURLs: [String] = []
+        /// What `cmux_shim_tab_navigation_entries` answers, by browser (NULL for any other).
+        var navigationEntries: [Int32: String] = [:]
     }
 
     static let state = Mutex(State())
@@ -725,6 +779,9 @@ private nonisolated enum HostWire {
             HostWire.state.withLock { $0.energySaver.append(enabled) }
             return 1
         }
+        let navigationEntries: @convention(c) (Int32) -> UnsafeMutablePointer<CChar>? = { browser in
+            HostWire.state.withLock { $0.navigationEntries[browser] }.flatMap { unsafe strdup($0) }
+        }
         let nothing: @convention(c) () -> Int = { 0 }
         return switch name {
         case "cmux_shim_fork_api_version": unsafeBitCast(forkAPIVersion, to: UnsafeMutableRawPointer.self)
@@ -742,6 +799,7 @@ private nonisolated enum HostWire {
         case "cmux_shim_tab_restore_navigation": unsafeBitCast(restoreNavigation, to: UnsafeMutableRawPointer.self)
         case "cmux_shim_try_close": unsafeBitCast(tryClose, to: UnsafeMutableRawPointer.self)
         case "cmux_shim_before_unload_reply": unsafeBitCast(beforeUnloadReply, to: UnsafeMutableRawPointer.self)
+        case "cmux_shim_tab_navigation_entries": unsafeBitCast(navigationEntries, to: UnsafeMutableRawPointer.self)
         default: unsafeBitCast(nothing, to: UnsafeMutableRawPointer.self)
         }
     }
