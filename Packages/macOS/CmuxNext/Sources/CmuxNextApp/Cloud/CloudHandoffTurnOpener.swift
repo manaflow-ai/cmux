@@ -72,7 +72,9 @@ struct CloudHandoffTurnOpener {
         var handoff = try await make(session, machine)
         // One hand-off per session, made with this machine: one on another machine (a chat moved
         // since) is not this chat's turn to name.
-        guard handoff.sessionId == session, handoff.machine == machine else { return .refused("handoff.conflict") }
+        guard handoff.sessionId == session, handoff.machine == machine, handoff.refusal != "handoff.conflict" else {
+            return .refused("handoff.conflict")
+        }
         // Another device may begin (and even finish) the next turn first (`turn_conflict` answers
         // the hand-off as it is): its turn is named while it has not run yet, and one that already
         // ended begins the one after. A few tries, then the prompt goes unnamed.

@@ -44,6 +44,9 @@ struct CloudHandoffTurnOpenerTests {
         #expect(try await open(view(turn: 2, status: "needs-you")).opened == .refused("handoff.turn_running"))
         #expect(try await open(view(turn: 2, status: "done", state: "closed")).opened == .refused("handoff.closed"))
         #expect(try await open(view(turn: 1, status: "starting", machine: "vm_b")).opened == .refused("handoff.conflict"))
+        var conflict = view(turn: 2, status: "done")
+        conflict.refusal = "handoff.conflict"
+        #expect(try await open(conflict).opened == .refused("handoff.conflict"))
     }
 
     @Test func aBeginAnotherDeviceWonIsNamedOnlyWhileItHasNotRun() async throws {
