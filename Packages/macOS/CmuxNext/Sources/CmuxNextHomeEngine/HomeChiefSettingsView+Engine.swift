@@ -20,7 +20,7 @@ extension HomeChiefSettingsView {
             // This Mac's acpmux harnesses, for a brain that runs here (a paired server's are its own).
             if let self, source.isLocal { listedHarnesses = await listHarnesses() }
             let result: Result<HomeChiefSnapshot, HomeChiefEngineError>
-            do { result = .success(try await source.read()) } catch { result = .failure(error) }
+            do throws(HomeChiefEngineError) { result = .success(try await source.read()) } catch { result = .failure(error) }
             // A read of the Chief shown before (another conversation) is not shown.
             guard let self, self.source.isLocal == source.isLocal, self.source.place == source.place, muxHome == home else { return }
             switch result {
@@ -47,7 +47,7 @@ extension HomeChiefSettingsView {
         // task-owner: one write (the source awaits the brain); ends when its result is shown
         return Task { [weak self] in
             let result: Result<HomeChiefSnapshot, HomeChiefEngineError>
-            do { result = .success(try await source.set(fields)) } catch { result = .failure(error) }
+            do throws(HomeChiefEngineError) { result = .success(try await source.set(fields)) } catch { result = .failure(error) }
             // A pick for the Chief shown before (another conversation, or its other host) is not shown.
             guard let self, muxHome == home, self.source.isLocal == source.isLocal, self.source.place == source.place else { return }
             switch result {
