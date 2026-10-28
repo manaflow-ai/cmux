@@ -80,7 +80,6 @@ public final class MobileKeyboardDock: NSObject {
             guard let self else { return }
             switch change {
             case .willChangeFrame: self.follow(note)
-            case .willShow, .willHide: self.keyboardWillShowOrHide(note)
             case .didChangeFrame: self.keyboardDidChangeFrame()
             }
         }
@@ -129,15 +128,6 @@ public final class MobileKeyboardDock: NSObject {
         ).height
     }
 
-    private func keyboardWillShowOrHide(_ note: Notification) {
-        // Only a frame that needs the show / hide state (see
-        // `keyboardFrame(notified:)`) moves the dock here; will-change already
-        // placed every other one.
-        guard let end = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect,
-              keyboardFrame(notified: end) != end else { return }
-        follow(note)
-    }
-
     /// A keyboard notification's frame in this app's screen coordinates, for
     /// anything in this dock's window that reads keyboard notifications.
     ///
@@ -149,8 +139,8 @@ public final class MobileKeyboardDock: NSObject {
     /// keyboard's top in the app is 881 x 667 / 1180 = 498 pt, where the
     /// system guide and the screen put it. A frame wider than the app's
     /// screen is scaled that way, shown or hidden as `showing` says (default:
-    /// the last will-show / will-hide; a hidden frame starts at the iPad's
-    /// bottom). A shown frame in iPad points that is not full width (a
+    /// the tracker's reading of the latest frame; a hidden frame starts at the
+    /// iPad's bottom). A shown frame in iPad points that is not full width (a
     /// floating or split iPad keyboard) docks nothing: `.zero`.
     public func keyboardFrame(notified end: CGRect, showing: Bool? = nil) -> CGRect {
         guard let screen = view?.window?.screen.bounds, end.maxY > 0 else { return end }
