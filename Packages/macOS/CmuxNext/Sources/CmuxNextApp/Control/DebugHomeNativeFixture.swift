@@ -70,7 +70,7 @@ final class DebugHomeNativeFixture: InternalPageProvider {
     }
 
     /// `debug.home.drive` {action: focus | type | send | tapback | video | scroll
-    /// | menu | geometry | link | texts | typing | rows | resize | nudge | list, text, dx, dy, trims, mine, tab, prefix, limit}: drives the shown Home through its own entry points (the
+    /// | menu | geometry | link | texts | field | typing | rows | resize | nudge | list, text, dx, dy, trims, mine, tab, prefix, limit}: drives the shown Home through its own entry points (the
     /// field's text system, Return's send, the tapback picker's react, the
     /// scroll view) for screenshots and recordings on a window that is
     /// never key. `tab` (a key from `debug.home` page.tabs) drives that Home tab.
@@ -181,6 +181,10 @@ final class DebugHomeNativeFixture: InternalPageProvider {
                 return .object(["error": .string("stream needs the Home fixture (debug.home_native_fixture.open)")])
             }
             ok = fixture.debugStream(params["text"]?.stringValue ?? "", done: params["done"]?.boolValue ?? false)
+        case "field":
+            // Record only: the composer's text and whether it has the keyboard (journeys read the person's text here).
+            guard let read = composerField(of: view) else { return .object(["error": .string("no field")]) }
+            return .object(["ok": .bool(true), "text": .string(read.text), "focused": .bool(read.focused)])
         case "focus": ok = view.window?.makeFirstResponder(view.primaryInput) ?? false
         case "type":
             guard let field = view.primaryInput as? NSTextView else { return .object(["error": .string("no field")]) }
@@ -239,6 +243,18 @@ final class DebugHomeNativeFixture: InternalPageProvider {
                 : services.pages.show(.homeNativeFixture, in: services.windows.active, focus: true)
         }
         return .object(["ok": .bool(view != nil), "page": .string(InternalPageID.homeNativeFixture.rawValue)])
+    }
+}
+
+extension DebugHomeNativeFixture {
+    /// The composer's text, read only: the caret, the selection, the text and the keyboard stay as
+    /// they are. Journeys judge the person's typed text with it, not with text recognition of the
+    /// field's pixels (v2.2.4-opt gate, scripted-newtab-keeps-person-keys). Nil when the view's primary
+    /// input is not a text view. `text`: the field's text (an inline picture is U+FFFC); `focused`: the field
+    /// is its window's first responder.
+    static func composerField(of view: HomeNativeTranscriptView) -> (text: String, focused: Bool)? {
+        guard let field = view.primaryInput as? NSTextView else { return nil }
+        return (field.string, field.window?.firstResponder === field)
     }
 }
 #endif
