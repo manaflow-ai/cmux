@@ -31,6 +31,9 @@ final class CloudService {
     @ObservationIgnored private(set) var hub: CloudTunnelHub?
     /// Whether a cmux Pro offer is on screen (CloudPresenter.offerPro).
     @ObservationIgnored var proOfferOpen = false
+    /// Each machine list that carries the plan (`limits.planId`) reports it: the paid-plan welcome step
+    /// (AppServices+PaidPlan.swift) watches for the plan turning paid after an upgrade.
+    @ObservationIgnored var planObserved: @MainActor (String?) -> Void = { _ in }
     /// Open Desktop's `cmux-rd` viewer: each machine's desktop host session token (lowercased id),
     /// fetched over the signed-in Cloud API when a person opens it, held only in memory.
     @ObservationIgnored var desktopRdTokens: [String: String] = [:]
@@ -417,6 +420,7 @@ final class CloudService {
             }
             guard listGeneration == generation, auth.isSignedIn, listAccount == account else { return }
             machines.cloudLimits = limits
+            if let limits { planObserved(limits.planId) }
             lastError = nil
             reconcile(list)
             hasLoadedMachines = true

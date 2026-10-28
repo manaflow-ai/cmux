@@ -93,6 +93,14 @@ import Testing
         #expect(o.observe(planID: nil, account: "u1") == nil)
     }
 
+    @Test func aProPersonWhoOpensUpgradeGetsNoWelcomeUntilThePlanChanges() {
+        let o = onboarding()
+        #expect(o.observe(planID: "pro", account: "u1") == nil)
+        o.markPending("max")
+        #expect(o.observe(planID: "pro", account: "u1") == nil, "still Pro: no welcome to Pro")
+        #expect(o.observe(planID: "max", account: "u1") == PaidPlanOnboarding.Welcome(plan: "max"))
+    }
+
     @Test func aStaleUpgradeShowsNoWelcome() {
         onboarding().markPending("pro")
         let later = onboarding(at: now.addingTimeInterval(2 * 86_400))
