@@ -2908,6 +2908,72 @@ RULES += TRAP_API_RULES
 # ---------------------------------------------------------------- end of trap-api (p10-stability-092, 097, 098)
 
 
+# ---------------------------------------------------------------- task ids in comments
+# A plan task id (`pNN-area-NNN`) in a code comment names where a change came from, which is the commit message's job:
+# `git log -S` and `git blame` find it there, and in the code it says nothing to a reader without the plan and goes
+# stale when the code moves on (the chrome-parity work left over 2000 of them). task_ids.py beside this file defines
+# what an id and a comment are, and strips the old ones (--strip); this rule refuses new ones. Like every rule here it
+# is a count ratchet: an added comment line whose ids the push also removes from a comment (an edit, a move) is not
+# new. It reads the files check() diffs: Swift under Packages/, the shipped crates' Rust, webviews/src and the CEF
+# shim's and Chromium host's C++.
+task_ids = load_sibling("cmux_next_task_ids", "task_ids.py")
+TASK_ID_SCOPE = ("Packages/", "cmux-tui/", "webviews/", "Native/", "cmux-next-ios/")
+
+
+def task_id_lines(path: str, lines: list[str]) -> dict[int, set[str]]:
+    """1-based line -> the task ids a comment on that line names (a generated file or block names none)."""
+    text = "\n".join(lines)
+    if not task_ids.ID_RE.search(text):
+        return {}
+    owned = task_ids.generated_ranges(text)
+    out: dict[int, set[str]] = {}
+    for a, b in task_ids.comment_spans(path, text):
+        if any(x <= a < y for x, y in owned):
+            continue
+        first = text.count("\n", 0, a)
+        for k, line in enumerate(text[a:b].split("\n")):
+            found = {m.group(0).strip("`") for m in task_ids.ID_RE.finditer(line)}
+            if found:
+                out.setdefault(first + k + 1, set()).update(found)
+    return out
+
+
+def task_id_comments(changes: list[FileChange], moved: collections.Counter) -> list[Added]:
+    """Added lines whose comment names a task id that no comment line the push removes names."""
+    removed_ids: collections.Counter = collections.Counter()
+    added: list[tuple[Added, set[str]]] = []
+    for change in changes:
+        if change.removed:
+            base = task_id_lines(change.path, change.base_lines)
+            for line in change.removed:
+                removed_ids.update(base.get(line.number, ()))
+        if change.added:
+            head = task_id_lines(change.path, change.head_lines)
+            added += [(line, head[line.number]) for line in change.added if line.number in head]
+    hits = []
+    for line, ids in added:
+        if all(removed_ids[i] > 0 for i in ids):
+            for i in ids:
+                removed_ids[i] -= 1
+        else:
+            hits.append(line)
+    return hits
+
+
+TASK_ID_RULES = (
+    Rule("task-id-comment", "A plan task id (`p04-input-053`, `cp/p10-stability-083`) in a new code comment",
+         "a comment says what the code does and why; where the change came from is the commit message's job, where "
+         "`git log` and `git blame` find it. In the code an id says nothing without the plan and goes stale",
+         "say the reason in words and put the task id in the commit message; strip old ones with "
+         "`scripts/cmux-next/task_ids.py --strip PATH`",
+         None,
+         task_id_comments,
+         scope=TASK_ID_SCOPE, local_only=True),
+)
+RULES += TASK_ID_RULES
+# ---------------------------------------------------------------- end of task ids in comments
+
+
 # ---------------------------------------------------------------- Rust stability rules (p10-stability-102)
 # Syntax rules on the Rust a push adds in the shipped crates' src, run with the pinned ast-grep (lint-tools.lock;
 # the rules are ast-grep/rules/*.yml beside this file). No cargo build: the person's Mac never builds Rust. They are
