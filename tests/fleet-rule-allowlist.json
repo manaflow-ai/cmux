@@ -14,6 +14,7 @@
     "dogfood/fuzz/cmuxfuzz/app.py": {"count": 1, "reason": "debt: -9 -x crash reporter processes without -u; scope to this user's own uid or record the reporter PID"},
     "reports.md": {"count": 1, "reason": "safe: prose in an old performance report, no command"},
     "scripts/ci/frame-pacing/bench.sh": {"count": 4, "reason": "safe: the pattern is this run's own tagged or per-run app path, so it cannot match another run's or person's process"},
+    "scripts/ci/polling_scan/block_polling.py": {"count": 1, "reason": "safe: a docstring describing an old hook that matched a pkill command's text; nothing is signalled"},
     "scripts/ci/preflight-e2e-gui-activation.py": {"count": 1, "reason": "safe: a system focus-holding agent in the runner's own GUI session, restarted by launchd; no one's work"},
     "scripts/ci/quarantined-launch.sh": {"count": 2, "reason": "safe: the pgrep is anchored at the full executable path of the quarantined copy this script installed"},
     "scripts/ci/run-app-host-unit-batches.sh": {"count": 2, "reason": "safe: the pattern is this job's own DerivedData path (CMUX_DERIVED_DATA_PATH), so only processes of its own build match"},
