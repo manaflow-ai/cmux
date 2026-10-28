@@ -19,6 +19,8 @@ final class PaletteListView: NSScrollView, NSTableViewDataSource, NSTableViewDel
     var onMiddleClick: ((String) -> Void)?
 
     private let table = PaletteTableView()
+    /// The row a middle press went down on (`onMiddleClick`).
+    private var middlePressID: String?
     private var rows: [DisplayRow] = []
     private var rowIndexByID: [String: Int] = [:]
     private var selectedID: String?
@@ -47,9 +49,13 @@ final class PaletteListView: NSScrollView, NSTableViewDataSource, NSTableViewDel
         table.onMouseMoved = { [weak self] point in self?.updateHover(at: point, pointerMoved: true) }
         table.onMouseExited = { [weak self] in self?.onHover?(nil) }
         table.onClick = { [weak self] row in self?.activate(row: row) }
+        // The press holds the row's id, not its index: a search that lands before the release may put another
+        // row at that index, and the release then closes nothing.
+        table.onMiddleDown = { [weak self] row in self?.middlePressID = self?.itemID(at: row) }
         table.onMiddleClick = { [weak self] row in
-            guard let self, rows.indices.contains(row), case .item(let item) = rows[row] else { return }
-            onMiddleClick?(item.id)
+            guard let self, let id = itemID(at: row), id == middlePressID else { return }
+            middlePressID = nil
+            onMiddleClick?(id)
         }
         documentView = table
         contentView.postsBoundsChangedNotifications = true
@@ -148,6 +154,11 @@ final class PaletteListView: NSScrollView, NSTableViewDataSource, NSTableViewDel
         if pointerMoved, let onPointerMove { onPointerMove(id) } else { onHover?(id) }
     }
 
+    private func itemID(at row: Int) -> String? {
+        guard rows.indices.contains(row), case .item(let item) = rows[row] else { return nil }
+        return item.id
+    }
+
     private func activate(row: Int) {
         guard rows.indices.contains(row), case .item(let item) = rows[row], item.item.isEnabled else { return }
         onActivate?(item.id)
@@ -205,6 +216,7 @@ final class PaletteTableView: NSTableView {
     var onMouseMoved: ((NSPoint) -> Void)?
     var onMouseExited: (() -> Void)?
     var onClick: ((Int) -> Void)?
+    var onMiddleDown: ((Int) -> Void)?
     var onMiddleClick: ((Int) -> Void)?
     /// The row a middle press went down on.
     private var middlePressRow: Int?
@@ -244,6 +256,7 @@ final class PaletteTableView: NSTableView {
     override func otherMouseDown(with event: NSEvent) {
         guard event.buttonNumber == 2 else { return super.otherMouseDown(with: event) }
         middlePressRow = visibleRow(at: event)
+        if let middlePressRow { onMiddleDown?(middlePressRow) }
     }
 
     override func otherMouseUp(with event: NSEvent) {
