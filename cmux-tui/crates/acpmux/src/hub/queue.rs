@@ -313,6 +313,13 @@ impl Hub {
                 self.cancel_turn(session, &running).await;
             }
         }
+        // Gone from the queue when its task looked: withdrawn, or declined by the owner (its
+        // `queue_moved` may wake the task before its withdrawal does).
+        let turn = turn_id.clone();
+        let gone = |reply: Value| match declined.load(Ordering::SeqCst) {
+            true => Err(queue_approve::declined_error(p.prompt_id, &turn)),
+            false => Ok(reply),
+        };
         // A queued prompt `remove_queued` withdraws answers at once, not when the turn ends.
         loop {
             match self.queue_turn(session, &turn_id, &withdraw).await {
@@ -320,7 +327,7 @@ impl Hub {
                 // before its turn starts (`turns.rs`), so it never reopens the parent. One that
                 // still waits for the owner is not taken, whatever let it out (`queue_approve.rs`).
                 Wait::Turn(guard) => {
-                    match self.take_queued(session, p.prompt_id, &turn_id).map_err(Ok)? {
+                    match self.take_queued(session, p.prompt_id, &turn_id).map_err(&gone)? {
                         Some(run) => return Ok((turn_id, true, guard, run)),
                         None => drop(guard),
                     }
@@ -342,7 +349,7 @@ impl Hub {
                     return Err(answer);
                 }
                 Wait::Steer => {
-                    let taken = self.take_queued(session, p.prompt_id, &turn_id).map_err(Ok)?;
+                    let taken = self.take_queued(session, p.prompt_id, &turn_id).map_err(&gone)?;
                     let Some(run) = taken else { continue };
                     let answer = self.steer_queued(session, run, p.client, p.prompt_id).await;
                     // Refused: logged, so a restart does not queue it again (`lost_start.rs`).
