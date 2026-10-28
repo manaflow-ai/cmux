@@ -244,10 +244,9 @@ public struct PushSharedPreference {
     }
 }
 
-/// Which stores a Require Face ID call writes. AppLock repeats the current
-/// value (on appear, the first publish), and a write then (a
-/// `UserDefaults.standard` write wakes `@AppStorage` readers, which run the
-/// body again) can loop the first frame. Only a change writes.
+/// Which stores a Require Face ID call writes. AppLock sends the setting on
+/// appear, which may equal the stored value, and a needless
+/// `UserDefaults.standard` write wakes `@AppStorage` readers. Only a change writes.
 public struct PushFaceIDSync: Sendable, Equatable {
     /// The app's own defaults' value.
     public private(set) var local: Bool
