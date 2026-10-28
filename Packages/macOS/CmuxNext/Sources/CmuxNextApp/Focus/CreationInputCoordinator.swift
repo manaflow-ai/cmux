@@ -153,6 +153,17 @@ final class CreationInputCoordinator {
         return claims[window.windowNumber] != nil
     }
 
+    /// Why `window`'s held keys would or would not go to a pending creation's early view now (tests' failure reports).
+    func earlyDeliveryState(in window: NSWindow) -> String {
+        guard let buffer = buffers[window.windowNumber] else { return "no hold" }
+        guard let controller = router?.focus(for: window).0 else { return "no controller" }
+        let early = takesKeysEarly(buffer, controller: controller, window: window)
+        let pane: String? = if case .terminal(let pane, _) = controller.focus.state.resolved { pane } else { nil }
+        let shows = pane.flatMap { controller.content?.paneController(key: $0)?.currentTabKey } ?? "-"
+        return "resolved \(buffer.isResolved), held \(buffer.count), newestEarlyTab \(buffer.newestEarlyTab ?? "-"), "
+            + "focus \(controller.focus.state.resolved), pane shows \(shows), takesKeysEarly \(early)"
+    }
+
     /// How many keys `window`'s hold keeps now (tests).
     func heldCount(in window: NSWindow?) -> Int {
         guard let window else { return 0 }

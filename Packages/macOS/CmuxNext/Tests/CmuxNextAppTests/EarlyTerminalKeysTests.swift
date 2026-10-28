@@ -115,6 +115,33 @@ struct EarlyTerminalKeysTests {
         }
     }
 
+    /// The same, through the focus settle the app gets (FocusCoordinator.settledObserver, wired by
+    /// InputVerificationService to KeyRouter.focusDidSettle): the held key goes to the early terminal at the settle,
+    /// with no later key (the coordinator's requirement: the settle path must have a test of its own, not only the bench).
+    @Test func heldKeysGoToTheEarlyTerminalAtTheFocusSettle() async throws {
+        try await Self.withTerminal { h in
+            let (controller, window, tab, entry) = (h.controller, h.window, h.tab, h.entry)
+            let router = h.services.keyRouter
+            let coordinator = router.creationInputCoordinator
+            let settle = try #require(controller.focus.settledObserver, "the window has no focus settle observer (the app's seam)")
+            let mount = try Self.unmount(h)
+            _ = try #require(coordinator.begin(in: window, generation: controller.focus.state.generation, earlyTab: tab, tab: tab))
+            #expect(router.interceptKeyDown(try Self.key("a", keyCode: 0, in: window), in: window),
+                    "the key was not held while the new terminal could not take it: \(Self.held(h))")
+            let before = coordinator.replayedCount
+
+            mount()
+            window.makeFirstResponder(entry.session.surfaceView)
+            #expect(window.firstResponder === entry.session.surfaceView, "the test needs the terminal to have the keyboard")
+            // The settle the app sends after its focus queue drained.
+            settle(controller.focus.state)
+            try await PasswordManagerRouteTests.until({ coordinator.heldCount(in: window) == 0 }, within: .seconds(2),
+                                                      report: { "the held key still waits after the settle: \(coordinator.earlyDeliveryState(in: window)); \(Self.held(h))" })
+            #expect(coordinator.replayedCount == before + 1, "the held key was dropped at the settle, not run into the new terminal")
+            #expect(coordinator.isHolding(in: window), "the hold ended before its creation resolved")
+        }
+    }
+
     /// The early tab is focused, but another view (an agent's composer, Home's message box) has the keyboard: the held
     /// key stays held. Terminal input never goes anywhere but the new terminal (review of 107f5da1ac6: the early check
     /// let any non-terminal first responder take the held keys).
