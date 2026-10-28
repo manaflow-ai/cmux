@@ -105,6 +105,12 @@ pub(crate) fn add_tab_attention_column(transaction: &Transaction<'_>) -> anyhow:
     if !has_column {
         transaction.execute_batch("ALTER TABLE tab_state ADD COLUMN attention_json TEXT;")?;
     }
+    transaction.execute_batch(
+        "CREATE TABLE IF NOT EXISTS tab_attention_revisions (
+            tab_id TEXT PRIMARY KEY NOT NULL,
+            at_ms INTEGER NOT NULL
+        );",
+    )?;
     Ok(())
 }
 
@@ -225,6 +231,14 @@ pub(crate) fn update_tab_state(
     update: &TabStateUpdate,
 ) -> anyhow::Result<()> {
     transaction.execute("INSERT OR IGNORE INTO tab_state(tab_id) VALUES(?1)", [tab_id])?;
+    // Keep the last request identity after the active tab_state row is cleared or the tab closes.
+    // This prevents a delayed clear from matching a later request after a clock rollback.
+    transaction.execute_batch(
+        "CREATE TABLE IF NOT EXISTS tab_attention_revisions (
+            tab_id TEXT PRIMARY KEY NOT NULL,
+            at_ms INTEGER NOT NULL
+        );",
+    )?;
     if let Some(zoom) = update.zoom {
         transaction
             .execute("UPDATE tab_state SET zoom = ?2 WHERE tab_id = ?1", params![tab_id, zoom])?;
@@ -276,11 +290,21 @@ pub(crate) fn update_tab_state(
                     |row| row.get(0),
                 )
                 .optional()?;
+            let last_at_ms: Option<i64> = transaction
+                .query_row(
+                    "SELECT at_ms FROM tab_attention_revisions WHERE tab_id = ?1",
+                    [tab_id],
+                    |row| row.get(0),
+                )
+                .optional()?;
             // Keep the request identity monotonic per tab even when the wall clock moves
             // backwards or two requests arrive in one millisecond.
-            let at_ms = previous_at_ms
-                .and_then(|value| u64::try_from(value).ok())
-                .map_or(now_ms, |previous| now_ms.max(previous.saturating_add(1)));
+            let previous = previous_at_ms
+                .into_iter()
+                .chain(last_at_ms)
+                .filter_map(|value| u64::try_from(value).ok())
+                .max();
+            let at_ms = previous.map_or(now_ms, |previous| now_ms.max(previous.saturating_add(1)));
             let stored = attention.as_deref().map(|reason| {
                 attention_value(
                     reason.trim(),
@@ -292,6 +316,11 @@ pub(crate) fn update_tab_state(
             transaction.execute(
                 "UPDATE tab_state SET attention_json = ?2 WHERE tab_id = ?1",
                 params![tab_id, stored],
+            )?;
+            transaction.execute(
+                "INSERT INTO tab_attention_revisions(tab_id, at_ms) VALUES(?1, ?2)
+                 ON CONFLICT(tab_id) DO UPDATE SET at_ms = excluded.at_ms",
+                params![tab_id, at_ms as i64],
             )?;
         }
     }
@@ -696,20 +725,28 @@ mod attention_tests {
         let old_at: u64 = connection
             .query_row("SELECT json_extract(attention_json, '$.at_ms') FROM tab_state WHERE tab_id = 'tab_a'", [], |row| row.get(0))
             .unwrap();
-        let newer = attention_value("Approve the scopes", old_at + 1, None).to_string();
-        connection
-            .execute(
-                "UPDATE tab_state SET attention_json = ?2 WHERE tab_id = ?1",
-                params!["tab_a", newer],
-            )
-            .unwrap();
         let transaction = connection.transaction().unwrap();
-        let stale_clear = TabStateUpdate {
+        let clear = TabStateUpdate {
             attention: Some(None),
             attention_clear_at_ms: Some(old_at),
             ..Default::default()
         };
-        update_tab_state(&transaction, "tab_a", &stale_clear).unwrap();
+        update_tab_state(&transaction, "tab_a", &clear).unwrap();
+        transaction.commit().unwrap();
+        let transaction = connection.transaction().unwrap();
+        update_tab_state(
+            &transaction,
+            "tab_a",
+            &TabStateUpdate { attention: Some(Some("Approve the scopes".into())), ..Default::default() },
+        )
+        .unwrap();
+        transaction.commit().unwrap();
+        let newer_at: u64 = connection
+            .query_row("SELECT json_extract(attention_json, '$.at_ms') FROM tab_state WHERE tab_id = 'tab_a'", [], |row| row.get(0))
+            .unwrap();
+        assert!(newer_at > old_at, "a re-mark after clear gets a fresh identity");
+        let transaction = connection.transaction().unwrap();
+        update_tab_state(&transaction, "tab_a", &clear).unwrap();
         transaction.commit().unwrap();
         assert_eq!(
             connection.query_row("SELECT json_extract(attention_json, '$.reason') FROM tab_state WHERE tab_id = 'tab_a'", [], |row| row.get::<_, String>(0)).unwrap(),

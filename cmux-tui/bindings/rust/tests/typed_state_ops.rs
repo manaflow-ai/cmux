@@ -247,6 +247,7 @@ fn tab_pin_unpin_and_update_send_their_operations_and_decode_tab_snapshots() {
             owner: Some("install-a".into()),
             icon: Update::Set("hammer.fill".into()),
             attention: Update::Set("Log in to GitHub".into()),
+            attention_at_ms: None,
         })
         .unwrap();
     assert_eq!(updated.value.extra["owner"], "install-a");
