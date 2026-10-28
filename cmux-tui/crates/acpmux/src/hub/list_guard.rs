@@ -1,0 +1,378 @@
+//! Part of `Hub`; see `hub/mod.rs`. The guard on full session lists (`_acpmux/sessions`,
+//! `_acpmux/watch`, ACP's `session/list`), for every client. A full list of 2,800 chats
+//! costs about 0.16 s of CPU; cmux-tui servers from before #26255 asked for it about once
+//! a second, and three of them kept a dogfood Mac's idle daemon at 30-60% of a core.
+//!
+//! - **One build, shared.** A [`Snapshot`] is the list serialized once; a whole list is
+//!   sent as those bytes, a page or filter is cut from them (rows picked by their keys).
+//! - **Never staler than a client is owed.** It is reused only while nothing a watcher
+//!   hears of changed (every send on [`Events`], attach or detach, and write to the
+//!   peers' rows counts), within its window, and never while the chat logs load. Fields
+//!   that change with the clock alone (a stall, an expiring tag) are at most a window old.
+//! - **Paced.** [`BURST`] builds back to back, then one per window ([`PACE`] times the
+//!   last build's cost, at most [`MAX_WINDOW`]): about 1/32 of a core however many ask.
+//!   Per connection, two lists back to back, then one per window; all connections
+//!   together, [`REPLIES`] per window. A page costs its share of the rows.
+//!
+//! Cleanup: each build starts one task that drops its snapshot when the window ends
+//! (unless a newer build replaced it); it holds a weak reference and ends after one
+//! sleep. A connection's pace goes with the connection.
+
+use super::*;
+use std::ops::Range;
+use std::time::Duration;
+// Tokio's clock, so a paused test clock moves the pace and the windows too.
+use tokio::time::Instant;
+
+/// A build runs at most once per `PACE` times its own cost: about 3% of a core.
+const PACE: u32 = 32;
+/// The longest window, whatever a build cost.
+const MAX_WINDOW: Duration = Duration::from_secs(15);
+/// Builds that may run back to back before the pace holds.
+const BURST: u32 = 4;
+/// Lists one connection may read back to back.
+const CONN_BURST: u32 = 2;
+/// Lists all connections together read per window, after as many back to back.
+const REPLIES: u32 = 8;
+
+/// The hub's event channel. Every send is a change some list shows.
+pub(crate) struct Events {
+    tx: broadcast::Sender<HubEvent>,
+    changes: AtomicU64,
+}
+
+impl Events {
+    pub(super) fn new(capacity: usize) -> Self {
+        Self { tx: broadcast::channel(capacity).0, changes: AtomicU64::new(0) }
+    }
+
+    /// Counts the change, then sends it.
+    pub(super) fn send(
+        &self,
+        event: HubEvent,
+    ) -> Result<usize, broadcast::error::SendError<HubEvent>> {
+        self.changed();
+        self.tx.send(event)
+    }
+
+    pub(super) fn subscribe(&self) -> broadcast::Receiver<HubEvent> {
+        self.tx.subscribe()
+    }
+
+    /// A change no event carries (an attach): the next list is built anew.
+    pub(super) fn changed(&self) {
+        self.changes.fetch_add(1, Ordering::SeqCst);
+    }
+}
+
+/// One build of the list, kept serialized: a JSON tree of every summary is several
+/// times its text.
+pub(crate) struct Snapshot {
+    /// What it was built at (`key`); None while the chat logs load.
+    key: Option<(u64, u64)>,
+    serial: u64,
+    started: Instant,
+    /// How long it is reused, and how far the next build waits behind it.
+    window: Duration,
+    /// `{"sessions": [...]}` of every summary, local and remote, newest first.
+    pub(crate) whole: Arc<String>,
+    /// Where each summary is in `whole`.
+    spans: Vec<Range<usize>>,
+    /// What paging reads of each: `sessionId`, `updatedAt`, `peer`, `status`, and `at`.
+    keys: Vec<Value>,
+    /// Other results made from it, once each (masked for a peer, ACP's `session/list`).
+    made: StdMutex<HashMap<&'static str, Arc<String>>>,
+}
+
+type Built = (String, Vec<Range<usize>>, Vec<Value>);
+
+impl Snapshot {
+    fn new(
+        key: Option<(u64, u64)>,
+        serial: u64,
+        window: Duration,
+        (text, spans, keys): Built,
+    ) -> Self {
+        let (whole, made, started) = (Arc::new(text), Default::default(), Instant::now());
+        Self { key, serial, started, window, whole, spans, keys, made }
+    }
+
+    /// Serializes every summary, then copies what it keeps once the summaries are freed:
+    /// allocated after them, it sits where they were, so the heap gives their room back
+    /// (glibc returns heap only from its top).
+    fn build(hub: &Hub) -> Built {
+        let (whole, spans, keys) = Self::serialize(&hub.all_session_summaries());
+        (whole.as_str().to_owned(), spans.to_vec(), keys.clone())
+    }
+
+    fn serialize(rows: &[Value]) -> Built {
+        let mut whole = br#"{"sessions":["#.to_vec();
+        let (mut spans, mut keys) =
+            (Vec::with_capacity(rows.len()), Vec::with_capacity(rows.len()));
+        for (at, row) in rows.iter().enumerate() {
+            if at > 0 {
+                whole.push(b',');
+            }
+            let start = whole.len();
+            // A `Value` always serializes.
+            let _ = serde_json::to_writer(&mut whole, row);
+            spans.push(start..whole.len());
+            let mut key = json!({"at": at});
+            for name in ["sessionId", "updatedAt", "peer", "status"] {
+                if let Some(v) = row.get(name) {
+                    key[name] = v.clone();
+                }
+            }
+            keys.push(key);
+        }
+        whole.extend_from_slice(b"]}");
+        // serde_json writes UTF-8.
+        (String::from_utf8(whole).unwrap_or_default(), spans, keys)
+    }
+
+    /// The reply to a paged or filtered `params`, cut from the shared text: the bytes
+    /// `session_list_reply` over the summaries writes (`nextCursor` sorts first).
+    pub(crate) fn page(&self, params: &Value) -> Result<String, RpcError> {
+        let picked = super::session_pages::session_list_reply(self.keys.clone(), params)?;
+        let mut text = String::from("{");
+        if let Some(next) = picked.get("nextCursor") {
+            text.push_str(&format!("\"nextCursor\":{next},"));
+        }
+        text.push_str("\"sessions\":[");
+        for (n, key) in picked["sessions"].as_array().into_iter().flatten().enumerate() {
+            if n > 0 {
+                text.push(',');
+            }
+            let at = key["at"].as_u64().unwrap_or_default() as usize;
+            text.push_str(self.spans.get(at).map_or("null", |span| &self.whole[span.clone()]));
+        }
+        text.push_str("]}");
+        Ok(text)
+    }
+
+    /// Every summary, parsed back.
+    pub(crate) fn values(&self) -> Vec<Value> {
+        let parse = |span: &Range<usize>| serde_json::from_str(&self.whole[span.clone()]);
+        self.spans.iter().map(|span| parse(span).unwrap_or_default()).collect()
+    }
+
+    /// The result `name`, made by `make` the first time it is asked for.
+    pub(crate) fn made(
+        &self,
+        name: &'static str,
+        make: impl FnOnce(&Self) -> String,
+    ) -> Arc<String> {
+        let mut made = self.made.lock().unwrap_or_else(|e| e.into_inner());
+        made.entry(name).or_insert_with(|| Arc::new(make(self))).clone()
+    }
+}
+
+#[derive(Default)]
+pub(crate) struct ListGuard {
+    state: Arc<tokio::sync::Mutex<State>>,
+    /// The last build's window (ns) and row count, read without waiting for a build.
+    window_nanos: AtomicU64,
+    rows: std::sync::atomic::AtomicUsize,
+    /// Every connection's lists together (`reserve`).
+    replies: StdMutex<Pacer>,
+}
+
+#[derive(Default)]
+struct State {
+    last: Option<Arc<Snapshot>>,
+    pace: Pacer,
+    serial: u64,
+}
+
+impl ListGuard {
+    fn window(&self) -> Duration {
+        Duration::from_nanos(self.window_nanos.load(Ordering::Relaxed))
+    }
+
+    /// The share of the list that `limit` rows are (None: all of it).
+    pub(crate) fn share(&self, limit: Option<u64>) -> f64 {
+        let rows = self.rows.load(Ordering::Relaxed).max(1) as f64;
+        limit.map_or(1.0, |limit| (limit as f64 / rows).min(1.0))
+    }
+
+    /// Reserves `share` of a list on a connection's `pace`, then on every connection's
+    /// together: how long the request waits first.
+    pub(crate) fn reserve(&self, pace: &StdMutex<Pacer>, share: f64) -> Duration {
+        let (window, now) = (self.window(), Instant::now());
+        let mut pace = pace.lock().unwrap_or_else(|e| e.into_inner());
+        let wait = pace.wait(now, window * (CONN_BURST - 1));
+        pace.spend(now + wait, window.mul_f64(share));
+        drop(pace);
+        // Sending even a shared list copies it into the reply line.
+        let mut replies = self.replies.lock().unwrap_or_else(|e| e.into_inner());
+        let more = replies.wait(now + wait, window);
+        replies.spend(now + wait + more, window.mul_f64(share) / REPLIES);
+        wait + more
+    }
+
+    /// The list for a request that arrived now: the shared snapshot while nothing it
+    /// shows changed, else a new build once the pace allows.
+    pub(crate) async fn snapshot(&self, hub: &Hub) -> Arc<Snapshot> {
+        // One build at a time; requests that arrive meanwhile wait for it and share it.
+        let mut state = self.state.lock().await;
+        if let Some(last) = &state.last
+            && last.key.is_some()
+            && last.key == key(hub)
+            && last.started.elapsed() < last.window
+        {
+            return last.clone();
+        }
+        let wait = state.pace.wait(Instant::now(), self.window() * (BURST - 1));
+        if !wait.is_zero() {
+            tokio::time::sleep(wait).await;
+        }
+        let (key, started) = (key(hub), Instant::now());
+        let built = Snapshot::build(hub);
+        let window = started.elapsed().saturating_mul(PACE).min(MAX_WINDOW);
+        state.pace.spend(started, window);
+        state.serial += 1;
+        let serial = state.serial;
+        let nanos = u64::try_from(window.as_nanos()).unwrap_or(u64::MAX);
+        self.window_nanos.store(nanos, Ordering::Relaxed);
+        self.rows.store(built.1.len(), Ordering::Relaxed);
+        let snapshot = Arc::new(Snapshot { started, ..Snapshot::new(key, serial, window, built) });
+        state.last = Some(snapshot.clone());
+        drop(state);
+        self.expire(serial, window);
+        snapshot
+    }
+
+    /// Drops snapshot `serial` when its window ends, unless a newer build replaced it.
+    fn expire(&self, serial: u64, window: Duration) {
+        let state = Arc::downgrade(&self.state);
+        tokio::spawn(async move {
+            tokio::time::sleep(window).await;
+            let Some(state) = state.upgrade() else { return };
+            let mut state = state.lock().await;
+            if state.last.as_ref().is_some_and(|s| s.serial == serial) {
+                state.last = None;
+            }
+        });
+    }
+}
+
+/// What a snapshot is reused under: the change count and the peers' row writes, once
+/// every chat log is read.
+fn key(hub: &Hub) -> Option<(u64, u64)> {
+    let ready = *hub.logs_ready.borrow();
+    let writes = hub.remote_sessions.lock().unwrap_or_else(|e| e.into_inner()).writes;
+    ready.then(|| (hub.events.changes.load(Ordering::SeqCst), writes))
+}
+
+/// A pace (the generic cell rate algorithm): work spends time ahead of the clock, and
+/// waits while it is more than its burst ahead.
+#[derive(Default)]
+pub(crate) struct Pacer {
+    ahead_to: Option<Instant>,
+}
+
+impl Pacer {
+    fn wait(&self, now: Instant, burst: Duration) -> Duration {
+        self.ahead_to.map_or(Duration::ZERO, |to| to.saturating_duration_since(now + burst))
+    }
+
+    fn spend(&mut self, at: Instant, cost: Duration) {
+        self.ahead_to = Some(self.ahead_to.map_or(at, |to| to.max(at)) + cost);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_text_and_every_page_are_the_bytes_the_summaries_write() {
+        let mut rows: Vec<Value> = (0..5)
+            .map(|i| json!({"sessionId": format!("s{i}"), "updatedAt": 10 - i, "x": "q\"\n",
+                "status": if i % 2 == 0 { "idle" } else { "closed" }, "peer": (i == 3).then_some("cmux16")}))
+            .collect();
+        super::super::session_pages::sort_session_summaries(&mut rows);
+        let built = Snapshot::serialize(&rows);
+        assert_eq!(built.0, json!({"sessions": rows}).to_string());
+        assert_eq!(Snapshot::serialize(&[]).0, r#"{"sessions":[]}"#);
+        let list = Snapshot::new(None, 0, Duration::ZERO, built);
+        assert_eq!(list.values(), rows);
+        let reply = |p: &Value| super::super::session_pages::session_list_reply(rows.clone(), p);
+        let next = reply(&json!({"limit": 2})).unwrap()["nextCursor"].clone();
+        for params in [
+            json!({"limit": 2}),
+            json!({"limit": 2, "cursor": next}),
+            json!({"limit": 9}),
+            json!({"status": "idle"}),
+            json!({"peer": "cmux16", "limit": 1}),
+        ] {
+            assert_eq!(
+                list.page(&params).unwrap(),
+                reply(&params).unwrap().to_string(),
+                "{params}"
+            );
+        }
+        assert!(list.page(&json!({"cursor": 3})).is_err());
+    }
+
+    #[test]
+    fn a_connection_reads_two_lists_then_one_per_window_and_pages_by_their_share() {
+        let guard = || {
+            let guard = ListGuard::default();
+            guard.window_nanos.store(4_000_000_000, Ordering::Relaxed);
+            guard.rows.store(400, Ordering::Relaxed);
+            guard
+        };
+        let (lists, pace) = (guard(), StdMutex::default());
+        assert_eq!(lists.reserve(&pace, 1.0), Duration::ZERO);
+        assert_eq!(lists.reserve(&pace, 1.0), Duration::ZERO);
+        let third = lists.reserve(&pace, 1.0);
+        assert!(third > Duration::from_millis(3900), "{third:?}");
+        // Pages of a quarter: a list ahead and one page more, then the pace holds.
+        let (pages, pace) = (guard(), StdMutex::default());
+        assert_eq!(pages.share(Some(100)), 0.25);
+        let waits: Vec<Duration> = (0..6).map(|_| pages.reserve(&pace, 0.25)).collect();
+        assert_eq!(waits.iter().filter(|w| !w.is_zero()).count(), 1, "{waits:?}");
+        // A new connection for each list: a window's `REPLIES` and one more, then they wait.
+        let many = guard();
+        let waits: Vec<Duration> =
+            (0..REPLIES + 4).map(|_| many.reserve(&StdMutex::default(), 1.0)).collect();
+        assert_eq!(waits.iter().filter(|w| !w.is_zero()).count(), 3, "{waits:?}");
+    }
+
+    /// Holds a snapshot of the hub as it is now for `window`, as a big daemon's would be.
+    async fn hold(hub: &Hub, window: Duration) -> Arc<Snapshot> {
+        let held = Arc::new(Snapshot::new(key(hub), 99, window, Default::default()));
+        hub.list_guard.state.lock().await.last = Some(held.clone());
+        held
+    }
+
+    #[tokio::test]
+    async fn a_snapshot_is_shared_until_a_change_and_never_while_the_logs_load() {
+        let hub = Hub::new(Config::default(), Box::new(crate::store::MemoryStore::default()));
+        let (guard, minute) = (&hub.list_guard, Duration::from_secs(60));
+        let held = hold(&hub, minute).await;
+        assert!(Arc::ptr_eq(&guard.snapshot(&hub).await, &held), "nothing changed");
+        hub.events.changed();
+        assert_ne!(guard.snapshot(&hub).await.serial, held.serial, "a change rebuilds");
+        let held = hold(&hub, minute).await;
+        hub.remote_sessions.lock().unwrap().writes += 1;
+        assert_ne!(guard.snapshot(&hub).await.serial, held.serial, "a peer's row rebuilds");
+        hub.logs_ready.send_replace(false);
+        let held = hold(&hub, minute).await;
+        assert_eq!(held.key, None);
+        assert_ne!(guard.snapshot(&hub).await.serial, held.serial, "logs loading: rebuilt");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_snapshot_is_dropped_when_its_window_ends() {
+        let hub = Hub::new(Config::default(), Box::new(crate::store::MemoryStore::default()));
+        hold(&hub, Duration::from_secs(5)).await;
+        hub.list_guard.expire(98, Duration::from_secs(1));
+        hub.list_guard.expire(99, Duration::from_secs(5));
+        tokio::time::sleep(Duration::from_secs(4)).await;
+        assert!(hub.list_guard.state.lock().await.last.is_some(), "an older build's expiry");
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        assert!(hub.list_guard.state.lock().await.last.is_none(), "it outlived its window");
+    }
+}
