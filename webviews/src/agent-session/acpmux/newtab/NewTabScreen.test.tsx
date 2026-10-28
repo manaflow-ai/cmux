@@ -213,7 +213,8 @@ test("picking Cloud drops a saved environment picked before: the send names the 
     );
   }
   const settle = () => act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
-  const computer = () => container.querySelector<HTMLButtonElement>('.acpmux-location-picker[data-kind="computer"] button')!;
+  const computer = () =>
+    container.querySelector<HTMLButtonElement>('.acpmux-location-picker[data-kind="computer"] button')!;
   const choose = async (selector: string) => {
     await act(async () => computer().click());
     await settle();
