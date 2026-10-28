@@ -1,6 +1,6 @@
 import { Effect } from "effect"
 import { makeCredits } from "./credits.ts"
-import { creditsKey, topupAmounts } from "./credits-checkout.ts"
+import { creditsKey, topupAmounts, topupRange } from "./credits-checkout.ts"
 import { personalTeamIdFor } from "./domains/user.ts"
 import type { Env } from "./env.ts"
 import { callerOf } from "./home-attachments.ts"
@@ -80,7 +80,9 @@ export const handleBillingSummary = async (request: Request, env: Env): Promise<
           balance_usd: credits.balance_usd,
           held_usd: credits.held_usd,
           entries: credits.entries.slice(0, 10).map((e) => ({ kind: e.kind, usd: e.usd, at: e.at })),
-          topup_amounts_usd: testMode ? topupAmounts(env) : []
+          topup_amounts_usd: testMode ? topupAmounts(env) : [],
+          topup_min_usd: topupRange(env).min,
+          topup_max_usd: topupRange(env).max
         },
         upgrade,
         manage_url: MANAGE_URL,
