@@ -95,6 +95,22 @@ describe("docs search index", () => {
     }
   });
 
+  test("documents Muse Code's own sign-in on the CodeRouter agents page in every locale", async () => {
+    const pages = await pagesPromise;
+
+    for (const locale of routing.locales) {
+      const agentsPage = pages.find(
+        (page) => page.locale === locale && page.href === "/docs/coderouter/agents",
+      );
+      const texts = agentsPage?.sections.flatMap((section) => section.texts) ?? [];
+
+      expect(texts).toContain("Muse Code");
+      for (const command of ["muse login", "muse usage", "muse logout"]) {
+        expect(texts.some((text) => text.includes(command))).toBe(true);
+      }
+    }
+  });
+
   test("localizes the notification preview schema description in every locale", async () => {
     for (const locale of routing.locales) {
       const messages = (await import(`../messages/${locale}.json`)).default as {
