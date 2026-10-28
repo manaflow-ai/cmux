@@ -42,7 +42,7 @@ fn open_options() -> std::fs::OpenOptions {
 
 /// The file's bytes when it is a regular file of this user within the size
 /// bound, read through one handle (no symlink, no swap after the check).
-pub(super) fn read_trusted(path: &Path) -> Option<Vec<u8>> {
+pub(in crate::server) fn read_trusted(path: &Path) -> Option<Vec<u8>> {
     let file = open_options().read(true).open(path).ok()?;
     let meta = file.metadata().ok()?;
     if !meta.is_file() || meta.len() > MAX_FILE_BYTES {
@@ -62,7 +62,7 @@ pub(super) fn read_trusted(path: &Path) -> Option<Vec<u8>> {
 }
 
 /// Writes `records` as `directory/name`, owner-only and atomically.
-pub(super) fn save<T: Serialize>(directory: &Path, name: &str, records: &T) -> std::io::Result<()> {
+pub(in crate::server) fn save<T: Serialize>(directory: &Path, name: &str, records: &T) -> std::io::Result<()> {
     let bytes = serde_json::to_vec(records)?;
     let path = directory.join(name);
     let temporary = directory.join(format!("{name}.{}.tmp", std::process::id()));
