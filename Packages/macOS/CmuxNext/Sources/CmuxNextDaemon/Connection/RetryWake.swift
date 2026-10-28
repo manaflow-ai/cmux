@@ -309,7 +309,7 @@ public final class RetryWake: Sendable {
         for directory in folders(above: file) {
             if let identity = directoryIdentity(of: directory) {
                 // SAFETY: open reads the NUL-terminated copy of `directory` Swift makes for the call.
-                let descriptor = unsafe open(directory, O_EVTONLY | O_CLOEXEC)
+                let descriptor = unsafe blockingOpen(directory, O_EVTONLY | O_CLOEXEC)
                 if descriptor >= 0 {
                     return (WatchedFolder(path: directory, identity: identity, blocked: blocked), descriptor)
                 }
@@ -354,14 +354,14 @@ public final class RetryWake: Sendable {
         var info = stat()
         // SAFETY: stat reads the NUL-terminated copy of `path` made for the call and writes one struct stat into
         // `info`, a local live for the call.
-        guard unsafe stat(path, &info) == 0 else { return nil }
+        guard unsafe blockingStat(path, &info) == 0 else { return nil }
         return Identity(device: info.st_dev, inode: info.st_ino)
     }
 
     private static func directoryIdentity(of path: String) -> Identity? {
         var info = stat()
         // SAFETY: as in identity(of:).
-        guard unsafe stat(path, &info) == 0, info.st_mode & S_IFMT == S_IFDIR else { return nil }
+        guard unsafe blockingStat(path, &info) == 0, info.st_mode & S_IFMT == S_IFDIR else { return nil }
         return Identity(device: info.st_dev, inode: info.st_ino)
     }
 }

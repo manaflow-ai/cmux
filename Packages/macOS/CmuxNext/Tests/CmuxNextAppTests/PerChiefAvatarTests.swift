@@ -1,6 +1,7 @@
 import CmuxHomeCore
 @testable import CmuxNextHome
 @testable import CmuxNextHomeEngine
+import CmuxNextWakeups
 import Foundation
 import Testing
 import UniformTypeIdentifiers
@@ -10,6 +11,8 @@ import UniformTypeIdentifiers
 /// row's own Chief, read from that Chief's own brain home, and clearing one Chief's picture puts
 /// only that Chief back on the default.
 @Suite struct PerChiefAvatarTests {
+    static let lanes = BackgroundWork(label: "test.chief-avatars")
+
     static let me = Participant(id: ParticipantID("user_me"), kind: .human, displayName: "Me")
 
     /// The Home list's rows for one DM with each Chief in `chiefs` (id, name), built the way
@@ -62,21 +65,21 @@ import UniformTypeIdentifiers
         let scout = HomeChiefFiles(muxHome: ChiefHome.brainHome(muxHome: home, chief: "agent_scout01"))
         let mux = HomeChiefFiles(muxHome: ChiefHome.brainHome(muxHome: home, chief: nil))
 
-        #expect(await HomeChiefAvatars(muxHome: home).read(chiefs: chiefs).isEmpty)
+        #expect(await HomeChiefAvatars(muxHome: home, files: Self.lanes).read(chiefs: chiefs).isEmpty)
 
         // Setting Scout's avatar changes Scout only.
         scout.writeAvatar("SC")
-        #expect(await HomeChiefAvatars(muxHome: home).read(chiefs: chiefs) == ["agent_scout01": .text("SC")])
+        #expect(await HomeChiefAvatars(muxHome: home, files: Self.lanes).read(chiefs: chiefs) == ["agent_scout01": .text("SC")])
 
         // Setting the default Chief's avatar leaves Scout's as it was.
         mux.writeAvatar("MX")
         // A new reader is a relaunch: the pictures come back from each Chief's own files.
-        let relaunched = await HomeChiefAvatars(muxHome: home).read(chiefs: chiefs)
+        let relaunched = await HomeChiefAvatars(muxHome: home, files: Self.lanes).read(chiefs: chiefs)
         #expect(relaunched == ["agent_mux": .text("MX"), "agent_scout01": .text("SC")])
 
         // Clearing Scout's puts Scout alone back on the default.
         scout.clearPicture()
-        #expect(await HomeChiefAvatars(muxHome: home).read(chiefs: chiefs) == ["agent_mux": .text("MX")])
+        #expect(await HomeChiefAvatars(muxHome: home, files: Self.lanes).read(chiefs: chiefs) == ["agent_mux": .text("MX")])
     }
 
     /// Two Chiefs' non-square pictures, both `avatar.png` and saved in the same second, must not

@@ -219,6 +219,7 @@ impl MaintenanceClock {
             let _ = edges.send(Command::Energy);
         });
         let mode = Arc::clone(energy);
+        // supervise-allow: owned by MaintenanceClock, which keeps the handle and joins it; each job runs under catch_unwind in drive, so a job's panic skips that run and the clock keeps serving the others.
         let thread = cmux_threads::spawn(THREAD_NAME, ThreadQos::Utility, move || {
             platform::prepare_thread();
             drive(Schedule::default(), waiter, &SystemClock, &mode);

@@ -295,10 +295,12 @@ extension DaemonCommandName {
         case 0x5CDA1B5D810FE743: return (285, "subscribe")
         case 0x5B796756895133A6: return (286, "attach-surface")
         case 0x54CB36A671DD407A: return (287, "cancel-stream")
-        case 0xFCF049247FE25D01: return (288, "snapshot-request")
-        case 0x48F958DB14D17514: return (289, "terminal-history")
-        case 0x6834682484AAC514: return (290, "terminal-read-range")
-        case 0x3DB044A820B4367E: return (291, "scroll-surface")
+        case 0x9B5AA59883413D11: return (288, "set-stream-priority")
+        case 0xFCF049247FE25D01: return (289, "snapshot-request")
+        case 0x48F958DB14D17514: return (290, "terminal-history")
+        case 0x6834682484AAC514: return (291, "terminal-read-range")
+        case 0x3DB044A820B4367E: return (292, "scroll-surface")
+        case 0x88B71E0875EC3317: return (293, "memory-report")
         default: return nil
         }
     }

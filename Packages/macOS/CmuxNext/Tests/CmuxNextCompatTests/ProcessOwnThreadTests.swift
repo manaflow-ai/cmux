@@ -1,4 +1,5 @@
 import CmuxNextCompat
+import CmuxNextCompatCore
 import Darwin
 import Foundation
 import Testing

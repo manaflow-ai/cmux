@@ -49,7 +49,12 @@ pub use clipboard_read::{
 mod callbacks;
 pub use callbacks::{Callbacks, NotifyFn, PtyWriteFn};
 
+mod active_text;
+
 mod clear_history;
+
+mod memory_usage;
+pub use memory_usage::{ScreenMemory, TerminalMemoryUsage};
 
 mod program_status;
 pub use program_status::{
@@ -414,11 +419,11 @@ fn parse_protocol_decimal(bytes: &[u8], max: u16) -> Option<u16> {
 }
 
 fn trim_ascii_spaces(mut bytes: &[u8]) -> &[u8] {
-    while bytes.first() == Some(&b' ') {
-        bytes = &bytes[1..];
+    while let Some(rest) = bytes.strip_prefix(b" ") {
+        bytes = rest;
     }
-    while bytes.last() == Some(&b' ') {
-        bytes = &bytes[..bytes.len() - 1];
+    while let Some(rest) = bytes.strip_suffix(b" ") {
+        bytes = rest;
     }
     bytes
 }
@@ -728,7 +733,7 @@ impl Terminal {
 
     /// Whether a PTY has an active OSC 4 override for this palette index.
     pub fn palette_overridden(&self, index: u8) -> bool {
-        self.palette_override.active[index as usize]
+        self.palette_override.active.contains(index)
     }
 
     /// Monotonic revision for PTY-authored palette or special-color changes.
@@ -942,9 +947,12 @@ impl Terminal {
         let palette = self
             .get_palette(sys::GHOSTTY_TERMINAL_DATA_COLOR_PALETTE)
             .map(|effective| {
-                std::array::from_fn(|index| {
-                    self.color_overrides.palette_authored(index).then(|| effective[index].into())
-                })
+                let authored = self.color_overrides.palette;
+                let mut palette = [None; 256];
+                for ((slot, color), index) in palette.iter_mut().zip(effective).zip(0..=u8::MAX) {
+                    *slot = authored.contains(index).then(|| Rgb::from(color));
+                }
+                palette
             })
             .unwrap_or([None; 256]);
         TerminalColorOverrides {
@@ -1154,11 +1162,14 @@ impl Terminal {
         kitty_state: KittyReplayState,
     ) -> Result<()> {
         let kitty_state = kitty_state.validate_for_replay(bytes.len())?;
+        let (before_cursor, after_cursor) = usize::try_from(kitty_state.replay_cursor_offset)
+            .ok()
+            .and_then(|offset| bytes.split_at_checked(offset))
+            .ok_or(Error::InvalidValue)?;
         self.set_kitty_graphics_limits(kitty_state.limits)?;
-        let cursor_offset = kitty_state.replay_cursor_offset as usize;
-        self.vt_write(&bytes[..cursor_offset]);
+        self.vt_write(before_cursor);
         self.set_kitty_image_id_cursors(kitty_state.replay_next_image_ids)?;
-        self.vt_write(&bytes[cursor_offset..]);
+        self.vt_write(after_cursor);
         // Protocol-v1/v2 peers cannot carry the replay sidecar. Their safe
         // compatibility state disables graphics, so aliases for discarded
         // replay images must also be discarded.
@@ -1567,27 +1578,6 @@ impl Terminal {
             self.reset_history_anchor();
         }
         Ok(())
-    }
-
-    /// Resident bytes of the primary screen's pages (screen and scrollback),
-    /// `None` when libghostty-vt cannot report it.
-    pub fn primary_resident_bytes(&self) -> Option<u64> {
-        // SAFETY: an all-zero GhosttyTerminalMemoryUsage is a valid value of
-        // the plain C struct; `size` is then set to the struct size the
-        // getter requires.
-        let mut usage: sys::GhosttyTerminalMemoryUsage = unsafe { std::mem::zeroed() };
-        usage.size = size_of::<sys::GhosttyTerminalMemoryUsage>();
-        // SAFETY: `self.raw` is this Terminal's live handle; MEMORY_USAGE writes a
-        // GhosttyTerminalMemoryUsage whose `size` is set above.
-        check(unsafe {
-            sys::ghostty_terminal_get(
-                self.raw,
-                sys::GHOSTTY_TERMINAL_DATA_MEMORY_USAGE,
-                (&mut usage as *mut sys::GhosttyTerminalMemoryUsage).cast(),
-            )
-        })
-        .ok()?;
-        Some(usage.primary_resident_bytes)
     }
 
     /// Number of retained history rows, saturated to the protocol's `u32`.
@@ -2377,11 +2367,10 @@ impl Terminal {
             .range(failed_start..best_range.start)
             .copied()
             .collect::<Vec<_>>();
-        let mut low = 0;
-        let mut high = candidates.len();
-        while low < high {
-            let middle = low + (high - low) / 2;
-            let range = ReplayRowRange { start: candidates[middle], end: best_range.end };
+        // Binary search for the oldest anchor whose range still fits.
+        let mut window = candidates.as_slice();
+        while let Some((older, [start, newer @ ..])) = window.split_at_checked(window.len() / 2) {
+            let range = ReplayRowRange { start: *start, end: best_range.end };
             if let Some(replay) = self.vt_replay_text_range_bounded(
                 range,
                 placement_rows,
@@ -2389,9 +2378,9 @@ impl Terminal {
                 include_palette,
             )? {
                 best = replay;
-                high = middle;
+                window = older;
             } else {
-                low = middle + 1;
+                window = newer;
             }
         }
         Ok(best)
@@ -2836,7 +2825,10 @@ impl KittyReplayRowIndex {
 
     fn overlaps(&self, row: u64) -> bool {
         let insertion = self.occupied_spans.partition_point(|span| span.start <= row);
-        insertion > 0 && self.occupied_spans[insertion - 1].end >= row
+        insertion
+            .checked_sub(1)
+            .and_then(|previous| self.occupied_spans.get(previous))
+            .is_some_and(|span| span.end >= row)
     }
 }
 
@@ -2863,10 +2855,8 @@ impl ReplayText {
         let mut bytes = Vec::with_capacity(self.bytes.len().checked_add(placement_bytes)?);
         let mut copied = 0;
         for (row, offset) in self.insertion_offsets {
-            if offset < copied || offset > self.bytes.len() {
-                return None;
-            }
-            bytes.extend_from_slice(&self.bytes[copied..offset]);
+            // Offsets ascend with their rows and stay inside the text.
+            bytes.extend_from_slice(self.bytes.get(copied..offset)?);
             if let Some(commands) = placements.get(&row) {
                 for command in commands {
                     bytes.extend_from_slice(command);
@@ -2874,7 +2864,7 @@ impl ReplayText {
             }
             copied = offset;
         }
-        bytes.extend_from_slice(&self.bytes[copied..]);
+        bytes.extend_from_slice(self.bytes.get(copied..)?);
         Some(bytes)
     }
 }
@@ -2897,8 +2887,8 @@ struct KittyReplayCatalog<'a> {
     terminal_rows: u16,
 }
 
-struct KittyReplayCandidate {
-    image_index: usize,
+struct KittyReplayCandidate<'catalog, 'a> {
+    image: &'catalog KittyReplayImage<'a>,
     visible: bool,
     cost: usize,
     placements: Vec<(u64, Vec<u8>)>,
@@ -2975,7 +2965,7 @@ impl<'a> KittyReplayCatalog<'a> {
         encode_images: bool,
     ) -> KittyReplayPlan {
         let mut candidates = Vec::with_capacity(self.images.len());
-        for (image_index, image) in self.images.iter().enumerate() {
+        for image in &self.images {
             let mut visible = false;
             let mut placements = Vec::new();
             if let Some(range) = range {
@@ -3006,7 +2996,7 @@ impl<'a> KittyReplayCatalog<'a> {
             else {
                 continue;
             };
-            candidates.push(KittyReplayCandidate { image_index, visible, cost, placements });
+            candidates.push(KittyReplayCandidate { image, visible, cost, placements });
         }
 
         let mut admitted = vec![false; candidates.len()];
@@ -3015,7 +3005,7 @@ impl<'a> KittyReplayCatalog<'a> {
             if visible_only && !require_visible {
                 break;
             }
-            for (index, candidate) in candidates.iter().enumerate() {
+            for (candidate, admitted) in candidates.iter().zip(admitted.iter_mut()) {
                 if candidate.visible != require_visible {
                     continue;
                 }
@@ -3025,7 +3015,7 @@ impl<'a> KittyReplayCatalog<'a> {
                 if next > max_bytes {
                     continue;
                 }
-                admitted[index] = true;
+                *admitted = true;
                 total_len = next;
             }
         }
@@ -3037,7 +3027,7 @@ impl<'a> KittyReplayCatalog<'a> {
             }
         }
         for (candidate, is_admitted) in candidates.iter().zip(&admitted) {
-            let image = &self.images[candidate.image_index];
+            let image = candidate.image;
             if *is_admitted && image.image.number != 0 {
                 numbered_history_counts.entry(image.image.number).or_default().1 += 1;
             }
@@ -3050,7 +3040,7 @@ impl<'a> KittyReplayCatalog<'a> {
             if !admitted {
                 continue;
             }
-            let image = &self.images[candidate.image_index];
+            let image = candidate.image;
             if encode_images {
                 append_kitty_replay_image(&mut image_bytes, image.image);
             }
@@ -3115,11 +3105,11 @@ fn append_kitty_replay_image(bytes: &mut Vec<u8>, image: &KittyImage) {
             bytes.extend_from_slice(format!("\x1b_Gq=2,m={more};").as_bytes());
         }
         let engine = &base64::engine::general_purpose::STANDARD;
-        match engine.encode_slice(chunk, &mut payload) {
-            Ok(encoded) => bytes.extend_from_slice(&payload[..encoded]),
+        match engine.encode_slice(chunk, &mut payload).ok().and_then(|len| payload.get(..len)) {
+            Some(encoded) => bytes.extend_from_slice(encoded),
             // KITTY_REPLAY_CHUNK holds the base64 of a full raw chunk
             // (checked at compile time), so this allocating path never runs.
-            Err(_) => bytes.extend_from_slice(engine.encode(chunk).as_bytes()),
+            None => bytes.extend_from_slice(engine.encode(chunk).as_bytes()),
         }
         bytes.extend_from_slice(b"\x1b\\");
     }

@@ -38,6 +38,7 @@ public actor ErrorJournal {
                 clock: any Clock<Duration> = ContinuousClock(), now: @escaping @Sendable () -> Date = { Date() }) {
         self.directory = directory
         self.limits = limits
+        // timer-class-allow: off-main: the batched write fires into this actor (ErrorJournal) and never wakes the main thread
         flushTimer = DemandTimer(owner: "error-journal.flush", clock: clock)
         self.now = now
         let normalizer = ErrorNormalizer(maxBytes: limits.maxMessageBytes)

@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '8a9866283a47ec9e7be97f2560dca821030bc2dbfa05a573677c94e172d2b72d'
+IR_SHA256 = '974986b7d253aacd825bed6d8efd6c978efd265af55140e73b402e8a32e4e3bc'
 
 
 @dataclass(frozen=True)
@@ -2766,6 +2766,16 @@ COMMANDS = {
             'authority': CommandFieldMetadata(None, None),
         },
     ),
+    'memory-report': CommandMetadata(
+        'memory-report',
+        'local-admin',
+        12,
+        None,
+        ('local-admin',),
+        None,
+        {
+        },
+    ),
     'mint-terminal-renderer': CommandMetadata(
         'mint-terminal-renderer',
         'frontend',
@@ -4200,6 +4210,18 @@ COMMANDS = {
             'ratio': CommandFieldMetadata(None, None),
             'split': CommandFieldMetadata(None, None),
             'transaction': CommandFieldMetadata(9, 'layout-undo-v1'),
+        },
+    ),
+    'set-stream-priority': CommandMetadata(
+        'set-stream-priority',
+        'frontend',
+        12,
+        'attach-streams-v1',
+        ('frontend',),
+        None,
+        {
+            'priority': CommandFieldMetadata(None, None),
+            'stream': CommandFieldMetadata(None, None),
         },
     ),
     'set-tab-pinned': CommandMetadata(

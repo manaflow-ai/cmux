@@ -18,8 +18,8 @@ use serde_json::{Value, json};
 
 use super::prelude;
 use crate::protocol::{
-    AppInfo, FatalReason, FromHost, MAX_LINE_BYTES, SCRIPT_MEMORY_BYTES, SCRIPT_PROFILE,
-    SCRIPT_STEP_MS, ToHost,
+    AppInfo, FatalReason, FromHost, MAX_LINE_BYTES, PANIC_LOG_FLAG, SCRIPT_MEMORY_BYTES,
+    SCRIPT_PROFILE, SCRIPT_STEP_MS, ToHost,
 };
 
 /// A script session is automation (`cmux script run`, `cmux script repl`):
@@ -237,10 +237,18 @@ impl Shared {
             return;
         }
         let me = self.clone();
+        // supervise-allow: one op call; a panic in the op resolves that call as failed, so its cell gets an answer and the in-flight count drops.
         let spawned = cmux_threads::spawn("cmux-script-call", SCRIPT_THREAD_QOS, move || {
-            let (ok, body) = match me.router.call(&name, params, options) {
-                Ok(body) => (true, body),
-                Err(body) => (false, body),
+            let called = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                me.router.call(&name, params, options)
+            }));
+            let (ok, body) = match called {
+                Ok(Ok(body)) => (true, body),
+                Ok(Err(body)) => (false, body),
+                Err(_) => (
+                    false,
+                    json!({ "code": "operation.failed", "message": "the operation failed", "retryable": false }),
+                ),
             };
             me.inflight.fetch_sub(1, Ordering::AcqRel);
             me.send(&ToHost::Resolve { cb, ok, body });
@@ -273,9 +281,11 @@ pub struct Session {
 
 impl Session {
     /// Spawns `binary` in the script profile and loads the prelude. `log`
-    /// receives console output from every cell.
+    /// receives console output from every cell; the host appends its panics
+    /// to `panic_log` (`PANIC_LOG_FLAG`).
     pub fn start(
         binary: &Path,
+        panic_log: Option<&Path>,
         router: Arc<dyn ScriptRouter>,
         log: LogSink,
     ) -> Result<Self, ScriptError> {
@@ -284,6 +294,9 @@ impl Session {
         let (ours, theirs) = UnixStream::pair().map_err(|e| host_error("socketpair", e))?;
         let fd = theirs.as_raw_fd();
         let mut command = Command::new(binary);
+        if let Some(path) = panic_log {
+            command.arg(PANIC_LOG_FLAG).arg(path);
+        }
         command
             .args(["--profile", SCRIPT_PROFILE])
             .env_clear()
@@ -325,21 +338,26 @@ impl Session {
         });
         let (ready_tx, ready_rx) = mpsc::channel();
         let reader_shared = shared.clone();
+        // supervise-allow: this script session's reader; a panic in it ends the session as the runtime's exit does: the child is killed, waiting cells see a closed channel and the start reports failure.
         let spawned = cmux_threads::spawn("cmux-script-host", SCRIPT_THREAD_QOS, move || {
             let mut ready = Some(ready_tx);
-            let mut lines = BufReader::new(ours);
-            let mut line = Vec::new();
-            loop {
-                line.clear();
-                match lines.by_ref().take(MAX_LINE_BYTES as u64 + 1).read_until(b'\n', &mut line) {
-                    Ok(0) | Err(_) => break,
-                    Ok(_) if line.last() != Some(&b'\n') => break,
-                    Ok(_) => match serde_json::from_slice::<FromHost>(&line) {
-                        Ok(message) => reader_shared.handle(message, &mut ready),
-                        Err(_) => break,
-                    },
+            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let mut lines = BufReader::new(ours);
+                let mut line = Vec::new();
+                loop {
+                    line.clear();
+                    let read =
+                        lines.by_ref().take(MAX_LINE_BYTES as u64 + 1).read_until(b'\n', &mut line);
+                    match read {
+                        Ok(0) | Err(_) => break,
+                        Ok(_) if line.last() != Some(&b'\n') => break,
+                        Ok(_) => match serde_json::from_slice::<FromHost>(&line) {
+                            Ok(message) => reader_shared.handle(message, &mut ready),
+                            Err(_) => break,
+                        },
+                    }
                 }
-            }
+            }));
             reader_shared.kill();
             let _ = child.kill();
             let _ = child.wait();

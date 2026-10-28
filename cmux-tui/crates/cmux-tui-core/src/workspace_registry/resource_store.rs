@@ -3482,14 +3482,9 @@ fn upsert_resource_tab(
         )?;
     }
     upsert_resource_identity(transaction, tab.public_id.as_str(), "tab", revision)?;
-    let (content_kind, content_id) = match &tab.content_id {
-        ContentPublicId::Terminal(id) => ("terminal", id.as_str()),
-        ContentPublicId::Browser(id) => ("browser", id.as_str()),
-    };
-    let concrete_table = match content_kind {
-        "terminal" => "resource_terminals",
-        "browser" => "resource_browsers",
-        _ => unreachable!("content kind is exhaustive"),
+    let (content_kind, concrete_table, content_id) = match &tab.content_id {
+        ContentPublicId::Terminal(id) => ("terminal", "resource_terminals", id.as_str()),
+        ContentPublicId::Browser(id) => ("browser", "resource_browsers", id.as_str()),
     };
     if live_resource_field(transaction, concrete_table, "public_id", content_id)?.is_none() {
         anyhow::bail!("tab {} references unknown {content_kind} {content_id}", tab.public_id);

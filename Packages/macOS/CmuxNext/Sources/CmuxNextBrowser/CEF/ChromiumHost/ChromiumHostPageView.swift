@@ -33,7 +33,13 @@ import QuartzCore
 /// input to its frames, as Chrome's browser process forwards input at once;
 /// ``ChromiumHostConnection`` coalesces only under socket back-pressure;
 /// keys in ChromiumHostPageView+Keys.swift; buttons past the third, pinch,
-/// smart zoom and Force Touch pressure in ChromiumHostPageView+Gestures.swift). With
+/// smart zoom and Force Touch pressure in ChromiumHostPageView+Gestures.swift).
+/// With an owner that delivers the host's input acks (``pacesInput``,
+/// ``inputAcked(_:seq:)``; the input ring's ``ChromiumHostInputRoute``), a
+/// move or wheel tick still leaves at once when none of its kind is in
+/// flight, and later ones wait coalesced for the ack
+/// (``ChromiumHostInputPacer``, task p01-process-042); keys and clicks never
+/// wait, and what waited leaves ahead of them. With
 /// ``InputTarget/pageWindow`` the fork's transparent page window above takes
 /// every event (in-process layer hosting), and this view takes none.
 public final class ChromiumHostPageView: NSView {
@@ -158,6 +164,15 @@ public final class ChromiumHostPageView: NSView {
     /// from the event handler: a sink must write or queue, never wait. Returns where the
     /// input writer put the frame (its browser and input seq), or nil when it stamped none.
     var sink: ((ChromiumHostFrame) -> ChromiumHostInputReceipt?)?
+    /// Moves and wheel ticks wait for the host's ack of the one in flight; set
+    /// by an owner that calls ``inputAcked(_:)`` (``ChromiumHostInputRoute``:
+    /// the input ring's host acks each at dispatch). Off, every frame goes to
+    /// ``sink`` at once. Turning it on or off forgets what was in flight.
+    var pacesInput = false {
+        didSet { inputPacer = pacesInput ? ChromiumHostInputPacer() : nil }
+    }
+    /// The pacing state while ``pacesInput``.
+    private(set) var inputPacer: ChromiumHostInputPacer?
     /// Where composition, commit and edit-command ops go (``InputTarget/view``
     /// only): the same ordered stream as ``sink``, after the key frames sent before them
     /// (ChromiumHostPageView+TextInput.swift).
@@ -183,26 +198,26 @@ public final class ChromiumHostPageView: NSView {
 
     private var lastGeometry: ChromiumHostGeometry?
     /// What moves the page on screen without changing this view's frame: the
-    /// window's page update request (`BrowserPageUpdates`). The window's
-    /// layout owner (`WindowOverlayLayer`) sends it once per change after
+    /// window's page update request (``ChildPageGeometryRegistry``). The window's
+    /// layout owner (`WindowOverlayLayer`) makes it once per change after
     /// panes, dividers or the sidebar moved and after the window moved,
     /// resized or changed screen; the in-process `CEFHostView` re-places its
     /// page on the same request.
-    private var pageUpdates: MainActorObservation?
-    /// Where the window's page update requests and its screen notices arrive.
-    let pageUpdateCenter: NotificationCenter
+    private var pageUpdates: ChildPageGeometryRegistry.Registration?
+    /// Where the window's screen notices arrive (`observeScreen`).
+    let windowEventCenter: NotificationCenter
 
     /// - Parameters:
     ///   - inputTarget: who takes the page's input.
     ///   - makeLayerHost: the layer that shows a context id; a `CALayerHost` by
     ///     default (tests pass one that fails, or a plain layer).
-    ///   - pageUpdateCenter: where the window's page update requests arrive;
+    ///   - windowEventCenter: where the window's screen notices arrive;
     ///     `.default` in the app, a private center in tests.
     init(frame: NSRect, inputTarget: InputTarget,
          makeLayerHost: @escaping (UInt32) -> CALayer? = { ChromiumHostPageView.layerHost(contextID: $0) },
-         pageUpdateCenter: NotificationCenter = .default) {
+         windowEventCenter: NotificationCenter = .default) {
         self.inputTarget = inputTarget
-        self.pageUpdateCenter = pageUpdateCenter
+        self.windowEventCenter = windowEventCenter
         surface = Surface(frame: NSRect(origin: .zero, size: frame.size), makeLayerHost: makeLayerHost)
         let windowNode = VisibilityNode(root: "chromium-page.window", own: .hidden)
         self.windowNode = windowNode
@@ -250,7 +265,7 @@ public final class ChromiumHostPageView: NSView {
         if !focused { exclusiveAccess.focusLost() }
         onFocusChange?(focused)
         #if DEBUG || CMUX_BENCH_HOOKS
-        _ = sink?(ChromiumHostFrame(.focus, v: [focused ? 1 : 0]))
+        sendInput(ChromiumHostFrame(.focus, v: [focused ? 1 : 0]))
         if !focused { textInputDidResign() }
         passwordInput.focused = focused
         updatePasswordInput()
@@ -362,13 +377,15 @@ public final class ChromiumHostPageView: NSView {
     }
 
     /// Reports the page's screen rect when it differs from the last one
-    /// reported; an unchanged rect costs one comparison.
-    private func presentedRectDidChange() {
-        guard let onGeometry, let window, let screen = presentedScreenRect else { return }
+    /// reported; an unchanged rect costs one comparison. Returns whether it reported.
+    @discardableResult
+    private func presentedRectDidChange() -> Bool {
+        guard let onGeometry, let window, let screen = presentedScreenRect else { return false }
         let geometry = ChromiumHostGeometry(screenRect: screen, scale: window.backingScaleFactor)
-        guard geometry != lastGeometry else { return }
+        guard geometry != lastGeometry else { return false }
         lastGeometry = geometry
         onGeometry(geometry)
+        return true
     }
 
     /// The view's rect in screen points; nil in no window or below 1 x 1 point.
@@ -383,8 +400,8 @@ public final class ChromiumHostPageView: NSView {
             pageUpdates = nil
             return
         }
-        pageUpdates = BrowserPageUpdates.observe(of: window, center: pageUpdateCenter) { [weak self] _ in
-            self?.presentedRectDidChange()
+        pageUpdates = ChildPageGeometryRegistry.of(window).register { [weak self] _ in
+            self?.presentedRectDidChange() ?? false
         }
     }
 }
@@ -392,6 +409,55 @@ public final class ChromiumHostPageView: NSView {
 #if DEBUG || CMUX_BENCH_HOOKS
 // The Chromium host app ships in Debug builds only (embed-cef.sh), and so does its wire.
 extension ChromiumHostPageView {
+    // MARK: Pacing
+
+    /// The host dispatched this page's move or wheel tick in flight (input seq
+    /// `seq`, nil: the oldest): the next waiting one leaves now. Main thread, in
+    /// the host's ack order.
+    func inputAcked(_ kind: ChromiumHostInputPacer.Paced, seq: UInt32? = nil) {
+        guard let next = inputPacer?.acked(kind, seq: seq) else { return }
+        write(next, paced: kind)
+    }
+
+    /// The host this page's input went to is gone (or a new one attached):
+    /// nothing is in flight to it any more.
+    func resetInputPacing() {
+        inputPacer?.reset()
+    }
+
+    /// Every input frame of this view: through the pacer while ``pacesInput``,
+    /// what waited first. The pacer's state changes before ``sink`` runs, so a
+    /// sink that acks at once (a test's fake host) re-enters cleanly.
+    ///
+    /// - Returns: The receipt of `frame` itself when it left now.
+    @discardableResult
+    func sendInput(_ frame: ChromiumHostFrame) -> ChromiumHostInputReceipt? {
+        guard inputPacer != nil else { return write(frame, paced: nil) }
+        guard let release = inputPacer?.submit(frame) else { return nil }
+        for ahead in release.ahead { write(ahead, paced: ChromiumHostInputPacer.paced(ahead)) }
+        guard let now = release.frame else { return nil }
+        return write(now, paced: ChromiumHostInputPacer.paced(now))
+    }
+
+    /// Sends the moves and wheel ticks that wait now, ahead of input that goes another way (a
+    /// text input op on the control stream).
+    func flushWaitingInput() {
+        guard let ahead = inputPacer?.flush() else { return }
+        for frame in ahead { write(frame, paced: ChromiumHostInputPacer.paced(frame)) }
+    }
+
+    /// One frame to ``sink``, at once or as the pacer released it; a paced one the writer did not take
+    /// gets no ack. A wheel the writer took is the newest one sent (``lastWheelSeq``, task p01-process-234).
+    @discardableResult
+    private func write(_ frame: ChromiumHostFrame, paced: ChromiumHostInputPacer.Paced?) -> ChromiumHostInputReceipt? {
+        let receipt = sink?(frame)
+        if let receipt, frame.kind == .wheel { lastWheelSeq = receipt.seq }
+        if let paced {
+            if let receipt { inputPacer?.written(paced, seq: receipt.seq) } else { inputPacer?.unsent(paced) }
+        }
+        return receipt
+    }
+
     // MARK: Mouse
 
     public override func mouseDown(with event: NSEvent) {
@@ -418,11 +484,10 @@ extension ChromiumHostPageView {
     public override func scrollWheel(with event: NSEvent) {
         if wheelGesture?(event) == true { return }
         let point = pagePoint(event)
-        let receipt = sink?(ChromiumHostFrame.wheel(.init(
+        sendInput(ChromiumHostFrame.wheel(.init(
             x: point.x, y: point.y, deltaX: Double(event.scrollingDeltaX), deltaY: Double(event.scrollingDeltaY),
             precise: event.hasPreciseScrollingDeltas, phase: event.phase.rawValue, momentumPhase: event.momentumPhase.rawValue,
             modifierFlags: UInt64(event.modifierFlags.rawValue), time: Self.nanoseconds(event.timestamp))))
-        if let receipt { lastWheelSeq = receipt.seq }
     }
 
     /// A down ends an open composition first, keeping its text (``textInputMouseDown()``).
@@ -431,7 +496,7 @@ extension ChromiumHostPageView {
         if phase == 1 { textInputMouseDown() }
         let point = pagePoint(event)
         let buttons = Self.pressedButtons()
-        _ = sink?(ChromiumHostFrame(.mouse, v: [point.x, point.y, phase, button, Int32(phase == 0 || phase == 3 ? 0 : event.clickCount), buttons],
+        sendInput(ChromiumHostFrame(.mouse, v: [point.x, point.y, phase, button, Int32(phase == 0 || phase == 3 ? 0 : event.clickCount), buttons],
                                     flags: UInt64(event.modifierFlags.rawValue), t0: Self.nanoseconds(event.timestamp)))
     }
 
