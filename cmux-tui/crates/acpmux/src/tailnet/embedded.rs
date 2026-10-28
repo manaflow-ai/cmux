@@ -548,7 +548,13 @@ impl Controller {
         };
         if let Some((close_generation, state_node, logout_pending, message)) = close {
             let close_result = self.close_node(node).await;
-            self.finish_start_close(close_generation, &state_node, logout_pending, close_result);
+            self.finish_start_close(
+                close_generation,
+                &state_node,
+                logout_pending,
+                false,
+                close_result,
+            );
             release_node(state_node);
             return Err(message.into());
         }
@@ -559,10 +565,9 @@ impl Controller {
             .name("acpmux-tailnet-watch".into())
             .spawn(move || this.watch(watch_node, generation, runtime))
         {
-            let _ = self.close_node(node).await;
-            self.clear_node("error");
-            self.update(|snapshot| snapshot.error = Some(error.to_string()));
-            return Err(error.to_string());
+            let error = error.to_string();
+            self.finish_watch_start_failure(node, &error).await;
+            return Err(error);
         }
         // A watch that already ended has cleared the node: this may be the last handle.
         release_node(node);
@@ -953,11 +958,59 @@ impl Controller {
         logout_pending
     }
 
+    async fn finish_watch_start_failure(&self, node: Arc<Node>, error: &str) {
+        let (generation, logout_pending) = {
+            let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
+            let pending = matches!(
+                &inner.state,
+                LifecycleState::LoggingOut { node: Some(current), .. }
+                    if Arc::ptr_eq(current, &node)
+            );
+            let current = matches!(
+                &inner.state,
+                LifecycleState::Running(current) if Arc::ptr_eq(current, &node)
+            ) || pending;
+            if !current {
+                release_node(node);
+                return;
+            }
+            inner.generation = inner.generation.wrapping_add(1);
+            inner.state = LifecycleState::Retiring {
+                node: Some(Arc::clone(&node)),
+                phase: if pending {
+                    RetirementPhase::ClosingForLogout
+                } else {
+                    RetirementPhase::Closing
+                },
+            };
+            inner.snapshot.node_gone("error");
+            inner.snapshot.error = Some(error.to_owned());
+            self.publish_locked(&inner.snapshot);
+            (inner.generation, pending)
+        };
+        let work_node = Arc::clone(&node);
+        let result = tokio::task::spawn_blocking(move || {
+            if logout_pending {
+                logout_and_close(
+                    || work_node.logout().map_err(|e| e.0),
+                    || work_node.close().map_err(|e| e.0),
+                )
+            } else {
+                work_node.close().map_err(|e| e.0)
+            }
+        })
+        .await
+        .map_err(|e| e.to_string());
+        self.finish_start_close(generation, &node, logout_pending, logout_pending, result);
+        release_node(node);
+    }
+
     fn finish_start_close(
         &self,
         _generation: u64,
         node: &Arc<Node>,
         logout_pending: bool,
+        logout_performed: bool,
         result: Result<Result<(), String>, String>,
     ) {
         let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
@@ -980,7 +1033,11 @@ impl Controller {
             if logout_pending {
                 LifecycleState::LoggingOut {
                     node: None,
-                    remote_result: Some(Err(late_logout_error())),
+                    remote_result: Some(if logout_performed {
+                        result.clone().and_then(|result| result)
+                    } else {
+                        Err(late_logout_error())
+                    }),
                 }
             } else {
                 LifecycleState::Stopped
@@ -2040,6 +2097,30 @@ mod tests {
             LifecycleState::LoggingOut { node: None, remote_result: None }
         ));
         assert!(controller.inner.lock().unwrap().generation > generation);
+    }
+
+    #[tokio::test]
+    async fn watch_start_failure_preserves_a_pending_logout_receipt() {
+        let temporary = tempfile::tempdir().unwrap();
+        let config = NodeConfig::new(temporary.path(), "watch-failure");
+        let node = Arc::new(Node::new(&config).unwrap());
+        let controller = Controller::new(temporary.path(), "watch-failure");
+        {
+            let mut inner = controller.inner.lock().unwrap();
+            inner.state =
+                LifecycleState::LoggingOut { node: Some(Arc::clone(&node)), remote_result: None };
+        }
+        controller.finish_watch_start_failure(Arc::clone(&node), "watch thread failed").await;
+        let inner = controller.inner.lock().unwrap();
+        match &inner.state {
+            LifecycleState::LoggingOut { node: None, remote_result: Some(result) } => {
+                assert!(
+                    result.is_ok() || result.is_err(),
+                    "pending logout result must be retained"
+                );
+            }
+            _ => panic!("pending logout receipt was discarded"),
+        }
     }
 
     #[tokio::test]
