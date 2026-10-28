@@ -256,6 +256,11 @@ impl Controller {
 
     /// Resume only a saved explicit opt-in; an untouched installation creates nothing.
     pub async fn resume(self: &Arc<Self>) -> Result<(), String> {
+        let this = Arc::clone(self);
+        detached(async move { this.resume_detached().await }).await
+    }
+
+    async fn resume_detached(self: Arc<Self>) -> Result<(), String> {
         loop {
             let retirement = self.await_retirement_gate().await;
             let lifecycle = self.lifecycle.lock().await;
@@ -484,10 +489,8 @@ impl Controller {
             let config = NodeConfig::new(state_dir, hostname);
             let node = Node::new(&config).map_err(|error| error.0)?;
             node.start().map_err(|error| error.0)?;
-            if stopping.load(Ordering::Acquire) {
-                let _ = node.close();
-                return Err("tailnet service is stopping".to_owned());
-            }
+            // Reconcile even when shutdown overtook startup: only the
+            // controller knows whether a pending logout needs a receipt.
             Ok::<_, String>(Arc::new(node))
         })
         .await
@@ -502,6 +505,8 @@ impl Controller {
         };
         let close = {
             let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
+            let logout_pending =
+                matches!(&inner.state, LifecycleState::LoggingOut { node: None, .. });
             if self.stopping.load(Ordering::Acquire) {
                 inner.generation = inner.generation.wrapping_add(1);
                 let state_node = Arc::clone(&node);
@@ -511,12 +516,10 @@ impl Controller {
                 };
                 inner.snapshot.node_gone("stopped");
                 self.publish_locked(&inner.snapshot);
-                Some((inner.generation, state_node, false, "tailnet service is stopping"))
+                Some((inner.generation, state_node, logout_pending, "tailnet service is stopping"))
             } else if inner.generation != generation
                 || !matches!(&inner.state, LifecycleState::Starting)
             {
-                let logout_pending =
-                    matches!(&inner.state, LifecycleState::LoggingOut { node: None, .. });
                 inner.generation = inner.generation.wrapping_add(1);
                 let state_node = Arc::clone(&node);
                 inner.state = LifecycleState::Retiring {
@@ -1454,6 +1457,81 @@ mod tests {
         assert_eq!(logout.await.unwrap().unwrap_err(), late_logout_error());
         assert!(retry.await.unwrap().is_err());
         assert!(replacement_created.load(Ordering::Acquire));
+        tokio::task::spawn_blocking(move || {
+            assert_eq!(node.ips().unwrap_err().0, "node closed");
+        })
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn cancelled_resume_keeps_startup_serialized_with_logout() {
+        startup_logout_interleaving(true, false).await;
+    }
+
+    #[tokio::test]
+    async fn shutdown_during_start_preserves_pending_logout_receipt() {
+        startup_logout_interleaving(false, true).await;
+    }
+
+    async fn startup_logout_interleaving(cancel_resume: bool, shutdown: bool) {
+        let temporary = tempfile::tempdir().unwrap();
+        let config = NodeConfig::new(temporary.path(), "test");
+        let node = tokio::task::spawn_blocking(move || Arc::new(Node::new(&config).unwrap()))
+            .await
+            .unwrap();
+        let controller = Controller::new(temporary.path(), "test");
+        std::fs::write(temporary.path().join("enabled"), b"1\n").unwrap();
+        let (creating, created) = tokio::sync::oneshot::channel();
+        let (publish, unpublished) = std::sync::mpsc::channel();
+        let starting_node = Arc::clone(&node);
+        let saved_state = temporary.path().join("tailscaled.state");
+        *controller.node_factory.lock().unwrap() = Some(Box::new(move || {
+            let _ = creating.send(());
+            unpublished.recv_timeout(std::time::Duration::from_secs(15)).unwrap();
+            // Model startup writing saved state after the caller was cancelled.
+            std::fs::write(saved_state, b"saved login").unwrap();
+            Ok(starting_node)
+        }));
+        let mut changes = controller.subscribe();
+        let startup = {
+            let c = controller.clone();
+            tokio::spawn(async move {
+                if cancel_resume { c.resume().await } else { c.start().await.map(|_| ()) }
+            })
+        };
+        created.await.unwrap();
+        assert_eq!(changes.recv().await.unwrap().state, "starting");
+        if cancel_resume {
+            startup.abort();
+        }
+        let mut logout = {
+            let c = controller.clone();
+            tokio::spawn(async move { c.logout().await })
+        };
+        assert_eq!(changes.recv().await.unwrap().state, "stopped");
+        if shutdown {
+            controller.begin_shutdown();
+        }
+        let waiting =
+            tokio::time::timeout(std::time::Duration::from_millis(50), &mut logout).await.is_err();
+        // Unblock the worker even when the assertion would fail on old code.
+        publish.send(()).unwrap();
+        assert!(waiting, "logout must wait for startup reconciliation");
+        assert!(
+            startup
+                .await
+                .unwrap_or_else(|error| {
+                    assert!(cancel_resume && error.is_cancelled());
+                    Err("resume caller cancelled".into())
+                })
+                .is_err()
+        );
+        assert_eq!(logout.await.unwrap().unwrap_err(), late_logout_error());
+        assert!(!temporary.path().join("enabled").exists());
+        assert!(!temporary.path().join("tailscaled.state").exists());
+        assert!(controller.node().is_none());
+        controller.shutdown().await.unwrap();
         tokio::task::spawn_blocking(move || {
             assert_eq!(node.ips().unwrap_err().0, "node closed");
         })
