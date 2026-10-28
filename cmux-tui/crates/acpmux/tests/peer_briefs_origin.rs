@@ -22,9 +22,9 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 
 const FAKE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
-/// The peer's name, and a brief only it knows of.
+/// The peer's name, and a brief only it knows of (its id does not hold the name: a refusal echoes it).
 const PEER: &str = "elsewhere";
-const PEERS_OWN: &str = "brief-only-elsewhere-knows";
+const PEERS_OWN: &str = "brief-only-the-peer-knows";
 
 fn hub() -> Arc<Hub> {
     let mut cfg: Config = serde_json::from_value(json!({
