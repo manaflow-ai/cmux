@@ -94,4 +94,18 @@ import Testing
         #expect(!FileManager.default.fileExists(atPath: again.draftJournal.url.path))
         #expect(again.load()?.drafts[Self.austin] == "from the last launch")
     }
+
+    /// A bad line in the middle (a short write on a full disk) does not hide the lines after it.
+    @MainActor @Test func aBadLineInTheMiddleIsSkipped() async throws {
+        let cache = Self.cache()
+        let journal = cache.draftJournal
+        try FileManager.default.createDirectory(at: journal.url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let first = Array(#"{"c":"conv_austin","n":1,"t":"first"}"#.utf8) + [0x0A]
+        let bad = Array(#"{"c":"conv_austin","n":2,"t":"cut"#.utf8) + [0x0A]
+        let later = Array(#"{"c":"conv_other","n":3,"t":"later"}"#.utf8) + [0x0A]
+        try Data(first + bad + later).write(to: journal.url)
+        let drafts = cache.load()?.drafts
+        #expect(drafts?[Self.austin] == "first")
+        #expect(drafts?[ConversationID("conv_other")] == "later")
+    }
 }

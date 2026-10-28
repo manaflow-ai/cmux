@@ -8,8 +8,8 @@ import Foundation
 
 /// The write-ahead record of Home drafts (audit 4, P15): each draft change, as it is typed, is
 /// appended to `<index>-drafts.journal` beside the cache's index, so a forced end of the app (a crash,
-/// a SIGKILL, a power loss, Force Quit), which runs no quit step and loses the cache's coalesced
-/// batch, loses no draft. ``HomeCache/load()`` replays the record over the index. A cache write that
+/// a SIGKILL, Force Quit), which runs no quit step and loses the cache's coalesced batch, loses no
+/// draft. A power loss is not covered: nothing calls `fsync` (one per keystroke costs too much). ``HomeCache/load()`` replays the record over the index. A cache write that
 /// holds every change up to a number (``mark``) lets the record drop those lines
 /// (``settle(through:)``), so the file holds only what the index does not have yet: the app's 250 ms
 /// batch, usually nothing.
@@ -158,14 +158,20 @@ public final class HomeDraftJournal: Sendable {
         return written == bytes.count
     }
 
-    /// The lines of `data` that decode, up to the first that does not; `whole` when that is all of it.
+    /// The lines of `data` that decode, in order; a line that does not (cut short by a full disk or the end
+    /// of the process) is skipped and the rest still read. `whole` when every line decoded and the data ends
+    /// in a newline.
     private static func lines(in data: Data) -> (lines: [Line], whole: Bool) {
         var lines: [Line] = []
+        var whole = data.isEmpty || data.last == 0x0A
         let decoder = JSONDecoder()
         for chunk in data.split(separator: 0x0A, omittingEmptySubsequences: true) {
-            guard let line = try? decoder.decode(Line.self, from: Data(chunk)) else { return (lines, false) }
+            guard let line = try? decoder.decode(Line.self, from: Data(chunk)) else {
+                whole = false
+                continue
+            }
             lines.append(line)
         }
-        return (lines, data.isEmpty || data.last == 0x0A)
+        return (lines, whole)
     }
 }
