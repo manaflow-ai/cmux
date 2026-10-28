@@ -86,9 +86,14 @@ OPEN_KEYS = {"terminal": ("`", ["control"]), "newtab": ("t", ["command"]), "spli
              "row": ("d", ["control", "shift", "command"]), "workspace": ("n", ["command"]),
              "window": ("n", ["command", "shift"]),
              # Ctrl-2 onto the pane's second tab, made just before by a script without focus (its surface is not built).
-             "coldtab": ("2", ["control"])}
+             "coldtab": ("2", ["control"]),
+             # hold-class.md: Cmd-T right after another Cmd-T took the window's warm New Tab spare, so this page loads cold
+             # and its keys wait in the New Tab hold (NewTabInputCoordinator) until its field reports ready.
+             "newtabcold": ("t", ["command"])}
 # How each scenario's round ends: what it opened goes (a workspace, a window), else the focused tab closes.
 CLOSE_ACTIONS = {"workspace": "closeWorkspace", "window": "closeWindow"}
+# Tabs a scenario's prepare opened besides the measured one (closed after it).
+EXTRA_CLOSES = {"newtabcold": 1}
 CLASSIC_OPEN_KEYS = {"terminal": ("t", ["command"]), "split": ("d", ["command"]), "browser": ("l", ["command", "shift"])}
 KEY_CODES = dict(hid_input.KEYCODES, **{"`": 50})
 MODIFIER_CODES = {"command": 55, "shift": 56, "control": 59, "option": 58}
@@ -361,12 +366,28 @@ class NextApp:
 
     def close(self, scenario):
         self.control.action(CLOSE_ACTIONS.get(scenario, "closeTab"))
+        for _ in range(EXTRA_CLOSES.get(scenario, 0)):
+            time.sleep(0.3)
+            self.control.action("closeTab")
 
     def prepare(self, scenario):
-        """Before the open key: the cold tab Ctrl-2 selects (a terminal tab a script made without focus)."""
+        """Before the open key: the cold tab Ctrl-2 selects (a terminal tab a script made without focus); for
+        newtabcold, a first Cmd-T that takes the window's warm New Tab spare (the measured one then loads cold)."""
         if scenario == "coldtab":
             self.control.action("newSurface", focus=False)
             time.sleep(0.5)
+        if scenario == "newtabcold":
+            self.key("t", ["command"])
+            time.sleep(0.15)
+
+    def holds(self):
+        """Each hold path's stage since launch (`debug.input late_keys` `holds`, HeldKeyReplay): {held_by: stage};
+        {} on an app without the seam."""
+        try:
+            got = self.control.rpc("debug.input", {"action": "late_keys", "since_launch": True}, timeout=30) or {}
+        except Exception:  # an app without late_keys
+            return {}
+        return {h.get("held_by"): h for h in (got.get("holds") or []) if isinstance(h, dict)}
 
     def clear_line(self):
         self.key("u", ["control"])
@@ -676,6 +697,7 @@ def run_round(app, scenario, index, sampled):
             mid_slots.extend(app.input_rows("slots", 0, 2 ** 63))
         mid = threading.Thread(target=read_mid, daemon=True)
         mid.start()
+    holds_before = app.holds() if hasattr(app, "holds") else {}
     sent, open_reply, open_ns = app.play(name, modifiers, typed)
     open_reply_ms = round((NOW_NS() - open_ns) / 1e6, 1)
     schedule = [open_ns + int((k + 1) * opts.interval * 1e9) for k in range(nkeys)]
@@ -687,6 +709,7 @@ def run_round(app, scenario, index, sampled):
     line = app.line()
     hangs = app.hangs(open_ns, end_ns)
     late_rows = app.input_rows("late_keys", open_ns, end_ns) if app.family == "next" else []
+    round_holds = hold_delta(holds_before, app.holds() if hasattr(app, "holds") else {})
     slot_rows = app.input_rows("slots", open_ns, end_ns) if app.family == "next" else []
     if app.family == "next":
         mid.join(30)
@@ -748,13 +771,13 @@ def run_round(app, scenario, index, sampled):
     # Every key reached the terminal, in order, none lost or doubled: the whole typed run is in its text (soft wraps
     # removed). Only for the terminal scenarios (a page field shows no surface text).
     text = "".join(getattr(app, "last_text", "").split("\n"))
-    in_order = typed in text if scenario not in ("newtab", "browser") and text else None
+    in_order = typed in text if scenario not in ("newtab", "newtabcold", "browser") and text else None
     rec = {"scenario": scenario, "round": index, "sampled": sampled, "open_reply_ms": open_reply_ms,
            "open_reply": json.dumps(open_reply)[:200], "line": line[-140:], "all_keys_on_screen": ok, "typed_in_order": in_order,
            "shells_loaded": shells_loaded(app.zdot), "probe_rows": len(rows), "keys": keys, "hangs": hangs,
            "first_frame_ms": round(first_any, 1) if first_any is not None else None,
            "first_big_frame_ms": round(first_big, 1) if first_big is not None else None,
-           "frames": frames, "journal": journal, "late_keys": late_rows,
+           "frames": frames, "journal": journal, "late_keys": late_rows, "holds": round_holds,
            "slot_errors": [r for r in slot_rows if "error" in r][:3]}
     if sampled:
         rec["sample"] = main_thread_tree(os.path.join(app.out, f"sample-{scenario}-{index}.txt"), min_share=0.01, limit=400)
@@ -783,6 +806,52 @@ def run_round(app, scenario, index, sampled):
     app.close(scenario)
     time.sleep(opts.gap)
     return rec
+
+
+def hold_delta(before, after):
+    """Per hold path, the keys it held and sent again during the round, and their holds by bucket (the round's share of
+    the since-launch stage): {held_by: {count, over_limit, buckets: [{up_to_ms, keys}]}}."""
+    out = {}
+    for path, now in after.items():
+        was = before.get(path) or {}
+        count = (now.get("count") or 0) - (was.get("count") or 0)
+        if count <= 0:
+            continue
+        old = {b.get("up_to_ms"): b.get("keys") or 0 for b in (was.get("buckets") or [])}
+        out[path] = {"count": count, "over_limit": (now.get("over_limit") or 0) - (was.get("over_limit") or 0),
+                     "buckets": [{"up_to_ms": b.get("up_to_ms"), "keys": (b.get("keys") or 0) - old.get(b.get("up_to_ms"), 0)}
+                                 for b in (now.get("buckets") or [])]}
+    return out
+
+
+def hold_summary(rounds):
+    """Per hold path over the scenario's measured rounds: keys held, keys over the 50 ms limit, and the bucket bound of
+    the longest hold (a bucket upper bound; None: past the last bound)."""
+    out = {}
+    for r in rounds:
+        if r["sampled"]:
+            continue
+        for path, d in (r.get("holds") or {}).items():
+            agg = out.setdefault(path, {"rounds_with_holds": 0, "count": 0, "over_limit": 0, "buckets": {}})
+            agg["rounds_with_holds"] += 1
+            agg["count"] += d["count"]
+            agg["over_limit"] += d["over_limit"]
+            for b in d["buckets"]:
+                key = "inf" if b["up_to_ms"] is None else str(b["up_to_ms"])
+                agg["buckets"][key] = agg["buckets"].get(key, 0) + b["keys"]
+    for agg in out.values():
+        filled = [k for k, v in agg["buckets"].items() if v > 0]
+        agg["max_bucket_ms"] = max(filled, key=lambda k: float("inf") if k == "inf" else int(k)) if filled else None
+    return out
+
+
+def print_holds(name, scenario, data):
+    note(f"FIRST5S-HOLDS {name} {scenario}: keys a hold path sent again (HeldKeyReplay), over 50 ms, longest bucket; per path")
+    if not data["holds"]:
+        note("   none (no hold path sent a key again, or the app has no HeldKeyReplay)")
+    for path, agg in sorted(data["holds"].items()):
+        note(f"   {path}: {agg['count']} keys in {agg['rounds_with_holds']} rounds, {agg['over_limit']} over 50 ms, "
+             f"longest in bucket <= {agg['max_bucket_ms']} ms; buckets {agg['buckets']}")
 
 
 def buckets(rounds, field):
@@ -899,9 +968,10 @@ def measure(app_path, zdot, result, family, features=""):
                                             "held": held(rounds),
                                             "dispatch_buckets": buckets(rounds, "dispatch_end_ms"),
                                             "photon_buckets": buckets(rounds, "photon_ms"), "hops": hops(rounds),
-                                            "split": split(rounds)}
+                                            "split": split(rounds), "holds": hold_summary(rounds)}
             print_table(entry["app"], scenario, entry["scenarios"][scenario])
             print_split(entry["app"], scenario, entry["scenarios"][scenario])
+            print_holds(entry["app"], scenario, entry["scenarios"][scenario])
             print_dispatch(entry["app"], scenario, entry["scenarios"][scenario])
             save(result)
     finally:
