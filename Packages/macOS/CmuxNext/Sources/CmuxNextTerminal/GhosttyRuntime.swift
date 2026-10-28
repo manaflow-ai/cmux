@@ -326,12 +326,13 @@ public final class GhosttyRuntime {
         return NSColor(srgbRed: CGFloat(color.r) / 255, green: CGFloat(color.g) / 255, blue: CGFloat(color.b) / 255, alpha: 1)
     }
 
-    /// `macos-option-as-alt` of the applied config (`false`, `true`, `left`, `right`; unset reads `false`); nil
-    /// before the config is applied.
+    /// `macos-option-as-alt` of the applied config (`false`, `true`, `left`, `right`); nil before the config is
+    /// applied and while it is unset, when Ghostty picks it from the keyboard layout (input/keyboard.zig): only the
+    /// live view knows then.
     public var macosOptionAsAlt: String? {
         guard let config else { return nil }
         // SAFETY: `config` is the live applied config (its note); macos-option-as-alt is a string (the enum's name).
-        return unsafe Self.configString(config, key: "macos-option-as-alt") ?? "false"
+        return unsafe Self.configString(config, key: "macos-option-as-alt")
     }
 
     /// `background-opacity` as configured and resolved with cmux.json's

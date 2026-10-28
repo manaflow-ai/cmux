@@ -519,16 +519,18 @@ public final class DaemonService {
 
     /// Fire-and-forget variant for UI handlers.
     public func send(_ label: String, _ body: @escaping DaemonCommandBody) {
-        // Always start the task; making it inside `workTracker?(...)` would
-        // skip creating it (and drop the command) when no tracker is set.
-        // The ticket opens now, so an action that awaits its scope waits
-        // for this command even before the task starts.
+        // The task is made inside `workTracker?(...)`: with no tracker set the
+        // argument is not evaluated, so the command never starts. The app sets
+        // the tracker on every service it sends through; a caller that must run
+        // without one starts `startSend` itself (`type(_:terminal:surface:answered:)`).
+        // The ticket opens when the task is made, so an action that awaits its
+        // scope waits for this command even before the task starts.
         // The command runs off main; its failure is made on main in the sender's class (`startSend`).
         workTracker?(startSend(label, onFailure: nil, body))
     }
 
     /// `send` that also hands a failure to `onFailure` (on the main actor),
-    /// with the same ticket and work tracking.
+    /// with the same ticket and work tracking (and the same rule: no tracker, no command).
     public func send(_ label: String, onFailure: @escaping @MainActor (ActionWorkFailure) -> Void,
               _ body: @escaping DaemonCommandBody) {
         workTracker?(startSend(label, onFailure: onFailure, body))

@@ -192,13 +192,18 @@ extension LaunchPictureKeys {
             router.trace?("launch picture: keys of window \(window) reached nothing: \(reason ?? "no terminal could take them")")
             refuseKeys(text, reason: reason, window: window, router: router)
         }
-        // Each wait is a measured launch stage: its signpost value and the startup bench's line, with its key count.
-        keys.onWaited = { [weak router] reason, count, waited in
-            let ms = Double(waited.components.seconds) * 1000 + Double(waited.components.attoseconds) / 1e15
-            router?.trace?("launch picture: \(count) keys waited \(ms) ms: \(reason)")
-            LaunchMarkSink.shared.writeValue(name: "launch_picture_keys.wait_ms.\(reason)", number: ms)
-            LaunchMarkSink.shared.writeValue(name: "launch_picture_keys.waited.\(reason)", number: Double(count))
+        // Each wait is a measured launch stage: per reason, the sum of the waits and their key count, as launch values
+        // (signpost and the startup bench's line; bench-startup.py's VALUE_MARKS), once when the picture phase ends.
+        keys.onWaitTotals = { [weak router] totals in
+            for total in totals {
+                let ms = Double(total.waited.components.seconds) * 1000 + Double(total.waited.components.attoseconds) / 1e15
+                router?.trace?("launch picture: \(total.keys) keys waited \(ms) ms: \(total.reason.rawValue)")
+                LaunchMarkSink.shared.writeValue(name: "launch_picture_keys.wait_ms.\(total.reason.rawValue)", number: ms)
+                LaunchMarkSink.shared.writeValue(name: "launch_picture_keys.keys.\(total.reason.rawValue)", number: Double(total.keys))
+            }
         }
+        keys.optionAsAlt = { GhosttyRuntime.shared.macosOptionAsAlt.flatMap(TypedTerminalInput.OptionAsAlt.init(config:)) }
+        keys.selectsInputMethod = { GhosttyRuntime.shared.inputSources.selectsInputMethod }
         keys.onActiveChange = { [modes = router.modes] in modes.set(.launchPicture, $0) }
         return keys
     }
@@ -283,12 +288,12 @@ extension LaunchPictureKeys {
         guard let services = router.services, let first = destination(of: target, services: services) else {
             return answered(.keptForView(taken: 0))
         }
-        let runtime = GhosttyRuntime.shared
-        let inputs = TypedTerminalInput.sendable(events, optionAsAlt: runtime.macosOptionAsAlt.flatMap(TypedTerminalInput.OptionAsAlt.init(config:)),
-                                                 inputMethod: runtime.inputSources.selectsInputMethod, byName: first.surface != nil)
+        let keys = router.launchPictureKeys
+        let inputs = TypedTerminalInput.sendable(events, optionAsAlt: keys.optionAsAlt(), inputMethod: keys.selectsInputMethod(),
+                                                 byName: first.surface != nil)
         guard !inputs.isEmpty else { return answered(.keptForView(taken: 0)) }
         let rest: SendOutcome = inputs.count < events.count ? .keptForView(taken: inputs.count) : .taken
-        let keys = router.launchPictureKeys, waitsSince = first.daemon.awaitsFirstConnection ? keys.clock : nil
+        let waitsSince = first.daemon.awaitsFirstConnection ? keys.clock : nil
         first.daemon.onFirstConnection { [weak services, weak keys] in
             if let waitsSince { keys?.noteWait(.daemonNotConnected, keys: inputs.count, since: waitsSince) }
             // Read again: the first connection's tree may name the terminal's surface anew.
@@ -299,8 +304,13 @@ extension LaunchPictureKeys {
                 case .key(let name): .key(name)
                 }
             }
-            now.daemon.type(wire, terminal: now.terminal, surface: now.surface) { taken, refusal in
-                answered(refusal.map { SendOutcome.refused(taken: taken, reason: $0) } ?? rest)
+            now.daemon.type(wire, terminal: now.terminal, surface: now.surface) { taken, failure in
+                switch failure {
+                case nil: answered(rest)
+                case .refused(let words)?: answered(.refused(taken: taken, reason: words))
+                // Never sent again: it may have arrived. The person keeps its text and the rest's.
+                case .mayNotHaveArrived(let words)?: answered(.mayNotHaveArrived(taken: taken, reason: words))
+                }
             }
         }
     }

@@ -326,8 +326,13 @@ THREAD_MARKS_WAIT_S = 1.0
 # registry's read (target 0 in every run), and its whole time in that read; microseconds.
 ACTION_CATALOG_MAIN_WAIT = "launch.action_catalog_main_wait_us"
 ACTION_CATALOG_MAIN_READ = "launch.action_catalog_main_read_us"
+# Keys typed while a window showed its launch picture that waited (LaunchPictureKeys.WaitReason), per reason: the sum
+# of the waits in milliseconds and the key count, sent once when the picture phase ends.
+PICTURE_KEY_WAIT_REASONS = ("undecided", "daemon_not_connected", "live_view")
+PICTURE_KEY_WAITS = tuple(f"launch_picture_keys.{kind}.{reason}" for reason in PICTURE_KEY_WAIT_REASONS
+                          for kind in ("wait_ms", "keys"))
 VALUE_MARKS = (TEMPERATURE, PAGEINS_RUN_LOOP, PAGEINS, MAIN_CPU, INTERRUPTED, SIDEBAR_ROWS_BUILT, SIDEBAR_ROWS_VISIBLE,
-               VIEWS_BUILT, *THREAD_MARKS, ACTION_CATALOG_MAIN_WAIT, ACTION_CATALOG_MAIN_READ)
+               VIEWS_BUILT, *THREAD_MARKS, ACTION_CATALOG_MAIN_WAIT, ACTION_CATALOG_MAIN_READ, *PICTURE_KEY_WAITS)
 # Percentiles printed after p50 (perf_stats.summary).
 PERCENTILES = (95, 99)
 

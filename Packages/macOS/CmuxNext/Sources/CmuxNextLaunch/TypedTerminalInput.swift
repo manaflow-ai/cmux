@@ -8,10 +8,13 @@ public import AppKit
 ///   function keys, a Control chord, an Option chord while `macos-option-as-alt` makes that Option Alt) goes by its
 ///   `send-key` name, and the daemon's Ghostty key encoder encodes it with the program's own keyboard modes (cursor
 ///   keys, the Kitty protocol): the path a TUI's Command chords take (`TerminalKeyEquivalent.sendToProgram`). A
-///   chord is named by its key code's ANSI key, as Ghostty reads a Control chord, not by the layout's character.
+///   chord is named by the layout's unshifted character for its key, as Ghostty names it (its key event's
+///   `unshifted_codepoint`, key_encode.zig's legacy Alt and Control paths), so Dvorak's Control+keycode 8 is ctrl+j.
+///   Only for Control alone, when that character is not one ASCII byte, the key code's ANSI key names it (Ghostty's
+///   `ctrl_only` fallback to the physical key, key_encode.zig).
 ///
-/// Nil keeps the key for the live view: a Command chord (never typing), a key that commits nothing (a dead key), and
-/// an Option key while the config has not said what Option is.
+/// Nil keeps the key for the live view: a Command chord (never typing), a key that commits nothing (a dead key), an
+/// Option key while it is not known what Option is, and an Alt chord whose character is not one ASCII byte.
 public nonisolated enum TypedTerminalInput: Sendable, Equatable {
     /// Text the key commits.
     case text(String)
@@ -40,9 +43,19 @@ public nonisolated enum TypedTerminalInput: Sendable, Equatable {
         return nil
     }
 
-    /// - Parameter optionAsAlt: the config's `macos-option-as-alt`; nil while it is not read (an Option key then
-    ///   stays for the live view).
-    public init?(_ event: NSEvent, optionAsAlt: OptionAsAlt?) {
+    /// The keyboard layout's character for `event`'s key with `modifiers` held (nil: none).
+    public typealias Layout = (_ event: NSEvent, _ modifiers: NSEvent.ModifierFlags) -> String?
+
+    /// The current keyboard layout's character (AppKit's `characters(byApplyingModifiers:)`).
+    public static func systemLayout(_ event: NSEvent, _ modifiers: NSEvent.ModifierFlags) -> String? {
+        event.characters(byApplyingModifiers: modifiers)
+    }
+
+    /// - Parameters:
+    ///   - optionAsAlt: the config's `macos-option-as-alt`; nil while it is not known (unset: Ghostty picks it from
+    ///     the layout), so an Option key stays for the live view.
+    ///   - layout: the keyboard layout's characters (tests pass their own layout).
+    public init?(_ event: NSEvent, optionAsAlt: OptionAsAlt?, layout: Layout = TypedTerminalInput.systemLayout) {
         let flags = event.modifierFlags.intersection([.shift, .control, .option, .command])
         guard !flags.contains(.command) else { return nil }
         var chordFlags = flags
@@ -63,7 +76,13 @@ public nonisolated enum TypedTerminalInput: Sendable, Equatable {
             return
         }
         if !chordFlags.isDisjoint(with: [.control, .option]) {
-            guard let name = Self.ansiKeys[event.keyCode] else { return nil }
+            // The chord's other modifiers are named in it: its key is the layout's unshifted character.
+            let unshifted = layout(event, []).map { $0 == " " ? "space" : $0.lowercased() }
+            if let unshifted, unshifted == "space" || Self.chordCharacters.contains(unshifted) {
+                self = .key(Self.chord(unshifted, chordFlags))
+                return
+            }
+            guard !chordFlags.contains(.option), let name = Self.ansiKeys[event.keyCode] else { return nil }
             self = .key(Self.chord(name, chordFlags))
             return
         }
@@ -74,7 +93,7 @@ public nonisolated enum TypedTerminalInput: Sendable, Equatable {
     }
 
     /// The inputs of the longest run of `events`, from the first, that go by id as the live view would send them;
-    /// the first event that cannot (``init(_:optionAsAlt:)`` is nil, it is a key and keys cannot go `byName`, or an
+    /// the first event that cannot (``init(_:optionAsAlt:layout:)`` is nil, it is a key and keys cannot go `byName`, or an
     /// input method is selected, whose keys only the view's text input can compose) and every one after it stay for
     /// the live view, so none overtakes another.
     public static func sendable(_ events: [NSEvent], optionAsAlt: OptionAsAlt?, inputMethod: Bool, byName: Bool) -> [TypedTerminalInput] {
@@ -107,6 +126,9 @@ public nonisolated enum TypedTerminalInput: Sendable, Equatable {
         122: "f1", 120: "f2", 99: "f3", 118: "f4", 96: "f5", 97: "f6", 98: "f7", 100: "f8", 101: "f9", 109: "f10",
         103: "f11", 111: "f12", 105: "f13", 107: "f14", 113: "f15", 106: "f16", 64: "f17", 79: "f18", 80: "f19", 90: "f20",
     ]
+
+    /// The one-byte characters `send-key` names a chord's key by (ghostty-vt `physical_key_for_char`).
+    private static let chordCharacters: Set<String> = Set("abcdefghijklmnopqrstuvwxyz0123456789`\\[],=-.';/".map { String($0) })
 
     /// The ANSI keyboard's keys by their virtual key code (Carbon's `kVK_ANSI_`), as `send-key` names a chord's key.
     private static let ansiKeys: [UInt16: String] = [

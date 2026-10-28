@@ -15,7 +15,7 @@ public import AppKit
 ///   shortcuts), they wait whole (``holdUndecided(_:window:)``) and go through the key router again, in order, once
 ///   ``replay`` can decide them; a later key of the window queues behind them.
 ///
-/// Each wait is a measured stage (``onWaited``: its reason, its keys and how long). No key is dropped silently: keys
+/// Each wait is a measured stage (``onWaitTotals``: per reason, its keys and how long, once at the phase's end). No key is dropped silently: keys
 /// the daemon refuses, with every key behind them, are refused at once; keys still waiting for a view or for the
 /// window when its picture leaves (its bound) are refused then. A refusal goes through ``refuse`` with the text the
 /// window's refused keys typed, kept until the person is done with it (``forgetKept(window:)``).
@@ -53,16 +53,30 @@ public final class LaunchPictureKeys {
         case keptForView(taken: Int)
         /// The daemon took the first `taken` keys and refused the rest, for `reason`.
         case refused(taken: Int, reason: String?)
+        /// The daemon took the first `taken` keys; the reply for the next missed its deadline, so it may have
+        /// arrived: it is never sent again, and it and the rest are refused with their text kept.
+        case mayNotHaveArrived(taken: Int, reason: String?)
     }
 
-    /// Why keys wait (``onWaited``), as a launch stage name.
-    public nonisolated enum WaitReason: String, Sendable {
+    /// Why keys wait (``onWaitTotals``), as a launch stage name.
+    public nonisolated enum WaitReason: String, Sendable, CaseIterable {
         /// No destination exists until the window decides focus.
         case undecided
         /// The terminal's daemon is not connected yet: its own queue holds them.
         case daemonNotConnected = "daemon_not_connected"
         /// Only the terminal's live view can take them.
         case liveView = "live_view"
+    }
+
+    /// The keys that waited for one reason in the picture phase, and how long they waited in all.
+    public nonisolated struct WaitTotal: Sendable, Equatable {
+        public let reason: WaitReason
+        public let keys: Int
+        public let waited: Duration
+
+        public init(reason: WaitReason, keys: Int, waited: Duration) {
+            (self.reason, self.keys, self.waited) = (reason, keys, waited)
+        }
     }
 
     /// Gives `events` to `target`'s live terminal view, in order; false while it has none.
@@ -78,8 +92,6 @@ public final class LaunchPictureKeys {
     /// key of `window` typed since the person was last done with it, in typing order; `reason` the daemon's answer
     /// (nil: nothing could take them).
     public typealias Refuse = @MainActor (_ window: String, _ text: String, _ reason: String?) -> Void
-    /// Records one wait: its reason (``WaitReason``'s raw value), its keys and how long they waited.
-    public typealias Waited = @MainActor (_ reason: String, _ keys: Int, _ waited: Duration) -> Void
 
     /// A terminal's keys that are not in its view yet.
     private struct Waiting {
@@ -112,6 +124,10 @@ public final class LaunchPictureKeys {
     private var raisedWindows: Set<String> = []
     /// Each window's refused text the person is not done with, in typing order.
     private var keptText: [String: String] = [:]
+    /// Every wait so far, per reason: keys and time.
+    private var waits: [WaitReason: (keys: Int, waited: Duration)] = [:]
+    /// The totals went out (once: each launch value is sent once).
+    private var sentTotals = false
     private var wasActive = false
     private let deliver: Deliver
     private let now: @MainActor () -> ContinuousClock.Instant
@@ -125,8 +141,15 @@ public final class LaunchPictureKeys {
     public var replay: Replay?
     /// Shows the person keys that reached nothing and keeps their text (the key router: the refusal notice).
     public var refuse: Refuse?
-    /// Records each wait as a measured stage (the key router: a launch value and its signpost).
-    public var onWaited: Waited?
+    /// Gets the waits' totals, one per reason (zeros too), once: when the picture phase first ends with no key
+    /// waiting (the key router: launch values and their signposts).
+    public var onWaitTotals: (@MainActor ([WaitTotal]) -> Void)?
+    /// `macos-option-as-alt` now (nil: not known, so Option keys wait for the live view). The key router reads
+    /// Ghostty's config; tests pass their own.
+    public var optionAsAlt: @MainActor () -> TypedTerminalInput.OptionAsAlt? = { nil }
+    /// Whether an input method is the selected input source now (its keys wait for the live view). The key router
+    /// reads the terminals' input sources; tests pass their own.
+    public var selectsInputMethod: @MainActor () -> Bool = { false }
     /// Keys refused so far (each reached ``refuse``).
     public private(set) var refused = 0
 
@@ -167,9 +190,11 @@ public final class LaunchPictureKeys {
     /// The person is done with `window`'s refused text (closed its notice, or copied it): the next refusal starts over.
     public func forgetKept(window: String) { keptText[window] = nil }
 
-    /// Records keys that waited from `since` for `reason` (the key router's own waits: the daemon's first connection).
+    /// Records keys that waited from `since` for `reason` (also the key router's own waits: the daemon's first
+    /// connection); the totals go out once the picture phase ends (``onWaitTotals``).
     public func noteWait(_ reason: WaitReason, keys: Int, since: ContinuousClock.Instant) {
-        onWaited?(reason.rawValue, keys, since.duration(to: now()))
+        let total = waits[reason] ?? (keys: 0, waited: .zero)
+        waits[reason] = (keys: total.keys + keys, waited: total.waited + since.duration(to: now()))
     }
 
     /// `window` shows its picture in `shell` from now on; `raise` builds a pane's slice in the next frame (nil: the
@@ -218,18 +243,19 @@ public final class LaunchPictureKeys {
 
     private func replayUndecided(_ window: String) {
         guard let held = undecided[window] else { return }
+        // The picture left: this wait ends here either way. Noted before the queue empties, which can end the phase
+        // (and send the totals).
+        let atBound = pictures[window] == nil
+        if atBound { noteWait(.undecided, keys: held.events.count, since: held.since) }
         // Out of the queue first: the router decides them as new keys, and a key for a terminal goes on to it.
         undecided[window] = nil
         undecidedOrder.removeAll { $0 == window }
         if replay?(window, held.events) == true {
-            noteWait(.undecided, keys: held.events.count, since: held.since)
+            if !atBound { noteWait(.undecided, keys: held.events.count, since: held.since) }
             return
         }
-        guard pictures[window] != nil else {
-            // The picture left and the window still cannot decide them: nothing will (it closed before it was built).
-            noteWait(.undecided, keys: held.events.count, since: held.since)
-            return refuseKeys(held.events, window: window, reason: nil)
-        }
+        // The picture left and the window still cannot decide them: nothing will (it closed before it was built).
+        guard !atBound else { return refuseKeys(held.events, window: window, reason: nil) }
         undecided[window] = held
         undecidedOrder.insert(window, at: 0)
     }
@@ -250,8 +276,9 @@ public final class LaunchPictureKeys {
         guard state.forViewSince == nil, let forward else {
             let since = state.forViewSince ?? now()
             guard pictures[target.window] != nil else {
-                waiting[target] = nil
+                // Noted before the queue empties, which can end the phase (and send the totals).
                 noteWait(.liveView, keys: state.queue.count, since: since)
+                waiting[target] = nil
                 return refuseKeys(state.queue, window: target.window, reason: nil)
             }
             state.forViewSince = since
@@ -275,7 +302,7 @@ public final class LaunchPictureKeys {
         case .keptForView(let taken):
             state.queue = Array(sent.dropFirst(taken)) + state.queue
             state.forViewSince = now()
-        case .refused(let taken, let reason):
+        case .refused(let taken, let reason), .mayNotHaveArrived(let taken, let reason):
             waiting[target] = nil
             return refuseKeys(Array(sent.dropFirst(taken)) + state.queue, window: target.window, reason: reason)
         }
@@ -286,8 +313,10 @@ public final class LaunchPictureKeys {
     private func refuseKeys(_ events: [NSEvent], window: String, reason: String?) {
         guard !events.isEmpty else { return }
         refused += events.count
-        // Text only: a key sent by name (Return, an arrow, a chord) has no text to paste again.
-        let typed = events.compactMap { TypedTerminalInput($0, optionAsAlt: .off)?.text }.joined()
+        // Text only: a key sent by name (Return, an arrow, a chord) has no text to paste again. Option reads as the
+        // send reads it; not known, it composed text (a key that never went by id keeps what it typed).
+        let optionAsAlt = optionAsAlt() ?? .off
+        let typed = events.compactMap { TypedTerminalInput($0, optionAsAlt: optionAsAlt)?.text }.joined()
         let text = (keptText[window] ?? "") + typed
         keptText[window] = text
         refuse?(window, text, reason)
@@ -297,5 +326,15 @@ public final class LaunchPictureKeys {
         guard isActive != wasActive else { return }
         wasActive = isActive
         onActiveChange?(wasActive)
+        if !wasActive { sendTotals() }
+    }
+
+    /// The waits' totals, once, when the picture phase first ends with no key waiting.
+    private func sendTotals() {
+        guard !sentTotals, let onWaitTotals else { return }
+        sentTotals = true
+        onWaitTotals(WaitReason.allCases.map { reason in
+            WaitTotal(reason: reason, keys: waits[reason]?.keys ?? 0, waited: waits[reason]?.waited ?? .zero)
+        })
     }
 }

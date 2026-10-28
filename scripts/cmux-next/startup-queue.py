@@ -130,7 +130,9 @@ VALUE_MARKS = frozenset({"launch.temperature", "launch.pageins_run_loop_start", 
                          "launch.main_cpu_ms", "launch.interrupted", "launch.sidebar_rows_built",
                          "launch.sidebar_rows_visible", "launch.views_built", "launch.first_frame_threads",
                          "launch.first_frame_runtime_threads", "launch.first_frame_ghostty_threads",
-                         "launch.action_catalog_main_wait_us", "launch.action_catalog_main_read_us"})
+                         "launch.action_catalog_main_wait_us", "launch.action_catalog_main_read_us",
+                         *(f"launch_picture_keys.{kind}.{reason}" for reason in ("undecided", "daemon_not_connected", "live_view")
+                           for kind in ("wait_ms", "keys"))})
 INTERRUPTED = "launch.interrupted"
 # A live launch takes its window as a person's launch does; a noActivate launch is interrupted (task 108).
 LIVE_ENV = {"CMUX_NEXT_NO_ACTIVATE": "0"}
