@@ -503,6 +503,28 @@ class CompileTrailerTests(unittest.TestCase):
         self.assertTrue(refused, lines)
         self.assertIn("App", lines[0])
 
+    def test_per_symbol_a_private_upstream_change_of_a_name_the_push_also_uses_passes(self):
+        self.kit_app(extra="public struct Box {\n    private enum CodingKeys: String {\n        case a\n    }\n}\n")
+        refused, lines = self.rebased_push({self.APP: "import Kit\nstruct Mine {\n    enum CodingKeys: String {\n        case z\n    }\n}\n"},
+                                           {self.KIT: self.read(self.KIT).replace("        case a\n", "        case a\n        case b\n")})
+        self.assertFalse(refused, lines)
+
+    def test_per_symbol_a_rebase_conflict_resolved_after_the_compile_is_refused(self):
+        self.kit_app(extra="public let names = [\"a\"]\n")
+        self.git("checkout", "-q", "-b", "topic")
+        self.write(self.KIT, self.read(self.KIT).replace('[\"a\"]', '[\"a\", \"own\"]'))
+        job = self.job(self.commit("own change"))
+        self.git("checkout", "-q", "feat-cmux-next")
+        self.write(self.KIT, self.read(self.KIT).replace('[\"a\"]', '[\"a\", \"up\"]'))
+        upstream = self.commit("upstream")
+        self.git("checkout", "-q", "topic")
+        self.git("reset", "-q", "--hard", upstream)
+        self.write(self.KIT, self.read(self.KIT).replace('[\"a\", \"up\"]', '[\"a\", \"up\", \"own\"]'))
+        head = self.commit(f"own change, conflict resolved\n\nCompiled: {job}")
+        refused, lines = self.check(head, base=upstream)
+        self.assertTrue(refused, lines)
+        self.assertIn("not the one the compile job compiled", lines[0])
+
     def read(self, rel):
         return (self.repo / rel).read_text()
 
