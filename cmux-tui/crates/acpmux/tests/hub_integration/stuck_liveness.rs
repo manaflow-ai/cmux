@@ -92,3 +92,32 @@ async fn three_503s_are_stuck_in_the_summary_and_session_list_then_success_clear
     assert!(recovered["stuckSince"].is_null(), "{recovered}");
     assert!(recovered["stuckError"].is_null(), "{recovered}");
 }
+
+#[tokio::test]
+async fn a_fork_of_a_stuck_session_starts_unstuck() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    // Two quick retries fail too; the third waits past the fork.
+    hub.config.write().await.auto_resume_delays_ms = Some(vec![20, 20, 60_000]);
+    let id = new_session(&mut c).await;
+    let failed = c
+        .request(
+            method::SESSION_PROMPT,
+            json!({"sessionId": id, "prompt": [{"type": "text", "text": "cap-fail-three: x"}]}),
+        )
+        .await;
+    assert!(failed.is_err());
+    let stuck = wait_for_stuck(&hub, &id).await;
+    assert_eq!(stuck["state"], "stuck", "{stuck}");
+
+    let forked =
+        c.request(method::SESSION_FORK, json!({"sessionId": id, "cwd": cwd()})).await.unwrap();
+    let fid = forked["sessionId"].as_str().unwrap().to_owned();
+    let copied = hub.events(&fid, 0, 1000).unwrap();
+    let failures =
+        copied.iter().filter(|e| e.kind == "turn_result" && e.msg["status"] == "failed").count();
+    assert!(failures >= 3, "the fork holds the parent's failed turns: {failures}");
+    let row = row(&hub, &fid);
+    assert_ne!(row["state"], "stuck", "{row}");
+    assert!(row["stuckReason"].is_null(), "{row}");
+    assert_eq!(forked["_meta"]["acpmux"]["state"], row["state"], "{forked}");
+}

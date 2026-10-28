@@ -414,6 +414,12 @@ impl Hub {
             let result = json!({"status": "cancelled", "stopReason": "cancelled", "detail": "forked", "turnId": turn.turn_id, "promptId": turn.prompt_id, "turnSeq": running_turn_seq});
             self.append(&new, "mux", "turn_result", result);
         }
+        // The copied turn results are the parent's attempts, not the fork's: it starts unstuck,
+        // and a restore scans only past them.
+        {
+            let mut m = new.meta.lock().unwrap_or_else(|e| e.into_inner());
+            m.harness_failures = crate::session_liveness::HarnessFailures::after(m.last_seq);
+        }
         let mut forked = json!({"parentId": session.id, "forkSeq": fork_seq});
         if running.is_some() {
             forked["midTurn"] = json!(true);

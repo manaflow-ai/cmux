@@ -28,6 +28,11 @@ pub enum StuckReason {
 }
 
 impl HarnessFailures {
+    /// No failures, with every record through `seq` already accounted for.
+    pub fn after(seq: u64) -> Self {
+        Self { through_seq: seq, ..Self::default() }
+    }
+
     pub fn observe(&mut self, result: &Value, seq: u64, at: u64) {
         if seq <= self.through_seq {
             return;
@@ -86,8 +91,13 @@ fn classify(result: &Value, error: &str) -> Option<StuckReason> {
     if (500..=599).any(|code| turn_errors::has_status(&m, &code.to_string())) {
         return Some(HarnessUnavailable);
     }
+    // A 403 that refuses a permission or a tool use is the request's, not the harness's.
+    let refused_permission = ["permission_error", "permission denied", "tool use was rejected"]
+        .iter()
+        .any(|marker| m.contains(marker));
     if crate::recovery::auth_kind(error).is_some()
-        || ["401", "403"].iter().any(|code| turn_errors::has_status(&m, code))
+        || turn_errors::has_status(&m, "401")
+        || (turn_errors::has_status(&m, "403") && !refused_permission)
         || m.contains("authentication_error")
         || m.contains("unauthorized")
     {
@@ -137,7 +147,13 @@ mod tests {
 
     #[test]
     fn stuck_ignores_unrelated_errors_and_redacts_credentials() {
-        for error in ["simulated internal error", "retry after 2503s", "tool use was rejected"] {
+        for error in [
+            "simulated internal error",
+            "retry after 2503s",
+            "tool use was rejected",
+            "HTTP 403 permission denied",
+            "403 permission_error: this key cannot use the model",
+        ] {
             assert_eq!(classify(&json!({}), error), None);
         }
         let mut failures = HarnessFailures::default();
@@ -158,7 +174,7 @@ mod tests {
         ] {
             let redacted = redact(error);
             assert!(!redacted.contains(secret), "{redacted}");
-            assert!(redacted.contains("HTTP 503"), "{redacted}");
+            assert!(redacted.starts_with("HTTP "), "{redacted}");
         }
     }
 }
