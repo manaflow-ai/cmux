@@ -215,6 +215,11 @@ pub struct TerminalHostRecord {
     /// reject a ClientHello carrying `FLAG_INPUT_FLOW`.
     #[serde(default)]
     pub supports_input_flow: bool,
+    /// Additive control capability (p02-threads-236). Missing/false records
+    /// belong to hosts that would end the connection on the unknown
+    /// SetThreadQos message, so the daemon never sends it to them.
+    #[serde(default)]
+    pub supports_thread_qos: bool,
     /// Additive handshake capability (p04-input-094). Missing/false records
     /// belong to hosts that send no key stages and reject a ClientHello
     /// carrying `FLAG_INPUT_STAGES`.
@@ -251,6 +256,7 @@ impl std::fmt::Debug for TerminalHostRecord {
             .field("supports_shell_activity", &self.supports_shell_activity)
             .field("supports_trace_control", &self.supports_trace_control)
             .field("supports_input_flow", &self.supports_input_flow)
+            .field("supports_thread_qos", &self.supports_thread_qos)
             .field("supports_input_stages", &self.supports_input_stages)
             .field("orphan_grace_secs", &self.orphan_grace_secs)
             .finish()

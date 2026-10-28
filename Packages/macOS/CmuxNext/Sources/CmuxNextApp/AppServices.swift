@@ -46,6 +46,7 @@ import CmuxNextTrace
 import CmuxNextUpdater
 import CmuxNextVSCodeServer
 import CmuxNextWakeups
+import CmuxNextWebUpdates
 import CmuxNextWorkspaceNaming
 import CmuxNextWorkspaceRepair
 import os
@@ -491,6 +492,9 @@ final class AppServices {
             hoverFrameInput: hoverFrameInput, retirer: PageRetirer(deadlines: mainDeadlines))
         host.scriptFrames = pageScriptFrame
         host.rendererStability = rendererStability
+        host.bundleReloadsOnShow = features.isEnabled(.webUpdateReloadOnShow)
+        // A page that shows with files a swap replaced reloads at the web updates' safe point.
+        host.bundleSafePoint = WebUpdates.shared
         return host
     }()
     /// The frame cmux pages deliver their router envelopes on, one board task per page per frame

@@ -218,6 +218,7 @@ impl Surface {
                 journal_capture_active: AtomicBool::new(false),
                 reader_thread: Mutex::new(None),
                 reader_completion: Arc::new(ReaderCompletion::default()),
+                thread_qos: cmux_threads::DesiredQos::new(crate::echo_thread::ECHO_PATH_QOS),
                 reaper_thread: Mutex::new(None),
                 reaper_completion: Arc::new(ReaderCompletion::default()),
                 term: terminal_runtime::TerminalCell::new(Box::new(term)),

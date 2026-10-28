@@ -33,6 +33,8 @@
 //! last argument. `--version` prints `cmux-tui-host <build identity>`: a macOS
 //! daemon runs this sibling only when it is the daemon's own build.
 
+#![cfg_attr(not(test), deny(clippy::disallowed_methods))]
+
 #[cfg(unix)]
 #[path = "cmux-tui-host/mcp_relay.rs"]
 mod mcp_relay;
