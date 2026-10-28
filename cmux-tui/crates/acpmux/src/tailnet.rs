@@ -18,6 +18,9 @@ use anyhow::{Context as _, anyhow, bail};
 use serde_json::Value;
 use wait_timeout::ChildExt;
 
+#[cfg(feature = "tailnet")]
+pub mod embedded;
+
 /// How long one CLI call may take (status on a large tailnet is the
 /// slowest, about 100 ms measured on a 150-peer tailnet).
 const CLI_BOUND: Duration = Duration::from_secs(8);

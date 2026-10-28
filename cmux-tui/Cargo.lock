@@ -19,6 +19,7 @@ dependencies = [
  "cmux-panic-log",
  "cmux-tailnet",
  "cmux-sdk",
+ "cmux-tailnet",
  "cmux-unix-socket",
  "cmux-worktree-care",
  "crossterm",
@@ -1500,6 +1501,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-tailnet"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "libc",
+ "reqwest",
+ "rustls",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-tasks"
 version = "0.1.0"
 dependencies = [
@@ -1567,18 +1580,6 @@ name = "cmux-transport"
 version = "0.1.0"
 dependencies = [
  "proptest",
-]
-
-[[package]]
-name = "cmux-tailnet"
-version = "0.1.0"
-dependencies = [
- "base64 0.22.1",
- "libc",
- "reqwest",
- "rustls",
- "serde",
- "serde_json",
 ]
 
 [[package]]
