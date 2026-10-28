@@ -43,7 +43,7 @@ struct AgentChatDestinationsTests {
         var chosen: String?
         registry.bind("palette.newAgentChatOn", run: { chosen = $0["host"]?.targetValue?.id })
         let descriptor = try #require(ActionCatalog.all.first { $0.id == "palette.newAgentChatOn" })
-        let source = AgentChatTargetSource(destinations: Self.source, next: EmptyTargets())
+        let source = PaletteSourcesBridge.agentChatTargets(Self.source, next: EmptyTargets())
         let flow = PaletteArgumentFlow(registry: registry, descriptor: descriptor, targets: source)
         guard case .push(let page) = flow.effect(collected: ActionInvocation()) else { Issue.record("no chooser"); return }
         let provider = try #require(page.providers.first)
@@ -73,8 +73,8 @@ struct AgentChatDestinationsTests {
 /// fixture data; no remote account or peer process is needed to check routing and refusals.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct AgentChatDestinationActionTests {
-    @Test(arguments: [false, true])
-    func peerCreationKeepsTheRequestedFolderAndPicks(targeted: Bool) async throws {
+    @Test(arguments: [false, true], [ActionOrigin.cli, .mcp])
+    func peerCreationKeepsTheRequestedFolderAndPicks(targeted: Bool, origin: ActionOrigin) async throws {
         try await PasswordManagerRouteTests.withApp { services, _ in
             services.agentTabs.localHost = AgentSessionRef.host(installID: "destination-action-fixture")
             try #require(services.agentTabs.canHostChat, "this build has no agent page")
@@ -83,7 +83,7 @@ struct AgentChatDestinationActionTests {
             let invocation = ActionInvocation(
                 target: targeted ? ActionTargetRef(kind: .pane, id: pane.paneKey) : nil,
                 arguments: ["host": .string("dev-box"), "cwd": .string("/tmp"),
-                            "harness": .string("fake"), "model": .string("fixture-model")], origin: .cli)
+                            "harness": .string("fake"), "model": .string("fixture-model")], origin: origin)
             let result = await AgentHandlers.createOnHost("dev-box", invocation: invocation,
                 destinations: AgentChatDestinationsTests.source, context: AppActionContext(services: services))
             _ = try result.get()

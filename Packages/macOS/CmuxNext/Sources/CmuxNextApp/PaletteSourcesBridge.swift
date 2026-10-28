@@ -69,7 +69,15 @@ enum PaletteSourcesBridge {
         let spaces = SpaceAndPaneTargetSource(services: services, next: screens)
         let sections = SidebarSectionTargetSource(services: services, next: spaces)
         let groups = TabAndGroupTargetSource(services: services, next: PriorityChatTargetSource(chats: chats, next: sections))
-        return AgentChatTargetSource(destinations: AgentChatDestinations(services: services), next: groups)
+        return agentChatTargets(AgentChatDestinations(services: services), next: groups)
+    }
+
+    static func agentChatTargets(_ destinations: AgentChatDestinations, next: any PaletteTargetSource) -> any PaletteTargetSource {
+        func option(_ row: AgentChatDestinations.Destination) -> PaletteTargetOption {
+            PaletteTargetOption(id: row.id, title: row.title, subtitle: row.state, symbol: row.symbol, isEnabled: row.isReady)
+        }
+        return RefreshingPaletteTargetSource(kind: .machine, actions: ["palette.newAgentChat", "palette.newAgentChatOn"],
+            initial: [option(destinations.local)], next: next, load: { await destinations.load().map(option) })
     }
 
     /// The active window's focused objects when the palette opens: the
@@ -200,40 +208,3 @@ extension AgentChatDestinations {
     }
 }
 
-/// Only New Agent Chat's host argument uses the composer's agent destinations. Workspace
-/// machine actions continue using their cmux-daemon inventory.
-final class AgentChatTargetSource: PaletteTargetSource {
-    private let destinations: AgentChatDestinations
-    private let next: any PaletteTargetSource
-    private var options: [PaletteTargetOption]
-
-    init(destinations: AgentChatDestinations, next: any PaletteTargetSource) {
-        (self.destinations, self.next) = (destinations, next)
-        options = [Self.option(destinations.local)]
-    }
-
-    private func owns(_ kind: ActionTargetKind, _ action: ActionID) -> Bool {
-        kind == .machine && (action == "palette.newAgentChat" || action == "palette.newAgentChatOn")
-    }
-
-    func targets(of kind: ActionTargetKind) -> [PaletteTargetOption] { next.targets(of: kind) }
-    func targets(of kind: ActionTargetKind, for action: ActionID) -> [PaletteTargetOption] {
-        owns(kind, action) ? options : next.targets(of: kind, for: action)
-    }
-    func targetRefresh(of kind: ActionTargetKind, for action: ActionID) -> (@MainActor () async -> [PaletteTargetOption])? {
-        guard owns(kind, action) else { return next.targetRefresh(of: kind, for: action) }
-        return { [self] in
-            let rows = await destinations.load()
-            guard !Task.isCancelled else { return [] }
-            options = rows.map(Self.option)
-            return options
-        }
-    }
-    func title(of target: ActionTargetRef) -> String? { next.title(of: target) }
-    func currentDescription(of target: ActionTargetRef) -> String? { next.currentDescription(of: target) }
-
-    private static func option(_ destination: AgentChatDestinations.Destination) -> PaletteTargetOption {
-        PaletteTargetOption(id: destination.id, title: destination.title, subtitle: destination.state,
-                            symbol: destination.symbol, isEnabled: destination.isReady)
-    }
-}
