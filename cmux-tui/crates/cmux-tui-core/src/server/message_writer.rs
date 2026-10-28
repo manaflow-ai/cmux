@@ -21,6 +21,7 @@ use super::attach_streams::ClientStreamId;
 use super::conversation_tabs_wire;
 use super::frame_dispatch::FrameCall;
 use super::pending_streams::stream_ended_reply;
+use super::stream_priority::StreamVisibility;
 use crate::AttachFrame;
 use crate::SurfaceId;
 use crate::mux::ResourceWaitWake;
@@ -34,6 +35,7 @@ use serde_json::Value;
 use std::sync::Arc;
 use std::sync::Weak;
 use std::sync::atomic::AtomicBool;
+use std::sync::atomic::AtomicU8;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
@@ -45,8 +47,11 @@ pub(super) struct OutboundStream {
     /// The stream rides the connection's control sequence (stream 0): its
     /// items share the reply FIFO. False for every other stream.
     pub(super) control_sequence: bool,
-    /// The outbound lane of a stream outside the control sequence.
-    pub(super) lane: StreamLane,
+    /// The outbound lane of a stream outside the control sequence; read and
+    /// changed only under the connection's outbound lock (`set-stream-priority`).
+    lane: Arc<LaneCell>,
+    /// The client's `set-stream-priority` for this stream (p05-ipc-142).
+    pub(super) visibility: Arc<StreamVisibility>,
     pub(super) terminal_enqueued: Arc<AtomicBool>,
     pub(super) overflow_text: Arc<Mutex<Arc<BudgetedText>>>,
     /// Fired by `close`, so stream loops block instead of polling `is_open`.
@@ -76,13 +81,26 @@ impl OutboundStream {
             id,
             open: Arc::new(AtomicBool::new(true)),
             control_sequence,
-            lane,
+            lane: Arc::new(LaneCell::new(lane)),
+            visibility: Arc::default(),
             terminal_enqueued: Arc::new(AtomicBool::new(false)),
             overflow_text: Arc::new(Mutex::new(overflow_text)),
             closed: InterruptSet::default(),
             client_stream: None,
             space_hook: Arc::default(),
         }
+    }
+
+    /// The lane its items ride now. Read under the connection's outbound
+    /// lock, which every lane change holds.
+    pub(super) fn lane(&self) -> StreamLane {
+        self.lane.get()
+    }
+
+    /// Moves the stream to `lane`; only under the connection's outbound lock
+    /// ([`super::bounded_outbound::BoundedOutbound::set_stream_lane`]).
+    pub(super) fn set_lane_locked(&self, lane: StreamLane) {
+        self.lane.set(lane);
     }
 
     /// Runs `hook` each time the writer takes an item of this stream while
@@ -106,6 +124,35 @@ impl OutboundStream {
 
     pub(super) fn update_overflow(&self, text: Arc<BudgetedText>) {
         *self.overflow_text.lock().recover_poison() = text;
+    }
+}
+
+/// A stream's [`StreamLane`] in an atomic, so clones of one stream share it.
+struct LaneCell(AtomicU8);
+
+impl LaneCell {
+    fn new(lane: StreamLane) -> Self {
+        Self(AtomicU8::new(Self::encode(lane)))
+    }
+
+    const fn encode(lane: StreamLane) -> u8 {
+        match lane {
+            StreamLane::Input => 0,
+            StreamLane::Bulk => 1,
+            StreamLane::Background => 2,
+        }
+    }
+
+    fn get(&self) -> StreamLane {
+        match self.0.load(Ordering::Acquire) {
+            0 => StreamLane::Input,
+            1 => StreamLane::Bulk,
+            _ => StreamLane::Background,
+        }
+    }
+
+    fn set(&self, lane: StreamLane) {
+        self.0.store(Self::encode(lane), Ordering::Release);
     }
 }
 
@@ -146,6 +193,8 @@ pub(super) trait MessageSink: Send + Sync {
     fn client_stream(&self, _id: ClientStreamId) -> Option<OutboundStream> {
         None
     }
+    /// Moves `stream`'s queued and later items to `lane` (`set-stream-priority`).
+    fn set_stream_lane(&self, _stream: &OutboundStream, _lane: StreamLane) {}
     /// `text` as the payload of a frame with `header`, in the control FIFO
     /// with replies and control events. Only a local Unix connection that
     /// granted frames carries them.

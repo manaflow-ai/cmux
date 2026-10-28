@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 6c411d6bdd4ecf7ff0394081a5e55ff142d573370a7193e692cfde5e51fa96bd. */
+/* cmux-tui mux protocol 12, IR 974986b7d253aacd825bed6d8efd6c978efd265af55140e73b402e8a32e4e3bc. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -1729,6 +1729,11 @@ export type SetSizeCountsResult = {
 
 export type SetSizePolicyResult = {
   "state"?: SizeState;
+};
+
+export type SetStreamPriorityResult = {
+  "outcome": "applied" | "ended";
+  "stream": number;
 };
 
 export type SetTerminalIdlePolicyResult = {

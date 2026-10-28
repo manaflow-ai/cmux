@@ -79,6 +79,8 @@ public actor TerminalAttachment: TerminalByteChannel {
         /// the participant (held: without it the view cannot tell whether it owns the grid).
         var sizeGeneration: UInt64?
         var heldSizeState: TerminalSizeState?
+        /// The view's last ``TerminalStreamPriority`` (``setStreamPriority(_:)``).
+        var streamPriority: TerminalStreamPriority?
     }
 
     /// A class box, so the reader thread's closure can share the mutex (a `Mutex` cannot be copied).
@@ -350,6 +352,21 @@ public actor TerminalAttachment: TerminalByteChannel {
         } else {
             claimGeometry(reporting: nil)
         }
+    }
+
+    /// Ranks this view's stream against the other views of its connection (`set-stream-priority`,
+    /// p05-ipc-142): focused output rides the input lane, a hidden snapshot view gets no output until it shows.
+    /// Latest wins; the same priority again, or any after ``detachNow()``, sends nothing. A view on a connection
+    /// of its own has no stream to rank (``stream`` is nil, p05-ipc-095): its connection is its own lane.
+    public nonisolated func setStreamPriority(_ priority: TerminalStreamPriority) {
+        guard let stream else { return }
+        let changed = control.value.withLock { control -> Bool in
+            guard control.streamPriority != priority, !control.detached else { return false }
+            control.streamPriority = priority
+            return true
+        }
+        guard changed else { return }
+        fireAndForget(SetStreamPriorityRequest(stream: stream.id, priority: priority))
     }
 
     /// Idempotent: the first call detaches and closes the connection, or cancels the view's stream, which ends
