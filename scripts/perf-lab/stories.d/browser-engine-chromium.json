@@ -1,0 +1,22 @@
+{
+  "id": "browser-engine-chromium",
+  "tier": "T2",
+  "description": "Browser engine cost, Chromium arm (scripts/perf/browser_engine_bench.py run): launch to a live control socket, idle app footprint and CPU, then five local Chromium pages: first and warm page load (the first pays the lazy engine start), the open request, memory per tab (app plus engine processes), CPU with one page visible, and terminal key latency with no browser and next to a visible animating page.",
+  "command": ["scripts/perf/browser_engine_bench.py", "run", "--engines", "chromium",
+              "--open-param", "chromium:engine=chromium"],
+  "session": "light",
+  "engine": "chromium",
+  "config": "bench",
+  "metrics": [
+    {"name": "browser_engine\\.(launch\\.socket_ready|key_latency\\.no_browser)", "unit": "ms", "better": "lower"},
+    {"name": "browser_engine\\.chromium\\.(first_page_load|warm_page_load|open_rpc|key_latency)", "unit": "ms",
+     "better": "lower"},
+    {"name": "browser_engine\\.(idle\\.app_footprint|chromium\\.memory_per_tab)", "unit": "bytes", "better": "lower"},
+    {"name": "browser_engine\\.(idle\\.cpu|chromium\\.cpu_one_visible)", "unit": "percent", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 240,
+  "needs": [],
+  "owner": "PL-cefhost",
+  "component": "Browser>Engine"
+}
