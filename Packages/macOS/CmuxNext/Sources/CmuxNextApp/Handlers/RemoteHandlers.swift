@@ -12,6 +12,13 @@ import CmuxNextServer
 /// installing run in tasks; failures surface as a sheet in the UI and as a
 /// refusal on the control socket.
 enum RemoteHandlers {
+    /// Whether a connection observation can be handled by the presentation task.
+    /// A loaded workspace is handled by `CloudHandlers.show`, which can create a
+    /// window when the app has none; recovery still needs an existing window.
+    static func shouldHandleConnectionObservation(loaded: Bool, hasWindow: Bool) -> Bool {
+        hasWindow
+    }
+
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let ssh = context.services.ssh
         let available: @MainActor () -> String? = { ssh.unavailableReason }
