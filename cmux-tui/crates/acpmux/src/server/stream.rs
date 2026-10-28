@@ -15,7 +15,7 @@ pub(super) async fn serve_stream(
     let (rd, mut wr) = crate::local_stream::split(stream);
     let (in_tx, in_rx) = mpsc::channel::<String>(256);
     let (out_tx, mut out_rx) = mpsc::channel::<String>(4096);
-    tokio::spawn(async move {
+    crate::supervised::spawn_scoped(async move {
         let mut lines = BufReader::new(rd).lines();
         while let Ok(Some(line)) = lines.next_line().await {
             if in_tx.send(line).await.is_err() {
@@ -23,7 +23,7 @@ pub(super) async fn serve_stream(
             }
         }
     });
-    tokio::spawn(async move {
+    crate::supervised::spawn_scoped(async move {
         while let Some(line) = out_rx.recv().await {
             if wr.write_all(line.as_bytes()).await.is_err() {
                 break;
