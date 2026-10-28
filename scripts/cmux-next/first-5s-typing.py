@@ -186,7 +186,7 @@ def photon_binary():
 
 class Photon:
     def __init__(self, pid, out):
-        self.path, self.proc, self.error = out, None, None
+        self.path, self.proc, self.error, self.ready = out, None, None, None
         if opts.no_photon:
             self.error = "off"
             return
