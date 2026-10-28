@@ -84,16 +84,17 @@ import CmuxNextWakeupsTestSupport
         try await WorkspaceHoverCardScrollTests.tearDown(window, coordinator)
     }
 
-    /// The card's near edge touches the sidebar's edge (here the list fills its window), not a
-    /// gap off the row's pill, which the row's inset and trim moved.
-    @Test func theCardTouchesTheSidebarsEdge() async throws {
+    /// The row ends before the sidebar's drag thumb. Its preview touches the row, not the thumb.
+    @Test func theCardTouchesItsWorkspaceRowBeforeTheDragThumb() async throws {
         let clock = ManualClock()
         let (list, window, coordinator, rows) = Self.sidebar(clock: clock)
         let (row, card) = try await Self.showSecondRowCard(list, coordinator, clock, rows)
         let edge = window.convertToScreen(list.convert(list.bounds, to: nil)).maxX
-        #expect(abs(card.minX - edge) < 0.01,
-                "the card's left edge is \(card.minX - edge) pt from the sidebar's edge; row ends at \(row.maxX)")
-        #expect(card.maxX >= edge)
+        let pixel = 1 / max(window.backingScaleFactor, 1)
+        #expect(row.maxX < edge, "the fixture needs a row-to-thumb gutter")
+        #expect(card.minX <= row.maxX + 0.001, "a \(card.minX - row.maxX) pt gap from row to preview")
+        #expect(row.maxX - card.minX < pixel + 0.001, "overlap must stay below one device pixel")
+        #expect(card.minX < edge, "the preview was pushed past the drag thumb")
         try await WorkspaceHoverCardScrollTests.tearDown(window, coordinator)
     }
 

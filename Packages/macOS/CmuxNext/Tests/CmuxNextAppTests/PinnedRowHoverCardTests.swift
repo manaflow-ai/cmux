@@ -123,6 +123,8 @@ import Testing
         #expect(abs(anchor.minY - onScreen.minY) < 0.5 && abs(anchor.maxY - onScreen.maxY) < 0.5, "\(anchor) vs \(onScreen)")
         let band = try #require(harness.list.hoverCardBand(for: Self.pinnedID))
         #expect(abs(band.maxY - onScreen.maxY) < 0.5)
+        let pill = harness.window.convertToScreen(row.convert(row.pill.frame, to: nil))
+        #expect(band == pill, "a pinned preview must touch its fill rather than its layout cell")
     }
 
     /// The list row of the other workspace still opens its own card (the pinned lookup takes nothing from it).
