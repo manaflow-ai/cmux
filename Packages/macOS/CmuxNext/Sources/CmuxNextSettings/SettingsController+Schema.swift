@@ -43,7 +43,10 @@ extension SettingsController {
         // the hook's undo runs if the write fails.
         let undo = writer == .user ? userWillWrite?(descriptor, value) : nil
         do {
-            if let value {
+            if descriptor.path == InspectorOrderRevision.path {
+                try await file.setInspectorOrder(value)
+                await reloadAfterWrite()
+            } else if let value {
                 if legacy != nil || !linked.isEmpty {
                     try await file.apply([(path: descriptor.path, value: value)] + (legacy.map { [(path: $0, value: nil)] } ?? []) + linked)
                 } else {
@@ -88,7 +91,11 @@ extension SettingsController {
         guard writer == .user else { throw SettingUserOnly(key: "*", writer: writer) }
         let managed = file.managedGuard.managedKeys
         for descriptor in SettingsSchema.all where managed[descriptor.id] == nil && !SettingsSchema.keptOnResetAll.contains(descriptor.path) {
-            try await removePruning(descriptor.path)
+            if descriptor.path == InspectorOrderRevision.path {
+                try await setSetting(descriptor, to: nil, by: writer)
+            } else {
+                try await removePruning(descriptor.path)
+            }
         }
         for key in SettingsSchema.retiredKeys.keys.sorted() where managed[key] == nil {
             try await removePruning(CmuxConfigFile.keyPath(from: key))
