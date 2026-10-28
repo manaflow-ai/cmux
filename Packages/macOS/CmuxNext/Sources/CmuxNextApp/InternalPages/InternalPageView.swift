@@ -195,6 +195,7 @@ final class InternalPageView: NSView {
     private func startRestoring(_ body: @escaping @MainActor (NSView) async -> Void) {
         let content = content
         // task-owner: restoring; one state put back on this view, then its cover goes
+        // main-hop-allow: `body` is a main-actor async restore of this view; each of its awaits resumes on main either way
         restoring = Task { @MainActor [weak self] in
             await body(content)
             self?.removeCover()

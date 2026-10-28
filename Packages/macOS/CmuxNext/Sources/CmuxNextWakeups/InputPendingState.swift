@@ -21,12 +21,18 @@ import CmuxNextCompat
 public final class InputPendingState: Sendable {
     /// The word's bits.
     public struct Bits: OptionSet, Sendable, Hashable {
+        /// The word's bits as a number.
         public let rawValue: UInt32
+        /// Bits from their number.
         public init(rawValue: UInt32) { self.rawValue = rawValue }
 
+        /// A key press is pending.
         public static let key = Bits(rawValue: 1 << 0)
+        /// A mouse button press is pending.
         public static let click = Bits(rawValue: 1 << 1)
+        /// A scroll begin is pending.
         public static let scrollBegin = Bits(rawValue: 1 << 2)
+        /// A drag is pending.
         public static let drag = Bits(rawValue: 1 << 3)
         /// An event is in dispatch on the main thread.
         public static let dispatching = Bits(rawValue: 1 << 4)
@@ -45,11 +51,13 @@ public final class InputPendingState: Sendable {
         public static let kinds: Bits = [.key, .click, .scrollBegin, .drag]
         /// A person's input: pending or in dispatch.
         public static let input: Bits = [.kinds, .dispatching]
+        /// Both stamping bits (``stampingInput`` and ``stampingFrame``).
         public static let stamping: Bits = [.stampingInput, .stampingFrame]
     }
 
     private let word = Atomic<UInt32>(0)
 
+    /// A word with no bit set.
     public init() {}
 
     /// The word now. Acquiring: a thread that reads ``Bits/held`` cleared also sees every job the

@@ -39,6 +39,7 @@ nonisolated extension CEFShimLibrary {
         fileDialogAnswer = { a0, a1, a2 in unsafe Self.withCString(a2) { s2 in unsafe cFileDialogAnswer(a0, a1, s2) } }
         browserSetLayerHosting = try r("cmux_shim_browser_set_layer_hosting")
         browserSetResizeSync = try r("cmux_shim_browser_set_resize_sync")
+        browserSetResizeFence = r.inProcess("cmux_shim_browser_set_resize_fence")
         browserSetEmbedderActive = try r("cmux_shim_browser_set_embedder_active")
         let cBrowserAccessibilityToken: @convention(c) (Int32, Int32, UnsafePointer<UInt8>?, Int32, UnsafePointer<UInt8>?, Int32,
                                                         UnsafeMutablePointer<UInt8>?, Int32) -> Int32 =
