@@ -153,7 +153,10 @@ function sources(rows: readonly AcpmuxRow[], pullRequests: readonly SummaryPullR
         pr.firstTouched ?? pr.touched ?? Number.MAX_SAFE_INTEGER,
       );
     }
-  const knownPullRequests = new Map(pullRequests.map((pr) => [pr.url, pr]));
+  // Match GitHub links by repository/number after removing query and fragment suffixes. A
+  // mutation can return `/pull/N#issuecomment-…`; that suffix must not turn the changed PR into a
+  // generic URL source.
+  const knownPullRequests = new Map(pullRequests.map((pr) => [`${pr.repo.toLowerCase()}#${pr.number}`, pr]));
   const addUrls = (text: string, order: number) => {
     for (const match of text.matchAll(/https?:\/\/[^\s"'<>)]+/g)) {
       const url = match[0]!.replace(/[.,;:!?]+$/, "");
@@ -163,9 +166,7 @@ function sources(rows: readonly AcpmuxRow[], pullRequests: readonly SummaryPullR
       if (reference) {
         const [, owner, repo, path, number] = reference;
         const canonical = `https://github.com/${owner}/${repo}/${path}/${number}`;
-        const known =
-          knownPullRequests.get(canonical) ??
-          knownPullRequests.get(`https://github.com/${owner}/${repo}/pull/${number}`);
+        const known = knownPullRequests.get(`${owner}/${repo}`.toLowerCase() + `#${number}`);
         if (known?.changed || known?.opened) continue;
         const pr = path === "pull" || known?.kind === "pullRequest";
         add(
