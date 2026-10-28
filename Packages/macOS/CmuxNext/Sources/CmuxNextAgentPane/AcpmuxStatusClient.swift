@@ -110,10 +110,15 @@ nonisolated enum AcpmuxStatusClient {
                                            deadline: Duration = .seconds(2)) async throws -> [String: Any] {
         let result = try await call(socketPath: socketPath, method: "_acpmux/resolve",
                                     params: ["query": sessionId], deadline: deadline)
-        guard let summary = result["session"] as? [String: Any],
-              summary["sessionId"] as? String == sessionId else {
+        guard let summary = sessionSummary(sessionId, in: result) else {
             throw Failure.rpc("acpmux session not found: \(sessionId)")
         }
+        return summary
+    }
+
+    static func sessionSummary(_ sessionId: String, in result: [String: Any]) -> [String: Any]? {
+        guard let summary = result["session"] as? [String: Any],
+              summary["sessionId"] as? String == sessionId else { return nil }
         return summary
     }
 
