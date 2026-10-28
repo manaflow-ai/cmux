@@ -13,6 +13,8 @@ import Foundation
 ///   refuses the whole batch: `not_run`, with `data.op` its index.
 /// - The ops run in order in one main-actor work item, an automation task of the main-thread
 ///   scheduler: the person never sees a frame with half the batch, and the model publishes once.
+/// - An op the App would refuse as not available (a pane or tab target that shows no chat)
+///   refuses its transaction before any of its ops runs: `not_run`, with `data.op` its index.
 /// - A handler that refuses at run time stops the batch there: the ops before it ran
 ///   (`data.applied`), the rest did not.
 /// - Bounded: at most ``ControlRouter/Configuration/batchOpLimit`` ops. A larger batch is
@@ -122,6 +124,12 @@ extension ControlRouter {
                 let transaction = Array(requests.dropFirst(start).prefix(size))
                 let ran = try await workQueue.run(connection: call.connection, method: call.method, deadline: call.deadline,
                                                   countingFrom: call.engineStartMark) { () throws -> [ControlActionRun] in
+                    // An op the App would refuse here (a pane or tab target's live chat or canvas
+                    // facts) refuses the transaction before any of its ops applies.
+                    if let index = executor.firstUnavailable(transaction) {
+                        let refusal = ControlError.actionOutcome(.unavailable, action: transaction[index].actionID) ?? expired
+                        throw refusal.atBatchOp(start + index)
+                    }
                     // The request may have answered `not_run` already: then never run.
                     guard progress.begin(), scope.noting("handler") else { throw expired }
                     // The queue runs this from a run-loop block, where no task is current (cx-bpcj).

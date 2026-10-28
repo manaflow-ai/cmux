@@ -4,12 +4,22 @@ import CmuxNextCompat
 import CmuxNextSettings
 import Testing
 
-/// Records the target of each run that reached it and lets it run.
+/// Records the target of each run that reached it and lets it run; as the App would, it finds
+/// the targets in `unavailable` not available before any run (`firstUnavailable`).
 private final class TargetRecordingExecutor: ControlActionExecutor {
     let targets = Mutex<[String]>([])
+    let unavailable: Set<String>
+
+    init(unavailable: Set<String> = []) { self.unavailable = unavailable }
+
+    static func name(_ request: ControlActionRequest) -> String { request.target.map { "\($0.kind):\($0.id)" } ?? "none" }
+
+    @MainActor func firstUnavailable(_ requests: [ControlActionRequest]) -> Int? {
+        requests.firstIndex { unavailable.contains(Self.name($0)) }
+    }
 
     @MainActor func performAction(_ request: ControlActionRequest) -> ControlActionOutcome {
-        targets.withLock { $0.append(request.target.map { "\($0.kind):\($0.id)" } ?? "none") }
+        targets.withLock { $0.append(Self.name(request)) }
         return .ran
     }
 
@@ -56,13 +66,18 @@ private final class TargetRecordingExecutor: ControlActionExecutor {
         return topology
     }
 
-    func run(_ action: String, _ target: String, topology: ControlTopology?) async -> (Result<JSONValue, ControlError>, [String]) {
-        let executor = TargetRecordingExecutor()
+    static func router(_ executor: TargetRecordingExecutor, topology: ControlTopology?) -> ControlRouter {
         let router = ControlRouter(identity: testIdentity(), executor: executor, configuration: .loadTolerant)
         router.snapshots.publish { snapshot in
             snapshot.catalog = Self.catalog()
             if let topology { snapshot.topology = topology }
         }
+        return router
+    }
+
+    func run(_ action: String, _ target: String, topology: ControlTopology?) async -> (Result<JSONValue, ControlError>, [String]) {
+        let executor = TargetRecordingExecutor()
+        let router = Self.router(executor, topology: topology)
         var params: [String: JSONValue] = ["action": .string(action), "target": .string(target)]
         if action == "agentPane.setModel" { params["args"] = ["model": "opus"] }
         let result = await router.handle(ControlRequest(id: "1", method: "action.run", params: params))
@@ -92,6 +107,26 @@ private final class TargetRecordingExecutor: ControlActionExecutor {
         #expect(error.code == "unavailable")
         #expect(error.data?["not_run"] == true)
         #expect(seen.isEmpty)
+    }
+
+    /// The router no longer refuses a pane target that shows no chat before a batch runs, so the
+    /// App's up-front check (`firstUnavailable`) does: an atomic batch whose second op the App
+    /// would refuse applies nothing, not its first op.
+    @Test func aBatchWithAnOpTheAppWouldRefuseAppliesNothing() async {
+        let executor = TargetRecordingExecutor(unavailable: ["pane:pane-term"])
+        let router = Self.router(executor, topology: nil)
+        let op: (String) -> JSONValue = { ["action": "agentPane.setModel", "target": .string($0), "args": ["model": "opus"]] }
+        let result = await router.handle(ControlRequest(id: "1", method: "action.batch", params: [
+            "ops": [op("pane:pane-chat"), op("pane:pane-term")],
+        ]))
+        guard case .failure(let error) = result else {
+            Issue.record("expected unavailable, got \(result)")
+            return
+        }
+        #expect(error.code == "unavailable")
+        #expect(error.data?["op"] == 1)
+        #expect(error.data?["not_run"] == true)
+        #expect(executor.seen.isEmpty, "op 0 applied before op 1 was refused")
     }
 
     @Test func onlyPaneAndTabTargetsDeferTheirFactsToTheRegistry() {

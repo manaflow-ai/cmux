@@ -74,17 +74,29 @@ struct AgentChatTargetAppTests {
             return topology
         }
 
-        /// `action.run` of Set Agent Chat Model on `target`, through a router whose snapshot has
-        /// `topology` (nil: none loaded yet). It does not wait for the page's reply: the page never
-        /// connects, and a run that reached the chat answers `ran` once its handler started.
-        func setModel(_ target: String, topology: ControlTopology?) async -> Result<JSONValue, ControlError> {
+        /// A router over the App's registry whose snapshot has `topology` (nil: none loaded yet).
+        func router(topology: ControlTopology?) -> ControlRouter {
             let router = ControlRouter(identity: ControlIdentity(version: "test", build: "1", bundleID: nil, tag: nil, processID: 0),
                                        executor: RegistryControlBridge(registry: services.registry),
                                        configuration: .init(requestDeadline: .seconds(30)))
             router.updateCatalog(RegistryControlBridge.catalog(from: services.registry))
             if let topology { router.snapshots.publish { $0.topology = topology } }
-            return await router.handle(ControlRequest(id: "1", method: "action.run", params: [
+            return router
+        }
+
+        /// `action.run` of Set Agent Chat Model on `target`. It does not wait for the page's
+        /// reply: the page never connects, and a run that reached the chat answers `ran` once its
+        /// handler started.
+        func setModel(_ target: String, topology: ControlTopology?) async -> Result<JSONValue, ControlError> {
+            await router(topology: topology).handle(ControlRequest(id: "1", method: "action.run", params: [
                 "action": "agentPane.setModel", "target": .string(target), "args": ["model": "opus"], "wait": false,
+            ]))
+        }
+
+        /// An atomic `action.batch` of Toggle Sidebar and then `second`, not waiting for its work.
+        func batchAfterToggleSidebar(_ second: JSONValue, topology: ControlTopology?) async -> Result<JSONValue, ControlError> {
+            await router(topology: topology).handle(ControlRequest(id: "1", method: "action.batch", params: [
+                "ops": [["action": "toggleSidebar"], second], "wait": false,
             ]))
         }
     }
@@ -116,5 +128,44 @@ struct AgentChatTargetAppTests {
         }
         #expect(error.code == "unavailable", "\(error)")
         #expect(error.data?["not_run"] == true, "\(error)")
+    }
+
+    /// The router leaves a pane target's chat and canvas facts to the App, so an atomic batch
+    /// checks every op with the App before any runs: one the App would refuse (Set Agent Chat
+    /// Model on a terminal pane, a canvas zoom on a pane on no canvas) refuses the batch whole,
+    /// and the Toggle Sidebar before it never applies.
+    @Test(arguments: [false, true])
+    func aBatchWithAnOpTheAppWouldRefuseLeavesTheSidebarAlone(staleSnapshot: Bool) async throws {
+        let rig = try await Rig()
+        defer { rig.tearDown() }
+        let topology = staleSnapshot ? rig.staleTopology : nil
+        let pane = JSONValue.string("pane:\(rig.terminal.paneKey)")
+        for second: JSONValue in [["action": "agentPane.setModel", "target": pane, "args": ["model": "opus"]],
+                                  ["action": "canvasZoomIn", "target": pane]] {
+            let hidden = rig.controller.sidebar.model.isHidden
+            let reply = await rig.batchAfterToggleSidebar(second, topology: topology)
+            guard case .failure(let error) = reply else {
+                Issue.record("\(second): the batch ran: \(reply)")
+                continue
+            }
+            #expect(error.code == "unavailable", "\(second): \(error)")
+            #expect(error.data?["op"] == 1, "\(second): \(error)")
+            #expect(error.data?["not_run"] == true, "\(second): \(error)")
+            #expect(rig.controller.sidebar.model.isHidden == hidden, "\(second): Toggle Sidebar applied before the refused op")
+        }
+    }
+
+    @Test func aBatchWhoseOpsTheAppTakesRunsThemAll() async throws {
+        let rig = try await Rig()
+        defer { rig.tearDown() }
+        let hidden = rig.controller.sidebar.model.isHidden
+        let reply = await rig.batchAfterToggleSidebar(["action": "agentPane.setModel", "target": .string("pane:\(rig.chat.paneKey)"),
+                                                       "args": ["model": "opus"]], topology: nil)
+        guard case .success(let value) = reply else {
+            Issue.record("the batch was refused: \(reply)")
+            return
+        }
+        #expect(value["ran"] == 2, "\(value)")
+        #expect(rig.controller.sidebar.model.isHidden != hidden, "Toggle Sidebar did not apply")
     }
 }
