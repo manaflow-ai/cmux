@@ -288,6 +288,70 @@ async fn detached_group_open_interruption_still_queues_first_prompt() {
 }
 
 #[tokio::test]
+async fn grouped_detached_prompt_flags_submit_once() {
+    let root = std::env::temp_dir().join(format!("amx-grp-once-{}", std::process::id()));
+    std::fs::create_dir_all(root.join("bin")).unwrap();
+    let root = std::fs::canonicalize(root).unwrap();
+    let local = hub(&root);
+    let socket = root.join("a.sock");
+    let listener = bind_unix(&socket).await.unwrap();
+    let server = tokio::spawn(serve_unix(local.clone(), listener));
+    let cmux = root.join("bin/cmux");
+    std::fs::write(&cmux, "#!/bin/sh\nexit 0\n").unwrap();
+    std::fs::set_permissions(&cmux, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let path = format!("{}:{}", root.join("bin").display(), daemon_env::bare_path(&[]));
+
+    for (name, flags, json_output, ephemeral) in [
+        ("grouped-quiet", vec!["--quiet"], false, false),
+        ("grouped-json", vec![], true, false),
+        ("grouped-ephemeral", vec!["--ephemeral"], false, true),
+        ("grouped-ephemeral-quiet", vec!["--ephemeral", "--quiet"], false, true),
+    ] {
+        let mut events = local.subscribe();
+        let mut command = daemon_env::tokio_command(&root, daemon_env::Agents::StandIn);
+        command.env("ACPMUX_SOCKET", &socket).env("PATH", &path).current_dir(&root);
+        if json_output {
+            command.arg("--json");
+        }
+        command.args(["new", "-m", "fake", "--name", name, "--group", "remote-audit", "-d"]);
+        command.args(flags);
+        command.arg("do it");
+        let output =
+            tokio::time::timeout(Duration::from_secs(20), command.kill_on_drop(true).output())
+                .await
+                .expect("grouped prompt launch hung")
+                .expect("grouped prompt launch could not run");
+        assert!(output.status.success(), "{name}: {}", String::from_utf8_lossy(&output.stderr));
+
+        let mut records = Vec::new();
+        while let Ok(event) = events.try_recv() {
+            records.push(event);
+        }
+        let session_id = records
+            .iter()
+            .find(|event| event.record.kind == "created" && event.record.msg["harness"] == "fake")
+            .map(|event| event.session_id.clone())
+            .or_else(|| local.resolve(name).ok().map(|session| session.id.clone()))
+            .expect("grouped launch created no session");
+        let prompts = records
+            .iter()
+            .filter(|event| event.session_id == session_id && event.record.kind == "user_message")
+            .count();
+        assert_eq!(prompts, 1, "{name}: expected one user_message, got {prompts}");
+        if ephemeral {
+            assert!(local.resolve(&session_id).is_err(), "{name}: ephemeral session remained");
+        } else {
+            assert!(local.resolve(&session_id).is_ok(), "{name}: durable session disappeared");
+        }
+    }
+
+    local.end_agents_at_shutdown(Default::default()).unwrap();
+    local.shutdown_all().await;
+    server.abort();
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[tokio::test]
 async fn ephemeral_keep_is_limited_to_the_creating_client() {
     let root = std::env::temp_dir().join(format!("amx-keep-{}", std::process::id()));
     std::fs::create_dir_all(&root).unwrap();

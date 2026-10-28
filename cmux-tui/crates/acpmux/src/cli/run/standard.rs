@@ -484,9 +484,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             let first = launch.first_prompt(&args, &v);
             // A detached launch must already have its instructions if the CLI
             // is interrupted while the app is opening its workspace.
-            if args.detach
-                && let Some(text) = &first
-            {
+            let queue_before_open = args.detach && !one_shot;
+            if queue_before_open && let Some(text) = &first {
                 let prompt = PromptId::new(args.prompt_id.clone());
                 let accepted =
                     queue_prompt(client.clone(), &id, text, false, None, &prompt).await?;
@@ -495,9 +494,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 }
             }
             if let Err(mut open_error) = show() {
-                if !args.detach
-                    && let Some(text) = &first
-                {
+                if !queue_before_open && let Some(text) = &first {
                     let prompt = PromptId::new(args.prompt_id.clone());
                     if let Err(error) =
                         queue_prompt(client.clone(), &id, text, false, None, &prompt).await
