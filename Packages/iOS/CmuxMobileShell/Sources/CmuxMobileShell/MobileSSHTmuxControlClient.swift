@@ -114,7 +114,17 @@ final class MobileSSHTmuxControlClient {
         let client = MobileSSHTmuxControlClient(sessionName: session, groupedSessionName: grouped, channel: channel)
         client.startPump()
         // Learn the geometry of every pane before any seed needs it.
-        let lines = try await client.command("list-panes -s -F '#{window_id} #{pane_id} #{pane_width}x#{pane_height}'")
+        let lines: [Data]
+        do {
+            lines = try await withTaskCancellationHandler {
+                try await client.command("list-panes -s -F '#{window_id} #{pane_id} #{pane_width}x#{pane_height}'")
+            } onCancel: {
+                Task { @MainActor in await client.abort() }
+            }
+        } catch {
+            await client.abort()
+            throw error
+        }
         for line in lines {
             let fields = String(decoding: line, as: UTF8.self).split(separator: " ")
             guard fields.count == 3,
@@ -297,6 +307,15 @@ final class MobileSSHTmuxControlClient {
         _ = try? await command("kill-session -t \(Self.quoteForTmux("=" + groupedSessionName))")
         await channel.close()
         finish()
+    }
+
+    /// Aborts an opening or failed handshake without waiting for tmux to reply.
+    /// Cancellation uses this path because a stalled control command cannot
+    /// be allowed to keep the SSH channel alive.
+    func abort() async {
+        guard !isClosed else { return }
+        finish()
+        await channel.close()
     }
 
     // MARK: Stream

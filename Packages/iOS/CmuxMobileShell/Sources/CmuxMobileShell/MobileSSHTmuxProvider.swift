@@ -24,11 +24,7 @@ final class MobileSSHTmuxProvider: MobileSSHWorkspaceProvider, MobileSSHTerminal
     /// server, which the app always uses. Lab tests use their own server.
     let socketName: String?
     private var controls: [String: MobileSSHTmuxControlClient] = [:]
-    struct Opening {
-        let id: UUID
-        let task: Task<MobileSSHTmuxControlClient, any Error>
-    }
-    private(set) var opening: [String: Opening] = [:]
+    private(set) var opening: [String: MobileSSHTmuxOpening] = [:]
     /// The one stale-grouped-session collection per tmux server, run before
     /// the first listing or attach.
     private var collection: Task<Void, Never>?
@@ -327,7 +323,7 @@ final class MobileSSHTmuxProvider: MobileSSHWorkspaceProvider, MobileSSHTerminal
                 self.adopt(control, session: session)
                 return control
             }
-            opening[session] = Opening(id: id, task: task)
+            opening[session] = MobileSSHTmuxOpening(id: id, task: task)
         }
         let control = try await task.value
         // The workspace can close after adoption but before a waiter resumes.

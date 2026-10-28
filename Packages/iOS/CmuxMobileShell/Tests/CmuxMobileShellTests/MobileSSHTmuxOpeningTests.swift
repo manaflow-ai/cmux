@@ -62,6 +62,19 @@ struct MobileSSHTmuxOpeningTests {
         await stale.close()
     }
 
+    @Test func canceledOpenClosesTheControlWhenItsReplyStalls() async throws {
+        let gate = MobileSSHTmuxOpeningGate()
+        let provider = MobileSSHTmuxProvider(connection: nil, tmuxPath: "/usr/bin/tmux", controlOpener: gate.open)
+        var attempts = gate.attempts.makeAsyncIterator()
+        let pending = Task { _ = try await attach(provider) }
+        _ = try #require(await attempts.next())
+
+        try await provider.closeWorkspace(id: "work")
+        #expect(provider.opening["work"] == nil)
+        pending.cancel()
+        _ = await pending.result
+    }
+
     @Test(arguments: [false, true])
     func staleCompletionDoesNotEraseOrReplaceANewerOpen(fails: Bool) async throws {
         let gate = MobileSSHTmuxOpeningGate()
