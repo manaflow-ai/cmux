@@ -86,12 +86,15 @@ export function cloudMachineRows(
   after: (machine: CloudMachine) => void,
   live: () => { session: string | undefined; running: boolean },
   stopped: (session: string | undefined) => Promise<boolean>,
+  /// The chat the menu was drawn for: a Pause picked once the pane shows another does nothing.
+  drawnFor?: string,
 ): ChatMenuItem[] {
   if (!machine) return [];
   const run = (method: string) => () =>
     void (async () => {
       const { session, running } = live();
       try {
+        if (method === "cloudMachine.pause" && (session === undefined || session !== drawnFor)) return;
         if (method === "cloudMachine.pause" && running) {
           await call("chat.cancel");
           // A paused machine would freeze a turn that has not stopped yet: no pause then.

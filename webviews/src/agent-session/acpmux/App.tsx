@@ -8327,6 +8327,7 @@ function AcpmuxPane() {
                 const client = directClient.current;
                 return client !== undefined && client.shownSession()?.sessionId === session && client.turnRunning();
               }),
+            snapshot.sessionId,
           )
         : [];
     const copy = copyRow(

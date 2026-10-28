@@ -67,6 +67,7 @@ function rows(
       if (stops) state.running = false;
       return stops;
     },
+    "s1",
   );
   const pick = async (index = 0) => {
     const item = items[index] as Exclude<ChatMenuItem, "separator">;
@@ -119,10 +120,19 @@ test("a turn that starts again in the chat after the stop is not frozen", async 
       state.running = true;
       return true;
     },
+    "s1",
   );
   (items[0] as Exclude<ChatMenuItem, "separator">).onSelect!();
   await new Promise((resolve) => setImmediate(resolve));
   expect(calls).toEqual(["chat.cancel"]);
+});
+
+test("a Pause picked once the pane shows another chat stops nothing and pauses nothing", async () => {
+  // Drawn for s1; the pane moved to s2 before the click.
+  const r = rows(machines[0], true, true, { session: "s2", running: true });
+  await r.pick();
+  expect(r.calls).toEqual([]);
+  expect(r.reads()).toBe(1);
 });
 
 test("a pick with no chat shown pauses nothing, and still resumes", async () => {
@@ -150,6 +160,7 @@ test("a pick for a chat the pane has left pauses nothing", async () => {
       state.session = "s2";
       return true;
     },
+    "s1",
   );
   (items[0] as Exclude<ChatMenuItem, "separator">).onSelect!();
   await new Promise((resolve) => setImmediate(resolve));
