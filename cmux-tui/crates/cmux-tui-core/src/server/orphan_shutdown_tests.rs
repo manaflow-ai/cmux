@@ -85,9 +85,7 @@ fn the_daemons_own_journal_plugin_is_no_client_that_keeps_it() {
     origin_gate::set_peer_identity_at_accept(
         &mux,
         plugin,
-        Some(format!("token:{pid}.1")),
-        None,
-        None,
+        origin_gate::AcceptedPeer::classify(&mux, Some(format!("token:{pid}.1")), None, None),
     );
     assert_eq!(mux.client_count(), 0, "the daemon's own plugin counted as a client that keeps it");
     assert_eq!(
@@ -100,9 +98,7 @@ fn the_daemons_own_journal_plugin_is_no_client_that_keeps_it() {
     origin_gate::set_peer_identity_at_accept(
         &mux,
         other,
-        Some(format!("token:{}.1", pid + 1)),
-        None,
-        None,
+        origin_gate::AcceptedPeer::classify(&mux, Some(format!("token:{}.1", pid + 1)), None, None),
     );
     assert_eq!(mux.client_count(), 1);
     assert!(!stop_orphaned_owner(&mux, || panic!("checked with a client connected")));
