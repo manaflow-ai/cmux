@@ -239,14 +239,18 @@ class PaginationTests(unittest.TestCase):
             freeze.gh_items("repos/x/y/pulls/1/files")
         self.assertEqual(len(calls), freeze.MAX_PAGES)
 
-    def test_a_capped_list_is_status_2_not_clear(self):
-        gh, _ = self.fake_gh(10**6)
+    def test_a_changed_files_list_past_the_cap_is_status_2_not_clear(self):
+        endless, calls = self.fake_gh(10**6)
+
+        def gh(*args):  # no open freezes; the PR's files never end
+            return "[]" if "/issues?" in args[-1] else endless(*args)
         self.with_gh(gh)
         stderr = io.StringIO()
         with redirect_stderr(stderr):
             status = freeze.main(["check", "--repo", "x/y", "--pr", "1"])
         self.assertEqual(status, 2)
-        self.assertIn("cut short", stderr.getvalue())
+        self.assertIn("pulls/1/files has more than 30 pages", stderr.getvalue())
+        self.assertEqual(len(calls), freeze.MAX_PAGES)
 
     def test_the_script_never_asks_gh_to_paginate(self):
         source = (ROOT / "scripts/ci/merge_freeze.py").read_text()
