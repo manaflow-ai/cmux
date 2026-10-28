@@ -69,6 +69,10 @@ final class WindowManager {
     /// Windows being closed by the registry (not by the user).
     var programmaticCloses: Set<String> = []
     private(set) var restored = false
+    /// The restore applied the saved window registry and runs its reconcile: from here a claim for the launch
+    /// window is placed like any other (``awaitsRestore(_:)``). Set after the restore's awaits, which `restored`
+    /// is not: a reconcile during them writes a registry the restore then replaces.
+    private(set) var savedRegistryApplied = false
     /// The windows the previous launch left open, captured at restore (Restore Previous App
     /// Launch reopens those closed since); nil before restore and when nothing was saved.
     var previousLaunch: PreviousLaunch?
@@ -145,6 +149,10 @@ final class WindowManager {
         if let key = services.keyWindowSource(), let controller = owner(of: key) { return controller }
         return lastActive ?? controllers.first
     }
+
+    /// The id of the window actions without an explicit target act in (``active``'s).
+    /// Before the launch window has a controller (its saved picture shows), the window it stands for.
+    var activeWindowID: String? { active?.state.id ?? launchWindowID.flatMap { awaitsRestore($0) ? $0 : nil } }
 
     /// The controller whose window is `window` or owns it: a sheet, a
     /// Chromium page window, the palette or another panel over it.
@@ -271,6 +279,7 @@ final class WindowManager {
                 return WindowRegistry.Changes()
             }
         }
+        savedRegistryApplied = true
         reconcileMembership()
         // Every remaining window closed (the open ones lost their workspaces while the app was
         // not running): the most recent one opens, so the app never starts with no window.
@@ -299,7 +308,7 @@ final class WindowManager {
         registry.isLaunching = false
         fullScreenRestoreReady = true
         enterRestoredFullScreens()
-        FirstWorkspaceLaunch(manager: self).land(firstWorkspace) // its New Tab page, not Home
+        FirstWorkspaceLaunch(manager: self).land(firstWorkspace, leftover: leftover) // its New Tab page, not Home
         launchPaneRefs?.finishRestore(of: self)
         launchPaneRefs = nil
         let waiting = restoreWaiters ?? []
@@ -371,6 +380,7 @@ final class WindowManager {
               let record = records.first(where: { $0.id == front }) else { return nil }
         launch.state.adopt(record)
         launchWindowID = front
+        launchWindowAdopted(from: launchID, as: front)
         states[launchID] = nil
         states[front] = launch.state
         launch.sidebar.restore(width: record.sidebarWidth, hidden: record.sidebarHidden)

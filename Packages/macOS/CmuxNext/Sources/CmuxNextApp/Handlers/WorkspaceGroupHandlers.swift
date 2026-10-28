@@ -186,7 +186,7 @@ enum WorkspaceGroupHandlers {
     /// personal group `id`. A remote host that is not connected refuses instead of making it here.
     private static func newPersonalWorkspace(in id: WorkspaceGroupID, newTabPage: Bool, _ context: AppActionContext) throws {
         let windows = context.services.windows
-        let target = windows.targetWindow(preferring: windows.active?.state.id)
+        let target = windows.targetWindow(preferring: windows.activeWindowID)
         let machines = context.services.machines, local = machines.local
         let homes = context.workspaces(inPersonalGroup: id).compactMap { member in
             machines.daemons.first { daemon in daemon.store.workspaces.contains { $0.id == member.id } }

@@ -54,7 +54,7 @@ enum LayoutTemplateHandlers {
         let requested = invocation["template"]?.stringValue ?? ""
         let row = invocation.target.flatMap { $0.kind == .workspace ? services.workspace(id: $0.id) : nil }
         let daemon = row.flatMap { services.machines.daemon(forWorkspace: $0.id) } ?? services.activeDaemon
-        let target = windows.targetWindow(preferring: row.flatMap { windows.registry.value.owner(of: $0.id) } ?? context.activeWindow?.state.id)
+        let target = windows.targetWindow(preferring: row.flatMap { windows.registry.value.owner(of: $0.id) } ?? windows.activeWindowID)
         // main-hop-allow: the action's tracked work awaits the library's load and WorkspaceStructureHandlers.build (main-actor async: it sends the new workspace's creates to the daemon), and refuses in its resume
         services.registry.track(Task { @MainActor in
             await library.load()

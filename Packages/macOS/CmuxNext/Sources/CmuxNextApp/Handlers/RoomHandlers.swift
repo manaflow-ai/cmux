@@ -29,7 +29,7 @@ enum RoomHandlers {
         bind("space.newWorkspace") { invocation in
             let room = try context.room(invocation)
             let windows = context.services.windows
-            let target = windows.targetWindow(preferring: windows.active?.state.id)
+            let target = windows.targetWindow(preferring: windows.activeWindowID)
             var spawn = WorkspaceSpawn(profile: room.id)
             spawn.opensNewTabPage = invocation.origin == .user
             let workspace = spawn

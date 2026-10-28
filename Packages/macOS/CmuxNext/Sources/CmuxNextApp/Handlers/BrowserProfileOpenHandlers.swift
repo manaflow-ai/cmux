@@ -39,7 +39,7 @@ enum BrowserProfileOpenHandlers {
         bind("browserProfile.newWorkspace") { invocation in
             let record = try context.requiredBrowserProfile(invocation)
             let windows = context.services.windows
-            let target = windows.targetWindow(preferring: windows.active?.state.id)
+            let target = windows.targetWindow(preferring: windows.activeWindowID)
             var spawn = WorkspaceSpawn()
             spawn.browserProfile = record.id
             let request = spawn, end = context.registry.completion(on: context.services.mainWork)

@@ -108,7 +108,7 @@ enum WorkspaceVerbHandlers {
                               newTabPage: Bool, firstChat: AgentPaneSeed? = nil,
                               then: (@MainActor @Sendable (String, any WorkspaceSpawnSidebar) -> Void)? = nil) throws {
         let windows = context.services.windows
-        let window = anchor.flatMap { windows.registry.value.owner(of: $0.id) } ?? context.activeWindow?.state.id
+        let window = anchor.flatMap { windows.registry.value.owner(of: $0.id) } ?? windows.activeWindowID
         let target = windows.targetWindow(preferring: window)
         var spawn = WorkspaceSpawn(cwd: cwd)
         spawn.slot = slot
@@ -135,7 +135,7 @@ enum WorkspaceVerbHandlers {
     /// (``createdFields``) and lists it in `created`.
     static func newWorkspace(on daemon: DaemonService, _ invocation: ActionInvocation, _ context: AppActionContext) {
         let services = context.services, windows = services.windows
-        let target = windows.targetWindow(preferring: context.activeWindow?.state.id)
+        let target = windows.targetWindow(preferring: windows.activeWindowID)
         let spawn = WorkspaceSpawn(newTabPage: invocation.origin == .user)
         // The create and the store's catch-up are awaited off main; the answer is read in one task on main.
         services.registry.trackResultWork(owner: "WorkspaceVerbHandlers.newWorkspaceOnMachine",

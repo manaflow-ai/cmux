@@ -150,7 +150,7 @@ extension AppActions {
         // shown (the CLI default): the most recent window lists it, or a new
         // window when none is open (a workspace never lives in no window).
         let hasOpenWindow = !windows.registry.value.openWindows.isEmpty
-        let target: String? = show || !hasOpenWindow ? windows.targetWindow(preferring: windows.active?.state.id) : nil
+        let target: String? = show || !hasOpenWindow ? windows.targetWindow(preferring: windows.activeWindowID) : nil
         // `machine` (App machine id; the CLI's `--session`): born on that
         // session's daemon (plans/cmux-next/data-model.md 1.3).
         let daemon = (invocation["machine"]?.targetValue?.id ?? invocation["machine"]?.stringValue).flatMap(services.machines.daemon(machine:))

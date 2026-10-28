@@ -68,7 +68,7 @@ enum WorkspaceHandlers {
         let windows = services.windows
         // Claimed before the create command, so the workspace lands in (or
         // opens) its window in the step that first mirrors it.
-        let target = windows.targetWindow(preferring: newWindow ? nil : window ?? windows.active?.state.id)
+        let target = windows.targetWindow(preferring: newWindow ? nil : window ?? windows.activeWindowID)
         let home = services.machines.local
         // One ticket for the whole creation, opened now: an action run
         // answers after it (and the barrier covers its echo), so `created`
