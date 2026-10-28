@@ -135,17 +135,19 @@ def self_check(seconds=5.0, interval=0.05):
     never its plan, and the lateness says so. Part 2 (the real clock, a receiver in its own process so this one's GIL
     does not delay it): every stamp is within 1 ms of the key's arrival and no key leaves more than 1 ms late."""
     result = {"seconds": seconds, "interval": interval}
-    # Part 1: a clock that loses 150 ms once, before key 3 (the old sender stamped keys 3-5 with their plans).
+    # Part 1, a unit check of paced_send at a fixed 50 ms plan whatever --interval is: a clock that loses 150 ms once,
+    # before key 3 (the old sender stamped keys 3-5 with their plans).
+    step = 50_000_000
     clock = {"t": 0, "jumped": False}
 
     def fake_now():
         clock["t"] += 1000  # 1 us per read: the spin advances
-        if not clock["jumped"] and clock["t"] >= int(2.5 * interval * 1e9):
+        if not clock["jumped"] and clock["t"] >= int(2.5 * step):
             clock["jumped"], clock["t"] = True, clock["t"] + 150_000_000
         return clock["t"]
     stamps = []
-    late = paced_send(0, 6, int(interval * 1e9), lambda k, at: stamps.append((k, at, clock["t"])), now=fake_now)
-    plan = [k * int(interval * 1e9) for k in range(1, 7)]
+    late = paced_send(0, 6, step, lambda k, at: stamps.append((k, at, clock["t"])), now=fake_now)
+    plan = [k * step for k in range(1, 7)]
     real = all(at == t for _k, at, t in stamps)
     # Keys 3-5 were due during the lost 150 ms: they leave at once, after it, each stamped then (late 125, 75 and
     # 25 ms), where the old sender stamped them 150, 200 and 250 ms (their plans) and reported nothing late.
@@ -154,8 +156,7 @@ def self_check(seconds=5.0, interval=0.05):
     ok_jump = (real and stamped_late == [3, 4, 5] and late[2] >= 100 and late[3] >= 50 and late[4] >= 1
                and max(late[0], late[1], late[5]) < SENDER_VALID_MS)
     # Part 2: the real clock and a real socket.
-    import socket as socketlib
-    a, b = socketlib.socketpair()
+    a, b = socket.socketpair()
     receiver = subprocess.Popen([sys.executable, "-I", "-c", RECEIVER, str(b.fileno())], pass_fds=(b.fileno(),),
                                 stdout=subprocess.PIPE, text=True)
     b.close()
@@ -163,14 +164,23 @@ def self_check(seconds=5.0, interval=0.05):
 
     def send(k, at):
         a.sendall((json.dumps({"id": k, "method": "debug.key", "params": {"key": "a", "timestamp": at / 1e9}}) + "\n").encode())
-    time.sleep(0.2)  # the receiver is up
-    late = paced_send(NOW_NS(), count, int(interval * 1e9), send)
-    a.close()
-    got = json.loads(receiver.communicate(timeout=30)[0] or "[]")
+    late, got = [], []
+    try:
+        time.sleep(0.2)  # the receiver is up
+        late = paced_send(NOW_NS(), count, int(interval * 1e9), send)
+        a.close()
+        got = json.loads(receiver.communicate(timeout=30)[0] or "[]")
+    except (OSError, ValueError, subprocess.TimeoutExpired) as error:
+        result["error"] = repr(error)
+    finally:
+        a.close()
+        if receiver.poll() is None:
+            receiver.kill()
+            receiver.wait()
     transit = [round((at - stamp * 1e9) / 1e6, 3) for stamp, at in got]
     result["real"] = {"keys": count, "received": len(got), "late_ms": typing_report.distribution(late, mean=False),
                       "stamp_to_arrival_ms": typing_report.distribution(transit, mean=False)}
-    ok_real = (len(got) == count and max(late) <= SENDER_VALID_MS and min(transit) >= -0.001
+    ok_real = (bool(got) and len(got) == count and max(late) <= SENDER_VALID_MS and min(transit) >= -0.001
                and max(transit) <= SENDER_VALID_MS)
     result["ok"] = ok_jump and ok_real
     note(f"FIRST5S-SELFCHECK {'pass' if result['ok'] else 'FAIL'}: jump {json.dumps(result['jump'])}; "
@@ -387,7 +397,7 @@ class NextApp:
 
     def play(self, name, modifiers, typed):
         """The open shortcut, then a letter every --interval, all on ONE control connection: each `debug.key` line
-        is written at its scheduled time and stamped with it (the client's CLOCK_UPTIME_RAW, the probe's clock),
+        is written at its scheduled time and stamped with the time it really left (the client's CLOCK_UPTIME_RAW, the probe's clock),
         and a reader thread takes the replies, so no key waits for an earlier reply or a new connection. The
         server runs a connection's requests in order as input (MainActorWorkQueue.drainInput), so a key that waits
         for a busy main thread or a held key counts that wait, as a person's key queued in the window server does.
@@ -965,6 +975,7 @@ def print_send_late(name, scenario, rounds):
     vals = [k["send_late_ms"] for r in rounds for k in r["keys"] if k.get("send_late_ms") is not None]
     late = typing_report.distribution(vals, mean=False)
     valid = bool(vals) and max(vals) <= SENDER_VALID_MS
+    # Classic keys wait for each reply (simulate_shortcut), so there lateness includes the app's reply time.
     note(f"FIRST5S-SENDER {name} {scenario}: key sent after its planned time, ms {late}"
          f"{'' if valid else f' NOT VALID (a key left over {SENDER_VALID_MS} ms late)'}")
     return {"late_ms": late, "sender_valid": valid}
@@ -995,6 +1006,9 @@ def main():
               "home_is_account_home": os.path.realpath(os.environ.get("HOME", "")) == os.path.realpath(account_home())}
     # The sender's check on this host first (2 s): a host whose spin cannot keep 1 ms gives no valid run.
     result["sender_self_check"] = self_check(seconds=2.0, interval=opts.interval)
+    if not result["sender_self_check"]["ok"]:
+        note("first5s: NOT VALID: the sender's self-check failed on this host (FIRST5S-SELFCHECK above)")
+    result["valid"] = result["sender_self_check"]["ok"]
     zdot = None
     if not opts.no_shell:
         try:
