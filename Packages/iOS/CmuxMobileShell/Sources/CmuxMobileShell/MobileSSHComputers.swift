@@ -137,6 +137,9 @@ public final class MobileSSHComputers {
     @ObservationIgnored private var replayBySurface: [String: Data] = [:]
     /// Live browser attachments by scoped panel id (D23).
     @ObservationIgnored private var browserSessions: [String: any MobileSSHAttachedBrowser] = [:]
+    /// Generation of the browser stream that owns each panel ID.
+    @ObservationIgnored private var browserGenerations: [String: UInt64] = [:]
+    @ObservationIgnored private var nextBrowserGeneration: UInt64 = 0
     /// Latest page metadata per panel, for descriptors built between events.
     @ObservationIgnored private var browserPageSize: [String: (width: Double, height: Double)] = [:]
     @ObservationIgnored private var browserMetadata: [String: MobileBrowserStateEvent] = [:]
@@ -551,7 +554,10 @@ public final class MobileSSHComputers {
             .filter { MobileSSHIdentifier($0).hostID == hostID }
             .compactMap { removeAttachment(surfaceID: $0) }
         let panelIDs = browserSessions.keys.filter { MobileSSHIdentifier($0).hostID == hostID }
-        let browsers = panelIDs.compactMap { browserSessions.removeValue(forKey: $0) }
+        let browsers = panelIDs.compactMap { panelID -> (any MobileSSHAttachedBrowser)? in
+            browserGenerations[panelID] = nil
+            return browserSessions.removeValue(forKey: panelID)
+        }
         stopAllPortForwards(hostID: hostID)
         statusByHost[hostID] = .idle
         if let host = host(id: hostID) { publish(host: host) }
@@ -1190,14 +1196,22 @@ extension MobileSSHComputers {
             throw MobileSSHRuntimeError.browserUnavailable
         }
         if browserSessions[panelID] == nil {
+            nextBrowserGeneration &+= 1
+            let generation = nextBrowserGeneration
+            browserGenerations[panelID] = generation
             guard let provider = try await provider(for: hostID).provider(for: parsed) as? any MobileSSHBrowserProviding else {
+                browserGenerations[panelID] = nil
                 throw MobileSSHRuntimeError.browserUnavailable
             }
             let session = try await provider.attachBrowser(
                 browserID: parsed.providerID,
                 viewport: viewport.map { ($0.width, $0.height) }
             ) { [weak self] event in
-                self?.handleBrowser(event, panelID: panelID)
+                self?.handleBrowser(event, panelID: panelID, generation: generation)
+            }
+            guard browserGenerations[panelID] == generation else {
+                await session.detach()
+                throw MobileSSHConnectionAttemptSuperseded()
             }
             if browserSessions[panelID] != nil {
                 // Lost a race with another start; keep the first stream.
@@ -1212,6 +1226,7 @@ extension MobileSSHComputers {
 
     /// Detaches a browser stream. The tab keeps running on the server.
     func stopBrowser(panelID: String) async {
+        browserGenerations[panelID] = nil
         guard let session = browserSessions.removeValue(forKey: panelID) else { return }
         await session.detach()
     }
@@ -1225,7 +1240,8 @@ extension MobileSSHComputers {
         return nil
     }
 
-    private func handleBrowser(_ event: MobileSSHBrowserEvent, panelID: String) {
+    private func handleBrowser(_ event: MobileSSHBrowserEvent, panelID: String, generation: UInt64) {
+        guard browserGenerations[panelID] == generation else { return }
         switch event {
         case let .state(url, title, isLoading, failure):
             let state = MobileBrowserStateEvent(
