@@ -73,7 +73,9 @@ fn files(
         }
         "opencode" | "opencode-v2" => {
             let data = env("XDG_DATA_HOME")
+                .filter(|value| !value.is_empty())
                 .map(PathBuf::from)
+                .filter(|path| path.is_absolute())
                 .unwrap_or_else(|| home.join(".local/share"));
             vec![(data.join("opencode/auth.json"), Reader::OpencodeAuth)]
         }
