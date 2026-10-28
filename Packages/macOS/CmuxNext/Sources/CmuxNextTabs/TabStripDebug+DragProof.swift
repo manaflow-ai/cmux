@@ -24,10 +24,11 @@ extension TabStripDebug {
             }
         }
         send(.leftMouseDown, 0)
+        // One step a frame: a precise deadline on the strip's placer (16 ms is under the 36 ms precise bound).
+        let tick = MainDeadline(owner: "debug.frame_strip.drag", workClass: .visible, alignment: .precise, scheduler: strip.deadlines)
         for step in 1...12 {
-            let tick = DemandTimer(owner: "debug.frame_strip.drag")
             _ = try? await withOnceContinuation { (done: OnceContinuation<Void, OnceContinuationError>) in
-                tick.scheduleOnMain(after: .milliseconds(16)) { done.resume(returning: ()) }
+                tick.schedule(after: .milliseconds(16)) { done.resume(returning: ()) }
             }
             send(.leftMouseDragged, CGFloat(step) * 18)
             if step == 4 { midway() }

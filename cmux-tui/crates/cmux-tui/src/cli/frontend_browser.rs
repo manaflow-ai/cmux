@@ -70,7 +70,7 @@ pub(super) fn owning_app(global: &GlobalArgs, daemon_socket: &Path) -> Option<Un
 /// belongs to (app.rs `app_owns_daemon`).
 pub(super) fn app_daemon_is(daemon_socket: &Path) -> bool {
     let exe = std::env::current_exe().ok();
-    crate::app_identity::AppIdentity::detect(|key| std::env::var(key).ok(), exe.as_deref())
+    crate::app_identity::AppIdentity::detect(super::caller_env::var, exe.as_deref())
         .is_some_and(|identity| super::app::app_owns_daemon(&identity, daemon_socket))
 }
 
@@ -113,7 +113,7 @@ pub(super) fn run_in_app(
 /// session. An agent session (`CMUX_AGENT_SESSION`) names no terminal: the
 /// app places its tab beside the agent's chat (`caller` in `action.run`).
 fn caller_terminal(caller_route: bool) -> Option<String> {
-    let env = |key: &str| std::env::var(key).ok().filter(|value| !value.is_empty());
+    let env = |key: &str| super::caller_env::var(key).filter(|value| !value.is_empty());
     if !caller_route || env("CMUX_AGENT_SESSION").is_some() {
         return None;
     }
@@ -126,7 +126,7 @@ fn caller_terminal(caller_route: bool) -> Option<String> {
 /// session, so it is never named there; `null` sends no caller at all
 /// (`app::with_caller`).
 fn other_session_caller() -> Value {
-    super::app::caller_from(|key| std::env::var(key).ok())
+    super::app::caller_from(super::caller_env::var)
         .filter(|caller| caller.get("agent_session").is_some())
         .unwrap_or(Value::Null)
 }

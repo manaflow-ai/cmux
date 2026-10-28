@@ -17,28 +17,28 @@ pub(super) struct ReaderCompletion {
 
 impl ReaderCompletion {
     pub(super) fn reset(&self) {
-        *self.finished.lock().unwrap() = false;
+        *self.finished.lock().recover_poison() = false;
     }
 
     /// Whether the reader thread has ended.
     pub(super) fn is_complete(&self) -> bool {
-        *self.finished.lock().unwrap()
+        *self.finished.lock().recover_poison()
     }
 
     pub(super) fn complete(&self) {
-        let mut finished = self.finished.lock().unwrap();
+        let mut finished = self.finished.lock().recover_poison();
         *finished = true;
         self.changed.notify_all();
     }
 
     pub(super) fn wait_until(&self, deadline: Instant) -> bool {
-        let mut finished = self.finished.lock().unwrap();
+        let mut finished = self.finished.lock().recover_poison();
         while !*finished {
             let remaining = deadline.saturating_duration_since(Instant::now());
             if remaining.is_zero() {
                 return false;
             }
-            let (next, result) = self.changed.wait_timeout(finished, remaining).unwrap();
+            let (next, result) = self.changed.wait_timeout(finished, remaining).recover_poison();
             finished = next;
             if result.timed_out() && !*finished {
                 return false;
@@ -110,7 +110,7 @@ impl PtyTerminalRuntime {
         &self,
         bytes: &[u8],
     ) -> Vec<crate::terminal_metadata::TerminalNotification> {
-        let mut metadata = self.terminal_metadata.lock().unwrap();
+        let mut metadata = self.terminal_metadata.lock().recover_poison();
         if !bytes.is_empty() {
             metadata.activity.note_output(crate::workspace_registry::unix_epoch_ms().unwrap_or(0));
         }
@@ -131,7 +131,7 @@ impl PtyTerminalRuntime {
         recording: impl FnOnce() -> bool,
     ) -> Vec<crate::shell_history::FinishedCommand> {
         let marks = {
-            let mut metadata = self.terminal_metadata.lock().unwrap();
+            let mut metadata = self.terminal_metadata.lock().recover_poison();
             // The modes after this output: a running command that took the
             // terminal for interaction is `in_use`, not `running`.
             metadata.observe_modes(|| crate::terminal_activity::terminal_modes(term));
@@ -140,7 +140,7 @@ impl PtyTerminalRuntime {
         if marks.is_empty() {
             return Vec::new();
         }
-        let mut tracker = self.command_tracker.lock().unwrap();
+        let mut tracker = self.command_tracker.lock().recover_poison();
         if !recording() {
             tracker.reset();
             return Vec::new();
@@ -151,11 +151,11 @@ impl PtyTerminalRuntime {
     }
 
     pub(super) fn terminal_osc_progress(&self) -> String {
-        self.terminal_metadata.lock().unwrap().osc_progress().to_string()
+        self.terminal_metadata.lock().recover_poison().osc_progress().to_string()
     }
 
     pub(super) fn begin_terminal_journal_update(&self) -> Option<TerminalJournalUpdateGuard<'_>> {
-        let _gate = self.journal_capture_gate.lock().unwrap();
+        let _gate = self.journal_capture_gate.lock().recover_poison();
         if !self.journal_capture_open.load(Ordering::Acquire) {
             return None;
         }
@@ -165,7 +165,7 @@ impl PtyTerminalRuntime {
     }
 
     pub(super) fn close_terminal_journal_capture_when_idle(&self, deadline: Instant) -> bool {
-        let mut gate = self.journal_capture_gate.lock().unwrap();
+        let mut gate = self.journal_capture_gate.lock().recover_poison();
         let active_deadline = deadline + Duration::from_secs(2);
         loop {
             if !self.journal_capture_reserved.load(Ordering::Acquire)
@@ -194,11 +194,13 @@ impl PtyTerminalRuntime {
                     );
                     return true;
                 }
-                let (next, _) = self.journal_capture_idle.wait_timeout(gate, remaining).unwrap();
+                let (next, _) =
+                    self.journal_capture_idle.wait_timeout(gate, remaining).recover_poison();
                 gate = next;
             } else {
                 let remaining = deadline.saturating_duration_since(Instant::now());
-                let (next, _) = self.journal_capture_idle.wait_timeout(gate, remaining).unwrap();
+                let (next, _) =
+                    self.journal_capture_idle.wait_timeout(gate, remaining).recover_poison();
                 gate = next;
             }
         }
@@ -256,6 +258,12 @@ pub struct PtyTerminalRuntime {
     /// journal barrier.
     pub(super) reader_thread: Mutex<Option<TerminalReader>>,
     pub(super) reader_completion: Arc<ReaderCompletion>,
+    /// The class this terminal's own reader and parser threads run at: the
+    /// echo class while a view shows it, utility while none does
+    /// (`surface/thread_qos.rs`). The threads apply it themselves after
+    /// their next wake. A direct PTY read on the owner's shared read loop
+    /// has no thread of its own to follow it.
+    pub(super) thread_qos: cmux_threads::DesiredQos,
     /// Owned child-reaper fence. Shutdown uses the same bounded deadline
     /// as the reader so the child wait cannot outlive terminal teardown.
     pub(super) reaper_thread: Mutex<Option<LocalReaper>>,
@@ -272,6 +280,10 @@ pub struct PtyTerminalRuntime {
     pub(super) command_tracker: Mutex<crate::shell_history::CommandTracker>,
     pub(super) mouse_encoders: RankedMutex<Box<MouseEncoders>>,
     pub(super) runtime: RankedMutex<PtyRuntime>,
+    /// The terminal's input FIFO: every input to it (any view, connection
+    /// or thread) writes all of its bytes in one turn of it, in arrival
+    /// order (crate::pty_input_fifo).
+    pub(super) input_fifo: crate::pty_input_fifo::PtyInputFifo,
     /// Explicit lifecycle authority for this process. Session content may
     /// survive a daemon replacement through a durable host; daemon-owned
     /// auxiliaries must terminate with the backend that created them.
@@ -308,6 +320,12 @@ pub struct PtyTerminalRuntime {
     pub(super) pwd: Mutex<Option<String>>,
     pub(super) published_directory: Mutex<PublishedDirectory>,
     pub(super) directory_pending: AtomicBool,
+    /// A publication of this terminal's cwd and progress is queued on the
+    /// mux's work lane (`Surface::post_pending_publications`): its output
+    /// threads queue at most one at a time.
+    pub(super) publication_posted: AtomicBool,
+    /// This terminal's publications, in order, one at a time.
+    pub(super) publications: Arc<crate::mux::mux_work::Sequence>,
     /// A shell has reported a directory at least once; only then is a later
     /// absent report a clear rather than the still-unreported launch directory.
     pub(super) directory_reported: AtomicBool,

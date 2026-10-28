@@ -143,6 +143,18 @@ public final class HangReportCollector: Sendable {
         }
     }
 
+    /// One daemon site (``DaemonDiagnosticSite``, from the app's `BlockingReportSink` on a background lane): kept
+    /// once as a ``HangSample/Source/daemon`` sample, under the blocking samples' rules (none when the wire
+    /// schema has no blocking samples, kept before the setting is read, a site already kept adds nothing).
+    public func noteDaemonSite(_ site: DaemonDiagnosticSite) {
+        guard resolveBlocking != nil, acceptsUndecided else { return }
+        let sample = HangSample.daemonSite(site)
+        state.withLock { state in
+            guard acceptsUndecided else { return }
+            state.aggregate.keep(sample)
+        }
+    }
+
     /// On, or the setting not read yet: what launch replays (blocking sites, other processes' hang lines) is kept.
     private var acceptsUndecided: Bool {
         isEnabled || !decided.load(ordering: .relaxed)
@@ -189,6 +201,22 @@ public final class HangReportCollector: Sendable {
         guard !addresses.isEmpty, state.withLock({ $0.aggregate.wantsThreadHangSample(durationMs: ms) }) else { return }
         keepLater(.threadHang(thread, durationMs: ms, frames: []), addresses: addresses)
     }
+
+    /// One hang of the Chromium Host's UI thread, 250 ms or longer (main thread; task p01-process-084): the host
+    /// measured it and sends no stack (its stack is in the host's own dump at 10 s), so it is kept frameless, as a
+    /// watched thread's hang named ``hostUIThread``, in the thread hang slots: it never pushes the app's own main
+    /// thread hang out, and it counts in none of the app's histograms. Nothing when the wire schema has none.
+    public func noteHostHang(durationNanos: UInt64) {
+        guard isEnabled, keepsThreadHangs else { return }
+        let ms = Self.milliseconds(durationNanos)
+        state.withLock { state in
+            guard state.aggregate.wantsThreadHangSample(durationMs: ms) else { return }
+            state.aggregate.keep(.threadHang(Self.hostUIThread, durationMs: ms, frames: []))
+        }
+    }
+
+    /// The Chromium Host's UI thread in a hang report: the host's main thread.
+    public static let hostUIThread = HangSample.WatchedThread(name: "chromium-host.ui", kind: "main")
 
     /// One watched thread of another cmux process (a Rust process's `hangs-<pid>.jsonl` line, read by the app's
     /// Rust diagnostics forwarder on its utility queue) whose scope ran `durationMs` past its deadline: kept with the

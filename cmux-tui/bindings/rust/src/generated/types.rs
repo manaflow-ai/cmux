@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 7eb274630f633e9ac0d047904d92944dbb00b4f9dcb8b2c809d8a6871ce0a777.
+// cmux-tui mux protocol 12, IR 8a9866283a47ec9e7be97f2560dca821030bc2dbfa05a573677c94e172d2b72d.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -1646,6 +1646,8 @@ pub struct IdentifyResult {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub crate_version: Optional<String>,
     pub daemon_handoff: u64,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub framed_methods: Optional<Vec<u16>>,
     pub generation: String,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub ghostty_commit: Optional<String>,
@@ -1668,6 +1670,8 @@ pub struct IdentifyResult {
     pub pid: u32,
     pub protocol: u32,
     pub registry_id: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub sdk_schema_digest: Optional<String>,
     pub session: String,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
@@ -2428,6 +2432,21 @@ pub struct ServerStatsConnections {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsHangRecord {
+    pub duration_ms: u64,
+    pub sequence: u64,
+    pub span: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsHangs {
+    pub over_250ms: u64,
+    pub records: Vec<ServerStatsHangRecord>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ServerStatsHistogram {
     pub count: u64,
     pub max: u64,
@@ -2679,6 +2698,8 @@ pub struct ServerStatsResult {
     pub connections: ServerStatsConnections,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub dispatch_queue_us: Option<ServerStatsHistogram>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub hangs: Option<ServerStatsHangs>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub ipc: Option<ServerStatsIpc>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]

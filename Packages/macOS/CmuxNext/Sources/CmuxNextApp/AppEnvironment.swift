@@ -1,3 +1,5 @@
+import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextControl
@@ -74,9 +76,6 @@ struct AppEnvironment: Sendable {
     /// The kept web update (`WebUpdates`, NIGHTLY): its state and verified tree, read on a launch lane from `main`.
     /// Nil where the bundle takes no web updates and in tests that build `AppServices`.
     var webUpdates: LaunchRead<WebUpdates.Launch?>?
-    /// The daemon's launch snapshot, read and decoded on the files lane from `main` (p08-startup-074): the local
-    /// daemon's start takes it over. Without it (tests that build `AppServices`) the start posts its own read.
-    var launchSnapshot: LaunchSnapshotPrefetch?
     #if DEBUG || CMUX_BENCH_HOOKS
     /// The launch's main-job census (`CMUX_NEXT_MAIN_JOB_CENSUS=1`, p08-startup-080): `debug.startup.main_jobs` reads it.
     /// Only the real app process arms it.
@@ -101,6 +100,11 @@ struct AppEnvironment: Sendable {
     /// This Mac's layout templates (`LayoutTemplateRepository`): only the real app process sets
     /// it; without it templates live in memory only (tests that build `AppServices`).
     var layoutTemplatesFile: URL?
+    /// The acpmux this app starts (``AcpmuxEnvironment/resolve(build:bundledBinDirectory:environment:userHome:uid:isExecutable:launchEnvironment:)``),
+    /// resolved once on the system lane from `main`: its trust check reads this app's signature and hashes the
+    /// binary, so the main thread never makes it. The value is nil while it runs (``QuitAgents/environment(_:)``).
+    /// Only the real app process starts it; tests that build `AppServices` have none (no acpmux).
+    var appAcpmux: LaunchRead<AcpmuxEnvironment?>?
     /// The folder of the Home caches (drafts, scroll anchors, sends, attachment blobs, the Home
     /// list's launch state): only the real app process sets it (the user's Caches folder); without
     /// it each `HomeService` uses a temporary folder of its own (tests that build `AppServices`), so
@@ -117,6 +121,9 @@ struct AppEnvironment: Sendable {
     /// hermetic home the `terminals` facet rewrites to `$ROOT` and `$HOME` before hashing (schemas/oracle/README.md).
     var oracleRoot: String?
     var launchHome: String?
+    /// The action catalog's launch build, which the registry takes: the real app process passes the one
+    /// its launch warm-up thread builds (`LaunchWarmup`); tests that build `AppServices` build it on main.
+    var actionCatalog = ActionCatalogLaunch()
 
     var tag: String? { launch.tag }
     /// The build whose state roots this app uses (per-build isolation, cx-is1kf).

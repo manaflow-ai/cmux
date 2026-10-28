@@ -5,8 +5,10 @@
 //! section 3). The surface is small on purpose: received bytes in, access
 //! units, messages and feedback datagrams out; upstream media frames in,
 //! datagrams out. No I/O, no threads, no async
-//! runtime. Every entry point catches panics; a panic poisons the receiver
-//! and every later call on it returns `CMUX_RD_ERR_PANIC`.
+//! runtime. Every entry point runs its body in cmux-ffi-guard's boundary: a
+//! panic is recorded for `cmux_ffi_take_panic`, the call returns its error
+//! value, and a panic inside a handle call poisons that handle, so every
+//! later call on it returns `CMUX_RD_ERR_PANIC`.
 
 mod bulk_ffi;
 mod input;
@@ -17,8 +19,7 @@ mod session;
 mod session_ffi;
 mod upstream_ffi;
 
-use std::panic::{AssertUnwindSafe, catch_unwind};
-
+use cmux_ffi_guard::ffi_boundary;
 use cmux_rd_core::reassembly::CompleteFrame;
 use cmux_rd_proto::{STREAM_BULK, STREAM_CONTROL, STREAM_DATAGRAM, encode_stream_frame};
 
@@ -92,24 +93,42 @@ pub struct CmuxRdReceiver {
     poisoned: bool,
 }
 
-/// Runs `f` on a live receiver; maps NULL, a poisoned receiver and panics to codes.
+/// A handle the C ABI hands out: a panic in the middle of a call leaves it
+/// poisoned.
+pub(crate) trait Poison {
+    fn poisoned(&mut self) -> &mut bool;
+}
+
+/// Runs `f` on a live handle; maps NULL and a poisoned handle to codes. The
+/// handle is marked poisoned for the length of `f`: when `f` panics, the
+/// export's boundary returns `CMUX_RD_ERR_PANIC` and the mark stays.
+///
+/// # Safety
+/// `ptr` is NULL or a live pointer from its `new` function that no other call
+/// uses at the same time.
+pub(crate) unsafe fn with_handle<T: Poison>(ptr: *mut T, f: impl FnOnce(&mut T) -> i32) -> i32 {
+    // SAFETY: guaranteed by the caller.
+    let Some(handle) = (unsafe { ptr.as_mut() }) else { return CMUX_RD_ERR_NULL };
+    if *handle.poisoned() {
+        return CMUX_RD_ERR_PANIC;
+    }
+    *handle.poisoned() = true;
+    let code = f(handle);
+    *handle.poisoned() = false;
+    code
+}
+
+impl Poison for CmuxRdReceiver {
+    fn poisoned(&mut self) -> &mut bool {
+        &mut self.poisoned
+    }
+}
+
+/// [`with_handle`] for a receiver.
 fn with_receiver(ptr: *mut CmuxRdReceiver, f: impl FnOnce(&mut CmuxRdReceiver) -> i32) -> i32 {
     // SAFETY: the caller passes NULL or a pointer from cmux_rd_receiver_new that
     // it has not freed, and does not call into the same receiver concurrently.
-    let Some(handle) = (unsafe { ptr.as_mut() }) else { return CMUX_RD_ERR_NULL };
-    if handle.poisoned {
-        return CMUX_RD_ERR_PANIC;
-    }
-    match catch_unwind(AssertUnwindSafe(|| f(handle))) {
-        Ok(code) => code,
-        Err(_) => {
-            // SAFETY: as above; the closure's borrow ended when it unwound.
-            if let Some(handle) = unsafe { ptr.as_mut() } {
-                handle.poisoned = true;
-            }
-            CMUX_RD_ERR_PANIC
-        }
-    }
+    unsafe { with_handle(ptr, f) }
 }
 
 /// Borrows `len` bytes at `ptr`; NULL is allowed only for zero bytes.
@@ -166,10 +185,11 @@ pub(crate) fn error_code(error: &ReceiverError) -> i32 {
 /// Returns [`ABI_VERSION`].
 #[unsafe(no_mangle)]
 pub extern "C" fn cmux_rd_ffi_abi_version() -> u32 {
+    // ffi-nopanic: returns a constant.
     ABI_VERSION
 }
 
-/// Creates a receiver; NULL for an unknown carrier. Free it with
+/// Creates a receiver; NULL for an unknown carrier or a panic. Free it with
 /// [`cmux_rd_receiver_free`].
 #[unsafe(no_mangle)]
 pub extern "C" fn cmux_rd_receiver_new(
@@ -177,12 +197,12 @@ pub extern "C" fn cmux_rd_receiver_new(
     deadline_us: u64,
     nack_after_us: u64,
 ) -> *mut CmuxRdReceiver {
-    let carrier = match carrier {
-        CMUX_RD_CARRIER_DATAGRAM => Carrier::Datagram,
-        CMUX_RD_CARRIER_STREAM => Carrier::Stream,
-        _ => return std::ptr::null_mut(),
-    };
-    catch_unwind(|| {
+    ffi_boundary("cmux_rd_receiver_new", std::ptr::null_mut(), || {
+        let carrier = match carrier {
+            CMUX_RD_CARRIER_DATAGRAM => Carrier::Datagram,
+            CMUX_RD_CARRIER_STREAM => Carrier::Stream,
+            _ => return std::ptr::null_mut(),
+        };
         Box::into_raw(Box::new(CmuxRdReceiver {
             inner: Receiver::new(carrier, deadline_us, nack_after_us),
             current_frame: None,
@@ -191,7 +211,6 @@ pub extern "C" fn cmux_rd_receiver_new(
             poisoned: false,
         }))
     })
-    .unwrap_or(std::ptr::null_mut())
 }
 
 /// Frees a receiver; NULL is ignored.
@@ -200,12 +219,12 @@ pub extern "C" fn cmux_rd_receiver_new(
 /// `receiver` is NULL or came from [`cmux_rd_receiver_new`] and is not used again.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_rd_receiver_free(receiver: *mut CmuxRdReceiver) {
-    if receiver.is_null() {
-        return;
-    }
-    // SAFETY: guaranteed by the caller; the box is dropped exactly once.
-    let owned = unsafe { Box::from_raw(receiver) };
-    let _ = catch_unwind(AssertUnwindSafe(move || drop(owned)));
+    ffi_boundary("cmux_rd_receiver_free", (), || {
+        if !receiver.is_null() {
+            // SAFETY: guaranteed by the caller; the box is dropped exactly once.
+            drop(unsafe { Box::from_raw(receiver) });
+        }
+    });
 }
 
 /// Adds one datagram (datagram carrier). Returns the number of ready frames.
@@ -219,11 +238,13 @@ pub unsafe extern "C" fn cmux_rd_receiver_push_datagram(
     len: usize,
     now_us: u64,
 ) -> i32 {
-    // SAFETY: guaranteed by the caller.
-    let Some(bytes) = (unsafe { bytes_in(bytes, len) }) else { return CMUX_RD_ERR_NULL };
-    with_receiver(receiver, |h| match h.inner.push_datagram(bytes, now_us) {
-        Ok(()) => ready_count(h),
-        Err(e) => error_code(&e),
+    ffi_boundary("cmux_rd_receiver_push_datagram", CMUX_RD_ERR_PANIC, || {
+        // SAFETY: guaranteed by the caller.
+        let Some(bytes) = (unsafe { bytes_in(bytes, len) }) else { return CMUX_RD_ERR_NULL };
+        with_receiver(receiver, |h| match h.inner.push_datagram(bytes, now_us) {
+            Ok(()) => ready_count(h),
+            Err(e) => error_code(&e),
+        })
     })
 }
 
@@ -238,11 +259,13 @@ pub unsafe extern "C" fn cmux_rd_receiver_push_stream(
     len: usize,
     now_us: u64,
 ) -> i32 {
-    // SAFETY: guaranteed by the caller.
-    let Some(bytes) = (unsafe { bytes_in(bytes, len) }) else { return CMUX_RD_ERR_NULL };
-    with_receiver(receiver, |h| match h.inner.push_stream(bytes, now_us) {
-        Ok(()) => ready_count(h),
-        Err(e) => error_code(&e),
+    ffi_boundary("cmux_rd_receiver_push_stream", CMUX_RD_ERR_PANIC, || {
+        // SAFETY: guaranteed by the caller.
+        let Some(bytes) = (unsafe { bytes_in(bytes, len) }) else { return CMUX_RD_ERR_NULL };
+        with_receiver(receiver, |h| match h.inner.push_stream(bytes, now_us) {
+            Ok(()) => ready_count(h),
+            Err(e) => error_code(&e),
+        })
     })
 }
 
@@ -252,9 +275,11 @@ pub unsafe extern "C" fn cmux_rd_receiver_push_stream(
 /// `receiver` is valid.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_rd_receiver_tick(receiver: *mut CmuxRdReceiver, now_us: u64) -> i32 {
-    with_receiver(receiver, |h| {
-        h.inner.tick(now_us);
-        ready_count(h)
+    ffi_boundary("cmux_rd_receiver_tick", CMUX_RD_ERR_PANIC, || {
+        with_receiver(receiver, |h| {
+            h.inner.tick(now_us);
+            ready_count(h)
+        })
     })
 }
 
@@ -267,23 +292,25 @@ pub unsafe extern "C" fn cmux_rd_receiver_pop_frame(
     receiver: *mut CmuxRdReceiver,
     out: *mut CmuxRdFrame,
 ) -> i32 {
-    if out.is_null() {
-        return CMUX_RD_ERR_NULL;
-    }
-    with_receiver(receiver, |h| {
-        h.current_frame = h.inner.pop_frame();
-        let Some(frame) = h.current_frame.as_ref() else { return 0 };
-        let value = CmuxRdFrame {
-            t_capture_us: frame.body.t_capture_us,
-            data: frame.body.access_unit.as_ptr(),
-            len: frame.body.access_unit.len(),
-            frame: frame.frame,
-            ref_frame: frame.body.ref_frame,
-            flags: frame.flags,
-        };
-        // SAFETY: checked non-NULL; writable by contract.
-        unsafe { out.write(value) };
-        1
+    ffi_boundary("cmux_rd_receiver_pop_frame", CMUX_RD_ERR_PANIC, || {
+        if out.is_null() {
+            return CMUX_RD_ERR_NULL;
+        }
+        with_receiver(receiver, |h| {
+            h.current_frame = h.inner.pop_frame();
+            let Some(frame) = h.current_frame.as_ref() else { return 0 };
+            let value = CmuxRdFrame {
+                t_capture_us: frame.body.t_capture_us,
+                data: frame.body.access_unit.as_ptr(),
+                len: frame.body.access_unit.len(),
+                frame: frame.frame,
+                ref_frame: frame.body.ref_frame,
+                flags: frame.flags,
+            };
+            // SAFETY: checked non-NULL; writable by contract.
+            unsafe { out.write(value) };
+            1
+        })
     })
 }
 
@@ -296,20 +323,22 @@ pub unsafe extern "C" fn cmux_rd_receiver_pop_message(
     receiver: *mut CmuxRdReceiver,
     out: *mut CmuxRdMessage,
 ) -> i32 {
-    if out.is_null() {
-        return CMUX_RD_ERR_NULL;
-    }
-    with_receiver(receiver, |h| {
-        h.current_message = h.inner.pop_message();
-        let Some(message) = h.current_message.as_ref() else { return 0 };
-        let value = CmuxRdMessage {
-            data: message.bytes.as_ptr(),
-            len: message.bytes.len(),
-            kind: message.kind,
-        };
-        // SAFETY: checked non-NULL; writable by contract.
-        unsafe { out.write(value) };
-        1
+    ffi_boundary("cmux_rd_receiver_pop_message", CMUX_RD_ERR_PANIC, || {
+        if out.is_null() {
+            return CMUX_RD_ERR_NULL;
+        }
+        with_receiver(receiver, |h| {
+            h.current_message = h.inner.pop_message();
+            let Some(message) = h.current_message.as_ref() else { return 0 };
+            let value = CmuxRdMessage {
+                data: message.bytes.as_ptr(),
+                len: message.bytes.len(),
+                kind: message.kind,
+            };
+            // SAFETY: checked non-NULL; writable by contract.
+            unsafe { out.write(value) };
+            1
+        })
     })
 }
 
@@ -322,9 +351,11 @@ pub unsafe extern "C" fn cmux_rd_receiver_note_decode(
     receiver: *mut CmuxRdReceiver,
     decode_us: u32,
 ) -> i32 {
-    with_receiver(receiver, |h| {
-        h.inner.note_decode(decode_us);
-        CMUX_RD_OK
+    ffi_boundary("cmux_rd_receiver_note_decode", CMUX_RD_ERR_PANIC, || {
+        with_receiver(receiver, |h| {
+            h.inner.note_decode(decode_us);
+            CMUX_RD_OK
+        })
     })
 }
 
@@ -334,9 +365,11 @@ pub unsafe extern "C" fn cmux_rd_receiver_note_decode(
 /// `receiver` is valid.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_rd_receiver_request_keyframe(receiver: *mut CmuxRdReceiver) -> i32 {
-    with_receiver(receiver, |h| {
-        h.inner.request_keyframe();
-        CMUX_RD_OK
+    ffi_boundary("cmux_rd_receiver_request_keyframe", CMUX_RD_ERR_PANIC, || {
+        with_receiver(receiver, |h| {
+            h.inner.request_keyframe();
+            CMUX_RD_OK
+        })
     })
 }
 
@@ -354,26 +387,27 @@ pub unsafe extern "C" fn cmux_rd_receiver_feedback(
     cap: usize,
     out_len: *mut usize,
 ) -> i32 {
-    if out_len.is_null() {
-        return CMUX_RD_ERR_NULL;
-    }
-    // SAFETY: checked non-NULL; writable by contract. Every path, including a
-    // NULL or unusable receiver, leaves a defined length.
-    unsafe { *out_len = 0 };
-    with_receiver(receiver, |h| {
-        let Some(datagram) = h.stashed_feedback.take().or_else(|| h.inner.feedback(now_us)) else {
-            // SAFETY: checked non-NULL; writable by contract.
-            unsafe { *out_len = 0 };
-            return 0;
-        };
-        // SAFETY: guaranteed by the caller.
-        match unsafe { copy_out(&datagram, out, cap, out_len) } {
-            CMUX_RD_OK => 1,
-            code => {
-                h.stashed_feedback = Some(datagram);
-                code
-            }
+    ffi_boundary("cmux_rd_receiver_feedback", CMUX_RD_ERR_PANIC, || {
+        if out_len.is_null() {
+            return CMUX_RD_ERR_NULL;
         }
+        // SAFETY: checked non-NULL; writable by contract. Every path, including a
+        // NULL or unusable receiver, leaves a defined length.
+        unsafe { *out_len = 0 };
+        with_receiver(receiver, |h| {
+            let Some(datagram) = h.stashed_feedback.take().or_else(|| h.inner.feedback(now_us))
+            else {
+                return 0;
+            };
+            // SAFETY: guaranteed by the caller.
+            match unsafe { copy_out(&datagram, out, cap, out_len) } {
+                CMUX_RD_OK => 1,
+                code => {
+                    h.stashed_feedback = Some(datagram);
+                    code
+                }
+            }
+        })
     })
 }
 
@@ -384,15 +418,17 @@ pub unsafe extern "C" fn cmux_rd_receiver_feedback(
 /// `receiver` is NULL or valid.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_rd_receiver_next_deadline_us(receiver: *const CmuxRdReceiver) -> u64 {
-    // SAFETY: guaranteed by the caller.
-    let Some(handle) = (unsafe { receiver.as_ref() }) else { return u64::MAX };
-    if handle.poisoned {
-        return u64::MAX;
-    }
-    if handle.stashed_feedback.is_some() {
-        return 0;
-    }
-    catch_unwind(AssertUnwindSafe(|| handle.inner.next_deadline_us())).unwrap_or(u64::MAX)
+    ffi_boundary("cmux_rd_receiver_next_deadline_us", u64::MAX, || {
+        // SAFETY: guaranteed by the caller.
+        let Some(handle) = (unsafe { receiver.as_ref() }) else { return u64::MAX };
+        if handle.poisoned {
+            return u64::MAX;
+        }
+        if handle.stashed_feedback.is_some() {
+            return 0;
+        }
+        handle.inner.next_deadline_us()
+    })
 }
 
 /// Fills the status counters.
@@ -404,20 +440,22 @@ pub unsafe extern "C" fn cmux_rd_receiver_stats(
     receiver: *const CmuxRdReceiver,
     out: *mut CmuxRdStats,
 ) -> i32 {
-    if out.is_null() {
-        return CMUX_RD_ERR_NULL;
-    }
-    with_receiver(receiver.cast_mut(), |h| {
-        let s = h.inner.stats();
-        let value = CmuxRdStats {
-            frames_released: s.frames_released,
-            frames_lost: s.frames_lost,
-            acked_frame: s.acked_frame,
-            need_recovery: s.need_recovery,
-        };
-        // SAFETY: checked non-NULL; writable by contract.
-        unsafe { out.write(value) };
-        CMUX_RD_OK
+    ffi_boundary("cmux_rd_receiver_stats", CMUX_RD_ERR_PANIC, || {
+        if out.is_null() {
+            return CMUX_RD_ERR_NULL;
+        }
+        with_receiver(receiver.cast_mut(), |h| {
+            let s = h.inner.stats();
+            let value = CmuxRdStats {
+                frames_released: s.frames_released,
+                frames_lost: s.frames_lost,
+                acked_frame: s.acked_frame,
+                need_recovery: s.need_recovery,
+            };
+            // SAFETY: checked non-NULL; writable by contract.
+            unsafe { out.write(value) };
+            CMUX_RD_OK
+        })
     })
 }
 
@@ -435,13 +473,13 @@ pub unsafe extern "C" fn cmux_rd_encode_stream_frame(
     cap: usize,
     out_len: *mut usize,
 ) -> i32 {
-    // SAFETY: guaranteed by the caller.
-    let Some(payload) = (unsafe { bytes_in(payload, len) }) else { return CMUX_RD_ERR_NULL };
-    let Ok(kind) = u8::try_from(kind) else { return CMUX_RD_ERR_INVALID };
-    if !matches!(kind, STREAM_CONTROL | STREAM_DATAGRAM | STREAM_BULK) {
-        return CMUX_RD_ERR_INVALID;
-    }
-    catch_unwind(|| {
+    ffi_boundary("cmux_rd_encode_stream_frame", CMUX_RD_ERR_PANIC, || {
+        // SAFETY: guaranteed by the caller.
+        let Some(payload) = (unsafe { bytes_in(payload, len) }) else { return CMUX_RD_ERR_NULL };
+        let Ok(kind) = u8::try_from(kind) else { return CMUX_RD_ERR_INVALID };
+        if !matches!(kind, STREAM_CONTROL | STREAM_DATAGRAM | STREAM_BULK) {
+            return CMUX_RD_ERR_INVALID;
+        }
         let mut framed = Vec::new();
         if encode_stream_frame(kind, payload, &mut framed).is_err() {
             return CMUX_RD_ERR_INVALID;
@@ -449,9 +487,10 @@ pub unsafe extern "C" fn cmux_rd_encode_stream_frame(
         // SAFETY: guaranteed by the caller.
         unsafe { copy_out(&framed, out, cap, out_len) }
     })
-    .unwrap_or(CMUX_RD_ERR_PANIC)
 }
 
+#[cfg(test)]
+mod boundary_tests;
 #[cfg(test)]
 mod bulk_tests;
 #[cfg(test)]

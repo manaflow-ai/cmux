@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CryptoKit
 public import Foundation
 import Security
@@ -25,7 +26,7 @@ public struct KeychainAccountLabelSalt: AccountLabelSaltProviding {
         add[kSecValueData as String] = fresh
         add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
         add[kSecAttrLabel as String] = "cmux account label salt"
-        let status = SecItemAdd(add as CFDictionary, nil)
+        let status = blockingSecItemAdd(add as CFDictionary, nil)
         if status == errSecSuccess { return fresh }
         // Another process created it first: use that one.
         if status == errSecDuplicateItem, let existing = try read() { return existing }
@@ -41,7 +42,7 @@ public struct KeychainAccountLabelSalt: AccountLabelSaltProviding {
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         var result: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        let status = blockingSecItemCopyMatching(query as CFDictionary, &result)
         if status == errSecItemNotFound { return nil }
         guard status == errSecSuccess, let data = result as? Data else { throw ProviderKeyStoreError(status: status) }
         return data

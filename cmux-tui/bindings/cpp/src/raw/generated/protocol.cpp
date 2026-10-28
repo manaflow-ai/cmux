@@ -7264,6 +7264,11 @@ Result<Json> Codec<IdentifyResult>::encode(const IdentifyResult& value) {
         object.emplace("crate_version", std::move(encoded).value());
     }
     object.emplace("daemon_handoff", Json(static_cast<std::uint64_t>(1ULL)));
+    if (!value.framed_methods.is_absent()) {
+        auto encoded = encode_value(value.framed_methods);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("framed_methods", std::move(encoded).value());
+    }
     auto encoded_generation = encode_value(value.generation);
     if (!encoded_generation) return std::move(encoded_generation).error();
     object.emplace("generation", std::move(encoded_generation).value());
@@ -7321,6 +7326,11 @@ Result<Json> Codec<IdentifyResult>::encode(const IdentifyResult& value) {
     auto encoded_registry_id = encode_value(value.registry_id);
     if (!encoded_registry_id) return std::move(encoded_registry_id).error();
     object.emplace("registry_id", std::move(encoded_registry_id).value());
+    if (!value.sdk_schema_digest.is_absent()) {
+        auto encoded = encode_value(value.sdk_schema_digest);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("sdk_schema_digest", std::move(encoded).value());
+    }
     auto encoded_session = encode_value(value.session);
     if (!encoded_session) return std::move(encoded_session).error();
     object.emplace("session", std::move(encoded_session).value());
@@ -7434,6 +7444,16 @@ Result<IdentifyResult> Codec<IdentifyResult>::decode(const Json& value) {
             return make_error(ErrorCode::decode, "field 'daemon_handoff' has the wrong literal value");
         }
     }
+    const Json* field_framed_methods = value.find("framed_methods");
+    if (field_framed_methods) {
+        if (field_framed_methods->is_null()) {
+            result.framed_methods = Field<std::vector<std::uint16_t>>::null();
+        } else {
+            auto decoded = decode_value<std::vector<std::uint16_t>>(*field_framed_methods);
+            if (!decoded) return std::move(decoded).error();
+            result.framed_methods = Field<std::vector<std::uint16_t>>(std::move(decoded).value());
+        }
+    }
     const Json* field_generation = value.find("generation");
     if (!field_generation) {
         return make_error(ErrorCode::decode, "missing required field 'generation'");
@@ -7539,6 +7559,16 @@ Result<IdentifyResult> Codec<IdentifyResult>::decode(const Json& value) {
         auto decoded = decode_value<std::string>(*field_registry_id);
         if (!decoded) return std::move(decoded).error();
         result.registry_id = std::move(decoded).value();
+    }
+    const Json* field_sdk_schema_digest = value.find("sdk_schema_digest");
+    if (field_sdk_schema_digest) {
+        if (field_sdk_schema_digest->is_null()) {
+            result.sdk_schema_digest = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_sdk_schema_digest);
+            if (!decoded) return std::move(decoded).error();
+            result.sdk_schema_digest = Field<std::string>(std::move(decoded).value());
+        }
     }
     const Json* field_session = value.find("session");
     if (!field_session) {
@@ -11928,6 +11958,92 @@ Result<ServerStatsConnections> Codec<ServerStatsConnections>::decode(const Json&
     return result;
 }
 
+Result<Json> Codec<ServerStatsHangRecord>::encode(const ServerStatsHangRecord& value) {
+    (void)value;
+    Json::Object object;
+    auto encoded_duration_ms = encode_value(value.duration_ms);
+    if (!encoded_duration_ms) return std::move(encoded_duration_ms).error();
+    object.emplace("duration_ms", std::move(encoded_duration_ms).value());
+    auto encoded_sequence = encode_value(value.sequence);
+    if (!encoded_sequence) return std::move(encoded_sequence).error();
+    object.emplace("sequence", std::move(encoded_sequence).value());
+    auto encoded_span = encode_value(value.span);
+    if (!encoded_span) return std::move(encoded_span).error();
+    object.emplace("span", std::move(encoded_span).value());
+    return Json(std::move(object));
+}
+
+Result<ServerStatsHangRecord> Codec<ServerStatsHangRecord>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    ServerStatsHangRecord result{};
+    const Json* field_duration_ms = value.find("duration_ms");
+    if (!field_duration_ms) {
+        return make_error(ErrorCode::decode, "missing required field 'duration_ms'");
+    }
+    if (field_duration_ms) {
+        auto decoded = decode_value<std::uint64_t>(*field_duration_ms);
+        if (!decoded) return std::move(decoded).error();
+        result.duration_ms = std::move(decoded).value();
+    }
+    const Json* field_sequence = value.find("sequence");
+    if (!field_sequence) {
+        return make_error(ErrorCode::decode, "missing required field 'sequence'");
+    }
+    if (field_sequence) {
+        auto decoded = decode_value<std::uint64_t>(*field_sequence);
+        if (!decoded) return std::move(decoded).error();
+        result.sequence = std::move(decoded).value();
+    }
+    const Json* field_span = value.find("span");
+    if (!field_span) {
+        return make_error(ErrorCode::decode, "missing required field 'span'");
+    }
+    if (field_span) {
+        auto decoded = decode_value<std::string>(*field_span);
+        if (!decoded) return std::move(decoded).error();
+        result.span = std::move(decoded).value();
+    }
+    return result;
+}
+
+Result<Json> Codec<ServerStatsHangs>::encode(const ServerStatsHangs& value) {
+    (void)value;
+    Json::Object object;
+    auto encoded_over_250ms = encode_value(value.over_250ms);
+    if (!encoded_over_250ms) return std::move(encoded_over_250ms).error();
+    object.emplace("over_250ms", std::move(encoded_over_250ms).value());
+    auto encoded_records = encode_value(value.records);
+    if (!encoded_records) return std::move(encoded_records).error();
+    object.emplace("records", std::move(encoded_records).value());
+    return Json(std::move(object));
+}
+
+Result<ServerStatsHangs> Codec<ServerStatsHangs>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    ServerStatsHangs result{};
+    const Json* field_over_250ms = value.find("over_250ms");
+    if (!field_over_250ms) {
+        return make_error(ErrorCode::decode, "missing required field 'over_250ms'");
+    }
+    if (field_over_250ms) {
+        auto decoded = decode_value<std::uint64_t>(*field_over_250ms);
+        if (!decoded) return std::move(decoded).error();
+        result.over_250ms = std::move(decoded).value();
+    }
+    const Json* field_records = value.find("records");
+    if (!field_records) {
+        return make_error(ErrorCode::decode, "missing required field 'records'");
+    }
+    if (field_records) {
+        auto decoded = decode_value<std::vector<ServerStatsHangRecord>>(*field_records);
+        if (!decoded) return std::move(decoded).error();
+        result.records = std::move(decoded).value();
+    }
+    return result;
+}
+
 Result<Json> Codec<ServerStatsHistogram>::encode(const ServerStatsHistogram& value) {
     (void)value;
     Json::Object object;
@@ -13815,6 +13931,11 @@ Result<Json> Codec<ServerStatsResult>::encode(const ServerStatsResult& value) {
         if (!encoded) return std::move(encoded).error();
         object.emplace("dispatch_queue_us", std::move(encoded).value());
     }
+    if (value.hangs) {
+        auto encoded = encode_value(*value.hangs);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("hangs", std::move(encoded).value());
+    }
     if (value.ipc) {
         auto encoded = encode_value(*value.ipc);
         if (!encoded) return std::move(encoded).error();
@@ -13892,6 +14013,12 @@ Result<ServerStatsResult> Codec<ServerStatsResult>::decode(const Json& value) {
         auto decoded = decode_value<ServerStatsHistogram>(*field_dispatch_queue_us);
         if (!decoded) return std::move(decoded).error();
         result.dispatch_queue_us = std::move(decoded).value();
+    }
+    const Json* field_hangs = value.find("hangs");
+    if (field_hangs) {
+        auto decoded = decode_value<ServerStatsHangs>(*field_hangs);
+        if (!decoded) return std::move(decoded).error();
+        result.hangs = std::move(decoded).value();
     }
     const Json* field_ipc = value.find("ipc");
     if (field_ipc) {
@@ -46308,6 +46435,65 @@ Result<HistoryChangedEvent> Codec<HistoryChangedEvent>::decode(const Json& value
     return result;
 }
 
+Result<Json> Codec<InputFailedEvent>::encode(const InputFailedEvent& value) {
+    (void)value;
+    Json::Object object;
+    object.emplace("event", Json(std::string("input-failed")));
+    auto encoded_bytes = encode_value(value.bytes);
+    if (!encoded_bytes) return std::move(encoded_bytes).error();
+    object.emplace("bytes", std::move(encoded_bytes).value());
+    auto encoded_reason = encode_value(value.reason);
+    if (!encoded_reason) return std::move(encoded_reason).error();
+    object.emplace("reason", std::move(encoded_reason).value());
+    auto encoded_stream = encode_value(value.stream);
+    if (!encoded_stream) return std::move(encoded_stream).error();
+    object.emplace("stream", std::move(encoded_stream).value());
+    return Json(std::move(object));
+}
+
+Result<InputFailedEvent> Codec<InputFailedEvent>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    InputFailedEvent result{};
+    const Json* field_bytes = value.find("bytes");
+    if (!field_bytes) {
+        return make_error(ErrorCode::decode, "missing required field 'bytes'");
+    }
+    if (field_bytes) {
+        auto decoded = decode_value<std::uint64_t>(*field_bytes);
+        if (!decoded) return std::move(decoded).error();
+        result.bytes = std::move(decoded).value();
+    }
+    const Json* field_reason = value.find("reason");
+    if (!field_reason) {
+        return make_error(ErrorCode::decode, "missing required field 'reason'");
+    }
+    if (field_reason) {
+        auto decoded = decode_value<InputFailedEventReason>(*field_reason);
+        if (!decoded) return std::move(decoded).error();
+        result.reason = std::move(decoded).value();
+    }
+    const Json* field_stream = value.find("stream");
+    if (!field_stream) {
+        return make_error(ErrorCode::decode, "missing required field 'stream'");
+    }
+    if (field_stream) {
+        auto decoded = decode_value<std::uint16_t>(*field_stream);
+        if (!decoded) return std::move(decoded).error();
+        result.stream = std::move(decoded).value();
+    }
+    const Json* field_event = value.find("event");
+    if (!field_event) {
+        return make_error(ErrorCode::decode, "missing required field 'event'");
+    }
+    if (field_event) {
+        if (*field_event != Json(std::string("input-failed"))) {
+            return make_error(ErrorCode::decode, "field 'event' has the wrong literal value");
+        }
+    }
+    return result;
+}
+
 Result<Json> Codec<KeybindingsChangedEvent>::encode(const KeybindingsChangedEvent& value) {
     (void)value;
     Json::Object object;
@@ -48215,6 +48401,119 @@ Result<ScrollChangedEvent> Codec<ScrollChangedEvent>::decode(const Json& value) 
     }
     if (field_event) {
         if (*field_event != Json(std::string("scroll-changed"))) {
+            return make_error(ErrorCode::decode, "field 'event' has the wrong literal value");
+        }
+    }
+    return result;
+}
+
+Result<Json> Codec<ServerDiagnosticSiteEvent>::encode(const ServerDiagnosticSiteEvent& value) {
+    (void)value;
+    Json::Object object;
+    object.emplace("event", Json(std::string("server-diagnostic-site")));
+    if (value.cause) {
+        auto encoded = encode_value(*value.cause);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("cause", std::move(encoded).value());
+    }
+    if (value.crate) {
+        auto encoded = encode_value(*value.crate);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("crate", std::move(encoded).value());
+    }
+    auto encoded_family = encode_value(value.family);
+    if (!encoded_family) return std::move(encoded_family).error();
+    object.emplace("family", std::move(encoded_family).value());
+    if (value.file_hash) {
+        auto encoded = encode_value(*value.file_hash);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("file_hash", std::move(encoded).value());
+    }
+    auto encoded_kind = encode_value(value.kind);
+    if (!encoded_kind) return std::move(encoded_kind).error();
+    object.emplace("kind", std::move(encoded_kind).value());
+    if (value.lane_sync) {
+        auto encoded = encode_value(*value.lane_sync);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("lane_sync", std::move(encoded).value());
+    }
+    if (value.line) {
+        auto encoded = encode_value(*value.line);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("line", std::move(encoded).value());
+    }
+    if (value.method) {
+        auto encoded = encode_value(*value.method);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("method", std::move(encoded).value());
+    }
+    return Json(std::move(object));
+}
+
+Result<ServerDiagnosticSiteEvent> Codec<ServerDiagnosticSiteEvent>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    ServerDiagnosticSiteEvent result{};
+    const Json* field_cause = value.find("cause");
+    if (field_cause) {
+        auto decoded = decode_value<EventCause>(*field_cause);
+        if (!decoded) return std::move(decoded).error();
+        result.cause = std::move(decoded).value();
+    }
+    const Json* field_crate = value.find("crate");
+    if (field_crate) {
+        auto decoded = decode_value<std::string>(*field_crate);
+        if (!decoded) return std::move(decoded).error();
+        result.crate = std::move(decoded).value();
+    }
+    const Json* field_family = value.find("family");
+    if (!field_family) {
+        return make_error(ErrorCode::decode, "missing required field 'family'");
+    }
+    if (field_family) {
+        auto decoded = decode_value<ServerDiagnosticSiteEventFamily>(*field_family);
+        if (!decoded) return std::move(decoded).error();
+        result.family = std::move(decoded).value();
+    }
+    const Json* field_file_hash = value.find("file_hash");
+    if (field_file_hash) {
+        auto decoded = decode_value<std::string>(*field_file_hash);
+        if (!decoded) return std::move(decoded).error();
+        result.file_hash = std::move(decoded).value();
+    }
+    const Json* field_kind = value.find("kind");
+    if (!field_kind) {
+        return make_error(ErrorCode::decode, "missing required field 'kind'");
+    }
+    if (field_kind) {
+        auto decoded = decode_value<std::string>(*field_kind);
+        if (!decoded) return std::move(decoded).error();
+        result.kind = std::move(decoded).value();
+    }
+    const Json* field_lane_sync = value.find("lane_sync");
+    if (field_lane_sync) {
+        auto decoded = decode_value<bool>(*field_lane_sync);
+        if (!decoded) return std::move(decoded).error();
+        result.lane_sync = std::move(decoded).value();
+    }
+    const Json* field_line = value.find("line");
+    if (field_line) {
+        auto decoded = decode_value<std::uint32_t>(*field_line);
+        if (!decoded) return std::move(decoded).error();
+        result.line = std::move(decoded).value();
+    }
+    const Json* field_method = value.find("method");
+    if (field_method) {
+        auto decoded = decode_value<std::string>(*field_method);
+        if (!decoded) return std::move(decoded).error();
+        result.method = std::move(decoded).value();
+    }
+    const Json* field_event = value.find("event");
+    if (!field_event) {
+        return make_error(ErrorCode::decode, "missing required field 'event'");
+    }
+    if (field_event) {
+        if (*field_event != Json(std::string("server-diagnostic-site"))) {
             return make_error(ErrorCode::decode, "field 'event' has the wrong literal value");
         }
     }
@@ -52044,6 +52343,28 @@ Result<GraphicsStatusEventKind> Codec<GraphicsStatusEventKind>::decode(const Jso
     return make_error(ErrorCode::decode, "unknown GraphicsStatusEventKind value");
 }
 
+Result<Json> Codec<InputFailedEventReason>::encode(const InputFailedEventReason& value) {
+    switch (value) {
+        case InputFailedEventReason::terminal_ended: return Json(std::string("terminal_ended"));
+        case InputFailedEventReason::not_a_terminal: return Json(std::string("not_a_terminal"));
+        case InputFailedEventReason::write_failed: return Json(std::string("write_failed"));
+        case InputFailedEventReason::daemon_handoff: return Json(std::string("daemon_handoff"));
+        case InputFailedEventReason::overflow: return Json(std::string("overflow"));
+        case InputFailedEventReason::attach_failed: return Json(std::string("attach_failed"));
+    }
+    return make_error(ErrorCode::invalid_argument, "invalid enum value");
+}
+
+Result<InputFailedEventReason> Codec<InputFailedEventReason>::decode(const Json& value) {
+    if (value == Json(std::string("terminal_ended"))) return InputFailedEventReason::terminal_ended;
+    if (value == Json(std::string("not_a_terminal"))) return InputFailedEventReason::not_a_terminal;
+    if (value == Json(std::string("write_failed"))) return InputFailedEventReason::write_failed;
+    if (value == Json(std::string("daemon_handoff"))) return InputFailedEventReason::daemon_handoff;
+    if (value == Json(std::string("overflow"))) return InputFailedEventReason::overflow;
+    if (value == Json(std::string("attach_failed"))) return InputFailedEventReason::attach_failed;
+    return make_error(ErrorCode::decode, "unknown InputFailedEventReason value");
+}
+
 Result<Json> Codec<KeybindingsChangedEventOrigin>::encode(const KeybindingsChangedEventOrigin& value) {
     switch (value) {
         case KeybindingsChangedEventOrigin::user: return Json(std::string("user"));
@@ -52066,6 +52387,22 @@ Result<KeybindingsChangedEventOrigin> Codec<KeybindingsChangedEventOrigin>::deco
     if (value == Json(std::string("app"))) return KeybindingsChangedEventOrigin::app;
     if (value == Json(std::string("file"))) return KeybindingsChangedEventOrigin::file;
     return make_error(ErrorCode::decode, "unknown KeybindingsChangedEventOrigin value");
+}
+
+Result<Json> Codec<ServerDiagnosticSiteEventFamily>::encode(const ServerDiagnosticSiteEventFamily& value) {
+    switch (value) {
+        case ServerDiagnosticSiteEventFamily::blocking: return Json(std::string("blocking"));
+        case ServerDiagnosticSiteEventFamily::inversion: return Json(std::string("inversion"));
+        case ServerDiagnosticSiteEventFamily::hang: return Json(std::string("hang"));
+    }
+    return make_error(ErrorCode::invalid_argument, "invalid enum value");
+}
+
+Result<ServerDiagnosticSiteEventFamily> Codec<ServerDiagnosticSiteEventFamily>::decode(const Json& value) {
+    if (value == Json(std::string("blocking"))) return ServerDiagnosticSiteEventFamily::blocking;
+    if (value == Json(std::string("inversion"))) return ServerDiagnosticSiteEventFamily::inversion;
+    if (value == Json(std::string("hang"))) return ServerDiagnosticSiteEventFamily::hang;
+    return make_error(ErrorCode::decode, "unknown ServerDiagnosticSiteEventFamily value");
 }
 
 Result<Json> Codec<SettingsChangedEventOrigin>::encode(const SettingsChangedEventOrigin& value) {
@@ -52532,6 +52869,11 @@ Result<Event> Codec<Event>::decode(const Json& value) {
         if (!decoded) return std::move(decoded).error();
         return Event{Event::Variant(std::move(decoded).value()), value};
     }
+    if (name.value() == "input-failed") {
+        auto decoded = decode_value<InputFailedEvent>(value);
+        if (!decoded) return std::move(decoded).error();
+        return Event{Event::Variant(std::move(decoded).value()), value};
+    }
     if (name.value() == "keybindings-changed") {
         auto decoded = decode_value<KeybindingsChangedEvent>(value);
         if (!decoded) return std::move(decoded).error();
@@ -52659,6 +53001,11 @@ Result<Event> Codec<Event>::decode(const Json& value) {
     }
     if (name.value() == "scroll-changed") {
         auto decoded = decode_value<ScrollChangedEvent>(value);
+        if (!decoded) return std::move(decoded).error();
+        return Event{Event::Variant(std::move(decoded).value()), value};
+    }
+    if (name.value() == "server-diagnostic-site") {
+        auto decoded = decode_value<ServerDiagnosticSiteEvent>(value);
         if (!decoded) return std::move(decoded).error();
         return Event{Event::Variant(std::move(decoded).value()), value};
     }
@@ -53415,7 +53762,7 @@ constexpr std::array<CommandMetadata, 363> kCommands{{
     {"ws-listen", "local-admin", 12U, "ws-listen-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"zoom-pane", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
 }};
-constexpr std::array<EventMetadata, 93> kEvents{{
+constexpr std::array<EventMetadata, 95> kEvents{{
     {"activity-changed", 12U, "vm-activity-v1", "control", "emitted"},
     {"agent-changed", 11U, "", "subscribe", "emitted"},
     {"agent-inventory-changed", 12U, "agent-inventory-watch-v1", "control", "emitted"},
@@ -53456,6 +53803,7 @@ constexpr std::array<EventMetadata, 93> kEvents{{
     {"frontend-projection-changed", 7U, "", "subscribe", "emitted"},
     {"graphics-status", 10U, "", "subscribe", "emitted"},
     {"history-changed", 12U, "history-v1", "subscribe", "emitted"},
+    {"input-failed", 12U, "ipc-frames-v2", "attach-byte", "emitted"},
     {"keybindings-changed", 12U, "keybindings-v1", "subscribe", "emitted"},
     {"layout-changed", 6U, "", "subscribe", "emitted"},
     {"loopback-closed", 12U, "loopback-forward-v1", "control", "emitted"},
@@ -53482,6 +53830,7 @@ constexpr std::array<EventMetadata, 93> kEvents{{
     {"screen-renamed", 7U, "", "subscribe-deltas", "emitted"},
     {"script-log", 12U, "", "control", "emitted"},
     {"scroll-changed", 6U, "", "subscribe,attach-byte,attach-render,attach-browser", "emitted"},
+    {"server-diagnostic-site", 12U, "diagnostic-sites-v1", "subscribe", "emitted"},
     {"settings-changed", 12U, "settings-v1", "subscribe", "emitted"},
     {"size-state", 12U, "shared-sizing-v1", "subscribe,attach-byte,attach-render", "emitted"},
     {"status", 5U, "", "subscribe", "emitted"},

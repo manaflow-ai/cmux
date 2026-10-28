@@ -197,6 +197,11 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let shutdown: @convention(c) () -> Void
     /// Chromium never shows a window of its own (fork API 8; no-op before).
     let setWindowRequestHandler: @convention(c) (WindowRequestFn?) -> Void
+    /// `cmux_shim_set_window_request_policy`: windows, count, clicks, count, profile root, then the
+    /// Cmd, Shift-Cmd, Shift, Option and middle click actions (`CEFWindowRequestPolicy`).
+    let setWindowRequestPolicy: @convention(c) (
+        UnsafeRawPointer?, Int32, UnsafeRawPointer?, Int32, UnsafePointer<CChar>?, Int32, Int32, Int32, Int32, Int32
+    ) -> Void
     /// Chromium's own focus requests go through cmux (`CefFocusHandler`).
     let setFocusRequestHandler: @convention(c) (FocusRequestFn?) -> Void
     /// Browsers Chromium created outside cmux (fork API 8; -1 before).
@@ -290,10 +295,14 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let widgets: CEFShimWidgetOps
     /// Drops into a detached page (task 050, fork API 31).
     let dragTarget: CEFShimDragTargetOps
+    /// Pointer lock and keyboard lock (task 229, fork API 31).
+    let locks: CEFShimLockOps
     /// <select> popups as data (task 060, fork API 31).
     let popupMenus: CEFShimPopupMenuOps
     /// Autofill, password and `<datalist>` suggestions as data (task 061, fork API 31).
     let suggestions: CEFShimSuggestionOps
+    /// The color chooser, device choosers and screen-share picker as data (task 228, fork API 31).
+    let choosers: CEFShimChooserOps
     let textInput: CEFShimTextInputOps
     /// `cmux_shim_browser_attach_view(browser, parent_view)` (fork API 36, p03-rendering-044, Track B): moves the
     /// browser's `WebContentsViewCocoa` into `parent_view` (an NSView), below its other subviews; 1 attached, 0

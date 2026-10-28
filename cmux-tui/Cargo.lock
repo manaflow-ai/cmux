@@ -16,6 +16,7 @@ dependencies = [
  "cmux-codex-acp",
  "cmux-features",
  "cmux-git",
+ "cmux-hang-watch",
  "cmux-link",
  "cmux-local-auth",
  "cmux-lock-rank",
@@ -841,6 +842,7 @@ dependencies = [
  "cmux-panic-log",
  "cmux-pty",
  "cmux-server-core",
+ "cmux-threads",
  "futures-util",
  "getrandom 0.3.4",
  "http",
@@ -1098,6 +1100,7 @@ name = "cmux-config"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "cmux-threads",
  "core-foundation 0.10.1",
  "core-foundation-sys",
  "jsonschema",
@@ -1165,6 +1168,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-ffi-guard"
+version = "0.1.0"
+
+[[package]]
 name = "cmux-flow-trace"
 version = "0.1.0"
 dependencies = [
@@ -1216,12 +1223,15 @@ name = "cmux-holder"
 version = "0.1.0"
 dependencies = [
  "cmux-flow-trace",
+ "cmux-hang-watch",
  "cmux-ipc",
  "cmux-memory",
+ "cmux-panic-log",
  "cmux-process",
  "cmux-threads",
  "cmux-trace",
  "libc",
+ "serde_json",
 ]
 
 [[package]]
@@ -1356,6 +1366,7 @@ dependencies = [
 name = "cmux-palette-ranker"
 version = "0.1.0"
 dependencies = [
+ "cmux-ffi-guard",
  "serde",
  "serde_json",
  "unicode-general-category",
@@ -1684,6 +1695,7 @@ version = "0.1.0"
 dependencies = [
  "crossbeam-channel",
  "libc",
+ "tokio",
 ]
 
 [[package]]
@@ -1710,6 +1722,7 @@ dependencies = [
  "base64",
  "bytes",
  "cmux-agent-pane-policy",
+ "cmux-api-compat",
  "cmux-blocking",
  "cmux-build-identity",
  "cmux-config",
@@ -1966,6 +1979,7 @@ dependencies = [
  "getrandom 0.3.4",
  "libc",
  "rusqlite",
+ "serde",
  "serde_json",
 ]
 

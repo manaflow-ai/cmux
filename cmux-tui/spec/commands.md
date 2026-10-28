@@ -583,8 +583,8 @@ reads atomics and never touches SQLite or the journal, so it is safe to poll.
 
 Params: `{include?: array<string>|null}`. `include` names optional result
 sections: `resource_projection`, `write_path`, `request_path_io`,
-`slow_requests`, `requests`, `ipc`, `lock_classes` and `ipc_methods`;
-unknown names are ignored.
+`slow_requests`, `requests`, `ipc`, `lock_classes`, `ipc_methods` and
+`hangs`; unknown names are ignored.
 
 `lock_classes` reports wait and hold by class on the three locks that admit by
 class: the workspace registry, the registry connection (first acquisitions) and
@@ -665,7 +665,11 @@ object{
   ipc_methods?:array<object{
     method:string, id:uint16|null, trace_id:uint16, class:string,
     latency_us:percentiles, handler_us:percentiles, lock_wait_us:percentiles
-  }>
+  }>,
+  hangs?:object{
+    over_250ms:uint64,
+    records:array<object{sequence:uint64, span:string, duration_ms:uint64}>
+  }
 }
 kind_count = object{kind:string,messages:uint64,bytes:uint64}
 parse_count = object{requests:uint64,json_parses:uint64,json_parses_per_request:float64}
@@ -747,6 +751,17 @@ an echo item, scope named after its thread) once to the owner's hang log
 whose own loop pass ran past 100 ms reports it on its link (HANG_REPORT): one
 `holder-loop` line with `stack_error` `other-process`.
 `hangs` counts those lines, over every kind of scope.
+The `hangs` section counts every scope that watcher watches (all the kinds
+above; a holder's reported loop passes are not this process's) once it has
+been busy 250 ms, whatever its hang tier: `over_250ms` is the count since
+daemon start and is never reset, and `records` keeps the newest 64, oldest
+first, each with its `sequence` (1 for the first hang; a reader takes the
+records past the last sequence it saw), its `span` (`<scope>:<method>`, such
+as `mux-conn:workspace.create` or `journal-writer:commit-batch`) and its
+`duration_ms` (the final duration once it ended, how long it had run while it
+still runs). This is the report half of Chrome's HangWatcher: report only,
+never a kill. The perf lab's `daemon.hangs_over_250ms` is the growth of
+`over_250ms` over a measured window.
 With `CMUX_TUI_DEBUG_SPANS` set, each recorded request also appends a
 `slow-request` line with the method as its mark.
 `requests` adds `request_latency_us` and `dispatch_queue_us`, over every
@@ -1071,8 +1086,8 @@ result, `clients` included (the connections are read just after the cut).
 the same locked state as `session`; `subscriptions` is read just after it.
 `switches` maps each daemon refactor switch to the arm this daemon runs,
 `old` or `new`, frozen at the first read. The one switch so far is
-`terminal-holder` (`new` when the `terminalHolder` feature is on, or with the
-alias `CMUX_TUI_TERMINAL_HOST_MODEL=holder`); the
+`terminal-holder` (`new` when the `terminalHolder` feature is on, the default;
+`old` with a disable of it or the alias `CMUX_TUI_TERMINAL_HOST_MODEL=hosts`); the
 `CMUX_TUI_SWITCHES` parse of p15-oracle task 020 replaces that source.
 `terminalAttach` counts the terminal catalog: `dead`
 terminals have no process, `attached` ones are shown in at least one pane
@@ -1155,6 +1170,35 @@ Errors: `oracle state requires a trusted local connection`,
 `oracle restore preview requires a persistent session` (an in-memory
 session has no journal file to read), `bad request: ...`, and the reducer's
 errors (a gap in the journal, an unknown reducer version).
+
+### debug-panic
+
+| Field | Value |
+| --- | --- |
+| name | `debug-panic` |
+| status | implemented in debug builds and `--features bench` builds only |
+| since | protocol 12, no capability |
+
+Makes this daemon crash on purpose, for the crash matrix
+(`plans/cmux-next/chrome-parity/p09-observability.md`, task 101). A release
+daemon has no such command and answers `bad request: unknown variant`.
+Trusted local connections only; WebSocket and remote relay clients are
+refused before anything runs. acpmux has the same injector as
+`_acpmux/debug_panic {kind}`, on its local unix socket only.
+
+Params: `kind` (required string): `panic` (a Rust panic on the thread
+`debug-crash-inject`; the owner's panic log records it and the daemon keeps
+running), `abort` (SIGABRT) or `segv` (a store to an unmapped address,
+SIGSEGV). No other field.
+
+Result: `object{kind:string, pid:uint64}`, sent once the crash thread has
+started. For `abort` and `segv` the process may end before the reply is
+written.
+
+Errors: `debug-panic requires a trusted local connection`,
+`bad request: debug-panic kind must be panic, abort or segv`,
+`bad request: debug-panic takes no field ...`,
+`debug-panic could not start its thread: ...`.
 
 ### trace-start, trace-stop, trace-status
 
@@ -5234,7 +5278,10 @@ Sets (`true`/`false`) or clears (`null`) one participant's counts-toward-size
 override. At most one selector: `client:uint64` (that client's view of this
 placement), `lease:string` (the caller's own leased view), `view:string` (the
 caller's relay sub-view), or `participant:string`. Without a selector it
-targets the caller's own view.
+targets the caller's own view. With `lease`, `counts:false` also says the
+view is hidden and `null` that it shows again: with daemon feature
+`hiddenTerminalQos`, a terminal no view shows runs its threads at utility. The
+other selectors set only the sizing choice; the view still shows the terminal.
 
 Params: required `surface:Id` and `counts:bool|null`, plus the optional
 selector.
