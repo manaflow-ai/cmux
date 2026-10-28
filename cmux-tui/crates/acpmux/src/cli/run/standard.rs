@@ -356,12 +356,14 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             // A promptless `new` opens the full-screen TUI. In a pipe (the
             // common agent/scripting case), refuse before connecting so the
             // caller gets an immediate, stable usage error.
-            if new_without_prompt_requires_tty(
-                args.prompt.join(" ").trim().is_empty() && launch.file_prompt.is_none(),
-                args.detach,
-                std::io::stdin().is_terminal(),
-                std::io::stdout().is_terminal(),
-            ) {
+            if !json_out
+                && new_without_prompt_requires_tty(
+                    args.prompt.join(" ").trim().is_empty() && launch.file_prompt.is_none(),
+                    args.detach,
+                    std::io::stdin().is_terminal(),
+                    std::io::stdout().is_terminal(),
+                )
+            {
                 return Err(errors::AppError::usage(
                     "acpmux new without a prompt needs a terminal; pass a prompt or -d",
                 )
