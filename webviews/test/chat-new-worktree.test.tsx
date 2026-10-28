@@ -73,8 +73,8 @@ const openFolderMenu = async () => {
 };
 
 const menuItem = (name: string) =>
-  // The folder popover's action rows (FolderPopover.tsx) follow its folders.
-  [...dom.window.document.querySelectorAll<HTMLElement>("[role=menuitem], [role=option]")].find((item) =>
+  // Project actions are pinned under search, before the scrolling folders.
+  [...dom.window.document.querySelectorAll<HTMLElement>("[role=menuitem], [role=option], .ui-combobox-pinned button")].find((item) =>
     item.textContent?.includes(name),
   );
 
