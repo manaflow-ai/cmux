@@ -763,7 +763,8 @@ button.acpmux-chat-inspector-port:hover,
   flex: none;
   width: 7px;
   height: 7px;
-  margin: 6px 2px 0;
+  /* Center the seven-pixel status mark in the fourteen-pixel leading icon slot. */
+  margin: 6px 3.5px 0;
   border-radius: 50%;
   background: var(--agent-status-success);
 }
