@@ -738,6 +738,15 @@ class BaseReds(unittest.TestCase):
         self.assertIn("cmux app scheme compile (Debug): crash signal 11",
                       controller.expand_job("cmux app scheme compile (Debug)", 5, {"steps": steps}))
 
+    def test_an_unreadable_no_verdict_compile_log_is_keyed_by_its_own_job(self):
+        controller = self.controller()
+        steps = [{"name": "Wait", "conclusion": "failure"}]
+        controller.gh.gh.return_value = subprocess.CompletedProcess([], 1, "", "boom")
+        for name in ("cmux-next fleet Release compile", "cmux-next app compile (build fleet)"):
+            with self.subTest(name=name):
+                self.assertEqual(controller.expand_job(name, 7, {"steps": steps}),
+                                 {f"{name}: log unreadable (job 7, never a base red)"})
+
     def test_a_compile_with_no_verdict_is_keyed_by_its_own_job(self):
         """The fleet Release compile's "no result" compiled nothing: the base showing the same line (its own
         sha aside) excuses nothing."""

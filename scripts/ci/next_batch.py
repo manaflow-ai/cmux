@@ -1329,7 +1329,8 @@ class Controller:
         if log is None or not log.strip():
             # A test job's unreadable or empty log: nothing can show it is the base's, so it is this job's
             # own (fails closed). Any other job keeps its bare name, as before.
-            if base_red_excuse.test_reds.is_test_red(base_red_excuse.test_reds.Result(), name):
+            if (base_red_excuse.test_reds.is_test_red(base_red_excuse.test_reds.Result(), name)
+                    or name in base_red_excuse.NO_VERDICT_JOBS):
                 return {f"{name}: log unreadable (job {job_id}, never a base red)"}
             return {name}
         if base_red_excuse.no_verdict(log) is not None:

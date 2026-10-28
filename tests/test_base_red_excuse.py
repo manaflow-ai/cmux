@@ -483,8 +483,35 @@ class NoVerdictCompileIsNeverABaseRed(unittest.TestCase):
             self.judge()
 
     def test_only_commit_shas_are_masked(self):
-        self.assertEqual(excuse.mask_shas(f"defaced 1234567 accede deadbeef1 {HEAD} at 8f0c2e1 tree `5948da7`"),
-                         "defaced 1234567 accede deadbeef1 <sha> at <sha> tree `<sha>`")
+        self.assertEqual(excuse.mask_shas(f"defaced 1234567 accede deadbeef1 {HEAD} at 8f0c2e1 tree `5948da7` "
+                                          "commit 1234567 for abcdef12"),
+                         "defaced 1234567 accede deadbeef1 <sha> at 8f0c2e1 tree `<sha>` commit <sha> for abcdef12")
+
+    def test_hex_ids_after_a_generic_word_are_compared_as_they_are(self):
+        scheme = "cmux app scheme compile (Debug)"
+        self.gh.jobs = {1: failed_job(1, 10, HEAD, scheme, "Build"), 2: failed_job(2, 20, BASE_SHA, scheme, "Build")}
+        self.gh.logs[1] = log(scheme, "Build", "error: no artifact for deadbeef1")
+        self.gh.logs[2] = log(scheme, "Build", "error: no artifact for abcdef12")
+        with self.assertRaisesRegex(excuse.Refused, "artifact"):
+            self.judge()
+
+    def test_every_compile_status_state_but_fail_is_no_verdict(self):
+        """Fail closed: compile-status's own lines are a real red only for "(fail)"."""
+        for line in ("cmux-next/compile is not a pass for {} (pending)", "cmux-next/compile is not a pass for {} (pass)",
+                     "cmux-next/compile is not a pass for {} (last: queued)",
+                     "cmux-next/compile is not a pass for {} (unavailable)", "could not post the pending status",
+                     "bad head sha '{}'"):
+            with self.subTest(line=line):
+                self.gh.logs[1] = log(self.FLEET, self.STEP, "##[error]" + line.format(HEAD))
+                self.gh.logs[2] = log(self.FLEET, self.STEP, "##[error]" + line.format(BASE_SHA))
+                with self.assertRaisesRegex(excuse.Refused, "never a base red"):
+                    self.judge()
+
+    def test_a_real_fleet_compile_failure_is_compared_with_the_base(self):
+        line = "##[error]cmux-next/compile is not a pass for {} (fail)"
+        self.gh.logs[1] = log(self.FLEET, self.STEP, line.format(HEAD))
+        self.gh.logs[2] = log(self.FLEET, self.STEP, line.format(BASE_SHA))
+        self.assertIn(f"excused '{self.FLEET}'", "\n".join(self.judge()))
 
 
 class Script(unittest.TestCase):

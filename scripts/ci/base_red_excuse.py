@@ -73,19 +73,23 @@ STAMP = re.compile(r"^\d{4}-\d\d-\d\dT[\d:.]+Z ?")
 CRASH = re.compile(r"exited with unexpected signal code (\d+)|the test helper died on signal (\d+)")
 CRASH_LINE = re.compile(r"exited with unexpected signal code|the test helper died on signal|"
                         r"no \"Test run with\" summary line")
-# A commit sha inside an error line: a full 40-hex sha, or 7 to 39 hex digits (a digit and a letter among
-# them) right after a word that names a commit. The same red on the head and the base names each run's
+# A commit sha inside an error line: a full 40-hex sha, or 7 to 39 hex digits right after a word that
+# names a commit (commit, sha, tree, revision). The same red on the head and the base names each run's
 # own commit; any other hex id (an artifact, a hash) is compared as it is.
-SHA = re.compile(r"\b[0-9a-f]{40}\b|\b((?:commit|sha|tree|head|base|revision|ref|at|for) `?)"
-                 r"(?=[0-9a-f]*[0-9])(?=[0-9a-f]*[a-f])[0-9a-f]{7,39}\b")
+SHA = re.compile(r"\b[0-9a-f]{40}\b|\b((?:commit|sha|tree|revision) `?)[0-9a-f]{7,39}\b")
 # A compile check that gave no verdict (the build-fleet controller unreachable, timed out, or a result
 # for another head): nothing compiled the head, so it is never a base red, whatever the base shows
 # (2026-10-28: the fleet Release compile's "no result" was red on PRs and on the base alike while the
 # controller was wedged). It is set aside only when another job compiled that same head: COMPILE_PASSES.
 # Only the job's own ::error annotation counts (`##[error]` at the start of the line): the log also
 # echoes the step's script, which spells these words out on every run, a real compile red included.
-NO_VERDICT = re.compile(r"^##\[error\](?:cmux-next/compile is not a pass for [0-9a-f]{40} \((?:no result|unavailable|"
-                        r"mismatch|unreadable|last: [^)]*)\)|No build-fleet verdict for `[0-9a-f]{40}` )")
+# Fail closed: of compile-status's own lines, only "(fail)" is a real compile red; every other state (no result,
+# unavailable, mismatch, unreadable, pending, "last: ...", a pass it could not post) and a status it could not
+# post at all are no verdict.
+NO_VERDICT = re.compile(r"^##\[error\](?:cmux-next/compile is not a pass for \S+ \((?!fail\))|"
+                        r"could not post the pending status|bad head sha |No build-fleet verdict for `)")
+# The jobs that can end without a verdict: an unreadable log of one is never comparable either.
+NO_VERDICT_JOBS = frozenset({"cmux-next fleet Release compile", "cmux-next app compile (build fleet)"})
 # A real compile pass at the head: the Mac Release compile (a check run), or the fleet's cmux-next/compile
 # commit status.
 COMPILE_PASS_CHECKS = ("cmux-next Release compile (Xcode 26)",)
