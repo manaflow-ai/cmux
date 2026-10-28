@@ -239,14 +239,11 @@ public final class ChiefPetSettingsRows: NSObject {
     /// Makes `file` upload `key`'s, worn over `mascot`.
     private func upload(_ file: URL, for key: String, over mascot: String) {
         guard let uploads else { return }
-        // task-owner: one upload (read, drawn down and written off the main actor); ends with it
-        Task { [weak self] in
-            do throws(ChiefAvatarUploads.Refusal) {
-                try await uploads.store(from: file, for: key, over: mascot)
-            } catch {
-                NSSound.beep()
-                self?.onRefusal?(error.message)
-            }
+        // The upload's step joins the uploads' serial line now (read, drawn down and written off the
+        // main actor); a refusal comes back from that step.
+        uploads.startStore(from: file, for: key, over: mascot) { [weak self] error in
+            NSSound.beep()
+            self?.onRefusal?(error.message)
         }
     }
 

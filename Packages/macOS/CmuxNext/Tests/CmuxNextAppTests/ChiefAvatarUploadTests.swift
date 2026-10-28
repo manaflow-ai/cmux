@@ -124,6 +124,37 @@ import UniformTypeIdentifiers
         #expect(uploads.worn(of: key, over: "orb").flatMap { Self.pixels($0.still)?.0 } == 50)
     }
 
+    /// The rows' upload (`ChiefPetSettingsRows`) starts in the person's turn with no hop of its own: a
+    /// refusal comes back from the uploads' own step, and a good upload says nothing.
+    @Test(.timeLimit(.minutes(1))) func aStartedUploadReportsItsRefusalFromItsOwnStep() async throws {
+        let folder = try Self.folder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let uploads = ChiefAvatarUploads(folder: folder.appending(path: "uploads"))
+        let key = ChiefAvatarUploads.key(chief: Self.chief)
+        let bad = folder.appending(path: "bad.png")
+        try Data("not a picture".utf8).write(to: bad)
+        let refusals = AsyncStream<ChiefAvatarUploads.Refusal>.makeStream()
+        uploads.startStore(from: bad, for: key, over: "orb") { refusals.continuation.yield($0) }
+        var heard = refusals.stream.makeAsyncIterator()
+        #expect(await heard.next() == .unreadable)
+
+        let good = try Self.picture(.png, width: 50, height: 50, in: folder)
+        let goodRefused = Heard()
+        uploads.startStore(from: good, for: key, over: "orb") { goodRefused.refusal = $0 }
+        try await uploads.store(from: good, for: key, over: "orb")  // queued after it in the serial line
+        #expect(goodRefused.refusal == nil)
+        #expect(uploads.worn(of: key, over: "orb") != nil)
+
+        let unsaved = Heard()
+        ChiefAvatarUploads(folder: nil).startStore(from: good, for: key, over: "orb") { unsaved.refusal = $0 }
+        #expect(unsaved.refusal == .unsaved, "a store with no folder answers in the caller's turn")
+    }
+
+    /// The refusal a started upload reported (main actor, so the callback may set it).
+    @MainActor private final class Heard {
+        var refusal: ChiefAvatarUploads.Refusal?
+    }
+
     /// The four orders of (the launch listing, an upload, a removal, a pick) the person can make
     /// in, every one: what shows, and what the next launch finds, is the newest intent's.
     @Test func theNewestIntentWinsInEveryOrderAroundTheLaunchListing() async throws {

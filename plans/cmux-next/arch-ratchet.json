@@ -807,6 +807,30 @@
       "row": "blocking_allow_escapes",
       "allow": 4,
       "why": "cp/fix-server-helper-sources: CmuxNextCompatCore is the seam module the privileged server helper compiles whole without CmuxNextCompat (swift-atomics, the detector), so the Mac build's helper phase never compiles a hand-picked Compat file list again. Its four escapes are not main-thread blocking: Process.runOnOwnThread's process.run() moved unchanged from CmuxNextCompat/Threading (a seam folder the rule exempts) and runs on the dedicated thread it makes; RunningCodeSigningTeam's three Security calls each run inside the blockingCall its caller passes (the app's SigningTeamInstall passes CmuxNextCompat's checked blockingCall(.systemCall), so the detector still sees each; the helper passes CmuxThreading's). Chrome: the same ScopedBlockingCall seam in a lower component (base/threading/scoped_blocking_call.h)."
+    },
+    {
+      "date": "2026-10-28",
+      "row": "stateful_singletons",
+      "allow": 8,
+      "why": "Trunk sync (cp/sync-trunk-20261028a, lead decision 1 of fundamentals-perf.md): feat-cmux-next's own lines, unchanged, that merge origin/feat-cmux-next be569953fca brings into perf/chrome-parity. feat-cmux-next landed them under its own ratchet; perf's ratchet first counts them here, because a push that merges this branch's own upstream counts the trunk side again (arch-ratchet own_pair). Judged against the branch's pushed head a29537e2d0b the push adds no site (arch-ratchet.py --base a29537e2d0b: no count rises). Sites: AcpmuxMacApprover.shared, AcpmuxPeerReconnects.shared, AcpmuxUnresponsiveWatch.shared, AgentPaneCloudMachines.shared, DaemonUpdateBoard.shared, DaemonUpdatePolicy.shared (CmuxNextAgentPane); DebugWindowRecord.launchWatch, AppOnboardingServices.computerUseSource (CmuxNextApp). They go to the composition root when the landing slices move trunk's agent pane onto perf's injection (landing-plan.md)."
+    },
+    {
+      "date": "2026-10-28",
+      "row": "global_mutable_statics",
+      "allow": 21,
+      "why": "Trunk sync (cp/sync-trunk-20261028a, lead decision 1 of fundamentals-perf.md): feat-cmux-next's own lines, unchanged, that merge origin/feat-cmux-next be569953fca brings into perf/chrome-parity. feat-cmux-next landed them under its own ratchet; perf's ratchet first counts them here, because a push that merges this branch's own upstream counts the trunk side again (arch-ratchet own_pair). Judged against the branch's pushed head a29537e2d0b the push adds no site (arch-ratchet.py --base a29537e2d0b: no count rises). Sites: AgentTurnStateFeed.peerSessionChanged; AcpmuxDaemonSummary.restartingHomes, AcpmuxSocketOwner.stopping, AgentPanePeerApprovals.enroll and .daemons; DebugWindowRecord.launchRecorders and .launchSeen, RoomHandlers.tails, DebugAddDevice.listing; WorkspaceSelectionCloseFlow.running; GlassPanelView.windows and .pending; and 9 more trunk statics the ratchet names past its list of 12 (CmuxNextDesign 5, CmuxNextMobile 2, CmuxNextAgentPane 1, CmuxNextPages 1)."
+    },
+    {
+      "date": "2026-10-28",
+      "row": "observer_sites",
+      "allow": 5,
+      "why": "Trunk sync (cp/sync-trunk-20261028a, lead decision 1 of fundamentals-perf.md): feat-cmux-next's own lines, unchanged, that merge origin/feat-cmux-next be569953fca brings into perf/chrome-parity. feat-cmux-next landed them under its own ratchet; perf's ratchet first counts them here, because a push that merges this branch's own upstream counts the trunk side again (arch-ratchet own_pair). Judged against the branch's pushed head a29537e2d0b the push adds no site (arch-ratchet.py --base a29537e2d0b: no count rises). Sites: trunk's MacScreenPane notification loop, UpdateRelaunchMoment's observers, DebugWindowRecord's close observation and DesktopWallpaperWatch's four MainActorObservations, beyond the 8 the branch's earlier exceptions cover."
+    },
+    {
+      "date": "2026-10-28",
+      "row": "blocking_allow_escapes",
+      "allow": 1,
+      "why": "Trunk sync (cp/sync-trunk-20261028a, lead decision 1 of fundamentals-perf.md): feat-cmux-next's own lines, unchanged, that merge origin/feat-cmux-next be569953fca brings into perf/chrome-parity. feat-cmux-next landed them under its own ratchet; perf's ratchet first counts them here, because a push that merges this branch's own upstream counts the trunk side again (arch-ratchet own_pair). Judged against the branch's pushed head a29537e2d0b the push adds no site (arch-ratchet.py --base a29537e2d0b: no count rises). Sites: IPhoneHostService's allowBlocking(.terminate) flush of the paired-devices file and SingleInstanceGuard's // blocking-allow: in main before NSApp exists: two trunk sites, one beyond what the earlier exceptions cover."
     }
   ],
   "observer_wrappers": [

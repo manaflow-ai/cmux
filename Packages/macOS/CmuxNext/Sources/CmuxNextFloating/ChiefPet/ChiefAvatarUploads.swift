@@ -187,9 +187,22 @@ public final class ChiefAvatarUploads {
         try await storing(from: source, for: key, over: mascot).value.get()
     }
 
+    /// ``store(from:for:over:)`` started in the caller's turn, for a caller that need not wait: the
+    /// step takes its place in the line now, and `refused` hears why it failed, from that step (no
+    /// hop of the caller's own).
+    public func startStore(from source: URL, for key: String, over mascot: String,
+                           refused: @escaping @MainActor @Sendable (Refusal) -> Void) {
+        _ = storing(from: source, for: key, over: mascot, refused: refused)
+    }
+
     /// ``store(from:for:over:)``'s step, asked for now (its generation and its place in the line).
-    func storing(from source: URL, for key: String, over mascot: String) -> Task<Result<Void, Refusal>, Never> {
-        guard let folder, Self.isKey(key) else { return Task { .failure(.unsaved) } }
+    /// `refused`, when given, hears a failure on the main actor as the step ends.
+    func storing(from source: URL, for key: String, over mascot: String,
+                 refused: (@MainActor @Sendable (Refusal) -> Void)? = nil) -> Task<Result<Void, Refusal>, Never> {
+        guard let folder, Self.isKey(key) else {
+            refused?(.unsaved)
+            return Task { .failure(.unsaved) }
+        }
         let generation = tick()
         return serially { [weak self] in
             let result = await Task.detached(priority: WorkPriority.userBlocking.taskPriority) { () -> Result<(upload: Upload, image: CGImage), Refusal> in
@@ -206,6 +219,7 @@ public final class ChiefAvatarUploads {
             guard let self else { return .success(()) }
             switch result {
             case .failure(let refusal):
+                refused?(refusal)
                 return .failure(refusal)
             case .success(var stored):
                 // A removal asked for after this upload deletes it next in the line: it is not shown.
