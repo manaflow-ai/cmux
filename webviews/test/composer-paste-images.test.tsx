@@ -572,32 +572,38 @@ test("sending, undoing the clear, and resending never sends a sent attachment's 
   await act(async () => composer.current!.restore(`before ${inlineToken(image.id)} after`, [image]));
   await until(() => Boolean(field().querySelector("[data-inline-attachment] img")), "restored inline image");
   // A person sends a moment after writing: the field's history keeps the clear as its own step
-  // (prosemirror-history joins steps less than 500 ms apart).
-  await act(async () => new Promise((resolve) => setTimeout(resolve, 600)));
-  await act(async () => composer.current!.send());
-  expect(sent).toHaveLength(1);
-  expect(sent[0]!.attachments.map((attachment) => attachment.id)).toEqual([image.id]);
-  await until(() => !field().textContent?.includes("before"), "the cleared prompt");
-  // Undo, and a send in the same task, before anything after the undo ran.
-  await act(async () => {
-    markdownField().undo();
-    composer.current!.send();
-  });
-  await until(() => field().textContent?.includes("before") === true, "the undone clear");
-  for (let turn = 0; turn < 5; turn++) await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
-  expect(field().querySelector("[data-inline-attachment]")).toBeNull();
-  expect(field().textContent).not.toContain(MARK);
-  expect(markdownField().value()).not.toContain(MARK);
-  expect(composer.current!.wakeState().attachments ?? []).toEqual([]);
-  if (sent.length === 1) await act(async () => composer.current!.send());
-  expect(sent).toHaveLength(2);
-  const resent = sent[1]!;
-  expect(resent.attachments).toEqual([]);
-  expect(resent.text).toContain("before");
-  expect(resent.text).toContain("after");
-  expect(resent.text).not.toContain(MARK);
-  expect(resent.text).not.toContain(image.id);
-  expect(JSON.stringify(promptBlocks(resent.text, resent.attachments))).not.toContain(image.id);
+  // (prosemirror-history joins steps less than 500 ms apart, by each transaction's Date.now()). The
+  // clock moves past that gap instead of the test sleeping through it.
+  const now = Date.now;
+  Date.now = () => now() + 600;
+  try {
+    await act(async () => composer.current!.send());
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.attachments.map((attachment) => attachment.id)).toEqual([image.id]);
+    await until(() => !field().textContent?.includes("before"), "the cleared prompt");
+    // Undo, and a send in the same task, before anything after the undo ran.
+    await act(async () => {
+      markdownField().undo();
+      composer.current!.send();
+    });
+    await until(() => field().textContent?.includes("before") === true, "the undone clear");
+    for (let turn = 0; turn < 5; turn++) await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    expect(field().querySelector("[data-inline-attachment]")).toBeNull();
+    expect(field().textContent).not.toContain(MARK);
+    expect(markdownField().value()).not.toContain(MARK);
+    expect(composer.current!.wakeState().attachments ?? []).toEqual([]);
+    if (sent.length === 1) await act(async () => composer.current!.send());
+    expect(sent).toHaveLength(2);
+    const resent = sent[1]!;
+    expect(resent.attachments).toEqual([]);
+    expect(resent.text).toContain("before");
+    expect(resent.text).toContain("after");
+    expect(resent.text).not.toContain(MARK);
+    expect(resent.text).not.toContain(image.id);
+    expect(JSON.stringify(promptBlocks(resent.text, resent.attachments))).not.toContain(image.id);
+  } finally {
+    Date.now = now;
+  }
 });
 
 // Review of #26545: a failed attachment's Retry read its file again as a new paste under a new id,
