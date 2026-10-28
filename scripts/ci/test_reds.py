@@ -286,11 +286,12 @@ def read(log: str | None) -> Result:
               - {m.group(1) for text in lines for m in [SUITE_ENDED.search(text)] if m})
     if suites:
         result.truncated.append(f"{len(suites)} suite(s) started and never finished: " + "; ".join(sorted(suites)[:5]))
-    if any(re.match(r"^=+ test session starts =+$", text) for text in lines) and not any(
-            re.match(r"^=+ .*\bin [\d.]+s\b.*=+$", text) for text in lines):
+    last_end = max((n for n, text in enumerate(lines) if re.match(r"^=+ .*\bin [\d.]+s\b.*=+$", text)), default=-1)
+    if any(re.match(r"^=+ test session starts =+$", text) for text in lines[last_end + 1:]):
         result.truncated.append("a pytest session printed no closing summary")
-    if any(UNITTEST_LINE.match(text) for text in lines) and not any(
-            re.match(r"^Ran \d+ tests? in ", text) for text in lines):
+    # Per invocation: unittest activity after the last `Ran N tests` line is a run that never ended.
+    last_ran = max((n for n, text in enumerate(lines) if re.match(r"^Ran \d+ tests? in ", text)), default=-1)
+    if any(UNITTEST_LINE.match(text) for text in lines[last_ran + 1:]):
         result.truncated.append("a unittest run printed no `Ran N tests` line")
     running = sum(1 for text in lines if CARGO_RUNNING.match(text))
     if running > sum(1 for text in lines if text.startswith("test result: ")):

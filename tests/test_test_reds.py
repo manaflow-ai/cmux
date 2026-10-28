@@ -159,7 +159,9 @@ class PerTest(unittest.TestCase):
         reds.read(log("✔ Test run with " + "9" * 5000 + " tests in 1 suite passed after 0.1 seconds."))
         for cut in (log("============================= test session starts ==============================",
                         "FAILED test_mod.py::test_x"), log("FAIL: test_x (mod.T.test_x)"),
-                    log("test_a (mod.T.test_a) ... ok", "test_b (mod.T.test_b) ...")):
+                    log("test_a (mod.T.test_a) ... ok", "test_b (mod.T.test_b) ..."),
+                    log("FAIL: test_old (mod.T.test_old)", "Ran 1 test in 0.001s", "FAILED (failures=1)",
+                        "test_new (mod.T.test_new) ...")):
             with self.subTest(cut):
                 self.assertTrue(reds.classify(cut, cut).own)
 
