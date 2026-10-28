@@ -30,6 +30,12 @@ public final class KeyboardLayoutKeys {
         self.readTyped = readTyped
     }
 
+    /// The keyboard is ISO (the key left of 1 is kVK_ISO_Section): `KBGetLayoutType` of the keyboard
+    /// type the events come from.
+    public var isISO: Bool {
+        KBGetLayoutType(Int16(LMGetKbdType())) == kKeyboardISO
+    }
+
     /// Whether the selected layout types `character` on some key with no modifier (Dvorak types `[`,
     /// German does not: it is Option-5 there).
     public func typesUnshifted(_ character: String) -> Bool {

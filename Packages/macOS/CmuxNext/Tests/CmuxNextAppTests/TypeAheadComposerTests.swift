@@ -64,8 +64,23 @@ import Testing
         #expect(router.typeAheadKey(try Self.key("", ignoring: "^", keyCode: 33)) == .deadKey)
         #expect(router.typeAheadKey(try Self.key("e", ignoring: "e", keyCode: 14)) == .text("ê"))
 
+        // Caps Lock: the layout's translation keeps it (A, not a).
+        let caps = KeyRouter(registry: .standard())
+        caps.typeAheadTranslate = { _, modifiers, state in state = 0; return modifiers.contains(.capsLock) ? "A" : "a" }
+        let capsA = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.capsLock], timestamp: 1, windowNumber: 0,
+                                                  context: nil, characters: "A", charactersIgnoringModifiers: "a", isARepeat: false, keyCode: 0))
+        #expect(caps.typeAheadKey(capsA) == .text("A"))
+
         let kotoeri = KeyRouter(registry: .standard())
         kotoeri.typeAheadTranslate = { _, _, _ in nil }
         #expect(kotoeri.typeAheadKey(try Self.key("k", ignoring: "k", keyCode: 40)) == .notComposable)
+    }
+
+    /// Delete after a held dead key cancels the dead key only; the next key types itself.
+    @Test func deleteAfterADeadKeyCancelsOnlyTheDeadKey() throws {
+        var composer = TypeAheadComposer()
+        #expect(composer.compose(keyCode: 33, modifiers: [], translate: Self.azerty) == .deadKey)
+        composer.reset()
+        #expect(composer.compose(keyCode: 14, modifiers: [], translate: Self.azerty) == .text("e"))
     }
 }

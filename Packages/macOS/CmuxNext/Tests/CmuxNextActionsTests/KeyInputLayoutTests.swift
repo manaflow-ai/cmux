@@ -167,7 +167,7 @@ import Testing
         let shift = modifiers.contains(.shift)
         let typed = modifiers.contains(.command) ? layout.command[keyCode] ?? base : base
         let fallback = !layout.asciiCapable && !layout.typesASCII(keyCode) ? us.keys[keyCode]?.base : nil
-        let positional = KeyInput.usPunctuation[keyCode].flatMap { layout.typesUnshifted($0) ? nil : $0 }
+        let positional = KeyInput.positionalPunctuation(keyCode: keyCode, keyTypes: base.base, iso: false, layoutTypes: layout.typesUnshifted)
         return KeyInput(keyCode: keyCode, modifiers: modifiers, text: shift ? typed.shifted : typed.base,
                         ignoringModifiers: shift ? base.shifted : base.base, unshifted: base.base,
                         commandUnshifted: modifiers.contains(.command) ? typed.base : nil, asciiFallback: fallback,
@@ -420,15 +420,30 @@ import Testing
         }
     }
 
-    /// Ctrl-` (New Terminal Tab) on German and AZERTY: the key left of 1 (US `) types the dead key ^,
-    /// and ` is a dead key with Shift elsewhere: Ctrl and that key is Ctrl-`.
-    @Test(arguments: [german, french])
-    func graveMovedAwayIsReachedByPosition(layout: Layout) throws {
-        let key = KeyInput(keyCode: 50, modifiers: [.control], text: "^", ignoringModifiers: "^", unshifted: "^",
-                           positional: layout.typesUnshifted("`") ? nil : "`")
+    /// Ctrl-` (New Terminal Tab) on an ISO German keyboard: the key left of 1 is kVK_ISO_Section (10)
+    /// and types the dead ^ (no text): Ctrl and that key is Ctrl-`. The extra key left of Z
+    /// (kVK_ANSI_Grave, 50, types <) names nothing.
+    @Test func graveIsTheKeyLeftOfOneOnISO() throws {
+        let positional = KeyInput.positionalPunctuation(keyCode: 10, keyTypes: "", iso: true, layoutTypes: Self.german.typesUnshifted)
+        #expect(positional == "`")
+        let key = KeyInput(keyCode: 10, modifiers: [.control], text: nil, ignoringModifiers: "^", unshifted: "", positional: positional)
         let (got, expected) = try Self.sameStepAsUS(key, usKeyCode: 50, [.control], in: [])
         #expect(expected != "none")
-        #expect(got == expected, "\(layout.name) Ctrl and the key left of 1: \(got), not \(expected)")
+        #expect(got == expected, "German ISO Ctrl and the key left of 1: \(got), not \(expected)")
+        #expect(KeyInput.positionalPunctuation(keyCode: 50, keyTypes: "<", iso: true, layoutTypes: Self.german.typesUnshifted) == nil)
+    }
+
+    /// Never steal a key the layout types: German, Spanish and Italian type + on the key US has ]
+    /// (Cmd-+ is zoom there), French types $ on it: neither reads ] by position.
+    @Test(arguments: [ActionContext(), .terminalFocused, .browserFocused])
+    func aKeyThatTypesASCIIPunctuationKeepsIt(context: ActionContext) throws {
+        let key = try #require(Self.key(30, [.command], on: Self.german))
+        #expect(key.positional == nil)
+        #expect(!ActionRegistry.shortcuts(for: key).contains(Shortcut("]", modifiers: [.command])))
+        let registry = Self.registry(context)
+        #expect(Self.step(key, after: [], in: registry) == Self.step(KeyInput(keyCode: 30, modifiers: [.command], text: "+",
+                                                                               ignoringModifiers: "+", unshifted: "+"), after: [], in: registry))
+        #expect(KeyInput.positionalPunctuation(keyCode: 30, keyTypes: "$", iso: false, layoutTypes: Self.french.typesUnshifted) == nil)
     }
 
     /// Never steal a key the layout types: Dvorak types [ itself (on US's - key), so Cmd and the key

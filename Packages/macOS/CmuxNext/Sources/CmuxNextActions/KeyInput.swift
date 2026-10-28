@@ -57,6 +57,19 @@ public nonisolated struct KeyInput: Equatable, Sendable {
         27: "-", 24: "=", 33: "[", 30: "]", 42: "\\", 41: ";", 39: "'", 43: ",", 47: ".", 44: "/", 50: "`",
     ]
 
+    /// The US punctuation `keyCode` names by position on a layout (``positional``), or nil:
+    /// - only punctuation the layout types on no key without Option (`layoutTypes` false);
+    /// - only on a key that types no plain ASCII character itself (`keyTypes`: its unshifted text,
+    ///   nil or empty for a dead key): German ü and the dead ^ keep a position, German + and French $
+    ///   do not (Cmd-+ is zoom there, never Cmd-]);
+    /// - on an ISO keyboard (`iso`) the key left of 1 is kVK_ISO_Section (10), the US ` key, and
+    ///   kVK_ANSI_Grave (50) is the extra key left of Z, which names nothing.
+    public static func positionalPunctuation(keyCode: UInt16, keyTypes: String?, iso: Bool, layoutTypes: (String) -> Bool) -> String? {
+        // The rule before review 1 of slice 3 (red): any key whose US punctuation the layout does not type.
+        guard let us = usPunctuation[keyCode] else { return nil }
+        return layoutTypes(us) ? nil : us
+    }
+
     /// The key is a Command or Control chord: the only keys cmux may decide before the input
     /// methods (`interpretKeyEvents`) see them.
     public var isChord: Bool {
@@ -82,7 +95,10 @@ public nonisolated struct KeyInput: Equatable, Sendable {
         }
         let commandUnshifted = flags.contains(.command) ? event.characters(byApplyingModifiers: [.command]) : nil
         var positional: String?
-        if let us = Self.usPunctuation[event.keyCode], layout?.typesUnshifted(us) == false { positional = us }
+        if let layout {
+            positional = Self.positionalPunctuation(keyCode: event.keyCode, keyTypes: unshifted, iso: layout.isISO,
+                                                    layoutTypes: layout.typesUnshifted)
+        }
         self.init(keyCode: event.keyCode, modifiers: flags, text: Self.text(of: event), ignoringModifiers: event.charactersIgnoringModifiers,
                   unshifted: unshifted, commandUnshifted: commandUnshifted, asciiFallback: fallback, positional: positional)
     }
