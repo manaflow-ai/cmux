@@ -10,7 +10,7 @@
 //! `bearer.<token>` subprotocol is retired: a 401 on the upgrade is final.
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use cmux_tui_core::Mux;
@@ -35,12 +35,16 @@ const CLIENT_VERSION_HEADER: &str = "x-cmux-client-version";
 /// A derived image upload (at most 2 MB) may take longer than a JSON call.
 const UPLOAD_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 /// A streamed attachment file has no total deadline (it may be any size);
-/// it fails when no bytes moved, or no reply came after the last, this long.
+/// it fails when its body has not moved this long. Hyper asks for the next
+/// read once the last one is in its send buffer, so at a few KB/s reads still
+/// come well inside the window.
 const UPLOAD_STALL: Duration = Duration::from_secs(2 * 60);
-/// How long the reply to a streamed upload may take after its last byte.
-const UPLOAD_REPLY: Duration = UPLOAD_STALL;
-/// One read of a streamed attachment file.
-const UPLOAD_CHUNK_BYTES: usize = 1024 * 1024;
+/// How long the reply to a streamed upload may take after its last byte (the
+/// slot commits the object first).
+const UPLOAD_REPLY: Duration = Duration::from_secs(10 * 60);
+/// One read of a streamed attachment file: small, so a slow uplink still
+/// shows progress often (64 KiB at 1 KB/s is about a minute).
+const UPLOAD_CHUNK_BYTES: usize = 64 * 1024;
 /// One ranged attachment read (at most 4 MiB).
 const RANGE_TIMEOUT: Duration = Duration::from_secs(60);
 pub(crate) struct RemoteCloudBackend {
@@ -75,23 +79,41 @@ impl RemoteCloudBackend {
     }
 }
 
+/// How far a streamed upload got: when its body last moved (milliseconds
+/// since the upload started) and whether all of it went.
+#[derive(Default)]
+struct UploadProgress {
+    moved: AtomicU64,
+    sent: AtomicBool,
+}
+
 /// A staged attachment file as a streamed body, read a chunk at a time as
-/// the connection takes it. Each read stores, in `moved`, the milliseconds
-/// since `started` (hyper polls the body only when it can send more).
-fn file_body(file: std::fs::File, started: Instant, moved: Arc<AtomicU64>) -> reqwest::Body {
+/// the connection takes it. Each read stores when it happened in `progress`
+/// (hyper polls the body only when it can send more). Its last `len` byte, or
+/// its end, marks it sent: with a Content-Length hyper may never ask past it.
+fn file_body(
+    file: std::fs::File,
+    len: u64,
+    started: Instant,
+    progress: Arc<UploadProgress>,
+) -> reqwest::Body {
     use tokio::io::AsyncReadExt;
     let file = tokio::fs::File::from_std(file);
-    let chunks = futures_util::stream::try_unfold(file, move |mut file| {
-        let moved = moved.clone();
+    let chunks = futures_util::stream::try_unfold((file, 0u64), move |(mut file, read_so_far)| {
+        let progress = progress.clone();
         async move {
             let mut chunk = vec![0; UPLOAD_CHUNK_BYTES];
             let read = file.read(&mut chunk).await?;
-            moved.store(elapsed_ms(started), Ordering::Relaxed);
+            progress.moved.store(elapsed_ms(started), Ordering::Relaxed);
+            let read_so_far = read_so_far + read as u64;
+            if read == 0 || read_so_far >= len {
+                progress.sent.store(true, Ordering::Relaxed);
+            }
             if read == 0 {
                 return Ok::<_, std::io::Error>(None);
             }
             chunk.truncate(read);
-            Ok(Some((chunk, file)))
+            Ok(Some((chunk, (file, read_so_far))))
         }
     });
     reqwest::Body::wrap_stream(chunks)
@@ -105,16 +127,15 @@ fn elapsed_ms(started: Instant) -> u64 {
 /// up: zero once it stalled. `idle` is the time since the body last moved;
 /// `sent` says the whole body went (the upload waits for its reply).
 fn stall_left(idle: Duration, sent: bool) -> Duration {
-    let _ = sent;
-    UPLOAD_STALL.saturating_sub(idle)
+    (if sent { UPLOAD_REPLY } else { UPLOAD_STALL }).saturating_sub(idle)
 }
 
 /// Resolves once [`stall_left`] says the upload stalled. It ends with its
 /// `select!`, when the upload answers first.
-async fn stalled(started: Instant, moved: Arc<AtomicU64>) {
+async fn stalled(started: Instant, progress: Arc<UploadProgress>) {
     loop {
-        let idle = elapsed_ms(started).saturating_sub(moved.load(Ordering::Relaxed));
-        let left = stall_left(Duration::from_millis(idle), false);
+        let idle = elapsed_ms(started).saturating_sub(progress.moved.load(Ordering::Relaxed));
+        let left = stall_left(Duration::from_millis(idle), progress.sent.load(Ordering::Relaxed));
         if left.is_zero() {
             return;
         }
@@ -197,21 +218,23 @@ impl CloudBackend for RemoteCloudBackend {
                 PutBody::Bytes(bytes) => request.timeout(UPLOAD_TIMEOUT).body(bytes).send().await,
                 PutBody::File { file, len } => {
                     let started = Instant::now();
-                    let moved = Arc::new(AtomicU64::new(0));
+                    let progress = Arc::new(UploadProgress::default());
                     // A presigned object PUT needs a length, not a chunked body.
                     let request = if headers_have_length {
                         request
                     } else {
                         request.header(reqwest::header::CONTENT_LENGTH, len)
                     };
-                    let request = request.body(file_body(file, started, moved.clone()));
+                    let request = request.body(file_body(file, len, started, progress.clone()));
                     tokio::select! {
                         response = request.send() => response,
-                        () = stalled(started, moved) => {
-                            return Err(TransportError(format!(
-                                "attachment upload made no progress for {} s",
-                                UPLOAD_STALL.as_secs()
-                            )));
+                        () = stalled(started, progress.clone()) => {
+                            let waited = if progress.sent.load(Ordering::Relaxed) {
+                                format!("no reply came {} s after the upload's last byte", UPLOAD_REPLY.as_secs())
+                            } else {
+                                format!("the upload made no progress for {} s", UPLOAD_STALL.as_secs())
+                            };
+                            return Err(TransportError(waited));
                         }
                     }
                 }
