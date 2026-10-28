@@ -11,10 +11,13 @@
 //! started or resumed as for any prompt (Claude `--resume`, Codex `thread/resume`, else the
 //! restored transcript) and the turn's rules (`control`, trust gate) are checked again.
 //!
-//! - `autoResumeDelaysMs` in the config sets the wait before each attempt; the default
-//!   [`DEFAULT_DELAYS_MS`] spans about 26 minutes. `[]` turns it off. At most
-//!   [`MAX_ATTEMPTS`] entries, each between 1 s and 1 h; an entry that is not a whole number
-//!   of milliseconds of 0 or more is refused with a warning and the default waits apply.
+//! - `autoResumeDelaysMs` in the config is the whole loop: one entry per attempt, each the wait
+//!   before it, so its length says how many attempts run ([`configured_attempts`]) on every path
+//!   that continues a cut turn, a chain of daemon restarts included (`restart_resume.rs`). The
+//!   default [`DEFAULT_DELAYS_MS`] is four attempts spanning about 26 minutes; `[]` turns it off.
+//!   At most [`MAX_CONFIGURED_ATTEMPTS`] entries, each between 1 s and 1 h; an entry that is not
+//!   a whole number of milliseconds of 0 or more is refused with a warning and the default
+//!   waits apply.
 //! - Attempt `n` of the prompt `P` has the prompt id `P~resume-n`, so it runs once, across
 //!   restarts too, and a continuation that fails the same way schedules attempt `n + 1`.
 //! - It is skipped when anything else ran or waits in the chat meanwhile (a person's prompt,
@@ -74,8 +77,18 @@ pub(crate) mod retry_turn;
 /// Waits before attempts 1, 2, 3 and 4, in milliseconds.
 pub const DEFAULT_DELAYS_MS: [u64; 4] = [10_000, 60_000, 300_000, 1_200_000];
 
-/// Most attempts `autoResumeDelaysMs` may set.
-pub const MAX_ATTEMPTS: usize = DEFAULT_DELAYS_MS.len();
+/// Most attempts `autoResumeDelaysMs` may set. The default's four span about 26 minutes, which a
+/// capacity outage outlives; twelve entries of up to an hour each let a configured loop ride one
+/// out, and still bound the attempt a prompt id's suffix carries and what one cut turn writes to
+/// the log. Never a floor on the default, which stays four.
+pub const MAX_CONFIGURED_ATTEMPTS: usize = 12;
+
+/// How many attempts the configured waits allow, for a chain of daemon restarts as for a turn a
+/// transport cut: one per wait, or the default's four when the config says nothing. 0 (`[]`)
+/// turns it off.
+pub(in crate::hub) fn configured_attempts(delays: Option<&Vec<u64>>) -> usize {
+    delays.map_or(DEFAULT_DELAYS_MS.len(), Vec::len)
+}
 
 /// Shortest and longest configured wait, in milliseconds.
 const MIN_DELAY_MS: u64 = 1_000;
@@ -266,11 +279,12 @@ fn checked_delays(v: &Value) -> Option<Vec<u64>> {
         };
         delays.push(ms.clamp(MIN_DELAY_MS, MAX_DELAY_MS));
     }
-    if delays.len() > MAX_ATTEMPTS || delays.iter().zip(items).any(|(d, i)| i.as_u64() != Some(*d))
+    if delays.len() > MAX_CONFIGURED_ATTEMPTS
+        || delays.iter().zip(items).any(|(d, i)| i.as_u64() != Some(*d))
     {
-        delays.truncate(MAX_ATTEMPTS);
+        delays.truncate(MAX_CONFIGURED_ATTEMPTS);
         tracing::warn!(
-            "autoResumeDelaysMs: kept to {MAX_ATTEMPTS} attempts of 1 s to 1 h each: {delays:?}"
+            "autoResumeDelaysMs: kept to {MAX_CONFIGURED_ATTEMPTS} attempts of 1 s to 1 h each: {delays:?}"
         );
     }
     Some(delays)
@@ -772,6 +786,20 @@ mod tests {
         );
         assert_eq!((row, count), ((None, false), ROW_READS));
         assert_eq!(settled_retry_row(|| (None, true), |_| unreachable!()), (None, true));
+    }
+
+    #[test]
+    fn the_configured_waits_say_how_many_attempts_run() {
+        assert_eq!(configured_attempts(None), DEFAULT_DELAYS_MS.len());
+        assert_eq!(configured_attempts(Some(&vec![])), 0);
+        assert_eq!(configured_attempts(Some(&vec![1_000])), 1);
+        assert_eq!(configured_attempts(Some(&vec![1_000; 9])), 9);
+        // The ceiling bounds what a configured loop may set, never the default.
+        assert!(DEFAULT_DELAYS_MS.len() <= MAX_CONFIGURED_ATTEMPTS);
+        assert_eq!(
+            checked_delays(&json!(vec![1000; MAX_CONFIGURED_ATTEMPTS + 1])).unwrap().len(),
+            MAX_CONFIGURED_ATTEMPTS
+        );
     }
 
     #[test]

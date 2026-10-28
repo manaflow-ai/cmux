@@ -18,13 +18,14 @@
 //! - `auto_resume_scheduled` with `reason: "daemon_restart"` records it, and its `user_message`
 //!   carries `_meta.provenance = {kind: "auto_resume", reason: "daemon_restart", ...}`.
 //! - `autoResumeDelaysMs: []` turns it off, as it does the transport continuation, and a chain
-//!   of restarts gives up after [`MAX_ATTEMPTS`] continuations (`auto_resume_exhausted`).
+//!   of restarts gives up after the attempts it configures ([`configured_attempts`]), as a
+//!   transport cut does (`auto_resume_exhausted`).
 //! - A crash between the continuation's `queued` record and its move to the head
 //!   (`queue_order`) still restores it at the head (`queue.rs` `restore_queue`), and once.
 //! - It goes through the trust gate as the cut turn did (`turn_started` records `trustGate`),
 //!   and carries the images the cut turn's prompt and steers sent (`prompt_images.rs`).
 
-use super::{MAX_ATTEMPTS, SUFFIX, split_attempt};
+use super::{DEFAULT_DELAYS_MS, SUFFIX, configured_attempts, split_attempt};
 use crate::hub::{Hub, Session};
 use crate::store::EventRecord;
 use serde_json::{Value, json};
@@ -59,11 +60,15 @@ impl Hub {
         session: &Arc<Session>,
         turn_id: &str,
     ) -> Option<String> {
-        let off = self
+        // One continuation per configured wait, as a transport cut gets: `[]` configures none,
+        // which turns it off. A contended config lock reads as the default waits, never as off.
+        let attempts = self
             .config
             .try_read()
-            .is_ok_and(|c| c.auto_resume_delays_ms.as_ref().is_some_and(Vec::is_empty));
-        if off {
+            .map_or(DEFAULT_DELAYS_MS.len(), |c| {
+                configured_attempts(c.auto_resume_delays_ms.as_ref())
+            });
+        if attempts == 0 {
             return None;
         }
         // The cut turn's prompt id, control, trust gate, texts and images: its `turn_started`,
@@ -119,7 +124,7 @@ impl Hub {
         let prompt_id = prompt_id.filter(|p| !p.is_empty())?;
         let (root, done) = split_attempt(&prompt_id);
         let attempt = done + 1;
-        if attempt > MAX_ATTEMPTS {
+        if attempt > attempts {
             let msg = json!({"promptId": root, "attempts": done, "turnId": turn_id, "reason": "daemon_restart"});
             self.append(session, "mux", "auto_resume_exhausted", msg);
             return None;
