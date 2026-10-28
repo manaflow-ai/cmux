@@ -12,7 +12,7 @@ import Testing
 /// `sidebar.controlsOnHover` off and on. `CMUX_TEST_REQUIRE_GUI=1`; writes
 /// `sidebar-footer-gallery.tar` for `cmux-ci run --artifact`.
 @MainActor @Suite(.serialized) struct AASidebarFooterGalleryTests {
-    static func render(minimal: Bool, hovered: Bool) async throws -> CGImage {
+    static func render(minimal: Bool, hovered: Bool, spaces: Int = 2) async throws -> CGImage {
         _ = NSApplication.shared
         let previousMotion = Motion.reduceMotionOverride
         Motion.reduceMotionOverride = true // the reveal snaps: no fade caught halfway
@@ -35,7 +35,7 @@ import Testing
 
         let model = SidebarModel(sections: AASidebarLookGalleryTests.sections())
         model.profileAvatar = SidebarAvatar(name: "Lawrence", color: .blue)
-        model.profiles = (0..<2).map { SidebarProfile(id: ProfileKey("space\($0)"), name: "Space \($0)") }
+        model.profiles = (0..<spaces).map { SidebarProfile(id: ProfileKey("space\($0)"), name: "Space \($0)") }
         let design = DesignSettings()
         design.sidebarSections.controlsOnHover = minimal // after-only
         let sidebar = SidebarView(model: model, design: design)
@@ -72,12 +72,12 @@ import Testing
         let out = root.appending(path: "sidebar-footer-gallery")
         try? FileManager.default.removeItem(at: out)
         try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
-        var variants: [(name: String, minimal: Bool)] = [("default", false)]
-        variants.append(("minimal", true)) // after-only
+        var variants: [(name: String, minimal: Bool, spaces: Int)] = [("default", false, 2), ("lone-space", false, 1)]
+        variants.append(("minimal", true, 2)) // after-only
         var images: [CGImage] = []
         for variant in variants {
             for hovered in [false, true] {
-                let image = try await Self.render(minimal: variant.minimal, hovered: hovered)
+                let image = try await Self.render(minimal: variant.minimal, hovered: hovered, spaces: variant.spaces)
                 images.append(image)
                 try AAGroupHeaderDensityGalleryTests.write(image, to: out.appending(path: "\(variant.name)-\(hovered ? "hover" : "rest").png"))
             }
