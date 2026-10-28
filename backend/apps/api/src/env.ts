@@ -474,7 +474,7 @@ export interface Env {
   readonly CODE_STORAGE_ORG?: string
   /** Secret: PKCS#8 PEM of that organization's ES256 key. Code automations refuse to pin without it. */
   readonly CODE_STORAGE_PRIVATE_KEY?: string
-  /** PlanetScale `cmux-next` through Hyperdrive (projection writes only). */
+  /** PlanetScale Postgres `cmux-next` through Hyperdrive: projection writes while Postgres is the primary or shadow, and the compare cron's reads. */
   readonly HYPERDRIVE?: Hyperdrive
   /** PlanetScale MySQL `cmux-next-vitess` through Hyperdrive, readwriter role (projection writes). */
   readonly PS_MYSQL?: Hyperdrive
