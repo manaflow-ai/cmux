@@ -332,3 +332,33 @@ fn a_numeric_secret_in_the_expiry_is_refused() {
     assert!(checked_session(with_expiry(1_800_000_000_000, "1800000000"), VM, "cred").is_err());
     assert!(checked_session(with_expiry(1_800_000_000_000, TOKEN), VM, "cred").is_ok());
 }
+
+#[test]
+fn exec_output_and_the_token_file_path_never_carry_a_secret() {
+    assert_eq!(redact("a TOKEN b cred c", "TOKEN", "cred"), "a [redacted] b [redacted] c");
+    assert_eq!(redact("plain", "TOKEN", "cred"), "plain");
+    // The provider echoes the token in stdout and the credential in stderr: both are redacted.
+    let echoed =
+        json!({ "statusCode": 0, "stdout": format!("x{TOKEN}y"), "stderr": "the cred-secret" })
+            .to_string();
+    let (origin, _requests) = fake_with(2, echoed);
+    let command = parse(&strings(&["exec", "--target", VM, "--", "true"])).unwrap();
+    let (mut out, mut err) = (Vec::new(), Vec::new());
+    assert_eq!(run(&command, &origin, "cred-secret", OutputMode::Human, &mut out, &mut err), Ok(0));
+    let (out, err) = (String::from_utf8(out).unwrap(), String::from_utf8(err).unwrap());
+    assert!(!out.contains(TOKEN) && !err.contains("cred-secret"), "{out} {err}");
+    // A token file path holding the credential is refused before anything is written.
+    let dir = std::env::temp_dir().join(format!("cs-path-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("cred-secret.token");
+    let command =
+        parse(&strings(&["create", "--target", VM, "--token-file", path.to_str().unwrap()]))
+            .unwrap();
+    let (origin, _requests) = fake(1);
+    let error =
+        run(&command, &origin, "cred-secret", OutputMode::Human, &mut Vec::new(), &mut Vec::new())
+            .unwrap_err();
+    assert!(!error.contains("cred-secret"), "{error}");
+    assert!(!path.exists());
+    let _ = std::fs::remove_dir_all(&dir);
+}

@@ -239,6 +239,13 @@ pub(super) fn run(
     match &command.verb {
         Verb::Create { token_file } => {
             if let Some(path) = token_file {
+                // The path is printed below: one that holds a secret is refused, and never echoed.
+                let shown = path.display().to_string();
+                if shown.contains(session.token.as_str()) || shown.contains(credential) {
+                    return Err(
+                        "the token file's path would reveal a secret; choose another".into()
+                    );
+                }
                 write_token_file(path, &session.token)?;
             }
             let ssh = session.ssh.as_ref().map(|s| format!("ssh {}@{}", s.user, s.host));
@@ -271,7 +278,14 @@ pub(super) fn run(
             Ok(0)
         }
         Verb::Exec { command: line, timeout_ms } => {
-            let answer = runtime.block_on(exec(&client, &session, line, *timeout_ms))?;
+            let mut answer = runtime.block_on(exec(&client, &session, line, *timeout_ms))?;
+            // Nothing the provider answers carries either secret to the terminal.
+            answer.stdout = redact(&answer.stdout, &session.token, credential);
+            answer.stderr = redact(&answer.stderr, &session.token, credential);
+            let code = answer.exit_code.to_string();
+            if code == session.token || code == credential {
+                return Err("the machine's answer is not readable".into());
+            }
             if output == OutputMode::Json {
                 writeln!(out, "{}", json!({ "machine": session.machine, "exit_code": answer.exit_code, "stdout": answer.stdout, "stderr": answer.stderr })).map_err(io)?;
             } else {
@@ -468,6 +482,17 @@ const KNOWN_CODES: [&str; 13] = [
 /// The table's copy of `code` when the code is one this command knows, else nothing.
 pub(super) fn known_code(code: Option<&str>) -> &'static str {
     code.and_then(|c| KNOWN_CODES.iter().copied().find(|known| *known == c)).unwrap_or("")
+}
+
+/// `text` with every occurrence of the token and the credential replaced.
+pub(super) fn redact(text: &str, token: &str, credential: &str) -> String {
+    let mut text = text.to_owned();
+    for secret in [token, credential] {
+        if !secret.is_empty() {
+            text = text.replace(secret, "[redacted]");
+        }
+    }
+    text
 }
 
 /// A new file only (an existing path is refused), mode 0600 from creation.
