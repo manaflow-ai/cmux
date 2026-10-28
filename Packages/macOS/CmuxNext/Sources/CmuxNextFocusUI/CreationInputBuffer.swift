@@ -66,6 +66,10 @@ public final class CreationInputBuffer {
     /// Whether a creation of this hold still waits for its reply and shows `tab`.
     public func isCreating(tab: String) -> Bool { tabs.contains { $0.value == tab && pending[$0.key] != nil } }
 
+    /// The early tab of the newest pending creation, if it has one: the only view held keys may go to before the
+    /// creation resolves.
+    public var newestEarlyTab: String? { pending.keys.max().flatMap { earlyTabs[$0] } }
+
     /// Whether a pending creation's new terminal view, tab `tab`, takes keys now.
     public func takesKeysEarly(tab: String) -> Bool { earlyTabs.values.contains(tab) }
 
