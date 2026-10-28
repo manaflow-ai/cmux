@@ -353,6 +353,10 @@ import Testing
         #expect(WebTheme.motionRate(of: design) == nil)
         design.motionInspection.timeScale = .x5
         #expect(WebTheme.motionRate(of: design) == 0.2)
+        let tokens = ThemeTokens.unresolved
+        #expect(WebTheme(tokens).payloadJSON.contains("\"motionRate\":0.2"), "a slowed page gets the rate")
+        design.motionInspection = .off
+        #expect(!WebTheme(tokens).payloadJSON.contains("motionRate"), "a page at real time gets no rate field")
         #expect(WebTheme.bootstrapScript.contains("playbackRate"))
     }
 }
