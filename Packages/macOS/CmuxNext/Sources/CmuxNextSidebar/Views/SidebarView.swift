@@ -228,7 +228,10 @@ public final class SidebarView: NSView {
         newButton.menuProvider = { [weak self] in self?.list.contextMenuProvider?(.background) }
         newWorkspaceOptionsButton.longPressOpensMenu = false
         newWorkspaceOptionsButton.pressMenu = { [weak self] in self?.list.contextMenuProvider?(.background) }
+        newWorkspaceOptionsButton.target = self
+        newWorkspaceOptionsButton.action = #selector(openNewWorkspaceOptions)
         newButton.alphaValue = 0
+        newWorkspaceOptionsButton.alphaValue = 0
         addSubview(newButton)
         addSubview(newWorkspaceOptionsButton)
 
@@ -264,6 +267,10 @@ public final class SidebarView: NSView {
         cardSlot.install(in: self)
         buildPriority()
         buildUpdateAvailable()
+    }
+
+    @objc private func openNewWorkspaceOptions() {
+        newWorkspaceOptionsButton.performPressMenu()
     }
 
     private func clipBoundsChanged() {

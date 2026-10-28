@@ -115,7 +115,7 @@ final class NewTabButtonView: NSView {
                 // New-tab is a plain glyph action. Its hover/press state is carried by the glyph,
                 // never by a rounded plate behind the +.
                 fillLayer.backgroundColor = nil
-                glyphLayer.strokeColor = (isHovered ? Palette.textPrimary : Palette.textSecondary).cgColor
+                glyphLayer.strokeColor = (isHovered || isPressed ? Palette.textPrimary : Palette.textSecondary).cgColor
             }
         }
     }

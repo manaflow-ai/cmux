@@ -70,6 +70,20 @@ public final class TitlebarBandButton: NSButton {
         menu.popUp(positioning: nil, at: CmuxPopoverAnchor.menuPoint(in: button, gap: Metrics.space1), in: button)
     }
 
+    /// Opens the press menu for keyboard and VoiceOver activation. Mouse presses
+    /// use the same path from ``mouseDown(with:)``.
+    public func performPressMenu() {
+        guard isEnabled, let menu = pressMenu?(), !menu.items.isEmpty else { return }
+        presentMenu(menu, self)
+    }
+
+    override public func accessibilityPerformPress() -> Bool {
+        guard isEnabled, !isHiddenOrHasHiddenAncestor else { return false }
+        guard pressMenu != nil else { return super.accessibilityPerformPress() }
+        performPressMenu()
+        return true
+    }
+
     override public func rightMouseDown(with event: NSEvent) {
         guard isEnabled else { return }
         guard let menu = menuProvider?() else { return super.rightMouseDown(with: event) }

@@ -70,11 +70,22 @@ import Testing
         let sidebar = SidebarView(model: SidebarModel(), design: DesignSettings())
         sidebar.frame = NSRect(x: 0, y: 0, width: 280, height: 480)
         sidebar.layoutSubtreeIfNeeded()
-        sidebar.contextMenuProvider = { _ in NSMenu() }
+        let menu = NSMenu()
+        menu.addItem(withTitle: "Terminal", action: nil, keyEquivalent: "")
+        sidebar.contextMenuProvider = { _ in menu }
         #expect(sidebar.newButton.accessibilityRole() == .button, "the + creates a workspace directly")
         #expect(sidebar.newWorkspaceOptionsButton.symbol == "chevron.down", "the chooser is a separate chevron")
         #expect(sidebar.newWorkspaceOptionsButton.pressMenu?() != nil, "the chevron opens workspace options")
+        #expect(sidebar.newWorkspaceOptionsButton.alphaValue == sidebar.newButton.alphaValue,
+                "the + and its chevron start revealed together")
         #expect(sidebar.newWorkspaceOptionsButton.frame.height == sidebar.newButton.frame.height,
                 "the chevron stays the same height as the +")
+        var presentations = 0
+        sidebar.newWorkspaceOptionsButton.presentMenu = { _, _ in presentations += 1 }
+        #expect(sidebar.newWorkspaceOptionsButton.accessibilityPerformPress(),
+                "VoiceOver can open the workspace chooser")
+        #expect(presentations == 1)
+        sidebar.newWorkspaceOptionsButton.performClick(nil)
+        #expect(presentations == 2, "Space/keyboard activation opens the same chooser")
     }
 }
