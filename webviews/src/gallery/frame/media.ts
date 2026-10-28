@@ -61,6 +61,8 @@ export function emulateMedia(overrides: MediaOverrides): void {
     const element = node.nodeType === Node.ELEMENT_NODE ? (node as Element) : node.parentElement;
     const owner = element?.closest("style, link[rel~='stylesheet']") as HTMLStyleElement | HTMLLinkElement | null;
     if (owner?.sheet) sheets.add(owner.sheet);
+    // A head comment or whitespace has no descendant owners of its own.
+    if (node.nodeType !== Node.ELEMENT_NODE) return;
     for (const child of element?.querySelectorAll<HTMLStyleElement | HTMLLinkElement>(
       "style, link[rel~='stylesheet']",
     ) ?? [])
@@ -79,9 +81,9 @@ export function emulateMedia(overrides: MediaOverrides): void {
   document.addEventListener(
     "load",
     (event) => {
-      const link = event.target as HTMLLinkElement | null;
-      if (link?.tagName === "LINK" && link.relList.contains("stylesheet") && link.sheet)
-        rewriteSheet(link.sheet, overrides);
+      // Inline @import rules may finish after the style mutation was processed.
+      const owner = event.target as HTMLStyleElement | HTMLLinkElement | null;
+      if (owner?.matches?.("style, link[rel~='stylesheet']") && owner.sheet) rewriteSheet(owner.sheet, overrides);
     },
     true,
   );

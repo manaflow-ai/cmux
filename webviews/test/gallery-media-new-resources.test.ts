@@ -91,3 +91,26 @@ test("a linked stylesheet is rewritten when its own load finishes", async () => 
   link.dispatchEvent(new dom.window.Event("load"));
   expect(media(source)).toBe("(min-width: 0px)");
 });
+
+test("an inline stylesheet emulates imports when their asynchronous load finishes", async () => {
+  const unrelated = style();
+  const owner = style('@import url("https://example.test/late.css");');
+  emulateMedia(overrides);
+  await flushMutations();
+  const reads = countReads(unrelated.sheet!);
+  const imported = (owner.sheet!.cssRules[0] as CSSImportRule).styleSheet!;
+  imported.insertRule("@media (prefers-contrast: more) { body { color: red; } }", 0);
+  owner.dispatchEvent(new dom.window.Event("load"));
+  expect((imported.cssRules[0] as CSSMediaRule).media.mediaText).toBe("(min-width: 0px)");
+  expect(reads()).toBe(0);
+});
+
+test("a comment or whitespace in head does not rescan unrelated sheets", async () => {
+  const existing = style();
+  emulateMedia(overrides);
+  const reads = countReads(existing.sheet!);
+  dom.window.document.head.append(dom.window.document.createComment("fixture metadata"));
+  dom.window.document.head.append(dom.window.document.createTextNode("\n"));
+  await flushMutations();
+  expect(reads()).toBe(0);
+});
