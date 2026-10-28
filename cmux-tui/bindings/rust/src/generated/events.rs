@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 6c411d6bdd4ecf7ff0394081a5e55ff142d573370a7193e692cfde5e51fa96bd.
+// cmux-tui mux protocol 12, IR f072169a4de5faa99f08419061ad5275c82abe4699d0f3ed8c55a323f91ac4c3.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -464,6 +464,17 @@ pub struct DetachedEvent {
     pub surface: T::Id,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub view: Option<String>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DigestEvent {
+    pub generation: u64,
+    pub offset: u64,
+    /// Lowercase hex SHA-256 (64 characters) of the host's READY encoding.
+    pub sha256: String,
+    pub surface: T::Id,
+    pub version: u16,
 }
 
 #[rustfmt::skip]
@@ -1296,6 +1307,7 @@ pub enum Event {
     ConversationTyping(ConversationTypingEvent),
     DaemonShutdown(DaemonShutdownEvent),
     Detached(DetachedEvent),
+    Digest(DigestEvent),
     Empty(EmptyEvent),
     Frame(FrameEvent),
     FrontendProjectionChanged(FrontendProjectionChangedEvent),
@@ -1398,6 +1410,7 @@ impl Event {
             Self::ConversationTyping(_) => Some("conversation-typing"),
             Self::DaemonShutdown(_) => Some("daemon-shutdown"),
             Self::Detached(_) => Some("detached"),
+            Self::Digest(_) => Some("digest"),
             Self::Empty(_) => Some("empty"),
             Self::Frame(_) => Some("frame"),
             Self::FrontendProjectionChanged(_) => Some("frontend-projection-changed"),
@@ -1499,6 +1512,7 @@ impl Event {
             Self::ConversationTyping(_) => Some(&CONVERSATION_TYPING_EVENT_METADATA),
             Self::DaemonShutdown(_) => Some(&DAEMON_SHUTDOWN_EVENT_METADATA),
             Self::Detached(_) => Some(&DETACHED_EVENT_METADATA),
+            Self::Digest(_) => Some(&DIGEST_EVENT_METADATA),
             Self::Empty(_) => Some(&EMPTY_EVENT_METADATA),
             Self::Frame(_) => Some(&FRAME_EVENT_METADATA),
             Self::FrontendProjectionChanged(_) => Some(&FRONTEND_PROJECTION_CHANGED_EVENT_METADATA),
@@ -1842,6 +1856,14 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("detached") => match serde_json::from_value::<DetachedEvent>(raw.clone()) {
             Ok(event) => Event::Detached(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("digest") => match serde_json::from_value::<DigestEvent>(raw.clone()) {
+            Ok(event) => Event::Digest(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,

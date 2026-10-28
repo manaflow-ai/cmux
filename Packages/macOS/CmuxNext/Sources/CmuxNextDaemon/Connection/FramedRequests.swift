@@ -30,11 +30,13 @@ struct FramedRequests: Sendable {
         self.served = served
     }
 
-    /// The method to frame `cmd` as, or nil to send it as a line: a JSON v12 command of the table that the
+    /// The method to frame `cmd` as, or nil to send it as a line: a v12 command of the table that the
     /// daemon answers on frames, runs on the connection's control sequence, and whose body fits its bound.
+    /// The body is the JSON line, which every framed method takes, binary ones too (the frame has no
+    /// `binary` flag; cmux-tui/spec/transports.md, "Binary payload layouts").
     func method(for cmd: String, bodyBytes: Int) -> MethodAttributes? {
         guard let id = table.v12ID(named: cmd), served.contains(id), let method = table.v12(id),
-              method.payload == .json, !method.streamScoped else { return nil }
+              !method.streamScoped else { return nil }
         let bound = min(method.maxBytes ?? FrameHeader.maxPayloadCap, FrameHeader.maxPayloadCap)
         return bodyBytes <= Int(truncatingIfNeeded: bound) ? method : nil
     }

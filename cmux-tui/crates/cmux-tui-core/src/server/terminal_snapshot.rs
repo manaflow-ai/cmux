@@ -178,6 +178,18 @@ pub(crate) struct SnapshotHave {
     snapshot_version: Option<u16>,
 }
 
+impl SnapshotHave {
+    /// The `have` of a request decoded from its binary layout
+    /// (server/hot_requests.rs), member for member what its JSON gives.
+    pub(crate) fn new(
+        generation: Option<u64>,
+        offset: Option<u64>,
+        snapshot_version: Option<u16>,
+    ) -> Self {
+        SnapshotHave { generation, offset, snapshot_version }
+    }
+}
+
 #[derive(Clone)]
 struct RegisteredViewer {
     stream: u64,

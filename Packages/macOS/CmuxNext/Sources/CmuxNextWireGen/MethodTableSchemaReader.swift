@@ -70,6 +70,7 @@ struct MethodTableSchemaReader {
                 id: id,
                 name: name,
                 priority: try priority(path: path, node: node),
+                binaryLayout: try binaryLayout(path: path, node: node, key: "encoding"),
                 coalesce: try coalesce(path: path, node: node)
             )
             try place(&grouped, path: "\(path).event_id", id: id, space: .events, item: event, name: \.name)
@@ -122,21 +123,27 @@ struct MethodTableSchemaReader {
 
     // Attributes ------------------------------------------------------------
 
-    private func method(path: String, name: String, id: UInt16, node: SchemaJSON) throws(MethodTableSchemaError) -> Schema.Method {
-        let binary = try variant(path: path, node: node, key: "payload",
+    /// nil for JSON, the version of a binary layout otherwise. `key` is `payload` for a command or
+    /// operation and `encoding` for an event (whose `payload` is its type); a binary one needs
+    /// `layout_version` 1-255 and only a binary one may have it.
+    private func binaryLayout(path: String, node: SchemaJSON, key: String) throws(MethodTableSchemaError) -> UInt8? {
+        let binary = try variant(path: path, node: node, key: key,
                                  choices: [("json", "json"), ("binary", "binary")], default: "json") == "binary"
-        let layout: UInt8?
         switch (binary, node["layout_version"]) {
         case (false, nil):
-            layout = nil
+            return nil
         case (false, .some):
-            throw error("\(path).layout_version", "needs payload \"binary\"")
+            throw error("\(path).layout_version", "needs \(key) \"binary\"")
         case (true, let value):
             guard let raw = value?.integer, let version = UInt8(exactly: raw), version >= 1 else {
-                throw error("\(path).layout_version", "a binary payload needs a layout version 1-255")
+                throw error("\(path).layout_version", "a binary \(key) needs a layout version 1-255")
             }
-            layout = version
+            return version
         }
+    }
+
+    private func method(path: String, name: String, id: UInt16, node: SchemaJSON) throws(MethodTableSchemaError) -> Schema.Method {
+        let layout = try binaryLayout(path: path, node: node, key: "payload")
         var crossesStreamOK: String?
         if let value = node["crosses_stream_ok"] {
             guard let reason = value.string, !reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {

@@ -9,10 +9,11 @@
 //     --identity-output <plugin work dir>/WireSchemaIdentity+Built.generated.swift \
 //     --method-table-output <plugin work dir>/MethodTable+Schema.swift \
 //     --resource-output-dir <plugin work dir> --resource-operation-names terminal.input.write,... \
-//     --types-output-dir <plugin work dir>
+//     --types-output-dir <plugin work dir> --hot-output <plugin work dir>/HotCodec+Schema.swift
 //
 // The last pair writes ResourceOperations.swift and ResourceOperations+<family>.swift: typed
 // requests for the named `cmux.protocol/2` operations (the plugin's appResourceOperations).
+// --hot-output writes the binary codec of the hot messages (HotEmitter, p05-ipc-183).
 //
 // For CmuxNextIPCTestSupport it writes only the fixture schema's `DaemonWireEvent` (task 022):
 //
@@ -69,6 +70,15 @@ func run(_ argv: [String]) throws(WireGenError) {
         for file in files {
             try GeneratedFile(url: directory.appending(path: file.name, directoryHint: .notDirectory)).write(file.text)
         }
+    }
+    if let output = arguments.hotOutput {
+        let hot: HotEmitter
+        do throws(HotSchemaError) {
+            hot = try HotEmitter(sdkSchema: sdk.bytes)
+        } catch {
+            throw WireGenError.hotCodec(error)
+        }
+        try GeneratedFile(url: output).write(hot.source())
     }
     if let directory = arguments.typesOutputDirectory {
         let types: [GeneratedSource]

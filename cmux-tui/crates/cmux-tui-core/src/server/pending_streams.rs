@@ -45,7 +45,7 @@ use cmux_threads::work::{Lane, Priority, will_block};
 use serde_json::{Value, json};
 
 use super::cmd_terminal_io::{self, InputFailure};
-use super::frame_dispatch::{CallRefusal, FrameCall};
+use super::frame_dispatch::{CallRefusal, FrameBody, FrameCall};
 use super::line_connection::{ConnectionBadMessage, FrameConnection};
 use super::{
     CONNECTION_SURFACE_QUEUE_CAPACITY, ConnectionSurfaceScheduler, MessageWriter, OutboundStream,
@@ -109,10 +109,10 @@ pub(super) trait StreamProbe: Send + Sync {
     fn posted(&self);
 }
 
-/// A request on a stream: its body (checked to name its header's method),
-/// the frame it answers, and where its span and events start.
+/// A request on a stream: its body, the frame it answers, and where its span
+/// and events start.
 struct StreamRequest {
-    body: String,
+    body: StreamBody,
     call: Arc<FrameCall>,
     arrival: RequestArrival,
     cause: EventCause,
@@ -520,12 +520,15 @@ impl StreamEndpoint {
         let _cause = mux.request_qos().enter(cause);
         let _request_path = crate::request_path::RequestPathScope::enter(mux.request_path_stats());
         let _lock_caller = lock_caller_scope(&writer);
-        let request = match crate::line_parses::parse::<Request>(&body) {
-            Ok(request) => request,
-            Err(error) => {
-                send_bad_request(&writer, &body, &error);
-                return;
-            }
+        let request = match body {
+            StreamBody::Decoded(request) => *request,
+            StreamBody::Line(line) => match crate::line_parses::parse::<Request>(&line) {
+                Ok(request) => request,
+                Err(error) => {
+                    send_bad_request(&writer, &line, &error);
+                    return;
+                }
+            },
         };
         let _watched = mux.request_watchdog.begin_command(self.client, &request.cmd);
         // A stream request may wait (`wait-for`, a PTY write the program
@@ -647,15 +650,26 @@ impl ClientStreams {
     }
 }
 
+/// What a queued stream request runs: its JSON line, parsed when it runs, or
+/// its binary body already decoded (server/hot_requests.rs).
+enum StreamBody {
+    Line(String),
+    Decoded(Box<Request>),
+}
+
 /// Queues the stream request `body`, answered through `call`.
 pub(super) fn post_request(
     endpoint: &Arc<StreamEndpoint>,
-    body: &str,
+    body: FrameBody<'_>,
     call: Arc<FrameCall>,
     connection: &FrameConnection<'_>,
 ) {
+    let body = match body {
+        FrameBody::Line(line) => StreamBody::Line(line.to_owned()),
+        FrameBody::Decoded(request) => StreamBody::Decoded(request),
+    };
     endpoint.post(StreamItem::Request(StreamRequest {
-        body: body.to_owned(),
+        body,
         call,
         arrival: RequestArrival::parsed_now(connection.arrived),
         cause: EventCause::current(),

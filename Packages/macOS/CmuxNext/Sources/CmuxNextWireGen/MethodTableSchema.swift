@@ -120,6 +120,8 @@ struct MethodTableSchema: Equatable {
         let id: UInt16
         let name: String
         let priority: String
+        /// nil is JSON; a value is a binary layout of that version (`encoding`).
+        let binaryLayout: UInt8?
         let coalesce: Coalesce?
     }
 

@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '6c411d6bdd4ecf7ff0394081a5e55ff142d573370a7193e692cfde5e51fa96bd'
+IR_SHA256 = 'f072169a4de5faa99f08419061ad5275c82abe4699d0f3ed8c55a323f91ac4c3'
 
 
 @dataclass(frozen=True)
@@ -4891,6 +4891,7 @@ EVENTS = {
     'conversation-typing': EventMetadata('conversation-typing', 12, 'local-conversations-v1', ('subscribe',), 'emitted'),
     'daemon-shutdown': EventMetadata('daemon-shutdown', 12, None, ('control',), 'emitted'),
     'detached': EventMetadata('detached', 5, None, ('attach-byte', 'attach-render', 'attach-browser'), 'emitted'),
+    'digest': EventMetadata('digest', 12, 'terminal-snapshot-v1', ('attach-byte',), 'emitted'),
     'empty': EventMetadata('empty', 5, None, ('subscribe',), 'emitted'),
     'frame': EventMetadata('frame', 6, None, ('attach-browser',), 'emitted'),
     'frontend-projection-changed': EventMetadata('frontend-projection-changed', 7, None, ('subscribe',), 'emitted'),

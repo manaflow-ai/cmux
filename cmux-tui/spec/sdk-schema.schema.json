@@ -327,6 +327,19 @@
         "priority_changed_reason": {
           "$ref": "#/$defs/ipcReason"
         },
+        "encoding": {
+          "description": "How a TYPED_EVENT frame carries the payload: its JSON object, or a binary layout (the payload's fields without the event literal).",
+          "enum": [
+            "json",
+            "binary"
+          ]
+        },
+        "layout_version": {
+          "description": "Version byte of a binary event layout; bumped on every layout change.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 255
+        },
         "coalesce": {
           "$ref": "#/$defs/coalesce"
         }
@@ -392,8 +405,14 @@
           "type": "boolean"
         },
         "max_bytes": {
-          "description": "UTF-8 byte bound of a string member, or of each item of an array of strings; required for strings in a binary layout.",
+          "description": "UTF-8 byte bound of a string member, or of each item of an array of strings, in a binary layout; required for strings there. JSON decoders do not read it: a value over it goes as JSON.",
           "$ref": "#/$defs/maxBytes"
+        },
+        "max_items": {
+          "description": "Item bound of an array member in a binary layout (a u16 count). JSON decoders do not read it: a value over it goes as JSON. An array type's own max_items bounds the data everywhere.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65535
         }
       }
     },

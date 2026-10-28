@@ -684,6 +684,33 @@ class IpcMetaTests(unittest.TestCase):
         }
         self.assert_rejected(document, "a binary array needs max_items")
 
+    def test_accepts_a_field_max_items_as_the_layout_bound_only(self) -> None:
+        document = _framed_document()
+        document["types"]["Size"]["fields"]["cols"]["type"] = {
+            "kind": "array",
+            "items": {"kind": "scalar", "name": "uint16"},
+        }
+        document["types"]["Size"]["fields"]["cols"]["max_items"] = 8
+        ir = load_ir_document(document)
+        cols = ir.types["Size"]["fields"]["cols"]
+        self.assertEqual(cols["max_items"], 8)
+        # The type JSON decoders read stays unbounded.
+        self.assertNotIn("max_items", cols["type"])
+
+    def test_rejects_a_field_max_items_on_a_non_array(self) -> None:
+        document = _framed_document()
+        document["types"]["Size"]["fields"]["cols"]["max_items"] = 8
+        self.assert_rejected(document, "max_items: bounds array fields only")
+
+    def test_rejects_a_field_max_items_over_a_u16(self) -> None:
+        document = _framed_document()
+        document["types"]["Size"]["fields"]["cols"]["type"] = {
+            "kind": "array",
+            "items": {"kind": "scalar", "name": "uint16"},
+        }
+        document["types"]["Size"]["fields"]["cols"]["max_items"] = 0x10000
+        self.assert_rejected(document, "max_items: must be an integer 0-65535")
+
     def test_rejects_map_in_a_binary_layout(self) -> None:
         document = _framed_document()
         document["commands"]["resize-view"]["result"] = {
@@ -711,6 +738,41 @@ class IpcMetaTests(unittest.TestCase):
         document = _framed_document()
         document["commands"]["send-text"]["layout_version"] = 1
         self.assert_rejected(document, "layout_version: needs payload 'binary'")
+
+    def test_accepts_a_binary_event_encoding(self) -> None:
+        document = _framed_document()
+        document["events"]["workspace-created"].update({"encoding": "binary", "layout_version": 2})
+        ir = load_ir_document(document)
+        self.assertEqual(ir.event("workspace-created")["layout_version"], 2)
+
+    def test_rejects_binary_event_encoding_without_layout_version(self) -> None:
+        document = _framed_document()
+        document["events"]["workspace-created"]["encoding"] = "binary"
+        self.assert_rejected(document, "a binary encoding needs layout_version")
+
+    def test_rejects_layout_version_on_a_json_event(self) -> None:
+        document = _framed_document()
+        document["events"]["workspace-created"]["layout_version"] = 1
+        self.assert_rejected(document, "layout_version: needs encoding 'binary'")
+
+    def test_rejects_an_unknown_event_encoding(self) -> None:
+        document = _framed_document()
+        document["events"]["workspace-created"]["encoding"] = "cbor"
+        self.assert_rejected(document, "encoding: must be one of json, binary")
+
+    def test_rejects_unbounded_string_in_a_binary_event(self) -> None:
+        document = _framed_document()
+        event = document["events"]["workspace-created"]
+        event.update({"encoding": "binary", "layout_version": 1})
+        event["payload"]["fields"]["title"] = {
+            "type": {"kind": "scalar", "name": "string"},
+            "presence": "optional",
+            "nullable": False,
+        }
+        self.assert_rejected(
+            document,
+            "$.events.workspace-created.payload.fields.title: a binary string field needs max_bytes",
+        )
 
     def test_rejects_max_bytes_above_the_frame_limit(self) -> None:
         document = _framed_document()

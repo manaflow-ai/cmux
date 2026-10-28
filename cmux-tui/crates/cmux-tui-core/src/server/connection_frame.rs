@@ -191,6 +191,49 @@ pub(super) fn handle_connection_frame_at(
     }
 }
 
+/// [`handle_connection_frame_at`] for a REQUEST frame whose binary body
+/// already decoded into its `Command` (server/hot_requests.rs): the same
+/// gates in the same order, then the command joins the connection's
+/// sequence, with no line and no parse. `body_len` is the frame's payload
+/// length. Only a local connection sends one (frame_dispatch.rs refuses a
+/// remote-relay client's).
+pub(super) fn handle_decoded_frame_at(
+    mux: &Arc<Mux>,
+    client: u64,
+    request: Request,
+    body_len: usize,
+    writer: &MessageWriter,
+    scheduler: &Arc<ConnectionSurfaceScheduler>,
+    arrived: Instant,
+) -> bool {
+    let _hang = request_hang_watch::RequestHang::frame();
+    let _lock_caller = lock_caller_scope(writer);
+    let watched = mux.request_watchdog.begin(client, WatchedMethod::frame(FrameStage::Route));
+    if mux.daemon_shutdown_requested() || mux.daemon_handoff_committed() {
+        return false;
+    }
+    let (_, cause) = mux.frame_client(client);
+    let _cause = mux.request_qos().enter(cause);
+    if mux.daemon_handoff_in_progress() {
+        return pending_handoff::reject_request_during_pending_handoff(request, writer);
+    }
+    let _request_path = crate::request_path::RequestPathScope::enter(mux.request_path_stats());
+    let parses = crate::line_parses::LineParses::enter();
+    // A binary request has no line.
+    let line = LineFrame {
+        mux,
+        client,
+        message: "",
+        writer,
+        scheduler,
+        arrival: RequestArrival::parsed_now(arrived),
+        watched: watched.as_ref(),
+    };
+    let keep_open = sequence_command(&line, request, body_len);
+    cmux_trace::trace_instant!(daemon, "daemon.frame.json_parses", u64::from(parses.count()));
+    keep_open
+}
+
 /// A local connection's request line on its way to its one handler.
 #[derive(Clone, Copy)]
 pub(super) struct LineFrame<'f> {
@@ -229,7 +272,7 @@ pub(super) enum Dispatched {
 /// is parsed and sequenced as its `Command`; every other line is sequenced
 /// with its head, and [`answer_line`] answers it there.
 pub(super) fn dispatch_line(line: &LineFrame<'_>, head: RequestHead<'_>) -> Dispatched {
-    let LineFrame { mux, client, message, writer, scheduler, arrival, .. } = *line;
+    let message = line.message;
     if head.is_resource() || !head.is_command() {
         return Dispatched::Sequenced(sequence_line(line, LineWork::Line(head.into_owned())));
     }
@@ -241,14 +284,19 @@ pub(super) fn dispatch_line(line: &LineFrame<'_>, head: RequestHead<'_>) -> Disp
             return Dispatched::Sequenced(sequence_line(line, work));
         }
     };
+    Dispatched::Answered(sequence_command(line, request, message.len()))
+}
+
+/// Puts a parsed `Command` request on its connection's sequence; it never
+/// runs here. `retained_bytes` is what its message holds while it waits.
+fn sequence_command(line: &LineFrame<'_>, request: Request, retained_bytes: usize) -> bool {
+    let LineFrame { mux, client, writer, scheduler, arrival, .. } = *line;
     line.watch(WatchedMethod::command(&request.cmd));
     let arrival = RequestArrival::parsed_now(arrival.arrived);
-    // The `Command` joins the same sequence; it never runs here.
     let mut pending = Some(request);
-    let keep_open = scheduler
-        .dispatch_at(mux.clone(), client, &mut pending, arrival, message.len(), writer.clone())
-        .unwrap_or(true);
-    Dispatched::Answered(keep_open)
+    scheduler
+        .dispatch_at(mux.clone(), client, &mut pending, arrival, retained_bytes, writer.clone())
+        .unwrap_or(true)
 }
 
 /// What the sequence does with a line the reader left there.

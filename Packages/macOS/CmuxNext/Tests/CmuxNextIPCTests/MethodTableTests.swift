@@ -230,6 +230,9 @@ private func dense<Entry: Hashable & Sendable>(
             #expect(attrs.name == name && attrs.id == id)
             #expect(attrs.priority.schemaName == node["priority"] as? String, "\(name)")
             #expect(attrs.coalesce == Self.coalesce(node), "\(name)")
+            let payload: MethodPayload = (node["encoding"] as? String) == "binary"
+                ? .binary(layoutVersion: UInt8(node["layout_version"] as? Int ?? 0)) : .json
+            #expect(attrs.payload == payload, "\(name)")
             #expect(table.eventID(named: name) == id)
             eventCount += 1
         }

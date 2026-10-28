@@ -122,7 +122,7 @@
   "terminal-stream-events": {
    "id": 192,
    "description": "Content of an attach stream: output, render state, frames and sizes.",
-   "next_ordinal": 14
+   "next_ordinal": 15
   },
   "mux-events": {
    "id": 193,
@@ -714,6 +714,7 @@
      },
      "presence": "optional",
      "nullable": false,
+     "max_bytes": 256,
      "since": 12,
      "capability": "shared-sizing-v1"
     }
@@ -7416,10 +7417,12 @@
      },
      "presence": "optional",
      "nullable": false,
+     "max_bytes": 256,
      "default": [],
      "constraints": [
       "Priority keys `<user_id or anon:id>/<device_kind>`, highest first."
-     ]
+     ],
+     "max_items": 32
     },
     "fixed": {
      "type": {
@@ -7446,6 +7449,7 @@
      },
      "presence": "optional",
      "nullable": true,
+     "max_bytes": 256,
      "default": null,
      "constraints": [
       "Asserted by the client; the daemon does not verify it."
@@ -7458,6 +7462,7 @@
      },
      "presence": "optional",
      "nullable": true,
+     "max_bytes": 256,
      "default": null
     },
     "device_kind": {
@@ -7467,6 +7472,7 @@
      },
      "presence": "optional",
      "nullable": true,
+     "max_bytes": 32,
      "default": null,
      "constraints": [
       "mac, iphone, ipad, tui, browser, linux, windows; anything else is unknown."
@@ -7479,6 +7485,7 @@
      },
      "presence": "optional",
      "nullable": true,
+     "max_bytes": 256,
      "default": null
     },
     "device_id": {
@@ -7488,6 +7495,7 @@
      },
      "presence": "optional",
      "nullable": true,
+     "max_bytes": 256,
      "default": null,
      "constraints": [
       "Stable per-install device id; tells two devices of one user apart."
@@ -7542,7 +7550,8 @@
       "name": "string"
      },
      "presence": "required",
-     "nullable": false
+     "nullable": false,
+     "max_bytes": 256
     },
     "user_id": {
      "type": {
@@ -7550,7 +7559,8 @@
       "name": "string"
      },
      "presence": "required",
-     "nullable": true
+     "nullable": true,
+     "max_bytes": 256
     },
     "display_name": {
      "type": {
@@ -7558,7 +7568,8 @@
       "name": "string"
      },
      "presence": "required",
-     "nullable": true
+     "nullable": true,
+     "max_bytes": 256
     },
     "device_kind": {
      "type": {
@@ -7574,7 +7585,8 @@
       "name": "string"
      },
      "presence": "required",
-     "nullable": true
+     "nullable": true,
+     "max_bytes": 256
     },
     "device_id": {
      "type": {
@@ -7582,7 +7594,8 @@
       "name": "string"
      },
      "presence": "required",
-     "nullable": true
+     "nullable": true,
+     "max_bytes": 256
     },
     "via": {
      "type": {
@@ -7590,7 +7603,8 @@
       "name": "string"
      },
      "presence": "required",
-     "nullable": true
+     "nullable": true,
+     "max_bytes": 256
     },
     "viewport": {
      "type": {
@@ -7622,7 +7636,8 @@
       "name": "string"
      },
      "presence": "required",
-     "nullable": false
+     "nullable": false,
+     "max_bytes": 512
     }
    },
    "additional_properties": false
@@ -7671,7 +7686,9 @@
       }
      },
      "presence": "required",
-     "nullable": false
+     "nullable": false,
+     "max_bytes": 256,
+     "max_items": 64
     },
     "policy": {
      "type": {
@@ -7690,7 +7707,8 @@
       }
      },
      "presence": "required",
-     "nullable": false
+     "nullable": false,
+     "max_items": 64
     }
    },
    "additional_properties": false
@@ -8029,6 +8047,7 @@
      },
      "presence": "optional",
      "nullable": true,
+     "max_bytes": 128,
      "default": null
     },
     "reason": {
@@ -8038,6 +8057,7 @@
      },
      "presence": "optional",
      "nullable": true,
+     "max_bytes": 64,
      "default": null
     }
    },
@@ -13766,6 +13786,8 @@
    "method_id": 1280,
    "priority": "control",
    "durability": "reply_before_journal",
+   "payload": "binary",
+   "layout_version": 1,
    "stream_scoped": true,
    "clients": [
     "macos",
@@ -19140,6 +19162,7 @@
       },
       "presence": "optional",
       "nullable": true,
+      "max_bytes": 256,
       "default": null
      },
      "view": {
@@ -19149,6 +19172,7 @@
       },
       "presence": "optional",
       "nullable": true,
+      "max_bytes": 128,
       "default": null,
       "since": 12,
       "capability": "shared-sizing-v1",
@@ -19225,6 +19249,8 @@
    "method_id": 1282,
    "priority": "input",
    "durability": "memory",
+   "payload": "binary",
+   "layout_version": 1,
    "stream_scoped": true,
    "clients": [
     "macos",
@@ -19727,6 +19753,8 @@
    "method_id": 777,
    "priority": "input",
    "durability": "memory",
+   "payload": "binary",
+   "layout_version": 1,
    "stream_scoped": true,
    "clients": [
     "sdk"
@@ -29021,6 +29049,7 @@
       },
       "presence": "optional",
       "nullable": true,
+      "max_bytes": 32,
       "default": null
      },
      "have": {
@@ -29039,6 +29068,7 @@
       },
       "presence": "optional",
       "nullable": true,
+      "max_bytes": 128,
       "default": null
      },
      "stream": {
@@ -29072,6 +29102,8 @@
    "method_id": 791,
    "priority": "control",
    "durability": "memory",
+   "payload": "binary",
+   "layout_version": 1,
    "stream_scoped": true,
    "clients": [
     "macos",
@@ -38642,7 +38674,9 @@
     "additional_properties": false
    },
    "event_id": 49161,
-   "priority": "control"
+   "priority": "control",
+   "encoding": "binary",
+   "layout_version": 1
   },
   "status": {
    "since": 5,
@@ -38922,7 +38956,9 @@
     "additional_properties": false
    },
    "event_id": 49424,
-   "priority": "control"
+   "priority": "control",
+   "encoding": "binary",
+   "layout_version": 1
   },
   "tab-added": {
    "since": 7,
@@ -40271,7 +40307,8 @@
        "name": "string"
       },
       "presence": "optional",
-      "nullable": false
+      "nullable": false,
+      "max_bytes": 256
      },
      "cause": {
       "type": {
@@ -40288,7 +40325,9 @@
     "additional_properties": false
    },
    "event_id": 49163,
-   "priority": "control"
+   "priority": "control",
+   "encoding": "binary",
+   "layout_version": 1
   },
   "tab-changed": {
    "since": 12,
@@ -42330,6 +42369,77 @@
    },
    "event_id": 49164,
    "priority": "control"
+  },
+  "digest": {
+   "since": 12,
+   "capability": "terminal-snapshot-v1",
+   "streams": [
+    "attach-byte"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "digest"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "surface": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "generation": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "offset": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "version": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint16"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "sha256": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false,
+      "max_bytes": 64,
+      "description": "Lowercase hex SHA-256 (64 characters) of the host's READY encoding."
+     }
+    },
+    "additional_properties": false,
+    "constraints": [
+     "Sent on a snapshot attach (snapshot:\"ghostsnp\") 2 s after output goes idle, only when the viewer has every byte up to offset. A viewer of the same version hashes its own READY the same way and sends snapshot-request (reason digest_mismatch) on a mismatch."
+    ]
+   },
+   "event_id": 49166,
+   "priority": "control",
+   "encoding": "binary",
+   "layout_version": 1
   }
  }
 }

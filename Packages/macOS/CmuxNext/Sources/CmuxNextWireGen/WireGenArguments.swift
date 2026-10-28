@@ -12,6 +12,8 @@ enum WireGenError: Error, CustomStringConvertible {
     case resourceOperations(ResourceEmitterError)
     /// A schema type the Swift wire types cannot express, with its JSON path.
     case types(TypeSchemaError)
+    /// A binary layout the hot-message codec cannot carry, with its JSON path (HotEmitter).
+    case hotCodec(HotSchemaError)
 
     var description: String {
         switch self {
@@ -19,6 +21,7 @@ enum WireGenError: Error, CustomStringConvertible {
             "\(detail)\nusage: CmuxNextWireGen --sdk-schema PATH --resource-operations PATH [--identity-output PATH] "
                 + "[--method-table-output PATH] [--event-output PATH [--event-import MODULE]] "
                 + "[--resource-output-dir DIR --resource-operation-names NAME,...] [--types-output-dir DIR] "
+                + "[--hot-output PATH] "
                 + "(at least one output)"
         case .unreadable(let path, let reason): "\(path): cannot read: \(reason)"
         case .malformed(let path, let reason): "\(path): not a schema file: \(reason)"
@@ -26,6 +29,7 @@ enum WireGenError: Error, CustomStringConvertible {
         case .methodTable(let error): "\(error)"
         case .resourceOperations(let error): "\(error)"
         case .types(let error): "\(error)"
+        case .hotCodec(let error): "\(error)"
         }
     }
 }
@@ -35,7 +39,7 @@ enum WireGenError: Error, CustomStringConvertible {
 struct WireGenArguments {
     static let flags = [
         "--sdk-schema", "--resource-operations", "--identity-output", "--method-table-output", "--event-output",
-        "--event-import", "--resource-output-dir", "--resource-operation-names", "--types-output-dir",
+        "--event-import", "--resource-output-dir", "--resource-operation-names", "--types-output-dir", "--hot-output",
     ]
 
     let sdkSchema: URL
@@ -55,6 +59,8 @@ struct WireGenArguments {
     let resourceOperationNames: [String]
     /// The directory TypeEmitter writes its support files and per-type files into.
     let typesOutputDirectory: URL?
+    /// Where the hot-message codec goes (HotEmitter).
+    let hotOutput: URL?
 
     init(_ argv: [String]) throws(WireGenError) {
         var values: [String: String] = [:]
@@ -74,15 +80,16 @@ struct WireGenArguments {
         eventImport = values["--event-import"]
         resourceOutputDirectory = values["--resource-output-dir"].map { URL(fileURLWithPath: $0, isDirectory: true) }
         typesOutputDirectory = values["--types-output-dir"].map { URL(fileURLWithPath: $0, isDirectory: true) }
+        hotOutput = values["--hot-output"].map { URL(fileURLWithPath: $0) }
         resourceOperationNames = values["--resource-operation-names"].map {
             $0.split(separator: ",", omittingEmptySubsequences: false).map(String.init)
         } ?? []
         guard identityOutput != nil || methodTableOutput != nil || eventOutput != nil || resourceOutputDirectory != nil
-            || typesOutputDirectory != nil
+            || typesOutputDirectory != nil || hotOutput != nil
         else {
             throw WireGenError.usage(
-                "no output: give --identity-output, --method-table-output, --event-output, --resource-output-dir "
-                    + "or --types-output-dir")
+                "no output: give --identity-output, --method-table-output, --event-output, --resource-output-dir, "
+                    + "--types-output-dir or --hot-output")
         }
         guard (resourceOutputDirectory == nil) == (values["--resource-operation-names"] == nil) else {
             throw WireGenError.usage("--resource-output-dir and --resource-operation-names go together")

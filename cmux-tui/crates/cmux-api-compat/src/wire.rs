@@ -5,8 +5,9 @@
 //! `spec/resource-operations-v2.json` for the v2 operations) carry a
 //! `families` table (name -> `{id, description, next_ordinal}`) and, per
 //! command, operation or event, a `method_id` / `event_id`
-//! (`family << 8 | ordinal`), a `priority` and, for `payload: "binary"`, a
-//! `layout_version` (transports.md, "Method ids"; the v2 attributes are
+//! (`family << 8 | ordinal`), a `priority` and, for `payload: "binary"` (an
+//! event's `encoding: "binary"`), a `layout_version` (transports.md,
+//! "Method ids"; the v2 attributes are
 //! declared in `spec/resource-operations-v2.schema.json`).
 //! `spec/api-compat.wire.json` ([`LEDGER_FILE`]) keeps an append-only ledger
 //! of everything ever given out ([`WireLedgers`]). It is a file of its own

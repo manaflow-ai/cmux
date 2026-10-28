@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "6c411d6bdd4ecf7ff0394081a5e55ff142d573370a7193e692cfde5e51fa96bd";
+inline constexpr std::string_view kProtocolIrSha256 = "f072169a4de5faa99f08419061ad5275c82abe4699d0f3ed8c55a323f91ac4c3";
 
 enum class AccessRequestKind;
 struct AccessRequestPending;
@@ -805,6 +805,7 @@ struct ConversationRunChangedEvent;
 struct ConversationTypingEvent;
 struct DaemonShutdownEvent;
 struct DetachedEvent;
+struct DigestEvent;
 struct EmptyEvent;
 struct FrameEvent;
 struct FrontendProjectionChangedEvent;
@@ -3937,6 +3938,15 @@ struct DetachedEvent {
     Id surface{};
     std::optional<std::string> view{};
     friend bool operator==(const DetachedEvent&, const DetachedEvent&) = default;
+};
+
+struct DigestEvent {
+    std::uint64_t generation{};
+    std::uint64_t offset{};
+    std::string sha256{};
+    Id surface{};
+    std::uint16_t version{};
+    friend bool operator==(const DigestEvent&, const DigestEvent&) = default;
 };
 
 struct EmptyEvent {
@@ -12584,6 +12594,12 @@ template <>
 struct Codec<DetachedEvent> {
     static Result<Json> encode(const DetachedEvent& value);
     static Result<DetachedEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<DigestEvent> {
+    static Result<Json> encode(const DigestEvent& value);
+    static Result<DigestEvent> decode(const Json& value);
 };
 
 template <>

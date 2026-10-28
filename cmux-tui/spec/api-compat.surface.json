@@ -1139,6 +1139,35 @@
         "ty": "string"
       }
     },
+    "event:digest": {
+      "/event": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"digest\""
+        ]
+      },
+      "/generation": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/offset": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/sha256": {
+        "ty": "string",
+        "required": true
+      },
+      "/surface": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/version": {
+        "ty": "uint16",
+        "required": true
+      }
+    },
     "event:empty": {
       "/cause": {
         "ty": "enum",

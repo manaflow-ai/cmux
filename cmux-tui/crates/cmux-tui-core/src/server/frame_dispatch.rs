@@ -11,7 +11,10 @@
 //! interface_endpoint_client.cc, `HandleValidatedMessage`).
 //!
 //! The body then takes its line's path, so it runs the same handler and its
-//! reply is the same JSON. The writer it runs with answers the frame
+//! reply is the same JSON. A REQUEST with the BINARY flag carries its
+//! method's binary layout instead (p05-ipc-183, server/hot_requests.rs): it
+//! decodes straight into its `Command` and skips the line parse, never read
+//! as UTF-8. The writer it runs with answers the frame
 //! (`MessageWriter::replying_to`, Mojo's responder): the reply leaves as one
 //! REPLY frame, or ERROR when `ok` is false, with the request's call fields,
 //! in the control FIFO behind every event the request emitted. A request id
@@ -68,9 +71,10 @@ use std::fmt;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, LazyLock};
 
+use cmux_ipc::hot::HotDecodeError;
 use cmux_ipc::{
     Aux, BadMessage, CallAux, CallFlags, Frame, FrameHeader, FrameKind, MAX_FRAME_PAYLOAD,
-    MethodAttrs, MethodId, MethodTables, Payload, PriorityHint,
+    MethodAttrs, MethodId, MethodTables, PriorityHint,
 };
 use serde::{Deserialize, Deserializer, de::IgnoredAny};
 use serde_json::json;
@@ -83,8 +87,8 @@ use super::line_connection::{
 };
 use super::pending_streams::{ClientStreams, RequestLane, StreamEndpoint, post_request};
 use super::{
-    ClientTransport, Command, ConnectionCancellation, MessageWriter, Mux,
-    handle_connection_frame_at,
+    ClientTransport, Command, ConnectionCancellation, MessageWriter, Mux, Request,
+    handle_connection_frame_at, handle_decoded_frame_at, hot_requests,
 };
 
 /// The `error_code` of the ERROR reply to a method that answers only lines.
@@ -204,6 +208,11 @@ pub(super) enum CallRefusal {
     CancelPayload { request_id: u32 },
     /// An INPUT frame from a remote-relay client, which writes no terminal.
     RemoteInput { stream: u16 },
+    /// A BINARY body that is not its method's request layout.
+    BadLayout { method_id: u16, error: HotDecodeError },
+    /// A BINARY request from a remote-relay client, whose relay policy reads
+    /// only lines: it sends the JSON body.
+    RemoteBinary { method_id: u16 },
 }
 
 impl CallRefusal {
@@ -221,6 +230,8 @@ impl CallRefusal {
             CallRefusal::CancelMismatch { .. } => "cancel_mismatch",
             CallRefusal::CancelPayload { .. } => "cancel_payload",
             CallRefusal::RemoteInput { .. } => "remote_input",
+            CallRefusal::BadLayout { .. } => "bad_layout",
+            CallRefusal::RemoteBinary { .. } => "remote_binary",
         }
     }
 }
@@ -264,6 +275,12 @@ impl fmt::Display for CallRefusal {
             }
             CallRefusal::RemoteInput { stream } => {
                 write!(f, "INPUT on stream {stream} from a remote-relay client")
+            }
+            CallRefusal::BadLayout { method_id, error } => {
+                write!(f, "method {method_id:#06x} binary body: {error}")
+            }
+            CallRefusal::RemoteBinary { method_id } => {
+                write!(f, "binary request of method {method_id:#06x} from a remote-relay client")
             }
         }
     }
@@ -349,20 +366,22 @@ impl RequestFrames {
                 max,
             }));
         }
-        let body = std::str::from_utf8(payload).map_err(|error| {
-            ConnectionBadMessage::Wire(BadMessage::InvalidUtf8 { valid_up_to: error.valid_up_to() })
-        })?;
         let stream = header.stream();
         let lane = self.streams.request_lane(stream, method).map_err(ConnectionBadMessage::Call)?;
         self.admit(call.request_id).map_err(ConnectionBadMessage::Call)?;
         // An admitted REQUEST is one framed request of `server-stats` `ipc`:
-        // the body parses below and on its line's path count toward it.
+        // the body parses below and on its line's path count toward it (a
+        // binary body parses none).
         let _parses = JsonParseScope::enter(connection.mux.ipc_stats(), IpcTransport::Frames);
         if !served_on_frames(self.tables, method) {
             let call = Arc::new(FrameCall::new(stream, call));
             return Ok(send_not_framed(&connection.writer.replying_to(call), method));
         }
-        names_method(body, method).map_err(ConnectionBadMessage::Call)?;
+        let body = if call.flags.contains(CallFlags::BINARY) {
+            decoded_body(method, payload, connection)?
+        } else {
+            line_body(method, payload)?
+        };
         let opens =
             matches!(lane, RequestLane::Open).then(|| self.streams.announce(stream, connection));
         let frame_call = Arc::new(FrameCall::opening(stream, call, opens));
@@ -374,15 +393,26 @@ impl RequestFrames {
                 post_request(&endpoint, body, frame_call, connection);
                 Ok(true)
             }
-            RequestLane::Control | RequestLane::Open => Ok(handle_connection_frame_at(
-                connection.mux,
-                connection.client,
-                connection.transport,
-                body,
-                &writer,
-                connection.scheduler,
-                connection.arrived,
-            )),
+            RequestLane::Control | RequestLane::Open => Ok(match body {
+                FrameBody::Line(line) => handle_connection_frame_at(
+                    connection.mux,
+                    connection.client,
+                    connection.transport,
+                    line,
+                    &writer,
+                    connection.scheduler,
+                    connection.arrived,
+                ),
+                FrameBody::Decoded(request) => handle_decoded_frame_at(
+                    connection.mux,
+                    connection.client,
+                    *request,
+                    payload.len(),
+                    &writer,
+                    connection.scheduler,
+                    connection.arrived,
+                ),
+            }),
         }
     }
 
@@ -473,12 +503,49 @@ impl RequestFrames {
     }
 }
 
-/// Whether the method's reply goes through the responder: a JSON v12
-/// `Command` (its handler replies through `responses`).
+/// A REQUEST frame's body on its way to its handler.
+pub(super) enum FrameBody<'a> {
+    /// The JSON line, without its `\n` (no BINARY flag).
+    Line(&'a str),
+    /// A BINARY body, decoded from its method's layout.
+    Decoded(Box<Request>),
+}
+
+/// A JSON body: UTF-8 that names the header's method.
+fn line_body<'p>(
+    method: &MethodAttrs,
+    payload: &'p [u8],
+) -> Result<FrameBody<'p>, ConnectionBadMessage> {
+    let body = std::str::from_utf8(payload).map_err(|error| {
+        ConnectionBadMessage::Wire(BadMessage::InvalidUtf8 { valid_up_to: error.valid_up_to() })
+    })?;
+    names_method(body, method).map_err(ConnectionBadMessage::Call)?;
+    Ok(FrameBody::Line(body))
+}
+
+/// A BINARY body: exactly its method's request layout, from a local client.
+fn decoded_body(
+    method: &MethodAttrs,
+    payload: &[u8],
+    connection: &FrameConnection<'_>,
+) -> Result<FrameBody<'static>, ConnectionBadMessage> {
+    let method_id = method.id.raw();
+    let (remote, _) = connection.mux.frame_client(connection.client);
+    if matches!(connection.transport, ClientTransport::Remote) || remote {
+        return Err(ConnectionBadMessage::Call(CallRefusal::RemoteBinary { method_id }));
+    }
+    // `request_flags` took the BINARY flag only for a method with a layout.
+    let decoded = hot_requests::decode(method, payload)
+        .ok_or(CallRefusal::FlagsRefused { method_id, flags: CallFlags::BINARY.bits() })
+        .and_then(|decoded| decoded.map_err(|error| CallRefusal::BadLayout { method_id, error }));
+    decoded.map(|request| FrameBody::Decoded(Box::new(request))).map_err(ConnectionBadMessage::Call)
+}
+
+/// Whether the method's reply goes through the responder: a v12 `Command`
+/// (its handler replies through `responses`), with a JSON body or, for a
+/// binary method, either body (the frame's BINARY flag says which).
 fn served_on_frames(tables: &MethodTables, method: &MethodAttrs) -> bool {
-    tables.v12(method.id).is_some()
-        && method.payload == Payload::Json
-        && Command::method_of_wire(method.name).is_some()
+    tables.v12(method.id).is_some() && Command::method_of_wire(method.name).is_some()
 }
 
 /// The v12 method ids this daemon answers on REQUEST frames, in id order
@@ -503,12 +570,14 @@ pub(super) fn sdk_schema_digest() -> String {
     format!("{:016x}", cmux_ipc::SCHEMA_IDENTITY.sdk_schema_digest)
 }
 
-/// The flags a REQUEST of `method` may carry.
+/// The flags a REQUEST of `method` may carry. BINARY selects the body's
+/// decoder: only a method with a request layout this daemon reads takes it,
+/// and every method takes a JSON body (a sender writes one when a value is
+/// over its layout's bounds).
 fn request_flags(method: &MethodAttrs, flags: CallFlags) -> Result<(), CallRefusal> {
-    let binary = matches!(method.payload, Payload::Binary { .. });
     let refused = flags.contains(CallFlags::FDS)
         || flags.contains(CallFlags::MORE)
-        || flags.contains(CallFlags::BINARY) != binary
+        || (flags.contains(CallFlags::BINARY) && !hot_requests::decodes(method))
         || (flags.contains(CallFlags::URGENT) && !method.urgent);
     if refused {
         return Err(CallRefusal::FlagsRefused { method_id: method.id.raw(), flags: flags.bits() });
@@ -566,3 +635,7 @@ pub(super) mod tests;
 #[cfg(all(test, unix))]
 #[path = "input_frames_tests.rs"]
 mod input_frames_tests;
+
+#[cfg(all(test, unix))]
+#[path = "hot_frames_tests.rs"]
+mod hot_frames_tests;

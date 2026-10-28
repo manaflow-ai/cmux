@@ -164,6 +164,9 @@ pub struct EventAttrs {
     pub id: EventId,
     pub name: &'static str,
     pub priority: PriorityHint,
+    /// The schema `encoding`: how a TYPED_EVENT frame carries the payload. A
+    /// binary one is the event's [`crate::hot`] layout of that version.
+    pub payload: Payload,
     pub coalesce: Option<Coalesce>,
 }
 
