@@ -6,6 +6,8 @@ import {
   REBAKE_INPUTS,
   REBAKE_INPUT_EXEMPT,
   REBAKE_SLUG_PREFIX,
+  CMUX_TUI_FILES,
+  pinCmuxTuiManifest,
   listAllSnapshots,
   pruneSelection,
   rebakeInputFiles,
@@ -149,5 +151,32 @@ describe("rebake inputs", () => {
     expect(workflow.concurrency["cancel-in-progress"]).toBe(false);
     // The account and the devbox-rebake/* PRs are shared: one canonical branch bakes.
     expect(workflow.jobs.rebake.if).toContain("github.ref == 'refs/heads/feat-cmux-next'");
+  });
+});
+
+describe("pinCmuxTuiManifest", () => {
+  const sha = (c: string) => c.repeat(64);
+  const manifest = (commit: string, acpmux: boolean) => ({
+    commit,
+    binaries: {
+      "cmux-tui-x86_64-unknown-linux-musl": sha("a"),
+      "cmux-tui-hook-x86_64-unknown-linux-musl": sha("b"),
+      ...(acpmux ? { "cmux-tui-acpmux-x86_64-unknown-linux-musl": sha("c") } : {}),
+    },
+  });
+
+  test("takes the newest published build that carries acpmux", async () => {
+    const [unpublished, noAcpmux, good, older] = ["1", "2", "3", "4"].map((c) => c.repeat(40));
+    const published: Record<string, unknown> = {
+      [`${CMUX_TUI_FILES}/${noAcpmux}/manifest.json`]: manifest(noAcpmux, false),
+      [`${CMUX_TUI_FILES}/${good}/manifest.json`]: manifest(good, true),
+      [`${CMUX_TUI_FILES}/${older}/manifest.json`]: manifest(older, true),
+    };
+    const url = await pinCmuxTuiManifest([unpublished, noAcpmux, good, older], async (u) => published[u] ?? null);
+    expect(url).toBe(`${CMUX_TUI_FILES}/${good}/manifest.json`);
+  });
+
+  test("returns null when no candidate has acpmux", async () => {
+    expect(await pinCmuxTuiManifest(["5".repeat(40)], async () => null)).toBeNull();
   });
 });
