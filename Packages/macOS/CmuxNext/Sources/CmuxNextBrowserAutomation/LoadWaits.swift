@@ -74,11 +74,19 @@ final class LoadWaits {
         var started: Bool
         let requestedURL: URL?
         let generation: UInt64
-        let timer: DemandTimer?
+        /// The wait's request deadline (nil: none).
+        let timer: MainDeadline?
         let resume: (Result<Void, DriverError>) -> Void
     }
 
     private var waits: [UUID: Wait] = [:]
+    /// Where each wait's request deadline is placed: an automation-class, flexible ``MainDeadline`` (an agent
+    /// waits on it; a timeout is never sooner than asked).
+    private let deadlines: MainDeadlineScheduler
+
+    init(deadlines: MainDeadlineScheduler) {
+        self.deadlines = deadlines
+    }
     /// Increments at each main-frame document start (load-state message),
     /// for `tab.info` and for tickets without a navigation.
     private(set) var generation: UInt64 = 0
@@ -201,14 +209,14 @@ final class LoadWaits {
         // A wait dropped unanswered (abandoned: the tab's waits went away) is a closed tab.
         try await withOnceContinuation(failingWith: { _ in DriverError(.closed, "\(what): the tab closed") }) {
             (continuation: OnceContinuation<Void, DriverError>) in
-            let timer = timeout.map { _ in DemandTimer(owner: "BrowserAutomation.loadWait") }
+            let timer = timeout.map { _ in MainDeadline(owner: "BrowserAutomation.loadWait", workClass: .automation, scheduler: deadlines) }
             waits[id] = Wait(target: target, navigation: ticket.navigation, followsNextNavigation: false, started: started,
                              requestedURL: ticket.requestedURL, generation: ticket.generation, timer: timer) {
                 continuation.resume(with: $0)
             }
             if let timer, let timeout {
                 timer.schedule(after: timeout) { [weak self] in
-                    await self?.finish(id, .failure(DriverError(.timeout, "\(what): Timeout \(timeout) exceeded waiting for \(target.name)")))
+                    self?.finish(id, .failure(DriverError(.timeout, "\(what): Timeout \(timeout) exceeded waiting for \(target.name)")))
                 }
             }
         }

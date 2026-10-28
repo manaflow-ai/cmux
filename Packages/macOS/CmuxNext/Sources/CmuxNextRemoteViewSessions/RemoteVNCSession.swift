@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextDesign
+public import CmuxNextWakeups
 public import CmuxNextRemoteView
 public import CmuxVNC
 import CmuxVNCDemoServer
@@ -15,19 +16,34 @@ public final class RemoteVNCSession {
     /// The record's address; the Keychain key for its sign-in.
     public let endpoint: VNCEndpoint
     private let store = RemoteVNCCredentialStore()
+    /// The app's lanes: every Keychain call of the sign-in runs on their system lane, never on main.
+    private let work: BackgroundWork
+    /// The saved sign-in reads: memory first, else the system lane; a newer read, `stop` or `close` drops an older one.
+    private let signInReads: RemoteVNCSignInReads
     private var demo: VNCDemoServer?
     private var demoPort: UInt16?
     private var demoStart: Task<Void, Never>?
     private var prompting = false
     private var closed = false
+    /// The app's scheduler: the demo server's start answers in its userBlocking class (the person opened the tab).
+    private let mainWork: MainWorkScheduler
 
-    /// `demoHost`: the reserved host name served by the loopback demo desktop.
-    public init(record: RemoteViewTabRecord, port: UInt16, demoHost: String) {
+    /// `demoHost`: the reserved host name served by the loopback demo desktop; `work` and `mainWork`: the app's
+    /// lanes and main-thread scheduler (the Keychain reads and writes of the sign-in, and their answers);
+    /// `signIns`: the app's saved VNC sign-ins in memory.
+    public init(record: RemoteViewTabRecord, port: UInt16, demoHost: String, work: BackgroundWork, mainWork: MainWorkScheduler,
+                signIns: RemoteVNCSignIns) {
         self.record = record
+        self.work = work
+        self.mainWork = mainWork
         // The reserved names (RemoteViewTabPolicy) are never resolved: `local` and
         // `localhost` are this Mac, `mock` is the loopback demo desktop.
         let host = record.host.lowercased()
-        endpoint = VNCEndpoint(host: ["local", "localhost"].contains(host) ? "127.0.0.1" : record.host, port: port)
+        let endpoint = VNCEndpoint(host: ["local", "localhost"].contains(host) ? "127.0.0.1" : record.host, port: port)
+        self.endpoint = endpoint
+        signInReads = RemoteVNCSignInReads(work: work, mainWork: mainWork, memory: signIns, account: endpoint.label,
+                                           keychain: { RemoteVNCCredentialStore().keychainCredentials(for: endpoint) },
+                                           fallback: { RemoteVNCCredentialStore().debugFileCredentials() })
         if host == demoHost { demo = VNCDemoServer() }
     }
 
@@ -44,7 +60,11 @@ public final class RemoteVNCSession {
     public func connect() {
         guard !closed else { return }
         guard let demo else {
-            source.connect(to: endpoint, credentials: store.credentials(for: endpoint) ?? VNCCredentials())
+            // The saved sign-in comes from memory or the Keychain on the system lane; the connect follows it.
+            signInReads.read { [weak self] saved in
+                guard let self else { return }
+                source.connect(to: endpoint, credentials: saved ?? VNCCredentials())
+            }
             return
         }
         if let demoPort {
@@ -52,28 +72,36 @@ public final class RemoteVNCSession {
             return
         }
         guard demoStart == nil else { return }
-        demoStart = Task { [weak self] in
+        let mainWork = mainWork
+        // The server starts off main; its port is one userBlocking task (the rest of the person's open, Chrome's
+        // PostTaskAndReply).
+        // task-owner: the demo server's start; ends with its port, or at close().
+        demoStart = Task { @concurrent [weak self] in
             let port = try? await demo.start()
-            // Closed (or gone) while the server started: stop it, never connect.
-            guard let self, !closed, !Task.isCancelled else {
-                demo.stop()
-                return
+            mainWork.postFromAnyThread(.userBlocking, owner: "remote-view.vnc-demo") { [weak self] in
+                // Closed (or gone) while the server started: stop it, never connect.
+                guard let self, !closed else {
+                    demo.stop()
+                    return
+                }
+                demoStart = nil
+                guard let port else { return }
+                demoPort = port
+                connect()
             }
-            demoStart = nil
-            guard let port else { return }
-            demoPort = port
-            connect()
         }
     }
 
     /// Stop, a hidden tab.
     public func stop() {
+        signInReads.cancel()
         source.stop()
     }
 
     /// The tab closed: the demo server goes too.
     public func close() {
         closed = true
+        signInReads.cancel()
         source.stop()
         demoStart?.cancel()
         demo?.stop()
@@ -93,7 +121,13 @@ public final class RemoteVNCSession {
     private func promptForSignIn(in window: NSWindow?) {
         guard !prompting else { return }
         prompting = true
-        let saved = store.credentials(for: endpoint)
+        // The saved user name fills the sheet: from memory or a system lane read, then the sheet shows.
+        signInReads.read(dropped: { [weak self] in self?.prompting = false }) { [weak self, weak window] saved in
+            self?.presentSignIn(saved: saved, in: window)
+        }
+    }
+
+    private func presentSignIn(saved: VNCCredentials?, in window: NSWindow?) {
         let spec = CmuxDialogSpec(
             title: RemoteVNCStrings.signInTitle(record.host),
             lines: [RemoteVNCStrings.signInMessage],
@@ -116,9 +150,13 @@ public final class RemoteVNCSession {
                 source.republishStatus()
                 return
             }
-            // Saved only once the host accepts them, so a typo never replaces a working sign-in.
-            let store = store, endpoint = endpoint
-            source.connect(to: endpoint, credentials: credentials) { store.save(credentials, for: endpoint) }
+            // Saved only once the host accepts them, so a typo never replaces a working sign-in; the
+            // Keychain write runs on the system lane.
+            let store = store, endpoint = endpoint, work = work, signInReads = signInReads
+            source.connect(to: endpoint, credentials: credentials) {
+                signInReads.saved(credentials)
+                work.post(.bestEffort, mayBlock: .system) { store.save(credentials, for: endpoint) }
+            }
         }
     }
 

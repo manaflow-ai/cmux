@@ -23,6 +23,11 @@ html[data-cmux-page="files"] body { overflow: hidden; }
   overflow-y: auto;
 }
 
+/* The tree's menu takes a right-click anywhere in the scroller, under the last row too. */
+.files-menu {
+  min-height: 100%;
+}
+
 .files-tree {
   padding: 0 6px 12px;
   outline: none;

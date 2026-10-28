@@ -57,7 +57,6 @@
 
 use crate::panic_free::JsonFields;
 use crate::panic_free::RecoverPoison;
-use cmux_threads::checked::sync as waits;
 use cmux_threads::sync::Mutex;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -67,21 +66,25 @@ use base64::Engine as _;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
+use super::attach_lifecycle::AttachCommit;
+use super::attach_streams::checked_view_stream;
 use super::render_messages::snapshot_frames::SnapshotEvent;
 use super::terminal_io_wire::{AttachSurfaceParams, SnapshotRequestParams, wire_usize};
 use super::{
-    AttachWorkerCommit, MarkedClientAttach, MessageWriter, OutboundStream,
-    commit_client_attach_and_start_worker, detach_committed_attach, get_surface,
+    MarkedClientAttach, MessageWriter, OutboundStream, get_surface, handle_attach_send_error,
     mark_client_attached, require_pty, rollback_failed_attach, spawn_attach_notification_stream,
     terminal_colors_json,
 };
-use crate::stream_interrupt::StreamInterrupt;
 use crate::surface::snapshot_attach::{
-    DEFAULT_VIEWER_BACKLOG_BYTES, LocalReadySnapshot, SNAPSHOT_DIGEST_IDLE, SnapshotAdmission,
-    SnapshotImages, SnapshotRequestGate, TerminalSnapshotDigest, TerminalSnapshotFrame,
+    DEFAULT_VIEWER_BACKLOG_BYTES, LocalReadySnapshot, SnapshotAdmission, SnapshotImages,
+    SnapshotRequestGate, TerminalSnapshotDigest, TerminalSnapshotFrame,
 };
-use crate::surface::{AttachFrame, AttachFrameReceiver, AttachLifecycle, ViewerEvent};
+use crate::surface::{AttachFrame, AttachLifecycle};
 use crate::{Mux, Surface, SurfaceId};
+
+#[path = "snapshot_attach_out.rs"]
+mod snapshot_attach_out;
+use snapshot_attach_out::SnapshotWorker;
 
 pub const TERMINAL_SNAPSHOT_CAPABILITY: &str = "terminal-snapshot-v1";
 /// READY is followed by its history chunks (scrollback, then FINISH).
@@ -208,12 +211,24 @@ impl SnapshotViewers {
         }
     }
 
-    fn gates(&self, client: u64, surface: SurfaceId) -> Vec<SnapshotRequestGate> {
+    /// The request gates of `client`'s viewers of `surface`: every one, or
+    /// only the one on attach stream `stream`.
+    fn gates(
+        &self,
+        client: u64,
+        surface: SurfaceId,
+        stream: Option<u64>,
+    ) -> Vec<SnapshotRequestGate> {
         self.viewers
             .lock()
             .recover_poison()
             .get(&(client, surface))
-            .map(|list| list.iter().map(|viewer| viewer.gate.clone()).collect())
+            .map(|list| {
+                list.iter()
+                    .filter(|viewer| stream.is_none_or(|stream| viewer.stream == stream))
+                    .map(|viewer| viewer.gate.clone())
+                    .collect()
+            })
             .unwrap_or_default()
     }
 }
@@ -251,6 +266,7 @@ fn validate_request(params: &SnapshotRequestParams) -> anyhow::Result<()> {
 pub(crate) fn handle_request(
     mux: &Arc<Mux>,
     client: u64,
+    writer: &MessageWriter,
     params: SnapshotRequestParams,
 ) -> anyhow::Result<Value> {
     validate_request(&params)?;
@@ -264,7 +280,12 @@ pub(crate) fn handle_request(
     {
         anyhow::bail!("unsupported_version");
     }
-    let gates = mux.control_clients.snapshot_viewers.gates(client, params.surface);
+    // A request that names its stream asks that view only.
+    let stream = params
+        .stream
+        .map(|stream| checked_view_stream(mux, client, writer, params.surface, stream))
+        .transpose()?;
+    let gates = mux.control_clients.snapshot_viewers.gates(client, params.surface, stream);
     if gates.is_empty() {
         anyhow::bail!("not_attached");
     }
@@ -558,194 +579,11 @@ fn frame_output_len(frame: &AttachFrame) -> usize {
     frame.output().map_or(0, <[u8]>::len)
 }
 
-/// Everything the attach worker needs.
-struct SnapshotWorker {
-    mux: Arc<Mux>,
-    client: u64,
-    surface_id: SurfaceId,
-    surface: Arc<Surface>,
-    writer: MessageWriter,
-    outbound_stream: OutboundStream,
-    receiver: AttachFrameReceiver,
-    lifecycle: AttachLifecycle,
-    gate: SnapshotRequestGate,
-    generation: u64,
-    offset: u64,
-    /// History and images of the last READY not yet sent; a newer READY
-    /// replaces them.
-    tail: Option<PendingTail>,
-    /// The images cap when the viewer opted into images.
-    images_cap: Option<u64>,
-}
-
-impl SnapshotWorker {
-    fn send(&self, value: &Value) -> bool {
-        match self.writer.send_stream_backpressured(value, &self.outbound_stream) {
-            Ok(()) => true,
-            Err(error) => {
-                handle_attach_send_error(&self.lifecycle, &error);
-                false
-            }
-        }
-    }
-
-    fn send_snapshot(&mut self) -> bool {
-        match self.surface.take_viewer_snapshot(&self.receiver, self.images_cap) {
-            Ok(mut frame) => {
-                self.gate.sent(Instant::now());
-                self.generation = frame.generation;
-                self.offset = frame.offset;
-                log_skipped_images(self.surface_id, &frame);
-                // The older READY's history and images no longer apply.
-                self.tail = Some(PendingTail::of(&mut frame));
-                self.send(&ready_event(self.surface_id, &frame).into_json())
-            }
-            Err(_) => {
-                // The unfinished escape sequence is longer than the snapshot
-                // continuation budget: retry at the next output; the viewer
-                // stays attached.
-                self.receiver.defer_snapshot();
-                self.gate.sent(Instant::now());
-                true
-            }
-        }
-    }
-
-    /// A local-history READY at a resize cut. It continues the viewer's
-    /// stream only when the viewer holds a complete history to reflow and
-    /// every byte before the cut; otherwise the viewer gets a READY with
-    /// history at a new cut.
-    fn send_local_ready(&mut self, ready: &LocalReadySnapshot) -> bool {
-        // A viewer still owed the images of an older READY has none to keep.
-        if self.tail.is_some() || self.offset != ready.frame.offset {
-            return self.send_snapshot();
-        }
-        self.generation = ready.frame.generation;
-        self.send(&local_ready_event(self.surface_id, ready).into_json())
-    }
-
-    /// One history or images chunk; the last one ends the pending tail. A
-    /// history chunk that cannot be compressed ends this READY's tail (its
-    /// images too: they need the history rows); the viewer stays attached
-    /// and its next READY brings a complete history.
-    fn send_tail_chunk(&mut self) -> bool {
-        let Some(tail) = self.tail.as_mut() else { return true };
-        match tail.next_chunk(self.surface_id) {
-            Ok(Some((event, done))) => {
-                let value = event.into_json();
-                if done {
-                    self.tail = None;
-                }
-                self.send(&value)
-            }
-            Ok(None) => {
-                self.tail = None;
-                true
-            }
-            Err(error) => {
-                eprintln!(
-                    "cmux-tui: surface {} snapshot history not sent (generation {}): {error}",
-                    self.surface_id, tail.generation
-                );
-                self.tail = None;
-                true
-            }
-        }
-    }
-
-    /// Block on the viewer's queue; the only timed wait is the one-shot idle
-    /// digest deadline set by the last output. While history is pending the
-    /// queue is only polled: a queued event goes first, else one chunk.
-    /// Images chunks follow the history chunks at the same priority.
-    fn run(mut self) {
-        let interrupt = StreamInterrupt::new();
-        self.writer.register_interrupt(&interrupt);
-        self.outbound_stream.register_interrupt(&interrupt);
-        self.lifecycle.register_interrupt(&interrupt);
-        self.receiver.wake_on(&interrupt);
-        let mut digest_at: Option<Instant> = None;
-        while self.writer.is_open()
-            && self.outbound_stream.is_open()
-            && !self.lifecycle.is_canceled()
-        {
-            let deadline = if self.tail.is_some() { Some(Instant::now()) } else { digest_at };
-            let event = self.receiver.recv_viewer_event(&interrupt, deadline);
-            let sent = match event {
-                Ok(ViewerEvent::Snapshot) => {
-                    digest_at = None;
-                    self.send_snapshot()
-                }
-                Ok(ViewerEvent::LocalReady(ready)) => {
-                    digest_at = None;
-                    self.send_local_ready(&ready)
-                }
-                Ok(ViewerEvent::Frame(frame)) => {
-                    self.offset += frame_output_len(&frame) as u64;
-                    if frame_output_len(&frame) > 0 {
-                        digest_at = Some(Instant::now() + SNAPSHOT_DIGEST_IDLE);
-                    }
-                    match frame_json(self.surface_id, &frame, self.generation, self.offset) {
-                        Some(value) => self.send(&value),
-                        None => true,
-                    }
-                }
-                Err(std::sync::mpsc::RecvTimeoutError::Timeout) if self.tail.is_some() => {
-                    self.send_tail_chunk()
-                }
-                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                    if digest_at.is_some_and(|deadline| Instant::now() >= deadline) {
-                        digest_at = None;
-                        match self.surface.snapshot_digest() {
-                            // Output that arrived after the queue emptied
-                            // reaches this viewer next; a digest at an offset
-                            // it has not reached would be a false mismatch.
-                            Ok(digest)
-                                if (digest.generation, digest.offset)
-                                    == (self.generation, self.offset) =>
-                            {
-                                self.send(&digest_json(self.surface_id, &digest))
-                            }
-                            Ok(_) | Err(_) => true,
-                        }
-                    } else {
-                        true
-                    }
-                }
-                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                    self.lifecycle.cancel();
-                    if self.writer.is_open() {
-                        let _ = self.writer.send_stream_backpressured(
-                            &json!({"event": "detached", "surface": self.surface_id}),
-                            &self.outbound_stream,
-                        );
-                    }
-                    break;
-                }
-            };
-            if !sent {
-                break;
-            }
-        }
-        report_attach_overflow(
-            &self.writer,
-            self.surface_id,
-            &self.lifecycle,
-            &self.outbound_stream,
-        );
-        self.mux.control_clients.snapshot_viewers.unregister(
-            self.client,
-            self.surface_id,
-            self.outbound_stream.id,
-        );
-        detach_committed_attach(&self.mux, self.client, self.surface_id, self.outbound_stream.id);
-    }
-}
-
 impl SnapshotAttachParams {
     /// The byte attach of a snapshot viewer. Mirrors the replay attach in
     /// `server.rs`: mark the client attached, register the queue under the
     /// terminal lock, send the first READY snapshot before the reply, then
-    /// start the worker.
+    /// start the worker. The view's items go on `outbound_stream`.
     pub(crate) fn attach(
         &self,
         mux: &Arc<Mux>,
@@ -753,10 +591,10 @@ impl SnapshotAttachParams {
         surface: Arc<Surface>,
         writer: &MessageWriter,
         initial_size: Option<(u16, u16)>,
+        outbound_stream: OutboundStream,
     ) -> anyhow::Result<Value> {
         let surface_id = surface.id;
         let lifecycle = AttachLifecycle::default();
-        let outbound_stream = writer.start_stream(&attach_overflow_json(surface_id))?;
         attach(
             mux,
             client,
@@ -821,13 +659,17 @@ fn attach(
             surface.snapshot_stream_position().unwrap_or_default()
         }
     };
-    if let Err(error) = spawn_attach_notification_stream(
-        mux.clone(),
-        surface_id,
-        writer.clone(),
-        lifecycle.clone(),
-        outbound_stream.clone(),
-    ) {
+    // An attach stream's drain takes the notifications itself.
+    let on_pool = outbound_stream.client_stream.is_some();
+    if !on_pool
+        && let Err(error) = spawn_attach_notification_stream(
+            mux.clone(),
+            surface_id,
+            writer.clone(),
+            lifecycle.clone(),
+            outbound_stream.clone(),
+        )
+    {
         lifecycle.cancel();
         rollback_failed_attach(mux, client, surface_id, outbound_stream.id, size_rollback);
         return Err(error.into());
@@ -844,7 +686,7 @@ fn attach(
         surface_id,
         surface,
         writer: writer.clone(),
-        outbound_stream: outbound_stream.clone(),
+        outbound_stream,
         receiver: stream.receiver,
         lifecycle: stream.lifecycle,
         gate: stream.requests,
@@ -852,67 +694,14 @@ fn attach(
         offset,
         tail,
         images_cap,
+        digest_at: None,
+        on_pool,
     };
-    let (worker_start, worker_committed) = std::sync::mpsc::sync_channel(1);
-    let spawned =
-        std::thread::Builder::new().name("mux-snapshot-attach-out".into()).spawn(move || {
-            if waits::recv(&worker_committed).is_ok() {
-                worker.run();
-            } else {
-                worker.mux.control_clients.snapshot_viewers.unregister(
-                    worker.client,
-                    worker.surface_id,
-                    worker.outbound_stream.id,
-                );
-            }
-        });
-    if let Err(error) = spawned {
-        lifecycle.cancel();
-        mux.control_clients.snapshot_viewers.unregister(client, surface_id, outbound_stream.id);
-        rollback_failed_attach(mux, client, surface_id, outbound_stream.id, size_rollback);
-        return Err(error.into());
-    }
-    commit_client_attach_and_start_worker(
-        mux,
-        client,
-        surface_id,
-        outbound_stream.id,
-        AttachWorkerCommit {
-            start: worker_start,
-            lifecycle,
-            changed: client_changed,
-            size_rollback,
-        },
+    snapshot_attach_out::start(
+        worker,
+        AttachCommit { lifecycle, changed: client_changed, size_rollback },
     )?;
     Ok(super::attach_response(mux, surface_id, client, lease))
-}
-
-pub(super) fn report_attach_overflow(
-    writer: &MessageWriter,
-    surface_id: SurfaceId,
-    lifecycle: &AttachLifecycle,
-    outbound_stream: &OutboundStream,
-) {
-    if lifecycle.claim_overflow_report() {
-        let _ = writer.send_terminal(&attach_overflow_json(surface_id), outbound_stream);
-    }
-}
-
-pub(super) fn handle_attach_send_error(lifecycle: &AttachLifecycle, error: &std::io::Error) {
-    if error.kind() == std::io::ErrorKind::WouldBlock {
-        lifecycle.mark_overflow();
-    } else {
-        lifecycle.cancel();
-    }
-}
-
-pub(super) fn attach_overflow_json(surface: SurfaceId) -> Value {
-    json!({
-        "event": "overflow",
-        "scope": "surface",
-        "surface": surface,
-        "error": "surface stream fell behind; reattach the surface",
-    })
 }
 
 #[cfg(test)]

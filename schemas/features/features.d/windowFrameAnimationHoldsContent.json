@@ -1,0 +1,15 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "windowFrameAnimationHoldsContent",
+  "owner": "PL-motion-core",
+  "description": "While a window Zoom or the floating chat's fold or move animates the window frame, terminals keep their grid and the floating chat's page keeps its size, pinned to the top edge, and each lays out once when the frame lands; off, content resizes live on every frame.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "perfPath",
+  "expires": "2026-12-20",
+  "process": "app",
+  "params": [],
+  "stories": ["motion", "anim-perf"],
+  "sticky": false,
+  "runtimeMutable": false,
+  "replaces": []
+}

@@ -288,7 +288,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
     private let swipeMask = CALayer()
     /// Bumped by each swipe change: a close animation's end removes the buttons only if no newer swipe started.
     private var swipeToken = 0
-    private var swipeButtons: [(action: SwipeAction, layer: CALayer)] = []
+    private var swipeButtons: [(action: SwipeAction, layer: CALayer)] = [] // cmux: memory: fixed the open swipe's few buttons
     /// Tests: the swiped row (`id`) and the strip's mask run the same move (duration and curve), so
     /// the strip's edge stays on the row's edge during a snap or a close.
     func swipeStripFollowsRow(_ id: ConversationID) -> Bool {
@@ -666,7 +666,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         var extraTitle = ""
         init(pinned: [Int], rows: [Int], count: Int, searching: Bool) {
             self.pinned = pinned; self.rows = rows; self.searching = searching
-            rowOf = [Int32](repeating: -1, count: count)
+            rowOf = [Int32](repeating: -1, count: max(0, count))
             for (r, i) in rows.enumerated() { if let slot = rowOf.checkedIndex(i) { rowOf[slot] = Int32(clamping: r) } } // checked
         }
         /// The pinned grid and every other conversation in the snapshot's order.

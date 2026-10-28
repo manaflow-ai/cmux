@@ -30,10 +30,13 @@ public struct ResizeAttachedViewRequest: DaemonRequest {
     public var lease: String
     public var cols: Int
     public var rows: Int
-    public init(surface: SurfaceID, lease: String, cols: Int, rows: Int) {
+    /// The view's attach stream (`attach-streams-v1`); the daemon checks that `lease` is its view.
+    public var stream: UInt16?
+    public init(surface: SurfaceID, lease: String, cols: Int, rows: Int, stream: UInt16? = nil) {
         self.surface = surface
         self.lease = lease
         self.cols = cols
         self.rows = rows
+        self.stream = stream
     }
 }

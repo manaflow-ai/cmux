@@ -250,6 +250,7 @@ impl StatusCommandJob {
             OpenProcess, PROCESS_SET_QUOTA, PROCESS_TERMINATE,
         };
 
+        // SAFETY: both arguments are optional and null: default security, no name.
         let handle = unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) };
         if handle.is_null() {
             return Err(std::io::Error::last_os_error());
@@ -260,6 +261,8 @@ impl StatusCommandJob {
         let information_size =
             u32::try_from(std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>())
                 .map_err(std::io::Error::other)?;
+        // SAFETY: `job.handle` is the job created above; the pointer and size describe
+        // `information`, a live JOBOBJECT_EXTENDED_LIMIT_INFORMATION.
         if unsafe {
             SetInformationJobObject(
                 job.handle,
@@ -271,12 +274,15 @@ impl StatusCommandJob {
         {
             return Err(std::io::Error::last_os_error());
         }
+        // SAFETY: OpenProcess takes no pointer; it returns null on failure, checked below.
         let process = unsafe { OpenProcess(PROCESS_SET_QUOTA | PROCESS_TERMINATE, 0, child.id()) };
         if process.is_null() {
             return Err(std::io::Error::last_os_error());
         }
+        // SAFETY: both handles are open: the job created above and `process`, checked non-null.
         let assigned = unsafe { AssignProcessToJobObject(job.handle, process) };
         let assign_error = (assigned == 0).then(std::io::Error::last_os_error);
+        // SAFETY: `process` is open and closed once, here.
         unsafe {
             CloseHandle(process);
         }
@@ -288,6 +294,7 @@ impl StatusCommandJob {
 
     fn terminate(&self) {
         use windows_sys::Win32::System::JobObjects::TerminateJobObject;
+        // SAFETY: `self.handle` is the job this value owns, open until it drops.
         unsafe {
             TerminateJobObject(self.handle, 1);
         }
@@ -299,6 +306,7 @@ impl Drop for StatusCommandJob {
     fn drop(&mut self) {
         use windows_sys::Win32::Foundation::CloseHandle;
         // Kill-on-close terminates any remaining descendants here.
+        // SAFETY: `self.handle` is the job this value owns; this drop closes it once.
         unsafe {
             CloseHandle(self.handle);
         }
@@ -317,29 +325,36 @@ pub(super) fn resume_suspended_status_child(child: &cmux_process::Child) -> std:
 
     let entry_size =
         u32::try_from(std::mem::size_of::<THREADENTRY32>()).map_err(std::io::Error::other)?;
+    // SAFETY: takes no pointer; failure returns INVALID_HANDLE_VALUE, checked below.
     let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0) };
     if snapshot == INVALID_HANDLE_VALUE {
         return Err(std::io::Error::last_os_error());
     }
     let result = (|| {
         let mut thread_entry = THREADENTRY32 { dwSize: entry_size, ..THREADENTRY32::default() };
+        // SAFETY: `snapshot` is open and `thread_entry` is a live THREADENTRY32 with `dwSize` set.
         if unsafe { Thread32First(snapshot, &mut thread_entry) } == 0 {
             return Err(std::io::Error::last_os_error());
         }
         loop {
             if thread_entry.th32OwnerProcessID == child.id() {
+                // SAFETY: OpenThread takes no pointer; it returns null on failure, checked below.
                 let thread =
                     unsafe { OpenThread(THREAD_SUSPEND_RESUME, 0, thread_entry.th32ThreadID) };
                 if thread.is_null() {
                     return Err(std::io::Error::last_os_error());
                 }
+                // SAFETY: `thread` is open (checked non-null above).
                 let resume_result = unsafe { ResumeThread(thread) };
                 let resume_error = (resume_result == u32::MAX).then(std::io::Error::last_os_error);
+                // SAFETY: `thread` is open and closed once, here.
                 unsafe {
                     CloseHandle(thread);
                 }
                 return resume_error.map_or(Ok(()), Err);
             }
+            // SAFETY: `snapshot` is open and `thread_entry` is a live THREADENTRY32 with `dwSize`
+            // set.
             if unsafe { Thread32Next(snapshot, &mut thread_entry) } == 0 {
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::NotFound,
@@ -348,6 +363,7 @@ pub(super) fn resume_suspended_status_child(child: &cmux_process::Child) -> std:
             }
         }
     })();
+    // SAFETY: `snapshot` is open and closed once, here, after the closure that used it.
     unsafe {
         CloseHandle(snapshot);
     }

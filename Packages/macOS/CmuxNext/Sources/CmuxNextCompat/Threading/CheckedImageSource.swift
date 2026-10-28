@@ -32,7 +32,7 @@ public struct CheckedImageSource {
     }
 
     /// Opens the image file at `url`: it maps the file through
-    /// ``Foundation/Data/init(blockingContentsOf:options:fileID:line:)`` (a checked file read, so open files off
+    /// ``blockingCall(_:fileID:line:_:)`` (a checked file read, so open files off
     /// the main thread), where `CGImageSourceCreateWithURL` would read it unchecked. Nil when the file cannot be
     /// read or holds nothing ImageIO opens.
     ///
@@ -41,10 +41,24 @@ public struct CheckedImageSource {
     ///   - options: ImageIO's source options.
     ///   - fileID: The calling code's `#fileID` (names the call site).
     ///   - line: The calling code's `#line`.
+    @available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
     public init?(
         blockingContentsOf url: URL, options: [CFString: Any]? = nil, fileID: StaticString = #fileID, line: UInt = #line
     ) {
-        guard let data = try? Data(blockingContentsOf: url, options: .mappedIfSafe, fileID: fileID, line: line) else {
+        guard let data = try? blockingCall(.fileIO, fileID: fileID, line: line, { try Data(contentsOf: url, options: .mappedIfSafe) }) else {
+            return nil
+        }
+        self.init(data, options: options)
+    }
+
+    /// ``init(blockingContentsOf:options:fileID:line:)`` in a lane or allowance body: `permit` is the body's
+    /// ``BlockingPermit``.
+    @available(*, noasync, message: "Run blocking work in a lane body: work.run(priority, mayBlock: .files) { permit in ... }")
+    public init?(
+        blockingContentsOf url: URL, _ permit: borrowing BlockingPermit, options: [CFString: Any]? = nil,
+        fileID: StaticString = #fileID, line: UInt = #line
+    ) {
+        guard let data = try? Data(blockingContentsOf: url, permit, options: .mappedIfSafe, fileID: fileID, line: line) else {
             return nil
         }
         self.init(data, options: options)

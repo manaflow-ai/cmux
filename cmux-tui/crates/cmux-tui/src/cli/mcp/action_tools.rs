@@ -58,6 +58,7 @@ pub(super) const EXCLUDED_APP_METHODS: &[(&str, &str)] = &[
     ("system.ping, system.identify, system.capabilities", "Diagnostics; `cmux app identify`."),
 ];
 
+#[derive(Debug, PartialEq)]
 pub(super) struct ActionTool {
     pub name: String,
     pub id: String,

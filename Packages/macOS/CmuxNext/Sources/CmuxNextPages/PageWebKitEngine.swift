@@ -7,8 +7,14 @@ import WebKit
 /// host's open panel.
 struct PageWebKitRecipe {
     let configuration: WKWebViewConfiguration
-    let processGroups: WebProcessGroups?
+    let processGroup: PageWebKitProcessGroup?
     let openPanel: MadeAheadOpenPanel?
+}
+
+/// The host's shared WebKit processes and the group a page joins in them (``WebProcessGroups/membership(of:options:)``).
+struct PageWebKitProcessGroup {
+    let groups: WebProcessGroups
+    let membership: WebProcessGroups.Membership
 }
 
 /// The WebKit side of one ``PageWebView``: its WKWebView, the bridge into it and its UI delegate.
@@ -32,7 +38,8 @@ final class PageWebKitEngine {
         // webview-allow: the page host's WebKit engine; PageEnginePolicy picks it
         let make: (WKWebViewConfiguration) -> PageWKWebView = { PageWKWebView(frame: .zero, configuration: $0) }
         // A page that shares a process joins its group (WebProcessGroups); configuration has the group's store.
-        view = recipe.processGroups.map { $0.webView(for: recipe.configuration, make: make) } ?? make(recipe.configuration)
+        view = recipe.processGroup.map { $0.groups.webView(for: recipe.configuration, as: $0.membership, make: make) }
+            ?? make(recipe.configuration)
         bridge = WebKitPageHostBridge(webView: view)
         view.autoresizingMask = [.width, .height]
         view.allowsBackForwardNavigationGestures = false
