@@ -961,6 +961,7 @@ export type SessionSummary = {
    * its agent started, and so on.
    */
   depth: number;
+  effort?: (string | null);
   enforcement: Enforcement;
   eventCount: number;
   family?: (string | null);
