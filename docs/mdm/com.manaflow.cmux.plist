@@ -696,7 +696,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<true/>
+			<false/>
 			<key>pfm_description</key>
 			<string>After an update, a card at the bottom of the sidebar links to What's New until you open or dismiss it.</string>
 			<key>pfm_name</key>
