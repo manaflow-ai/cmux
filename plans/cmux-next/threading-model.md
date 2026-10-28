@@ -836,7 +836,8 @@ QoS with them, and ThreadsControlTests fails when a label or QoS here and there 
   utility (saves and caches nobody waits for): `com.cmuxterm.app.next.markdown-table-widths`,
   `com.cmuxterm.next.browser.site-zoom`, `com.cmuxterm.next.browser.download-temp-files`,
   `com.cmuxterm.next.browser-import.store`, `com.cmuxterm.chromium-runtime.installer`,
-  `com.cmuxterm.next.cloud.tunnel-hub`, `com.cmuxterm.next.error-journal`, `com.cmuxterm.next.hang-reports.store`,
+  `com.cmuxterm.next.cloud.tunnel-hub`, `com.cmuxterm.next.error-journal` (`HangReportStore` runs on
+  `com.cmuxterm.app.next.hang-reports.store`, listed above),
   `com.cmuxterm.next.mobile.host-supervisor`, `com.cmuxterm.next.phone.recorder`
 - Every `Thread` and `OperationQueue` sets `name` and `qualityOfService` before it starts; every URLSession
   gets a named delegate queue. None is unnamed (`threading-inventory.py --rule thread-doc` = 0).
