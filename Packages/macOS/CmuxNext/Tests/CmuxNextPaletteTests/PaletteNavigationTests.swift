@@ -215,6 +215,26 @@ struct PaletteNavigationTests {
         #expect(PaletteKeyMap.command(for: event, actionsMenuOpen: true, queryIsEmpty: false, registry: palette.registry) == .toggleActions)
     }
 
+    /// Cmd-P (`goToWorkspace`, the Workspaces scope) and Cmd-Shift-A (`search.chats`, the
+    /// Search scope) both open a page where Cmd-K on an agent row offers Copy Session ID.
+    @Test(arguments: ["goToWorkspace", "search.chats"])
+    func cmdKCopiesTheSessionIDFromEachPaletteEntryPoint(_ action: String) async throws {
+        let workspaces = Workspaces()
+        let navigation = Navigation()
+        navigation.entries = [
+            PaletteNavigationEntry(id: "chat", kind: .tab(.agentChat), title: "Fix CI", workspaceTitle: "api", sessionID: "acp:s_3f9a"),
+        ]
+        let palette = Self.palette(workspaces, navigation)
+        palette.bindRegistryActions()
+        defer { palette.hide() }
+        for task in palette.registry.capturingWork({ #expect(palette.registry.perform(ActionID(rawValue: action))) }) { _ = await task.value }
+        #expect(palette.isVisible)
+        #expect(await Self.search(palette, "s_3f9a").first == "tab:chat")
+        #expect(palette.model.handle(.toggleActions))
+        #expect(palette.model.actionsMenu?.itemID == "tab:chat")
+        #expect(palette.model.actionsMenu?.commands.map(\.id).contains("copySessionID") == true)
+    }
+
     /// 5,000 tabs rank without the palette rebuilding them per keystroke: no new read of the
     /// source and no new search index after the first key. Counted, not timed: a 5 s wall-clock
     /// limit failed on a loaded fleet host (9.27 s on aws-m4pro-4, 2026-10-21) with nothing wrong.

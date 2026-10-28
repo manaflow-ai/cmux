@@ -10,7 +10,8 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
 import { AgentMark, agentBrand, hasAgentMark, knownMark } from "../shared/AgentMark";
-import { agentName } from "./agents";
+import { agentName, agentDisplayName } from "./agents";
+import { agentKey } from "../shared/agentKey";
 import { isDefaultChoice } from "./defaultChoice";
 import { CheckIcon, ChevronIcon, PICKER_LABELS, SearchIcon } from "./ComposerPickers";
 import { Icon } from "./icons/Icon";
@@ -23,7 +24,8 @@ import { effortWords, fitsQuery, modelEffort, parseQuery, type ParsedQuery } fro
 import { groupVariants } from "./modelVariants";
 import { registerPicker } from "./pickerOpeners";
 import { OnNewTab } from "./newTabComposer";
-import { QuickModelMenu, type QuickProfile, type QuickFamily, type QuickModel } from "./QuickModelMenu";
+import { relevantModelSections } from "./relevantModels";
+import { QuickModelMenu, type QuickFamily, type QuickModel } from "./QuickModelMenu";
 import type { PickerProfile } from "./pickerProfiles";
 import { useUiAnchor } from "../../ui/anchor";
 import { useEscapeCloses } from "../../ui/escapeDismiss";
@@ -81,13 +83,6 @@ type ModelChoice = {
   tag?: string;
 };
 
-/// The compact model menu keeps the top picks and the running model readable; everything else is
-/// behind More models (Leo 2026-10-21: "why are there so many models!?"), while typed search still
-/// exposes the wider filtered list.
-const QUICK_ROWS = 4;
-
-const isVariant = (model: ModelChoice) => model.id.includes("[") || model.name.includes(" · ");
-
 /// `choices` as one row per model (modelVariants.ts): a model several providers serve lands the
 /// running provider's row (`model`) while it is available, else the first one that is, and `offers`
 /// holds every provider's. A list with no Provider row (search, Starred) would otherwise leave an
@@ -113,17 +108,8 @@ function quickSections(
   usable: (choice: ModelChoice) => boolean = () => true,
 ): { shown: ModelChoice[]; more: ModelChoice[] } {
   const { latest, older } = sectionsFor(entry);
-  const latestIds = new Set(latest.map((choice) => choice.id));
-  // Filtered after grouping: a model stays when any provider's row of it is usable, and its offers
-  // keep the running one, so the Provider row still names it.
   const all = groupChoices([...latest, ...older], model).filter(usable);
-  // A model is a top one when any provider's row of it is.
-  const top = all.filter((choice) => (choice.offers ?? [choice]).some((offer) => latestIds.has(offer.id)));
-  const picks = [...top.filter((choice) => !isVariant(choice)), ...top.filter(isVariant)].slice(0, QUICK_ROWS);
-  // The running model's row, also when it lands another provider than the unavailable running one.
-  const runs = all.find((choice) => (choice.offers ?? [choice]).some((offer) => offer.id === model));
-  const chosen = new Set(runs && !picks.includes(runs) ? [...picks.slice(0, QUICK_ROWS - 1), runs] : picks);
-  return { shown: all.filter((choice) => chosen.has(choice)), more: all.filter((choice) => !chosen.has(choice)) };
+  return relevantModelSections(all, entry?.top);
 }
 
 /// A harness's models, each once: its curated top models, else each family's newest (`latest`),
@@ -272,43 +258,97 @@ function quickRow(family: string, model: ModelChoice): QuickModel {
 /// The rail's Starred tab (never a harness id).
 const STARRED = "\u0000starred";
 
-/// One tab per installed harness. Launch profiles that share its brand live under Profile;
-/// route-backed signed-in identities remain in Account. Folder profiles belong to the machine chip.
+/// Global launch configurations are distinct harness entries, never a Profile submenu.
+/// Their model catalogs refresh after selection; do not borrow another account's models.
 function railByHarness(
   list: QuickFamily[],
   running: string | undefined,
   profiles: Readonly<Record<string, readonly PickerProfile[]>> = {},
   signedOut: (id: string) => boolean = () => false,
 ): QuickFamily[] {
-  const groups = new Map<string, QuickFamily[]>();
-  for (const family of list) {
-    const brand = family.starred || !family.mark ? undefined : agentBrand(family.mark);
-    const key = brand ? `brand:${brand}` : `id:${family.id}`;
-    groups.set(key, [...(groups.get(key) ?? []), family]);
-  }
-  return [...groups.values()].map((members) => {
-    const first = members[0]!;
-    const listed = members.flatMap((member): QuickProfile[] => {
-      const folded = profiles[member.id];
-      if (!folded?.length) return [{ id: member.id, name: member.name, ...(member.note ? { disabled: true } : {}) }];
-      return folded.map((profile) => ({
-        id: profile.id,
-        name: profile.name,
-        ...(profile.unavailable || signedOut(profile.id) ? { disabled: true } : {}),
-      }));
-    });
-    const seen = new Set<string>();
-    const unique = listed.filter((account) => !seen.has(account.id) && seen.add(account.id));
-    const accounts = unique.map((account) =>
-      unique.filter((other) => other.name === account.name).length > 1
-        ? { ...account, name: `${account.name} (${account.id})` }
-        : account,
+  const seen = new Set<string>();
+  return list.flatMap((family) => {
+    if (seen.has(family.id)) return [];
+    seen.add(family.id);
+    const folded = profiles[family.id] ?? [];
+    const named = folded.map((profile) => ({ ...profile, name: launchName(family.name, profile.name, profile.id) }));
+    // Resolve branded suffixes first: `claude-work` becomes Work (work), leaving a profile
+    // whose ID is just `work` free to keep Work. Raw IDs distinguish any names still repeated.
+    const names = ensureDistinctLaunchNames(
+      distinguishLaunchNames(distinguishLaunchNames(named, launchSuffix), readableLaunchId),
     );
-    const lead = members.find((member) => member.id === running) ?? members.find((member) => !member.note) ?? first;
-    const account = accounts.some((choice) => choice.id === running) ? running : lead.id;
-    if (members.length === 1 && accounts.length < 2) return first;
-    return { ...lead, name: first.name, profiles: accounts, ...(account ? { profile: account } : {}) };
+    const currentName =
+      names.find((profile) => profile.id === family.id)?.name ?? launchName(family.name, family.name, family.id);
+    const alternate = launchSuffix(family.id) && family.id !== running;
+    const own = { ...family, name: currentName, ...(alternate ? { launch: true } : {}) };
+    return [
+      own,
+      ...names.flatMap((profile): QuickFamily[] => {
+        if (
+          seen.has(profile.id) ||
+          profile.unavailable ||
+          signedOut(profile.id) ||
+          !profile.name ||
+          profile.name === own.name ||
+          names.some((other) => other.id !== profile.id && other.name === profile.name)
+        )
+          return [];
+        seen.add(profile.id);
+        return [{ id: profile.id, name: profile.name, mark: family.mark, models: [], more: [], launch: true }];
+      }),
+    ];
   });
+}
+
+function distinguishLaunchNames(
+  profiles: readonly PickerProfile[],
+  suffixFor: (id: string) => string | undefined,
+): PickerProfile[] {
+  return profiles.map((profile) => {
+    const suffix = suffixFor(profile.id);
+    return suffix && profiles.some((other) => other.id !== profile.id && other.name === profile.name)
+      ? { ...profile, name: `${profile.name} (${suffix})` }
+      : profile;
+  });
+}
+
+/// Keep every readable launch entry when a configured name already contains another entry's suffix.
+/// The first entry keeps its readable name; later collisions receive their own readable id.
+function ensureDistinctLaunchNames(profiles: readonly PickerProfile[]): PickerProfile[] {
+  const used = new Set<string>();
+  return profiles.map((profile) => {
+    if (!used.has(profile.name)) {
+      used.add(profile.name);
+      return profile;
+    }
+    const suffix = readableLaunchId(profile.id) ?? profile.id;
+    let name = `${profile.name} (${suffix})`;
+    let index = 2;
+    while (used.has(name)) name = `${profile.name} (${suffix} ${index++})`;
+    used.add(name);
+    return { ...profile, name };
+  });
+}
+
+/// Prefer a configured readable name; distinguish generic brand names by a meaningful id suffix.
+function launchName(brand: string, configured: string, id: string): string {
+  const base = agentKey(id);
+  const canonical = agentDisplayName(id);
+  if (configured !== canonical && configured !== id) return configured;
+  const suffix = launchSuffix(id);
+  if (suffix) return `${brand} (${suffix})`;
+  return configured === id && base ? brand : configured;
+}
+
+function launchSuffix(id: string): string | undefined {
+  const base = agentKey(id);
+  if (!agentBrand(id) || !base || !id.toLowerCase().startsWith(base)) return undefined;
+  const suffix = id.slice(base.length).replace(/^[-_\s]+/, "");
+  return readableLaunchId(suffix);
+}
+
+function readableLaunchId(id: string): string | undefined {
+  return id.length <= 32 && /^[a-z][a-z0-9_-]*$/i.test(id) ? id : undefined;
 }
 
 /// A folder profile row the user cannot start yet: waiting for the folder's Trust answer, or broken.
@@ -423,7 +463,10 @@ export function ModelPicker(props: ModelPickerProps) {
   // keyboard on its rows, and its close leaves focus where the pick put it (ui/Menu.tsx).
   const quickPicked = useRef(false);
   const menuId = useId();
-  const allHarnesses = useMemo(() => uniqueHarnesses(catalog), [catalog]);
+  const allHarnesses = useMemo(
+    () => uniqueHarnesses(catalog.filter((entry) => entry.id !== "unii" || harness === "unii")),
+    [catalog, harness],
+  );
   // A started chat lists its own harness alone. One acpmux has not listed yet (the first open after
   // launch) keeps the whole rail rather than an empty menu.
   const ownHarness = useMemo(
@@ -774,15 +817,13 @@ export function ModelPicker(props: ModelPickerProps) {
     // A started chat (Leo 2026-10-22: "can expose as fork"): another harness's tab is Fork to it,
     // Starred keeps the chat's own models, and another launch profile of any harness forks there.
     return rail.flatMap((family): QuickFamily[] => {
-      const accounts = family.profiles?.map((account) =>
-        account.id === harness || fork?.ready ? account : { ...account, disabled: true },
-      );
-      const own = { ...family, ...(accounts ? { profiles: accounts } : {}) };
+      const own = family;
       if (family.starred) {
         const models = family.models.filter((model) => model.family === current?.id);
         return models.length ? [{ ...family, models }] : [];
       }
       if (family.id === current?.id || family.note) return [own];
+      if (family.launch) return [{ ...own, models: [], more: [], fork: true }];
       return [{ ...own, models: [], more: [], fork: true }];
     });
   }, [
@@ -835,10 +876,6 @@ export function ModelPicker(props: ModelPickerProps) {
     if (harnessFixed) {
       if (fork?.ready) fork.to(target);
     } else onHarness?.(target);
-  };
-  const forkTo = (id: string) => {
-    const owner = allHarnesses.find((entry) => entry.id === id);
-    if (owner && fork?.ready) fork.to(owner.acpmuxHarness ?? owner.id);
   };
   const addHarness = () => {
     close();
@@ -1092,9 +1129,9 @@ export function ModelPicker(props: ModelPickerProps) {
                       current: current?.id,
                       onPick: pickQuickToPrompt,
                       ...(onAddAgent ? { onAddHarness: onAddAgent } : {}),
-                      ...(harnessFixed ? {} : onHarness ? { onProfile: pickProfile } : {}),
+                      ...(harnessFixed ? {} : onHarness ? { onLaunch: pickProfile } : {}),
                       ...(harnessFixed && fork
-                        ? { onProfile: pickProfile, onFork: forkTo, forkReady: fork.ready }
+                        ? { onLaunch: pickProfile, onFork: pickProfile, forkReady: fork.ready }
                         : {}),
                     },
                   }

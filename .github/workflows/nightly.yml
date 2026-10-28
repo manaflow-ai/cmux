@@ -4116,9 +4116,12 @@ jobs:
       # The other Blacksmith macOS 26 size, which the signing jobs take on a re-run
       # (attempt 2 on), so a re-run moves off a label that stalled after this pick.
       alternate: ${{ steps.sign-runner.outputs.alternate }}
-      # An owned label (glaeda-...) or empty: the verify jobs then take `runner`. Only attempt 1
-      # reads it; a re-run verifies on Blacksmith.
-      owned: ${{ steps.owned.outputs.owned }}
+      # An owned label (glaeda-...) or empty: the verify jobs then take `runner`. They read it only
+      # while `attempt` is the run's own attempt (a re-run of failed jobs that keeps this job takes
+      # `alternate`). Outside attempt 1 of a push (the rescue's workflow_run watch) it stands only once
+      # the owned-pool-watch marker is uploaded, as pick-nightly-build-runner's does.
+      owned: ${{ (github.event_name == 'push' && github.run_attempt == 1 || steps.upload-marker.outcome == 'success') && steps.owned.outputs.owned || '' }}
+      attempt: ${{ github.run_attempt }}
     steps:
       - name: Checkout publication tooling at the workflow commit
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -4144,7 +4147,7 @@ jobs:
       # budget. Any failure leaves the token empty, and the pick below then finds no owned Mac.
       - name: Mint the owned-pool routing token
         id: route-token
-        if: github.repository == 'manaflow-ai/cmux' && github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && vars.GLAEDA_ROUTE_APP_ID != '' && github.event_name == 'push' && github.ref_name == 'nightly-next'
+        if: github.repository == 'manaflow-ai/cmux' && vars.CI_PR_POOL_OWNED == '1' && vars.GLAEDA_ROUTE_APP_ID != '' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref_name == 'nightly-next'
         continue-on-error: true
         timeout-minutes: 1
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -4170,14 +4173,16 @@ jobs:
       # their runners is idle now (nightly_build_runner.py verify). glaeda admits a nightly job on
       # a mini ahead of every PR, DEV and side job. Anything else, a failure included, is empty,
       # and the verify jobs take `runner`.
-      # Only nightly-next push runs, the scope ci-owned-pool-rescue.yml watches (owned_pool_rescue.py
-      # nightly_target): a stuck owned verify there is moved to Blacksmith. RC, main and manual
-      # runs keep Blacksmith. Until 2026-10-27 this
+      # Only nightly-next push and dispatch runs, at any attempt, the scope ci-owned-pool-rescue.yml
+      # watches (owned_pool_rescue.py nightly_target, and its sweeper through the marker below): a
+      # stuck owned verify there is moved to Blacksmith. RC and main runs keep Blacksmith. Until
+      # 2026-10-28 only attempt 1 of a push got it: dispatch run 40594111618's attempt 3 had
+      # signer-dmg-image wait 51 min on blacksmith-6vcpu-macos-26 and signer-verify queue there too. Until 2026-10-27 this
       # ran the pull request pool picker, which named a Blacksmith macOS 15 label in run 40515681971
       # while owned side runners sat idle: verify then queued 1.5 h on Blacksmith.
       - name: Pick an owned Mac for the verify jobs
         id: owned
-        if: github.repository == 'manaflow-ai/cmux' && github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && github.event_name == 'push' && github.ref_name == 'nightly-next'
+        if: github.repository == 'manaflow-ai/cmux' && vars.CI_PR_POOL_OWNED == '1' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref_name == 'nightly-next'
         continue-on-error: true
         timeout-minutes: 2
         env:
@@ -4187,6 +4192,33 @@ jobs:
           OWNED_LABELS: ${{ format('{0} {1}', vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, vars.CI_SIDE_LANE_RUNNER) }}
           CANDIDATE: ${{ vars.MACOS_RUNNER_26 }}
         run: python3 .publish-tooling/scripts/ci/nightly_build_runner.py verify
+
+      # As pick-nightly-build-runner: a dispatch made with GITHUB_TOKEN, or a re-run, may start no
+      # workflow_run event, so an owned pick there leaves the sweeper's owned-pool-watch marker.
+      - name: Write the owned-pool watch marker
+        id: marker
+        if: steps.owned.outputs.owned != '' && (github.event_name != 'push' || github.run_attempt != 1)
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          OWNED: ${{ steps.owned.outputs.owned }}
+        run: |
+          marker="$RUNNER_TEMP/owned-pool-watch/nightly-verify-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          mkdir -p "${marker%/*}"
+          printf '%s\n' "$OWNED" > "$marker"
+          echo "path=$marker" >> "$GITHUB_OUTPUT"
+
+      - name: Upload the owned-pool watch marker
+        id: upload-marker
+        if: steps.marker.outputs.path != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: owned-pool-watch
+          path: ${{ steps.marker.outputs.path }}
+          retention-days: 1
+          overwrite: true
 
   build-sign-notarize-nightly:
     # Production secrets: GitHub releases them only to protected refs (the
@@ -5110,7 +5142,7 @@ jobs:
     if: "!cancelled() && (needs.build-sign-notarize-nightly.result == 'success' || needs.signer-dmg.result == 'success') && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.import_paused != 'true'"
     permissions:
       contents: read
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt == 1 && needs.pick-nightly-sign-runner.outputs.owned || github.run_attempt > 1 && needs.pick-nightly-sign-runner.outputs.alternate || needs.pick-nightly-sign-runner.outputs.runner || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.owned || github.run_attempt > 1 && needs.pick-nightly-sign-runner.outputs.alternate || needs.pick-nightly-sign-runner.outputs.runner || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 40
     strategy:
       fail-fast: false
@@ -5122,7 +5154,7 @@ jobs:
       # A pool-signed app's Computer Use helper carries its own notarization ticket.
       REQUIRE_HELPER_TICKET: ${{ needs.signer-dmg.result == 'success' }}
       # An owned Mac has the PR lane's Xcode pin (as DEV's verify); Blacksmith the macOS 26 one.
-      CMUX_CI_XCODE_APP: ${{ github.run_attempt == 1 && needs.pick-nightly-sign-runner.outputs.owned != '' && vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_26 }}
+      CMUX_CI_XCODE_APP: ${{ needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.owned != '' && vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
       NIGHTLY_VARIANT: ${{ matrix.variant }}
       NIGHTLY_BUILD: ${{ needs.build-nightly-app.outputs.daemon_build }}
@@ -5235,7 +5267,7 @@ jobs:
     if: "!cancelled() && (needs.build-sign-notarize-nightly.result == 'success' || needs.signer-dmg.result == 'success') && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.import_paused != 'true'"
     permissions:
       contents: read
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt == 1 && needs.pick-nightly-sign-runner.outputs.owned || github.run_attempt > 1 && needs.pick-nightly-sign-runner.outputs.alternate || needs.pick-nightly-sign-runner.outputs.runner || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.owned || github.run_attempt > 1 && needs.pick-nightly-sign-runner.outputs.alternate || needs.pick-nightly-sign-runner.outputs.runner || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -5245,7 +5277,7 @@ jobs:
       # Set only when the 6 h stapled-app fallback shipped the first DMG.
       STAPLED_APP_FALLBACK_ID: ${{ needs.build-sign-notarize-nightly.outputs.stapled_app_fallback_id }}
       # An owned Mac has the PR lane's Xcode pin (as DEV's verify); Blacksmith the macOS 26 one.
-      CMUX_CI_XCODE_APP: ${{ github.run_attempt == 1 && needs.pick-nightly-sign-runner.outputs.owned != '' && vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_26 }}
+      CMUX_CI_XCODE_APP: ${{ needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.owned != '' && vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
       NIGHTLY_VARIANT: ${{ matrix.variant }}
       SIGN_CHANNEL: ${{ needs.decide.outputs.sign_channel }}
@@ -5507,7 +5539,7 @@ jobs:
 
   signer-dmg-image:
     needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, pick-nightly-sign-runner, signer-app]
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt == 1 && needs.pick-nightly-sign-runner.outputs.owned || github.run_attempt > 1 && needs.pick-nightly-sign-runner.outputs.alternate || needs.pick-nightly-sign-runner.outputs.runner || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.owned || github.run_attempt > 1 && needs.pick-nightly-sign-runner.outputs.alternate || needs.pick-nightly-sign-runner.outputs.runner || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 30
     permissions:
       contents: read
@@ -5515,7 +5547,7 @@ jobs:
       sha256: ${{ steps.dmg.outputs.sha256 }}
       floor: ${{ steps.dmg.outputs.floor }}
     env:
-      CMUX_CI_XCODE_APP: ${{ github.run_attempt == 1 && needs.pick-nightly-sign-runner.outputs.owned != '' && vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_26 }}
+      CMUX_CI_XCODE_APP: ${{ needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.owned != '' && vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
       SIGNER_WORK: ${{ github.workspace }}/signer-work
       CHANNEL_APP_NAME: ${{ needs.decide.outputs.app_name }}
