@@ -39,6 +39,7 @@ use std::fmt;
 use cmux_ipc::{BadMessage, Frame, FrameKind, FrameReader, Message, ReaderLimits};
 
 use crate::diagnostics::IpcStats;
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 
 use super::*;
 
@@ -93,16 +94,22 @@ pub(super) const CONNECTION_READER_QOS: cmux_threads::ThreadQos =
 pub(super) fn spawn_connection_reader(
     name: &str,
     serve: impl FnOnce() + Send + 'static,
-) -> std::io::Result<JoinHandle<()>> {
-    cmux_threads::spawn(name, CONNECTION_READER_QOS, move || {
-        let thread = std::thread::current();
-        let _hang_watch = cmux_hang_watch::register_thread(
-            cmux_hang_watch::ThreadKind::Io,
-            thread.name().unwrap_or("mux-remote-conn"),
-        );
-        cmux_threads::disallow_blocking();
-        serve();
-    })
+) -> std::io::Result<supervised::SupervisedThread<()>> {
+    supervised::spawn_at(
+        name,
+        CONNECTION_READER_QOS,
+        Fatal,
+        ShutdownBehavior::Continue,
+        move || {
+            let thread = std::thread::current();
+            let _hang_watch = cmux_hang_watch::register_thread(
+                cmux_hang_watch::ThreadKind::Io,
+                thread.name().unwrap_or("mux-remote-conn"),
+            );
+            cmux_threads::disallow_blocking();
+            serve();
+        },
+    )
 }
 
 /// Serves one JSON line per message, and frames once granted, on the
@@ -531,35 +538,43 @@ mod reading {
         }
         connection.schedule();
         // Its job is to block: in `read`, and while the sequence holds enough.
-        let read = cmux_threads::spawn("mux-conn", CONNECTION_READER_QOS, move || {
-            let mut eof = false;
-            loop {
-                if !gate.wait_open() {
-                    break;
+        let read = supervised::spawn_at(
+            "mux-conn",
+            CONNECTION_READER_QOS,
+            Fatal,
+            ShutdownBehavior::Continue,
+            move || {
+                let mut eof = false;
+                loop {
+                    if !gate.wait_open() {
+                        break;
+                    }
+                    let next = cut_message(&mut reader, eof, &ipc);
+                    let message = match next {
+                        Some(message) => message,
+                        None => match reader.read_from(&mut stream) {
+                            Ok(0) => {
+                                eof = true;
+                                continue;
+                            }
+                            Ok(_) => continue,
+                            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {
+                                continue;
+                            }
+                            Err(_) => Inbound::End(ConnectionEnd::Dropped),
+                        },
+                    };
+                    let ended = matches!(message, Inbound::End(_));
+                    // At the bound, `deliver` closes the gate under the inbox
+                    // lock: the next `wait_open` waits for the drain's resume.
+                    connection.deliver(message);
+                    if ended {
+                        break;
+                    }
                 }
-                let next = cut_message(&mut reader, eof, &ipc);
-                let message = match next {
-                    Some(message) => message,
-                    None => match reader.read_from(&mut stream) {
-                        Ok(0) => {
-                            eof = true;
-                            continue;
-                        }
-                        Ok(_) => continue,
-                        Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
-                        Err(_) => Inbound::End(ConnectionEnd::Dropped),
-                    },
-                };
-                let ended = matches!(message, Inbound::End(_));
-                // At the bound, `deliver` closes the gate under the inbox
-                // lock: the next `wait_open` waits for the drain's resume.
-                connection.deliver(message);
-                if ended {
-                    break;
-                }
-            }
-            reader.push(&[]);
-        });
+                reader.push(&[]);
+            },
+        );
         if read.is_err() {
             writer.close();
         }

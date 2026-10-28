@@ -41,6 +41,7 @@ use super::attach_streams::ClientStreamId;
 use super::attach_streams::ClientStreams;
 use crate::panic_free::RecoverPoison;
 use cmux_ipc::FrameHeader;
+use cmux_ipc::StreamLane;
 use cmux_ipc::lane_writer::BULK_FRAME_MAX;
 use cmux_threads::checked::sync as waits;
 use cmux_threads::sync::Condvar;
@@ -405,6 +406,23 @@ impl BoundedOutbound {
         self.state.lock().recover_poison().client_streams.get(id)
     }
 
+    /// Moves `stream` to `lane` (`set-stream-priority`, p05-ipc-142): what it
+    /// still queues keeps its order and is written in `lane`'s turn from now
+    /// on, as is every later item. Under the lock every lane read holds.
+    pub(super) fn set_stream_lane(&self, stream: &OutboundStream, lane: StreamLane) {
+        let mut state = self.state.lock().recover_poison();
+        let old = stream.lane();
+        if old == lane {
+            return;
+        }
+        stream.set_lane_locked(lane);
+        if let Some(ready) = state.lanes.move_stream(stream.id, old, lane) {
+            state.turns.became_ready(ready);
+        }
+        drop(state);
+        self.changed.notify_one();
+    }
+
     pub(super) fn push_control(&self, text: Arc<BudgetedText>) -> std::io::Result<()> {
         let mut state = self.state.lock().recover_poison();
         Self::push_control_locked(&mut state, text)?;
@@ -578,7 +596,7 @@ impl BoundedOutbound {
         state.control.retain(
             |item| !matches!(item, ControlOutbound::Stream(message) if message.stream.id == stream_id),
         );
-        state.lanes.purge(stream_id, usage.stream.lane);
+        state.lanes.purge(stream_id, usage.stream.lane());
         state.stream_items = state.stream_items.saturating_sub(usage.messages);
         state.regular_bytes = state.regular_bytes.saturating_sub(usage.bytes);
     }

@@ -272,7 +272,16 @@ pub(crate) struct MuxIo {
 impl Default for MuxIo {
     fn default() -> Self {
         Self::with_spawner(Arc::new(|kind: LoopKind, body: LoopBody| {
-            cmux_threads::spawn(kind.thread_name(), kind.qos(), body).map(drop)
+            // Supervised (p10-stability-112): a failure of the loop itself
+            // ends the process; each connection's own errors close only it.
+            crate::supervised::spawn_at(
+                kind.thread_name(),
+                kind.qos(),
+                crate::supervised::Fatal,
+                crate::supervised::ShutdownBehavior::Continue,
+                body,
+            )
+            .map(drop)
         }))
     }
 }

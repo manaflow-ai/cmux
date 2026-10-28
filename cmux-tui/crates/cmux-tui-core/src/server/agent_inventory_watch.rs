@@ -19,6 +19,7 @@ use crate::server::agent_session_attach::agent_session_link::{AcpmuxLink, Inboun
 use crate::server::command_args::present_non_null;
 use crate::server::routes::{Route, RouteLine, RouteName};
 use crate::server::{FrameStage, MessageWriter};
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use crate::thread_qos::ThreadType;
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
@@ -202,11 +203,12 @@ fn start(watch: &Arc<state::Watch>, id: Option<Value>) -> Result<bool, Failure> 
 /// so a ranked lock can raise it (p05-ipc-080).
 fn spawn_thread(
     body: impl FnOnce() + Send + 'static,
-) -> std::io::Result<std::thread::JoinHandle<()>> {
-    crate::thread_qos::spawn_raisable(
+) -> std::io::Result<supervised::SupervisedThread<()>> {
+    supervised::spawn_raisable(
         "mux-inventory-watch",
         ThreadType::Utility.qos(),
-        Some(256 * 1024),
+        Fatal,
+        ShutdownBehavior::Continue,
         body,
     )
 }

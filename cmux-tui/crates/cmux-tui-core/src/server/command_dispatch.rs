@@ -852,6 +852,10 @@ pub(super) fn handle_command_with_cancellation(
         Command::CancelStream(terminal_io_wire::CancelStreamParams { stream }) => {
             attach_streams::cancel_stream(mux, client, writer, stream)
         }
+        Command::SetStreamPriority(terminal_io_wire::SetStreamPriorityParams {
+            stream,
+            priority,
+        }) => stream_priority::set_stream_priority(mux, client, writer, stream, &priority),
         Command::FocusPane { pane } => cmd_panes::focus_pane(mux, actor, pane),
         Command::SelectTab(params) => cmd_tabs::select_tab(mux, actor, params),
         Command::SelectScreen { index, delta } => {

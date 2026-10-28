@@ -84,21 +84,24 @@ nonisolated enum AcpmuxDaemonLauncher {
     /// Starts the daemon and waits for its ready line. `deadline` is a stall time: the wait ends
     /// with an error only after that long with no write to the daemon's log, or at its exit. The launch
     /// shell starts on `launcher` (the host's, user-blocking: the agent pane waits for its daemon).
-    @concurrent static func launch(_ environment: AcpmuxEnvironment, deadline: Duration = .seconds(20),
-                                   launcher: ChildProcessLauncher) async throws -> AcpmuxWebEndpoint {
+    ///
+    /// Its home's creation blocks the caller's thread, so it runs on the caller's executor:
+    /// ``AcpmuxHost``'s own queue, never the main thread or the cooperative pool.
+    static func launch(_ environment: AcpmuxEnvironment, deadline: Duration = .seconds(20),
+                       launcher: ChildProcessLauncher) async throws -> AcpmuxWebEndpoint {
         try await launch(environment, deadline: deadline, launcher: launcher, onSpawn: { _ in })
     }
 
     /// `onSpawn` gets the launch shell's pid (tests check that it was reaped).
-    @concurrent static func launch(_ environment: AcpmuxEnvironment, deadline: Duration, launcher: ChildProcessLauncher,
-                                   onSpawn: @Sendable (pid_t) -> Void) async throws -> AcpmuxWebEndpoint {
+    static func launch(_ environment: AcpmuxEnvironment, deadline: Duration, launcher: ChildProcessLauncher,
+                       onSpawn: @Sendable (pid_t) -> Void) async throws -> AcpmuxWebEndpoint {
         // cmux NEXT's one-time adoption of its old acpmux home ends before any daemon starts (cx-is1kf.9).
         await AcpmuxEnvironment.adoptBuildHomes()
         guard AcpmuxServerPeer.executableSignedByAppTeam(environment.executable, team: SigningTeamInstall.process.team) else {
             throw Failure.untrustedExecutable(environment.executable.path)
         }
         logger.info("acpmux launch requested executable=\(environment.executable.path, privacy: .public) home=\(environment.home.path, privacy: .public) socket=\(environment.socketPath, privacy: .public) args=\(environment.daemonArguments.joined(separator: " "), privacy: .public)")
-        try FileManager.default.createDirectory(at: environment.home, withIntermediateDirectories: true)
+        try FileManager.checked.createDirectory(at: environment.home, withIntermediateDirectories: true)
         let variables = spawnEnvironment(environment, inherited: ProcessInfo.processInfo.environment)
         logger.info("acpmux launch environment home=\(variables["ACPMUX_HOME", default: ""], privacy: .public) socket=\(variables["ACPMUX_SOCKET", default: ""], privacy: .public) pathPresent=\(variables["PATH"] != nil, privacy: .public)")
         var outputPipe: [Int32] = [-1, -1]
@@ -144,7 +147,7 @@ nonisolated enum AcpmuxDaemonLauncher {
         let spawnVariables = variables.map { "\($0.key)=\($0.value)" }
         let descriptors = SpawnDescriptors(outputRead: outputPipe[0], outputWrite: outputPipe[1],
                                            keyRead: environment.passesPersonKeyAtSpawn ? keyPipe[0] : nil)
-        // On the launcher, never on the cooperative pool this function runs on.
+        // On the launcher, never on the caller's queue.
         let (spawnStatus, processIdentifier) = try await launcher.run { () throws -> (status: Int32, pid: pid_t) in
             try Self.spawnShell(arguments: spawnArguments, variables: spawnVariables, descriptors: descriptors,
                                 priority: launcher.priority)

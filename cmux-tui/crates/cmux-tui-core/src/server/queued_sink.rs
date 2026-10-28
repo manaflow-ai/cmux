@@ -247,6 +247,10 @@ impl MessageSink for QueuedSink {
         self.outbound.client_stream(id)
     }
 
+    fn set_stream_lane(&self, stream: &OutboundStream, lane: cmux_ipc::StreamLane) {
+        self.outbound.set_stream_lane(stream, lane);
+    }
+
     fn send_frame(&self, header: FrameHeader, text: Arc<BudgetedText>) -> std::io::Result<()> {
         match self.control {
             Some(SinkControl::Unix(_)) => self.outbound.push_frame(header, text),

@@ -1,5 +1,5 @@
 /// A ``PageHostBridge`` that can hand the router's envelopes to the page as data instead of a script:
-/// the Chromium page push channel (``ChromiumPageHostBridge``, fork API 39), as Chrome's WebUI pages
+/// the Chromium page push channel (``ChromiumPageHostBridge``, fork API 43), as Chrome's WebUI pages
 /// get Mojo messages instead of `WebUI::CallJavascriptFunction` scripts
 /// (content/browser/webui/web_ui_impl.cc).
 @MainActor public protocol PageHostPushing: PageHostBridge {

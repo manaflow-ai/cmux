@@ -39,7 +39,6 @@ use std::net::{Shutdown, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Weak};
-use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use anyhow::Context;
@@ -221,6 +220,7 @@ use remote_relay::handle_connection_message;
 mod attach_streams;
 mod cmd_attach;
 mod cmd_browser;
+mod stream_priority;
 #[cfg(test)]
 use cmd_browser::browser_provider_registration;
 mod cmd_frontend;

@@ -1,6 +1,7 @@
 public import CmuxNextAgentPane
 import Darwin
 public import Foundation
+import CmuxNextCompat
 
 /// Quit, end sessions: this build's Chief home's brain host ends with the
 /// other sessions (home-state-ownership.md section 3). Every build has its
@@ -102,7 +103,7 @@ public nonisolated enum ChiefHostStop {
     static func processName(_ pid: pid_t) -> String? {
         var info = proc_bsdinfo()
         let size = Int32(MemoryLayout<proc_bsdinfo>.size)
-        guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size, info.pbi_uid == getuid() else { return nil }
+        guard blockingProcPidInfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size, info.pbi_uid == getuid() else { return nil }
         let name = withUnsafeBytes(of: info.pbi_name) { String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self) }
         if !name.isEmpty { return name }
         let command = withUnsafeBytes(of: info.pbi_comm) { String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self) }
