@@ -138,8 +138,12 @@ export function messageMenuTarget(
     turnSeq !== undefined && (forksAnyTurn(snapshot.summary?.family) || turnSeq === latestForkSeq(snapshot.rows))
       ? turnSeq
       : undefined;
+  // Assistant bodies mark the turn's summary row in the rail. Prompts keep their own user row.
+  const markRowId = row.kind === "assistant" && turnSeq !== undefined ? `summary-${turnSeq}` : id;
   const target: MessageMenuTarget =
-    row.kind === "user" ? { rowId: id, text: row.text } : { rowId: id, text: plainText(row.text), markdown: row.text };
+    row.kind === "user"
+      ? { rowId: id, text: row.text }
+      : { rowId: markRowId, text: plainText(row.text), markdown: row.text };
   if (forkSeq !== undefined) target.forkSeq = forkSeq;
   if (forkSeq !== undefined && sideChat) target.sideChat = true;
   if (row.kind === "user" && row.failed) target.retryRowId = row.id;

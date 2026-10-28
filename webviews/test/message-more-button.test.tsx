@@ -90,6 +90,11 @@ test("an answer's turn footer has More, which reports the answer as its right-cl
   expect(popUp).toBeDefined();
 });
 
+test("an assistant body pins the turn summary row used by the rail", () => {
+  const target = messageMenuTarget({ ...snapshot, canFork: true } as unknown as AcpmuxSnapshot, answer.id);
+  expect(target?.rowId).toBe("summary-9");
+});
+
 test("a footer with no answer has no More", async () => {
   await act(async () => root.render(<TurnFooter row={summary} />));
   expect(doc.querySelector('button[aria-label="More"]')).toBeNull();
