@@ -5,7 +5,7 @@ import { flushSync } from "react-dom";
 import { VirtualTranscript, type ScrollAnchor } from "../../src/agent-session/acpmux/App";
 import { followTrace } from "../../src/agent-session/acpmux/followTrace";
 import type { AcpmuxRow } from "../../src/agent-session/acpmux/model";
-import { turnView } from "../../src/agent-session/acpmux/conversation/turns";
+import { toggleTurnFold, turnView } from "../../src/agent-session/acpmux/conversation/turns";
 // The pane's styles, as its dev entry loads them (acpmux/dev.tsx).
 import "../../src/pages/shared/desktop.css";
 import "../../src/ui/popupSurface.css";
@@ -55,8 +55,7 @@ const draw = () =>
       rows={turnView(shown, expanded)}
       sessionId={sessionId}
       onToggleActivity={(id) => {
-        expanded = new Set(expanded);
-        if (!expanded.delete(id)) expanded.add(id);
+        expanded = toggleTurnFold(shown, expanded, id);
         draw();
       }}
       expanded={expanded}

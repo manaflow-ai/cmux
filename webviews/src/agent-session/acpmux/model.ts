@@ -278,6 +278,8 @@ export type AcpmuxRow = {
   /// A turn summary whose turn draws a "Worked for" line (conversation/turns.ts), so its
   /// footer need not repeat the time and count.
   folded?: boolean;
+  /// A Worked-for row's actual open state, including a provisional key from paged history.
+  foldOpen?: boolean;
   /// Work shown inside an open "Worked for": its turn has ended.
   settled?: boolean;
   /// A run of finished tool calls folded under one summary line (Debug toggle

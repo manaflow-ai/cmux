@@ -544,6 +544,7 @@ function shapeTurn(
         version: version * 2 + (open ? 1 : 0),
         at: from,
         kind: WORKED,
+        foldOpen: open,
         status: summary.status,
         toolCount: summary.toolCount,
         tokens: summary.tokens,
@@ -1165,6 +1166,27 @@ export function turnFoldFor(rows: readonly AcpmuxRow[], index: number): string |
   }
   const anchor = unsent ?? provisional;
   return anchor && `${WORKED}-${anchor.id}`;
+}
+
+/// Toggle at the person's click, clearing provisional steer keys for the same turn too. This
+/// keeps a fold opened at a history page's edge closable after the original prompt arrives.
+export function toggleTurnFold(rows: readonly AcpmuxRow[], expanded: ReadonlySet<string>, id: string): Set<string> {
+  const next = new Set(expanded);
+  const keys = [id];
+  const index = id.startsWith(`${WORKED}-`) ? rows.findIndex((row) => `${WORKED}-${row.id}` === id) : -1;
+  const key = index >= 0 ? turnFoldFor(rows, index) : undefined;
+  if (key) {
+    const start = rows.findIndex((row) => `${WORKED}-${row.id}` === key);
+    for (let at = start; at >= 0 && at < rows.length; at += 1) {
+      const row = rows[at]!;
+      if (at > start && opensTurn(row) && !isUnsent(row)) break;
+      if (at === start || continuesTurn(row)) keys.push(`${WORKED}-${row.id}`);
+    }
+  }
+  const open = keys.some((key) => expanded.has(key));
+  for (const key of keys) next.delete(key);
+  if (!open) next.add(key ?? id);
+  return next;
 }
 
 /// Where to bring one message of the chat into view (a link's `message=<id>`, links.ts): the first
