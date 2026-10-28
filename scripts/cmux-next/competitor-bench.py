@@ -215,9 +215,11 @@ class Procs:
             total["wakeups"] += ru.pkg_idle_wkups + ru.interrupt_wkups
             total["count"] += 1
             name = os.path.basename(path)
-            entry = total["by_name"].setdefault(name, {"count": 0, "footprint_mb": 0.0})
+            entry = total["by_name"].setdefault(name, {"count": 0, "footprint_mb": 0.0, "cpu_ns": 0, "wakeups": 0})
             entry["count"] += 1
             entry["footprint_mb"] = round(entry["footprint_mb"] + ru.phys_footprint / 2 ** 20, 1)
+            entry["cpu_ns"] += (ru.user_time + ru.system_time) * self.ns_per_tick
+            entry["wakeups"] += ru.pkg_idle_wkups + ru.interrupt_wkups
         total["footprint_mb"] = round(total["footprint"] / 2 ** 20, 1)
         return total
 
@@ -229,9 +231,15 @@ def idle_window(bundle, seconds):
     a, t0 = PROCS.sample(bundle), time.monotonic()
     time.sleep(seconds)  # bench: the idle window itself
     b, dt = PROCS.sample(bundle), time.monotonic() - t0
+    names = {}
+    for name, e in b["by_name"].items():
+        e0 = a["by_name"].get(name, {"cpu_ns": e["cpu_ns"], "wakeups": e["wakeups"]})
+        names[name] = {"count": e["count"], "footprint_mb": e["footprint_mb"],
+                       "cpu_pct": round((e["cpu_ns"] - e0["cpu_ns"]) / 1e9 / dt * 100, 3),
+                       "wakeups_per_s": round((e["wakeups"] - e0["wakeups"]) / dt, 1)}
     return {"seconds": round(dt, 1), "cpu_pct": round((b["cpu_ns"] - a["cpu_ns"]) / 1e9 / dt * 100, 3),
             "wakeups_per_s": round((b["wakeups"] - a["wakeups"]) / dt, 1), "footprint_mb": b["footprint_mb"],
-            "processes": b["count"], "by_name": dict(sorted(b["by_name"].items(), key=lambda kv: -kv[1]["footprint_mb"])[:8])}
+            "processes": b["count"], "by_name": dict(sorted(names.items(), key=lambda kv: -kv[1]["footprint_mb"])[:10])}
 
 
 # ---------------------------------------------------------------- the helpers' hub
@@ -655,7 +663,7 @@ class Kitty(Adapter):
 
 class WezTerm(Adapter):
     name = "wezterm"
-    ipc = "wezterm cli (mux socket)"
+    ipc = "wezterm cli (mux socket; one `wezterm cli` process per key: its start-up counts in send->read)"
     can_type = True
 
     def binary(self):
@@ -1085,6 +1093,9 @@ def measure_app(name, app, zdot, catfile, refresh_ms):
     adapter.activate()
     time.sleep(opts.settle)
     entry["idle_1"] = idle_window(app, opts.idle if opts.phase == "full" else 10)
+    if opts.phase == "full":
+        time.sleep(max(0.0, 120 - opts.settle - opts.idle))  # bench: 2 min after the launch, past every warm-up
+        entry["idle_1_late"] = idle_window(app, opts.idle)
     note(f"{name} idle 1: {entry['idle_1']['footprint_mb']} MB, {entry['idle_1']['cpu_pct']} %, "
          f"{entry['idle_1']['wakeups_per_s']} wakeups/s")
     save()
@@ -1185,6 +1196,8 @@ def table():
             ("launch warm p50: prompt ms", ["launch", "warm", "prompt_ms", "p50"]),
             ("idle 1 terminal: MB", ["idle_1", "footprint_mb"]), ("idle 1: CPU %", ["idle_1", "cpu_pct"]),
             ("idle 1: wakeups/s", ["idle_1", "wakeups_per_s"]),
+            ("idle 1 at 2 min: MB", ["idle_1_late", "footprint_mb"]), ("idle 1 at 2 min: CPU %", ["idle_1_late", "cpu_pct"]),
+            ("idle 1 at 2 min: wakeups/s", ["idle_1_late", "wakeups_per_s"]),
             ("output->photon p50 ms", ["output_to_photon_ms", "p50"]),
             ("output->photon p95 ms", ["output_to_photon_ms", "p95"]),
             ("key->photon (injected) p50 ms", ["key_to_photon_ms", "send_to_frame", "p50"]),
