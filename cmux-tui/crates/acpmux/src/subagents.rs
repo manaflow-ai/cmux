@@ -132,15 +132,23 @@ impl SubagentTree {
             params.get("update").map(|u| self.events(u, owner.as_deref())).unwrap_or_default();
         for event in &mut events {
             let Some(id) = event.get("id").and_then(Value::as_str) else { continue };
-            let Some(preview) = self.previews.get_mut(id) else { continue };
+            let preview = self.previews.entry(id.to_owned()).or_default();
             // A progress/state event is authoritative over an earlier usage_update;
             // retain its total for a later lifecycle event that omits tokens.
             if let Some(tokens) = event.get("tokens").and_then(Value::as_u64) {
                 preview.tokens = Some(tokens);
-            } else if let Some(tokens) = preview.tokens {
-                event["tokens"] = json!(tokens);
             }
-            if !preview.text.is_empty() && event.get("lastMessage").is_none() {
+            if let Some(message) = event.get("lastMessage").and_then(Value::as_str) {
+                // Explicit lifecycle text supersedes streamed text for later events.
+                preview.text = message.to_owned();
+                preview.streaming = false;
+            }
+            if event.get("tokens").is_none() {
+                if let Some(tokens) = preview.tokens {
+                    event["tokens"] = json!(tokens);
+                }
+            }
+            if event.get("lastMessage").is_none() && !preview.text.is_empty() {
                 event["lastMessage"] = json!(truncate_last_message(&preview.text));
             }
         }
@@ -246,6 +254,9 @@ impl SubagentTree {
                             json!(if key == "lastMessage" { truncate_last_message(&v) } else { v }),
                         );
                     }
+                }
+                if let Some(tokens) = update.get("tokens").and_then(Value::as_u64) {
+                    event["tokens"] = json!(tokens);
                 }
                 vec![Value::Object(event)]
             }
