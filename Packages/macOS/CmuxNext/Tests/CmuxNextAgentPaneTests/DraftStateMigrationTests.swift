@@ -116,6 +116,37 @@ nonisolated struct DraftStateMigrationTests {
         #expect(drafts["distinct"] as? String == "B only")
     }
 
+    @Test func newestDaemonClearReplacesImportedLegacyButNeverGenuineDestination() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        try fixture.write("source/agent-composer-drafts.json", #"{"cleared":"legacy","updated":"legacy"}"#)
+        try fixture.write("source/sessions/cleared/session.json", #"{"id":"cleared"}"#, date: 20)
+        try fixture.write("source/sessions/updated/session.json", #"{"id":"updated","composerDraft":"new daemon"}"#, date: 20)
+        try fixture.write("destination/agent-composer-drafts.json", #"{"genuine":"B current"}"#)
+
+        DraftStateMigration.adopt(from: [fixture.url("source")], to: fixture.url("destination"))
+        DraftStateMigration.adoptComposerDrafts(from: [fixture.url("source")], to: fixture.url("destination"))
+
+        let drafts = try fixture.object("destination/agent-composer-drafts.json")
+        #expect(drafts["cleared"] as? String == "")
+        #expect(drafts["updated"] as? String == "new daemon")
+        #expect(drafts["genuine"] as? String == "B current")
+    }
+
+    @Test func unreadableNewestDaemonMetadataDoesNotSelectOlderText() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        try fixture.write("source/agent-composer-drafts.json", #"{"chat":"legacy"}"#)
+        try fixture.write("source/sessions/chat/session.json", #"{"id":"chat","composerDraft":"older daemon"}"#, date: 10)
+        try fixture.write("new/sessions/chat/session.json", "{not valid json", date: 20)
+
+        DraftStateMigration.adopt(from: [fixture.url("source")], to: fixture.url("destination"))
+        DraftStateMigration.adoptComposerDrafts(from: [fixture.url("new"), fixture.url("source")], to: fixture.url("destination"))
+
+        let drafts = try fixture.object("destination/agent-composer-drafts.json")
+        #expect(drafts["chat"] as? String == "legacy")
+    }
+
     @Test func quickDraftFileIsAdoptedOnlyWhenDestinationIsAbsent() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }

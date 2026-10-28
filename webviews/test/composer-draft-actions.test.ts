@@ -5,13 +5,13 @@ const sessionId = "session";
 for (const draft of ["newer edit from another host", "", null]) {
   test("daemon reply wins over a stale native mirror: " + JSON.stringify(draft), async () => {
     const reply = { sessionId, draft };
-    let nativeReads = 0;
-    const actions = draftTextActions({ readDraft: async () => reply, writeDraft: async () => undefined }, async () => {
-      nativeReads++;
+    const nativeCalls: unknown[][] = [];
+    const actions = draftTextActions({ readDraft: async () => reply, writeDraft: async () => undefined }, async (method, params) => {
+      nativeCalls.push([method, params]);
       return "stale native draft";
     });
     expect(await actions["chat.readDraft"]({ sessionId })).toEqual(reply);
-    expect(nativeReads).toBe(0);
+    expect(nativeCalls).toEqual([["chat.draftText.set", { sessionId, text: draft ?? "" }]]);
   });
 }
 
@@ -56,4 +56,53 @@ test("writes mirror the same session and text before daemon persistence", async 
     ["chat.draftText.set", { sessionId, text: "" }],
     [sessionId, ""],
   ]);
+});
+
+
+test("an authoritative daemon clear updates the mirror for a later fallback", async () => {
+  let available = true;
+  let mirror = "stale native draft";
+  const actions = draftTextActions(
+    {
+      readDraft: async () => (available ? { sessionId, draft: null } : undefined),
+      writeDraft: async () => undefined,
+    },
+    async (method, params) => {
+      if (method === "chat.draftText.set") mirror = String(params.text);
+      return method === "chat.draftText.get" ? mirror : undefined;
+    },
+  );
+  expect(await actions["chat.readDraft"]({ sessionId })).toEqual({ sessionId, draft: null });
+  available = false;
+  expect(await actions["chat.readDraft"]({ sessionId })).toBe("");
+});
+
+test("a newer local write wins over an older read and its mirror sync", async () => {
+  let release!: () => void;
+  const reading = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let mirror = "old";
+  let daemon = "daemon old";
+  const actions = draftTextActions(
+    {
+      readDraft: async () => {
+        await reading;
+        return { sessionId, draft: daemon };
+      },
+      writeDraft: async (_id, text) => {
+        daemon = text;
+      },
+    },
+    async (method, params) => {
+      if (method === "chat.draftText.set") mirror = String(params.text);
+      return method === "chat.draftText.get" ? mirror : undefined;
+    },
+  );
+  const oldRead = actions["chat.readDraft"]({ sessionId });
+  const write = actions["chat.writeDraft"]({ sessionId, text: "new local" });
+  release();
+  expect(await oldRead).toBe("new local");
+  await write;
+  expect(await actions["chat.readDraft"]({ sessionId })).toEqual({ sessionId, draft: "new local" });
 });

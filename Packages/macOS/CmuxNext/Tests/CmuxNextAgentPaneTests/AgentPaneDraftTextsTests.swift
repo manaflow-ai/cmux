@@ -34,6 +34,16 @@ struct AgentPaneDraftTextsTests {
         for index in 0..<12 { #expect(try await store.get("session-\(index)") == "text-\(index)") }
     }
 
+    @Test func committedQuitFinalizesPendingTextAndRejectsLaterPageWrites() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "draft-texts-finalize-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = AgentPaneDraftTexts(directory: root, work: BackgroundWork())
+        try await store.set("before quit", for: "session")
+        await store.finalizeForQuit()
+        try await store.set("after quit", for: "session")
+        #expect(try await store.get("session") == "before quit")
+    }
+
     @Test func malformedExistingFileFailsWithoutClobberingIt() async throws {
         let root = FileManager.default.temporaryDirectory.appending(path: "draft-texts-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: root) }
