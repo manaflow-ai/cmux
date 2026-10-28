@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "build": "4070842501701",
+  "notes": "notes/4070842501701.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 26871,
+      "title": "fix(cmux-next notifications): sounds.when = always sounds for a viewed pane under the focus dismissal",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26879,
+      "title": "ci: a suite that gave no result for want of a display says how to get one",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23353,
+      "title": "acpmux: make the Ctrl-B adoption tests fail when their fix is undone",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26504,
+      "title": "Add a lane-run geometry audit for Session Info alignment",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26620,
+      "title": "cmux NEXT sidebar: the Update Available button sits at the bottom, left of Search on the footer line",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24200,
+      "title": "fix(webviews): use hairline token for chief view rims",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26845,
+      "title": "acpmux: session/auth asks the peer and lists sessionAuth",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
