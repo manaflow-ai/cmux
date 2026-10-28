@@ -18,7 +18,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 use std::process::Command;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde_json::Value;
 
@@ -37,6 +37,7 @@ impl Fixture {
         let dir = PathBuf::from("/tmp").join(format!("cmux-ru-{}-{stamp}", std::process::id()));
         fs::create_dir_all(&dir).unwrap();
         fs::set_permissions(&dir, fs::Permissions::from_mode(0o700)).unwrap();
+        fs::create_dir(dir.join("home")).unwrap();
         Self { socket: dir.join("mux.sock"), session: session.into(), dir, frozen: None }
     }
 
@@ -53,6 +54,8 @@ impl Fixture {
             .args(["server", action, "--json", "--session", &self.session, "--socket"])
             .arg(&self.socket)
             .args(extra)
+            .env("HOME", self.dir.join("home"))
+            .env("CFFIXED_USER_HOME", self.dir.join("home"))
             .env("CMUX_TUI_STATE_DIR", self.dir.join("state"))
             .env("CMUX_TUI_CONFIG", self.dir.join("config.json"))
             .output()
@@ -67,33 +70,60 @@ impl Fixture {
         (output.status.success(), value)
     }
 
-    /// Takes every connection the owner accepts until it refuses one at its
-    /// connection limit; the owner holds a permit for each until it closes.
-    fn fill_connections(&self) -> Vec<UnixStream> {
-        let mut held = Vec::new();
+    fn request(stream: &mut BufReader<UnixStream>, command: &str) -> Value {
+        writeln!(stream.get_mut(), "{}", serde_json::json!({"id":1,"cmd":command})).unwrap();
         loop {
-            assert!(held.len() < 512, "the owner never refused a connection");
-            let stream = UnixStream::connect(&self.socket).unwrap();
-            // macOS refuses the timeout (EINVAL) once the owner has closed a
-            // refused connection; its refusal line is still readable.
-            let _ = stream.set_read_timeout(Some(Duration::from_secs(10)));
-            let mut reader = BufReader::new(stream.try_clone().unwrap());
-            // The refusal may close the socket before this write lands.
-            let _ = writeln!(&stream, r#"{{"id":1,"cmd":"identify"}}"#);
-            loop {
-                let mut line = String::new();
-                assert_ne!(reader.read_line(&mut line).unwrap(), 0, "closed after {}", held.len());
-                let reply: Value = serde_json::from_str(&line).unwrap();
-                if reply["type"] == "refused" {
-                    assert_eq!(reply["code"], "server.busy", "{reply}");
-                    return held;
-                }
-                if reply["id"] == 1 {
-                    break;
-                }
+            let mut line = String::new();
+            assert_ne!(stream.read_line(&mut line).unwrap(), 0, "closed during {command}");
+            let reply: Value = serde_json::from_str(&line).unwrap();
+            if reply["id"] == 1 {
+                assert_eq!(reply["ok"], true, "{reply}");
+                return reply["data"].clone();
             }
+        }
+    }
+
+    /// Hold every permit ourselves before exercising ensure or Restart once.
+    /// The initial ensure's socket can close before its worker releases the
+    /// permit. Observe that release through the existing server counters,
+    /// rather than retrying the operation under test after a lucky success.
+    fn fill_connections(&self) -> Vec<BufReader<UnixStream>> {
+        let connect = || {
+            let stream = UnixStream::connect(&self.socket).unwrap();
+            stream.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+            BufReader::new(stream)
+        };
+        let mut control = connect();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let limit = loop {
+            let stats = Self::request(&mut control, "server-stats");
+            if stats["connections"]["active"] == 1 {
+                break usize::try_from(stats["connections"]["limit"].as_u64().unwrap()).unwrap();
+            }
+            assert!(Instant::now() < deadline, "initial clients did not retire: {stats}");
+        };
+        assert!((2..512).contains(&limit), "unexpected connection limit: {limit}");
+        let mut held = vec![control];
+        for _ in 1..limit {
+            let mut stream = connect();
+            Self::request(&mut stream, "identify");
             held.push(stream);
         }
+        let stats = Self::request(&mut held[0], "server-stats");
+        assert_eq!(stats["connections"]["active"], limit, "{stats}");
+
+        let stream = UnixStream::connect(&self.socket).unwrap();
+        // macOS can report EINVAL after the peer writes its refusal and
+        // closes. The complete refusal is still readable in that case.
+        let _ = stream.set_read_timeout(Some(Duration::from_secs(10)));
+        let mut reader = BufReader::new(stream);
+        let mut line = String::new();
+        assert_ne!(reader.read_line(&mut line).unwrap(), 0);
+        let refusal: Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(refusal["protocol"], "cmux.protocol/2", "{refusal}");
+        assert_eq!(refusal["type"], "refused", "{refusal}");
+        assert_eq!(refusal["code"], "server.busy", "{refusal}");
+        held
     }
 }
 
@@ -107,6 +137,8 @@ impl Drop for Fixture {
         let _ = Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
             .args(["server", "stop", "--json", "--session", &self.session, "--socket"])
             .arg(&self.socket)
+            .env("HOME", self.dir.join("home"))
+            .env("CFFIXED_USER_HOME", self.dir.join("home"))
             .env("CMUX_TUI_STATE_DIR", self.dir.join("state"))
             .env("CMUX_TUI_CONFIG", self.dir.join("config.json"))
             .output();
@@ -187,18 +219,8 @@ fn ensure_reports_an_owner_at_its_connection_limit_as_busy_and_adopts_it_later()
     let first = fixture.server("ensure", &[]);
     let mut held = fixture.fill_connections();
 
-    // Not `server.unavailable` ("did not become ready"), and no second owner.
-    // A permit of an earlier command's connection may free only after the
-    // fill: then this ensure is served, and the fill tops up and asks again.
-    let busy = (0..3)
-        .find_map(|_| match fixture.run("ensure", &[]) {
-            (false, failure) => Some(failure),
-            (true, _) => {
-                held.extend(fixture.fill_connections());
-                None
-            }
-        })
-        .expect("the full owner served every ensure");
+    let (success, busy) = fixture.run("ensure", &[]);
+    assert!(!success, "the saturated owner must not accept ensure: {busy}");
     assert_eq!(busy["code"], "server.busy", "{busy}");
 
     // One client leaves: the same owner serves the next ensure.
@@ -213,19 +235,9 @@ fn replace_unresponsive_replaces_an_owner_at_its_connection_limit() {
     let fixture = Fixture::new("replace-full");
     let first = fixture.server("ensure", &[]);
     let old = pid_of(&first);
-    let mut held = fixture.fill_connections();
+    let _held = fixture.fill_connections();
 
-    // As above: a late-freed permit answers the probe, and the owner is kept.
-    let replaced = (0..3)
-        .find_map(|_| {
-            let result = fixture.server("ensure", &["--replace-unresponsive"]);
-            if result["status"] == "running" {
-                held.extend(fixture.fill_connections());
-                return None;
-            }
-            Some(result)
-        })
-        .expect("the full owner answered every replace probe");
+    let replaced = fixture.server("ensure", &["--replace-unresponsive"]);
     assert_eq!(replaced["status"], "replaced", "{replaced}");
     assert_eq!(replaced["replaced_pid"], old, "{replaced}");
     let new = pid_of(&replaced);
