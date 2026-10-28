@@ -135,6 +135,10 @@ impl App {
             outcome => (None, outcome),
         };
         match outcome {
+            #[allow(
+                clippy::unreachable,
+                reason = "INVARIANT: PendingSessionMutation wraps an outcome in SemanticIntent once and the match above unwraps it"
+            )]
             SessionMutationOutcome::SemanticIntent { .. } => {
                 unreachable!("semantic mutation outcomes are unwrapped once")
             }

@@ -33,7 +33,7 @@ impl Editor {
 
     /// The cursor as (line, column in chars).
     pub(super) fn cursor(&self) -> (usize, usize) {
-        let before = &self.text[..self.pos];
+        let (before, _) = self.split_at_cursor();
         let line = before.iter().filter(|c| **c == '\n').count();
         let column = before.iter().rev().take_while(|c| **c != '\n').count();
         (line, column)
@@ -127,37 +127,37 @@ impl Editor {
         self.draft.clear();
     }
 
+    /// The text before and after the cursor.
+    #[allow(
+        clippy::indexing_slicing,
+        reason = "INVARIANT: every edit keeps pos <= text.len() (inserts advance it, removals and moves stay inside the text)"
+    )]
+    fn split_at_cursor(&self) -> (&[char], &[char]) {
+        (&self.text[..self.pos], &self.text[self.pos..])
+    }
+
     fn line_start(&self) -> usize {
-        self.text[..self.pos].iter().rposition(|c| *c == '\n').map_or(0, |i| i + 1)
+        let (before, _) = self.split_at_cursor();
+        before.iter().rposition(|c| *c == '\n').map_or(0, |i| i + 1)
     }
 
     fn line_end(&self) -> usize {
-        self.text[self.pos..]
-            .iter()
-            .position(|c| *c == '\n')
-            .map_or(self.text.len(), |i| self.pos + i)
+        let (_, after) = self.split_at_cursor();
+        after.iter().position(|c| *c == '\n').map_or(self.text.len(), |i| self.pos + i)
     }
 
     fn word_back(&self) -> usize {
-        let mut i = self.pos;
-        while i > 0 && !self.text[i - 1].is_alphanumeric() {
-            i -= 1;
-        }
-        while i > 0 && self.text[i - 1].is_alphanumeric() {
-            i -= 1;
-        }
-        i
+        let (before, _) = self.split_at_cursor();
+        let gap = before.iter().rev().take_while(|c| !c.is_alphanumeric()).count();
+        let word = before.iter().rev().skip(gap).take_while(|c| c.is_alphanumeric()).count();
+        self.pos - gap - word
     }
 
     fn word_forward(&self) -> usize {
-        let mut i = self.pos;
-        while i < self.text.len() && !self.text[i].is_alphanumeric() {
-            i += 1;
-        }
-        while i < self.text.len() && self.text[i].is_alphanumeric() {
-            i += 1;
-        }
-        i
+        let (_, after) = self.split_at_cursor();
+        let gap = after.iter().take_while(|c| !c.is_alphanumeric()).count();
+        let word = after.iter().skip(gap).take_while(|c| c.is_alphanumeric()).count();
+        self.pos + gap + word
     }
 
     /// Up and Down move between lines; past the first or last line they
@@ -166,15 +166,19 @@ impl Editor {
         let (line, column) = self.cursor();
         let lines = self.text.iter().filter(|c| **c == '\n').count() + 1;
         let target = line as isize + step;
-        if target >= 0 && (target as usize) < lines {
+        if let Ok(target) = usize::try_from(target)
+            && target < lines
+        {
             let starts: Vec<usize> = std::iter::once(0)
                 .chain(
                     self.text.iter().enumerate().filter(|(_, c)| **c == '\n').map(|(i, _)| i + 1),
                 )
                 .collect();
-            let start = starts[target as usize];
-            let end = starts.get(target as usize + 1).map_or(self.text.len(), |next| next - 1);
-            self.pos = (start + column).min(end);
+            // `starts` has one entry per line, so `target < lines` finds one.
+            if let Some(&start) = starts.get(target) {
+                let end = starts.get(target + 1).map_or(self.text.len(), |next| next - 1);
+                self.pos = (start + column).min(end);
+            }
             return;
         }
         let next = self.at as isize + step;

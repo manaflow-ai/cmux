@@ -92,10 +92,9 @@ pub(super) const BROWSER_DIGIT_CODES: [&str; 10] = [
 pub(super) fn browser_character_code(character: char) -> (&'static str, u32) {
     match character {
         'a'..='z' | 'A'..='Z' => {
-            let upper = character.to_ascii_uppercase();
-            (BROWSER_LETTER_CODES[(upper as u8 - b'A') as usize], upper as u32)
+            ascii_run_code(&BROWSER_LETTER_CODES, character.to_ascii_uppercase(), 'A')
         }
-        '0'..='9' => (BROWSER_DIGIT_CODES[(character as u8 - b'0') as usize], character as u32),
+        '0'..='9' => ascii_run_code(&BROWSER_DIGIT_CODES, character, '0'),
         ' ' => ("Space", 32),
         ';' => ("Semicolon", 186),
         '=' => ("Equal", 187),
@@ -110,4 +109,16 @@ pub(super) fn browser_character_code(character: char) -> (&'static str, u32) {
         '\'' => ("Quote", 222),
         _ => ("", 0),
     }
+}
+
+/// The code of `character` in a table that starts at `first` and runs in
+/// code-point order (`KeyA..KeyZ`, `Digit0..Digit9`). A character outside the
+/// table gets the unknown-key code, the same as the `_` arm above.
+fn ascii_run_code(codes: &[&'static str], character: char, first: char) -> (&'static str, u32) {
+    let code_point = u32::from(character);
+    code_point
+        .checked_sub(u32::from(first))
+        .and_then(|index| usize::try_from(index).ok())
+        .and_then(|index| codes.get(index))
+        .map_or(("", 0), |code| (*code, code_point))
 }

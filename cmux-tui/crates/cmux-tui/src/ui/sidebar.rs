@@ -447,11 +447,16 @@ fn draw_plugin(app: &mut App, frame: &mut Frame) {
         let Some(surface) = app.session.surface(surface_id) else { return };
         surface.take_dirty();
         let theme = app.config.theme;
-        let rs = app
-            .render_states
-            .entry(surface_id)
-            .or_insert_with(|| ghostty_vt::RenderState::new().expect("render state alloc"));
-        if let Ok(render) = surface.render_frame(rs) {
+        // A render state that cannot be allocated draws like a failed render frame.
+        let rs = match app.render_states.entry(surface_id) {
+            std::collections::hash_map::Entry::Occupied(entry) => Some(entry.into_mut()),
+            std::collections::hash_map::Entry::Vacant(entry) => {
+                ghostty_vt::RenderState::new().ok().map(|state| entry.insert(state))
+            }
+        };
+        if let Some(rs) = rs
+            && let Ok(render) = surface.render_frame(rs)
+        {
             let _ = super::terminal_grid::draw_render_frame(
                 frame,
                 content,

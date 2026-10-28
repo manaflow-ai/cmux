@@ -52,7 +52,7 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     if global.output == OutputMode::Human {
         global.output = OutputMode::Json;
     }
-    Some(run(&global, &command_args[1..]))
+    Some(run(&global, command_args.get(1..).unwrap_or_default()))
 }
 
 fn run(global: &GlobalArgs, args: &[String]) -> i32 {
@@ -62,23 +62,26 @@ fn run(global: &GlobalArgs, args: &[String]) -> i32 {
         print!("{HELP}");
         return 0;
     }
+    // The words after the task name.
+    let rest = args.get(1..).unwrap_or_default();
     let result = match args.first().map(String::as_str) {
-        Some("list") if args[1..] == ["--prompts-md"] => {
+        Some("list") if rest == ["--prompts-md"] => {
             print!("{}", prompts_markdown());
             return 0;
         }
-        None | Some("list") => no_arguments(&args[args.len().min(1)..])
-            .map(|()| Outcome { report: list(), failed: false }),
-        Some("status") => no_arguments(&args[1..]).and_then(|()| status(global)),
-        Some("trust") => trust::run(&args[1..]),
-        Some("machine") => machine::run(&args[1..]),
-        Some("harness") => harness::run(&args[1..]),
-        Some("mcp") => mcp::run(&args[1..]),
-        Some("computer-use" | "computer_use") => computer_use::run(global, &args[1..]),
-        Some("cloud-machine" | "cloud_machine") => cloud_machine::run(global, &args[1..]),
-        Some("notifications") => notifications::run(global, &args[1..]),
-        Some("browser-import" | "browser_import") => browser_import::run(global, &args[1..]),
-        Some("tailnet") => tailnet::run(&args[1..]),
+        None | Some("list") => {
+            no_arguments(rest).map(|()| Outcome { report: list(), failed: false })
+        }
+        Some("status") => no_arguments(rest).and_then(|()| status(global)),
+        Some("trust") => trust::run(rest),
+        Some("machine") => machine::run(rest),
+        Some("harness") => harness::run(rest),
+        Some("mcp") => mcp::run(rest),
+        Some("computer-use" | "computer_use") => computer_use::run(global, rest),
+        Some("cloud-machine" | "cloud_machine") => cloud_machine::run(global, rest),
+        Some("notifications") => notifications::run(global, rest),
+        Some("browser-import" | "browser_import") => browser_import::run(global, rest),
+        Some("tailnet") => tailnet::run(rest),
         Some(other) => Err(Refusal::Usage(format!(
             "cmux: setup: unknown task {other:?}; `cmux setup list` names every task"
         ))),

@@ -774,8 +774,17 @@ function sessionUpdate(event: EventRecord): any | undefined {
 }
 
 /// Opens the client's socket; mock mode passes an in-page daemon (mock.ts), the app the host
-/// bridge (bridgeSocket.ts).
-export type OpenSocket = (url: URL) => WebSocket;
+/// bridge (bridgeSocket.ts). `protocols` carries the listener token (`tokenProtocols`): acpmux
+/// takes it only from a header, never the URL, which logs, history and a Referer keep.
+export type OpenSocket = (url: URL, protocols?: string[]) => WebSocket;
+
+/// The subprotocol acpmux answers a browser's upgrade with; it never echoes the token.
+export const ACPMUX_PROTOCOL = "acpmux.v1";
+
+/// The WebSocket subprotocols that carry `token`: a browser cannot set an Authorization header.
+export function tokenProtocols(token: string): string[] {
+  return [ACPMUX_PROTOCOL, `acpmux.token.${token}`];
+}
 
 /// The placeholder URL of a bridge connection (never dialed).
 export const BRIDGE_URL = "cmux-bridge://acpmux/";
@@ -1272,7 +1281,7 @@ export class AcpmuxDirectClient {
     host: AcpmuxHostConfig,
     listener: Listener,
     onLost?: () => void,
-    private readonly openSocket: OpenSocket = (url) => new WebSocket(url),
+    private readonly openSocket: OpenSocket = (url, protocols) => new WebSocket(url, protocols),
     private readonly gitRoute: GitRoute = "native",
     /// Every message on the socket and its lifecycle, for the ACP inspector (wire.ts).
     private readonly wire: AcpWireLog = acpWire,
@@ -1406,13 +1415,13 @@ export class AcpmuxDirectClient {
     if (cold && this.events.length === 0 && !keptTail(cold)) void readHostTail(cold).catch(() => undefined);
     // Over the bridge the URL names nothing: the host knows its daemon.
     const url = new URL(this.host.endpoint ?? BRIDGE_URL);
-    if (this.host.token) url.searchParams.set("token", this.host.token);
+    const protocols = this.host.token ? tokenProtocols(this.host.token) : undefined;
     this.wire.lifecycle("connecting", {
       endpoint: this.host.endpoint ? redactEndpoint(this.host.endpoint) : BRIDGE_URL,
       sessionId: this.selectedSessionId,
     });
     await new Promise<void>((resolve, reject) => {
-      const socket = this.openSocket(url);
+      const socket = this.openSocket(url, protocols);
       this.socket = socket;
       let opened = false;
       socket.onopen = () => {

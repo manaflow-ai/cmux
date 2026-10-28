@@ -384,8 +384,10 @@ pub(super) fn mcp_findings(
         Some(_) => return Err(format!("{MCP_TOOL}: checks must be a nonempty array of ids")),
     };
     if let Some(wanted) = &wanted
-        && let Some(duplicate) =
-            wanted.iter().enumerate().find_map(|(i, id)| wanted[..i].contains(id).then_some(id))
+        && let Some(duplicate) = wanted
+            .iter()
+            .enumerate()
+            .find_map(|(i, id)| wanted.iter().take(i).any(|seen| seen == id).then_some(id))
     {
         return Err(format!("{MCP_TOOL}: checks names {duplicate} twice"));
     }
