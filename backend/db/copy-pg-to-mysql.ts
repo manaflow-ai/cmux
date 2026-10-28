@@ -2,13 +2,14 @@
  * Copy the Postgres `cmux-next` projection into PlanetScale MySQL `cmux-next-vitess`, then verify
  * (state-placement.md 4.5). One environment at a time: development, then staging, then main.
  *
- *   bun copy-pg-to-mysql.ts --branch development|staging|main [--exclude-junk-teams] [--verify-only]
+ *   bun copy-pg-to-mysql.ts --branch development|staging|main [--exclude-junk-teams | --include-junk-teams] [--verify-only]
  *
- * --exclude-junk-teams skips the junk teams (projection-compare.ts JUNK_TEAMS_SQL: Stack team mirrors
- * no cmux-next user belongs to and that were never used) and their team-scoped rows, read from
- * Postgres at the start of the run, and verify then compares only the kept set. It prints the number
- * of junk teams and of rows left out per table (counts only), so the operator checks the set before
- * cutover. Nothing is deleted on either side.
+ * By default (or with --exclude-junk-teams) the run skips the junk teams (projection-compare.ts
+ * JUNK_TEAMS_SQL: anonymous visitors' Stack personal-team mirrors no cmux-next user belongs to and
+ * that were never used) and their team-scoped rows, read from Postgres at the start of the run, and
+ * verify then compares only the kept set, as the compare cron does. It prints the number of junk
+ * teams and of rows left out per table (counts only), so the operator checks the set before
+ * cutover. --include-junk-teams copies and verifies every row. Nothing is deleted on either side.
  *
  * Reads Postgres with ~/.secrets/cmux-next-planetscale-<branch>.env (variable DATABASE_URL or the
  * first *_URL in that file) in a session forced read-only (default_transaction_read_only), because
@@ -66,6 +67,13 @@ export const teamRowCounts = async (pgc: PgLike, teams: ReadonlyArray<string>): 
   return out
 }
 
+/** The CLI's junk-team choice: excluded unless --include-junk-teams; both flags at once is an error. */
+export const junkMode = (argv: ReadonlyArray<string>): "exclude" | "include" => {
+  const include = argv.includes("--include-junk-teams")
+  if (include && argv.includes("--exclude-junk-teams")) throw new Error("--include-junk-teams and --exclude-junk-teams are exclusive")
+  return include ? "include" : "exclude"
+}
+
 /** KEY=value lines of a ~/.secrets env file (values never printed). */
 const readEnvFile = (path: string): Record<string, string> =>
   Object.fromEntries(
@@ -79,9 +87,10 @@ const readEnvFile = (path: string): Record<string, string> =>
 if (import.meta.main) {
   const branch = process.argv[process.argv.indexOf("--branch") + 1]
   if (!["development", "staging", "main"].includes(branch ?? "")) {
-    console.error("usage: bun copy-pg-to-mysql.ts --branch development|staging|main [--exclude-junk-teams] [--verify-only]")
+    console.error("usage: bun copy-pg-to-mysql.ts --branch development|staging|main [--exclude-junk-teams | --include-junk-teams] [--verify-only]")
     process.exit(2)
   }
+  const junk = junkMode(process.argv)
   // The Postgres branch is named production where the Vitess one is main.
   const pgName = branch === "main" ? "production" : branch!
   const pgEnv = readEnvFile(join(homedir(), ".secrets", `cmux-next-planetscale-${pgName}.env`))
@@ -95,8 +104,8 @@ if (import.meta.main) {
   const my = await mysql.createConnection({ host: myEnv.DATABASE_HOST, user: myEnv.DATABASE_USERNAME, password: myEnv.DATABASE_PASSWORD, database: myEnv.DATABASE_NAME, ssl: { rejectUnauthorized: true }, timezone: "Z", dateStrings: true })
   await my.query("SET time_zone = '+00:00'")
   try {
-    const excludeTeams = process.argv.includes("--exclude-junk-teams") ? await junkTeams(pgc) : []
-    if (process.argv.includes("--exclude-junk-teams")) console.log(JSON.stringify({ step: "junk", branch, teams: excludeTeams.length, rows_left_out: await teamRowCounts(pgc, excludeTeams) }))
+    const excludeTeams = junk === "exclude" ? await junkTeams(pgc) : []
+    console.log(JSON.stringify({ step: "junk", branch, mode: junk, teams: excludeTeams.length, rows_left_out: await teamRowCounts(pgc, excludeTeams) }))
     if (!process.argv.includes("--verify-only")) console.log(JSON.stringify({ step: "copy", branch, ...(await copyTables(pgc, my, { excludeTeams })) }))
     const report = await verifyTables(pgc, my, { excludeTeams })
     for (const r of report) console.log(JSON.stringify(r))
