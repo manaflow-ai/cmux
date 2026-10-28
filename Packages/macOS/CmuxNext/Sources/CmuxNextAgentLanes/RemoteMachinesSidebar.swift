@@ -137,6 +137,42 @@ public final class RemoteMachinesSidebar {
         olderReads = [:]
     }
 
+    /// The app's own acpmux pushed peer `peer`'s link state (`AgentTurnStateFeed.peerStateChanged`),
+    /// or its watch (re)opened (`peer` nil). A listed peer's header follows at once and a repeat
+    /// changes nothing; an unknown peer, an offline for one already down (it may be removed), or a
+    /// reopened watch reads the list again (one read at a time, as a rebuild does). Nothing runs
+    /// before `bind` or after `stop()`.
+    public func peerStateChanged(peer: String?, state: String?) {
+        guard laneWatch != nil else { return }
+        switch Self.push(peer: peer, state: state, onto: peers) {
+        case .same: return
+        case .read: askForPeers()
+        case .list(let next):
+            peers = next
+            rebuild()
+        }
+    }
+
+    /// What one pushed link state does to the listed peers.
+    nonisolated enum PeerPush: Equatable {
+        /// Nothing: a repeat, or a state of the same colour (only `connected` is up).
+        case same
+        /// The list with that peer's link moved.
+        case list([AcpmuxPeerList.Peer])
+        /// Read the list again: an unknown peer, an offline for one already down, or no peer.
+        case read
+    }
+
+    nonisolated static func push(peer: String?, state: String?, onto peers: [AcpmuxPeerList.Peer]?) -> PeerPush {
+        guard let peer, let state, var list = peers, let i = list.firstIndex(where: { $0.name == peer }),
+              state != "offline" || list[i].connected else { return .read }
+        let connected = state == "connected"
+        guard list[i].connected != connected else { return .same }
+        let old = list[i]
+        list[i] = AcpmuxPeerList.Peer(name: old.name, connected: connected, resources: old.resources, url: old.url)
+        return .list(list)
+    }
+
     /// The rows now, every group in order. Read inside an observation scope, so a group, fold or
     /// page change re-yields.
     public func rows() -> [SidebarTransientItem] {
