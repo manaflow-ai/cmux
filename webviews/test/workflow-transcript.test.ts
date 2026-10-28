@@ -301,3 +301,28 @@ test("truncation starting during an older read resets to the newest window", asy
   expect(reader.rows.map((row) => row.text)).toEqual(["fresh tail"]);
   expect(reader.canLoadOlder).toBe(false);
 });
+
+
+test("truncation during forward catch-up discards pages from the previous window", async () => {
+  const calls: unknown[] = [];
+  const pages = [
+    page(2, 4, 4, [text("old tail")]),
+    page(2, 4, 6, [text("updated tail")]),
+    { ...page(4, 6, 6, [text("shifted forward")]), truncated: true },
+    { ...page(4, 6, 6, [text("fresh tail")]), truncated: true },
+  ];
+  const reader = new WorkflowTranscript(
+    request,
+    async (params) => {
+      calls.push(params);
+      return pages.shift();
+    },
+    () => {},
+  );
+  await reader.refresh();
+  await reader.refresh();
+  expect(reader.rows.map((row) => row.text)).toEqual(["fresh tail"]);
+  expect(calls).toEqual([request, { ...request, after: 2 }, { ...request, after: 4 }, request]);
+  expect(reader.failed).toBe(false);
+  expect(reader.canLoadOlder).toBe(false);
+});
