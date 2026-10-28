@@ -336,6 +336,7 @@ test("sessionSummary skips history across 50 mixed activity and assistant chunks
   const reply = { ...assistant("starting", 2), streaming: true };
   rows.set(reply.id, reply);
   const first = sessionSummary(rows.sorted(), "acme/app");
+  const card = sessionSummary(rows.sorted());
   visits = 0;
   for (let index = 0; index < 50; index++) {
     rows.set(reply.id, { ...reply, text: `chunk ${index}`, version: index + 1 });
@@ -353,6 +354,7 @@ test("sessionSummary skips history across 50 mixed activity and assistant chunks
       false,
     );
     expect(sessionSummary(rows.sorted(), "acme/app")).toBe(first);
+    expect(sessionSummary(rows.sorted())).toBe(card);
   }
   expect(visits).toBe(0);
   rows.set(reply.id, { ...reply, streaming: false, version: 51 });

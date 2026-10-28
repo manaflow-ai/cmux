@@ -91,14 +91,8 @@ function scheduled(all: readonly Tool[]): SummaryWakeup[] {
 const GITHUB_PR_URL = /^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+)\/pull\/(\d+)(?:\/[^\s]*)?$/;
 const GITHUB_ISSUE_URL = /^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+)\/issues\/(\d+)(?:\/[^\s]*)?$/;
 const sourceKey = (source: SummarySource) => `${source.kind ?? "url"}:${source.url ?? source.label}`;
-let summaryCache:
-  | {
-      revision: symbol;
-      repository?: string | null;
-      cwd?: string;
-      summary: SessionSummary;
-    }
-  | undefined;
+// Revision ownership lets old summaries go when their producer and snapshots release them.
+const summaryCache = new WeakMap<object, { repository?: string | null; cwd?: string; summary: SessionSummary }[]>();
 const normalizedPath = (path: string) => {
   const absolute = path.startsWith("/");
   const parts: string[] = [];
@@ -245,13 +239,9 @@ export const runningBackgroundTasks = (rows: readonly AcpmuxRow[]) =>
 /// reply, a bare `#N` in that repository among them; without it, only the ones it opened or touched.
 export function sessionSummary(rows: readonly AcpmuxRow[], repository?: string | null, cwd?: string): SessionSummary {
   const producerRevision = transcriptSummaryVersion(rows);
-  if (
-    producerRevision &&
-    summaryCache?.revision === producerRevision &&
-    summaryCache.repository === repository &&
-    summaryCache.cwd === cwd
-  )
-    return summaryCache.summary;
+  const cached = producerRevision ? (summaryCache.get(producerRevision) ?? []) : [];
+  const match = cached.find((entry) => entry.repository === repository && entry.cwd === cwd);
+  if (match) return match.summary;
   const all = tools(rows);
   const inspector = repository !== undefined;
   // The summary card reads only the commands, and lists no mention.
@@ -266,7 +256,10 @@ export function sessionSummary(rows: readonly AcpmuxRow[], repository?: string |
     sources: sources(rows, all, pullRequests),
     backgroundTasks: backgroundTasks(rows, all),
   };
-  if (producerRevision) summaryCache = { revision: producerRevision, repository, cwd, summary: result };
+  if (producerRevision) {
+    cached.push({ repository, cwd, summary: result });
+    summaryCache.set(producerRevision, cached);
+  }
   return result;
 }
 
