@@ -199,18 +199,22 @@ class OwnedVerify(unittest.TestCase):
     OWNED_JOBS = ("verify-signed-nightly", "verify-final-dmg-nightly", "signer-dmg-image")
     OWNED = "needs.pick-nightly-sign-runner.outputs.owned"
 
-    def test_verify_jobs_read_the_owned_pick_on_attempt_one_only(self) -> None:
+    def test_verify_jobs_read_the_owned_pick_only_for_the_attempt_it_was_made_for(self) -> None:
+        # Dispatch run 40594111618 (2026-10-27) reached signing on attempt 3, where signer-dmg-image waited
+        # 51 min on blacksmith-6vcpu-macos-26: the pick ran only on attempt 1 of a push.
         jobs = WORKFLOW["jobs"]
         for name in self.OWNED_JOBS:
             with self.subTest(job=name):
                 job = jobs[name]
                 self.assertNotIn("environment", job)
                 self.assertNotIn("secrets.", yaml.safe_dump(job))
-                self.assertIn(f"|| github.run_attempt == 1 && {self.OWNED} || github.run_attempt > 1 && "
+                self.assertIn(f"|| needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && {self.OWNED} "
+                              "|| github.run_attempt > 1 && "
                               "needs.pick-nightly-sign-runner.outputs.alternate || needs.pick-nightly-sign-runner.outputs.runner "
                               "|| vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26'", str(job["runs-on"]))
                 xcode = job["env"]["CMUX_CI_XCODE_APP"]
-                self.assertIn(f"github.run_attempt == 1 && {self.OWNED} != '' && vars.CMUX_CI_XCODE_APP_PR", xcode)
+                self.assertIn(f"needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && {self.OWNED} != '' "
+                              "&& vars.CMUX_CI_XCODE_APP_PR", xcode)
                 self.assertIn("|| vars.CMUX_CI_XCODE_APP_MACOS_26", xcode)
 
     def test_no_job_that_holds_a_secret_reads_the_owned_pick(self) -> None:
@@ -224,18 +228,28 @@ class OwnedVerify(unittest.TestCase):
 
     def test_the_owned_pick_is_bounded_and_never_blocks(self) -> None:
         job = WORKFLOW["jobs"]["pick-nightly-sign-runner"]
-        self.assertEqual(job["outputs"]["owned"], "${{ steps.owned.outputs.owned }}")
+        # Outside attempt 1 of a push the pick stands only with the sweeper's marker uploaded.
+        self.assertEqual(job["outputs"]["owned"],
+                         "${{ (github.event_name == 'push' && github.run_attempt == 1 || "
+                         "steps.upload-marker.outcome == 'success') && steps.owned.outputs.owned || '' }}")
+        self.assertEqual(job["outputs"]["attempt"], "${{ github.run_attempt }}")
         self.assertNotIn("environment", job)
         step = next(s for s in job["steps"] if s.get("id") == "owned")
         self.assertTrue(step["continue-on-error"])
-        self.assertIn("github.run_attempt == 1", step["if"])
+        self.assertNotIn("github.run_attempt == 1", step["if"])
         self.assertIn("vars.CI_PR_POOL_OWNED == '1'", step["if"])
-        # Only where ci-owned-pool-rescue watches: a stuck owned job elsewhere would never fall back.
+        # Only where ci-owned-pool-rescue watches (nightly-next push and dispatch): a stuck owned job elsewhere
+        # would never fall back.
         for name in ("route-token", "owned"):
             guard = next(s for s in job["steps"] if s.get("id") == name)["if"]
             with self.subTest(step=name):
-                self.assertIn("github.event_name == 'push' && github.ref_name == 'nightly-next'", guard)
-                self.assertNotIn("||", guard)
+                self.assertIn("(github.event_name == 'push' || github.event_name == 'workflow_dispatch') "
+                              "&& github.ref_name == 'nightly-next'", guard)
+                self.assertEqual(guard.count("||"), 1)
+        marker = next(s for s in job["steps"] if s.get("id") == "marker")
+        self.assertIn("github.event_name != 'push' || github.run_attempt != 1", marker["if"])
+        upload = next(s for s in job["steps"] if s.get("id") == "upload-marker")
+        self.assertEqual(upload["with"]["name"], "owned-pool-watch")
         # The build picker's owned rule (nightly_build_runner.py verify), over the labels it offers the build,
         # not the pull request pool picker: run 40515681971's verify got blacksmith-6vcpu-macos-15 from that one
         # while owned side runners sat idle.
