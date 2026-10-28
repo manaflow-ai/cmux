@@ -47,7 +47,16 @@ public final class InputLatencyDispatch {
     /// Each key-down's first arrival on the main thread and the path that held it (first-seconds-evidence.md step 1).
     public let arrivals = KeyArrivalLedger()
     /// The one seam that sends a held key again and records its hold (``HeldKeyReplay``).
-    public private(set) lazy var heldKeys = HeldKeyReplay(ledger: arrivals)
+    public private(set) lazy var heldKeys: HeldKeyReplay = {
+        let replay = HeldKeyReplay(ledger: arrivals)
+        // A held key sent straight to a window or a view opens its slot here, as `sendEvent` would: its first arrival is
+        // its `arrivedMain`, so the hold is `arrivedMain -> dispatchStart`, and its frame closes the slot.
+        replay.openSlot = { [weak self] event, keyWindow in
+            guard let self, let slot = willDispatch(event, synthetic: arrivals.isSynthetic(event), keyWindow: keyWindow) else { return {} }
+            return { [weak self] in self?.didDispatch(slot, layoutTookScroll: false) }
+        }
+        return replay
+    }()
     private let classifier: InputTargetClassifier
     private let frameInterval: FrameInterval
     private let windowChanged: WindowChanged
@@ -92,7 +101,7 @@ public final class InputLatencyDispatch {
     public func willDispatch(_ event: NSEvent, synthetic: Bool, keyWindow: @autoclosure () -> NSWindow?) -> Slot? {
         guard let type = InputEventType(event.type) else { return nil }
         let phase = type == .scrollWheel ? InputEventRecord.scrollPhase(of: event) : .none
-        let arrived = event.type == .keyDown ? arrivals.arrived(event, at: InputLatencyTracker.uptimeNanos()) : nil
+        let arrived = event.type == .keyDown ? arrivals.arrived(event, at: InputLatencyTracker.uptimeNanos(), synthetic: synthetic) : nil
         let window = arrived == nil ? nil : keyWindow()
         let slot = open(type, scrollPhase: phase, timestamp: event.timestamp, window: event.window, synthetic: synthetic,
                         keyWindow: window ?? keyWindow(), underPointer: { classifier.pointerTarget(of: event) },
@@ -161,12 +170,11 @@ public final class InputLatencyDispatch {
     /// dispatch opened for it is dropped, so the key keeps one slot, the one of the dispatch that runs it, whose
     /// `arrivedMain` is this first arrival (``KeyArrivalLedger``).
     ///
-    /// Only a path that runs the key again through `NSApplication.sendEvent` (``KeyArrivalLedger/HoldPath/creation``)
-    /// gets a second slot: a key the New Tab field or the launch picture runs straight into a window or view keeps its
-    /// first slot, and its hold is recorded at that run (``heldKeys``).
+    /// Every path runs the key again with a slot of its own: through `NSApplication.sendEvent` (the creation hold), or
+    /// straight into a window or view through ``heldKeys``, which opens it.
     public func held(_ event: NSEvent, by path: KeyArrivalLedger.HoldPath) {
         arrivals.held(event, by: path, at: InputLatencyTracker.uptimeNanos())
-        guard path == .creation, let token = tracker.dispatchingKey, event.timestamp > 0,
+        guard path != .none, let token = tracker.dispatchingKey, event.timestamp > 0,
               tracker.table.time(token, .generated) == InputLatencyTracker.eventNanos(event.timestamp) else { return }
         tracker.discard(token)
     }
