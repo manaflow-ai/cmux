@@ -188,6 +188,7 @@ public struct SidebarMapping {
             folder: rowFolder.map(shorten)
         )
         row.focusedTab = front.map { TabID($0.id) }
+        row.activityFromProgram = indicator.primary?.source == .program
         row.presence = presence(tabs)
         row.isUnnamed = Self.isUnnamed(workspace, label: page?.title)
         row.audio = SidebarWorkspaceAudio.merge(tabs.lazy.map { browserFaces[$0.id]?.audio })
