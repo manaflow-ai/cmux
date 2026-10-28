@@ -91,7 +91,11 @@ final class PageInfoChipButton: NSView, PointerHoverReporting {
         let side = bounds.height
         let iconSize = icon.intrinsicContentSize
         icon.frame = NSRect(x: (side - iconSize.width) / 2, y: (side - iconSize.height) / 2, width: iconSize.width, height: iconSize.height)
-        let size = text.intrinsicContentSize
+        // The label's frame holds its text and its 2 pt padding on each side
+        // (`naturalSize`); `intrinsicContentSize` is the text alone, and a
+        // frame that narrow cut the last glyph ("File" lost its "e" edge).
+        // The text itself still starts `side` points in.
+        let size = text.naturalSize
         text.frame = NSRect(x: side - 2, y: (bounds.height - size.height) / 2, width: size.width, height: size.height)
     }
 

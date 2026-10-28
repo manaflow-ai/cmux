@@ -607,6 +607,18 @@ The first-run Number Keys screen (also under Help > Continue Setup) offers the o
 
 A binding you set yourself for either action stays when you pick a choice. Rebind or unbind each family from Settings > Keyboard Shortcuts or `shortcuts.bindings`; the first key names the whole 1…9 family. To give Ctrl+digits back to terminal programs (for example Ctrl+6 for Vim's alternate file), set `"selectSurfaceByNumber": "cmd+opt+1"` or `null`. macOS Mission Control "Switch to Desktop N" uses Ctrl+1…9 when you turn it on in System Settings > Keyboard > Keyboard Shortcuts; macOS then takes those keys before cmux sees them.
 
+## Space shortcuts
+
+| Keys | Action | Id |
+| --- | --- | --- |
+| Ctrl+Option+Cmd+Left / Right | Previous / Next Space | `space.previous` / `space.next` |
+| Option+Cmd+[ / ] | Previous / Next Space (also; not in the code editor) | `space.previous` / `space.next` |
+| Ctrl+Option+Cmd+1…9 | Select Space 1…9 (9 is the last) | `space.selectByNumber` |
+| Ctrl+Option+1…9 | Select Space 1…9 (the Number Keys default) | `space.selectByNumber` |
+| Shift+Cmd+N | New Window, on a new space | `newWindow` |
+
+Ctrl+Cmd+Left / Right resize the focused pane (Ghostty's `resize_split`) and Ctrl+Cmd+1…9 focus pane 1…9, so the space keys add Option. macOS keeps Ctrl+arrows and Ctrl+digits for Mission Control. Rebinding an action (Settings > Keyboard Shortcuts or `shortcuts.bindings["space.next"]`) replaces all its default keys; `null` removes them. Every space action is also in the command palette (Shift+Cmd+P), the `cmux space …` CLI and MCP: for example `cmux space next`, `cmux space select-1-9 --index 2` and `cmux space open-in-new-window --space <space>`.
+
 ## Several shortcuts for one action
 
 A binding in `shortcuts.bindings` is one key (`"cmd+]"`) or a two-key chord (`["ctrl+b", "n"]`). To give an action more than one, list them under `any`; each item is a key or a chord, and every one runs the action:

@@ -5,85 +5,16 @@ import type { CloudConfig } from "./domains/cloud-plan.ts"
 import { parseAllowedTeams } from "./domains/cloud-plan.ts"
 export { providerName } from "./domains/cloud-plan.ts"
 import { FakeCloudDriver } from "./cloud-driver-fake.ts"
-import { redactReason } from "./cloud-redact.ts"
-import { createBody, type EdgeTlsRule } from "./cloud-driver-body.ts"
-import { freestyleExecStdin, type GuestExecResult } from "./cloud-driver-exec.ts"
+import type { CloudProvider, CloudProviderCapabilities, CreateOptions, EdgeTlsRule, GuestExecResult, VmResources, VmTag } from "./providers/contract.ts"
+import { directCloudProvider } from "./providers/index.ts"
 import { vmApiSettings } from "./cloud-vm-api-config.ts"
 import { VmApiSnapshotOutcome } from "./cloud-vm-api-snapshot.ts"
-export { createBody, type EdgeTlsRule } from "./cloud-driver-body.ts"
+export type { CloudProvider, CloudProviderCapabilities, CreateOptions, EdgeTlsRule, GuestExecResult, ListedVm, VmResources, VmTag } from "./providers/contract.ts"
+/** The contract's earlier name (callers and tests still import it). */
+export type RawCloudDriver = CloudProvider
 
 /**
- * The provider behind CloudDO (state-placement.md 5.2, 5.3). The Freestyle account is shared with
- * classic cmux Cloud, so every call goes through GuardedCloudDriver: it refuses a name without this
- * environment's prefix before any request, and never adopts or deletes a VM under our name whose
- * tag names another team or machine. Creates and deletes are idempotent by name: a create first
- * looks the name up (a lost create answer is found, never made twice), and a delete of a name that
- * is not there is success.
- */
-export interface VmTag {
-  readonly team: string
-  readonly machine: string
-}
-
-/** One raw provider: `find` by name (null = none), `create` under a name, `delete` by provider id (404 = success). */
-export interface RawCloudDriver {
-  /** `state`: the VM's provider state when the same answer carries it (Freestyle GET /v5/vms/{x}). */
-  find(name: string): Promise<{ readonly id: string; readonly tag: Record<string, unknown>; readonly state?: string | null } | null>
-  /** `tag` null: this call made the VM; else the VM already under the name (checked by the guard). */
-  create(name: string, tag: VmTag, opts: CreateOptions): Promise<{ readonly id: string; readonly tag: Record<string, unknown> | null }>
-  delete(id: string): Promise<void>
-  /** Pause (memory kept) or start a VM (Freestyle `POST /v5/vms/{id}/pause` and `/start`). */
-  pause(id: string): Promise<void>
-  start(id: string): Promise<void>
-  /** The VM's provider state (Freestyle VmState: starting, running, pausing, paused, stopped), or null when it is gone. */
-  state(id: string): Promise<string | null>
-  /** A snapshot by its slug (Freestyle `GET /v5/snapshots/{slug}`), or null. */
-  findSnapshot(slug: string): Promise<{ readonly id: string; readonly sourceVmId: string | null } | null>
-  /** VM API only: resume the exact capture key before requiring its source. False never admits new capture work. */
-  resumeSnapshot?(slug: string, tag: VmTag, allowSend: boolean): Promise<{ readonly id: string } | null>
-  /** VM API only: fence the key before verifying deletion, including pending captures. */
-  cancelSnapshot?(slug: string, tag: VmTag, allowEmptyFence: boolean): Promise<void>
-  /** Snapshot a running or paused VM under `slug` (Freestyle `POST /v5/vms/{id}/snapshot`). */
-  createSnapshot(vmId: string, slug: string, tag?: VmTag): Promise<{ readonly id: string }>
-  /** Delete a snapshot (Freestyle `DELETE /v5/snapshots/{id}`; 404 is success). */
-  deleteSnapshot(id: string): Promise<void>
-  /** Grow a VM (Freestyle `POST /v5/vms/{id}/resize`: grow only; memory in MiB, storage in MiB). */
-  resize(id: string, size: VmResources): Promise<void>
-  /** The VM's resources (Freestyle `resources {cpu, memory, storage}`), or null when it is gone. */
-  resources(id: string): Promise<VmResources | null>
-  /** Writes one small file into the VM (atomic, verified by sha256; Freestyle `PUT /v5/vms/{id}/fs/write`). */
-  writeFile(id: string, path: string, content: string, mode: number): Promise<void>
-  /** One page (100) of VMs whose metadata has `filter` (`key:value`). Used only to report, never to delete. */
-  list(filter: string, offset: number): Promise<{ readonly vms: ReadonlyArray<ListedVm>; readonly total: number }>
-  /** Replaces the VM's rule for `rule.domain` in place (Freestyle `GET /v5/tls?vmId&domain`, `PUT /v5/tls/{id}`); false when it has none. */
-  replaceTlsRule(vmId: string, rule: EdgeTlsRule): Promise<boolean>
-  /** One command as root, `stdin` (if any) as its stdin, answered inline (cloud-driver-exec.ts; cx-kvmz). */
-  execStdin(id: string, command: string, stdin: Uint8Array | null, timeoutMs: number): Promise<GuestExecResult>
-}
-
-export interface VmResources {
-  readonly cpu: number
-  readonly memory: number
-  readonly storage: number
-}
-
-export interface CreateOptions {
-  /** The machine's idle policy in seconds; 0 = never pause. */
-  readonly idleSeconds: number
-  /** Boot from this snapshot slug (a restore: one of ours, guarded) instead of the deployment's image. */
-  readonly snapshot?: string
-  /** Inline TLS rules (the coderouter edge, cloud-coderouter-edge.ts); absent or empty sends none. */
-  readonly edgeRules?: ReadonlyArray<EdgeTlsRule>
-}
-
-export interface ListedVm {
-  readonly id: string
-  readonly name: string | null
-  readonly tag: Record<string, unknown>
-}
-
-/**
- * FREESTYLE-NAMES: provider names are cmuxnp-<env>-<lane>-<rest>; CloudDO's lane is `cld` (tvm = team
+ * Provider names (the naming decision in plans/cmux-next/team-vm-plan.md): cmuxnp-<env>-<lane>-<rest>; CloudDO's lane is `cld` (tvm = team
  * VMs, vmimg = image bakes; no lane owns the bare env prefix). A configured prefix that differs from
  * this environment's disables the provider.
  */
@@ -113,16 +44,29 @@ export const ENV_IMAGE_PREFIX: Readonly<Record<string, string>> = { development:
 const LANE_PREFIX = /^cmuxnp-(dev|stg|prod|test)-cld-$/
 /** The exact tail after the prefix: providerName of a machine id (vm_ + 20) with `_` as `-`. */
 const NAME_TAIL = /^vm-[a-z0-9]{20}$/
-/** Snapshot slugs: `<prefix>snap-<20>` (FREESTYLE-NAMES, the cld lane). */
+/** Snapshot slugs: `<prefix>snap-<20>` (the cld lane). */
 const SNAP_TAIL = /^snap-[a-z0-9]{20}$/
 const ours = (tag: Record<string, unknown>, want: VmTag) => tag.cmux_next_team === want.team && tag.cmux_next_machine === want.machine
 
+/**
+ * The provider behind CloudDO (state-placement.md 5.2, 5.3), through the contract in providers/contract.ts.
+ * The provider account may be shared with classic cmux Cloud, so every call goes through GuardedCloudDriver:
+ * it refuses a name without this environment's prefix before any request, and never adopts or deletes a VM
+ * under our name whose tag names another team or machine. Creates and deletes are idempotent by name: a
+ * create first looks the name up (a lost create answer is found, never made twice), and a delete of a name
+ * that is not there is success.
+ */
 export class GuardedCloudDriver {
   constructor(
-    private readonly raw: RawCloudDriver,
+    private readonly raw: CloudProvider,
     private readonly prefix: string
   ) {
     if (!LANE_PREFIX.test(prefix)) throw new Error("the Cloud driver needs a cmuxnp-<env>-cld- prefix")
+  }
+
+  /** What the provider behind this driver can do. */
+  get capabilities(): CloudProviderCapabilities {
+    return this.raw.capabilities
   }
 
   private guard(name: string): void {
@@ -153,7 +97,7 @@ export class GuardedCloudDriver {
 
   /**
    * 5.8 item 1: writes the bind file into our VM (found by its recorded name, metadata checked).
-   * Freestyle has no create-time file option, so this is a second call right after the create; a
+   * The contract has no create-time file option, so this is a second call right after the create; a
    * retry overwrites it with a fresh token.
    */
   async writeBindFile(name: string, tag: VmTag, content: string): Promise<void> {
@@ -210,7 +154,7 @@ export class GuardedCloudDriver {
     if (!found) throw new DriverError("cloud.provider.vm_missing", `${action} VM: no VM under the recorded name`, true)
     if (!ours(found.tag, tag)) throw new DriverError("cloud.provider.name_conflict", "the name belongs to another VM", true)
     // Settle from the VM's real state (review P2): a VM already there (or on its way) is success, before
-    // the call (a retry after a lost answer) and after a failed one (Freestyle answers 409 when already there).
+    // the call (a retry after a lost answer) and after a failed one (a provider may answer 409 when already there).
     // A pause counts only when paused (a failed "pausing" would free the slot of a running VM); a start may count when starting (the slot is taken either way).
     const reached = (st: string | null) => (action === "pause" ? st === "paused" : st === "running" || st === "starting")
     if (reached(await this.raw.state(found.id))) return
@@ -225,6 +169,7 @@ export class GuardedCloudDriver {
   /** Grows our VM under `name` to `size`; settles from its real resources before and after the call (a lost answer). */
   async resize(name: string, tag: VmTag, size: VmResources): Promise<void> {
     this.guard(name)
+    if (!this.raw.capabilities.resize) throw new DriverError("cloud.provider.unsupported", "resize VM: this provider cannot resize", true)
     const found = await this.raw.find(name)
     if (!found) throw new DriverError("cloud.provider.vm_missing", "resize VM: no VM under the recorded name", true)
     if (!ours(found.tag, tag)) throw new DriverError("cloud.provider.name_conflict", "the name belongs to another VM", true)
@@ -238,7 +183,7 @@ export class GuardedCloudDriver {
     }
   }
 
-  /** The real resources of our VM under `name` (the record follows them: Freestyle has no size at create). */
+  /** The real resources of our VM under `name` (the record follows them: a provider without `sizing` takes no size at create). */
   async resourcesOf(name: string, tag: VmTag): Promise<VmResources | null> {
     this.guard(name)
     const found = await this.raw.find(name)
@@ -315,181 +260,13 @@ export class GuardedCloudDriver {
 /** Where the image's bind agent reads {team, machine, bind_token} (decision for the image lane: path and mode 0600). */
 export const BIND_FILE_PATH = "/var/lib/cmux/bind.json"
 
-const REQUEST_TIMEOUT_MS = 20_000
-const CREATE_TIMEOUT_MS = 120_000
 export const LIST_PAGE = 100
-
-/** Freestyle REST (the same v5 calls TeamVmDO's driver measured). Errors carry only the step, status and provider code. */
-export class FreestyleCloudDriver implements RawCloudDriver {
-  private readonly apiKey: string
-  constructor(
-    apiKey: string,
-    private readonly baseUrl: string,
-    private readonly snapshot: string,
-    // A wrapper, never the bare global: workerd refuses fetch called as a method of another object (Illegal invocation).
-    private readonly fetchFn: typeof fetch = (input, init) => fetch(input, init)
-  ) {
-    // A pasted key with a trailing newline would make every header invalid (review P2).
-    this.apiKey = apiKey.trim()
-  }
-
-  private async call(method: string, path: string, body?: unknown, timeoutMs = REQUEST_TIMEOUT_MS): Promise<{ status: number; json: Record<string, unknown> }> {
-    try {
-      const res = await this.fetchFn(`${this.baseUrl.replace(/\/+$/, "")}${path}`, {
-        method,
-        headers: { authorization: `Bearer ${this.apiKey}`, ...(body === undefined ? {} : { "content-type": "application/json" }) },
-        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-        signal: AbortSignal.timeout(timeoutMs)
-      })
-      return { status: res.status, json: (await res.json().catch(() => ({}))) as Record<string, unknown> }
-    } catch (e) {
-      // Network failure or timeout: the outcome is unknown; the retry finds the VM by name.
-      // The reason (a runtime network message, never a header or key) goes into the error so a failure is diagnosable.
-      const reason = redactReason(e instanceof Error ? `${e.name}: ${e.message}` : "unknown", this.apiKey)
-      return { status: 0, json: { code: e instanceof Error && e.name === "TimeoutError" ? "TIMEOUT" : "UNREACHABLE", reason } }
-    }
-  }
-
-  private fail(status: number, json: Record<string, unknown>, what: string): never {
-    const final = status === 400 || status === 401 || status === 403 || status === 422
-    const code = typeof json.code === "string" ? json.code.slice(0, 40) : ""
-    const reason = status === 0 && typeof json.reason === "string" ? ` (${json.reason})` : ""
-    throw new DriverError(final ? "cloud.provider.refused" : "cloud.provider.unavailable", `${what}: ${status || "no answer"}${code ? ` ${code}` : ""}${reason}`, final)
-  }
-
-  private vm(json: Record<string, unknown>) {
-    if (typeof json.id !== "string" || json.id.length === 0) throw new DriverError("cloud.provider.refused", "answer without a VM id", true)
-    return { id: json.id, tag: (json.metadata ?? {}) as Record<string, unknown> }
-  }
-
-  async find(name: string) {
-    const got = await this.call("GET", `/v5/vms/${encodeURIComponent(name)}`)
-    if (got.status === 404) return null
-    if (got.status !== 200) this.fail(got.status, got.json, "read VM")
-    return { ...this.vm(got.json), state: typeof got.json.state === "string" ? got.json.state : null }
-  }
-
-  async create(name: string, tag: VmTag, opts: CreateOptions) {
-    const created = await this.call("POST", "/v5/vms", createBody(name, opts.snapshot ?? this.snapshot, tag, opts), CREATE_TIMEOUT_MS)
-    if (created.status >= 200 && created.status < 300) return { id: this.vm(created.json).id, tag: null }
-    // A duplicate name (409) or an unknown outcome: the VM under the name, if any, is the answer.
-    const found = await this.find(name)
-    if (found) return found
-    this.fail(created.status, created.json, "create VM")
-  }
-
-  async writeFile(id: string, path: string, content: string, mode: number) {
-    const bytes = new TextEncoder().encode(content)
-    const digest = [...new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))].map((b) => b.toString(16).padStart(2, "0")).join("")
-    const q = new URLSearchParams({ path, mode: String(mode), sha256: digest })
-    let status = 0
-    try {
-      const res = await this.fetchFn(`${this.baseUrl.replace(/\/+$/, "")}/v5/vms/${encodeURIComponent(id)}/fs/write?${q}`, {
-        method: "PUT",
-        headers: { authorization: `Bearer ${this.apiKey}`, "content-type": "application/octet-stream" },
-        body: bytes,
-        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS)
-      })
-      status = res.status
-      await res.body?.cancel()
-    } catch {
-      status = 0
-    }
-    // Never echo the body (it holds the bind token): only the step and status.
-    if (status < 200 || status >= 300) this.fail(status, {}, "write bind file")
-  }
-
-  async list(filter: string, offset: number) {
-    const q = new URLSearchParams({ metadata: filter, limit: String(LIST_PAGE), offset: String(offset) })
-    const got = await this.call("GET", `/v5/vms?${q}`)
-    if (got.status !== 200) this.fail(got.status, got.json, "list VMs")
-    const vms = (Array.isArray(got.json.vms) ? got.json.vms : []) as Array<Record<string, unknown>>
-    return {
-      vms: vms.filter((v) => typeof v.id === "string").map((v) => ({ id: v.id as string, name: typeof v.slug === "string" ? v.slug : null, tag: (v.metadata ?? {}) as Record<string, unknown> })),
-      total: typeof got.json.totalCount === "number" ? got.json.totalCount : vms.length
-    }
-  }
-
-  async replaceTlsRule(vmId: string, rule: EdgeTlsRule) {
-    const got = await this.call("GET", `/v5/tls?${new URLSearchParams({ vmId, domain: rule.domain })}`)
-    if (got.status !== 200) this.fail(got.status, got.json, "list TLS rules")
-    const id = ((Array.isArray(got.json.rules) ? got.json.rules : []) as Array<Record<string, unknown>>).find((r) => r.domain === rule.domain && typeof r.id === "string")?.id as string | undefined
-    if (!id) return false
-    // The answer may echo the request; only the step and status leave this method (the body holds the token).
-    const r = await this.call("PUT", `/v5/tls/${encodeURIComponent(id)}`, rule)
-    if (r.status >= 200 && r.status < 300) return true
-    this.fail(r.status, {}, "replace TLS rule")
-  }
-
-  execStdin = (id: string, command: string, stdin: Uint8Array | null, timeoutMs: number) => freestyleExecStdin(this.fetchFn, this.baseUrl, this.apiKey, id, command, stdin, timeoutMs)
-  async delete(id: string) {
-    const r = await this.call("DELETE", `/v5/vms/${encodeURIComponent(id)}`)
-    if (r.status === 404 || (r.status >= 200 && r.status < 300)) return
-    this.fail(r.status, r.json, "delete VM")
-  }
-
-  async pause(id: string) {
-    const r = await this.call("POST", `/v5/vms/${encodeURIComponent(id)}/pause`)
-    if (r.status >= 200 && r.status < 300) return
-    this.fail(r.status, r.json, "pause VM")
-  }
-
-  async start(id: string) {
-    const r = await this.call("POST", `/v5/vms/${encodeURIComponent(id)}/start`)
-    if (r.status >= 200 && r.status < 300) return
-    this.fail(r.status, r.json, "start VM")
-  }
-
-  async state(id: string) {
-    const r = await this.call("GET", `/v5/vms/${encodeURIComponent(id)}`)
-    if (r.status === 404) return null
-    if (r.status !== 200) this.fail(r.status, r.json, "read VM state")
-    return typeof r.json.state === "string" ? r.json.state : null
-  }
-
-  async findSnapshot(slug: string) {
-    const r = await this.call("GET", `/v5/snapshots/${encodeURIComponent(slug)}`)
-    if (r.status === 404) return null
-    if (r.status !== 200 || typeof r.json.id !== "string") this.fail(r.status, r.json, "read snapshot")
-    return { id: r.json.id as string, sourceVmId: typeof r.json.sourceVmId === "string" ? r.json.sourceVmId : null }
-  }
-
-  async createSnapshot(vmId: string, slug: string) {
-    const r = await this.call("POST", `/v5/vms/${encodeURIComponent(vmId)}/snapshot`, { slug }, CREATE_TIMEOUT_MS)
-    if (r.status >= 200 && r.status < 300 && typeof r.json.snapshotId === "string") return { id: r.json.snapshotId }
-    // A lost answer: the snapshot under the slug, if any, is the answer.
-    const found = await this.findSnapshot(slug)
-    if (found && found.sourceVmId === vmId) return { id: found.id }
-    this.fail(r.status, r.json, "create snapshot")
-  }
-
-  async deleteSnapshot(id: string) {
-    const r = await this.call("DELETE", `/v5/snapshots/${encodeURIComponent(id)}`)
-    if (r.status === 404 || (r.status >= 200 && r.status < 300)) return
-    this.fail(r.status, r.json, "delete snapshot")
-  }
-
-  async resize(id: string, size: VmResources) {
-    const r = await this.call("POST", `/v5/vms/${encodeURIComponent(id)}/resize`, { cpu: size.cpu, memory: size.memory, storage: size.storage })
-    if (r.status >= 200 && r.status < 300) return
-    this.fail(r.status, r.json, "resize VM")
-  }
-
-  async resources(id: string) {
-    const r = await this.call("GET", `/v5/vms/${encodeURIComponent(id)}`)
-    if (r.status === 404) return null
-    if (r.status !== 200) this.fail(r.status, r.json, "read VM resources")
-    const res = (r.json.resources ?? {}) as Record<string, unknown>
-    return typeof res.cpu === "number" && typeof res.memory === "number" && typeof res.storage === "number" ? { cpu: res.cpu, memory: res.memory, storage: res.storage } : null
-  }
-}
-
 
 /** The deployment's Cloud config: plan (stub outside production), name prefix (only with a usable provider) and image. */
 const directCloudConfig = (env: Env): CloudConfig => {
   const want = ENV_PREFIX[env.ENVIRONMENT]
   const prefixOk = Boolean(want) && env.CLOUD_NAME_PREFIX === want
-  const keyOk = fake(env) || Boolean(env.CLOUD_FREESTYLE_API_KEY)
+  const keyOk = fake(env) || directCloudProvider(env).keySet(env)
   const snapshot = imageOf(env)
   const imagePrefix = ENV_IMAGE_PREFIX[env.ENVIRONMENT]
   // CLOUD-DEV-SNAPSHOT: only this environment's image lane snapshot (cmuxnp-<env>-vmimg-); no fallback.
@@ -516,7 +293,7 @@ export const cloudConfig = (env: Env): CloudConfig => {
 
 const fake = (env: Env) => env.ENVIRONMENT === "test" && env.CLOUD_DRIVER === "fake"
 /** The configured snapshot; the test fake boots a named test image lane snapshot unless a test sets one. */
-const imageOf = (env: Env): string | undefined => env.CLOUD_FREESTYLE_SNAPSHOT || (fake(env) ? `${ENV_IMAGE_PREFIX.test}fake` : undefined)
+const imageOf = (env: Env): string | undefined => directCloudProvider(env).image(env) || (fake(env) ? `${ENV_IMAGE_PREFIX.test}fake` : undefined)
 
 /** A usable provider: this environment's exact prefix, a key (or the test fake) and this environment's snapshot. */
 const cloudRawDriverReady = (env: Env): boolean => directCloudConfig(env).image !== null
@@ -527,6 +304,6 @@ export const cloudProviderReady = (env: Env): boolean => cloudRawDriverReady(env
 /** The guarded driver, or null when this deployment has no usable provider. */
 export const cloudDriver = (env: Env, sql: SqlStore): GuardedCloudDriver | null => {
   if (!cloudRawDriverReady(env)) return null
-  const raw = fake(env) ? new FakeCloudDriver(sql) : new FreestyleCloudDriver(env.CLOUD_FREESTYLE_API_KEY!, env.CLOUD_FREESTYLE_API_URL || "https://api.freestyle.sh", imageOf(env)!)
+  const raw = fake(env) ? new FakeCloudDriver(sql) : directCloudProvider(env).make(env, imageOf(env)!)
   return new GuardedCloudDriver(raw, env.CLOUD_NAME_PREFIX!)
 }

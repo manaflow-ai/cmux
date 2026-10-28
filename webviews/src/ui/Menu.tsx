@@ -623,10 +623,11 @@ export interface SubmenuProps {
 /** A submenu: its item opens the nested popup at the inline end (right in LTR, left in RTL). Its popup
  * wears the parent popup's surface unless `popupClassName` names another.
  *
- * It grows toward the room its row has: down from the row's top, or, for a row nearer the bottom of
- * the menu's box (a composer's menu opened up from the window's foot), up from the row's bottom, as
- * Claude Code's and macOS's menus do (Leo 2026-10-21: "this effort should open up top instead of
- * bottom"). Base UI's collision avoidance still flips or shifts it when that side has no room. */
+ * It grows the way its menu opened: up from the row's bottom in a menu that opened up (a composer's
+ * menu at the window's foot), as Claude Code's and macOS's menus do (Leo 2026-10-21: "this effort
+ * should open up top instead of bottom"), and down from the row's top in a menu that opened down. A
+ * menu that opened sideways (a submenu's submenu) grows toward the room its row has. Base UI's
+ * collision avoidance still flips or shifts it when that side has no room. */
 export function Submenu({ label, className, popupClassName, disabled, align: requestedAlign, children }: SubmenuProps) {
   const surface = use(PopupSurface);
   const boundary = use(PopupBoundary);
@@ -654,9 +655,13 @@ export function Submenu({ label, className, popupClassName, disabled, align: req
   );
 }
 
-/// Whether a submenu row has more room above it than below it, inside the menu's box (the window
-/// when it has none).
+/// Whether a submenu row's submenu grows up: when its menu opened up, never when it opened down
+/// (a taller menu can put the row past the window's middle). Otherwise, whether the row has more
+/// room above it than below it, inside the menu's box (the window when it has none).
 function growsUp(row: Element, boundary: Element | undefined): boolean {
+  const opened = row.closest(".ui-popup")?.getAttribute("data-side");
+  if (opened === "top") return true;
+  if (opened === "bottom") return false;
   const view = row.ownerDocument.defaultView;
   const box = boundary?.getBoundingClientRect() ?? { top: 0, bottom: view?.innerHeight ?? 0 };
   const rect = row.getBoundingClientRect();
