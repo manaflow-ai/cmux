@@ -19,6 +19,10 @@ struct SidebarWorkspaceSnapshotFactory {
     /// the workspace has no host. Resolved by the caller above the row boundary
     /// and passed in as a plain value; a manual `workspace.customColor` still wins.
     var originColorHex: String? = nil
+    /// Color of the workspace's group (the group's own color, else its
+    /// `workspaceGroups.byCwd` config color), or nil when ungrouped. Resolved by the
+    /// caller over the group list; a manual `workspace.customColor` still wins.
+    var groupColorHex: String? = nil
     /// Remote host to name after the title because another workspace shares it (beta), else nil.
     /// Resolved by the caller over the whole workspace list, since it depends on the other titles.
     var hostTitleSuffix: String? = nil
@@ -31,6 +35,7 @@ struct SidebarWorkspaceSnapshotFactory {
         settings: SidebarTabItemSettingsSnapshot,
         showsAgentActivity: Bool,
         originColorHex: String? = nil,
+        groupColorHex: String? = nil,
         hostTitleSuffix: String? = nil
     ) {
         self.init(
@@ -38,6 +43,7 @@ struct SidebarWorkspaceSnapshotFactory {
             settings: settings,
             showsAgentActivity: showsAgentActivity,
             originColorHex: originColorHex,
+            groupColorHex: groupColorHex,
             hostTitleSuffix: hostTitleSuffix,
             catalog: SurfaceCatalog.shared
         )
@@ -50,6 +56,7 @@ struct SidebarWorkspaceSnapshotFactory {
         settings: SidebarTabItemSettingsSnapshot,
         showsAgentActivity: Bool,
         originColorHex: String? = nil,
+        groupColorHex: String? = nil,
         hostTitleSuffix: String? = nil,
         catalog: SurfaceCatalog
     ) {
@@ -57,6 +64,7 @@ struct SidebarWorkspaceSnapshotFactory {
         self.settings = settings
         self.showsAgentActivity = showsAgentActivity
         self.originColorHex = originColorHex
+        self.groupColorHex = groupColorHex
         self.hostTitleSuffix = hostTitleSuffix
         self.catalog = catalog
     }
@@ -166,9 +174,7 @@ struct SidebarWorkspaceSnapshotFactory {
             customDescription: settings.showsWorkspaceDescription ? visibleCustomDescription : nil,
             isPinned: workspace.isPinned,
             isMuted: workspace.isMuted,
-            // A manual workspace color always wins; the per-host origin color
-            // (nil when the flag is off) is the fallback.
-            customColorHex: workspace.customColor ?? originColorHex,
+            customColorHex: effectiveColorHex,
             hasManualCustomColor: workspace.customColor != nil,
             cloudWorkspaceLabel: cloud?.isDeviceWorkspace == true ? nil : cloud?.machineLabel,
             remoteWorkspaceSidebarText: remoteWorkspaceSidebarText,
@@ -225,33 +231,20 @@ struct SidebarWorkspaceSnapshotFactory {
 
     private var presentationKey: SidebarWorkspaceSnapshotBuilder.PresentationKey {
         Self.presentationKey(
+            workspace: workspace,
             settings: settings,
             showsAgentActivity: showsAgentActivity,
-            customColorHex: workspace.customColor ?? originColorHex,
-            hasManualCustomColor: workspace.customColor != nil,
+            groupColorHex: groupColorHex,
+            originColorHex: originColorHex,
             hostTitleSuffix: hostTitleSuffix
         )
     }
 
-    static func presentationKey(
-        settings: SidebarTabItemSettingsSnapshot,
-        showsAgentActivity: Bool,
-        customColorHex: String?,
-        hasManualCustomColor: Bool = false,
-        hostTitleSuffix: String? = nil
-    ) -> SidebarWorkspaceSnapshotBuilder.PresentationKey {
-        SidebarWorkspaceSnapshotBuilder.PresentationKey(
-            showsWorkspaceDescription: settings.showsWorkspaceDescription,
-            usesVerticalBranchLayout: settings.branchDirectory.branchLayout == .vertical,
-            showsGitBranch: settings.showsGitBranch,
-            usesViewportAwarePath: settings.usesLastSegmentPath,
-            showsAgentActivity: showsAgentActivity,
-            compactsAgentStatus: settings.compactsAgentStatus,
-            compactStatusIcons: settings.compactStatusIcons,
-            visibleAuxiliaryDetails: settings.visibleAuxiliaryDetails,
-            customColorHex: customColorHex,
-            hasManualCustomColor: hasManualCustomColor,
-            hostTitleSuffix: hostTitleSuffix
+    private var effectiveColorHex: String? {
+        Self.effectiveColorHex(
+            workspaceColorHex: workspace.customColor,
+            groupColorHex: groupColorHex,
+            originColorHex: originColorHex
         )
     }
 

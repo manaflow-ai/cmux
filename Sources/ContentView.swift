@@ -844,38 +844,6 @@ struct SidebarUnreadSnapshotObserver: View {
     }
 }
 
-private struct SidebarOriginPresentationInput: Equatable {
-    let id: UUID
-    let title: String
-    let destination: String?
-    let cloudVMID: String?
-}
-
-@MainActor
-private final class SidebarOriginPresentationCache {
-    var workspaceInputs: [UUID: SidebarOriginPresentationInput] = [:]
-    var workspaceIds: Set<UUID> = []
-    var mirrorWorkspaceIds: Set<UUID> = []
-    var mirrorDestinations: [UUID: String] = [:]
-    var mirrorDestinationsGeneration: UInt64?
-    var hasLoadedMirrorDestinations = false
-    var colorsEnabled = false
-    var hostTitlesEnabled = false
-    var hostTitleSuffixes: [UUID: String] = [:]
-
-    func reset() {
-        workspaceInputs = [:]
-        workspaceIds = []
-        mirrorWorkspaceIds = []
-        mirrorDestinations = [:]
-        mirrorDestinationsGeneration = nil
-        hasLoadedMirrorDestinations = false
-        colorsEnabled = false
-        hostTitlesEnabled = false
-        hostTitleSuffixes = [:]
-    }
-}
-
 struct ContentView: View {
     private enum CommandPaletteTaskKey: Hashable, Sendable {
         case searchIndexBuild
@@ -11307,7 +11275,7 @@ private enum SidebarFontSizeProvider {
 }
 
 @MainActor
-private final class SidebarTabItemSettingsStore: ObservableObject {
+final class SidebarTabItemSettingsStore: ObservableObject {
     @Published private(set) var snapshot: SidebarTabItemSettingsSnapshot
 
     private let defaults: UserDefaults
@@ -11468,7 +11436,7 @@ struct VerticalTabsSidebar: View, Equatable {
     @State var modifierKeyMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
     @State var pointerInteractionMonitor = SidebarPointerInteractionMonitor()
     @StateObject var dragAutoScrollController = SidebarDragAutoScrollController()
-    @StateObject private var tabItemSettingsStore = SidebarTabItemSettingsStore(
+    @StateObject var tabItemSettingsStore = SidebarTabItemSettingsStore(
         initialSidebarFontSize: GhosttyConfig.loadForCmux().sidebarFontSize
     )
     @State private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
@@ -11509,7 +11477,7 @@ struct VerticalTabsSidebar: View, Equatable {
     // receive only values and action closures. This is the ownership boundary
     // that prevents layout/realization from publishing row state (#6707).
     @State var workspaceSnapshotCache = SidebarRowSnapshotCache()
-    @State private var sidebarOriginPresentationCache = SidebarOriginPresentationCache()
+    @State var sidebarOriginPresentationCache = SidebarOriginPresentationCache()
     /// Bumped once per interactive-resize end: an apply during the drag
     /// is deferred by the AppKit controller. The bump projects one final
     /// authoritative snapshot after mouse-up so state that changed mid-drag
@@ -11527,7 +11495,7 @@ struct VerticalTabsSidebar: View, Equatable {
     // Pending keyed refresh ids are intentionally non-observed. Workspace
     // publisher bursts cross into SwiftUI once per run-loop batch instead of
     // invalidating the full parent projection once per emitting workspace.
-    @State private var workspaceSnapshotRefreshCoalescer = SidebarWorkspaceSnapshotRefreshCoalescer()
+    @State var workspaceSnapshotRefreshCoalescer = SidebarWorkspaceSnapshotRefreshCoalescer()
     @State private var extensionSidebarUpdateToken: UInt64 = 0
     // Stable, memoized merged observation publishers for the extension
     // sidebar's `.onReceive` handlers. Rebuilding them inline each body pass
@@ -11557,12 +11525,12 @@ struct VerticalTabsSidebar: View, Equatable {
     @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
     // Per-host origin colors (beta). Read here so toggling the flag re-evaluates
     // the sidebar and rebuilds each row's snapshot with the resolved color.
-    @LiveSetting(\.betaFeatures.remoteTmuxOriginColors) private var remoteTmuxOriginColorsEnabled
+    @LiveSetting(\.betaFeatures.remoteTmuxOriginColors) var remoteTmuxOriginColorsEnabled
     // Names the remote host after a workspace title another workspace shares (beta).
-    @LiveSetting(\.betaFeatures.remoteTmuxOriginHostTitles) private var remoteTmuxOriginHostTitlesEnabled
+    @LiveSetting(\.betaFeatures.remoteTmuxOriginHostTitles) var remoteTmuxOriginHostTitlesEnabled
 #if DEBUG
     @Environment(\.minimalModeInvalidationProbe) private var minimalModeInvalidationProbe
-    @Environment(\.sidebarLazyContractProbe) private var sidebarLazyContractProbe
+    @Environment(\.sidebarLazyContractProbe) var sidebarLazyContractProbe
 #endif
     @Environment(\.colorScheme) private var sidebarColorScheme
     @Environment(\.sidebarReadabilityBackdrop) private var sidebarReadabilityBackdrop
@@ -12222,6 +12190,13 @@ struct VerticalTabsSidebar: View, Equatable {
         .onChange(of: remoteTmuxOriginHostTitlesEnabled) { _, _ in
             // The host after a colliding title is part of each snapshot's presentation key too.
             refreshWorkspaceSnapshots()
+        }
+        .onChange(of: workspaceGroupColorHexes(tabs: renderContext.tabs)) { _, _ in
+            // A group color change, a byCwd config edit or a member joining or leaving changes
+            // members' effective colors without a workspace publisher firing.
+            if isPresented {
+                refreshWorkspaceSnapshots()
+            }
         }
         .onDisappear {
             workspaceSnapshotRefreshCoalescer.cancel()
@@ -13229,225 +13204,6 @@ struct VerticalTabsSidebar: View, Equatable {
 
     private func refreshExtensionSidebarSnapshot() {
         extensionSidebarUpdateToken &+= 1
-    }
-
-    private func scheduleWorkspaceSnapshotRefresh(workspaceId: UUID) {
-        workspaceSnapshotRefreshCoalescer.schedule(workspaceId: workspaceId) { [sidebarState] workspaceIds in
-            guard sidebarState.isVisible else { return }
-            refreshWorkspaceSnapshots(workspaceIds: workspaceIds)
-        }
-    }
-
-    private func refreshWorkspaceSnapshots(workspaceIds: Set<UUID>) {
-        guard !workspaceIds.isEmpty else { return }
-        let workspaceById = Dictionary(uniqueKeysWithValues: tabManager.tabs.map { ($0.id, $0) })
-        let settings = tabItemSettingsStore.snapshot
-        let showsAgentActivity = settings.details.showAgentActivity
-            && CmuxFeatureFlags.shared.isSidebarWorkspaceAgentSpinnerEnabled
-        let presentation = originPresentationValues(
-            tabs: tabManager.tabs,
-            changedWorkspaceIds: workspaceIds
-        )
-        let mirrorDestinations = presentation.mirrorDestinations
-        let hostTitleSuffixes = presentation.hostTitleSuffixes
-        // A rename can start or end a title collision, which changes the host shown on OTHER rows.
-        // Rebuild every row whose saved snapshot carries a different host than it should now.
-        let staleHostIds = tabManager.tabs.compactMap { workspace -> UUID? in
-            guard let saved = workspaceSnapshotCache.snapshotsById[workspace.id],
-                  saved.hostTitleSuffix != hostTitleSuffixes[workspace.id] else { return nil }
-            return workspace.id
-        }
-        workspaceSnapshotCache.refresh(
-            workspaceIds: workspaceIds.union(staleHostIds).union(presentation.changedMirrorWorkspaceIds)
-        ) { workspaceId in
-            guard let workspace = workspaceById[workspaceId] else { return nil }
-            return makeWorkspaceSnapshot(
-                workspace: workspace,
-                settings: settings,
-                showsAgentActivity: showsAgentActivity,
-                mirrorDestinations: mirrorDestinations,
-                hostTitleSuffixes: hostTitleSuffixes
-            )
-        }
-    }
-
-    private func refreshWorkspaceSnapshots() {
-        let tabs = tabManager.tabs
-        let workspaceById = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0) })
-        let settings = tabItemSettingsStore.snapshot
-        let showsAgentActivity = settings.details.showAgentActivity
-            && CmuxFeatureFlags.shared.isSidebarWorkspaceAgentSpinnerEnabled
-        let presentation = originPresentationValues(tabs: tabs)
-        let mirrorDestinations = presentation.mirrorDestinations
-        let hostTitleSuffixes = presentation.hostTitleSuffixes
-        // The origin color and the host after a colliding title differ per row, so each row's
-        // cached snapshot is reused only when its own key still matches.
-        workspaceSnapshotCache.reconcile(
-            workspaceIds: Set(workspaceById.keys),
-            presentationKey: { workspaceId in
-                SidebarWorkspaceSnapshotFactory.presentationKey(
-                    settings: settings,
-                    showsAgentActivity: showsAgentActivity,
-                    customColorHex: workspaceById[workspaceId].flatMap { workspace in
-                        workspace.customColor
-                            ?? originColorHex(for: workspace, mirrorDestinations: mirrorDestinations)
-                    },
-                    hasManualCustomColor: workspaceById[workspaceId]?.customColor != nil,
-                    hostTitleSuffix: hostTitleSuffixes[workspaceId]
-                )
-            }
-        ) { workspaceId in
-            guard let workspace = workspaceById[workspaceId] else { return nil }
-            return makeWorkspaceSnapshot(
-                workspace: workspace,
-                settings: settings,
-                showsAgentActivity: showsAgentActivity,
-                mirrorDestinations: mirrorDestinations,
-                hostTitleSuffixes: hostTitleSuffixes
-            )
-        }
-    }
-
-    private func makeWorkspaceSnapshot(
-        workspace: Workspace,
-        settings: SidebarTabItemSettingsSnapshot,
-        showsAgentActivity: Bool,
-        mirrorDestinations: [UUID: String]?,
-        hostTitleSuffixes: [UUID: String]
-    ) -> SidebarWorkspaceSnapshotBuilder.Snapshot {
-#if DEBUG
-        sidebarLazyContractProbe.workspaceSnapshotBuild?()
-#endif
-        return SidebarWorkspaceSnapshotFactory(
-            workspace: workspace,
-            settings: settings,
-            showsAgentActivity: showsAgentActivity,
-            originColorHex: originColorHex(for: workspace, mirrorDestinations: mirrorDestinations),
-            hostTitleSuffix: hostTitleSuffixes[workspace.id]
-        ).makeSnapshot()
-    }
-
-    /// Per-host origin color (beta), resolved here — above the row boundary — to
-    /// a plain value. Nil when the flag is off or the workspace has no host.
-    ///
-    /// Mirror workspaces carry their host only through the session mirror, so callers
-    /// pass `mirrorDestinations` and the mirrors get walked once for a whole refresh
-    /// rather than once per row. That map comes from `mirrorDestinationsForOriginPresentation()`.
-    private func originColorHex(
-        for workspace: Workspace,
-        mirrorDestinations: [UUID: String]?
-    ) -> String? {
-        guard remoteTmuxOriginColorsEnabled,
-              let destination = originDestination(for: workspace, mirrorDestinations: mirrorDestinations)
-        else { return nil }
-        return AppDelegate.shared?.remoteTmuxController.hostColorRegistry.colorHex(for: destination)
-    }
-
-    /// Hosts to name after colliding workspace titles (beta), over the whole workspace list because
-    /// whether a title collides depends on every other title. Empty while the flag is off.
-    private func hostTitleSuffixes(tabs: [Workspace], mirrorDestinations: [UUID: String]?) -> [UUID: String] {
-        guard remoteTmuxOriginHostTitlesEnabled else { return [:] }
-        return RemoteHostTitleSuffixes().suffixes(for: tabs.map { workspace in
-            RemoteHostTitleSuffixes.Entry(
-                id: workspace.id,
-                title: workspace.title,
-                destination: RemoteHostTitleSuffixes().origin(
-                    destination: originDestination(for: workspace, mirrorDestinations: mirrorDestinations),
-                    cloudVMID: workspace.cloudVMID
-                )
-            )
-        })
-    }
-
-    /// The remote destination a workspace comes from, or nil for a local workspace or a mirror whose
-    /// host has not resolved yet.
-    private func originDestination(for workspace: Workspace, mirrorDestinations: [UUID: String]?) -> String? {
-        var destination = workspace.remoteConfiguration?.destination
-        if destination == nil, workspace.isRemoteTmuxMirror {
-            destination = mirrorDestinations?[workspace.id]
-        }
-        guard let destination, !destination.isEmpty else { return nil }
-        return destination
-    }
-
-    /// Resolves the shared origin inputs once per changed batch. Mirror destinations are retained
-    /// until the mirror set or an affected mirror changes; title suffixes are recomputed only when
-    /// their `(id, title, destination, cloudVMID)` inputs differ.
-    private func originPresentationValues(
-        tabs: [Workspace],
-        changedWorkspaceIds: Set<UUID>? = nil
-    ) -> (
-        mirrorDestinations: [UUID: String]?,
-        hostTitleSuffixes: [UUID: String],
-        changedMirrorWorkspaceIds: Set<UUID>
-    ) {
-        let colorsEnabled = remoteTmuxOriginColorsEnabled
-        let hostTitlesEnabled = remoteTmuxOriginHostTitlesEnabled
-        guard colorsEnabled || hostTitlesEnabled else {
-            sidebarOriginPresentationCache.reset()
-            return (nil, [:], [])
-        }
-
-        let mirrorWorkspaceIds = Set(tabs.filter(\.isRemoteTmuxMirror).map(\.id))
-        let mirrorController = AppDelegate.shared?.remoteTmuxController
-        let mirrorDestinationsGeneration = mirrorController?.hostDestinationsGeneration ?? 0
-        let flagsChanged = sidebarOriginPresentationCache.colorsEnabled != colorsEnabled
-            || sidebarOriginPresentationCache.hostTitlesEnabled != hostTitlesEnabled
-        let mirrorSetChanged = sidebarOriginPresentationCache.mirrorWorkspaceIds != mirrorWorkspaceIds
-        let affectedMirrorChanged = changedWorkspaceIds?.contains { mirrorWorkspaceIds.contains($0) } == true
-        let mirrorDestinationsGenerationChanged =
-            sidebarOriginPresentationCache.mirrorDestinationsGeneration != mirrorDestinationsGeneration
-        let shouldReloadMirrorDestinations = !sidebarOriginPresentationCache.hasLoadedMirrorDestinations
-            || flagsChanged
-            || mirrorSetChanged
-            || affectedMirrorChanged
-            || mirrorDestinationsGenerationChanged
-        let previousMirrorDestinations = sidebarOriginPresentationCache.mirrorDestinations
-        if shouldReloadMirrorDestinations {
-            sidebarOriginPresentationCache.mirrorDestinations =
-                mirrorController?.hostDestinationsByWorkspaceId() ?? [:]
-            sidebarOriginPresentationCache.mirrorDestinationsGeneration = mirrorDestinationsGeneration
-            sidebarOriginPresentationCache.hasLoadedMirrorDestinations = true
-        }
-
-        let mirrorDestinations = sidebarOriginPresentationCache.mirrorDestinations
-        let changedMirrorWorkspaceIds = Set(
-            Set(previousMirrorDestinations.keys)
-                .union(mirrorDestinations.keys)
-                .filter { previousMirrorDestinations[$0] != mirrorDestinations[$0] }
-        )
-        let inputs = Dictionary(uniqueKeysWithValues: tabs.map { workspace in
-            let destination = originDestination(for: workspace, mirrorDestinations: mirrorDestinations)
-            return (
-                workspace.id,
-                SidebarOriginPresentationInput(
-                    id: workspace.id,
-                    title: workspace.title,
-                    destination: destination,
-                    cloudVMID: workspace.cloudVMID
-                )
-            )
-        })
-        if hostTitlesEnabled {
-            if flagsChanged || sidebarOriginPresentationCache.workspaceInputs != inputs {
-                sidebarOriginPresentationCache.hostTitleSuffixes = hostTitleSuffixes(
-                    tabs: tabs,
-                    mirrorDestinations: mirrorDestinations
-                )
-            }
-        } else {
-            sidebarOriginPresentationCache.hostTitleSuffixes = [:]
-        }
-        sidebarOriginPresentationCache.workspaceInputs = inputs
-        sidebarOriginPresentationCache.workspaceIds = Set(inputs.keys)
-        sidebarOriginPresentationCache.mirrorWorkspaceIds = mirrorWorkspaceIds
-        sidebarOriginPresentationCache.colorsEnabled = colorsEnabled
-        sidebarOriginPresentationCache.hostTitlesEnabled = hostTitlesEnabled
-        return (
-            colorsEnabled || hostTitlesEnabled ? mirrorDestinations : nil,
-            hostTitlesEnabled ? sidebarOriginPresentationCache.hostTitleSuffixes : [:],
-            changedMirrorWorkspaceIds
-        )
     }
 
     private func clearExtensionSidebarObservationPublishers() {

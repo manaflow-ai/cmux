@@ -15,6 +15,9 @@ struct SidebarGroupHeaderRowModel: Equatable, Hashable {
     let name: String
     let iconSymbol: String
     let tintHex: String?
+    /// Whether the group has its own color, so Clear Color applies. False when
+    /// `tintHex` comes only from a `workspaceGroups.byCwd` config color.
+    var hasCustomColor = false
     let isCollapsed: Bool
     let isPinned: Bool
     let isAnchorActive: Bool
@@ -67,6 +70,9 @@ struct SidebarGroupHeaderRowActions {
     let onRunResolvedItem: (CmuxResolvedConfigMenuAction) -> Void
     let onRename: () -> Void
     let onTogglePinned: () -> Void
+    /// Sets the group color; nil clears it.
+    let onSetColor: (String?) -> Void
+    let onChooseCustomColor: () -> Void
     let onMarkRead: () -> Void
     let onMarkUnread: () -> Void
     let onClearLatestNotifications: () -> Void

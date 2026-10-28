@@ -545,20 +545,9 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
     // MARK: Menus
 
     private func menuItem(_ title: String, enabled: Bool = true, action: @escaping () -> Void) -> NSMenuItem {
-        let item = NSMenuItem(title: title, action: #selector(runMenuItem(_:)), keyEquivalent: "")
-        item.target = self
+        let item = SidebarRowMenuActionItem(title: title, run: action)
         item.isEnabled = enabled
-        item.representedObject = MenuAction(run: action)
         return item
-    }
-
-    @objc private func runMenuItem(_ sender: NSMenuItem) {
-        (sender.representedObject as? MenuAction)?.run()
-    }
-
-    private final class MenuAction: NSObject {
-        let run: () -> Void
-        init(run: @escaping () -> Void) { self.run = run }
     }
 
     private func trackedMenu() -> NSMenu {
@@ -642,6 +631,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
                 : String(localized: "workspaceGroup.contextMenu.pin", defaultValue: "Pin Group"),
             action: actions.onTogglePinned
         ))
+        menu.addItem(SidebarGroupHeaderColorMenu(model: model, actions: actions).makeItem())
         menu.addItem(.separator())
         menu.addItem(menuItem(
             String(localized: "workspaceGroup.contextMenu.markRead", defaultValue: "Mark Group as Read"),

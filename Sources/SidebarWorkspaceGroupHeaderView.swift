@@ -16,6 +16,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
             lhs.name == rhs.name &&
             lhs.iconSymbol == rhs.iconSymbol &&
             lhs.tintHex == rhs.tintHex &&
+            lhs.hasCustomColor == rhs.hasCustomColor &&
             lhs.isCollapsed == rhs.isCollapsed &&
             lhs.isPinned == rhs.isPinned &&
             lhs.isAnchorActive == rhs.isAnchorActive &&
@@ -53,6 +54,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     let name: String
     let iconSymbol: String
     let tintHex: String?
+    let hasCustomColor: Bool
     let isCollapsed: Bool
     let isPinned: Bool
     let isAnchorActive: Bool
@@ -379,6 +381,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                     ),
                 action: actions.onTogglePinned
             )
+            SidebarWorkspaceGroupColorMenu(tintHex: tintHex, hasCustomColor: hasCustomColor, actions: actions)
             Divider()
             Button(
                 String(
