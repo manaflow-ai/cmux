@@ -1,6 +1,7 @@
 import CmuxCloud
 import AppKit
 import Bonsplit
+import Combine
 import CMUXAgentLaunch
 import CmuxAppKitSupportUI
 import CmuxFoundation
@@ -100,6 +101,7 @@ struct RightSidebarPanelView: View {
     @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
     @AppStorage(RightSidebarBetaFeatureSettings.feedEnabledKey)
     private var feedEnabled = RightSidebarBetaFeatureSettings.defaultFeedEnabled
+    @LiveSetting(\.betaFeatures.customSidebars) private var customSidebarsEnabled
     @LiveSetting(\.customSidebars.renderer) private var customSidebarRenderer
     /// The right rail's OWN worker client. Never share the left sidebar's:
     /// the remote host swaps files in place on one client, so a shared client
@@ -115,6 +117,7 @@ struct RightSidebarPanelView: View {
 
     private var featureAvailableModes: [RightSidebarMode] {
         _ = managedPolicyRevision
+        _ = customSidebarsEnabled
         return RightSidebarMode.availableModes(
             feedEnabled: feedEnabled,
             machinesEnabled: CloudMachinesFeature.isAvailable
@@ -207,12 +210,16 @@ struct RightSidebarPanelView: View {
             if visible { hasMountedRightSidebarContent = true }
             else { fileExplorerState.cloudTeamPickerPresentation.isPresented = false }
         }
+        .onChange(of: customSidebarsEnabled) { _, _ in
+            refreshModeAvailabilityAndFocusIfNeeded()
+        }
         .onChange(of: feedEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
         .onReceive(NotificationCenter.default.publisher(for: RightSidebarTabPreferences.didChangeNotification)) { _ in
             refreshModeAvailabilityAndFocusIfNeeded()
         }
-        .onReceive(NotificationCenter.default.publisher(for: ManagedDevicePolicy.didChangeNotification)
-            .merge(with: NotificationCenter.default.publisher(for: .cmuxFeatureFlagsDidChange))) { _ in
+        .onReceive(Publishers.MergeMany(RightSidebarMode.availabilityChangeNotifications.map {
+            NotificationCenter.default.publisher(for: $0)
+        })) { _ in
             managedPolicyRevision &+= 1
             refreshModeAvailabilityAndFocusIfNeeded()
         }

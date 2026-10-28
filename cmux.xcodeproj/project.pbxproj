@@ -3271,6 +3271,7 @@
 		AA1B2C3D4E5F60720 /* RightSidebarChromeHeightUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1B2C3D4E5F60721 /* RightSidebarChromeHeightUITests.swift */; };
 		B7F9A604B7F9A604B7F9A604 /* RightSidebarChromeStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7F9A605B7F9A605B7F9A605 /* RightSidebarChromeStyle.swift */; };
 		C3408A000000000000000003 /* RightSidebarCommandPaletteTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3408A000000000000000004 /* RightSidebarCommandPaletteTests.swift */; };
+		0202220D09D0E6419AD50D94 /* RightSidebarCustomTabTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC2C696615D476CFDFA267AD /* RightSidebarCustomTabTests.swift */; };
 		B37A00000000000000000003 /* RightSidebarMode+Availability.swift in Sources */ = {isa = PBXBuildFile; fileRef = B37A00000000000000000004 /* RightSidebarMode+Availability.swift */; };
 		6E78170519FB498D386528A2 /* RightSidebarMode+ProductFeature.swift in Sources */ = {isa = PBXBuildFile; fileRef = 899EDFB4688088904AEC67B4 /* RightSidebarMode+ProductFeature.swift */; };
 		87272A2D0FCDDA4D798961D8 /* RightSidebarMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 272B367E39A68B0DCDE9E182 /* RightSidebarMode.swift */; };
@@ -7933,6 +7934,7 @@
 		AA1B2C3D4E5F60721 /* RightSidebarChromeHeightUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarChromeHeightUITests.swift; sourceTree = "<group>"; };
 		B7F9A605B7F9A605B7F9A605 /* RightSidebarChromeStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarChromeStyle.swift; sourceTree = "<group>"; };
 		C3408A000000000000000004 /* RightSidebarCommandPaletteTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarCommandPaletteTests.swift; sourceTree = "<group>"; };
+		AC2C696615D476CFDFA267AD /* RightSidebarCustomTabTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RightSidebarCustomTabTests.swift"; sourceTree = "<group>"; };
 		B37A00000000000000000004 /* RightSidebarMode+Availability.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RightSidebarMode+Availability.swift"; sourceTree = "<group>"; };
 		899EDFB4688088904AEC67B4 /* RightSidebarMode+ProductFeature.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RightSidebarMode+ProductFeature.swift"; sourceTree = "<group>"; };
 		272B367E39A68B0DCDE9E182 /* RightSidebarMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RightSidebarMode.swift"; sourceTree = "<group>"; };
@@ -14281,6 +14283,7 @@
 				FBFA082D961AFAB3FFBFF6CC /* RawOSCMachinePayloadTests.swift */,
 				E5E915CF2237052FDE02EE05 /* WorkspaceTitleRecoveryTests.swift */,
 				AD2084D340B702301EBB1356 /* SurfaceSocketCommandTests+NewDisplay.swift */,
+				AC2C696615D476CFDFA267AD /* RightSidebarCustomTabTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -19291,6 +19294,7 @@
 				BB8CB1EFD62C8CAE14293195 /* RestoredStartupInputOwnershipTests.swift in Sources */,
 				9200B0019200B0019200B001 /* ResumeLauncherCwdConsistencyTests.swift in Sources */,
 				C3408A000000000000000003 /* RightSidebarCommandPaletteTests.swift in Sources */,
+				0202220D09D0E6419AD50D94 /* RightSidebarCustomTabTests.swift in Sources */,
 				302334DCE6B277B59D309A6E /* RightSidebarModeBarTabWidthsTests.swift in Sources */,
 				C57570010000000000000002 /* RightSidebarPanelViewTestSupport.swift in Sources */,
 				5F5553CB5553CB5553CB0001 /* RightSidebarRemoteCommandTests.swift in Sources */,

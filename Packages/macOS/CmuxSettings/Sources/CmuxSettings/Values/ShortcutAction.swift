@@ -56,6 +56,8 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case switchRightSidebarToFeed
     case switchRightSidebarToDock
     case switchRightSidebarToMachines
+    /// Shows the configured custom right sidebar.
+    case switchRightSidebarToCustom
     case triggerFlash
 
     // MARK: Navigation
@@ -321,7 +323,7 @@ extension ShortcutAction {
         switch self {
         case .switchRightSidebarToFiles, .switchRightSidebarToFind,
              .switchRightSidebarToSessions, .switchRightSidebarToFeed, .switchRightSidebarToDock,
-             .switchRightSidebarToMachines:
+             .switchRightSidebarToMachines, .switchRightSidebarToCustom:
             return .atom(.sidebarFocus)
         case .fileExplorerOpenSelection, .fileExplorerOpenSelectionFinderAlias:
             return .atom(.sidebarFocus)

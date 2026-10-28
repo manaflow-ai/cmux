@@ -628,13 +628,14 @@ final class HostSettingsActions: SettingsHostActions {
             let (signals, signalContinuation) = AsyncStream<Void>.makeStream(
                 bufferingPolicy: .bufferingNewest(1)
             )
-            // Shortcut rebinds change the displayed digit labels, so both
-            // notifications refresh the card. Tab-preference mutations post
-            // both; the newest-1 buffer coalesces the pair into one refresh.
-            let observers = [
+            // Shortcut rebinds and shared defaults change the displayed mode
+            // list or digit labels. Tab-preference mutations post the shortcut
+            // notification too; the newest-1 buffer coalesces the refreshes.
+            let observers = (RightSidebarMode.availabilityChangeNotifications + [
                 RightSidebarTabPreferences.didChangeNotification,
                 KeyboardShortcutSettings.didChangeNotification,
-            ].map { name in
+                UserDefaults.didChangeNotification,
+            ]).map { name in
                 MobileHostStatusObserverToken(
                     NotificationCenter.default.addObserver(
                         forName: name,

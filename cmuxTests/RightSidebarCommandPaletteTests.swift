@@ -93,6 +93,8 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
             // Cloud Machines defaults on in dev builds (d6584c07e0); pin the toggle off so
             // the default-mode contract below is the same on every build.
             defaults.set(false, forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
+            defaults.set(false, forKey: "customSidebars.beta.enabled")
+            defaults.removeObject(forKey: "rightSidebar.customSidebarName")
             let contributions = ContentView.commandPaletteRightSidebarModeCommandContributions()
             let contributionsByID = Dictionary(uniqueKeysWithValues: contributions.map { ($0.commandId, $0) })
             let context = CommandPaletteContextSnapshot()
@@ -133,6 +135,8 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
             let defaults = UserDefaults.standard
             defaults.set(true, forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
             defaults.set(true, forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
+            defaults.set(true, forKey: "customSidebars.beta.enabled")
+            defaults.set("status-board", forKey: "rightSidebar.customSidebarName")
 
             for mode in RightSidebarMode.allCases {
                 XCTAssertEqual(
@@ -287,10 +291,14 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
         let previousFeed = defaults.object(forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
         let previousLegacyDockBeta = defaults.object(forKey: "rightSidebar.beta.dock.enabled")
         let previousCloudMachines = defaults.object(forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
+        let previousCustomSidebars = defaults.object(forKey: "customSidebars.beta.enabled")
+        let previousCustomSidebarName = defaults.object(forKey: "rightSidebar.customSidebarName")
         defer {
             restore(previousFeed, forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
             restore(previousLegacyDockBeta, forKey: "rightSidebar.beta.dock.enabled")
             restore(previousCloudMachines, forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
+            restore(previousCustomSidebars, forKey: "customSidebars.beta.enabled")
+            restore(previousCustomSidebarName, forKey: "rightSidebar.customSidebarName")
         }
         try body()
     }

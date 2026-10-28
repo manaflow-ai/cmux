@@ -43,7 +43,7 @@ enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
         case .feed: return .switchRightSidebarToFeed
         case .dock: return .switchRightSidebarToDock
         case .machines: return .switchRightSidebarToMachines
-        case .customSidebar: return nil
+        case .customSidebar: return .switchRightSidebarToCustom
         }
     }
 }

@@ -107,6 +107,8 @@ extension ShortcutAction {
         case .switchRightSidebarToFeed: return ShortcutStroke(key: "4", control: true)
         case .switchRightSidebarToDock: return ShortcutStroke(key: "5", control: true)
         case .switchRightSidebarToMachines: return ShortcutStroke(key: "6", control: true)
+        // The host resolver supplies the visible position only when Custom is configured.
+        case .switchRightSidebarToCustom: return nil
         case .triggerFlash: return ShortcutStroke(key: "h", command: true, shift: true)
         case .nextSidebarTab: return ShortcutStroke(key: "]", command: true, control: true)
         case .prevSidebarTab: return ShortcutStroke(key: "[", command: true, control: true)

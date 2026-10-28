@@ -15554,8 +15554,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         if !canvasSurfaceDigitShortcutIsActive,
            let mode = rightSidebarModeShortcut(for: event),
-           let rightSidebarWindow = mainWindowForShortcutEvent(event) ?? event.window ?? shortcutRoutingActiveWindow,
-           shouldRouteRightSidebarModeShortcut(in: rightSidebarWindow) {
+           let rightSidebarWindow = mainWindowForShortcutEvent(event) ?? event.window ?? shortcutRoutingActiveWindow {
             _ = focusRightSidebarInActiveMainWindow(
                 mode: mode,
                 focusFirstItem: true,
@@ -18031,7 +18030,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
            shortcutResponderHasMarkedText(shortcutWindow?.firstResponder) {
             return nil
         }
-        return KeyboardShortcutSettingsObserver.shared.rightSidebarModeShortcutMatcher.modeShortcut(for: event) { [self] action in
+        // The effective when clause owns focus gating, including configured
+        // broader scopes. The shared matcher also completes an armed chord.
+        return KeyboardShortcutSettingsObserver.shared.rightSidebarModeShortcutMatcher.modeShortcut(
+            for: event,
+            activeChordPrefix: activeConfiguredShortcutChordPrefixForCurrentEvent
+        ) { [self] action in
             shortcutWhenClauseAllows(action: action, event: event)
         }
     }
@@ -20267,8 +20271,7 @@ private extension NSWindow {
             return false
         }
         if cmuxRouteUndoRedoCommandEquivalentAwayFromAppKit(event, terminalView: firstResponderGhosttyView, webView: firstResponderWebView, webKitKeyDownReentry: browserWebKitKeyDownReentry) { return true }
-        if let mode = AppDelegate.shared?.rightSidebarModeShortcut(for: event),
-           AppDelegate.shared?.shouldRouteRightSidebarModeShortcut(in: self) == true {
+        if let mode = AppDelegate.shared?.rightSidebarModeShortcut(for: event) {
             _ = AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
                 mode: mode,
                 focusFirstItem: true,
