@@ -2,6 +2,7 @@
    lines, so its height never changes as it runs. */
 .acpmux-workflow-card {
   --acpmux-workflow-bar-height: 4px;
+  --acpmux-workflow-detail-height: 18px;
   /* Its own height wherever it sits (a flex column would stretch it). */
   flex: none;
   align-self: flex-start;
@@ -60,6 +61,7 @@
 .acpmux-workflow-card__latest,
 .acpmux-workflow-card__focus {
   min-width: 0;
+  height: var(--acpmux-workflow-detail-height);
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;

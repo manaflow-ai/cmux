@@ -154,12 +154,10 @@ export function WorkflowCard({
           >
             <span style={{ transform: `scaleX(${progress})` }} />
           </span>
-          {focusAgent && (
-            <span className="acpmux-workflow-card__focus">
-              {focusAgent.model && <span>{focusAgent.model}</span>}
-              {focusElapsed !== undefined && <span>{formatDuration(focusElapsed)}</span>}
-            </span>
-          )}
+          <span className="acpmux-workflow-card__focus">
+            {focusAgent?.model && <span>{focusAgent.model}</span>}
+            {focusElapsed !== undefined && <span>{formatDuration(focusElapsed)}</span>}
+          </span>
         </>
       )}
     </button>
