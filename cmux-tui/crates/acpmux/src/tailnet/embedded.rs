@@ -5,6 +5,12 @@
 //! and the daemon's `Arc<Hub>`, so ticket minting and redemption remain in one
 //! acpmux pairing store.
 
+#[cfg(unix)]
+use std::ffi::CString;
+#[cfg(unix)]
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+#[cfg(unix)]
+use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
 #[cfg(test)]
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -1115,9 +1121,65 @@ fn clear_opt_in(path: &Path) -> Result<(), String> {
     }
 }
 
+// The pinned libtailscale uses tsnet's default FileStore at this exact path:
+// tailscale v1.104.1, tsnet/tsnet.go. No custom store is configured by Node.
+// Call only with both lifecycle gates held, after live nodes have closed.
+#[cfg(unix)]
+fn clear_saved_login(state_dir: &Path) -> Result<(), String> {
+    let directory = match std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
+        .open(state_dir)
+    {
+        Ok(directory) => directory,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(format!("open private tailnet state directory: {error}")),
+    };
+    let metadata = directory
+        .metadata()
+        .map_err(|error| format!("stat private tailnet state directory: {error}"))?;
+    let uid = unsafe { libc::getuid() };
+    if !metadata.is_dir() || metadata.uid() != uid || metadata.mode() & 0o777 != 0o700 {
+        return Err("tailnet state directory is not a private directory owned by this user".into());
+    }
+    let name = CString::new("tailscaled.state").expect("static filename has no NUL");
+    let result = unsafe { libc::unlinkat(directory.as_raw_fd(), name.as_ptr(), 0) };
+    if result == 0 {
+        return Ok(());
+    }
+    let error = std::io::Error::last_os_error();
+    if error.kind() == std::io::ErrorKind::NotFound {
+        Ok(())
+    } else {
+        Err(format!("remove saved tailnet login: {error}"))
+    }
+}
+
+#[cfg(not(unix))]
+fn clear_saved_login(state_dir: &Path) -> Result<(), String> {
+    crate::config::private_state_dir(state_dir).map_err(|error| error.to_string())?;
+    remove_if_present(&state_dir.join("tailscaled.state"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn clear_saved_login_rejects_a_symlinked_state_directory() {
+        use std::os::unix::fs::symlink;
+
+        let temporary = tempfile::tempdir().unwrap();
+        let target = tempfile::tempdir().unwrap();
+        std::fs::write(target.path().join("tailscaled.state"), b"keep me").unwrap();
+        let state_dir = temporary.path().join("tailnet");
+        symlink(target.path(), &state_dir).unwrap();
+
+        let error = clear_saved_login(&state_dir).unwrap_err();
+        assert!(error.contains("private tailnet state directory"), "{error}");
+        assert_eq!(std::fs::read(target.path().join("tailscaled.state")).unwrap(), b"keep me");
+    }
 
     #[test]
     fn intentional_logout_close_is_not_reported_as_listener_failure() {
@@ -1253,6 +1315,12 @@ mod tests {
     #[tokio::test]
     async fn tailnet_logout_clears_opt_in_before_any_later_resume() {
         let temporary = tempfile::tempdir().unwrap();
+        #[cfg(unix)]
+        std::fs::set_permissions(
+            temporary.path(),
+            std::os::unix::fs::PermissionsExt::from_mode(0o700),
+        )
+        .unwrap();
         let marker = temporary.path().join("enabled");
         std::fs::write(&marker, b"1\n").unwrap();
         let controller = Controller::new(temporary.path(), "test");
@@ -1267,6 +1335,12 @@ mod tests {
     #[tokio::test]
     async fn tailnet_resume_rechecks_opt_in_after_waiting_for_lifecycle() {
         let temporary = tempfile::tempdir().unwrap();
+        #[cfg(unix)]
+        std::fs::set_permissions(
+            temporary.path(),
+            std::os::unix::fs::PermissionsExt::from_mode(0o700),
+        )
+        .unwrap();
         let marker = temporary.path().join("enabled");
         std::fs::write(&marker, b"1\n").unwrap();
         let controller = Controller::new(temporary.path(), "test");
