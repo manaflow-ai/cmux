@@ -850,6 +850,13 @@ impl Hub {
 
     /// [`Self::remote_sessions`] of the rows `keep` takes, cloning no other.
     fn remote_rows(&self, keep: impl Fn(&Value) -> bool) -> Vec<Value> {
+        let mut rows = Vec::new();
+        self.visit_remote_rows(keep, |row| rows.push(row));
+        rows
+    }
+
+    /// The visitor runs under the remote-row lock: it must not call back into the hub.
+    fn visit_remote_rows(&self, keep: impl Fn(&Value) -> bool, mut visit: impl FnMut(Value)) {
         let states: HashMap<String, &'static str> = self
             .peers
             .lock()
@@ -858,17 +865,23 @@ impl Hub {
             .map(|p| (p.name.clone(), p.state().as_str()))
             .collect();
         let map = self.remote_sessions.lock().unwrap_or_else(|e| e.into_inner());
-        map.values()
-            .filter(|r| keep(&r.summary))
-            .map(|r| {
-                let mut summary = r.summary.clone();
-                summary["stale"] = Value::Bool(summary["stale"] == true);
-                if let Some(state) = states.get(&r.peer) {
-                    summary["peerState"] = Value::String((*state).to_owned());
-                }
-                summary
-            })
-            .collect()
+        for r in map.values().filter(|r| keep(&r.summary)) {
+            let mut summary = r.summary.clone();
+            summary["stale"] = Value::Bool(summary["stale"] == true);
+            if let Some(state) = states.get(&r.peer) {
+                summary["peerState"] = Value::String((*state).to_owned());
+            }
+            visit(summary);
+        }
+    }
+
+    /// Each summary once, local before remote, without retaining the JSON trees.
+    /// The visitor must not call back into the hub (remote rows hold their lock).
+    pub(super) fn visit_session_summaries(&self, mut visit: impl FnMut(Value)) {
+        for session in self.sessions() {
+            visit(self.session_summary(&session));
+        }
+        self.visit_remote_rows(|_| true, visit);
     }
 
     /// Every session, local and remote, newest first.
@@ -980,6 +993,10 @@ mod tests {
         }
         let ids: Vec<String> = ["x", "y", "solo", "none", "x"].map(str::to_owned).to_vec();
         let all = hub.all_session_summaries();
+        let mut streamed = Vec::new();
+        hub.visit_session_summaries(|row| streamed.push(row));
+        super::super::session_pages::sort_session_summaries(&mut streamed);
+        assert_eq!(streamed, all, "local and normalized remote summaries agree");
         let some = hub.session_summaries_of(&ids);
         for id in &ids {
             let first = all.iter().find(|s| s["sessionId"] == id.as_str());

@@ -101,37 +101,22 @@ impl Snapshot {
         Self { key, serial, started, window, whole, spans, keys, made }
     }
 
-    /// Serializes every summary, then copies what it keeps once the summaries are freed:
-    /// allocated after them, it sits where they were, so the heap gives their room back
-    /// (glibc returns heap only from its top).
+    /// Keep only serialized bytes and paging keys as summaries are produced. A full
+    /// JSON tree of every row amplifies the list's peak heap, even when it is freed
+    /// immediately after serialization.
     fn build(hub: &Hub) -> Built {
-        let (whole, spans, keys) = Self::serialize(&hub.all_session_summaries());
-        (whole.as_str().to_owned(), spans.to_vec(), keys.clone())
+        let mut rows = Rows::default();
+        hub.visit_session_summaries(|row| rows.push(&row));
+        rows.finish()
     }
 
-    fn serialize(rows: &[Value]) -> Built {
-        let mut whole = br#"{"sessions":["#.to_vec();
-        let (mut spans, mut keys) =
-            (Vec::with_capacity(rows.len()), Vec::with_capacity(rows.len()));
-        for (at, row) in rows.iter().enumerate() {
-            if at > 0 {
-                whole.push(b',');
-            }
-            let start = whole.len();
-            // A `Value` always serializes.
-            let _ = serde_json::to_writer(&mut whole, row);
-            spans.push(start..whole.len());
-            let mut key = json!({"at": at});
-            for name in ["sessionId", "updatedAt", "peer", "status"] {
-                if let Some(v) = row.get(name) {
-                    key[name] = v.clone();
-                }
-            }
-            keys.push(key);
+    #[cfg(test)]
+    fn serialize(summaries: &[Value]) -> Built {
+        let mut rows = Rows::default();
+        for row in summaries {
+            rows.push(row);
         }
-        whole.extend_from_slice(b"]}");
-        // serde_json writes UTF-8.
-        (String::from_utf8(whole).unwrap_or_default(), spans, keys)
+        rows.finish()
     }
 
     /// The reply to a paged or filtered `params`, cut from the shared text: the bytes
@@ -173,6 +158,55 @@ impl Snapshot {
     ) -> Arc<String> {
         let mut made = self.made.lock().unwrap_or_else(|e| e.into_inner());
         made.entry(name).or_insert_with(|| Arc::new(make(self))).clone()
+    }
+}
+
+/// A byte arena and small keys, rather than all the summaries' nested allocations.
+/// Sort only captured keys: reading live timestamps in a comparator is not a total order.
+#[derive(Default)]
+struct Rows {
+    text: Vec<u8>,
+    spans: Vec<Range<usize>>,
+    keys: Vec<Value>,
+}
+
+impl Rows {
+    fn push(&mut self, row: &Value) {
+        let start = self.text.len();
+        // A Value always serializes, and Vec's writer cannot fail.
+        serde_json::to_writer(&mut self.text, row).expect("serialize session summary");
+        self.spans.push(start..self.text.len());
+        let mut key = json!({"at": self.keys.len()});
+        for name in ["sessionId", "updatedAt", "peer", "status"] {
+            if let Some(value) = row.get(name) {
+                key[name] = value.clone();
+            }
+        }
+        self.keys.push(key);
+    }
+
+    fn finish(mut self) -> Built {
+        // Stable ties keep the original local-before-remote order, including duplicate IDs.
+        super::session_pages::sort_session_summaries(&mut self.keys);
+        let prefix = br#"{"sessions":["#;
+        let mut whole = Vec::with_capacity(
+            prefix.len() + self.text.len() + self.keys.len().saturating_sub(1) + 2,
+        );
+        whole.extend_from_slice(prefix);
+        let mut spans = Vec::with_capacity(self.spans.len());
+        for (at, key) in self.keys.iter_mut().enumerate() {
+            if at > 0 {
+                whole.push(b',');
+            }
+            let source = key["at"].as_u64().expect("row index") as usize;
+            let start = whole.len();
+            whole.extend_from_slice(&self.text[self.spans[source].clone()]);
+            spans.push(start..whole.len());
+            key["at"] = json!(at);
+        }
+        whole.extend_from_slice(b"]}");
+        // serde_json writes UTF-8, and rows are copied only at their boundaries.
+        (String::from_utf8(whole).expect("JSON is UTF-8"), spans, self.keys)
     }
 }
 
@@ -333,6 +367,35 @@ mod tests {
             );
         }
         assert!(list.page(&json!({"cursor": 3})).is_err());
+    }
+
+    #[test]
+    fn streamed_rows_preserve_all_fields_and_stable_ties() {
+        let mut rows = vec![
+            json!({"sessionId": "z", "updatedAt": 1, "status": "closed", "tools": [{"id": "tool", "description": "雪\n\""}]}),
+            json!({"sessionId": "same", "updatedAt": 9, "origin": "local"}),
+            json!({"sessionId": "same", "updatedAt": 9, "peer": "remote", "origin": "remote"}),
+            json!({"sessionId": "a", "updatedAt": 9, "unknown": {"array": [null, false, 42]}}),
+            json!({"sessionId": null, "updatedAt": "invalid", "status": "closed"}),
+            json!({"updatedAt": -1, "opaque": "preserved"}),
+        ];
+        let built = Snapshot::serialize(&rows);
+        super::super::session_pages::sort_session_summaries(&mut rows);
+        assert_eq!(built.0, json!({"sessions": rows}).to_string());
+        let list = Snapshot::new((false, 0, 0, Vec::new()), 0, Duration::ZERO, built);
+        assert_eq!(list.values(), rows);
+        for params in
+            [json!({}), json!({"limit": 2}), json!({"status": "closed"}), json!({"peer": "remote"})]
+        {
+            assert_eq!(
+                list.page(&params).unwrap(),
+                super::super::session_pages::session_list_reply(rows.clone(), &params)
+                    .unwrap()
+                    .to_string()
+            );
+        }
+        assert_eq!(rows[1]["origin"], "local");
+        assert_eq!(rows[2]["origin"], "remote");
     }
 
     #[test]
