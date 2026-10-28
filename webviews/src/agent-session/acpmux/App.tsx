@@ -5884,6 +5884,7 @@ function AcpmuxPane() {
   };
   const [registry, setRegistry] = useState<NativeRegistry>(defaultRegistry);
   const [newTab, setNewTab] = useState<NewTabHost | undefined>(injectedNewTabContext);
+  const newTabStartGeneration = useRef(0);
   const [sessionSelection, setSessionSelection] = useState<
     { sessionId: string; state: "pending" | "failed" } | undefined
   >();
@@ -5896,6 +5897,7 @@ function AcpmuxPane() {
   // (the host names a folder below home, AgentPaneStartFolders), so Cmd-T on a spare names the tab's
   // project on its first frame instead of "Choose folder".
   const adoptNewTab = useCallback((host: NewTabHost) => {
+    newTabStartGeneration.current += 1;
     setNewTab(host);
     const cwd = host.cwd;
     const named = cwd && !isAgentHome(cwd) && !/^\/(?:(?:Users|home)(?:\/[^/]+)?)?\/?$/.test(cwd) ? cwd : undefined;
@@ -5913,6 +5915,7 @@ function AcpmuxPane() {
   const earlyNewTab = useEarlyNewTabContext(callNative, setNewTab, markContextKnown);
   // Agent chats live in the window's one sidebar (Projects and Recents); the pane opens what it picks.
   const selectSession = useCallback((sessionId: string) => {
+    newTabStartGeneration.current += 1;
     const token = ++sessionSelectionToken.current;
     setSessionSelection({ sessionId, state: "pending" });
     void callNative("chat.select", { sessionId }).then(
@@ -7589,6 +7592,7 @@ function AcpmuxPane() {
             for (const id of ids) if (id) client.prefetch(String(id));
           },
           "chat.select": async ({ sessionId }) => {
+            newTabStartGeneration.current += 1;
             harnessSwitch.cancel();
             const selected = await client.select(String(sessionId));
             if (!selected || client.attachedSession() !== selected) return undefined;
@@ -8544,9 +8548,12 @@ function AcpmuxPane() {
   }, []);
   /// The classic page's chat: a terminal or browser tab opens through `newTabPageSubmit`.
   const chatFromNewTab = (text: string, cwd?: string, attachments: ComposerAttachment[] = [], chat?: NewTabChat) => {
+    const generation = ++newTabStartGeneration.current;
+    const isCurrent = () => newTabStartGeneration.current === generation;
     const inherited = newTab?.cwd;
     const start = (folder?: string) =>
       void (async () => {
+        if (!isCurrent()) return;
         // A chat on another machine starts only with a send (cx-k21v): with no text, the folder
         // waits for the first send.
         if (folder && !text && directClient.current?.startsOnSend) {
@@ -8570,8 +8577,9 @@ function AcpmuxPane() {
           const started = startNewTabTransition(
             () => callNative("chat.new", { ...chat, ...(folder ? { cwd: folder } : {}) }),
             () => setNewTab(undefined),
+            isCurrent,
           ).then((session) => {
-            if (session && remembers) rememberStartedProject(folder, callNative);
+            if (isCurrent() && session && remembers) rememberStartedProject(folder, callNative);
             return session;
           });
           if (!asks) {
@@ -8598,8 +8606,10 @@ function AcpmuxPane() {
           started = await startNewTabTransition(
             () => (folder ? callNative("chat.new", { cwd: folder }) : Promise.resolve(undefined)),
             () => setNewTab(undefined),
+            isCurrent,
           );
         } catch (error) {
+          if (!isCurrent()) return;
           if (!asks) return;
           if (folder) setProjectDraft(folder);
           // Back in the chat composer ahead of anything typed there while the start was out, never
@@ -8608,17 +8618,20 @@ function AcpmuxPane() {
           else heldBack.current = [...(heldBack.current ?? []), { text, attachments }];
           if (isTrustRefusal(error)) {
             holdPrompt.current?.();
-            trustRefused.current?.(error, () => composerHandle.current?.send());
+            trustRefused.current?.(error, () => {
+              if (isCurrent()) composerHandle.current?.send();
+            });
           }
           return;
         }
+        if (!isCurrent()) return;
         if (started && remembers) rememberStartedProject(folder, callNative);
         if (asks) await callNative("chat.send", message);
       })().catch(() => undefined);
     // The page's own folder is inherited (`~` in a fresh workspace): the chat starts in its start
     // folder. Another project the user picked there goes through the host first.
     // Use Private Folder (or Keep) there gives the typed text back to the composer.
-    if (cwd && cwd !== inherited) requestFolder(cwd, start, text ? () => setDraft(text) : undefined);
+    if (cwd && cwd !== inherited) requestFolder(cwd, start, text ? () => isCurrent() && setDraft(text) : undefined);
     else start(startFolder);
   };
   const loadNewTabProjects = useCallback(
