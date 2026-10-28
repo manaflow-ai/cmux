@@ -175,12 +175,19 @@ export function useInlineAttachments(options: Options) {
     onInlineViews: setViews,
   }));
 
-  // Also when placing starts (the strip view switched to inline, shell mode ended): what was added
-  // meanwhile goes into the text.
-  const placingNow = options.placing();
   useLayoutEffect(() => {
     api.ready();
-  }, [options.attachments, api, placingNow]);
+  }, [options.attachments, api]);
+  // Also when placing starts (the strip view switched to inline, shell mode ended): what was added
+  // meanwhile goes into the text. Read after each commit, never during render: a consumer's
+  // `placing` may read state it declares after this hook.
+  const placingWas = useRef<boolean | undefined>(undefined);
+  useLayoutEffect(() => {
+    const now = live.current.placing();
+    if (now === placingWas.current) return;
+    placingWas.current = now;
+    if (now) api.ready();
+  });
 
   const chips = [...views].map(([id, dom]) =>
     createPortal(
