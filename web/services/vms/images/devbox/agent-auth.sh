@@ -280,7 +280,8 @@ try:
     document = tomllib.loads(source.read_text())
 except (FileNotFoundError, OSError, ValueError, UnicodeError):
     document = {}
-state = document.get("hooks", {}).get("state", {})
+hooks_table = document.get("hooks")
+state = hooks_table.get("state", {}) if isinstance(hooks_table, dict) else {}
 prefix = str(hooks) + ":"
 lines = [target.read_text()]
 for key, entry in state.items() if isinstance(state, dict) else ():
