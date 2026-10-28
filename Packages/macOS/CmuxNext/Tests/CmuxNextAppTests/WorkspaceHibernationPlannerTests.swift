@@ -90,4 +90,20 @@ import Testing
         #expect(ledger.evictHidden("shown").isEmpty)
         #expect(ledger.isRendering("shown"))
     }
+
+    @Test func aPageCreatedWhileHiddenCanHibernateAndWakesFromItsSavedState() {
+        var lifecycle = ContentLifecycle<String>()
+        // A tab opened in the background: its page exists, no pane ever showed it.
+        #expect(lifecycle.send(.adopted("bg")).isEmpty)
+        #expect(lifecycle.phase("bg") == .mountedHidden)
+        // Its workspace hibernates: the page is released, and showing it restores (not a fresh mount).
+        #expect(lifecycle.send(.hibernate("bg")).count == 1)
+        #expect(lifecycle.phase("bg") == .hibernated)
+        let effects = lifecycle.send(.show("bg"))
+        guard case .restore? = effects.first else { Issue.record("expected a restore, got \(effects)"); return }
+        // Adopting a tab that already has a record changes nothing.
+        _ = lifecycle.send(.show("shown"))
+        #expect(lifecycle.send(.adopted("shown")).isEmpty)
+        #expect(lifecycle.phase("shown") == .restoring)
+    }
 }
