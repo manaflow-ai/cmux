@@ -87,7 +87,7 @@ struct AgentLaunchEnvironmentPolicyTests {
 
         #expect(policy.inheritedNodeOptionsRepair(from: [:]).isEmpty)
         #expect(policy.inheritedNodeOptionsRepair(from: [
-            "NODE_OPTIONS": "--require=/Users/me/lib/restore-node-options.cjs --max-old-space-size=4096",
+            "NODE_OPTIONS": "--require=/Users/me/cmux-tools/restore-node-options.cjs --max-old-space-size=4096",
         ]).isEmpty)
         #expect(policy.inheritedNodeOptionsRepair(from: [
             "NODE_OPTIONS": "--trace-warnings",

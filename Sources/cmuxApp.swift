@@ -1,5 +1,4 @@
 import CmuxCloud
-import CMUXAgentLaunch
 import CmuxComputerUse
 import AppKit
 import CmuxAppKitSupportUI
@@ -355,22 +354,6 @@ struct cmuxApp: App {
         fflush(stderr)
         NSLog("%@", message)
         Darwin.exit(64)
-    }
-
-    /// Every terminal inherits the app environment. When cmux is launched from
-    /// inside a cmux Claude session, NODE_OPTIONS carries that session's restore
-    /// preload, and `node` fails in every shell once the file is gone (#22274).
-    private static func removeInheritedClaudeNodeOptionsPreload() {
-        let updates = AgentLaunchEnvironmentPolicy().inheritedNodeOptionsRepair(
-            from: ProcessInfo.processInfo.environment
-        )
-        for (key, value) in updates {
-            if let value {
-                setenv(key, value, 1)
-            } else {
-                unsetenv(key)
-            }
-        }
     }
 
     private static func configureGhosttyEnvironment() {
