@@ -9363,7 +9363,8 @@ function AcpmuxPane() {
               if (command.action === "btw") {
                 const question = args?.trim();
                 const sessionId = snapshot.sessionId;
-                if (!opensSideSessions || isSideSession || !question || !sessionId) return false;
+                const client = directClient.current;
+                if (!opensSideSessions || isSideSession || !question || !sessionId || !client) return false;
                 btwNotes.ask(
                   sessionId,
                   question,
