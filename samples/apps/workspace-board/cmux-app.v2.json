@@ -1,0 +1,20 @@
+{
+  "manifestVersion": 2,
+  "id": "local/workspace-board",
+  "name": "Workspace Board",
+  "version": "0.1.0",
+  "description": "Every workspace and its terminals on one board; send a line to any terminal.",
+  "engines": { "cmux": "^2.0" },
+  "runtime": { "web": { "root": "web/" } },
+  "implements": {
+    "cmux.pane/1": { "web": "web/index.html", "title": "Workspace Board", "symbol": "square.grid.2x2" }
+  },
+  "scopes": {
+    "workspace:read": "List your workspaces.",
+    "terminal:read": "List the terminals in each workspace."
+  },
+  "optionalScopes": {
+    "terminal:execute": "Send the line you type to a terminal."
+  },
+  "files": ["web/"]
+}
