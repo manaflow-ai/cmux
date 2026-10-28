@@ -302,12 +302,19 @@ export async function mountAppsPage(state: AppsPageVariant, _context: StageConte
   const host = installMockHost(
     pageOps(
       provider,
-      [...Object.values(AppsOps), ...Object.values(RegistryOps), OPEN_ACTION.op, "cmux.page.connection", "cmux.page.command"],
+      [
+        ...Object.values(AppsOps),
+        ...Object.values(RegistryOps),
+        OPEN_ACTION.op,
+        "cmux.page.connection",
+        "cmux.page.command",
+      ],
       {
-      mode: state.mode === "normal" ? undefined : state.mode,
-      firstOperation: AppsOps.catalogList,
-      error: state.error,
-    }),
+        mode: state.mode === "normal" ? undefined : state.mode,
+        firstOperation: AppsOps.catalogList,
+        error: state.error,
+      },
+    ),
     [AppsOps.watch, "cmux.page.connection", "cmux.page.command"],
   );
   host.delayMs = 0;
@@ -316,7 +323,8 @@ export async function mountAppsPage(state: AppsPageVariant, _context: StageConte
   document.documentElement.dataset.cmuxWebviewKind = "apps";
   await import("../../pages/apps/main");
   if (state.action === "install") clickLater(".apps-button.primary");
-  if (state.action === "submit") void clickWhenShown('.apps-installed-actions [aria-pressed="false"].apps-submit-toggle');
+  if (state.action === "submit")
+    void clickWhenShown('.apps-installed-actions [aria-pressed="false"].apps-submit-toggle');
   if (state.action === "review-file")
     void clickWhenShown(".apps-review .apps-row-open").then(() => clickWhenShown(".apps-review-file"));
 }

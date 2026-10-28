@@ -168,6 +168,7 @@ function ReviewDetail({
               <textarea
                 className="apps-field-input"
                 name="reason"
+                aria-label={t("store.registry.rejectReason")}
                 rows={3}
                 maxLength={REJECT_REASON.max}
                 value={reason}

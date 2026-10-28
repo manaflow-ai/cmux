@@ -148,7 +148,10 @@ describe("Submit for Review and My Submissions", () => {
   test("a refused submission shows the Cloud's message", async () => {
     const { provider, store } = setup(person);
     await store.start();
-    provider.failNext(RegistryOps.submit, pageError("cloud.publisher_taken", "That publisher belongs to someone else."));
+    provider.failNext(
+      RegistryOps.submit,
+      pageError("cloud.publisher_taken", "That publisher belongs to someone else."),
+    );
     await store.submit("local/notes-pane", "taken", "");
     expect(store.getSnapshot().error).toBe("That publisher belongs to someone else.");
     store.stop();

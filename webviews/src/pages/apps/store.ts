@@ -5,7 +5,15 @@
 // confirmation (coordinator Q4), so the page shows the owner's result, never its own guess.
 import { isPageError, type PageClient } from "../shared/pageClient";
 import { LINK_CLOSED, subscribePageStreams } from "../shared/pageStreams";
-import { decodeFile, fromDetail, listCatalog, listInstalled, listUpdates, type DecodedFile, type WireDetail } from "./wire";
+import {
+  decodeFile,
+  fromDetail,
+  listCatalog,
+  listInstalled,
+  listUpdates,
+  type DecodedFile,
+  type WireDetail,
+} from "./wire";
 import {
   categories,
   filterApps,
@@ -764,7 +772,8 @@ function updateFromInstalled(app: InstalledApp): AppUpdate[] {
 
 /** A reject reason the Cloud accepts: 8 to 500 characters after trimming. */
 export function validRejectReason(reason: string): boolean {
-  const length = [...reason.trim()].length;
+  // The Cloud's own count (UTF-16 length of the trimmed reason), so the page and server agree.
+  const length = reason.trim().length;
   return length >= REJECT_REASON.min && length <= REJECT_REASON.max;
 }
 

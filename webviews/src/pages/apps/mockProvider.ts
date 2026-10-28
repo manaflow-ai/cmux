@@ -551,7 +551,12 @@ export function sampleRegistry(
     scopes: [
       { scope: "workspace:read", reason: "List your workspaces.", risk: "standard", optional: false },
       { scope: "terminal:read", reason: "List the terminals of each workspace.", risk: "standard", optional: false },
-      { scope: "terminal:execute", reason: "Send a command you type to a terminal.", risk: "sensitive", optional: true },
+      {
+        scope: "terminal:execute",
+        reason: "Send a command you type to a terminal.",
+        risk: "sensitive",
+        optional: true,
+      },
     ],
     versions: [{ version: "0.2.0", engines: "^2.0" }],
   };
@@ -635,7 +640,9 @@ export function sampleRegistry(
       sub_9: {
         "cmux-app.json": encode('{\n  "manifestVersion": 2,\n  "id": "pixel-works/clock-pane"\n}\n'),
         "web/index.html": encode('<!doctype html>\n<title>Clock</title>\n<script src="clock.js"></script>\n'),
-        "web/clock.js": encode("setInterval(() => {\n  document.body.textContent = new Date().toLocaleTimeString();\n}, 1000);\n"),
+        "web/clock.js": encode(
+          "setInterval(() => {\n  document.body.textContent = new Date().toLocaleTimeString();\n}, 1000);\n",
+        ),
         "web/icon.png": btoa(String.fromCharCode(0x89, 0x50, 0x4e, 0x47, 0, 0)),
       },
     },

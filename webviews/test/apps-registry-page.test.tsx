@@ -183,9 +183,7 @@ test("My Submissions shows each status and the reviewer's reason", async () => {
   expect(rows.map((row) => row.dataset.status)).toEqual(["pending", "approved", "rejected"]);
   expect(rows[0]!.textContent).toContain("store.registry.status.pending");
   expect(rows[2]!.textContent).toContain("store.registry.status.rejected");
-  expect(rows[2]!.querySelector(".apps-submission-reason")?.textContent).toContain(
-    "never explains it in the UI",
-  );
+  expect(rows[2]!.querySelector(".apps-submission-reason")?.textContent).toContain("never explains it in the UI");
   expect(rows[1]!.querySelector(".apps-submission-reason")).toBeNull();
 });
 

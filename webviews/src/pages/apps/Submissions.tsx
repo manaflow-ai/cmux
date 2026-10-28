@@ -29,7 +29,17 @@ export function formatWhen(value: string | number | null | undefined, language: 
  * The Submit for Review form of an installed local app: the publisher (prefilled with the person's
  * first publisher from `cmux.registry.me`) and optional notes. Signed out, only the hint shows.
  */
-export function SubmitForm({ app, snap, store, strings }: { app: string; snap: AppsSnapshot; store: AppsStore; strings: Strings }) {
+export function SubmitForm({
+  app,
+  snap,
+  store,
+  strings,
+}: {
+  app: string;
+  snap: AppsSnapshot;
+  store: AppsStore;
+  strings: Strings;
+}) {
   const { t } = strings;
   const registry = snap.registry ?? NO_REGISTRY;
   const me = registry.me;
@@ -54,6 +64,7 @@ export function SubmitForm({ app, snap, store, strings }: { app: string; snap: A
         <input
           className="apps-field-input"
           name="publisher"
+          aria-label={t("store.registry.publisher")}
           value={publisher}
           list={me.publishers?.length ? `apps-publishers-${app}` : undefined}
           autoComplete="off"
@@ -63,7 +74,9 @@ export function SubmitForm({ app, snap, store, strings }: { app: string; snap: A
         {me.publishers?.length ? (
           <datalist id={`apps-publishers-${app}`}>
             {me.publishers.map((name) => (
-              <option key={name} value={name} />
+              <option key={name} value={name}>
+                {name}
+              </option>
             ))}
           </datalist>
         ) : null}
@@ -75,6 +88,7 @@ export function SubmitForm({ app, snap, store, strings }: { app: string; snap: A
         <textarea
           className="apps-field-input"
           name="notes"
+          aria-label={t("store.registry.notes")}
           rows={3}
           value={notes}
           onChange={(event) => setNotes(event.target.value)}
@@ -137,10 +151,14 @@ function SubmissionRow({ row, strings }: { row: RegistrySubmission; strings: Str
         <span className="apps-name">{row.app}</span>
         <span className="apps-version">{row.version}</span>
         <Badge text={t(STATUS_LABEL[row.status] ?? STATUS_LABEL.pending)} />
-        <span className="apps-muted">{format("store.registry.submitted", formatWhen(row.submitted_at, strings.language))}</span>
+        <span className="apps-muted">
+          {format("store.registry.submitted", formatWhen(row.submitted_at, strings.language))}
+        </span>
       </span>
       {row.reason ? (
-        <span className="apps-muted selectable apps-submission-reason">{format("store.registry.reason", row.reason)}</span>
+        <span className="apps-muted selectable apps-submission-reason">
+          {format("store.registry.reason", row.reason)}
+        </span>
       ) : null}
     </li>
   );

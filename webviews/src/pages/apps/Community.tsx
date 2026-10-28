@@ -111,11 +111,13 @@ function CommunityCard({
         <span className="apps-version">{listing.version}</span>
         {local && <StateBadge app={local} strings={strings} />}
         <span className="apps-card-actions">
-          {newer
-            ? get(format("store.registry.getVersion", listing.version))
-            : local
-              ? <ItemAction app={local} store={store} strings={strings} />
-              : get(t("store.registry.get"))}
+          {newer ? (
+            get(format("store.registry.getVersion", listing.version))
+          ) : local ? (
+            <ItemAction app={local} store={store} strings={strings} />
+          ) : (
+            get(t("store.registry.get"))
+          )}
         </span>
       </footer>
     </article>
