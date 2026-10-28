@@ -1061,7 +1061,7 @@ export function Composer({
     // The key that sent it is spent: what the composer writes back after the send is not typing.
     notTyped();
     unsentDraft.current?.flush();
-    const placed = placeInline(prompt, attachments);
+    const placed = placeInline(prompt, attachments, { dropped: (id) => pending.some((chip) => chip.id === id) });
     const sent = placed.attachments;
     const taken = onSend(placed.text, sent, steer);
     if (taken === false) return false;
