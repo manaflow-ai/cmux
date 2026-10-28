@@ -75,7 +75,7 @@ extension SidebarBridge {
             // so it asks the same confirmation and ends the terminals too.
             // Several rows: one toast ("Closed N workspaces") that each row's close joins once it is sent (after its
             // question), whose Undo reopens them all; not one "Workspace closed" per row that replaces the last.
-            let close = { (batch: String?) in
+            func close(_ batch: String?) {
                 for id in ids {
                     var run = ActionInvocation(closingRow: id.rawValue)
                     run.closeBatch = batch

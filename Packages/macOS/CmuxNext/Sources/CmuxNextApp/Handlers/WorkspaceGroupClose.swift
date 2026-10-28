@@ -47,9 +47,10 @@ enum WorkspaceGroupClose {
     @discardableResult
     static func offerUndo(_ id: String, _ message: String, groups: [(String?, [String])], after seen: Set<String>,
                           in window: NSWindow, _ services: AppServices, action: CmuxToast.Action = .undo(),
-                          duration: Duration = .seconds(6)) -> CmuxToastHandle? {
-        // Too soon after the last one: Reopen Closed and History still bring the workspaces back.
-        if let undoToasts = services.closedTabs?.undoToasts, !CmuxToastCenter.shared.toasts(in: window).contains(where: { $0.id == id }),
+                          duration: Duration = .seconds(6), joining: Bool = false) -> CmuxToastHandle? {
+        // Too soon after the last one: Reopen Closed and History still bring the workspaces back. A join (a close that
+        // grows a toast it already showed) is never limited.
+        if !joining, let undoToasts = services.closedTabs?.undoToasts, !CmuxToastCenter.shared.toasts(in: window).contains(where: { $0.id == id }),
            !undoToasts.allowsNewToast(id) { return nil }
         let handle = CmuxToastCenter.shared.show(CmuxToast(id: id, message: message, action: action, duration: duration), in: window)
         handle.onAction = { [weak services] in
@@ -169,6 +170,8 @@ enum WorkspaceGroupClose {
     static func withdraw(_ id: String, from batch: UndoBatch, _ services: AppServices) {
         guard batch.names.contains(where: { $0.id == id }) else { return }
         batch.names.removeAll { $0.id == id }
+        // Only a toast that still shows changes; one that ended (timed out, closed, replaced) stays ended.
+        guard batch.handle?.isDismissed == false else { return }
         if batch.names.isEmpty { batch.handle?.dismiss() } else { show(batch, near: nil, services) }
     }
 
@@ -177,8 +180,11 @@ enum WorkspaceGroupClose {
         let windows = services.windows, registry = windows.registry.value, closing = Set(batch.names.map(\.id))
         let staysOpen = { (window: String) in windows.registry.members(of: window).contains { !closing.contains($0) } }
         let here = controller.flatMap { staysOpen($0.state.id) && !registry.isIncognito($0.state.id) ? $0 : nil }
+        // The window the batch's toast shows in keeps it while that window stays.
+        let shown = windows.controllers.first { $0.window === batch.window && $0.window != nil && staysOpen($0.state.id) }
         let other = registry.mostRecentOpen(excluding: Set(registry.openWindows.map(\.id).filter { !staysOpen($0) })).flatMap(windows.controller(for:))
-        guard let window = (here ?? other)?.window else { return }
+        guard let window = (shown ?? here ?? other)?.window else { return }
+        let joining = batch.handle?.isDismissed == false
         let undo = services.registry.shortcutDisplay(for: "reopenClosedBrowserPanel").map(undoTitle) ?? CmuxToastStrings.undo
         // A batch keeps one toast id, so its next show replaces its toast in place (and passes the rate limit); a toast
         // it showed in another window goes.
@@ -188,7 +194,7 @@ enum WorkspaceGroupClose {
         batch.handle = offerUndo(batch.several ? "workspaces-closed" : workspaceToastID,
                                  count == 1 ? workspaceClosedToast : WorkspaceBulkClose.closedToast(count),
                                  groups: [(nil, batch.names.map(\.name))], after: batch.seen, in: window, services,
-                                 action: .undo(undo), duration: workspaceToastDuration)
+                                 action: .undo(undo), duration: workspaceToastDuration, joining: joining)
     }
 
     static var workspaceClosedToast: String {

@@ -242,8 +242,8 @@ extension AppActions {
         let daemon = services.machines.daemon(forWorkspace: workspace.id) ?? services.activeDaemon, offline = !daemon.isLive && invocation.origin == .user
         let terminals = WorkspaceClose.closing(workspace, on: daemon), id = workspace.id, owner = services.windows.registry.value.owner(of: id)
         let controller = owner.flatMap(services.windows.controller(for:)), shownAtPress = controller?.state.workspaceID == id
-        // Its undo toast's batch, taken in the press's turn (a several-row close's, else its own).
-        let undoBatch = WorkspaceGroupClose.undoBatch(invocation.closeBatch, services)
+        // A person's close: its undo toast's batch, taken in the press's turn (a several-row close's, else its own).
+        let undoBatch = invocation.origin == .user ? WorkspaceGroupClose.undoBatch(invocation.closeBatch, services) : nil
         let warn = services.settings?.snapshot.warnBeforeClosingTab ?? CmuxConfigSnapshot.closeWarningFallback, selected = WorkspaceCloseSelection()
         let warnAgent = services.settings?.snapshot.warnBeforeClosingAgentSession ?? CmuxConfigSnapshot.closeWarningFallback
         let flow = WorkspaceCloseFlow(
@@ -276,7 +276,7 @@ extension AppActions {
                 // A person's close offers its undo (audit-findings-1 C) once it is sent, joining its several-row close's
                 // toast when it is one row of one. Not while its machine is offline: the close waits for the machine, and
                 // nothing is recorded to bring back until then.
-                let batch = invocation.origin == .user && !offline ? undoBatch : nil
+                let batch = offline ? nil : undoBatch
                 if let batch { WorkspaceGroupClose.offerWorkspaceUndo(closing: workspace, in: batch, from: controller, services) }
                 let close: @MainActor () async -> ActionWorkFailure? = {
                     let failure = await daemon.failureOnceConnected("close-workspace", waits: offline, while: { services.machines.daemons.contains { $0 === daemon } }) { connection in

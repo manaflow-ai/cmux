@@ -8,7 +8,8 @@ import Observation
 /// animation and the selection moves in that turn, while the daemon request
 /// runs behind. A refused close lists the row again (it opens like a new row)
 /// and says so in a toast. A close that would leave its window's room with no
-/// other row is not hidden: a window closes with its last workspace, never empty.
+/// other row is not hidden; a person's close first gives that window Home
+/// (`InstantClose`), so it stays open, never empty.
 @MainActor @Observable
 public final class ClosingWorkspaces {
     public static let shared = ClosingWorkspaces()

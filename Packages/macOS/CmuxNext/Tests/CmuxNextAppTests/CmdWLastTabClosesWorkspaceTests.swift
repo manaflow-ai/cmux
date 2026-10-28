@@ -91,6 +91,27 @@ struct CmdWLastTabClosesWorkspaceTests {
             let ids = { CmuxToastCenter.shared.toasts(in: nsWindow).map(\.id) }
             try await PinnedPageTests.until({ ids().contains("workspaces-closed") }, report: { "toasts \(ids())" })
             #expect(!ids().contains("workspace-closed"), "a per-row toast showed: \(ids())")
+            // Both rows joined the one toast.
+            try await PinnedPageTests.until({
+                CmuxToastCenter.shared.toasts(in: nsWindow).contains { $0.id == "workspaces-closed" && $0.message == WorkspaceBulkClose.closedToast(2) }
+            }, report: { "toasts \(CmuxToastCenter.shared.toasts(in: nsWindow).map(\.message))" })
+        }
+    }
+
+    /// A close the daemon refuses takes its "Workspace closed" toast away (the refusal says what happened) and lists
+    /// the workspace again (review of 2696fc1cf95).
+    @Test func aRefusedCloseTakesItsToastAway() async throws {
+        try await PinnedPageTests.withApp { services, _ in
+            let store = services.daemon.store
+            let (window, closing, _) = try await Self.secondWorkspace(services)
+            let nsWindow = try #require(window.window)
+            ClosingWorkspaces.shared.refusesNext = true
+            defer { ClosingWorkspaces.shared.refusesNext = false }
+            #expect(services.registry.perform("closeTab", invocation: ActionInvocation(origin: .user)))
+            let ids = { CmuxToastCenter.shared.toasts(in: nsWindow).map(\.id) }
+            try await PinnedPageTests.until({ ids().contains("workspace-close-refused") }, report: { "no refusal: \(ids())" })
+            #expect(!ids().contains("workspace-closed"), "the refused close kept its undo toast: \(ids())")
+            #expect(store.workspaces.contains { $0.id == closing } && !ClosingWorkspaces.shared.ids.contains(closing))
         }
     }
 
