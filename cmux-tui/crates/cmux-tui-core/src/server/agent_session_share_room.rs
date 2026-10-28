@@ -1,22 +1,37 @@
 //! The link share bridge (design chat-multiplayer.md 4.2 and 4.3; the room is cmux-platform's
 //! `ChatShareRoom`). With a room configured, create provisions each share there (`PUT`, keyed by
-//! its `provision_key`, with the owner's cmux access token, which is never stored) and answers the
-//! guest link `url_base#secret`. A revoke reaches the room from `pending_room_ops`, persisted with
-//! the change: its `DELETE` is retried until it is answered (or the share's expiry ends it there).
+//! its `provision_key`, with the owner's cmux access token, which is never stored) and the share
+//! then keeps one outbound host socket (`cmux.share/1`) while it is active.
 //!
-//! Everything waits on events: one-shot sleeps for backoff (1 s doubling to 60 s), run only while
-//! a `PUT` or `DELETE` is pending. The host socket of each active share (`cmux.share/1`: the
-//! daemon's `guests` after every `hello`, redeem, kick) and the relay of each guest's chat come in
-//! the next changes.
+//! The daemon stays the authority. After every `hello` it names the guests it holds active
+//! (`guests`) before anything else, and the room's `redeem` is answered by the registry's own
+//! atomic redeem. A kick and a revoke reach the room from `pending_room_ops`, which is persisted
+//! with the change: the kick is resent on every host connect until the room answers `kicked`, and
+//! the `DELETE` is retried until it is answered (or the share's expiry ends it at the room).
+//!
+//! Everything waits on events: the socket, a command channel, and one-shot sleeps for backoff
+//! (1 s doubling to 60 s), run only while something is pending. The relay of each guest's chat
+//! (snapshot, records, prompts, presence) comes next; until then the room's guest frames
+//! (`guest_joined`, `guest_prompt`, `older`, ...) go unanswered.
 
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::Duration;
 
+use futures_util::{SinkExt as _, StreamExt as _};
 use serde_json::{Value, json};
+use tokio::sync::mpsc;
+use tokio_tungstenite::tungstenite::Message;
+use tokio_tungstenite::tungstenite::client::IntoClientRequest as _;
+use tokio_tungstenite::tungstenite::http::HeaderValue;
 use zeroize::Zeroizing;
 
-use super::{LinkShare, LinkShares, ShareState, find};
+use super::{GuestState, LinkShare, LinkShares, Redeem, ShareState, find};
 use crate::mux::Mux;
+
+type Ws =
+    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
 
 /// The bridge's waits; tests shorten them.
 #[derive(Clone, Debug)]
@@ -47,12 +62,21 @@ pub(in crate::server) struct Room {
     timing: Timing,
 }
 
-/// The room configuration and the runtime the requests run on.
+enum Cmd {
+    /// Send `guests` and the pending kicks again (a guest was kicked).
+    Reconcile,
+    /// The share ended: send `end` and close.
+    End(&'static str),
+}
+
+/// The room configuration, the runtime the sockets and requests run on, and each share's host.
 #[derive(Default)]
 pub(in crate::server) struct Bridge {
     room: Mutex<Option<Room>>,
     invalid: Mutex<bool>,
     runtime: OnceLock<Option<tokio::runtime::Runtime>>,
+    hosts: Mutex<HashMap<String, (u64, mpsc::UnboundedSender<Cmd>)>>,
+    next_host: AtomicU64,
 }
 
 impl Drop for Bridge {
@@ -109,6 +133,13 @@ impl Bridge {
         });
         runtime.as_ref()
     }
+
+    fn command(&self, share_id: &str, cmd: Cmd) {
+        if let Some((_, host)) = self.hosts.lock().unwrap_or_else(|e| e.into_inner()).get(share_id)
+        {
+            let _ = host.send(cmd);
+        }
+    }
 }
 
 fn shares(mux: &Mux) -> &LinkShares {
@@ -129,7 +160,11 @@ fn change<T>(
 struct View {
     url: Option<String>,
     host_token: Option<String>,
+    state: ShareState,
     expires_at: u64,
+    /// The guests it holds active (none once the share ended).
+    active: Vec<String>,
+    kicks: Vec<String>,
     delete: bool,
     body: Value,
 }
@@ -137,12 +172,18 @@ struct View {
 fn view(mux: &Mux, share_id: &str) -> Option<View> {
     change(mux, share_id, |s| {
         let room = |field: &str| s.room.as_ref().and_then(|r| r[field].as_str()).map(str::to_owned);
+        let active = s.guests.iter().filter(|g| g.state == GuestState::Active && s.live().is_ok());
         let body = json!({"provision_key": s.provision_key, "secret_sha256": s.secret_sha256,
             "expires_at": s.expires_at, "uses": s.uses_left});
         let view = View {
             url: room("url"),
             host_token: room("host_token"),
+            state: s.state,
             expires_at: s.expires_at,
+            active: active.map(|g| g.guest_id.clone()).collect(),
+            kicks: (s.pending_room_ops.iter().filter(|o| o["op"] == "kick"))
+                .filter_map(|o| o["guest_id"].as_str().map(str::to_owned))
+                .collect(),
             delete: s.pending_room_ops.iter().any(|o| o["op"] == "delete"),
             body,
         };
@@ -324,6 +365,7 @@ pub(super) fn provision(
             let secret = created["secret"].as_str().unwrap_or_default().to_owned();
             created["url"] = json!(format!("{url_base}#{secret}"));
             created["room"] = json!(room.url);
+            host(mux, &share_id);
             Ok(created)
         }
         Put::Refused(code) => {
@@ -512,11 +554,38 @@ fn delete(mux: &Arc<Mux>, share_id: &str, held: Option<Held>) {
     });
 }
 
-/// `LinkShares::settle`'s step for the room: an ended share's queued `DELETE` runs.
+/// Starts the share's host socket, or has the running one reconcile.
+fn host(mux: &Arc<Mux>, share_id: &str) {
+    let bridge = &shares(mux).bridge;
+    let mut hosts = bridge.hosts.lock().unwrap_or_else(|e| e.into_inner());
+    if hosts.get(share_id).is_some_and(|(_, host)| host.send(Cmd::Reconcile).is_ok()) {
+        return;
+    }
+    let Some(runtime) = bridge.runtime() else { return };
+    let (sender, commands) = mpsc::unbounded_channel();
+    let generation = bridge.next_host.fetch_add(1, Ordering::Relaxed);
+    hosts.insert(share_id.to_owned(), (generation, sender));
+    let task = serve_host(Arc::downgrade(mux), share_id.to_owned(), generation, commands);
+    runtime.spawn(task);
+}
+
+/// `LinkShares::settle`'s step for the room: a kicked guest is reconciled; an ended share's
+/// socket sends `end` and its queued `DELETE` runs.
 pub(super) fn ended(shares: &LinkShares, ended: &[(String, Option<String>)]) {
     let Some(mux) = shares.mux.lock().unwrap_or_else(|e| e.into_inner()).upgrade() else { return };
-    for (share_id, _) in ended.iter().filter(|(_, guest)| guest.is_none()) {
-        if view(&mux, share_id).is_some_and(|v| v.delete) {
+    for (share_id, guest) in ended {
+        if guest.is_some() {
+            shares.bridge.command(share_id, Cmd::Reconcile);
+            continue;
+        }
+        let Some(v) = view(&mux, share_id) else { continue };
+        let reason = match v.state {
+            ShareState::Expired => "expired",
+            ShareState::Closed => "closed",
+            _ => "revoked",
+        };
+        shares.bridge.command(share_id, Cmd::End(reason));
+        if v.delete {
             delete(&mux, share_id, None);
         }
     }
@@ -549,10 +618,163 @@ pub(super) fn expired(shares: &LinkShares) {
     }
 }
 
+/// The host socket of one active share: connects, serves, and reconnects with backoff until the
+/// share ends or the room refuses it for good.
+async fn serve_host(
+    mux: Weak<Mux>,
+    share_id: String,
+    generation: u64,
+    mut commands: mpsc::UnboundedReceiver<Cmd>,
+) {
+    let Some(timing) = mux.upgrade().map(|mux| shares(&mux).bridge.timing()) else { return };
+    let mut wait = timing.backoff_min;
+    loop {
+        let target = mux.upgrade().and_then(|mux| view(&mux, &share_id));
+        let target = target.filter(|v| v.state == ShareState::Active);
+        let Some((url, token)) = target.and_then(|v| Some((v.url?, v.host_token?))) else { break };
+        match connect(&url, &share_id, &token, timing.request).await {
+            Err(true) => break,
+            Err(false) => {}
+            Ok(socket) => match session(&mux, &share_id, socket, &mut commands).await {
+                None => break,
+                Some(true) => wait = timing.backoff_min,
+                Some(false) => {}
+            },
+        }
+        tokio::select! {
+            () = tokio::time::sleep(wait) => {}
+            command = commands.recv() => if matches!(command, None | Some(Cmd::End(_))) { break },
+        }
+        wait = (wait * 2).min(timing.backoff_max);
+    }
+    if let Some(mux) = mux.upgrade() {
+        let mut hosts = shares(&mux).bridge.hosts.lock().unwrap_or_else(|e| e.into_inner());
+        if hosts.get(&share_id).is_some_and(|(g, _)| *g == generation) {
+            hosts.remove(&share_id);
+        }
+    }
+}
+
+/// Opens `{room}/v1/chat-shares/{id}/host` with the host token. `Err(true)`: refused for good.
+async fn connect(url: &str, share_id: &str, token: &str, timeout: Duration) -> Result<Ws, bool> {
+    let socket = format!("{}/v1/chat-shares/{share_id}/host", url.replacen("http", "ws", 1));
+    let mut request = socket.into_client_request().map_err(|_| true)?;
+    let bearer = HeaderValue::from_str(&format!("Bearer {token}")).map_err(|_| true)?;
+    request.headers_mut().insert("authorization", bearer);
+    match tokio::time::timeout(timeout, tokio_tungstenite::connect_async(request)).await {
+        Ok(Ok((socket, _))) => Ok(socket),
+        Ok(Err(tungstenite::Error::Http(reply))) => {
+            Err(matches!(reply.status().as_u16(), 401 | 403 | 404 | 410))
+        }
+        _ => Err(false),
+    }
+}
+
+/// One connected host socket. `None`: stop (the share ended, or the room replaced, ended or
+/// refused this host); `Some(ready)`: dropped, after (`true`) or before its `hello`.
+async fn session(
+    mux: &Weak<Mux>,
+    share_id: &str,
+    socket: Ws,
+    commands: &mut mpsc::UnboundedReceiver<Cmd>,
+) -> Option<bool> {
+    let (mut sink, mut stream) = socket.split();
+    let mut ready = false;
+    loop {
+        let out = tokio::select! {
+            frame = stream.next() => match frame {
+                Some(Ok(Message::Text(text))) => {
+                    let mux = mux.upgrade()?;
+                    answer(&mux, share_id, text.as_str(), &mut ready)
+                }
+                Some(Ok(Message::Close(frame))) => {
+                    let code = frame.map(|frame| u16::from(frame.code));
+                    // 4000 replaced, 4001 ended, 4003 refused.
+                    return (!matches!(code, Some(4000 | 4001 | 4003))).then_some(ready);
+                }
+                Some(Ok(_)) => continue,
+                None | Some(Err(_)) => return Some(ready),
+            },
+            command = commands.recv() => match command {
+                Some(Cmd::Reconcile) if ready => {
+                    let mux = mux.upgrade()?;
+                    reconcile(&mux, share_id)
+                }
+                Some(Cmd::Reconcile) => continue,
+                Some(Cmd::End(reason)) => {
+                    let end = json!({"v": 1, "t": "end", "reason": reason}).to_string();
+                    let _ = sink.send(Message::text(end)).await;
+                    let _ = sink.close().await;
+                    return None;
+                }
+                None => return None,
+            },
+        };
+        for frame in out {
+            if sink.send(Message::text(frame.to_string())).await.is_err() {
+                return Some(ready);
+            }
+        }
+    }
+}
+
+/// `guests {active}` (the daemon's own list), then every kick the room has not acknowledged.
+fn reconcile(mux: &Mux, share_id: &str) -> Vec<Value> {
+    let Some(v) = view(mux, share_id) else { return Vec::new() };
+    let mut out = vec![json!({"v": 1, "t": "guests", "active": v.active})];
+    out.extend(v.kicks.into_iter().map(|guest| json!({"v": 1, "t": "kick", "guest_id": guest})));
+    out
+}
+
+/// The daemon's answer to one room frame.
+fn answer(mux: &Mux, share_id: &str, text: &str, ready: &mut bool) -> Vec<Value> {
+    let frame: Value = serde_json::from_str(text).unwrap_or(Value::Null);
+    if frame["v"] != 1 {
+        return Vec::new();
+    }
+    match frame["t"].as_str().unwrap_or_default() {
+        "hello" => {
+            *ready = true;
+            reconcile(mux, share_id)
+        }
+        // The room sends a redeem only after the daemon's `guests`.
+        "redeem" if *ready => {
+            let field = |name: &str| frame[name].as_str().unwrap_or_default().to_owned();
+            let redeem = Redeem {
+                share_id: share_id.to_owned(),
+                secret: field("secret"),
+                name: field("name"),
+                attempt_id: field("attempt_id"),
+            };
+            let directory = mux.session_state_directory();
+            let redeemed = shares(mux).redeem(directory.as_deref(), redeem);
+            shares(mux).settle(mux);
+            let request_id = &frame["request_id"];
+            match redeemed {
+                Ok(guest) => vec![json!({"v": 1, "t": "redeemed", "request_id": request_id,
+                    "guest_id": guest["guest_id"]})],
+                // Only the daemon's own refusal codes reach the room (and the guest page).
+                Err(code) => {
+                    let code = if code.starts_with("share.") { code } else { "share.unavailable" };
+                    vec![json!({"v": 1, "t": "redeemed", "request_id": request_id, "error": code})]
+                }
+            }
+        }
+        "kicked" => {
+            if let Some(guest) = frame["guest_id"].as_str() {
+                done(mux, share_id, &json!({"op": "kick", "guest_id": guest}));
+            }
+            Vec::new()
+        }
+        _ => Vec::new(),
+    }
+}
+
 /// Configures the room new links are provisioned in (`CMUX_SHARE_ROOM_URL`, else the build's
-/// default) and resumes every queued `DELETE` of before a restart. A share a restart left
-/// provisioning never answered its create: it is revoked (a room it made without answering ends
-/// at the share's expiry: the owner's token, which its `DELETE` would need, is not kept).
+/// default) and resumes every share bridged before a restart: an active share's host socket, a
+/// queued `DELETE`. A share a restart left provisioning never answered its create: it is revoked
+/// (a room it made without answering ends at the share's expiry: the owner's token, which its
+/// `DELETE` would need, is not kept).
 pub fn start_link_share_bridge(mux: &Arc<Mux>, room: Option<&str>) {
     let shares = shares(mux);
     if !shares.bridge.configure(room, Timing::default()) {
@@ -574,8 +796,10 @@ pub fn start_link_share_bridge(mux: &Arc<Mux>, room: Option<&str>) {
         Ok((ids.collect::<Vec<_>>(), changed))
     });
     for id in bridged.unwrap_or_default() {
-        if view(mux, &id).is_some_and(|v| v.delete) {
-            delete(mux, &id, None);
+        match view(mux, &id) {
+            Some(v) if v.delete => delete(mux, &id, None),
+            Some(v) if v.state == ShareState::Active => host(mux, &id),
+            _ => {}
         }
     }
     expired(shares);

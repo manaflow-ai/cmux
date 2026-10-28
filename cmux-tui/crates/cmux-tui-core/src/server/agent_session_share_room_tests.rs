@@ -1,5 +1,6 @@
-//! The link share bridge against a fake room (cmux-platform's `ChatShareRoom` HTTP API):
-//! provisioning, its retry and give-up, a refusal, and revoke's `DELETE`.
+//! The link share bridge against a fake room that speaks `cmux.share/1` (cmux-platform's
+//! `ChatShareRoom`): provisioning, its retry and give-up, the host socket's `hello` → `guests`
+//! order, redeem, kicks resent until acknowledged, revoke's `end` and `DELETE`, and reconnects.
 use super::super::{digest, hex, MAX_SHARES};
 use super::*;
 use crate::server::agent_session_attach_tests::{
@@ -13,6 +14,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::Condvar;
 use std::time::Instant;
+use tungstenite::handshake::server::{ErrorResponse, Request, Response};
 
 const OWNER_TOKEN: &str = "owner-access-token";
 type DeleteGate = Arc<(Mutex<bool>, Condvar)>;
@@ -21,6 +23,8 @@ type DeleteGate = Arc<(Mutex<bool>, Condvar)>;
 #[derive(Debug)]
 enum Seen {
     Request { method: String, path: String, bearer: String, body: Value },
+    Host { conn: u64, bearer: String },
+    Frame { conn: u64, frame: Value },
 }
 
 #[derive(Default)]
@@ -40,6 +44,9 @@ struct Shared {
     delete_active: AtomicU64,
     delete_peak: AtomicU64,
     host_tokens: AtomicU64,
+    conns: AtomicU64,
+    /// The newest host socket's outbox: a frame, or `None` to close it.
+    to_host: Mutex<Option<Sender<Option<Value>>>>,
 }
 
 struct FakeRoom {
@@ -97,11 +104,28 @@ impl FakeRoom {
         }
     }
 
+    fn host(&self) -> (u64, String) {
+        match self.take("a host socket", |s| matches!(s, Seen::Host { .. })) {
+            Seen::Host { conn, bearer } => (conn, bearer),
+            _ => unreachable!(),
+        }
+    }
+
+    /// The next frame the daemon sent on host socket `conn`.
+    fn frame(&self, conn: u64) -> Value {
+        match self.take("a host frame", |s| matches!(s, Seen::Frame { conn: c, .. } if *c == conn))
+        {
+            Seen::Frame { frame, .. } => frame,
+            _ => unreachable!(),
+        }
+    }
+
     /// The next `method` request: its path, bearer and body.
     fn request(&self, method: &str) -> (String, String, Value) {
         let wanted = |s: &Seen| matches!(s, Seen::Request { method: m, .. } if m == method);
         match self.take(method, wanted) {
             Seen::Request { path, bearer, body, .. } => (path, bearer, body),
+            _ => unreachable!(),
         }
     }
 
@@ -120,9 +144,22 @@ impl FakeRoom {
     fn delete_peak(&self) -> u64 {
         self.shared.delete_peak.load(Ordering::SeqCst)
     }
+
+    fn send(&self, frame: Value) {
+        self.shared.to_host.lock().unwrap().as_ref().unwrap().send(Some(frame)).unwrap();
+    }
+
+    /// Closes the host socket the way a dropped connection does (no close code).
+    fn drop_host(&self) {
+        self.shared.to_host.lock().unwrap().take().unwrap().send(None).unwrap();
+    }
 }
 
 fn serve(stream: TcpStream, shared: &Shared, seen: &Sender<Seen>, base: &str) {
+    let mut start = [0u8; 3];
+    if stream.peek(&mut start).is_ok_and(|n| n == 3) && &start == b"GET" {
+        return serve_host(stream, shared, seen);
+    }
     let mut reader = BufReader::new(stream.try_clone().unwrap());
     let mut line = String::new();
     reader.read_line(&mut line).unwrap();
@@ -209,6 +246,49 @@ fn serve(stream: TcpStream, shared: &Shared, seen: &Sender<Seen>, base: &str) {
     );
 }
 
+// tungstenite's handshake callback type fixes its large error variant.
+#[allow(clippy::result_large_err)]
+fn serve_host(stream: TcpStream, shared: &Shared, seen: &Sender<Seen>) {
+    let mut bearer = String::new();
+    let callback = |request: &Request, response: Response| -> Result<Response, ErrorResponse> {
+        let header = request.headers().get("authorization").and_then(|v| v.to_str().ok());
+        bearer = header.unwrap_or_default().trim_start_matches("Bearer ").to_owned();
+        Ok(response)
+    };
+    let Ok(mut socket) = tungstenite::accept_hdr(stream, callback) else { return };
+    let conn = shared.conns.fetch_add(1, Ordering::SeqCst) + 1;
+    let (outbox, frames) = channel();
+    *shared.to_host.lock().unwrap() = Some(outbox);
+    let _ = seen.send(Seen::Host { conn, bearer });
+    socket.get_mut().set_read_timeout(Some(Duration::from_millis(10))).unwrap();
+    let hello = json!({"v": 1, "t": "hello", "guests": []}).to_string();
+    let _ = socket.send(Message::text(hello));
+    loop {
+        while let Ok(next) = frames.try_recv() {
+            let Some(frame) = next else {
+                let _ = socket.close(None);
+                let _ = socket.flush();
+                return;
+            };
+            let _ = socket.send(Message::text(frame.to_string()));
+        }
+        match socket.read() {
+            Ok(Message::Text(text)) => {
+                let frame = serde_json::from_str(text.as_str()).unwrap();
+                let _ = seen.send(Seen::Frame { conn, frame });
+            }
+            Ok(Message::Close(_)) => return,
+            Ok(_) => {}
+            Err(tungstenite::Error::Io(error))
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                ) => {}
+            Err(_) => return,
+        }
+    }
+}
+
 fn fast() -> Timing {
     Timing {
         request: Duration::from_secs(2),
@@ -236,6 +316,86 @@ fn create(owner: &mut Client, surface: u64) -> Value {
 fn state(owner: &mut Client) -> Value {
     let reply = owner.request(json!({"cmd":"agent-session-share-list"}));
     reply["data"]["shares"][0].clone()
+}
+
+fn redeem(id: &str, attempt: &str, secret: &Value) -> Value {
+    json!({"v": 1, "t": "redeem", "request_id": id, "attempt_id": attempt, "secret": secret,
+        "name": "Theo"})
+}
+
+#[test]
+fn a_provisioned_share_answers_hello_with_its_guests_and_redeems_through_the_daemon() {
+    let room = FakeRoom::start(&[]);
+    let (_fake, _mux, surface, mut owner) = bridged("room-redeem", &room);
+    let reply = create(&mut owner, surface);
+    assert_eq!(reply["ok"], true, "{reply}");
+    let share = &reply["data"];
+    let (id, secret) = (share["share_id"].as_str().unwrap(), share["secret"].as_str().unwrap());
+    assert_eq!(share["url"], format!("{}/g/{id}#{secret}", room.url));
+    // The host socket: the daemon's first frame after `hello` is its guest list.
+    let (conn, bearer) = room.host();
+    assert_eq!(bearer, "host-token-1");
+    assert_eq!(room.frame(conn), json!({"v": 1, "t": "guests", "active": []}));
+    room.send(redeem("r1", "attempt-1", &json!(secret)));
+    let redeemed = room.frame(conn);
+    assert_eq!(
+        (redeemed["t"].clone(), redeemed["request_id"].clone()),
+        (json!("redeemed"), json!("r1"))
+    );
+    let guest = redeemed["guest_id"].clone();
+    assert_eq!(guest.as_str().unwrap().len(), 11);
+    // A lost reply's retry gets the same guest; another attempt finds the one use spent.
+    room.send(redeem("r2", "attempt-1", &json!(secret)));
+    assert_eq!(room.frame(conn)["guest_id"], guest);
+    room.send(redeem("r3", "attempt-2", &json!(secret)));
+    assert_eq!(
+        room.frame(conn),
+        json!({"v": 1, "t": "redeemed", "request_id": "r3", "error": "share.used"})
+    );
+    room.send(redeem("r4", "attempt-3", &json!("AAAAAAAAAAAAAAAAAAAAAA")));
+    assert_eq!(room.frame(conn)["error"], "share.secret");
+    // A dropped socket reconnects, and the fresh `hello` gets the guest list first again.
+    room.drop_host();
+    let (again, bearer) = room.host();
+    assert_eq!(bearer, "host-token-1");
+    assert_eq!(room.frame(again), json!({"v": 1, "t": "guests", "active": [guest]}));
+}
+
+#[test]
+fn a_kick_is_resent_until_the_room_acknowledges_it_and_a_revoke_ends_and_deletes() {
+    let room = FakeRoom::start(&[]);
+    let (_fake, _mux, surface, mut owner) = bridged("room-kick", &room);
+    let share = create(&mut owner, surface)["data"].clone();
+    let (conn, _) = room.host();
+    assert_eq!(room.frame(conn)["active"], json!([]));
+    let guest = owner.request(json!({"cmd":"agent-session-share-redeem",
+        "share_id":share["share_id"], "secret":share["secret"], "name":"Theo",
+        "attempt_id":"attempt-1"}))["data"]["guest_id"]
+        .clone();
+    let kick = json!({"cmd":"agent-session-share-kick", "share_id":share["share_id"],
+        "guest_id":guest});
+    assert_eq!(owner.request(kick)["ok"], true);
+    let kicked = json!({"v": 1, "t": "kick", "guest_id": guest});
+    assert_eq!(room.frame(conn), json!({"v": 1, "t": "guests", "active": []}));
+    assert_eq!(room.frame(conn), kicked);
+    // Not acknowledged: the next connect sends it again, after the guest list.
+    room.drop_host();
+    let (conn, _) = room.host();
+    assert_eq!(room.frame(conn)["t"], "guests");
+    assert_eq!(room.frame(conn), kicked);
+    room.send(json!({"v": 1, "t": "kicked", "guest_id": guest}));
+    room.drop_host();
+    let (conn, _) = room.host();
+    assert_eq!(room.frame(conn)["t"], "guests");
+    // Acknowledged: not resent. A revoke sends `end`, closes, and deletes with the host token.
+    let revoke = json!({"cmd":"agent-session-share-revoke", "share_id":share["share_id"]});
+    assert_eq!(owner.request(revoke)["ok"], true);
+    assert_eq!(room.frame(conn), json!({"v": 1, "t": "end", "reason": "revoked"}));
+    let (path, bearer, _) = room.request("DELETE");
+    let id = share["share_id"].as_str().unwrap();
+    assert_eq!((path, bearer), (format!("/v1/chat-shares/{id}"), "host-token-1".to_owned()));
+    room.none("another host socket", |s| matches!(s, Seen::Host { .. }));
+    assert_eq!(state(&mut owner)["state"], "revoked");
 }
 
 #[test]
@@ -294,6 +454,7 @@ fn an_unreachable_room_is_retried_then_the_share_is_revoked_and_deleted() {
     assert_eq!(path, format!("/v1/chat-shares/{}", listed["share_id"].as_str().unwrap()));
     assert_eq!(bearer, OWNER_TOKEN);
     assert_eq!(state(&mut owner)["state"], "revoked");
+    room.none("a host socket", |s| matches!(s, Seen::Host { .. }));
 }
 
 #[test]
@@ -307,6 +468,7 @@ fn a_room_that_answers_after_create_failed_is_deleted_with_its_host_token() {
     let (_, bearer, _) = room.request("DELETE");
     assert_eq!(bearer, "host-token-1");
     assert_eq!(state(&mut owner)["state"], "revoked");
+    room.none("a host socket", |s| matches!(s, Seen::Host { .. }));
 }
 
 #[test]
@@ -320,7 +482,10 @@ fn a_create_without_sign_in_or_that_the_room_refuses_opens_nothing() {
     assert_code(&create(&mut owner, surface), "share.needs_sign_in");
     room.request("PUT");
     room.request("PUT");
-    room.none("a DELETE", |s| matches!(s, Seen::Request { method, .. } if method == "DELETE"));
+    room.none("a DELETE or a host socket", |s| {
+        matches!(s, Seen::Host { .. })
+            || matches!(s, Seen::Request { method, .. } if method == "DELETE")
+    });
 }
 
 fn shares_of(mux: &Mux) -> &LinkShares {
