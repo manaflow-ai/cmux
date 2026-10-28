@@ -29,7 +29,10 @@ const PRICES = {
   "claude-haiku-5-5": { input: 0.1, output: 0.5, cacheWrite: 0.125, cacheRead: 0.01 },
 };
 const MODEL = arg("model", "claude-sonnet-5-5");
-if (!MODELS.includes(MODEL)) throw new Error(`--model is one of ${MODELS.join(", ")}`);
+/** `openrouter:<id>` runs any OpenRouter model in the generic harness (an OpenCode-like agent). */
+const OPENROUTER = MODEL.startsWith("openrouter:") ? MODEL.slice("openrouter:".length) : null;
+if (!OPENROUTER && !MODELS.includes(MODEL)) throw new Error(`--model is one of ${MODELS.join(", ")} or openrouter:<id>`);
+const HARNESS = OPENROUTER ? "generic" : "claude";
 const SURFACES = (arg("surface", "code")).split(",");
 const CLI = arg("cli", process.env.CMUX_EVAL_CLI ?? "/Applications/cmux NIGHTLY.app/Contents/Resources/bin/cmux");
 const OUT = resolve(arg("out", join(REPO, "artifacts/tool-evals", new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19))));
@@ -82,7 +85,35 @@ function buildBase(surface, session) {
   return { system: TEMPLATE.system, tools: TEMPLATE.tools, reminders: TEMPLATE.reminders, env, deferred: tools.map(apiTool) };
 }
 
+/**
+ * The generic harness: what an OpenCode-like agent sends. A plain coding-agent system prompt,
+ * four native tools, and every cmux MCP tool listed directly as `cmux_<tool>` (no tool search),
+ * with the server's instructions in the system prompt.
+ */
+const GENERIC_SYSTEM = `You are an interactive coding agent running in the user's terminal. Use the tools to do what the user asks, then reply briefly with what you did. Do the work yourself; ask only when the request is ambiguous.`;
+const GENERIC_TOOLS = [
+  { name: "bash", description: "Run a shell command in the working directory and return its output.", input_schema: { type: "object", properties: { command: { type: "string" } }, required: ["command"] } },
+  { name: "read", description: "Read a file.", input_schema: { type: "object", properties: { file_path: { type: "string" } }, required: ["file_path"] } },
+  { name: "write", description: "Write a file.", input_schema: { type: "object", properties: { file_path: { type: "string" }, content: { type: "string" } }, required: ["file_path", "content"] } },
+  { name: "edit", description: "Replace old_string with new_string in a file.", input_schema: { type: "object", properties: { file_path: { type: "string" }, old_string: { type: "string" }, new_string: { type: "string" } }, required: ["file_path", "old_string", "new_string"] } },
+];
+const GENERIC_NAMES = { bash: "Bash", read: "Read", write: "Write", edit: "Edit" };
+/** The runner's tool name for a generic harness tool name. */
+const internalName = (name) => GENERIC_NAMES[name] ?? (name.startsWith("cmux_") ? PREFIX + name.slice(5) : name);
+
+function buildGenericBase(surface, session) {
+  const { tools, instructions } = surface === "cli" ? { tools: [], instructions: "" } : overlaid(session.tools, session.instructions);
+  const env = `Working directory: ${session.work}\nPlatform: darwin\nToday's date: 2026-10-27\nThe terminal you run in is a cmux terminal.` +
+    (instructions ? `\n\n# MCP server cmux\n${instructions}` : "");
+  const mcp = tools.map((t) => ({ name: `cmux_${t.name}`, description: t.description ?? "", input_schema: t.inputSchema ?? { type: "object" } }));
+  return { system: [{ type: "text", text: `${GENERIC_SYSTEM}\n\n${env}` }], tools: [...GENERIC_TOOLS, ...mcp], reminders: [], env: "", deferred: [] };
+}
+
 function firstMessages(base, testCase) {
+  if (HARNESS === "generic") {
+    const text = testCase.context ? `${testCase.context}\n\n${testCase.prompt}` : testCase.prompt;
+    return [{ role: "user", content: [{ type: "text", text }] }];
+  }
   const user = [...base.reminders.map((text) => ({ type: "text", text })), { type: "text", text: testCase.prompt }];
   if (testCase.context) user.unshift({ type: "text", text: `<system-reminder>\n${testCase.context}\n</system-reminder>` });
   return [{ role: "user", content: user }, { role: "system", content: [{ type: "text", text: base.env }] }];
@@ -210,6 +241,75 @@ function readLines(path) {
 
 let jobSeq = 0;
 
+// ---------- OpenRouter (OpenAI chat format) ----------
+const OPENROUTER_KEY = process.env.OPENROUTER_API_KEY ?? "";
+
+/** The runner's Messages-shaped request as an OpenAI chat request. */
+function toChat(body) {
+  const messages = [{ role: "system", content: body.system.map((b) => b.text).join("\n\n") }];
+  for (const m of body.messages) {
+    if (m.role === "assistant") {
+      const text = m.content.filter((b) => b.type === "text").map((b) => b.text).join("\n");
+      const calls = m.content.filter((b) => b.type === "tool_use").map((b) => ({ id: b.id, type: "function", function: { name: b.name, arguments: JSON.stringify(b.input ?? {}) } }));
+      const reasoning = m.content.find((b) => b.type === "reasoning_details");
+      messages.push({ role: "assistant", content: text || null, ...(calls.length ? { tool_calls: calls } : {}), ...(reasoning ? { reasoning_details: reasoning.details } : {}) });
+    } else {
+      const results = m.content.filter((b) => b.type === "tool_result");
+      for (const r of results) messages.push({ role: "tool", tool_call_id: r.tool_use_id, content: typeof r.content === "string" ? r.content : JSON.stringify(r.content) });
+      const text = m.content.filter((b) => b.type === "text").map((b) => b.text).join("\n\n");
+      if (text) messages.push({ role: "user", content: text });
+    }
+  }
+  return {
+    model: OPENROUTER,
+    messages,
+    tools: body.tools.map((t) => ({ type: "function", function: { name: t.name, description: t.description, parameters: t.input_schema } })),
+    max_tokens: 16000,
+    reasoning: { effort: EFFORT === "max" || EFFORT === "xhigh" ? "high" : EFFORT },
+    usage: { include: true },
+  };
+}
+
+/** One OpenRouter turn, answered in the runner's Messages shape. */
+async function callOpenRouter(body) {
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      signal: AbortSignal.timeout(300_000),
+      headers: { "content-type": "application/json", authorization: `Bearer ${OPENROUTER_KEY}`, "x-title": "cmux tool-evals" },
+      body: JSON.stringify(toChat(body)),
+    }).catch((error) => (attempt < 6 ? null : Promise.reject(error)));
+    const text = res ? await res.text() : "";
+    let data = null;
+    try { data = JSON.parse(text); } catch {}
+    const retry = !res || res.status === 429 || res.status >= 500 || (data && !data.choices && attempt < 6);
+    if (res?.ok && data?.choices?.length) {
+      const choice = data.choices[0];
+      const msg = choice.message ?? {};
+      const content = [];
+      if (msg.content) content.push({ type: "text", text: msg.content });
+      if (msg.reasoning_details?.length) content.push({ type: "reasoning_details", details: msg.reasoning_details });
+      for (const call of msg.tool_calls ?? []) {
+        let input = {};
+        try { input = JSON.parse(call.function.arguments || "{}"); } catch { input = { _unparsed: call.function.arguments }; }
+        content.push({ type: "tool_use", id: call.id, name: call.function.name, input });
+      }
+      const u = data.usage ?? {};
+      const cached = u.prompt_tokens_details?.cached_tokens ?? 0;
+      return {
+        content,
+        stop_reason: choice.finish_reason,
+        usage: { input_tokens: (u.prompt_tokens ?? 0) - cached, output_tokens: u.completion_tokens ?? 0, cache_read_input_tokens: cached, cost: u.cost ?? 0 },
+      };
+    }
+    if (retry && attempt < 6) {
+      await new Promise((r) => setTimeout(r, Math.min(30_000, 2000 * 2 ** attempt)));
+      continue;
+    }
+    throw new Error(`openrouter ${res?.status}: ${text.slice(0, 300)}`);
+  }
+}
+
 // ---------- the model ----------
 async function callModel(body) {
   for (let attempt = 0; ; attempt++) {
@@ -253,13 +353,14 @@ async function runSample(testCase, surface, index) {
       writeFileSync(join(session.work, file), body);
     }
     shellFixtures(sample);
-    sample.base = buildBase(surface, session);
+    sample.base = HARNESS === "generic" ? buildGenericBase(surface, session) : buildBase(surface, session);
     sample.tools = [...sample.base.tools];
     const before = normalize(await capture(session.cmux));
     const messages = firstMessages(sample.base, testCase);
+    const harnessMessages = HARNESS === "generic" ? 0 : 2;
     let stop = "";
     for (; sample.steps < MAX_STEPS; sample.steps++) {
-      const res = await callModel({
+      const res = await (OPENROUTER ? callOpenRouter : callModel)({
         model: MODEL,
         max_tokens: 32000,
         system: sample.base.system,
@@ -274,6 +375,7 @@ async function runSample(testCase, surface, index) {
       sample.usage.output += u.output_tokens ?? 0;
       sample.usage.cacheWrite += u.cache_creation_input_tokens ?? 0;
       sample.usage.cacheRead += u.cache_read_input_tokens ?? 0;
+      sample.usage.cost = (sample.usage.cost ?? 0) + (u.cost ?? 0);
       messages.push({ role: "assistant", content: res.content });
       sample.text += res.content.filter((b) => b.type === "text").map((b) => b.text).join("\n");
       const uses = res.content.filter((b) => b.type === "tool_use");
@@ -281,7 +383,7 @@ async function runSample(testCase, surface, index) {
       if (!uses.length) break;
       const results = [];
       for (const use of uses) {
-        const r = await answerTool(sample, use).catch((e) => ({ text: `harness: ${e.message}`, isError: true }));
+        const r = await answerTool(sample, { ...use, name: internalName(use.name) }).catch((e) => ({ text: `harness: ${e.message}`, isError: true }));
         results.push({ type: "tool_result", tool_use_id: use.id, content: r.text, ...(r.isError ? { is_error: true } : {}) });
       }
       messages.push({ role: "user", content: results });
@@ -300,7 +402,7 @@ async function runSample(testCase, surface, index) {
       steps: sample.steps + 1, stop, ops: sample.ops.length, op_errors: sample.ops.filter((o) => !o.ok).length,
       docs_calls: sample.docsCalls, first_input_tokens: sample.firstInput, usage: sample.usage, cost_usd: cost(sample.usage),
     };
-    writeFileSync(join(dir, "transcript.json"), JSON.stringify({ messages: messages.slice(2), ops: sample.ops, shell: sample.shell }, null, 1));
+    writeFileSync(join(dir, "transcript.json"), JSON.stringify({ messages: messages.slice(harnessMessages), ops: sample.ops, shell: sample.shell }, null, 1));
     writeFileSync(join(dir, "row.json"), JSON.stringify(row, null, 1));
     return row;
   } finally {
@@ -309,6 +411,7 @@ async function runSample(testCase, surface, index) {
 }
 
 const cost = (u) => {
+  if (OPENROUTER) return Number((u.cost ?? 0).toFixed(4));
   const p = PRICES[MODEL];
   return Number(((u.input * p.input + u.output * p.output + u.cacheWrite * p.cacheWrite + u.cacheRead * p.cacheRead) / 1e6).toFixed(4));
 };
