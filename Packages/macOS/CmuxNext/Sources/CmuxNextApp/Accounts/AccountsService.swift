@@ -1,3 +1,4 @@
+import CmuxNextPages
 import AppKit
 public import CmuxNextAccounts
 import CmuxNextCloud
@@ -16,6 +17,7 @@ import CmuxNextCompat
 final class AccountsService: AccountsServices {
     unowned let services: AppServices
     private(set) lazy var model = AccountsModel(services: self)
+    private(set) lazy var github = GitHubConnections.live(cloud: services.cloud, preview: services.environment.showcase || fixtureHome != nil)
     let keys: any ProviderKeyStoring
     /// The per-user salt behind every `acct_…` handle (Keychain, read once off the main actor).
     let labels: AccountLabelerStore
@@ -173,4 +175,31 @@ extension CloudAuth: CmuxAccountSource {}
 /// Fixture mode: no Keychain item exists.
 private struct NoKeychain: KeychainProbing {
     func hasGenericPassword(service: String) -> Bool { false }
+}
+
+extension GitHubConnections {
+    static func live(cloud: CloudService, preview: Bool) -> GitHubConnections {
+        let auth = cloud.auth
+        let transport = InstallHTTPTransport(baseURL: cloud.configuration.ownerAPIBaseURL())
+        let current: @MainActor () -> Scope? = {
+            guard !preview, auth.isSignedIn, let user = auth.user?.id else { return nil }
+            return Scope(user: backendUser(project: auth.configuration.stackProjectID, stackUser: user), team: auth.teamID)
+        }
+        return GitHubConnections(scope: current, call: { bound, op, params, mutationKey in
+            let access = try await auth.tokens().access
+            guard current() == bound else { throw GitHubFailure.changedAccount }
+            var body: [String: JSONValue] = ["op": .string(op), "params": params]
+            if let mutationKey {
+                body["origin"] = "user"
+                body["idempotency_key"] = .string(mutationKey)
+            }
+            var headers: [String: String] = [:]
+            if let team = backendTeam(project: auth.configuration.stackProjectID, stackTeam: bound.team) { headers["x-cmux-team"] = team }
+            let response = try await transport.post(mutationKey != nil ? "v1/ops" : "v1/read", json: JSONEncoder().encode(JSONValue.object(body)), bearer: access, headers: headers)
+            guard current() == bound else { throw GitHubFailure.changedAccount }
+            let reply = try JSONValue.parse(response.body)
+            guard (200..<300).contains(response.status), (reply["error"] == nil || reply["error"] == .null), reply["ok"] != .bool(false), let value = reply["value"] else { throw GitHubFailure.refused }
+            return value
+        }, open: { url in LinkRouter.shared.open(url) })
+    }
 }

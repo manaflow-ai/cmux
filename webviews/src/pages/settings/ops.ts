@@ -307,7 +307,21 @@ export type AccountsCmux = {
 };
 
 /** The Accounts part as the host draws it (texts already localized by the app). */
+export type GitHubConnectionState = {
+  title: string;
+  detail: string;
+  busy: boolean;
+  connect: string;
+  disconnect: string;
+  confirm: string;
+  cancel: string;
+  refresh: string;
+  canConnect: boolean;
+  connections: Array<{ id: string; account: string; status: string; permissions: string[]; canDisconnect: boolean }>;
+};
+
 export type AccountsState = {
+  github?: GitHubConnectionState;
   teams: AccountsTeams | null;
   refresh: string;
   refreshing: boolean;

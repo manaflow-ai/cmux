@@ -12,6 +12,16 @@ enum AccountsHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let services = context.services
         registry.bind("accounts.show", run: { _ in try services.settingsWindow.show(section: .accounts) })
+        registry.bind("accounts.githubConnect", run: { _ in
+            try services.settingsWindow.show(section: .accounts)
+            registry.track(result: Task { @MainActor in
+                let github = services.accounts.github
+                await github.connect()
+                let state = github.pageState
+                return .success(["status": .string(state["outcome"]?.stringValue ?? "failed"),
+                                 "detail": .string(state["detail"]?.stringValue ?? "")])
+            })
+        })
         registry.bind("accounts.refresh", run: { _ in services.accounts.model.refresh() })
         registry.bind("accounts.reauthenticate", run: { invocation in
             let provider = try provider(invocation)

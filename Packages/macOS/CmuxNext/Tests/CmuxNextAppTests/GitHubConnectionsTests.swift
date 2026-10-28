@@ -1,0 +1,159 @@
+import CmuxNextActions
+import CmuxNextAccounts
+import CmuxNextDaemon
+import Foundation
+import Testing
+@testable import CmuxNextApp
+
+@MainActor
+@Suite struct GitHubConnectionsTests {
+    private let scope = GitHubConnections.Scope(user: "user", team: nil)
+    private var listing: JSONValue {
+        ["connections": .array([]), "providers": [["provider": "github", "configured": true]]]
+    }
+
+    @Test func signedOutNeverCallsTheAPI() async {
+        var calls = 0
+        let model = GitHubConnections(scope: { nil }, call: { _, _, _, _ in calls += 1; return self.listing }, open: { _ in })
+        await model.perform("githubConnect")
+        await model.perform("githubRefresh")
+        await model.connect()
+        #expect(model.pageState["outcome"] == "needs-action")
+        #expect(calls == 0)
+        #expect(!model.ready)
+    }
+
+    @Test func connectUsesTheAppInstallPageAndDoesNotPretendItIsConnected() async {
+        var operations: [String] = []
+        var opened: [URL] = []
+        var connected = false
+        let model = GitHubConnections(scope: { self.scope }, call: { _, op, params, mutation in
+            operations.append(op)
+            if op == "integration.connect" {
+                #expect(params == ["provider": "github"])
+                #expect(mutation != nil)
+                connected = true
+                return ["connection": ["id": "sample"], "authorize_url": "https://github.com/apps/cmux/installations/new?state=sample"]
+            }
+            if connected { return ["connections": [["id": "sample", "provider": "github", "status": "pending"]], "providers": [["provider": "github", "configured": true]]] }
+            return self.listing
+        }, open: { opened.append($0) })
+        await model.perform("githubRefresh")
+        #expect(model.ready)
+        await model.perform("githubConnect")
+        #expect(operations == ["integration.list", "integration.connect", "integration.list"])
+        #expect(opened.count == 1)
+        #expect(model.pending)
+        #expect(model.currentConnections.first?["status"] == "pending")
+        await model.perform("githubConnect")
+        #expect(operations.filter { $0 == "integration.connect" }.count == 1)
+        #expect(opened.count == 2)
+    }
+
+    @Test func aResponseForTheOldAccountCannotPopulateTheNewAccount() async {
+        var current: GitHubConnections.Scope? = self.scope
+        let model = GitHubConnections(scope: { current }, call: { _, _, _, _ in
+            current = .init(user: "another-user", team: nil)
+            return ["connections": [["id": "old", "provider": "github", "status": "active"]], "providers": [["provider": "github", "configured": true]]]
+        }, open: { _ in })
+        await model.perform("githubRefresh")
+        #expect(model.currentConnections.isEmpty)
+        #expect(!model.ready)
+        #expect(!model.busy)
+    }
+
+    @Test func unknownConnectionCannotBeRevoked() async {
+        var calls = 0
+        let model = GitHubConnections(scope: { self.scope }, call: { _, _, _, _ in calls += 1; return self.listing }, open: { _ in })
+        await model.perform("githubDisconnect", connection: "not-captured")
+        #expect(calls == 0)
+    }
+
+    @Test func disconnectOnlyChangesAnOwnedConnectionAndRefreshesItsState() async {
+        var operations: [String] = []
+        var revoked = false
+        let model = GitHubConnections(scope: { self.scope }, call: { _, op, params, mutation in
+            operations.append(op)
+            if op == "integration.revoke" {
+                #expect(params == ["connection": "mine"])
+                #expect(mutation != nil)
+                revoked = true
+                return [:]
+            }
+            return ["connections": [
+                ["id": "mine", "provider": "github", "created_by": "user", "status": revoked ? "revoked" : "active"],
+                ["id": "shared", "provider": "github", "created_by": "another-user", "status": "active"],
+            ], "providers": [["provider": "github", "configured": true]]]
+        }, open: { _ in })
+        await model.perform("githubRefresh")
+        await model.perform("githubDisconnect", connection: "shared")
+        #expect(operations == ["integration.list"])
+        await model.perform("githubDisconnect", connection: "mine")
+        #expect(operations == ["integration.list", "integration.revoke", "integration.list"])
+        #expect(model.currentConnections.count == 1)
+        #expect(model.currentConnections.first?["id"] == "shared")
+    }
+
+    @Test func failedRefreshHasRecoveryAndDoesNotEraseKnownConnections() async {
+        var fail = false
+        var current = self.scope
+        let model = GitHubConnections(scope: { current }, call: { _, _, _, _ in
+            if fail { throw GitHubConnections.GitHubFailure.refused }
+            return self.listing
+        }, open: { _ in })
+        await model.perform("githubRefresh")
+        fail = true
+        await model.perform("githubRefresh")
+        #expect(model.error)
+        #expect(model.pageState["refresh"]?.stringValue?.isEmpty == false)
+        current = .init(user: "another-user", team: nil)
+        #expect(!model.error)
+        #expect(!model.ready)
+    }
+
+    @Test func lostConnectResponseReusesItsIdempotencyKey() async {
+        var keys: [String?] = []
+        let model = GitHubConnections(scope: { self.scope }, call: { _, op, _, key in
+            if op == "integration.connect" {
+                keys.append(key)
+                if keys.count == 1 { throw GitHubConnections.GitHubFailure.refused }
+                return ["connection": ["id": "sample"], "authorize_url": "https://github.com/apps/cmux/installations/new?state=sample"]
+            }
+            return self.listing
+        }, open: { _ in })
+        await model.connect()
+        #expect(model.error)
+        await model.connect()
+        #expect(keys.count == 2)
+        #expect(keys.first! != nil)
+        #expect(keys[0] == keys[1])
+    }
+
+    @Test func sharedConnectDoesNotCreateAnotherActiveConnection() async {
+        var connects = 0
+        let model = GitHubConnections(scope: { self.scope }, call: { _, op, _, _ in
+            if op == "integration.connect" { connects += 1 }
+            return ["connections": [["id": "mine", "provider": "github", "created_by": "user", "status": "active"]], "providers": [["provider": "github", "configured": true]]]
+        }, open: { _ in })
+        await model.connect()
+        await model.connect()
+        #expect(connects == 0)
+        #expect(model.pageState["outcome"] == "connected")
+    }
+
+    @Test func theGuideAndCLIShareAWaitingConnectAction() throws {
+        let action = try #require(ActionRegistry.standard().descriptor(for: "accounts.githubConnect"))
+        #expect(action.cliName == "accounts github-connect")
+        #expect(action.waitsForResult)
+    }
+
+    @Test(arguments: ["http://github.com/apps/cmux/installations/new", "https://example.test/apps/cmux/installations/new", "https://github.com@evil.test/apps/cmux/installations/new", "https://github.com/login", "https://github.com:443/apps/cmux/installations/new"])
+    func onlyGitHubAppInstallationURLsOpen(_ url: String) {
+        #expect(GitHubConnections.installationURL(url) == nil)
+    }
+
+    @Test func backendTeamUsesTheExistingIdentityContract() {
+        #expect(GitHubConnections.backendTeam(project: "project", stackTeam: "team") == "team_3051e6705a6a35841b74")
+        #expect(GitHubConnections.backendTeam(project: "project", stackTeam: nil) == nil)
+    }
+}
