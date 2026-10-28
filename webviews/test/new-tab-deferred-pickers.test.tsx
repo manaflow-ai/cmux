@@ -261,30 +261,22 @@ async function mountNewTab({
     );
   });
   const pickCombo = async (query: string, label: string) => {
-    // The button and Cmd-Ctrl-M share the compact picker; More models opens the searchable picker.
+    // Cmd-Ctrl-M opens the same compact picker as the model button; its search chooses the combo.
     await act(async () => {
       dom.window.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "m", metaKey: true, ctrlKey: true }));
     });
-    const compactMore = [...host.querySelectorAll<HTMLElement>('.acpmux-quick-menu [role="menuitem"]')].find((item) =>
-      item.textContent?.startsWith("More models"),
-    );
-    expect(compactMore).not.toBeUndefined();
-    await act(async () => compactMore!.click());
-    const search = host.querySelector<HTMLInputElement>('.acpmux-mp input[role="combobox"]');
+    const search = host.querySelector<HTMLInputElement>(".acpmux-quick-search input");
     expect(search).not.toBeNull();
     const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!;
     await act(async () => {
       setter.call(search, query);
       search!.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
     });
-    const row = [...host.querySelectorAll<HTMLElement>('.acpmux-mp [role="option"][data-key^="model:"]')].find(
+    const row = [...host.querySelectorAll<HTMLElement>('.acpmux-quick-menu [role="menuitemradio"]')].find(
       (candidate) => candidate.textContent?.includes(label),
     );
     expect(row).not.toBeUndefined();
     await act(async () => row!.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true })));
-  };
-  const settle = async () => {
-    for (let turn = 0; turn < 5; turn++) await new Promise((done) => setTimeout(done, 0));
   };
   // Return right after the pick (App's chat.new, then chat.send): the prompt queues on the switch,
   // which opens the chat, applies the picks and then sends it. With no switch holding it (a live
