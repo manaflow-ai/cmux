@@ -744,6 +744,7 @@ jobs:
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         env:
           SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+          ROLLOUT_START_PERCENT: ${{ vars.CMUX_STABLE_ROLLOUT_START_PERCENT }}
         run: |
           if [ -z "$SPARKLE_PRIVATE_KEY" ]; then
             echo "Missing SPARKLE_PRIVATE_KEY secret" >&2
@@ -766,6 +767,15 @@ jobs:
           grep -q 'sparkle:edSignature' appcast.xml
           grep -q 'cmux-macos.dmg' appcast.xml
           grep -q "<sparkle:minimumSystemVersion>${SPARKLE_MINIMUM_SYSTEM_VERSION}</sparkle:minimumSystemVersion>" appcast.xml
+          # Staged rollout (docs/cmux-next/release-rollout.md): with repository variable
+          # CMUX_STABLE_ROLLOUT_START_PERCENT set (1 for a staged release), the new item starts at
+          # that share of installs, so no scheduled check takes it everywhere before the operator's
+          # first stage. Unset: no element, and every install takes it (as before staged rollouts).
+          if [ -n "$ROLLOUT_START_PERCENT" ]; then
+            build="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' build-universal/Build/Products/Release/cmux.app/Contents/Info.plist)"
+            python3 scripts/cmux-next/release/stage-rollout.py set appcast.xml --build "$build" --percent "$ROLLOUT_START_PERCENT" --write
+            grep -q '<cmux:rolloutPercent>' appcast.xml
+          fi
 
       - name: Upload build artifacts (dry-run)
         if: steps.guard_release_assets.outputs.skip_upload != 'true' && github.event_name == 'workflow_dispatch'
