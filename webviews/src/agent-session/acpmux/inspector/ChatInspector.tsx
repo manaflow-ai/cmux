@@ -345,7 +345,11 @@ export function useChatInspector({
   /// `_acpmux/subsession/limits` (direct.ts setRunningLimit): chat `sessionId`'s running limit.
   onSetRunningLimit?: (sessionId: string, maxRunning: number | null, from?: number) => Promise<unknown>;
   /// The chat's Claude workflows (Labs, App.tsx `workflows`), in Background tasks (WorkflowTasks.tsx).
-  workflows?: { list: readonly WorkflowSummary[]; onStop?: (id: string) => Promise<unknown> };
+  workflows?: {
+    list: readonly WorkflowSummary[];
+    onStop?: (id: string) => Promise<unknown>;
+    onOpenAgent?: (agent: WorkflowAgent) => void;
+  };
   /// Opens one of the chat's folders in the Files tree beside the chat (a chat on this Mac).
   onOpenFolder?: (path: string) => void;
   /// Saves the chat's machine and folder as an environment (`environment.save`).
@@ -558,7 +562,11 @@ function InspectorPresence({
   sessions?: { list: readonly StartedSession[]; onOpen: (sessionId: string) => void };
   onSetRunningLimit?: (sessionId: string, maxRunning: number | null, from?: number) => Promise<unknown>;
   /// The chat's Claude workflows (Labs, App.tsx `workflows`), in Background tasks (WorkflowTasks.tsx).
-  workflows?: { list: readonly WorkflowSummary[]; onStop?: (id: string) => Promise<unknown> };
+  workflows?: {
+    list: readonly WorkflowSummary[];
+    onStop?: (id: string) => Promise<unknown>;
+    onOpenAgent?: (agent: WorkflowAgent) => void;
+  };
   revealed?: { section: InspectorSectionId; at: number };
   onRevealed: () => void;
   onStopProcess?: (id: string) => Promise<unknown>;
@@ -727,6 +735,7 @@ function InspectorPresence({
         sessions={scope ? undefined : sessions?.list}
         workflows={scope ? undefined : workflows?.list}
         onStopWorkflow={workflows?.onStop}
+        onOpenWorkflowAgent={workflows?.onOpenAgent}
         onOpenSession={sessions?.onOpen}
         onSetRunningLimit={onSetRunningLimit}
         revealed={revealed}
