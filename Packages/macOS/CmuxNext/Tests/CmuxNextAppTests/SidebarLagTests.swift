@@ -58,10 +58,13 @@ struct SidebarLagTests {
         write(report, to: reportURL("badge", parent: report.parent))
     }
 
-    /// Writes a child's report; a report it cannot write ends the child with a failure.
+    /// Writes a child's report in one atomic replace; a report it cannot write ends the child with a
+    /// failure. The child is a fresh process (Swift Testing spawns the test binary for an exit test; it
+    /// does not fork), so it holds none of the parent's windows, and the parent awaits its exit, so no
+    /// child outlives the test that started it.
     static func write(_ report: some Encodable, to url: URL) {
         do {
-            try JSONEncoder().encode(report).write(to: url)
+            try JSONEncoder().encode(report).write(to: url, options: .atomic)
         } catch {
             FileHandle.standardError.write(Data("sidebar-lag: the report was not written: \(error)\n".utf8))
             exit(EXIT_FAILURE)
