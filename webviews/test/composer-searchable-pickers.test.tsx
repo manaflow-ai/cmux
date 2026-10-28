@@ -413,8 +413,10 @@ test("an unmatched proposed project path is never checked as the private-folder 
   );
   await click(host.querySelector<HTMLButtonElement>("button")!);
   await type(document.querySelector<HTMLInputElement>('[role="combobox"]')!, "/tmp/new-project");
-  const proposed = document.querySelector('[role="option"]')!;
-  expect(proposed.textContent).toContain("/tmp/new-project");
+  const proposed = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((row) =>
+    row.textContent?.includes("/tmp/new-project"),
+  );
+  expect(proposed).toBeTruthy();
   expect(proposed.textContent).not.toContain("✓");
   expect(proposed.getAttribute("aria-current")).toBeNull();
 });
