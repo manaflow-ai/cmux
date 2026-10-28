@@ -316,7 +316,7 @@ impl Drop for Listener {
 }
 
 fn cstring(value: &str) -> Result<CString> {
-    CString::new(value).map_err(|_| Error(format!("NUL byte in {value:?}")))
+    CString::new(value).map_err(|_| Error("NUL byte in node configuration".into()))
 }
 
 fn create_private_dir(path: &std::path::Path) -> Result<()> {
