@@ -44,13 +44,26 @@ nonisolated public struct UpdateProber: Sendable {
         self.architecture = architecture
     }
 
+    /// `outcome`, except that an update this install's stage does not reach is no update: Sparkle
+    /// picks the newest item first and holds it there (`shouldProceedWithUpdate`), never falling
+    /// back to an older one, so the probe does not either.
+    func held(_ outcome: UpdateProbeOutcome) -> UpdateProbeOutcome {
+        guard case .updateAvailable(let item) = outcome, let rollout,
+              !rollout.offers(version: item.version, rawPercent: item.rolloutPercent) else { return outcome }
+        return .upToDate(latest: nil)
+    }
+
     /// Off the main actor: the feed's items an updater allowing `allowedChannels` sees, in feed
     /// order (a ring switch looks for the ring's builds this Mac kept, ``RingReturn``).
     @concurrent
     public func offered(_ identity: UpdateBuildIdentity, allowedChannels: Set<String>) async throws -> [AppcastItem] {
         let feed = identity.feed(architecture: architecture)
         guard let url = URL(string: feed.url) else { throw AppcastParseError(message: "invalid feed URL \(feed.url)") }
-        return try AppcastParser.parse(try await fetcher.fetch(url)).filter { $0.isOffered(allowing: allowedChannels) }
+        // A build this install's stage does not reach is not on the ring for it yet (``RingReturn``).
+        let rollout = rollout
+        return try AppcastParser.parse(try await fetcher.fetch(url)).filter {
+            $0.isOffered(allowing: allowedChannels) && rollout?.offers(version: $0.version, rawPercent: $0.rolloutPercent) != false
+        }
     }
 
     /// Off the main actor: network and XML parsing. Items whose `sparkle:channel` is not in
@@ -62,10 +75,7 @@ nonisolated public struct UpdateProber: Sendable {
         let feed = identity.feed(architecture: architecture)
         guard let url = URL(string: feed.url) else { throw AppcastParseError(message: "invalid feed URL \(feed.url)") }
         let allowed = allowedChannels ?? feed.channel.allowedSparkleChannels
-        let rollout = rollout
-        let items = try AppcastParser.parse(try await fetcher.fetch(url)).filter {
-            $0.isOffered(allowing: allowed) && rollout?.offers(version: $0.version, rawPercent: $0.rolloutPercent) != false
-        }
+        let items = try AppcastParser.parse(try await fetcher.fetch(url)).filter { $0.isOffered(allowing: allowed) }
         return UpdateProbeResult(
             track: identity.track,
             feedURL: feed.url,
@@ -73,7 +83,7 @@ nonisolated public struct UpdateProber: Sendable {
             currentBuild: identity.build,
             system: system,
             itemCount: items.count,
-            outcome: AppcastSelector.select(from: items, currentBuild: identity.build, system: system),
+            outcome: held(AppcastSelector.select(from: items, currentBuild: identity.build, system: system)),
             checkedAt: now
         )
     }

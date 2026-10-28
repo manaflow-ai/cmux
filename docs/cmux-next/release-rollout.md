@@ -20,8 +20,13 @@ circle, the update sheet, and the swap of a waiting update for a newer one) foll
 an install outside it is not shown the build.
 
 The stage applies to the newest item. If a feed lists an older item for everyone and a newer item at
-a stage, an install outside the stage stays where it is until the newer item reaches it; Sparkle does
-not fall back to the older item. The stable feed lists one item, so this does not apply to it.
+a stage, an install outside the stage stays where it is until the newer item reaches it; neither
+Sparkle nor cmux's probe falls back to the older item. The stable feed lists one item, so this does
+not apply to it.
+
+cmux's probe follows the stage on every read, also when the person asks: while an update waits for
+restart, Check for Updates does not swap it for a build outside the person's stage. Without a waiting
+update, the person's check goes to Sparkle, which is not held.
 
 Only builds that contain `StagedRollout` read the element. An install on an older build (classic
 cmux, or cmux NEXT from before the staged-rollout change) takes the item at its next check, whatever

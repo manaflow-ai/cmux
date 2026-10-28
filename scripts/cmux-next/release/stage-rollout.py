@@ -154,8 +154,7 @@ def stage_feed(feed: str, build: str, percent: float, now: datetime.datetime) ->
         if build not in item_versions(item):
             return item
         hits += 1
-        raw = element_value(item, PERCENT)
-        same = raw is not None and parse_percent(raw) == percent and element_value(item, STAGED_AT) is not None
+        same = readable_stage(item) == percent
         item = set_element(item, PERCENT, format_percent(percent))
         # Writing the same stage again (a re-upload) keeps its start, so its bake does not restart.
         return item if same else set_element(item, STAGED_AT, now.strftime("%Y-%m-%dT%H:%M:%SZ"))
@@ -212,6 +211,19 @@ def current_stage(feed: str, build: str) -> Stage:
         raise RolloutError(f"the items of build {build} are at different stages: {sorted(map(str, stages))}")
     percent, staged_at = stages.pop()
     return Stage(percent, staged_at)
+
+
+def readable_stage(item: str) -> float | None:
+    """The item's percent when it and its staged time both parse, else None: `set` then rewrites both,
+    so a broken hand edit is repaired by setting the stage again."""
+    raw, staged = element_value(item, PERCENT), element_value(item, STAGED_AT)
+    try:
+        if raw is None or staged is None:
+            return None
+        parse_time(staged)
+        return parse_percent(raw)
+    except RolloutError:
+        return None
 
 
 def next_stage(percent: float | None) -> float:

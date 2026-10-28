@@ -57,7 +57,8 @@ nonisolated private final class AppcastParserDelegate: NSObject, XMLParserDelega
         case "sparkle:deltas": deltaDepth -= 1
         case "item": finishItem()
         default:
-            guard fields != nil, deltaDepth == 0, !value.isEmpty else { return }
+            // An emptied staged-rollout element is kept: it is a broken value, which holds the build.
+            guard fields != nil, deltaDepth == 0, !value.isEmpty || name == StagedRollout.element else { return }
             fields?[name] = value
         }
     }
