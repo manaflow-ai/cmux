@@ -713,3 +713,23 @@ for (const [command, state] of [
     expect(transcriptPullRequests(toolsRows(shell(command)))).toMatchObject([{ number: 41, state, changed: true }]);
   });
 }
+
+for (const command of [
+  'gh pr merge 41 -R "acme/other"',
+  "gh pr merge '41' --repo='acme/other'",
+  "time -p gh pr merge 41 -R acme/other",
+  "env -i gh pr merge 41 -R acme/other",
+  "env --ignore-environment --unset TOKEN command -p gh pr merge 41 -R acme/other",
+  "env -u TOKEN -C /tmp gh pr merge 41 -R acme/other",
+]) {
+  test(`quoted targets and wrapper options retain mutation identity: ${command}`, () => {
+    expect(transcriptPullRequests(toolsRows(shell(command)), { folder: "acme/app" })).toMatchObject([
+      { repo: "acme/other", number: 41, changed: true, state: "merged" },
+    ]);
+  });
+}
+test("broker mutation targets remain actionable without live status", () => {
+  const [pr] = transcriptPullRequests(toolsRows(shell("glaeda-gh post pr-merge acme/app#41")));
+  expect(pr).toMatchObject({ repo: "acme/app", number: 41, changed: true, state: "merged" });
+  expect(pr?.mentioned).toBeUndefined();
+});
