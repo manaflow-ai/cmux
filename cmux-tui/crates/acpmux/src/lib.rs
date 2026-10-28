@@ -70,6 +70,7 @@ pub mod login_env;
 pub mod machine_wake;
 pub mod mailbox;
 pub mod mesh;
+pub mod mesh_http;
 pub mod model_copies;
 pub mod native;
 pub mod no_panic;
