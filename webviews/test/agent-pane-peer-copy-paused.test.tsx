@@ -84,7 +84,10 @@ function fakeApp(start: CloudMachine[]) {
   return { call, calls, set: (next: CloudMachine[]) => (machines = next) };
 }
 
-async function mount(peer: string | undefined, call: (method: string, params?: Record<string, unknown>) => Promise<unknown>) {
+async function mount(
+  peer: string | undefined,
+  call: (method: string, params?: Record<string, unknown>) => Promise<unknown>,
+) {
   const { createRoot } = await import("react-dom/client");
   const { PeerCopyBanner } = await import("../src/agent-session/acpmux/PeerCopyBanner");
   const { usePeerCloudMachine } = await import("../src/agent-session/acpmux/peerCloudMachine");
