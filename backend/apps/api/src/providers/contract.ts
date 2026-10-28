@@ -80,6 +80,28 @@ export interface CloudProviderCapabilities {
   readonly guestExec: boolean
   /** Inline TLS edge rules at create and their in-place replace. */
   readonly edgeTls: boolean
+  /** Scoped client sessions (clientSession): a token that reaches one VM as one Linux user, never the team key. */
+  readonly clientSession: boolean
+}
+
+/**
+ * One scoped client session (freestyle.sh/docs/vms/client-sessions): an identity granted only one VM
+ * as one Linux user, and a token that expires at `expiresAt`. The token is a secret: shown once to
+ * the caller, never logged, stored or put in an error. `identity` is the provider's handle for reuse
+ * and revocation; it is not a credential and never leaves the Worker.
+ */
+export interface ClientSessionGrant {
+  readonly identity: string
+  readonly token: string
+  /** Epoch ms. */
+  readonly expiresAt: number
+  /** The provider's VM id: the token is useless without it. */
+  readonly vmId: string
+  readonly linuxUser: string
+  /** Where the client sends exec and terminal calls with the token. */
+  readonly apiBaseUrl: string
+  /** The SSH proxy the token is the password for, or null when the provider has none. */
+  readonly ssh: { readonly host: string; readonly user: string } | null
 }
 
 /** The metadata every provider stores on a Cloud VM: GuardedCloudDriver adopts a VM only when it matches. */
@@ -120,4 +142,12 @@ export interface CloudProvider {
   replaceTlsRule(vmId: string, rule: EdgeTlsRule): Promise<boolean>
   /** One command as root, `stdin` (if any) as its stdin, answered inline (cx-kvmz). */
   execStdin(id: string, command: string, stdin: Uint8Array | null, timeoutMs: number): Promise<GuestExecResult>
+  /**
+   * Only when `capabilities.clientSession`: a token for VM `id` as `linuxUser` that expires at `expiresAt`
+   * (epoch ms). `identity` (from an earlier grant for this same VM and user) is reused when the provider
+   * still has it; otherwise a new identity is made and granted only this VM and user.
+   */
+  clientSession?(id: string, linuxUser: string, expiresAt: number, identity: string | null): Promise<ClientSessionGrant>
+  /** Deletes an identity with its tokens and grants (404 is success). Only when `capabilities.clientSession`. */
+  dropClientIdentity?(identity: string): Promise<void>
 }

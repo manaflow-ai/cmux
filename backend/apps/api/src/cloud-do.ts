@@ -15,6 +15,8 @@ import { deliverCloudAnswers, readCloudApproval } from "./cloud-approvals.ts"
 import type { DeliverResult, TargetItem } from "./do-outbox.ts"
 import { acpmuxKeyedStartOn, acpmuxPersonHoldsOn, type AcpmuxHost, type AcpmuxReply } from "./cloud-acpmux-do.ts"
 import type { MachineExecReply } from "./automation-machine.ts"
+import { ClientIdentityStore, mintClientSessionOn, type ClientSessionReply } from "./cloud-client-session.ts"
+import { teamPlan } from "./domains/cloud-plan.ts"
 
 /** How often connect_info and link_token may read a machine's real state from the provider. */
 const STATE_CHECK_EVERY_MS = 30_000
@@ -242,6 +244,44 @@ export class CloudDO extends CloudIdle {
     this.audit.record({ action: "automation.exec", machine, who: `automation:${entity}`, at: Date.now(), outcome: r ? `exit ${r.exitCode}` : "provider_failed" })
     return r ? { ok: true, exitCode: r.exitCode, stdout: r.stdout, stderr: r.stderr } : { ok: false, refusal: "provider_failed" }
   }
+
+  /**
+   * RPC from POST /v1/cloud/machines/{machine}/client-session (cloud-client-session.ts): NOT an op.
+   * No submit, no event, no ledger row; the audit row holds who, the machine, the user and the
+   * expiry, never the token.
+   */
+  async mintClientSession(entity: string, principal: Principal, machine: string, ttlSeconds: number): Promise<ClientSessionReply> {
+    if (principal.team !== entity) return { ok: false, refusal: "forbidden" }
+    if (!this.isBound(entity)) return { ok: false, refusal: "not_found" }
+    const rows = this.bind(entity).rows
+    const limit = this.env.CLOUD_MUTATION_LIMIT
+    return mintClientSessionOn(
+      {
+        team: entity,
+        machine: (id) => rows.get<MachineRow>(TABLE_MACHINE, id)?.row,
+        member: async (user) => {
+          if (entity === personalTeamIdFor(user)) return true
+          const started = Date.now()
+          return (await this.creatorIsMember(entity, user).catch(() => false)) && (this.leftAt.get(user) ?? -1) < started
+        },
+        plan: async (p) => {
+          await this.entitlements.refresh(entity, p)
+          return teamPlan(this.testUnset.has("CLOUD_ALLOWED_TEAMS") ? { ...this.config, allowedTeams: new Set() } : this.config, entity) !== null
+        },
+        limit: async (user) => !limit || (await limit.limit({ key: `cloud-client-session:${user}` })).success,
+        driver: (row) => Promise.resolve(this.driverFor(row)),
+        identities: (this.clientIdentities ??= new ClientIdentityStore(this.sqlStore)),
+        audit: (e) => this.audit.record(e),
+        now: () => Date.now() + this.skewMs,
+        inflight: this.clientInflight
+      },
+      principal,
+      machine,
+      ttlSeconds
+    )
+  }
+  private readonly clientInflight = new Map<string, Promise<unknown>>()
+  private clientIdentities: ClientIdentityStore | null = null
 
   private readonly acpmuxStarting = new Set<string>()
   /** null for an object nobody created (it is never created here). */

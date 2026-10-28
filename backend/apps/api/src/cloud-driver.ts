@@ -5,11 +5,11 @@ import type { CloudConfig } from "./domains/cloud-plan.ts"
 import { parseAllowedTeams } from "./domains/cloud-plan.ts"
 export { providerName } from "./domains/cloud-plan.ts"
 import { FakeCloudDriver } from "./cloud-driver-fake.ts"
-import type { CloudProvider, CloudProviderCapabilities, CreateOptions, EdgeTlsRule, GuestExecResult, VmResources, VmTag } from "./providers/contract.ts"
+import type { ClientSessionGrant, CloudProvider, CloudProviderCapabilities, CreateOptions, EdgeTlsRule, GuestExecResult, VmResources, VmTag } from "./providers/contract.ts"
 import { directCloudProvider } from "./providers/index.ts"
 import { vmApiSettings } from "./cloud-vm-api-config.ts"
 import { VmApiSnapshotOutcome } from "./cloud-vm-api-snapshot.ts"
-export type { CloudProvider, CloudProviderCapabilities, CreateOptions, EdgeTlsRule, GuestExecResult, ListedVm, VmResources, VmTag } from "./providers/contract.ts"
+export type { ClientSessionGrant, CloudProvider, CloudProviderCapabilities, CreateOptions, EdgeTlsRule, GuestExecResult, ListedVm, VmResources, VmTag } from "./providers/contract.ts"
 /** The contract's earlier name (callers and tests still import it). */
 export type RawCloudDriver = CloudProvider
 
@@ -247,6 +247,29 @@ export class GuardedCloudDriver {
     if (!ours(found.tag, tag)) throw new DriverError("cloud.provider.name_conflict", "the name belongs to another VM", true)
     return this.raw.execStdin(found.id, command, stdin, timeoutMs)
   }
+  /**
+   * A client session for our VM under `name` as `linuxUser` (cloud-client-session.ts). `reuse` is an
+   * identity an earlier session granted: reused only when it was granted this same provider VM, so a
+   * token never reaches a VM the machine no longer has. The answer names a `stale` identity the caller
+   * should drop (one granted a VM the name no longer points at).
+   */
+  async clientSession(name: string, tag: VmTag, linuxUser: string, expiresAt: number, reuse: { identity: string; vmId: string } | null): Promise<{ grant: ClientSessionGrant; stale: string | null }> {
+    this.guard(name)
+    if (!this.raw.capabilities.clientSession || !this.raw.clientSession) throw new DriverError("cloud.provider.unsupported", "client session: this provider has none", true)
+    const found = await this.raw.find(name)
+    if (!found) throw new DriverError("cloud.provider.vm_missing", "client session: no VM under the recorded name", true)
+    if (!ours(found.tag, tag)) throw new DriverError("cloud.provider.name_conflict", "the name belongs to another VM", true)
+    const same = reuse !== null && reuse.vmId === found.id
+    const grant = await this.raw.clientSession(found.id, linuxUser, expiresAt, same ? reuse.identity : null)
+    return { grant, stale: reuse !== null && reuse.identity !== grant.identity ? reuse.identity : null }
+  }
+
+  /** Deletes a client session identity (its tokens and grants); 404 is success. */
+  async dropClientIdentity(identity: string): Promise<void> {
+    if (!this.raw.dropClientIdentity) return
+    await this.raw.dropClientIdentity(identity)
+  }
+
   /** Deletes the VM under `name`; no VM there is success. */
   async remove(name: string, tag: VmTag): Promise<void> {
     this.guard(name)
