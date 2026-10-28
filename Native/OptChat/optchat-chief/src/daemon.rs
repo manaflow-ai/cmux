@@ -174,12 +174,13 @@ pub trait PreviewPort: Send {
         height: u32,
     ) -> Result<DerivedImage, OpError>;
 
-    /// `bytes` as an attachment record of `conversation` (a picture or video
-    /// the Chief sends): the same upload, with the size only when known.
+    /// The file at `path` as an attachment record of `conversation` (a
+    /// picture or video the Chief sends, of any size): the same upload, read
+    /// from the file a chunk at a time, with the size only when known.
     fn upload_attachment(
         &mut self,
         conversation: &str,
-        bytes: &[u8],
+        path: &std::path::Path,
         mime_type: &str,
         name: &str,
         width: Option<u32>,
@@ -187,12 +188,48 @@ pub trait PreviewPort: Send {
     ) -> Result<DerivedImage, OpError>;
 }
 
+/// The bytes of an upload: in memory (a link preview picture, one chunk at
+/// most), or a file that is hashed and then sent one chunk at a time, so a
+/// file of any size never sits in memory whole.
+#[derive(Clone, Copy)]
+enum Source<'a> {
+    Bytes(&'a [u8]),
+    File(&'a std::path::Path),
+}
+
+impl Source<'_> {
+    /// The SHA-256 (lowercase hex) and length of the bytes.
+    fn digest(self) -> std::io::Result<(String, u64)> {
+        use sha2::Digest;
+        let mut hasher = sha2::Sha256::new();
+        let len = match self {
+            Source::Bytes(bytes) => {
+                hasher.update(bytes);
+                bytes.len() as u64
+            }
+            Source::File(path) => std::io::copy(&mut std::fs::File::open(path)?, &mut hasher)?,
+        };
+        let hash = hasher
+            .finalize()
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        Ok((hash, len))
+    }
+}
+
+/// What is left to send of a [`Source`].
+enum Chunks<'a> {
+    Bytes(&'a [u8]),
+    File(std::fs::File),
+}
+
 /// The upload steps of [`PreviewPort::upload_image`] on `client`.
 #[allow(clippy::too_many_arguments)]
 fn upload_with(
     client: &mut Client,
     conversation: &str,
-    bytes: &[u8],
+    source: Source<'_>,
     mime_type: &str,
     name: &str,
     width: Option<u32>,
@@ -205,7 +242,7 @@ fn upload_with(
                 .map_err(sdk_error)
         },
         conversation,
-        bytes,
+        source,
         mime_type,
         name,
         width,
@@ -221,22 +258,21 @@ fn upload_steps(
         ConversationAttachmentUploadRequest,
     ) -> Result<ConversationAttachmentUploadResult, OpError>,
     conversation: &str,
-    bytes: &[u8],
+    source: Source<'_>,
     mime_type: &str,
     name: &str,
     width: Option<u32>,
     height: Option<u32>,
 ) -> Result<DerivedImage, OpError> {
     use base64::Engine;
-    use sha2::Digest;
-    let hash: String = sha2::Sha256::digest(bytes)
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect();
+    use std::io::Read;
+    let unreadable =
+        |e: std::io::Error| OpError::Transport(format!("reading the file failed: {e}"));
+    let (hash, byte_count) = source.digest().map_err(unreadable)?;
     let image = DerivedImage {
         hash: hash.clone(),
         mime_type: mime_type.to_owned(),
-        byte_count: bytes.len() as u64,
+        byte_count,
     };
     let step = |op: &str| ConversationAttachmentUploadRequest {
         op: op.into(),
@@ -289,15 +325,46 @@ fn upload_steps(
         ));
     };
     // The owner takes at most ATTACHMENT_CHUNK_BYTES a chunk (its
-    // MAX_CHUNK_BYTES): a file sent whole over that is refused.
-    for (index, chunk) in bytes.chunks(ATTACHMENT_CHUNK_BYTES as usize).enumerate() {
+    // MAX_CHUNK_BYTES): a file sent whole over that is refused. A file is
+    // read again one chunk at a time; one that changed since it was hashed
+    // fails the owner's hash check at the commit.
+    let mut remaining = match source {
+        Source::Bytes(bytes) => Chunks::Bytes(bytes),
+        Source::File(path) => Chunks::File(std::fs::File::open(path).map_err(unreadable)?),
+    };
+    let mut buffer = Vec::new();
+    let mut offset = 0;
+    while offset < byte_count {
+        let length = (byte_count - offset).min(ATTACHMENT_CHUNK_BYTES);
+        let chunk = match &mut remaining {
+            Chunks::Bytes(bytes) => {
+                let all: &[u8] = bytes;
+                let (chunk, rest) = all.split_at((length as usize).min(all.len()));
+                *bytes = rest;
+                chunk
+            }
+            Chunks::File(file) => {
+                buffer.clear();
+                file.by_ref()
+                    .take(length)
+                    .read_to_end(&mut buffer)
+                    .map_err(unreadable)?;
+                &buffer[..]
+            }
+        };
+        if chunk.is_empty() {
+            return Err(OpError::Transport(
+                "the file shrank while it was sent".into(),
+            ));
+        }
         send(ConversationAttachmentUploadRequest {
             upload: Optional::Value(upload.clone()),
             piece: Optional::Value("original".into()),
-            offset: Optional::Value(index as u64 * ATTACHMENT_CHUNK_BYTES),
+            offset: Optional::Value(offset),
             data: Optional::Value(base64::engine::general_purpose::STANDARD.encode(chunk)),
             ..step("chunk")
         })?;
+        offset += chunk.len() as u64;
     }
     let commit = send(ConversationAttachmentUploadRequest {
         upload: Optional::Value(upload),
@@ -476,7 +543,7 @@ impl PreviewPort for SdkPreviewPort {
         upload_with(
             self.client()?,
             conversation,
-            bytes,
+            Source::Bytes(bytes),
             mime_type,
             name,
             Some(width),
@@ -487,7 +554,7 @@ impl PreviewPort for SdkPreviewPort {
     fn upload_attachment(
         &mut self,
         conversation: &str,
-        bytes: &[u8],
+        path: &std::path::Path,
         mime_type: &str,
         name: &str,
         width: Option<u32>,
@@ -496,7 +563,7 @@ impl PreviewPort for SdkPreviewPort {
         upload_with(
             self.client()?,
             conversation,
-            bytes,
+            Source::File(path),
             mime_type,
             name,
             width,
@@ -667,7 +734,7 @@ impl ConversationPort for SdkConversations {
         upload_with(
             &mut self.client,
             conversation,
-            bytes,
+            Source::Bytes(bytes),
             mime_type,
             name,
             Some(width),
@@ -1214,7 +1281,7 @@ mod tests {
         upload_steps(
             &mut |request| owner.step(request),
             "conv-1",
-            bytes,
+            Source::Bytes(bytes),
             "image/png",
             "shot.png",
             Some(10),
@@ -1229,6 +1296,38 @@ mod tests {
         let bytes: Vec<u8> = (0..9_216_808u32).map(|i| (i % 251) as u8).collect();
         let mut owner = Owner::default();
         let stored = upload(&mut owner, &bytes).expect("the upload is stored");
+        assert_eq!(stored.byte_count, bytes.len() as u64);
+        assert_eq!(owner.received, bytes);
+        let chunk = ATTACHMENT_CHUNK_BYTES as usize;
+        assert_eq!(
+            owner.chunks,
+            vec![
+                (0, chunk),
+                (chunk as u64, chunk),
+                (2 * chunk as u64, bytes.len() - 2 * chunk)
+            ]
+        );
+    }
+
+    /// The Chief sends a file of any size from disk: the same chunks as the
+    /// bytes, read one chunk at a time.
+    #[test]
+    fn a_file_on_disk_uploads_in_4_mib_chunks() {
+        let bytes: Vec<u8> = (0..9_216_808u32).map(|i| (i % 251) as u8).collect();
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("clip.mp4");
+        std::fs::write(&path, &bytes).unwrap();
+        let mut owner = Owner::default();
+        let stored = upload_steps(
+            &mut |request| owner.step(request),
+            "conv-1",
+            Source::File(&path),
+            "video/mp4",
+            "clip.mp4",
+            None,
+            None,
+        )
+        .expect("the upload is stored");
         assert_eq!(stored.byte_count, bytes.len() as u64);
         assert_eq!(owner.received, bytes);
         let chunk = ATTACHMENT_CHUNK_BYTES as usize;
