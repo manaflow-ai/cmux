@@ -81,6 +81,29 @@ struct CMUXCLIMissingWorkingDirectoryTests {
         }
     }
 
+    @Test(arguments: ["missing", "file", "directory"])
+    func missingClaudeTranscriptKeepsBindingUntilSavedDirectoryIsAccessible(pathKind: String) throws {
+        let fixture = try Fixture(pathIsFile: pathKind == "file")
+        defer { fixture.remove() }
+        if pathKind == "directory" {
+            try FileManager.default.createDirectory(at: fixture.savedDirectory, withIntermediateDirectories: true)
+        }
+        var record = fixture.record(kind: "claude")
+        record["environment"] = ["CLAUDE_CONFIG_DIR": fixture.root.appendingPathComponent(".claude").path]
+        record["prepared_arguments"] = [fixture.executable.path, "--resume", fixture.checkpoint]
+        let result = try fixture.run(verb: "restore", record: record)
+        if pathKind == "directory" {
+            #expect(!result.process.timedOut && result.process.status == 1,
+                    Comment(rawValue: result.process.diagnostics))
+            #expect(result.process.stderr.contains("no saved conversation"), Comment(rawValue: result.process.diagnostics))
+            #expect(result.methods == ["surface.resume.get", "surface.resume.clear"])
+            #expect(!FileManager.default.fileExists(atPath: fixture.marker.path))
+        } else {
+            fixture.expectRefusal(result.process, verb: "restore")
+            #expect(result.methods == ["surface.resume.get"])
+        }
+    }
+
     private struct Fixture {
         let root: URL
         let savedDirectory: URL
@@ -123,14 +146,15 @@ struct CMUXCLIMissingWorkingDirectoryTests {
         ) {
             let surface = UUID().uuidString.lowercased()
             let workspace = UUID().uuidString.lowercased()
+            let kind = try #require(record["kind"] as? String)
             let response = try JSONSerialization.data(withJSONObject: [
                 "ok": true, "result": [
                     "workspace_id": workspace, "surface_id": surface,
                     "caller": ["workspace_id": workspace, "surface_id": surface], "focused": [String: Any](),
                     "restore_record": record,
                     "resume_binding": [
-                        "kind": "codex", "name": "Codex", "checkpoint_id": checkpoint,
-                        "command": "codex resume \(checkpoint)", "cwd": savedDirectory.path,
+                        "kind": kind, "name": kind, "checkpoint_id": checkpoint,
+                        "command": "\(kind) resume \(checkpoint)", "cwd": savedDirectory.path,
                         "source": "agent-hook", "resume_evidence_provenance": "tui",
                         "auto_resume": true, "updated_at": 123.5,
                     ],
@@ -147,7 +171,7 @@ struct CMUXCLIMissingWorkingDirectoryTests {
             let runner = CMUXCLIErrorOutputRegressionTests()
             let result = runner.runProcess(
                 executablePath: try runner.bundledCLIPath(),
-                arguments: [verb, "--surface", surface, try #require(record["kind"] as? String), checkpoint],
+                arguments: [verb, "--surface", surface, kind, checkpoint],
                 environment: [
                     "HOME": root.path, "CFFIXED_USER_HOME": root.path,
                     "CODEX_HOME": codexHome.path, "PATH": "\(root.path):/usr/bin:/bin",
