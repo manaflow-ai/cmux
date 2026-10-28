@@ -235,6 +235,7 @@ extension LaunchPictureKeys {
         guard let controller = router.services?.windows.controller(for: id), let shell = controller.window else { return false }
         if router.launchPictureKeys.showsPicture(window: id), !decidesKeys(controller.focus.state.resolved) { return false }
         for event in events {
+            router.services?.inputLatency.replayed(event, keyWindow: shell) // its hold, when late (debug.input late_keys)
             router.dispatchingSynthetic(event) {
                 if !router.interceptKeyDown(event, in: shell) { shell.sendEvent(event) }
             }
@@ -247,6 +248,7 @@ extension LaunchPictureKeys {
     private static func deliverKeys(_ events: [NSEvent], to target: Target, router: KeyRouter) -> Bool {
         guard let surface = liveSurface(of: target, router: router) else { return false }
         for event in events {
+            router.services?.inputLatency.replayed(event, keyWindow: surface.window)
             router.dispatchingSynthetic(event) { surface.keyDown(with: event) }
         }
         return true

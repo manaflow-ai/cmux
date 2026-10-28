@@ -177,6 +177,14 @@ public final class KeyArrivalLedger {
                         responderChain: chain, responderAgeNanos: age))
     }
 
+    /// A held key a path ran again outside `NSApplication.sendEvent` (straight to a window or view: the New Tab field's,
+    /// the launch picture's): logged when it ran more than ``lateNanos`` after its OS time, with the path that held it.
+    /// The key keeps the one slot its first pass opened; this row is its hold.
+    public func replayed(_ event: NSEvent, at nanos: UInt64, keyWindow: NSWindow?) {
+        let arrived = index(of: event).map { entries[$0].arrived } ?? nanos
+        logIfLate(event, arrived: arrived, dispatchStart: nanos, target: nil, keyWindow: keyWindow)
+    }
+
     /// Logs one late key.
     public func logLate(_ key: LateKey) {
         lateTotal &+= 1

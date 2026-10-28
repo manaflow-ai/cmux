@@ -287,7 +287,7 @@ final class KeyRouter: BrowserKeyRouting {
 
     /// A key the dispatcher handed to the focused view waits for its terminal while that is still a launch picture.
     private func holdsForLaunchPicture(_ event: NSEvent, in window: NSWindow?) -> Bool {
-        modes.contains(.launchPicture) && launchPictureKeys.holdsForTerminal(event, in: window, router: self)
+        modes.contains(.launchPicture) && launchPictureKeys.holdsForTerminal(event, in: window, router: self) && held(event, by: .launchPicture)
     }
 
     /// Steps 1-5 for a key-down in `window`, a cmux window or a Chromium
