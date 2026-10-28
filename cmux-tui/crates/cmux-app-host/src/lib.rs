@@ -48,6 +48,8 @@
 
 #[cfg(feature = "engine")]
 pub mod host_loop;
+#[cfg(feature = "engine")]
+pub mod panic_log;
 pub mod protocol;
 #[cfg(feature = "engine")]
 pub mod sandbox;
