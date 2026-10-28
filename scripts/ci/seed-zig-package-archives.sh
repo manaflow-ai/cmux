@@ -15,7 +15,8 @@
 # Zig too.
 #
 # usage: seed-zig-package-archives.sh CACHE_DIR [SOURCE_DIR]
-# CMUX_ZIG_SEED_PARALLEL (default 16) downloads run at once.
+# CMUX_ZIG_SEED_PARALLEL (default 16) downloads run at once, and the whole seed
+# stops after CMUX_ZIG_SEED_TIMEOUT seconds (default 300), leaving the rest to Zig.
 set -euo pipefail
 
 if [[ "${1:-}" == --one ]]; then
@@ -27,7 +28,9 @@ if [[ "${1:-}" == --one ]]; then
   [[ -e "$final" ]] && exit 0
   part="$cache/p/.seed-$hash-$$"
   trap 'rm -f "$part" "$part.raw"' EXIT
-  curl -fsSL --proto '=http,https' --retry 3 --retry-delay 3 --retry-all-errors \
+  trap 'exit 143' TERM
+  # --retry-max-time caps a server's Retry-After too (it can ask for an hour).
+  curl -fsSL --proto '=http,https' --retry 3 --retry-delay 3 --retry-all-errors --retry-max-time 60 \
     --connect-timeout 20 --speed-limit 51200 --speed-time 20 --max-time 120 \
     -o "$part.raw" "$url" 2>/dev/null || { echo "seed: could not download $url" >&2; exit 1; }
   case "$url" in
@@ -44,7 +47,10 @@ fi
 cache="${1:?usage: seed-zig-package-archives.sh CACHE_DIR [SOURCE_DIR]}"
 source_dir="${2:-.}"
 parallel="${CMUX_ZIG_SEED_PARALLEL:-16}"
-[[ "$parallel" =~ ^[1-9][0-9]*$ ]] || { echo "error: CMUX_ZIG_SEED_PARALLEL must be a positive whole number" >&2; exit 2; }
+seed_timeout="${CMUX_ZIG_SEED_TIMEOUT:-300}"
+for value in "$parallel" "$seed_timeout"; do
+  [[ "$value" =~ ^[1-9][0-9]*$ ]] || { echo "error: CMUX_ZIG_SEED_PARALLEL and CMUX_ZIG_SEED_TIMEOUT must be positive whole numbers" >&2; exit 2; }
+done
 command -v curl >/dev/null 2>&1 || { echo "seed: no curl; Zig fetches every package"; exit 0; }
 mkdir -p "$cache/p"
 
@@ -99,7 +105,27 @@ done <<<"$pairs"
 
 wanted="$(printf '%s' "$todo" | grep -c . || true)"
 if (( wanted > 0 )); then
-  printf '%s' "$todo" | xargs -n 2 -P "$parallel" "$0" --one "$cache" || true
+  # In a process group of its own, so the deadline stops every download.
+  set -m
+  list="$(mktemp "${TMPDIR:-/tmp}/zig-seed.XXXXXX")"
+  printf '%s' "$todo" > "$list"
+  # One process (not a pipeline), so its pid is the group's id.
+  xargs -n 2 -P "$parallel" "$0" --one "$cache" < "$list" &
+  pool=$!
+  set +m
+  ( deadline=$((SECONDS + seed_timeout))
+    while kill -0 "$pool" 2>/dev/null; do
+      if (( SECONDS >= deadline )); then
+        echo "seed: stopped after ${seed_timeout}s; Zig fetches the rest" >&2
+        kill -TERM -- "-$pool" 2>/dev/null; sleep 2; kill -KILL -- "-$pool" 2>/dev/null; exit 0
+      fi
+      sleep 1
+    done ) &
+  watchdog=$!
+  wait "$pool" 2>/dev/null || true
+  kill "$watchdog" 2>/dev/null || true
+  wait "$watchdog" 2>/dev/null || true
+  rm -f "$list"
 fi
 seeded=0
 while read -r hash _url; do

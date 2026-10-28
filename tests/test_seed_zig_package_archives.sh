@@ -95,6 +95,37 @@ kill "$server_pid"; wait "$server_pid" 2>/dev/null || true; server_pid=""
 "$SEED" "$TMP/cache" "$TMP/src" > "$TMP/out" 2>&1 || fail "a second run failed"
 cmp -s "$TMP/cache/p/N-one.tar.gz" "$TMP/www/one.tar.gz" || fail "a second run replaced a seeded archive"
 
+# A server that answers 503 with Retry-After: 3600, or never answers, cannot
+# hold the seed past its deadline: the rest is left to Zig.
+cat > "$TMP/slow.py" <<'PY'
+import http.server, sys, time
+class H(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        if "later" in self.path:
+            self.send_response(503); self.send_header("Retry-After", "3600")
+            self.send_header("Content-Length", "0"); self.end_headers(); return
+        time.sleep(600)
+    def log_message(self, *a): pass
+http.server.ThreadingHTTPServer(("127.0.0.1", int(sys.argv[1])), H).serve_forever()
+PY
+slow_port="$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')"
+python3 "$TMP/slow.py" "$slow_port" >/dev/null 2>&1 &
+server_pid=$!
+for _ in $(seq 1 50); do curl -s -o /dev/null --max-time 1 "http://127.0.0.1:$slow_port/later.tar.gz" && break; sleep 0.1; done
+mkdir -p "$TMP/slow-src" "$TMP/slow-cache"
+cat > "$TMP/slow-src/build.zig.zon" <<EOF
+.{ .dependencies = .{
+    .later = .{ .url = "http://127.0.0.1:$slow_port/later.tar.gz", .hash = "N-later" },
+    .hang = .{ .url = "http://127.0.0.1:$slow_port/hang.tar.gz", .hash = "N-hang" },
+} }
+EOF
+start=$SECONDS
+CMUX_ZIG_SEED_TIMEOUT=4 "$SEED" "$TMP/slow-cache" "$TMP/slow-src" > "$TMP/out" 2>&1 || fail "a slow seed did not exit 0"
+(( SECONDS - start < 15 )) || fail "a slow host held the seed for $((SECONDS - start))s past its 4 s deadline"
+[[ -z "$(ls -A "$TMP/slow-cache/p")" ]] || fail "a stopped seed left files in p/: $(ls -A "$TMP/slow-cache/p")"
+grep -q "stopped after 4s" "$TMP/out" || fail "the seed deadline was not reported"
+kill "$server_pid" 2>/dev/null; wait "$server_pid" 2>/dev/null || true; server_pid=""
+
 # The fetch seeds before Zig runs, unless CMUX_ZIG_SEED=0.
 grep -q 'seed-zig-package-archives.sh" "$cache"' "$ROOT/scripts/ci/fetch-ghostty-zig-packages.sh" \
   || fail "fetch-ghostty-zig-packages.sh no longer seeds the archives with curl"
