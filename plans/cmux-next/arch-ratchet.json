@@ -591,6 +591,12 @@
       "row": "observer_sites",
       "allow": 1,
       "why": "HomeReduceMotion is the existing process-wide adapter for native Home. It additionally observes Motion.speedDidChange once per app so already-mounted working spinners stop immediately when the master/category animation switch or speed is disabled. The existing per-view Reduce Motion delivery refreshes affected cells; no observer is added per row. Tokens live with the process-wide adapter until app shutdown. PR #26385 includes independent xhigh review of this lifecycle and rationale."
+    },
+    {
+      "date": "2026-10-28",
+      "row": "observer_sites",
+      "allow": 1,
+      "why": "DisplayBackdropBinding observes screen and system clock changes once per window so a moved window rebinds its display-specific wallpaper and cadence; stop removes the token and timer with the window. A process-wide observer cannot identify affected windows without reintroducing a per-window dispatch table."
     }
   ],
   "observer_wrappers": [
