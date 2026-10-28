@@ -9,6 +9,8 @@ public nonisolated enum TerminalDisconnectCause: Sendable, Equatable {
     /// An administrator turned off the feature that reaches this terminal's
     /// machine (`DisabledFeatures`); the view does not reconnect.
     case turnedOffByOrganization
+    /// A restored terminal is still not back after about 5 s; the view keeps trying by itself.
+    case restoreStalled
 }
 
 /// A terminal view's link to its terminal. A disconnected view keeps its

@@ -167,6 +167,9 @@ final class TerminalStatusBanner: NSView {
                 strings.text("terminal.link.turnedOffByOrganization", defaultValue: "Turned off by your organization")
             case .fellBehind:
                 strings.text("terminal.link.fellBehind", defaultValue: "Disconnected: output fell behind")
+            case .restoreStalled:
+                strings.text("terminal.link.restoreStalled",
+                             defaultValue: "Still restoring: cmux's terminal service has not answered for this terminal yet")
             }
             let hint = strings.text("terminal.link.hint", defaultValue: "Click or type to reconnect")
             return "\(reason) · \(hint)"

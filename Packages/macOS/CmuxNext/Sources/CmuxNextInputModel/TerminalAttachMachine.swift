@@ -25,7 +25,8 @@ public import Foundation
 /// restored view stops saying `restoring`). One re-attach at a time. Until a view first went
 /// live its status is `restoring` (when it was created as a restore) while it
 /// attaches or retries, and its backoff stays short (``restoreBackoffCap``), so it comes
-/// back with no input soon after the daemon answers (#23029). An event that comes while an
+/// back with no input soon after the daemon answers (#23029); still missing after about 5 s
+/// (``restoreStallReconnects``) it says why and offers Retry, and keeps retrying. An event that comes while an
 /// attach is in flight is kept: if that attach fails, the next one opens at once. A terminal whose
 /// process ended is `exited` and never re-attaches on a view event; only the
 /// daemon reporting the terminal running again (`processRevived`) re-attaches
@@ -63,9 +64,14 @@ public nonisolated struct TerminalAttachMachine<Link: Hashable & Sendable>: Send
     /// it must not wait 30 s for an attach that would now work (#23029).
     public static var restoreBackoffCap: Int { 3 }
     /// ``quietReconnects`` for that view: about the same 90 s at its shorter backoff. Past it the
-    /// view offers Retry and backs off as any other, so a daemon that never answers is not asked
-    /// every 2 s for good.
+    /// view backs off as any other, so a daemon that never answers is not asked every 2 s for good.
     public static var quietRestoreReconnects: Int { 45 }
+    /// Self-started re-attaches of a restored view that has not gone live before it says why and
+    /// offers Retry (audit P13: "Restoring…" said nothing for up to 90 s): about 5.5 s of the restore
+    /// backoff (0, 0.5, 1, 2, 2 s) plus the failed attaches. Its status is then
+    /// `.disconnected(.restoreStalled, reconnecting: false)`, over its last frame, and it keeps
+    /// retrying at the short backoff until ``quietRestoreReconnects``.
+    public static var restoreStallReconnects: Int { 5 }
 
     public private(set) var phase: Phase = .detached
     public private(set) var queuedInput: [Data] = []
@@ -355,11 +361,12 @@ public nonisolated struct TerminalAttachMachine<Link: Hashable & Sendable>: Send
         let open: Effect = wait == 0
             ? .open(attempt: pending.attempt, size: pending.size)
             : .openAfterBackoff(attempt: pending.attempt, size: pending.size, failedReconnects: wait)
-        let quiet = stillRestoring ? Self.quietRestoreReconnects : Self.quietReconnects
-        let status: LinkStatus = if !byEvent, autoReconnects > quiet {
+        let status: LinkStatus = if stillRestoring {
+            // A restore still missing after about 5 s says why and offers Retry; an event (a key,
+            // focus, Retry) starts its wait again.
+            !byEvent && autoReconnects > Self.restoreStallReconnects ? .disconnected(.restoreStalled, reconnecting: false) : .restoring
+        } else if !byEvent, autoReconnects > Self.quietReconnects {
             .disconnected(reason, reconnecting: false)
-        } else if stillRestoring {
-            .restoring
         } else {
             .disconnected(reason, reconnecting: true)
         }

@@ -2084,7 +2084,7 @@ class RecoverySampler:
     """What the app shows while its daemon is gone, every 250 ms (`debug.daemon`, `debug.surfaces`).
     The designed recovery state: each window shows its workspace or the connecting view
     (DaemonConnectingView), no pane is blank, and every shown terminal is connected, restoring, or
-    disconnected and reconnecting. A terminal disconnected for good (no reconnect) for over a
+    disconnected and reconnecting (or a restore still missing that says why, `restoreStalled`). A terminal disconnected for good (no reconnect) for over a
     second, a window with nothing, or one blank pane is not. Both calls must keep answering after
     the kill: a stretch of over GAP seconds without an answer from either is a violation too (a
     hung app shows nothing designed)."""
@@ -2148,7 +2148,9 @@ class RecoverySampler:
                     if pane.get("kind") != "terminal" or pane.get("presence") != "visible":
                         continue
                     link = str(pane.get("link"))
-                    if link in ("connected", "restoring") or (link.startswith("disconnected:") and link.endswith(":reconnecting")):
+                    # `disconnected:restoreStalled`: a restored view still missing after ~5 s says why and offers
+                    # Retry while it keeps retrying by itself (audit P13): designed, not dead.
+                    if link in ("connected", "restoring", "disconnected:restoreStalled") or (link.startswith("disconnected:") and link.endswith(":reconnecting")):
                         continue
                     dead.append(f"pane {pane.get('pane')} {link}")
         return hard, dead

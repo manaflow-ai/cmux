@@ -386,6 +386,7 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
         case .connectionLost: .connectionLost
         case .attachFailed: .attachFailed
         case .fellBehind: .fellBehind
+        case .restoreStalled: .restoreStalled
         }
     }
 

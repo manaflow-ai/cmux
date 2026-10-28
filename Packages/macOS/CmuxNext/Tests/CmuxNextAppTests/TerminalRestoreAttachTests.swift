@@ -27,11 +27,13 @@ struct TerminalRestoreAttachTests {
         var machine = Machine(initialSize: CellSize(cols: 80, rows: 24), visible: true, restoring: true)
         var next = try #require(opened(machine.reduce(.start)))
         // About 90 s of failed attaches at the restore backoff: never more than step 3 (2 s)
-        // between tries, and still "Restoring…" (no Retry yet), with no input.
+        // between tries, with no input; "Restoring…" first, then (audit P13) why, with Retry.
         for failure in 1...40 {
             next = try #require(opened(machine.reduce(.openFailed(attempt: next.attempt))))
             #expect(next.wait <= 3, "failure \(failure) waits backoff step \(next.wait)")
-            #expect(machine.status == .restoring, "failure \(failure): \(machine.status)")
+            let expected: Machine.LinkStatus = failure > Machine.restoreStallReconnects
+                ? .disconnected(.restoreStalled, reconnecting: false) : .restoring
+            #expect(machine.status == expected, "failure \(failure): \(machine.status)")
         }
         // The daemon answers: the next attach goes live by itself.
         _ = machine.reduce(.opened(7, attempt: next.attempt))
@@ -43,9 +45,9 @@ struct TerminalRestoreAttachTests {
         var machine = Machine(initialSize: CellSize(cols: 80, rows: 24), visible: true, restoring: true)
         var next = try #require(opened(machine.reduce(.start)))
         for _ in 1...60 { next = try #require(opened(machine.reduce(.openFailed(attempt: next.attempt)))) }
-        // A daemon that never answers is not asked every 2 s for good: Retry shows, and the
-        // view still retries by itself at the longer backoff.
-        #expect(machine.status == .disconnected(.attachFailed, reconnecting: false))
+        // A daemon that never answers is not asked every 2 s for good: Retry shows (with why), and
+        // the view still retries by itself at the longer backoff.
+        #expect(machine.status == .disconnected(.restoreStalled, reconnecting: false))
         #expect(next.wait > 3)
     }
 

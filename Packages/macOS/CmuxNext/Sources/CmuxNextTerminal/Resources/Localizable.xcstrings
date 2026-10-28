@@ -3669,6 +3669,137 @@
         }
       }
     },
+    "terminal.link.restoreStalled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Still restoring: cmux's terminal service has not answered for this terminal yet"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "まだ復元中: cmux のターミナルサービスがこのターミナルにまだ応答していません"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا تزال الاستعادة جارية: لم تستجب خدمة الطرفيات في cmux لهذه الطرفية بعد"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vraćanje još traje: cmux servis terminala još nije odgovorio za ovaj terminal"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gendanner stadig: cmux-terminaltjenesten har ikke svaret for denne terminal endnu"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wird noch wiederhergestellt: Der Terminaldienst von cmux hat für dieses Terminal noch nicht geantwortet"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aún restaurando: el servicio de terminales de cmux todavía no ha respondido para esta terminal"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Restauration en cours : le service de terminaux de cmux n’a pas encore répondu pour ce terminal"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ripristino ancora in corso: il servizio terminali di cmux non ha ancora risposto per questo terminale"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "នៅតែកំពុងស្ដារ៖ សេវាស្ថានីយរបស់ cmux មិនទាន់ឆ្លើយតបសម្រាប់ស្ថានីយនេះនៅឡើយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "아직 복원하는 중: cmux 터미널 서비스가 이 터미널에 아직 응답하지 않았습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gjenoppretter fortsatt: cmux sin terminaltjeneste har ikke svart for denne terminalen ennå"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nadal przywracanie: usługa terminali cmux jeszcze nie odpowiedziała dla tego terminala"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ainda restaurando: o serviço de terminais do cmux ainda não respondeu para este terminal"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Восстановление ещё идёт: служба терминалов cmux пока не ответила для этого терминала"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ยังกู้คืนอยู่: บริการเทอร์มินัลของ cmux ยังไม่ตอบกลับสำหรับเทอร์มินัลนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hâlâ geri yükleniyor: cmux terminal hizmeti bu terminal için henüz yanıt vermedi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Відновлення ще триває: служба терміналів cmux ще не відповіла для цього термінала"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vẫn đang khôi phục: dịch vụ terminal của cmux chưa phản hồi cho terminal này"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "仍在恢复：cmux 终端服务尚未响应此终端"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "仍在還原：cmux 終端機服務尚未回應此終端機"
+          }
+        }
+      }
+    },
     "terminal.link.hint": {
       "extractionState": "manual",
       "localizations": {
