@@ -84,6 +84,8 @@ export default componentEntry<Props>({
   id: "agent-pane.project-chooser",
   title: "Project chooser",
   area: "Agent pane",
+  // Its rows use the pane's Tailwind (`data-[highlighted]:bg-hover`), which only a pane entry loads.
+  pane: true,
   covers: ["agent-session/acpmux/ProjectChooser.tsx#ProjectChooser"],
   load: () => import("./ProjectChooser").then((module) => module.ProjectChooser),
   styles: () => import("./styles.css"),
