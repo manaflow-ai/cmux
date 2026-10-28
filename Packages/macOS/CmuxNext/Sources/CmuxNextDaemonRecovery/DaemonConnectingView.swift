@@ -32,6 +32,12 @@ public final class DaemonConnectingView: NSView {
     private let statusDelay: MainDeadline
     /// The status line has waited out its delay (or a failure showed it).
     private var statusDue = false
+    /// What the window waits for instead of the local daemon, shown at once while that one connects or is connected:
+    /// "Reconnecting to <machine>…" for a window whose Cloud machine is not connected, shown after its off-screen wait
+    /// (`WindowContentWaits`, B7). Nil: the local daemon's state.
+    public var waitStatus: String? {
+        didSet { if waitStatus != oldValue { apply(state) } }
+    }
 
     /// - Parameters:
     ///   - recovery: The local daemon's Retry Now and Restart.
@@ -128,8 +134,8 @@ public final class DaemonConnectingView: NSView {
         case .connecting, .connected:
             // Connected: what is left is the first workspace (cx-b4sjc), not cmux-tui, so no status line (cx-r650e).
             if state == .connected { statusDelay.cancel(); statusDue = false }
-            titleLabel.stringValue = DaemonRecoveryStrings.connecting
-            titleLabel.alphaValue = statusDue ? 1 : 0
+            titleLabel.stringValue = waitStatus ?? DaemonRecoveryStrings.connecting
+            titleLabel.alphaValue = statusDue || waitStatus != nil ? 1 : 0
             detailLabel.stringValue = ""
             detailLabel.isHidden = true
             copyDetailsButton.isHidden = true

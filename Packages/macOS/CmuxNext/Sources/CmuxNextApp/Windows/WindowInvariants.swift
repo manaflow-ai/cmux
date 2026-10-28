@@ -12,9 +12,10 @@ import Observation
 /// Window invariants checked after every membership transition and
 /// reported by `debug.windows` (and in `debug.focus`): a window exists only
 /// while it owns at least one workspace, every workspace has one window,
-/// and controllers match the registry. The only window without a workspace
-/// allowed is the unregistered launch window while it shows the daemon's
-/// connecting state.
+/// and controllers match the registry. The only windows without a workspace
+/// allowed are the unregistered launch window while it shows the daemon's
+/// connecting state, and a window shown at its off-screen wait's limit with
+/// its wait state (`WindowContentWaits`) until its content shows.
 enum WindowInvariants {
     static func problems(_ manager: WindowManager) -> [String] {
         let value = manager.registry.value
@@ -27,7 +28,8 @@ enum WindowInvariants {
             }
             if !window.isOpen { problems.append("window \(id) is on screen but closed") }
             if window.workspaceIDs.isEmpty { problems.append("window \(id) has 0 workspaces") }
-            if manager.awaitingContent[id] == nil, !window.workspaceIDs.isEmpty, !manager.hasMirroredWorkspace(window) {
+            if manager.awaitingContent[id] == nil, !manager.contentWaits.showsWaitState(id), !window.workspaceIDs.isEmpty,
+               !manager.hasMirroredWorkspace(window) {
                 problems.append("window \(id) is presented but none of its workspaces is mirrored")
             }
         }
@@ -53,6 +55,7 @@ enum WindowInvariants {
                     "launch_build_waits": .bool(manager.launchWindows?.isWaiting(window.id) == true),
                     "visible": .bool(controller?.window?.isVisible ?? false),
                     "awaiting_content": .bool(manager.awaitingContent[window.id] != nil),
+                    "offscreen_wait": manager.contentWaits.stages[window.id].map(waitStage) ?? .null,
                 ]) { _, new in new })
             }),
             "recency": .array(value.recency.map(JSONValue.string)),
@@ -62,8 +65,20 @@ enum WindowInvariants {
             "controllers": .number(Double(manager.controllers.count)),
             "problems": .array(problems.map(JSONValue.string)),
             "violations_seen": .number(Double(manager.invariantViolations)),
+            // How many off-screen waits each end ended (B7): their content, their limit, the window closing first.
+            "offscreen_wait_ends": .object(Dictionary(WindowContentWaits.End.allCases.map { end in
+                (end.rawValue, JSONValue.number(Double(manager.contentWaits.ends[end] ?? 0)))
+            }, uniquingKeysWith: { first, _ in first })),
             "consistent": .bool(problems.isEmpty),
         ])
+    }
+
+    /// A window's last off-screen wait in `debug.windows`: why it waited, how long, what ended it, and after its
+    /// limit when its content showed (ms from the wait's start).
+    static func waitStage(_ stage: WindowContentWaits.Stage) -> JSONValue {
+        .object(["reason": .string(stage.reason.rawValue), "waited_ms": .number(stage.waitedMs), "ended": .string(stage.end.rawValue),
+                 "limit_ms": .number(Double(stage.reason.limit.components.seconds * 1000) + Double(stage.reason.limit.components.attoseconds) / 1e15),
+                 "content_ms": stage.contentMs.map(JSONValue.number) ?? .null])
     }
 
     /// The page fields of one window in `debug.windows`.

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDaemonRecovery
 
 // The New Cloud Workspace progress in a window's content area (cx-lu8f).
 extension WindowController {
@@ -44,5 +45,14 @@ extension WindowController {
         root.titlebar.title = CloudStrings.newCloudWorkspaceTitle
         services.windows.recordSaver.stateDidChange(state)
         return true
+    }
+
+    /// The window waited out its off-screen limit with no workspace mirrored (`WindowContentWaits`, B7): it shows the
+    /// connecting state in its content area (beside its sidebar's rows), naming a Cloud machine's window's machine
+    /// ("Reconnecting to <machine>…") while that machine is not connected. A top page or a Cloud creation shows as it is.
+    func showContentWait() {
+        if content == nil, connectingView == nil, shownTopPage == nil, state.cloudCreation == nil { showConnecting() }
+        let machine = state.machineID == MachineRegistry.localID ? nil : state.machineID
+        connectingView?.waitStatus = machine.map { RemoteStrings.placeholderReconnecting(services.machines.machineName($0) ?? $0) }
     }
 }

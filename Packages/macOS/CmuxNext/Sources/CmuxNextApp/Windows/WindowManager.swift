@@ -55,12 +55,11 @@ final class WindowManager {
     /// Sidebar slots for new workspaces, applied once the daemon reports
     /// them (`applyPendingPlacements`).
     var pendingPlacements: [String: PendingPlacement] = [:]
-    /// Windows none of whose workspaces a machine reports yet (just created,
-    /// or saved with workspaces that are gone or on a Cloud machine still
-    /// connecting): kept off screen until their content is installed, so no
-    /// window ever shows without a workspace. The value asks for
-    /// bring-to-front on present.
+    /// Windows none of whose workspaces a machine reports yet (just created, or on a Cloud machine offline or connecting): off
+    /// screen until their content shows or their wait's limit passes (`contentWaits`). The value asks for bring-to-front on present.
     var awaitingContent: [String: Bool] = [:]
+    /// Each off-screen wait's limit (then the window shows its wait state) and its measured stage, for `debug.windows` (B7).
+    lazy var contentWaits = WindowContentWaits(deadlines: services.mainDeadlines)
     /// Transitions that broke a window invariant (`WindowInvariants`).
     private(set) var invariantViolations = 0
     /// Machine each workspace was last seen on, to tell "gone" from "its
@@ -406,12 +405,13 @@ final class WindowManager {
         // it a main-actor hop later. The launch picture's window is on screen already, its picture over it: its
         // content is built behind the picture in slices (`LaunchSnapshotWindow`, p08-startup-060).
         if premade == nil { controller.showWorkspace(requested: state.workspaceID) }
-        // A window none of whose workspaces is mirrored yet stays off screen until `contentDidAppear` (never an
-        // empty frame). The launch window (no workspaces) shows the connecting state at once.
+        // A window none of whose workspaces is mirrored yet stays off screen until `contentDidAppear`, or until its wait's
+        // limit, then shows its wait state (never an empty frame). The launch window (no workspaces) shows the connecting state at once.
         if premade != nil || controller.content != nil || hasMirroredWorkspace(window) || window.workspaceIDs.isEmpty {
             present(controller)
         } else {
             awaitingContent[window.id] = false
+            contentWaits.begin(window.id, reason: pendingClaims.values.contains(window.id) ? .newWindow : .restored, in: self)
         }
         if controllers.count == 1 { onFirstWindow?(controller) }
         return controller
@@ -431,8 +431,7 @@ final class WindowManager {
         contentWaiters[controller.state.id, default: []].append((workspaceID, { ActionRunScope.carrying(run, body) }))
     }
 
-    /// The window installed its first workspace content: a window kept off
-    /// screen for it is ordered in now.
+    /// The window installed workspace content: its off-screen wait ends, and a window kept off screen for it is ordered in.
     func contentDidAppear(_ controller: WindowController) {
         defer {
             onContentDidAppear?(controller)
@@ -441,13 +440,14 @@ final class WindowManager {
                 waiter.body()
             }
         }
+        contentWaits.end(controller.state.id, .content)
         guard let front = awaitingContent.removeValue(forKey: controller.state.id) else { return }
         present(controller)
         if front { bringToFront(controller) }
     }
 
     /// Orders a new window in without taking focus under no-activate.
-    private func present(_ controller: WindowController) {
+    func present(_ controller: WindowController) {
         // Tests: never on the user's display. Otherwise one rule: under
         // no-activate behind the others (in front on a test screen), never key.
         let behind = behindWindows.remove(controller.state.id) != nil
@@ -466,8 +466,7 @@ final class WindowManager {
         enterRestoredFullScreens()
     }
 
-    /// Brings a window forward (not key and no activation under
-    /// `CMUX_NEXT_NO_ACTIVATE=1`).
+    /// Brings a window forward (not key and no activation under `CMUX_NEXT_NO_ACTIVATE=1`); one off screen when it shows.
     /// An action run without view-change permission brings nothing forward.
     func bringToFront(_ controller: WindowController) {
         guard ActionRunScope.viewChangeAllowed() else { return }
@@ -483,7 +482,7 @@ final class WindowManager {
         let id = controller.state.id
         controllers.removeAll { $0 === controller }
         if lastActive === controller { lastActive = nil } // S22: a closed window is never active, even if retained.
-        awaitingContent[id] = nil
+        awaitingContent[id] = nil; contentWaits.end(id, .closed)
         contentWaiters[id] = nil
         restacking.remove(id)
         services.pagePreloads.windowWillClose(controller.window)
