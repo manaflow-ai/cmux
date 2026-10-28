@@ -62,36 +62,63 @@ const countAtMost = (xs: ReadonlyArray<number>, v: number) => {
 }
 
 /**
+ * ASCII runs. The last ASCII character before non-ASCII text goes with that text, since it can be
+ * the base of a grapheme (`e` and a combining accent, a digit and a keycap mark).
+ */
+const ASCII_RUN = /[\x00-\x7f]+/g
+
+/**
  * The first match of `query` in `text` under folding, as a code-point range of `text` covering
  * whole graphemes (a match that starts or ends inside one grapheme's fold, such as `s` in `ß`,
- * covers that grapheme). Null when the query folds to nothing or does not occur. One pass folds the
- * text and records where each grapheme starts, one indexOf finds the match, and two binary searches
- * map its ends back.
+ * covers that grapheme). Null when the query folds to nothing or does not occur.
+ *
+ * Cost is linear in the text: ASCII runs fold with one toLowerCase each and map back one to one
+ * (a "linear" piece); only non-ASCII stretches go through Intl.Segmenter, one piece per grapheme.
+ * One indexOf finds the match and binary searches over the pieces map its ends back.
  */
 export const foldedMatch = (text: string, query: string): { readonly start: number; readonly length: number } | null => {
   const needle = foldGraphemes(query)
   if (needle.length === 0) return null
   const parts: Array<string> = []
-  // Per grapheme, plus one past the end: where it starts in the folded text (UTF-16) and in `text` (code points).
+  // Per piece, plus one past the end: where it starts in the folded text (UTF-16) and in `text` (code points).
   const foldAt: Array<number> = []
   const codeAt: Array<number> = []
+  const linear: Array<boolean> = []
   let folded = 0
   let code = 0
-  for (const { segment } of graphemes.segment(text)) {
-    const f = foldGrapheme(segment)
+  const piece = (f: string, codePoints: number, isLinear: boolean) => {
     foldAt.push(folded)
     codeAt.push(code)
+    linear.push(isLinear)
     parts.push(f)
     folded += f.length
-    code += segment.length === 1 ? 1 : [...segment].length
+    code += codePoints
   }
+  const nonAscii = (from: number, to: number) => {
+    if (to <= from) return
+    for (const { segment } of graphemes.segment(text.slice(from, to))) piece(foldGrapheme(segment), [...segment].length, false)
+  }
+  let next = 0
+  for (const m of text.matchAll(ASCII_RUN)) {
+    const start = m.index ?? 0
+    // Keep the run's last character for the non-ASCII text after it, if any.
+    const end = start + m[0].length - (start + m[0].length < text.length ? 1 : 0)
+    nonAscii(next, start)
+    if (end > start) piece(text.slice(start, end).toLowerCase(), end - start, true)
+    next = end
+  }
+  nonAscii(next, text.length)
   foldAt.push(folded)
   codeAt.push(code)
   const at = parts.join("").indexOf(needle)
   if (at < 0) return null
-  // First grapheme: the last one whose fold starts at or before `at` (graphemes folding to nothing
-  // share the next one's start, so they are passed over). End: the first grapheme start at or past the match end.
-  const first = countAtMost(foldAt, at) - 1
-  const last = countAtMost(foldAt, at + needle.length - 1)
-  return { start: codeAt[first]!, length: codeAt[last]! - codeAt[first]! }
+  const last = at + needle.length - 1
+  // Start: the last piece whose fold starts at or before `at` (graphemes folding to nothing share
+  // the next piece's start, so they are passed over); a linear piece maps one to one.
+  const p = countAtMost(foldAt, at) - 1
+  const startCode = linear[p] ? codeAt[p]! + (at - foldAt[p]!) : codeAt[p]!
+  // End: within the piece holding the match's last folded unit, or that grapheme's end.
+  const q = countAtMost(foldAt, last) - 1
+  const endCode = linear[q] ? codeAt[q]! + (last + 1 - foldAt[q]!) : codeAt[q + 1]!
+  return { start: startCode, length: endCode - startCode }
 }

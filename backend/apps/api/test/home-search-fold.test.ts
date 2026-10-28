@@ -78,6 +78,19 @@ describe("home.search highlight under folding", () => {
     expect(h.snippet.endsWith("Ünïcödé")).toBe(true)
   })
 
+  it("maps folded matches inside and across ASCII runs", () => {
+    // An accented query against an ASCII body, at the start, the middle and the end.
+    expect(foldedMatch("cafe", "café")).toEqual({ start: 0, length: 4 })
+    expect(foldedMatch("le cafe noir", "CAFÉ")).toEqual({ start: 3, length: 4 })
+    expect(foldedMatch("noir cafe", "café")).toEqual({ start: 5, length: 4 })
+    // Across a run and a grapheme on both sides, with an emoji before it.
+    expect(foldedMatch("👍 xcafé ok", "cafe ok")).toEqual({ start: 3, length: 7 })
+    expect(foldedMatch("éa", "ea")).toEqual({ start: 0, length: 2 })
+    // A keycap: the digit belongs to the grapheme after it.
+    expect(foldedMatch("dial 1\ufe0f\u20e3 now", "1")).toEqual({ start: 5, length: 3 })
+    expect(foldedMatch("a\u0301", "a")).toEqual({ start: 0, length: 2 })
+  })
+
   it("returns no range when nothing matches, with the snippet unchanged", () => {
     const h = hitOf(row("plan B"), "zzz")
     expect(h.ranges).toEqual([])
