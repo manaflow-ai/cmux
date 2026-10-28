@@ -19,12 +19,19 @@ public enum BlockingLane: Int, Sendable, CaseIterable, CustomStringConvertible {
     /// CPU-bound work too long for the pool (a big parse, an index build): it does not block, but it
     /// must not fill the pool. Concurrent up to ``BackgroundWork/cpuWidth`` items, highest priority first.
     case cpu
+    /// Disk jobs whose length grows with their input (a folder size walk, a recursive delete, a copy or a
+    /// trash of many items): concurrent up to ``BackgroundWork/bulkFilesWidth`` items, highest priority first.
+    /// One of them can run for minutes, so it never holds the serial ``files`` slot that short reads and
+    /// writes at its priority wait on. Chrome lets a `MayBlock` task that blocks grow its thread group
+    /// (base/task/thread_pool/thread_group.cc, `ScopedBlockingCall`) instead of serializing blocking work.
+    case bulkFiles
 
     public var description: String {
         switch self {
         case .files: "files"
         case .system: "system"
         case .cpu: "cpu"
+        case .bulkFiles: "bulk-files"
         }
     }
 }

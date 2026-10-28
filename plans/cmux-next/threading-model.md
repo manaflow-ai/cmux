@@ -486,7 +486,8 @@ from `CreatingTerminalInput` before a new split's attach target is known (until 
 and `send-key` for a TUI's Command chords from `TerminalHooks`. No BackgroundWork lane, process queue or child process runs at it.
 
 Blocking work never runs on the cooperative pool: a process wait uses AsyncProcess (no thread waits); file I/O uses lane
-.files (4/3/2/1 by priority; ordered writes through a `WorkSequence`); a sync system call (getaddrinfo, Security, Launch Services, AX, window lists) uses lane
+.files (4/3/2/1 by priority; ordered writes through a `WorkSequence`); a disk job whose length grows with its input (a folder size walk, a recursive delete, a big copy, a trash of many
+items) uses lane .bulkFiles (4 at once, highest priority first), so it never holds a .files slot; a sync system call (getaddrinfo, Security, Launch Services, AX, window lists) uses lane
 .system (6 at once, the width of Chrome's DNS pool kDefaultMaxSystemTasks; 1 slot reserved for uncapped userBlocking
 items, as Chrome's PrioritizedDispatcher reserved slots, counting every busy slot; host resolution through
 `runHostResolution` capped at 4, cmux's own cap since DNS shares the lane); long CPU work uses lane .cpu (P-cores
@@ -830,6 +831,22 @@ QoS with them, and ThreadsControlTests fails when a label or QoS here and there 
 - Library WebRTC (WebRTC.framework, CmuxScreenKit, `RTCPeerConnectionFactory`; WebRTC's Thread SetName(name, obj)
   in rtc_base/thread.cc appends " 0x%p" to the name the factory gives): `network_thread <ptr>` (set-by-library),
   `worker_thread <ptr>` (set-by-library), `signaling_thread <ptr>` (set-by-library)
+- Actor executors (p02-threads R4, tasks 047-052: an actor whose job is I/O runs on a serial queue of its own, the
+  HomeCache pattern, `// executor: <label>`; its blocking file calls hold this queue, never a cooperative pool thread):
+  user-initiated (a person waits for the answer): `cmux.next.agent-pane.acpmux-host` (listed with the acpmux
+  client above; also its staged-file puts),
+  `com.cmuxterm.app.next.layout-templates`, `com.cmuxterm.app.next.server-fix-ledger`,
+  `com.cmuxterm.next.bookmarks.file`, `com.cmuxterm.next.browser.profile-book`, `com.cmuxterm.next.cloud.machine-link`,
+  `com.cmuxterm.next.phone.android`,
+  `com.cmuxterm.next.remote.ssh-link`, `com.cmuxterm.next.settings.config-file` (the settings file and the managed
+  preferences it reloads with; a keymap file the person picks goes through the files lane); default: `com.cmuxterm.app.next.agent-pane.owner-avatars`, `com.cmuxterm.next.browser.site-permissions`;
+  utility (saves and caches nobody waits for):
+  `com.cmuxterm.next.browser.site-zoom`, `com.cmuxterm.next.browser.download-temp-files`,
+  `com.cmuxterm.next.browser-import.store`, `com.cmuxterm.chromium-runtime.installer`,
+  `com.cmuxterm.next.cloud.tunnel-hub`, `com.cmuxterm.next.error-journal` (`HangReportStore` runs on
+  `com.cmuxterm.app.next.hang-reports.store`, listed above),
+  `com.cmuxterm.next.mobile.host-supervisor`, `com.cmuxterm.next.phone.recorder`; the table-widths,
+  classic-migration and saved-environments actors are listed under Settings and files (p02-threads-141..144)
 - Every `Thread` and `OperationQueue` sets `name` and `qualityOfService` before it starts; every URLSession
   gets a named delegate queue. None is unnamed (`threading-inventory.py --rule thread-doc` = 0).
 

@@ -59,7 +59,7 @@ final class AppServices {
     /// The app's theme store (the one ``ThemeScope/app`` roots on), handed to the App's theme owners.
     let themeStore = ThemeScope.app.store
     /// The recovery-draft backstop of unsaved documents (R96).
-    private(set) lazy var recoveryDrafts = RecoveryDraftStore(directory: RecoveryDraftFiles.defaultDirectory, deadlines: mainDeadlines)
+    private(set) lazy var recoveryDrafts = RecoveryDraftStore(directory: RecoveryDraftFiles.defaultDirectory, deadlines: mainDeadlines, work: work)
     /// The quit hook's unsaved-document participants; drafts go to ``recoveryDrafts``.
     private(set) lazy var quitUnsaved = QuitUnsavedRegistry(deadlines: .on(mainDeadlines), drafts: recoveryDrafts)  // each save's limit is a userBlocking deadline
     /// The open files' quit documents, shared by the markdown and editor pages.
@@ -618,7 +618,7 @@ final class AppServices {
     private(set) lazy var terminalColors = TerminalColorSync(machines: machines, on: mainWork) {  // first read by the daemon start (`startLocalDaemon`), before it connects
         GhosttyRuntime.shared.themeColors.map(TerminalDefaultColors.init)
     }
-    private(set) lazy var themes: ThemeCoordinator = ThemeCoordinator(services: self, terminalThemes: .forApplication(bundleIdentifier: environment.launch.bundleID))  // room, workspace and terminal themes; built by its start (`Themes.start`)
+    private(set) lazy var themes: ThemeCoordinator = ThemeCoordinator(services: self, terminalThemes: .forApplication(bundleIdentifier: environment.launch.bundleID, runner: work))  // room, workspace and terminal themes; built by its start (`Themes.start`)
     /// Browser tabs of remote machines reach that machine's localhost.
     var remoteLocalhost: RemoteLocalhostService { madeRemoteLocalhost ?? RemoteLocalhostService.made(for: self) }  // on first use
     var madeRemoteLocalhost: RemoteLocalhostService?

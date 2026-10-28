@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import CmuxNextWakeups
 public import Foundation
 
@@ -35,12 +36,10 @@ extension SettingsController {
     /// - Parameters:
     ///   - url: The status file.
     ///   - context: The app's version and bundle ID in the report.
-    ///   - post: Runs each file write off the main thread, in order (the app posts it as an afterStartup
-    ///     files-lane task: nobody waits for the file at launch). The default runs it on a detached task.
+    ///   - post: Runs each file write off the main thread, in order: the app posts it as an afterStartup task on a
+    ///     files-lane sequence (nobody waits for the file at launch); tests record it. Never a pool thread.
     public func writeManagedStatus(to url: URL, context: ManagedStatusReport.Context,
-                                   post: @escaping @MainActor (_ write: @escaping @Sendable () -> Void) -> Void = { write in
-                                       _ = Task.detached(priority: .utility) { write() }
-                                   }) {
+                                   post: @escaping @MainActor (_ write: @escaping @Sendable () -> Void) -> Void) {
         statusTarget = ManagedStatusTarget(url: url, context: context, post: post)
         lastStatusBody = nil
     }
@@ -58,14 +57,11 @@ extension SettingsController {
         guard body != lastStatusBody else { return }
         lastStatusBody = body
         let document = ManagedStatusReport.document(body: body, writtenAt: Date())
-        let url = target.url
+        let data = Data((document.prettyText() + "\n").utf8), url = target.url
         target.post {
-            do {
-                try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-                try Data((document.prettyText() + "\n").utf8).write(to: url, options: .atomic)
-            } catch {
-                // Best effort: the file is a convenience for local tooling; the backend report is the record.
-            }
+            // Best effort: the file is a convenience for local tooling; the backend report is the record.
+            try? FileManager.checked.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try? data.blockingWrite(to: url, options: .atomic)
         }
     }
 

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextPages
 import CmuxNextWakeups
 
@@ -8,8 +9,10 @@ enum AgentPanePageHost {
     /// The page view `webUI` opens for the bundled page in `root`, nil when the page host refuses that root.
     /// `chatOpen`: the agent chat open the page shows, nil when none made it. `chromiumChat`: whether the page
     /// may show in Chromium (feature `agentChromium`, as the app resolved it for this page). `origin`: who asks for the page.
+    /// `work`: the app's blocking-work lanes, where the page's libraries and media are read.
     static func makePage(root: URL, provider: AgentPageProvider, renderRate: AgentPaneRenderRate,
-                         webUI: WebUIHost, chatOpen: ChatOpenStages?, chromiumChat: Bool, origin: PageOpenOrigin) -> PageWebView? {
+                         webUI: WebUIHost, chatOpen: ChatOpenStages?, chromiumChat: Bool, origin: PageOpenOrigin,
+                         work: any MayBlockRunner) -> PageWebView? {
         // The agent page's files live in this module's bundle, not the page host's.
         PageID.registerBundledRoot(root, for: PageDescriptor.agent.id)
         let page = webUI.open(PageOpenRequest(descriptor: .agent, root: root,
@@ -18,7 +21,7 @@ enum AgentPanePageHost {
                                               options: PageEngineOptions(fullFrameRate: renderRate != .capped,
                                                                          chromiumAgentChat: chromiumChat,
                                                                          sharesWebKitProcess: true),
-                                              dynamicResources: AgentPageResources(), chatOpen: chatOpen, origin: origin))
+                                              dynamicResources: AgentPageResources(runner: work), chatOpen: chatOpen, origin: origin))
         // The composer menu's edits run as the page view's own responder actions.
         provider.onEdit = { [weak page] command in page?.performEdit(command.selector) }
         return page
