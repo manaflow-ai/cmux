@@ -65,6 +65,27 @@ struct SidebarInsertBurstTests {
         #expect(title == "w100", "the moved row shows no title: \(String(describing: title))")
     }
 
+    /// Cmd-W held on the top workspace, one close per frame: each closing row collapses in the view it had (it is not
+    /// rebuilt, and it does not jump: its frame starts where it showed), and the rows still shown keep their views.
+    @Test func quickClosesCollapseEachRowInItsOwnView() throws {
+        var ids = Array(1...12)
+        let (model, list, restore) = try Self.sidebar(ids)
+        defer { restore() }
+        let stay = try Self.key(8)
+        let kept = try #require(list.rowViews[stay])
+        for _ in 0..<6 {
+            let closing = try Self.key(ids.removeFirst())
+            let view = try #require(list.rowViews[closing], "the closing row has no view")
+            let shown = view.frame
+            model.sections = Self.sections(ids)
+            list.reload(animated: true)
+            #expect(list.rowViews[closing] == nil, "the closed row is still listed")
+            #expect(view.closingEnd != nil || view.superview == nil, "the closing row neither collapses nor left")
+            if view.superview != nil { #expect(view.frame.minY >= shown.minY - 0.5, "the closing row jumped up") }
+            #expect(list.rowViews[stay] === kept, "a close rebuilt a row that stays")
+        }
+    }
+
     /// Thirty Cmd-N at the top, one per frame (key repeat): every row made so far keeps one view and opens once, and
     /// no apply makes more than the one new row's view.
     @Test func thirtyQuickInsertsOpenEachRowOnce() throws {

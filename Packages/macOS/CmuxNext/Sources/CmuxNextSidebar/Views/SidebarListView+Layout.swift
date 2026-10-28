@@ -167,14 +167,15 @@ extension SidebarListViewComponents {
         // A new workspace row (Cmd-N, a script, another client) opens only with ui.animations.newWorkspace on (hq-1d).
         let insertsWorkspace = layout.rows.contains { if case .workspace = $0.key { old.row(for: $0.key) == nil } else { false } }
         let animate = !adopting && animated && !old.rows.isEmpty && (!insertsWorkspace || Motion.sidebar.animates(.newWorkspace))
-        // New rows open from their run's top, so only the rows below move; a row still opening
-        // that the next update moves (appended, then placed below) opens again there, in a new view:
-        // the old one's retargeted spring would carry its stale open on through the rows (cx-ai79).
+        // New rows open from their run's top, so only the rows below move. A row still opening that the next update
+        // moves (Cmd-N held: each new workspace lands at the top and pushes the ones still opening down) keeps its
+        // view, its content and its open: its frame retargets on the additive springs from what shows, its fade goes
+        // on to 1, and it clips until its own open ends (Lawrence 2026-10-28, sidebar-burst-motion.md: reopening it
+        // in a new, empty and transparent view on every key left only empty slots until the repeat stopped).
         let now = CACurrentMediaTime()
         openingRows = openingRows.filter { now - $0.value < Motion.sidebar.spring(.move).settlingTime() }
-        let reopened = animate ? Set(layout.rows.filter { openingRows[$0.key] != nil && old.row(for: $0.key)?.y != $0.y }.map(\.key)) : []
-        for row in layout.rows where animate && (old.row(for: row.key) == nil || reopened.contains(row.key)) { openingRows[row.key] = now } // only animated applies open rows (hq-1d)
-        let insertRuns = SidebarRowTransition.runTops(of: layout, missingFrom: old, reopened: reopened)
+        for row in layout.rows where animate && old.row(for: row.key) == nil { openingRows[row.key] = now } // only animated applies open rows (hq-1d)
+        let insertRuns = SidebarRowTransition.runTops(of: layout, missingFrom: old)
         // Without motion the rows that leave park first (as they would after the loop), so the rows that
         // come take their views: a space switch reuses the old space's views, it makes none (space-switch-fast).
         if !animate, !adopting {
@@ -185,7 +186,6 @@ extension SidebarListViewComponents {
         }
         for row in layout.rows {
             let target = frame(for: row)
-            if reopened.contains(row.key) { rowViews.removeValue(forKey: row.key)?.removeFromSuperview() }
             let existing = rowViews[row.key]
             guard existing != nil || target.intersects(realize) else { continue }
             keep.insert(row.key)
@@ -195,7 +195,7 @@ extension SidebarListViewComponents {
             view.targetSize = target.size
             // A recycled view (a block's region from another time) takes its content at once, not on a spring.
             configure(view, row: row, animated: animate || (adopting && existing != nil))
-            let opens = animate && ((existing == nil && old.row(for: row.key) == nil) || reopened.contains(row.key))
+            let opens = animate && existing == nil && old.row(for: row.key) == nil
             if existing == nil || opens {
                 // The start state never animates: a recycled view shows no
                 // frame of its previous row (cx-bqm6).
