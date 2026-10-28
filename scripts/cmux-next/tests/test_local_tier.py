@@ -34,7 +34,7 @@ SCRIPTS = Path(__file__).resolve().parents[1]
 REPO = SCRIPTS.parents[1]
 # The functions LOCAL_TIER's rules call (and start_guardrails, which starts the guardrails' arch ratchet early).
 LOCAL_FUNCTIONS = ("start_guardrails", "guardrails", "perf_cron_tests", "stale_baseline_paths", "compile_trailer",
-                   "stability_settings")
+                   "stability_settings", "release_switch_paths")
 # p10's new crash classes (p10-stability.md implementer rule 1), named here rather than read from crash_ratchet.py, so
 # moving one into the CI compare or crash-allowlist.json's "banned" fails a test instead of redefining the CI tier.
 # objc_raises is task 166's class and is not written yet; it is held to the same rule from its first commit.
