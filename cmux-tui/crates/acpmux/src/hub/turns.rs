@@ -784,7 +784,7 @@ impl Hub {
         }
         // Quit Everything already recorded this turn as cancelled. It ends the lane's parent too and
         // no agent starts after it, so the lane reports nothing (`lane_reports.rs`).
-        if self.settled_by_shutdown.lock().unwrap().contains(turn_id) {
+        if self.settled_by_shutdown.lock().unwrap().remove(turn_id) {
             return result;
         }
         // acpmux ended a turn whose model said nothing for `stalledTurnEndMs`: it failed.
@@ -989,6 +989,11 @@ impl Hub {
         turn_id: &str,
         e: &RpcError,
     ) {
+        // End Sessions may have already emitted the canonical cancelled result while this
+        // accepted prompt was still starting. The stop owns settlement in that case.
+        if self.settled_by_shutdown.lock().unwrap().remove(turn_id) {
+            return;
+        }
         let turn = session.meta().turn_count;
         *session.turn.lock().unwrap() = None;
         let mut e = e.clone();
