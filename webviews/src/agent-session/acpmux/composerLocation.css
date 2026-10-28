@@ -203,11 +203,12 @@
    .ui-positioner the pane's tokens), so the composer menu's own absolute placement is undone. Both
    classes, so this wins over styles.css's .acpmux-menu whichever loads last: losing it puts the
    popup its own height above the positioner. */
-.acpmux-menu.acpmux-location-menu { position: relative; inset: auto; min-width: 200px; max-width: 320px; max-height: none; overflow: visible; font-size: var(--text-control); letter-spacing: var(--text-control--letter-spacing); }
+.acpmux-menu.acpmux-location-menu { position: relative; inset: auto; display: flex; flex-direction: column; min-width: 200px; max-width: 320px; max-height: min(420px, calc(var(--available-height, 100vh) - 24px)); overflow: hidden; font-size: var(--text-control); letter-spacing: var(--text-control--letter-spacing); }
+.acpmux-location-menu > div { display: flex; flex: 1; flex-direction: column; min-height: 0; }
 /* The recent folders (and the folder field's suggestions) scroll; Choose folder… stays in view under
    them. A location menu keeps the side it chose when it opened (locationPopover.ts
    useLocationPopover), so the list fits the room the positioner reports there, less Choose folder…
-   and the menu's padding, but never under two rows. */
+   and the menu's padding. */
 .acpmux-location-folders {
   /* Keep the menu inside the available viewport; a short pane scrolls rows instead of pushing
      the popup below the frame or leaving an orphan section header visible. */

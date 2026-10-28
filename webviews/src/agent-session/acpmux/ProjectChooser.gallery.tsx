@@ -214,7 +214,7 @@ export default componentEntry<Props>({
     },
     "downward-3": {
       note: "Chosen layout: the shared placement rule opens below the composer when three projects fit.",
-      height: 520,
+      height: 760,
       props: {
         projects: galleryProjects(3),
         current: "/Users/you/src/project-1",
@@ -227,7 +227,7 @@ export default componentEntry<Props>({
     },
     "downward-8": {
       note: "Chosen layout: eight rows keep the same aligned icon, text and selection columns while the list scrolls.",
-      height: 520,
+      height: 760,
       props: {
         projects: galleryProjects(8),
         current: "/Users/you/src/project-1",
@@ -240,7 +240,7 @@ export default componentEntry<Props>({
     },
     "downward-15": {
       note: "Chosen layout: fifteen rows use the contained scrollbar and remain keyboard navigable without clipped content.",
-      height: 560,
+      height: 760,
       props: {
         projects: galleryProjects(15),
         current: "/Users/you/src/project-1",
@@ -253,7 +253,7 @@ export default componentEntry<Props>({
     },
     "variant-aligned-columns": {
       note: "Gallery variant A: the selected shared-column layout keeps the icon, name, secondary path and check aligned.",
-      height: 520,
+      height: 760,
       props: {
         projects: galleryProjects(8),
         current: "/Users/you/src/project-1",
@@ -267,7 +267,7 @@ export default componentEntry<Props>({
     },
     "variant-airy-rows": {
       note: "Gallery variant B: roomier rows increase vertical breathing space while preserving the same columns.",
-      height: 520,
+      height: 760,
       props: {
         projects: galleryProjects(8),
         current: "/Users/you/src/project-1",
@@ -281,7 +281,7 @@ export default componentEntry<Props>({
     },
     "variant-quiet-icons": {
       note: "Gallery variant C: brand and fallback icons lose their tile so the project name leads visually.",
-      height: 520,
+      height: 760,
       props: {
         projects: galleryProjects(8),
         current: "/Users/you/src/project-1",
