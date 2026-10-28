@@ -316,6 +316,33 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       },
       play: openFolder,
     },
+    "folder-short-note": {
+      note: "A short pane with a private-folder explanation keeps project rows visible.",
+      props: {
+        ...repoProps,
+        summary: { ...repoProps.summary, cwd: "" },
+        folderNote: "New chats in this workspace start in a private folder.",
+      },
+      play: openFolder,
+    },
+    "folder-short-note-de": {
+      note: "A two-line German private-folder explanation in a short pane.",
+      props: {
+        ...repoProps,
+        summary: { ...repoProps.summary, cwd: "" },
+        folderNote: "Neue Chats in diesem Arbeitsbereich starten in einem privaten Ordner.",
+      },
+      play: openFolder,
+    },
+    "folder-short-note-fr": {
+      note: "A two-line French private-folder explanation in a short pane.",
+      props: {
+        ...repoProps,
+        summary: { ...repoProps.summary, cwd: "" },
+        folderNote: "Les nouvelles discussions de cet espace de travail démarrent dans un dossier privé.",
+      },
+      play: openFolder,
+    },
     "folder-long-list": {
       note: "Project actions stay below search while a long folder list scrolls; the thumb stays inside the right edge.",
       props: {

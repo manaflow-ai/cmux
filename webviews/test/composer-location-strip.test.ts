@@ -322,6 +322,53 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
     await page.close();
   });
 
+  for (const variant of ["folder-short-note", "folder-short-note-de", "folder-short-note-fr"]) {
+    test(`${variant} leaves a visible project row in a short pane`, async () => {
+      const page = await open("agent-pane.composer-context", variant, 720, undefined, 180);
+      const popup = page.locator(".acpmux-folder-popover");
+      const viewport = page.locator(".ui-combobox-viewport");
+      const note = page.locator(".acpmux-location-note");
+      const project = page.locator(".acpmux-location-row").first();
+      const [popupRect, viewportRect, noteRect, projectRect] = await Promise.all([
+        popup.boundingBox(),
+        viewport.boundingBox(),
+        note.boundingBox(),
+        project.boundingBox(),
+      ]);
+      expect(popupRect).not.toBeNull();
+      expect(viewportRect).not.toBeNull();
+      expect(noteRect).not.toBeNull();
+      expect(projectRect).not.toBeNull();
+      expect(noteRect!.height).toBeLessThanOrEqual(16);
+      expect(projectRect!.y).toBeGreaterThanOrEqual(viewportRect!.y);
+      expect(projectRect!.y + projectRect!.height).toBeLessThanOrEqual(viewportRect!.y + viewportRect!.height);
+      expect(viewportRect!.y + viewportRect!.height).toBeLessThanOrEqual(popupRect!.y + popupRect!.height);
+      await page.close();
+    });
+  }
+
+  test("a normal pane scrolls the last long-list project fully inside the popup", async () => {
+    const page = await open("agent-pane.composer-context", "folder-long-list", 720);
+    const popup = page.locator(".acpmux-folder-popover");
+    const viewport = page.locator(".ui-combobox-viewport");
+    await viewport.evaluate((element) => {
+      element.scrollTop = element.scrollHeight;
+    });
+    const last = page.locator(".acpmux-location-row").last();
+    const [popupRect, viewportRect, lastRect] = await Promise.all([
+      popup.boundingBox(),
+      viewport.boundingBox(),
+      last.boundingBox(),
+    ]);
+    expect(popupRect).not.toBeNull();
+    expect(viewportRect).not.toBeNull();
+    expect(lastRect).not.toBeNull();
+    expect(viewportRect!.y + viewportRect!.height).toBeLessThanOrEqual(popupRect!.y + popupRect!.height);
+    expect(lastRect!.y).toBeGreaterThanOrEqual(viewportRect!.y);
+    expect(lastRect!.y + lastRect!.height).toBeLessThanOrEqual(viewportRect!.y + viewportRect!.height);
+    await page.close();
+  });
+
   test("the folder popover folds worktrees under their repository and opens them by arrow or count", async () => {
     const page = await open("agent-pane.composer-context", "repo-worktrees", 720);
     const rows = () =>

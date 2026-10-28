@@ -1031,10 +1031,11 @@
 /* In a short pane, the actions and projects each get a scrolling area; neither disappears. */
 @media (max-height: 260px) {
   .acpmux-folder-popover .ui-combobox-pinned { flex: none; max-height: 54px; overflow: auto; }
-  .acpmux-folder-popover .ui-combobox-scroll { display: flex; flex-direction: column; overflow: hidden; max-height: none; }
-  .acpmux-folder-popover .ui-combobox-scroll > .ui-combobox-viewport { flex: 1; height: 0; min-height: 0; max-height: 100%; overflow: auto; }
+  .acpmux-folder-popover .ui-combobox-scroll { max-height: none; }
+  .acpmux-folder-popover .acpmux-location-note { flex: none; max-height: 16px; margin: 2px 0 0; padding: 0 8px; border: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 }
-.acpmux-folder-popover .ui-combobox-scroll { flex: 1; min-height: 0; overflow: hidden; }
+.acpmux-folder-popover .ui-combobox-scroll { display: flex; flex: 1; flex-direction: column; min-height: 0; overflow: hidden; }
+.acpmux-folder-popover .ui-combobox-scroll > .ui-combobox-viewport { flex: 1; height: 0; min-height: 0; max-height: 100%; overflow: auto; }
 
 .acpmux-folder-popover .acpmux-location-search {
   display: block;
