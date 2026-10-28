@@ -13,6 +13,8 @@ type Props = {
   chat?: boolean;
   fast?: boolean;
   many?: boolean;
+  placement?: "left" | "top" | "compact";
+  stress?: boolean;
   anchorTop?: boolean;
   anchorMiddle?: boolean;
 };
@@ -25,11 +27,6 @@ const families: QuickFamily[] = [
     name: "Claude Code",
     mark: "claude",
     models: models("claude", ["Opus 5.5", "Sonnet 5.5", "Haiku 5.5"]),
-    profiles: [
-      { id: "default", name: "Default" },
-      { id: "subrouter", name: "Subrouter" },
-    ],
-    profile: "default",
     more: models("claude", ["Opus 4.1", "Sonnet 4.5", "Haiku 4.5", "Opus 4", "Sonnet 4"]),
   },
   {
@@ -54,7 +51,7 @@ const families: QuickFamily[] = [
       ...Array.from({ length: 40 }, (_, index) => `opencode/Sample Model ${index + 1}`),
     ]),
   },
-  { id: "unii", name: "Unii", models: [], more: [], note: "Signed out" },
+  { id: "claude-sr", name: "Claude Code (sr)", mark: "claude", models: [], more: [], launch: true },
 ];
 
 const extras: Pick<QuickMenu, "effort" | "fast"> = {
@@ -82,14 +79,28 @@ export default componentEntry<Props>({
   load: () =>
     Promise.all([import("./QuickModelMenu"), import("./newTabComposer")]).then(
       ([{ QuickModelMenu }, { OnNewTab }]) =>
-        function GalleryQuickModelMenu({ tab, expand, chat, fast = false, many, anchorTop, anchorMiddle }: Props) {
+        function GalleryQuickModelMenu({
+          tab,
+          expand,
+          chat,
+          fast = false,
+          many,
+          anchorTop,
+          anchorMiddle,
+          placement = "left",
+          stress,
+        }: Props) {
           const [isOpen, setOpen] = useState(false);
           const trigger = useRef<HTMLButtonElement | null>(null);
           const [isFast, setFast] = useState(fast);
+          const [selection, setSelection] = useState("");
           const available = many
             ? [
                 ...families,
-                ...["Cursor", "Gemini", "Copilot", "Amp", "Aider", "Goose"].map((name) => ({
+                ...(stress
+                  ? Array.from({ length: 36 }, (_, index) => `Harness ${index + 5}`)
+                  : ["Cursor", "Gemini", "Copilot", "Amp", "Aider", "Goose"]
+                ).map((name) => ({
                   id: name.toLowerCase(),
                   mark: name.toLowerCase(),
                   name,
@@ -104,6 +115,7 @@ export default componentEntry<Props>({
               <div
                 style={{ padding: 16, paddingTop: anchorMiddle ? 280 : chat && !anchorTop ? 400 : 16 }}
                 data-expand={expand ? "" : undefined}
+                data-selection={selection}
               >
                 <QuickModelMenu
                   open={isOpen}
@@ -115,6 +127,14 @@ export default componentEntry<Props>({
                     current: "claude/Opus 5.5",
                     onModel: () => undefined,
                     ...extras,
+                    harnessPlacement: placement,
+                    search: {
+                      find: (query) =>
+                        list
+                          .flatMap((family) => [...family.models, ...family.more])
+                          .filter((model) => model.name.toLowerCase().includes(query.toLowerCase())),
+                      pick: (model) => setSelection(model.id),
+                    },
                     account: {
                       sessionId: "gallery",
                       accounts: {
@@ -133,7 +153,7 @@ export default componentEntry<Props>({
                       list,
                       current: tab ?? "claude",
                       onPick: () => undefined,
-                      onProfile: () => undefined,
+                      onLaunch: (harness) => setSelection(harness),
                       onAddHarness: () => undefined,
                     },
                   }}
@@ -147,12 +167,31 @@ export default componentEntry<Props>({
         },
     ),
   variants: {
+    "roomy-more-models": {
+      height: 1000,
+      props: { tab: "opencode" },
+      play: async (ctx) => {
+        await open(ctx);
+        await ctx.click({ selector: ".acpmux-quick-disclosure" });
+      },
+    },
+    "short-more-models": {
+      height: 320,
+      props: { tab: "opencode" },
+      play: async (ctx) => {
+        await open(ctx);
+        await ctx.click({ selector: ".acpmux-quick-disclosure" });
+      },
+    },
     "newtab-midpoint": { props: { anchorMiddle: true }, play: open },
     "chat-flipped": { props: { chat: true, anchorTop: true }, play: open },
     "claude-many-harnesses": { props: { many: true }, play: open },
     combined: { props: { chat: true }, play: open },
     "combined-fast": { props: { chat: true, fast: true }, play: open },
-    "combined-signed-out": { props: { chat: true, tab: "unii" }, play: open },
+    "harness-left": { props: { placement: "left" }, play: open },
+    "harness-top": { props: { placement: "top" }, play: open },
+    "harness-compact": { props: { placement: "compact" }, play: open },
+    "harness-stress": { props: { many: true, stress: true }, play: open },
     claude: { props: {}, play: open },
     "claude-more-models": {
       props: {},

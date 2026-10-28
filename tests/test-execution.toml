@@ -982,6 +982,10 @@ path = "tests/test_tui_publish_workflow_security.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_runs_on_labels.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_vm_scp.py"
 lane = "legacy"
 
@@ -1035,6 +1039,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_helper_prebuild_lifecycle.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_killpg_tolerates_eperm.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1810,6 +1818,10 @@ path = "tests/test_merge_freeze.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_gh_pages.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_release_changelog_lines.py"
 lane = "linux-guard"
 
@@ -2128,4 +2140,12 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_fleet_rule_lints.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_runs_on_fallback.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_workflow_file_size.py"
 lane = "linux-guard"

@@ -181,6 +181,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_merge_freeze.py
 
+      - name: Validate bounded GitHub list reads (no gh api paginate flag under scripts/)
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_gh_pages.py
+
       - name: Validate main compile attribution
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_main_compile_attribution.py
@@ -795,6 +799,10 @@ jobs:
       - name: Validate that no job runs on a GitHub-hosted Mac
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_no_github_hosted_macos.py
+
+      - name: Validate runs-on label resolution stays on Blacksmith Linux
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_runs_on_labels.py
 
       - name: Validate agent pane frame pacing summary
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -1620,6 +1628,7 @@ jobs:
           python3 tests/test_ci_nightly_no_hosted_mac.py
           python3 tests/test_ci_runs_on_fallback.py
           python3 tests/test_ci_helper_prebuild_lifecycle.py
+          python3 tests/test_ci_killpg_tolerates_eperm.py
 
       - name: Validate unsigned nightly resume provenance and routing
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}

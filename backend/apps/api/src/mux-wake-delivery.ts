@@ -65,11 +65,22 @@ export const nextDeliveryAt = (sql: SqlStorage): number | null => {
   return r.at === null ? null : Number(r.at)
 }
 
+/**
+ * Which brain object a wake goes to: P (ChiefBrainDO), O (OpencodeBrainDO, which may hand it back to P) or D
+ * (ChiefDurableDO, chief-durable/), from the Chief's brain_impl and what this deployment has (durableOn).
+ */
+export type BrainRoute = "pi" | "opencode" | "durable"
+/** Cloud Chief D runs here: the flag and the binding (plans/cmux-next/cloud-chief-durable-DESIGN.md section 7). */
+export const durableOn = (env: Env): boolean => env.CHIEF_DURABLE_ENABLED === "1" && env.CHIEF_DURABLE_DO !== undefined
+
 /** One send to the Chief's own brain; true when the brain answered (it holds the wake now). A skip the
  * brain marks `retry` (brain-turn.ts `skip`: a passing refusal) is not delivered: sent again with backoff. */
-export const sendWake = async (env: Env, w: Wake, opencode: boolean): Promise<boolean> => {
-  const pi = () => env.CHIEF_BRAIN_DO.get(env.CHIEF_BRAIN_DO.idFromName(brainName(w.agent, w.conversation))).wake(w)
-  const o = opencode && env.OPENCODE_BRAIN_DO ? env.OPENCODE_BRAIN_DO.get(env.OPENCODE_BRAIN_DO.idFromName(w.agent)) : undefined
+export const sendWake = async (env: Env, w: Wake, impl: BrainRoute): Promise<boolean> => {
+  const pi = () =>
+    impl === "durable" && env.CHIEF_DURABLE_DO
+      ? (env.CHIEF_DURABLE_DO.get(env.CHIEF_DURABLE_DO.idFromName(brainName(w.agent, w.conversation))) as unknown as { wake(w: Wake): Promise<unknown> }).wake(w)
+      : env.CHIEF_BRAIN_DO.get(env.CHIEF_BRAIN_DO.idFromName(brainName(w.agent, w.conversation))).wake(w)
+  const o = impl === "opencode" && env.OPENCODE_BRAIN_DO ? env.OPENCODE_BRAIN_DO.get(env.OPENCODE_BRAIN_DO.idFromName(w.agent)) : undefined
   type Answer = { queued: number } | { skipped: string; retry?: true }
   const limit = (p: Promise<unknown>): Promise<Answer> => {
     let timer: ReturnType<typeof setTimeout> | undefined

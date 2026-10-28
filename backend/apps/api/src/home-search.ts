@@ -1,5 +1,6 @@
 import { conversation as homeConversation } from "@cmux/home-core"
 import type { Principal } from "@cmux/ownership"
+import { projectionReadMode, shadowRead } from "./projection-reads.ts"
 import type { Env } from "./env.ts"
 
 /**
@@ -94,9 +95,20 @@ export const prepareSearch = (principal: Principal, params: SearchParams): Prepa
   return { me, q, limit, cursor: cursor ?? undefined }
 }
 
+/** The ordered keys of an answer for the shadow-read compare (ids and seqs, never text). */
+const searchKeys = (r: SearchResult): Array<string> =>
+  r.ok ? [...r.value.hits.map((h) => `${h.conversation}/${h.seq}`), `cursor:${r.value.cursor ?? ""}`] : [`error:${r.code}`]
+
 export const homeSearch = async (env: Env, principal: Principal, params: SearchParams): Promise<SearchResult> => {
-  // MySQL reads after the verified cutover (state-placement.md 4.5); Postgres until then.
-  if (env.PROJECTION_READS === "mysql") return (await import("./home-search-mysql.ts")).homeSearchMysql(env, principal, params)
+  // MySQL reads after the verified cutover (vitess-migration-DESIGN.md); shadow compares both first.
+  const mode = projectionReadMode(env)
+  const mysql = async () => (await import("./home-search-mysql.ts")).homeSearchMysql(env, principal, params)
+  if (mode === "mysql") return mysql()
+  if (mode === "shadow") return shadowRead("home.search", () => homeSearchPostgres(env, principal, params), mysql, searchKeys)
+  return homeSearchPostgres(env, principal, params)
+}
+
+const homeSearchPostgres = async (env: Env, principal: Principal, params: SearchParams): Promise<SearchResult> => {
   const prepared = prepareSearch(principal, params)
   if ("ok" in prepared) return prepared
   const { me, q, limit, cursor } = prepared

@@ -50,6 +50,7 @@ import {
   vmFreeAccessWindowDays,
 } from "../../../services/vms/entitlements";
 import { vcpusByMemoryMb } from "../../../services/vms/images/sizes";
+import { parseAutosizeRequest, pickMachineSize, type AutosizePick } from "../../../services/vms/autosize";
 import {
   findVmImageManifestEntry,
   inferVmProviderForImage,
@@ -398,12 +399,6 @@ export async function POST(request: Request): Promise<Response> {
       // Let the workflow inspect an idempotent existing row before rejecting
       // an old, now-over-limit shape. New allocations still receive the same
       // typed plan error from createVm.
-      const memory = await resolveCreateMemory(span, entitlements.planId, candidate.memoryMb as number | undefined, request, !!idempotencyKey);
-      if (!memory.ok) return memory.response;
-      const memoryMb = memory.memoryMb;
-      const machineOptions = parseCreateMachineOptions(candidate);
-      if (!machineOptions.ok) return machineOptions.response;
-
       // Resolve provider/image only after the paid-plan boundary. A free or
       // unknown plan must receive `vm_requires_pro` without consulting
       // provider configuration, image manifests, or provider SDKs.
@@ -411,6 +406,12 @@ export async function POST(request: Request): Promise<Response> {
       // provider-specific image ids without a provider field, and the
       // deployment default must not reroute them under the wrong provider.
       const provider = body.provider ?? inferVmProviderForImage(body.image) ?? defaultProviderId();
+      const memory = await resolveCreateSize(span, entitlements.planId, candidate, provider, request, !!idempotencyKey);
+      if (!memory.ok) return memory.response;
+      const memoryMb = memory.memoryMb;
+      const machineOptions = parseCreateMachineOptions(candidate);
+      if (!machineOptions.ok) return machineOptions.response;
+
       const selected = resolveCreateImage(provider, body, memoryMb, user.id);
       if (!selected.ok) return selected.response;
       const { imageSelection } = selected;
@@ -514,9 +515,83 @@ export async function POST(request: Request): Promise<Response> {
         // resize shape are separate contracts even when they currently match.
         ...createResourceFields(created.resourceReservation),
         ...(attach ? { attach } : {}),
+        ...sizePickFields(memory.pick, imageSelection.size, created.resourceReservation),
       });
     },
   );
+}
+
+/**
+ * The size of a machine for a handed-off task (`autosize`), when the caller
+ * sent no `memoryMb` or `image` (which stay the override) and the provider
+ * sizes its machines. Measured runs are not recorded yet, so a pick reads the task and
+ * the repo only.
+ */
+function resolveCreateAutosize(
+  span: Span,
+  candidate: Record<string, unknown>,
+  provider: ProviderId,
+  planId: string,
+): { readonly ok: true; readonly pick: AutosizePick | null } | { readonly ok: false; readonly response: Response } {
+  const request = parseAutosizeRequest(candidate.autosize);
+  if (request === null || typeof request === "string") return { ok: true, pick: null };
+  // A GPU is refused whatever else the request says: no machine would have one.
+  if (request.gpu) return { ok: false, response: autosizeRefusalResponse("gpu_unavailable", "No cloud machine has a GPU yet.") };
+  // An explicit size or image is the caller's shape (an image boots at its own snapshot's size).
+  if (candidate.memoryMb !== undefined || candidate.image !== undefined || !vmCapabilitiesFor(provider).sizing) return { ok: true, pick: null };
+  const result = pickMachineSize({
+    taskKind: request.taskKind,
+    repo: request.repo,
+    gpu: request.gpu,
+    measuredRuns: [],
+    planMemoryOptionsMb: memoryOptionsMbForPlan(planId, process.env),
+  });
+  if (!result.ok) return { ok: false, response: autosizeRefusalResponse(result.code, result.message) };
+  setSpanAttributes(span, {
+    "cmux.vm.autosize_task": request.taskKind,
+    "cmux.vm.autosize_pick": result.pick,
+    "cmux.vm.autosize_capped": result.capped,
+  });
+  return { ok: true, pick: result };
+}
+
+function autosizeRefusalResponse(code: "gpu_unavailable" | "no_plan_sizes", message: string): Response {
+  return vmErrorResponse({
+    error: code === "gpu_unavailable" ? "vm_gpu_unavailable" : "vm_no_plan_sizes",
+    status: 400,
+    message,
+    action: code === "gpu_unavailable" ? "Send `autosize` without `gpu`." : "Send `memoryMb`, or choose a plan with Cloud machines.",
+  });
+}
+
+/** The machine's memory: the caller's `memoryMb` (the override), else the auto-size pick, else the plan default. */
+async function resolveCreateSize(
+  span: Span,
+  planId: string,
+  candidate: Record<string, unknown>,
+  provider: ProviderId,
+  request: Request,
+  deferLockedPlanCheck: boolean,
+): Promise<{ readonly ok: true; readonly memoryMb: number; readonly pick: AutosizePick | null } | { readonly ok: false; readonly response: Response }> {
+  const autosize = resolveCreateAutosize(span, candidate, provider, planId);
+  if (!autosize.ok) return autosize;
+  const requestedMemoryMb = (candidate.memoryMb as number | undefined) ?? autosize.pick?.size.memoryMb;
+  const memory = await resolveCreateMemory(span, planId, requestedMemoryMb, request, deferLockedPlanCheck);
+  return memory.ok ? { ...memory, pick: autosize.pick } : memory;
+}
+
+/**
+ * The auto-size pick in the hand-off's size fields; only when the machine
+ * boots at the picked shape's snapshot and the machine answered has that
+ * shape (an idempotent retry answers the machine the first request made).
+ */
+function sizePickFields(
+  pick: AutosizePick | null,
+  booted: { readonly name: string } | null | undefined,
+  machine: { readonly vcpus: number; readonly memoryMb: number } | null | undefined,
+) {
+  if (!pick || booted?.name !== pick.pick || machine?.vcpus !== pick.size.cpu || machine.memoryMb !== pick.size.memoryMb) return {};
+  return { sizePick: { vcpus: pick.vcpus, memoryGb: pick.memoryGb, pick: pick.pick, reason: pick.reason } };
 }
 
 /**
@@ -723,6 +798,14 @@ function invalidCreateFieldResponseWithoutDisplayName(candidate: Record<string, 
       "`memoryMb` must be an integer of at least 512 when provided.",
       "Omit `memoryMb` for the plan default, or send a larger integer memory size in MB.",
       { field: "memoryMb", minimumMemoryMb: 512 },
+    );
+  }
+  const autosize = parseAutosizeRequest(candidate.autosize);
+  if (typeof autosize === "string") {
+    return invalidCreateRequestResponse(
+      autosize,
+      "Omit `autosize` for the plan default, or send `{taskKind, repo: {sizeMb, rootFiles}}`.",
+      { field: "autosize" },
     );
   }
   if (typeof bodyBillingTeamId === "string" && bodyBillingTeamId.trim().length === 0) {
