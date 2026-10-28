@@ -23,6 +23,9 @@ struct AppEnvironment: Sendable {
     /// Whether this run names the showcase Mac instead of this host (`AgentTabStore.localMachineName`):
     /// a showcase run, or a run under capture.
     var namesShowcaseMac: Bool { showcase || captureShellHome != nil }
+    /// DEBUG-only auth capture fixture. This composes isolated, offline auth
+    /// dependencies for fleet captures; it is never enabled in release builds.
+    let authCaptureFixture: Bool
     /// `CMUX_NEXT_TEST_WINDOW_SCREEN` / `CMUX_NEXT_TEST_WINDOW_FRAME` with
     /// no-activate: where windows open for agent screenshots.
     let testWindow: TestWindowPlacement?
@@ -98,8 +101,11 @@ struct AppEnvironment: Sendable {
         let noActivate = environment["CMUX_NEXT_NO_ACTIVATE"] == "1"
 #if DEBUG
         let showcase = environment["CMUX_NEXT_SHOWCASE"] == "1" || ProcessInfo.processInfo.arguments.contains("--showcase")
+        let authCaptureFixture = environment["CMUX_NEXT_AUTH_CAPTURE_FIXTURE"] == "1"
+            || ProcessInfo.processInfo.arguments.contains("--auth-capture-fixture")
 #else
         let showcase = false
+        let authCaptureFixture = false
 #endif
         let launch = LaunchIdentity.current()
         return AppEnvironment(
@@ -107,6 +113,7 @@ struct AppEnvironment: Sendable {
             noActivate: noActivate,
             showcase: showcase,
             captureShellHome: captureShellHome(environment),
+            authCaptureFixture: authCaptureFixture,
             testWindow: TestWindowPlacement.parse(environment, noActivate: noActivate),
             terminalEnvironment: terminalEnvironment(launch: launch, environment: environment).merging(openFiles?.childEnvironment ?? [:]) { $1 },
             ghosttyResources: GhosttyRuntime.resourcesDirectory(environment: environment),
