@@ -338,7 +338,7 @@ final class DeviceLink {
             authenticate: { client, deadline in
                 do {
                     let events = try await DeviceLinkHostHandshake(
-                        instance: record.instance, clientID: self.clientID, topics: Self.eventTopics
+                        instance: self.instance, clientID: self.clientID, topics: Self.eventTopics
                     ).authenticate(client, deadline: deadline)
                     return (client, events)
                 } catch {
