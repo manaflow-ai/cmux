@@ -791,7 +791,10 @@ export function ThreadMinimap({
           // Into the card keeps it; anywhere else it goes on this frame.
           if (!within(card.current, event.relatedTarget)) {
             if (placement.overlapsText) hideRailAfterGrace();
-            else intend(null);
+            else {
+              setRailRevealed(false);
+              intend(null);
+            }
           }
         }}
         onPointerEnter={revealRail}
@@ -800,7 +803,10 @@ export function ThreadMinimap({
           if (event.currentTarget.contains(next) || card.current?.contains(next)) return;
           if (hovered === undefined) {
             if (placement.overlapsText) hideRailAfterGrace();
-            else intend(null);
+            else {
+              setRailRevealed(false);
+              intend(null);
+            }
           }
         }}
       >
@@ -922,7 +928,10 @@ export function ThreadMinimap({
             // Back onto the rail keeps it (its row takes over); anywhere else it goes.
             if (!within(rail.current, event.relatedTarget)) {
               if (placement.overlapsText) hideRailAfterGrace();
-              else intend(null);
+              else {
+                setRailRevealed(false);
+                intend(null);
+              }
             }
           }}
           onPointerEnter={revealRail}
@@ -938,7 +947,10 @@ export function ThreadMinimap({
             if (within(rail.current, next)) return;
             if (hovered === undefined) {
               if (placement.overlapsText) hideRailAfterGrace();
-              else intend(null);
+              else {
+                setRailRevealed(false);
+                intend(null);
+              }
             }
           }}
         />

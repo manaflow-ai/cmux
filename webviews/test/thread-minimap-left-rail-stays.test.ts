@@ -239,6 +239,24 @@ await requireBrowserLane("thread-minimap-left-rail-stays.test.ts", async () => {
     }
   });
 
+  test("chromium: leaving a wide rail does not leave it revealed after narrowing", async () => {
+    current = browsers.get("chromium");
+    if (!current) return;
+    const page = await pane!.open({ width: 1600, height: 700 });
+    try {
+      await closeInspector(page);
+      await page.locator(".acpmux-minimap__tick").first().hover();
+      await page.locator(".acpmux-minimap__card").waitFor({ state: "visible" });
+      await page.mouse.move(1000, 500);
+      await page.locator(".acpmux-minimap__card").waitFor({ state: "detached" });
+      await page.setViewportSize({ width: 160, height: 700 });
+      await page.waitForFunction(() => document.querySelector(".acpmux-minimap__rail")?.hasAttribute("data-occluded"));
+      expect(await page.locator(".acpmux-minimap__strip").count()).toBe(1);
+    } finally {
+      await page.close();
+    }
+  });
+
   for (const width of [760, 160])
     test(`chromium: a ${width}px pane keeps a live hover strip that reveals the rail`, async () => {
       current = browsers.get("chromium");
