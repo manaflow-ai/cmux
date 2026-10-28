@@ -48,13 +48,25 @@ extension DaemonConnection {
     @discardableResult
     public func createTerminalWaitingForStart(in key: WorkspaceKey, cwd: String?) async throws -> CreateTerminalResult {
         let request = await createTerminalRequest(in: key, cwd: cwd)
-        let giveUp = ContinuousClock.now + Self.lateTerminalStartBudget
+        return try await Self.retryingLateStarts("create-terminal in \(key.rawValue)") { try await self.request(request) }
+    }
+
+    /// Runs `send` again while it misses its reply or terminal start deadline
+    /// (`DaemonError.timedOut`, `DaemonError.terminalStartTimedOut`), until ``lateTerminalStartBudget``
+    /// passes, and returns its first answer. For a creation the person already sees (Cmd-D's
+    /// provisional pane, New Column's, New Row's): a late reply is not a refusal, and taking the
+    /// shown pane back made it vanish while the daemon still made it (#26689). `send` must repeat
+    /// one keyed creation (its client-minted pane id or terminal id): the daemon serializes
+    /// creations and replays the one that committed. A refusal, and a start still late past the
+    /// budget, is thrown.
+    public static func retryingLateStarts<T>(_ what: String, _ send: () async throws -> T) async throws -> T {
+        let giveUp = ContinuousClock.now + lateTerminalStartBudget
         // wakeup-allow: each pass waits for one reply or its start deadline; the retry ends at the budget, on a reply, or on another error
         while true {
             do {
-                return try await self.request(request)
+                return try await send()
             } catch let error as DaemonError where error.isLateStart && ContinuousClock.now < giveUp && !Task.isCancelled {
-                Self.lateReplyLogger.info("create-terminal in \(key.rawValue, privacy: .public): \(String(describing: error), privacy: .public); waiting with its mutation id")
+                lateReplyLogger.info("\(what, privacy: .public): \(String(describing: error), privacy: .public); waiting with its mutation id")
             }
         }
     }

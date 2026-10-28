@@ -34,8 +34,11 @@ public struct NewRowCommand: Sendable {
         let intent = Intent.splitPane(pane: pane, direction: .down, ratio: 0.5, provisional: provisional)
         // The target at send time (see ``NewColumnCommand``): a stand-in has become the daemon's pane.
         let target: @MainActor @Sendable () -> PaneID = { daemon.store.daemonHandle(showing: pane) ?? pane }
+        // A late reply is sent again under the same client keys, never taken back (#26689).
         let send = daemon.intendNow("new-row", intent, transaction: transaction) { connection in
-            try await RowCommands(connection).newRow(below: await target(), height: height, options: sent)
+            try await DaemonConnection.retryingLateStarts("new-row") {
+                try await RowCommands(connection).newRow(below: await target(), height: height, options: sent)
+            }
         }
         return {
             guard let created = await send() else { throw PaneSplitFailure() }
