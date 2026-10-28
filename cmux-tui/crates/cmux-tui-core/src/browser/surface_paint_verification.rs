@@ -2,6 +2,7 @@
 //! screencast capture authorization, screencast restart, loaderless navigation.
 
 use super::*;
+use crate::panic_free::RecoverPoison;
 
 impl BrowserSurface {
     pub(super) fn authorize_document_paint_blocking(
@@ -69,7 +70,7 @@ impl BrowserSurface {
                 }
             }
         }
-        let error = last_error.expect("authority capture attempts must record an error");
+        let error = attempts_failed(last_error);
         self.fail_document_authority(navigation_epoch, &error);
         Err(error)
     }
@@ -113,7 +114,7 @@ impl BrowserSurface {
                 }
             }
         }
-        let error = last_error.expect("authority capture attempts must record an error");
+        let error = attempts_failed(last_error);
         self.fail_same_document_authority(&error);
         Err(error)
     }
@@ -129,7 +130,7 @@ impl BrowserSurface {
     ) -> BrowserWorkerResult {
         if !self.may_need_screencast_capture(reservation_id, frame_epoch, navigation_epoch) {
             self.cancel_screencast_capture(reservation_id);
-            if let Some(session) = self.session.lock().unwrap().clone() {
+            if let Some(session) = self.session.lock().recover_poison().clone() {
                 let _ = session.runtime.client.cancel_timestampless_screencast_capture(
                     session_id,
                     reservation_id,
@@ -143,7 +144,7 @@ impl BrowserSurface {
             Ok(session) => session,
             Err(error) => {
                 self.cancel_screencast_capture(reservation_id);
-                if let Some(session) = self.session.lock().unwrap().clone() {
+                if let Some(session) = self.session.lock().recover_poison().clone() {
                     let _ = session.runtime.client.cancel_timestampless_screencast_capture(
                         session_id,
                         reservation_id,
@@ -216,7 +217,7 @@ impl BrowserSurface {
                 }
             }
         }
-        let error = last_error.expect("authority capture attempts must record an error");
+        let error = attempts_failed(last_error);
         let suppressed = session.runtime.client.suppress_timestampless_screencast_capture(
             session_id,
             reservation_id,
@@ -335,4 +336,9 @@ impl BrowserSurface {
         self.fail_same_document_authority(&error);
         Err(error)
     }
+}
+
+/// The error of the last authority capture attempt (every attempt that runs records one).
+fn attempts_failed(last_error: Option<anyhow::Error>) -> anyhow::Error {
+    last_error.unwrap_or_else(|| anyhow::anyhow!("no authority capture attempt ran"))
 }

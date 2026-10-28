@@ -12,6 +12,7 @@
 use rusqlite::Transaction;
 
 use crate::mux::*;
+use crate::panic_free::RecoverPoison;
 use crate::state::prelude::*;
 use crate::state::store::{StateChanges, StateCommit};
 
@@ -47,9 +48,9 @@ impl Mux {
         effects: StateEffects,
         apply: impl FnOnce(&Transaction<'_>, &State) -> anyhow::Result<StateChanges>,
     ) -> anyhow::Result<StateCommit> {
-        let mut registry = self.workspace_registry.lock().unwrap();
+        let mut registry = self.workspace_registry.lock().recover_poison();
         let commit = {
-            let mut state = self.lock_state_pinned(&registry).unwrap();
+            let mut state = self.lock_state_pinned(&registry).recover_poison();
             let commit = registry.commit_state_mutation(
                 mutation,
                 operation,
@@ -122,7 +123,7 @@ impl Mux {
         &self,
         read: impl FnOnce(&rusqlite::Connection) -> anyhow::Result<T>,
     ) -> anyhow::Result<T> {
-        self.workspace_registry.lock().unwrap().read_state(read)
+        self.workspace_registry.lock().recover_poison().read_state(read)
     }
 }
 
@@ -142,9 +143,8 @@ pub(crate) fn workspace_identity(
     state: &State,
     workspace: Option<WorkspaceId>,
 ) -> anyhow::Result<(String, WorkspacePublicId)> {
-    let index = workspace
-        .and_then(|workspace| state.workspace_index(workspace))
+    let workspace = workspace
+        .and_then(|workspace| state.workspace_by_id(workspace))
         .context("workspace has no live slot")?;
-    let workspace = &state.workspaces[index];
     Ok((workspace.key.clone(), workspace.public_id.clone()))
 }

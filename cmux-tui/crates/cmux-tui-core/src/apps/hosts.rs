@@ -12,7 +12,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use cmux_app_host::{AppInfo, FromHost, ToHost};
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 
 use super::grants::{Grant, ScopeTable};
 use super::host::{Exit, HostProcess};
@@ -20,6 +20,7 @@ use super::supervisor::{
     ApiError, Host, HostKey, HostState, Inner, MAX_CRASHES, Mount, MountKey, Out, Supervisor,
 };
 use crate::backoff::Backoff;
+use crate::panic_free::{JsonFields, RecoverPoison};
 
 /// A host that stays up this long after `ready` counts as healthy: its next
 /// crash starts the backoff over.
@@ -43,7 +44,7 @@ impl Supervisor {
         }
         let preview = context.get("preview").and_then(Value::as_bool) == Some(true);
         let outs = {
-            let mut inner = self.inner.lock().unwrap();
+            let mut inner = self.inner.lock().recover_poison();
             let package = inner
                 .catalog
                 .packages
@@ -97,11 +98,10 @@ impl Supervisor {
         key: &HostKey,
         deliver: impl FnOnce(&HostProcess),
     ) -> Vec<Out> {
-        if !inner.hosts.contains_key(key) {
+        let Some(host) = inner.hosts.get_mut(key) else {
             inner.hosts.insert(key.clone(), new_host());
             return self.spawn_locked(inner, key);
-        }
-        let host = inner.hosts.get_mut(key).expect("host");
+        };
         if let Some(timer) = host.idle.take() {
             self.timers.cancel(timer);
         }
@@ -117,7 +117,7 @@ impl Supervisor {
 
     pub fn unmount(&self, client: u64, mount_id: &str) -> Result<Value, ApiError> {
         let outs = {
-            let mut inner = self.inner.lock().unwrap();
+            let mut inner = self.inner.lock().recover_poison();
             let key = MountKey { client, mount_id: mount_id.to_string() };
             if !inner.mounts.contains_key(&key) {
                 return Err(ApiError::new("apps.mount.unknown", "no such mount"));
@@ -144,24 +144,27 @@ impl Supervisor {
         mount_id: &str,
         node: &str,
         event: &str,
-        mut payload: Value,
+        payload: Value,
         user: bool,
     ) -> Result<Value, ApiError> {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.lock().recover_poison();
         let key = MountKey { client, mount_id: mount_id.to_string() };
         let mount = inner
             .mounts
             .get(&key)
             .ok_or_else(|| ApiError::new("apps.mount.unknown", "no such mount"))?;
         let host_key = mount.host.clone();
-        if !payload.is_object() {
-            payload = json!({});
-        }
-        payload.as_object_mut().expect("object").remove("gesture");
+        // A non-object payload is replaced; the host's gesture is never the app's own.
+        let mut fields = match payload {
+            Value::Object(fields) => fields,
+            _ => Map::new(),
+        };
+        fields.remove("gesture");
         if user && !host_key.preview {
             let token = inner.gestures.mint(&host_key.app, Instant::now());
-            payload["gesture"] = Value::String(token);
+            fields.insert("gesture".into(), Value::String(token));
         }
+        let payload = Value::Object(fields);
         let running = inner
             .hosts
             .get(&host_key)
@@ -232,6 +235,10 @@ impl Supervisor {
                 ctx: record.context.clone(),
             });
         }
+        #[allow(
+            clippy::expect_used,
+            reason = "INVARIANT: every spawn_locked caller holds a host record for key in this &mut Inner, and nothing above removes it"
+        )]
         let host = inner.hosts.get_mut(key).expect("host record");
         for run in std::mem::take(&mut host.queued_runs) {
             run.dispatch(host, &process);
@@ -315,7 +322,7 @@ impl Supervisor {
     }
 
     fn idle_fired(&self, key: &HostKey, generation: u64) {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.lock().recover_poison();
         let busy = inner.mounts.values().any(|m| m.host == *key);
         if let Some(host) = inner.hosts.get_mut(key)
             && host.generation == generation
@@ -403,7 +410,7 @@ impl Supervisor {
 
     pub(super) fn on_host_message(&self, key: &HostKey, generation: u64, message: FromHost) {
         let outs = {
-            let mut inner = self.inner.lock().unwrap();
+            let mut inner = self.inner.lock().recover_poison();
             if inner.hosts.get(key).is_none_or(|h| h.generation != generation) {
                 return;
             }
@@ -417,7 +424,8 @@ impl Supervisor {
     fn host_message_locked(&self, inner: &mut Inner, key: &HostKey, message: FromHost) -> Vec<Out> {
         match message {
             FromHost::Ready { .. } => {
-                let host = inner.hosts.get_mut(key).expect("host");
+                // A message from a host that is no longer current is dropped (on_host_message).
+                let Some(host) = inner.hosts.get_mut(key) else { return vec![] };
                 if host.state == HostState::Starting {
                     host.state = HostState::Running;
                 }
@@ -442,12 +450,15 @@ impl Supervisor {
                 outs
             }
             FromHost::Scene { mount, ops } => {
-                let Some(mount_key) = find_mount(inner, key, &mount) else { return vec![] };
-                let record = inner.mounts.get_mut(&mount_key).expect("mount");
+                let Some((mount_key, record)) =
+                    inner.mounts.iter_mut().find(|(k, m)| m.host == *key && k.wire() == mount)
+                else {
+                    return vec![];
+                };
                 let mut event =
                     json!({ "event": "apps-scene", "mount_id": mount_key.mount_id, "ops": ops });
                 if std::mem::take(&mut record.reset) {
-                    event["reset"] = Value::Bool(true);
+                    event.insert("reset", Value::Bool(true));
                 }
                 vec![Out::Client(mount_key.client, event)]
             }
@@ -458,12 +469,14 @@ impl Supervisor {
                 self.subscribe_locked(inner, key, sub, stream)
             }
             FromHost::Unsubscribe { sub } => {
-                inner.hosts.get_mut(key).expect("host").subs.remove(&sub);
+                if let Some(host) = inner.hosts.get_mut(key) {
+                    host.subs.remove(&sub);
+                }
                 vec![]
             }
             FromHost::Log { level, message } => self.log_locked(inner, &key.app, &level, message),
             FromHost::Done { cb, ok, body } => {
-                let host = inner.hosts.get_mut(key).expect("host");
+                let Some(host) = inner.hosts.get_mut(key) else { return vec![] };
                 let Some(respond) = host.runs.remove(&cb) else { return vec![] };
                 if let Some(token) = host.run_gestures.remove(&cb) {
                     inner.gestures.revoke(&token);
@@ -472,8 +485,8 @@ impl Supervisor {
                     Ok(json!({ "value": body.get("value").cloned().unwrap_or(Value::Null) }))
                 } else {
                     Err(ApiError::new(
-                        body["code"].as_str().unwrap_or("command.failed"),
-                        body["message"].as_str().unwrap_or("command failed"),
+                        body.field("code").as_str().unwrap_or("command.failed"),
+                        body.field("message").as_str().unwrap_or("command failed"),
                     ))
                 };
                 let mut outs = vec![Out::Respond(respond, result)];
@@ -498,12 +511,10 @@ impl Supervisor {
         sub: u64,
         stream: String,
     ) -> Vec<Out> {
-        let host = &inner.hosts[key];
-        if !Self::stream_readable(inner, key, host, &stream) || host.subs.len() >= MAX_SUBSCRIPTIONS
-        {
-            return vec![];
-        }
-        let host = inner.hosts.get_mut(key).expect("host");
+        let readable = inner.hosts.get(key).is_some_and(|host| {
+            Self::stream_readable(inner, key, host, &stream) && host.subs.len() < MAX_SUBSCRIPTIONS
+        });
+        let Some(host) = inner.hosts.get_mut(key).filter(|_| readable) else { return vec![] };
         let inventory = stream == super::subscriptions::INVENTORY_STREAM;
         host.subs.insert(sub, stream);
         if inventory || inner.events_started {
@@ -515,7 +526,7 @@ impl Supervisor {
 
     pub(super) fn on_host_exit(&self, key: &HostKey, generation: u64, exit: Exit) {
         let outs = {
-            let mut inner = self.inner.lock().unwrap();
+            let mut inner = self.inner.lock().recover_poison();
             let Some(host) = inner.hosts.get_mut(key).filter(|h| h.generation == generation) else {
                 return;
             };
@@ -559,6 +570,10 @@ impl Supervisor {
         let mut outs =
             self.log_locked(inner, &key.app, "error", format!("host crashed: {}", exit.describe()));
         outs.push(Out::Broadcast(json!({ "event": "apps-host", "app": key.app, "state": "crashed", "reason": exit.describe() })));
+        #[allow(
+            clippy::expect_used,
+            reason = "INVARIANT: on_host_exit found the current host record for key under this lock and calls crashed_locked before removing it"
+        )]
         let host = inner.hosts.get_mut(key).expect("host");
         if host.ready_at.is_some_and(|at| at.elapsed() >= HEALTHY_AFTER) {
             host.backoff.reset();
@@ -584,7 +599,7 @@ impl Supervisor {
 
     fn restart_fired(&self, key: &HostKey, generation: u64) {
         let outs = {
-            let mut inner = self.inner.lock().unwrap();
+            let mut inner = self.inner.lock().recover_poison();
             let Some(host) = inner.hosts.get(key) else { return };
             if host.generation != generation || host.state != HostState::Waiting {
                 return;
@@ -607,7 +622,7 @@ impl Supervisor {
         if stream == super::subscriptions::INVENTORY_STREAM {
             return;
         }
-        let inner = self.inner.lock().unwrap();
+        let inner = self.inner.lock().recover_poison();
         Self::publish_stream_locked(&inner, stream, body);
     }
 }

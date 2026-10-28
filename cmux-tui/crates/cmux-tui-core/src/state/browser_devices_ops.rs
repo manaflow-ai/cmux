@@ -6,6 +6,7 @@
 use serde_json::json;
 
 use crate::mux::*;
+use crate::panic_free::JsonFields;
 use crate::state::browser_devices::{self as devices, ID, RESOURCE};
 use crate::state::commit::StateEffects;
 use crate::state::prelude::*;
@@ -28,7 +29,7 @@ impl Mux {
             StateEffects::EVENTS_ONLY,
             |transaction, _| {
                 let stored = devices::add_custom(transaction, device)?;
-                let upsert = state_upsert(RESOURCE, ID, json!({"title": stored["title"]}));
+                let upsert = state_upsert(RESOURCE, ID, json!({"title": stored.field("title")}));
                 Ok(StateChanges::new(json!({"device": stored}), vec![upsert]))
             },
         )

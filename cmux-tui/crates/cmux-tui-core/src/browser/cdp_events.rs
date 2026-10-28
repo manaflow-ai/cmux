@@ -2,6 +2,7 @@
 //! frame navigation, same-document navigation, dialogs, target creation.
 
 use super::*;
+use crate::panic_free::RecoverPoison;
 
 pub(super) fn handle_frame_navigated(
     browser: &BrowserSurface,
@@ -63,7 +64,7 @@ pub(super) fn handle_target_created(
     if created.target_type != "page" {
         return;
     }
-    let Some(session) = browser.session.lock().unwrap().clone() else {
+    let Some(session) = browser.session.lock().recover_poison().clone() else {
         if let Some(runtime) = runtime.upgrade() {
             let _ = runtime.client.close_target(&created.target_id);
         }

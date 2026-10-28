@@ -10,6 +10,7 @@ use std::time::Instant;
 use super::host::HostProcess;
 use super::mirror::Origin;
 use super::supervisor::{ApiError, Host, HostKey, HostState, Inner, Out, Responder, Supervisor};
+use crate::panic_free::RecoverPoison;
 
 /// Answered runs kept for replay.
 const RUN_KEYS: usize = 256;
@@ -77,7 +78,7 @@ impl Supervisor {
     pub fn run(&self, request: RunRequest, respond: Responder) {
         let RunRequest { app, op, args, idempotency_key, origin, gesture, caller } = request;
         let outs = {
-            let mut inner = self.inner.lock().unwrap();
+            let mut inner = self.inner.lock().recover_poison();
             // Full names (`cmux.cloud.machine.list`) and short names run the
             // same op and share its idempotency keys.
             let op = match inner.catalog.packages.get(&app) {
@@ -157,7 +158,7 @@ impl Supervisor {
                 Ok(Box::new(move |result: Result<Value, ApiError>| {
                     let Some(me) = me.upgrade() else { return };
                     let waiters = {
-                        let mut inner = me.inner.lock().unwrap();
+                        let mut inner = me.inner.lock().recover_poison();
                         // Only an answer is stored; after a failure a retry runs again.
                         let previous = if result.is_ok() {
                             inner.run_keys.insert(key, RunKey::Done(result.clone()))
@@ -244,10 +245,7 @@ impl Supervisor {
         respond: Responder,
     ) -> Vec<Out> {
         let fresh = !inner.hosts.contains_key(key);
-        if fresh {
-            inner.hosts.insert(key.clone(), super::hosts::new_host());
-        }
-        let host = inner.hosts.get_mut(key).expect("host");
+        let host = inner.hosts.entry(key.clone()).or_insert_with(super::hosts::new_host);
         if let Some(timer) = host.idle.take() {
             self.timers.cancel(timer);
         }

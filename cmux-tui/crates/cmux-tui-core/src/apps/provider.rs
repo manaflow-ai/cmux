@@ -40,6 +40,7 @@ use serde_json::{Value, json};
 use super::mirror::Origin;
 use super::supervisor::{ApiError, HostKey, Inner, Out, Supervisor};
 use super::timer::TimerId;
+use crate::panic_free::{JsonFields, RecoverPoison};
 
 /// Families a provider may serve. The supervisor's own ops (`app.storage.*`,
 /// `net.fetch`) and the daemon's catalog ops are never routed.
@@ -139,7 +140,7 @@ pub(super) fn error_body(body: Value) -> Value {
     let retryable = body.get("retryable").and_then(Value::as_bool).unwrap_or(false);
     let mut out = json!({ "code": code, "message": message, "retryable": retryable });
     if let Some(details) = body.get("details") {
-        out["details"] = details.clone();
+        out.insert("details", details.clone());
     }
     out
 }
@@ -232,7 +233,7 @@ impl Supervisor {
                 format!("{unknown} is not a provider family"),
             ));
         }
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.lock().recover_poison();
         if inventory_watch && !inner.sinks.contains_key(&client) {
             return Err(ApiError::new(
                 "apps.provider.unknown",
@@ -256,7 +257,7 @@ impl Supervisor {
         let demand = Self::inventory_demand_locked(&mut inner);
         let mut result = json!({ "families": families });
         if inventory_watch {
-            result["inventory_demand"] = inner.inventory_demand.snapshot();
+            result.insert("inventory_demand", inner.inventory_demand.snapshot());
         }
         drop(inner);
         self.emit(demand.into_iter().collect());
@@ -340,7 +341,7 @@ impl Supervisor {
             "deadline_ms": deadline_ms(deadline),
         });
         if let Some(key) = idempotency_key {
-            event["idempotency_key"] = Value::String(key);
+            event.insert("idempotency_key", Value::String(key));
         }
         // Sent after the lock is released; a failed send fails the call.
         Ok(vec![Out::Provider(client, request_id, event)])
@@ -349,7 +350,7 @@ impl Supervisor {
     /// The provider's connection refused the event (closed or full).
     pub(super) fn provider_send_failed(&self, request_id: u64) {
         let outs = {
-            let mut inner = self.inner.lock().unwrap();
+            let mut inner = self.inner.lock().recover_poison();
             let Some(call) = inner.provider_calls.remove(&request_id) else { return };
             self.timers.cancel(call.timer);
             self.finish_locked(&mut inner, &call, Ending::Gone)
@@ -373,7 +374,7 @@ impl Supervisor {
             .collect();
         let mut outs = Vec::new();
         for id in ids {
-            let call = inner.provider_calls.remove(&id).expect("listed");
+            let Some(call) = inner.provider_calls.remove(&id) else { continue };
             self.timers.cancel(call.timer);
             if let Target::Host { host, generation, .. } = &call.target
                 && let Some(host) =
@@ -430,17 +431,14 @@ impl Supervisor {
         ok: bool,
         body: Value,
     ) -> Result<Value, ApiError> {
-        let mut inner = self.inner.lock().unwrap();
-        match inner.provider_calls.get(&request_id) {
-            Some(call) if call.client == client => {}
-            _ => {
-                return Err(ApiError::new(
-                    "apps.provider.unknown",
-                    "no such provider request on this connection",
-                ));
-            }
+        let mut inner = self.inner.lock().recover_poison();
+        let unknown = || {
+            ApiError::new("apps.provider.unknown", "no such provider request on this connection")
+        };
+        if inner.provider_calls.get(&request_id).is_none_or(|call| call.client != client) {
+            return Err(unknown());
         }
-        let call = inner.provider_calls.remove(&request_id).expect("checked");
+        let call = inner.provider_calls.remove(&request_id).ok_or_else(unknown)?;
         self.timers.cancel(call.timer);
         let body = match (ok, body.is_object()) {
             (true, true) => body,
@@ -455,7 +453,7 @@ impl Supervisor {
 
     pub(super) fn provider_timeout(&self, request_id: u64) {
         let outs = {
-            let mut inner = self.inner.lock().unwrap();
+            let mut inner = self.inner.lock().recover_poison();
             let Some(call) = inner.provider_calls.remove(&request_id) else { return };
             let mut outs = self.finish_locked(&mut inner, &call, Ending::Timeout);
             outs.push(Out::Client(
@@ -479,7 +477,7 @@ impl Supervisor {
             .collect();
         let mut outs = Vec::new();
         for id in gone {
-            let call = inner.provider_calls.remove(&id).expect("listed");
+            let Some(call) = inner.provider_calls.remove(&id) else { continue };
             self.timers.cancel(call.timer);
             outs.extend(self.finish_locked(inner, &call, Ending::Gone));
         }

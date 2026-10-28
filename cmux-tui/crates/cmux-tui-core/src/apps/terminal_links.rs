@@ -9,6 +9,7 @@ use std::sync::Arc;
 use serde_json::{Value, json};
 
 use super::supervisor::{Out, Supervisor};
+use crate::panic_free::RecoverPoison;
 use crate::terminal_backend::relay::{ClientGone, Emit};
 use crate::terminal_backend::{End, LinkAnswer, LinkEvent, LinkRegistry, RelaySet, wire};
 
@@ -70,7 +71,7 @@ impl Supervisor {
 
     /// One line to `app`'s running server, if any.
     pub(super) fn send_to_server(&self, app: &str, value: &Value) {
-        let inner = self.inner.lock().unwrap();
+        let inner = self.inner.lock().recover_poison();
         if let Some(server) = inner.servers.get(app) {
             let mut line = value.to_string().into_bytes();
             line.push(b'\n');

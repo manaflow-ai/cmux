@@ -19,6 +19,7 @@ use std::time::Instant;
 use serde_json::{Value, json};
 
 use super::supervisor::{HostKey, Inner, Out, Supervisor};
+use crate::panic_free::RecoverPoison;
 use crate::terminal_backend::{
     BackendError, CONNECTOR_INTERFACE, Declaration, FrameBody, LinkAnswer, LinkEvent, LinkRegistry,
     Lost, OpenTokenGate, TokenUse, wire,
@@ -151,7 +152,7 @@ impl Supervisor {
         app: &str,
         interface: &str,
     ) -> Result<Declaration, BackendError> {
-        let inner = self.inner.lock().unwrap();
+        let inner = self.inner.lock().recover_poison();
         let package = inner
             .catalog
             .packages
@@ -172,7 +173,7 @@ impl Supervisor {
         let event = self.terminals.links.close(channel)?;
         let ended = self.link_ended(&event);
         {
-            let inner = self.inner.lock().unwrap();
+            let inner = self.inner.lock().recover_poison();
             if let Some(server) = inner.servers.get(&event.app) {
                 let mut line = wire::close_event(channel).to_string().into_bytes();
                 line.push(b'\n');
@@ -239,7 +240,7 @@ impl Supervisor {
     }
 
     pub(super) fn log_terminal(&self, app: &str, level: &str, message: String) {
-        let outs = self.log_locked(&mut self.inner.lock().unwrap(), app, level, message);
+        let outs = self.log_locked(&mut self.inner.lock().recover_poison(), app, level, message);
         self.emit(outs);
     }
 }

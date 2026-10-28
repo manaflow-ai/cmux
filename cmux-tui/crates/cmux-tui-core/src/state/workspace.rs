@@ -5,6 +5,7 @@ use serde::Serialize;
 
 use crate::Actor;
 use crate::mux::*;
+use crate::panic_free::RecoverPoison;
 use crate::state::commit::{StateEffects, workspace_identity};
 use crate::state::prelude::*;
 use crate::state::status_meta::OwnerProcess;
@@ -236,11 +237,11 @@ impl Mux {
         let ephemeral = self.read_registry_state(crate::state::store::ephemeral_workspaces)?;
         for workspace_id in ephemeral {
             let target = self.with_state(|state| {
-                let index = state
+                let (index, workspace) = state
                     .workspaces
                     .iter()
-                    .position(|workspace| workspace.public_id.as_str() == workspace_id)?;
-                let workspace = &state.workspaces[index];
+                    .enumerate()
+                    .find(|(_, workspace)| workspace.public_id.as_str() == workspace_id)?;
                 let terminals = state
                     .panes
                     .values()
@@ -271,7 +272,8 @@ impl Mux {
                 if !orphan {
                     continue;
                 }
-                let host = self.workspace_registry.lock().unwrap().terminal_host_id(&terminal)?;
+                let host =
+                    self.workspace_registry.lock().recover_poison().terminal_host_id(&terminal)?;
                 if let Some(host) = host
                     && let Err(error) = self.close_terminal_with_mutation(
                         &host,

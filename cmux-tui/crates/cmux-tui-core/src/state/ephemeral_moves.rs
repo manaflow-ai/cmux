@@ -12,6 +12,8 @@
 
 use std::collections::{HashMap, HashSet};
 
+use anyhow::Context;
+
 use rusqlite::{OptionalExtension, Transaction};
 
 use super::closed_history_store::is_ephemeral;
@@ -95,15 +97,17 @@ pub(crate) fn carry_ephemeral(
             }
         }
     }
+    let flag =
+        |id: &String| flags.get(id).copied().context("a moved workspace has no ephemeral flag");
     let mut marked = HashSet::new();
     for (from, to) in &moves {
-        if flags[from] && created.contains(to) {
+        if flag(from)? && created.contains(to) {
             marked.insert(to.clone());
         }
     }
     for (from, to) in &moves {
-        let target = flags[to] || marked.contains(to);
-        anyhow::ensure!(flags[from] == target, MIXED_MOVE_ERROR);
+        let target = flag(to)? || marked.contains(to);
+        anyhow::ensure!(flag(from)? == target, MIXED_MOVE_ERROR);
     }
     for workspace in &marked {
         super::store::mark_workspace_ephemeral(transaction, workspace)?;

@@ -34,8 +34,9 @@ use sha2::{Digest, Sha256};
 use crate::Actor;
 use crate::mux::tab_groups::pane_by_public_id;
 use crate::mux::*;
+use crate::panic_free::JsonFields;
 use crate::state::closed_history::{REOPEN, Reopened, note_created, recording_created};
-use crate::state::closed_history_store::queue_change;
+use crate::state::closed_history_store::{member_tab, queue_change};
 use crate::state::commit::{StateEffects, state_not_found};
 use crate::state::prelude::*;
 use crate::state::stash_store::{self as store, Refusal};
@@ -166,7 +167,8 @@ impl Mux {
                     }
                     Ok(member) => {
                         if first_workspace.is_none() {
-                            first_workspace = member["workspace_id"].as_str().map(str::to_string);
+                            first_workspace =
+                                member.field("workspace_id").as_str().map(str::to_string);
                         }
                         pages.push((tab, member));
                     }
@@ -264,7 +266,7 @@ impl Mux {
             .read_registry_state(|connection| store::stash_record(connection, stash_id))?
             .ok_or_else(|| state_not_found("stash", stash_id))?;
         let (restore, _) = store::choose_members(
-            record["members"].as_array().cloned().unwrap_or_default(),
+            record.field("members").as_array().cloned().unwrap_or_default(),
             members,
         )?;
         if let Some(pane) = pane
@@ -338,7 +340,8 @@ impl Mux {
             |transaction, _| {
                 let record = store::stash_record(transaction, stash_id)?
                     .ok_or_else(|| state_not_found("stash", stash_id))?;
-                let keep = record["members"]
+                let keep = record
+                    .field("members")
                     .as_array()
                     .into_iter()
                     .flatten()
@@ -428,7 +431,7 @@ impl Mux {
         reopened: &mut Reopened,
     ) -> anyhow::Result<()> {
         let Some(pane) = pane else { return self.reopen_closed_tab(actor, member, reopened) };
-        let tab = &member["screens"][0]["tabs"][0];
+        let tab = member_tab(member);
         let (target, own) = self
             .with_state(|state| {
                 super::closed_pane_split::home_pane(state, member, &HashMap::new())
@@ -485,8 +488,7 @@ impl Mux {
         reopened.note_workspace(workspace);
         reopened.screens.push(screen);
         for member in restore {
-            let surface =
-                self.reopen_tab_record(actor, pane, &member["screens"][0]["tabs"][0], false)?;
+            let surface = self.reopen_tab_record(actor, pane, member_tab(member), false)?;
             reopened.tabs.push(self.public_tab_of(surface)?);
         }
         if !restore.is_empty() {
@@ -532,7 +534,7 @@ impl Mux {
             |transaction, _| {
                 let record = store::stash_record(transaction, stash_id)?
                     .ok_or_else(|| state_not_found("stash", stash_id))?;
-                let all = record["members"].as_array().cloned().unwrap_or_default();
+                let all = record.field("members").as_array().cloned().unwrap_or_default();
                 let (removed, keep) = store::choose_members(all, members)?;
                 *keys.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
                     super::agent_home_moves::member_keys(&removed);
@@ -641,5 +643,5 @@ fn workspace_form(source: &StashSource) -> bool {
 }
 
 fn member_pinned(member: &Value) -> bool {
-    member["screens"][0]["tabs"][0]["pinned"].as_bool() == Some(true)
+    member_tab(member).field("pinned").as_bool() == Some(true)
 }

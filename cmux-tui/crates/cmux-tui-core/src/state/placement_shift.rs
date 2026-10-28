@@ -22,6 +22,7 @@
 //! rows outside any resource batch and sends no placement change, so the
 //! rows after them keep their old index until a later shift restates them.
 
+use crate::panic_free::JsonFields;
 use rusqlite::{Connection, Transaction};
 use serde_json::{Value, json};
 
@@ -121,7 +122,9 @@ pub(crate) fn restatement(all: &[Value], shift: PlacementShift) -> Vec<Value> {
     let to = shift.to.unwrap_or(usize::MAX);
     all.iter()
         .filter(|change| {
-            change["value"]["index"]
+            change
+                .field("value")
+                .field("index")
                 .as_u64()
                 .and_then(|index| usize::try_from(index).ok())
                 .is_some_and(|index| shift.from <= index && index <= to)

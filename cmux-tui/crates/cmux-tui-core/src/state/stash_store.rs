@@ -31,7 +31,8 @@ use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde_json::{Value, json};
 
 use super::closed_history_privacy as privacy;
-use super::closed_history_store::tab_member;
+use super::closed_history_store::{member_tab, tab_member};
+use crate::panic_free::JsonFields;
 use crate::workspace_registry::{new_uuid_v4, unix_epoch_ms};
 
 /// `stash.create|list|restore|delete|import`.
@@ -206,15 +207,19 @@ pub(crate) fn stash_member(
     let Some(mut member) = tab_member(connection, tab_id, &none, &none, &none)? else {
         return Ok(Err(Refusal::Private));
     };
-    let tab = &member["screens"][0]["tabs"][0];
-    let page = tab["kind"] == "browser"
+    let tab = member_tab(&member);
+    let page = tab.field("kind") == "browser"
         && tab.get("conversation").is_none_or(Value::is_null)
         && tab.get("remote").is_none_or(Value::is_null)
-        && tab["url"].as_str().is_some_and(is_web_url);
+        && tab.field("url").as_str().is_some_and(is_web_url);
     if !page || is_app_tab(connection, tab_id)? {
         return Ok(Err(Refusal::NotPage));
     }
-    member["screens"][0]["tabs"][0]["title"] = json!(page_title(connection, tab_id)?);
+    let title = page_title(connection, tab_id)?;
+    let Some(tab) = member.pointer_mut("/screens/0/tabs/0") else {
+        return Ok(Err(Refusal::NotPage));
+    };
+    tab.insert("title", json!(title));
     Ok(Ok(member))
 }
 
@@ -347,7 +352,7 @@ fn insert_stash_with(
     });
     if let Some(Value::Object(extra)) = extra {
         for (key, value) in extra {
-            record[key] = value;
+            record.insert(&key, value);
         }
     }
     transaction.execute(
@@ -384,7 +389,7 @@ pub(crate) fn keep_stash_members(
         transaction.execute("DELETE FROM stashed_groups WHERE stash_id = ?1", [stash_id])?;
         return Ok((super::store::state_delete(RESOURCE, stash_id), 0));
     }
-    record["members"] = Value::Array(keep);
+    record.insert("members", Value::Array(keep));
     transaction.execute(
         "UPDATE stashed_groups SET record_json = ?2 WHERE stash_id = ?1",
         params![stash_id, serde_json::to_string(&record)?],
@@ -403,7 +408,7 @@ pub(crate) fn public_stash(record: &Value) -> Value {
             if member["kind"] == "workspace" {
                 return public_workspace_member(member);
             }
-            let tab = &member["screens"][0]["tabs"][0];
+            let tab = member_tab(member);
             json!({
                 "id": member["id"],
                 "kind": "tab",

@@ -28,6 +28,7 @@ use serde_json::Value;
 use super::catalog::Package;
 use super::mirror::{Origin, Record, SetOp, Source, Tier};
 use super::supervisor::{ApiError, Supervisor};
+use crate::panic_free::{JsonFields, RecoverPoison};
 
 /// The App Store never lists itself.
 const APP_STORE: &str = "cmux/app-store";
@@ -229,7 +230,7 @@ fn listing(package: &Package, record: Option<&Record>) -> Listing {
 fn installed_app(app: &str, record: &Record, package: Option<&Package>) -> InstalledApp {
     InstalledApp {
         app: app.to_string(),
-        name: package.map_or_else(|| app.to_string(), |p| text(&p.manifest["name"])),
+        name: package.map_or_else(|| app.to_string(), |p| text(p.manifest.field("name"))),
         tier: package.map_or(Tier::Unverified, |p| p.tier),
         hide_only: package.is_some_and(|p| p.tier == Tier::FirstParty),
         state: state(record, package),
@@ -311,7 +312,7 @@ impl Supervisor {
             Some(cursor) => cursor.parse::<usize>().map_err(|_| bad_request("bad cursor"))?,
         };
         let limit = p.limit.map_or(DEFAULT_LIMIT, |l| l as usize).clamp(1, MAX_LIMIT);
-        let inner = self.inner.lock().unwrap();
+        let inner = self.inner.lock().recover_poison();
         let rows: Vec<&Package> = inner
             .catalog
             .packages
@@ -320,7 +321,9 @@ impl Supervisor {
             .filter(|package| p.tier.is_none_or(|tier| package.tier == tier))
             .filter(|package| {
                 p.category.as_deref().is_none_or(|category| {
-                    package.manifest["categories"]
+                    package
+                        .manifest
+                        .field("categories")
                         .as_array()
                         .is_some_and(|list| list.iter().any(|c| c == category))
                 })
@@ -340,7 +343,7 @@ impl Supervisor {
     }
 
     fn catalog_get(&self, p: CatalogGetParams) -> Result<AppDetail, ApiError> {
-        let inner = self.inner.lock().unwrap();
+        let inner = self.inner.lock().recover_poison();
         let package = inner
             .catalog
             .packages
@@ -349,7 +352,7 @@ impl Supervisor {
             .ok_or_else(|| ApiError::new("apps.unknown", "no such app"))?;
         let mut scopes = Vec::new();
         for (field, optional) in [("scopes", false), ("optionalScopes", true)] {
-            for (scope, reason) in package.manifest[field].as_object().into_iter().flatten() {
+            for (scope, reason) in package.manifest.field(field).as_object().into_iter().flatten() {
                 scopes.push(ScopeRow {
                     scope: scope.clone(),
                     reason: text(reason),
@@ -362,7 +365,7 @@ impl Supervisor {
     }
 
     fn installed_list(&self) -> InstalledListResult {
-        let inner = self.inner.lock().unwrap();
+        let inner = self.inner.lock().recover_poison();
         let apps = inner
             .mirror
             .apps
@@ -376,7 +379,7 @@ impl Supervisor {
     /// The app's state after a commit, as `set`, `install` and `uninstall`
     /// answer it.
     pub(super) fn set_result(&self, app: &str) -> Result<Value, ApiError> {
-        let inner = self.inner.lock().unwrap();
+        let inner = self.inner.lock().recover_poison();
         let fallback = super::mirror::absent(Source::User, None);
         let record = inner.mirror.apps.get(app).unwrap_or(&fallback);
         let result = SetResult {
@@ -412,7 +415,7 @@ impl Supervisor {
             return Err(ApiError::new("apps.origin", format!("{verb} an app needs a user action")));
         }
         let first_party = {
-            let inner = self.inner.lock().unwrap();
+            let inner = self.inner.lock().recover_poison();
             inner
                 .catalog
                 .packages

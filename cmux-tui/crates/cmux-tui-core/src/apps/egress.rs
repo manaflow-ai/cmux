@@ -105,11 +105,10 @@ pub fn admit(
 pub fn host_granted(host: &str, grants: &BTreeSet<String>) -> bool {
     grants.iter().filter_map(|g| g.strip_prefix("net:")).any(|pattern| {
         match pattern.strip_prefix("*.") {
-            Some(domain) => {
-                host.len() > domain.len() + 1
-                    && host.ends_with(domain)
-                    && host.as_bytes()[host.len() - domain.len() - 1] == b'.'
-            }
+            Some(domain) => host
+                .strip_suffix(domain)
+                .and_then(|rest| rest.strip_suffix('.'))
+                .is_some_and(|label| !label.is_empty()),
             None => host == pattern,
         }
     })
@@ -218,6 +217,19 @@ mod tests {
             admit(&json!({ "url": "https://other.org/" }), &g, false).unwrap_err().code,
             "scope.missing"
         );
+    }
+
+    #[test]
+    fn a_wildcard_grant_matches_subdomains_only() {
+        let g = grants(&["net:*.example.com"]);
+        assert!(host_granted("a.example.com", &g));
+        assert!(host_granted("a.b.example.com", &g));
+        assert!(host_granted("ü.example.com", &g));
+        assert!(!host_granted("example.com", &g));
+        assert!(!host_granted(".example.com", &g));
+        assert!(!host_granted("evilexample.com", &g));
+        assert!(!host_granted("", &g));
+        assert!(!host_granted("com", &g));
     }
 
     #[test]

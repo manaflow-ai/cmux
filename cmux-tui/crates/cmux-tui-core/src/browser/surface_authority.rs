@@ -2,6 +2,7 @@
 //! acceptance or failure of document and same-document paints.
 
 use super::*;
+use crate::panic_free::RecoverPoison;
 
 impl BrowserSurface {
     pub(super) fn screencast_capture_context_matches(
@@ -26,7 +27,7 @@ impl BrowserSurface {
         frame_epoch: u64,
         navigation_epoch: u64,
     ) -> bool {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         if !self.screencast_capture_context_matches(&state, frame_epoch, navigation_epoch)
             || state.pending_screencast_capture.is_some_and(|reservation| {
                 reservation.frame_epoch == frame_epoch
@@ -50,7 +51,7 @@ impl BrowserSurface {
         frame_epoch: u64,
         navigation_epoch: u64,
     ) -> bool {
-        let state = self.state.lock().unwrap();
+        let state = self.state.lock().recover_poison();
         self.screencast_capture_context_matches(&state, frame_epoch, navigation_epoch)
             && state.pending_screencast_capture
                 == Some(ScreencastCaptureReservation {
@@ -62,7 +63,7 @@ impl BrowserSurface {
     }
 
     pub(super) fn cancel_screencast_capture(&self, reservation_id: u64) {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         if state
             .pending_screencast_capture
             .is_some_and(|reservation| reservation.id == reservation_id)
@@ -72,7 +73,7 @@ impl BrowserSurface {
     }
 
     pub(super) fn needs_same_document_paint(&self) -> bool {
-        let state = self.state.lock().unwrap();
+        let state = self.state.lock().recover_poison();
         state.pending_document_epoch.is_none() && state.pending_same_document_navigation
     }
 
@@ -80,7 +81,7 @@ impl BrowserSurface {
         &self,
         same_document_navigation_epoch: u64,
     ) -> bool {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         if same_document_navigation_epoch != self.frame_epoch.latest_same_document_navigation()
             || state.pending_document_epoch.is_some()
             || !state.pending_same_document_navigation
@@ -92,7 +93,7 @@ impl BrowserSurface {
     }
 
     pub(super) fn observe_same_document_frame_epoch(&self, frame_epoch: u64) -> bool {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         if frame_epoch <= state.handled_same_document_navigation_epoch
             || frame_epoch != self.frame_epoch.latest_same_document_navigation()
             || state.pending_document_epoch.is_some()
@@ -140,7 +141,7 @@ impl BrowserSurface {
         frame_epoch: u64,
         frame: BrowserFrame,
     ) -> bool {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         if state.pending_document_epoch != Some(navigation_epoch)
             || state.handled_navigation_epoch != navigation_epoch
             || self.frame_epoch.latest_navigation() != navigation_epoch
@@ -180,7 +181,7 @@ impl BrowserSurface {
     }
 
     pub(super) fn accept_same_document_paint(&self, frame_epoch: u64, frame: BrowserFrame) -> bool {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         if state.pending_document_epoch.is_some()
             || !state.pending_same_document_navigation
             || state.handled_same_document_navigation_epoch
@@ -221,7 +222,7 @@ impl BrowserSurface {
         navigation_epoch: u64,
         frame: BrowserFrame,
     ) -> bool {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         let reservation =
             ScreencastCaptureReservation { id: reservation_id, frame_epoch, navigation_epoch };
         let reserved = state.pending_screencast_capture == Some(reservation);
@@ -257,7 +258,7 @@ impl BrowserSurface {
         navigation_epoch: u64,
         error: &anyhow::Error,
     ) {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         let reserved = state.pending_screencast_capture
             == Some(ScreencastCaptureReservation {
                 id: reservation_id,
@@ -291,7 +292,7 @@ impl BrowserSurface {
     }
 
     pub(super) fn fail_document_authority(&self, navigation_epoch: u64, error: &anyhow::Error) {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         if state.pending_document_epoch != Some(navigation_epoch) {
             return;
         }
@@ -314,7 +315,7 @@ impl BrowserSurface {
     }
 
     pub(super) fn fail_same_document_authority(&self, error: &anyhow::Error) {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         if state.pending_document_epoch.is_some() || !state.pending_same_document_navigation {
             return;
         }

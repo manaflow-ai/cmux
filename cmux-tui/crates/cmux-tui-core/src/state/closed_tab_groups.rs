@@ -124,7 +124,7 @@ impl Mux {
                         members.push(*surface);
                     }
                 }
-                let strip = state.panes[&pane].tabs.clone();
+                let strip = state.panes.get(&pane).context("tab group pane is gone")?.tabs.clone();
                 // A tab reopened in another pane goes to the end of the block.
                 members.sort_by_key(|surface| {
                     strip.iter().position(|tab| tab == surface).unwrap_or(usize::MAX)

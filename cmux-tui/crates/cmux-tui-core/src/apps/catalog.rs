@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 use serde_json::Value;
 
 use super::mirror::{Facts, Source, Tier};
+use crate::panic_free::JsonFields;
 
 /// Publishers whose apps are first-party.
 const FIRST_PARTY: &[&str] = &["cmux", "manaflow-ai"];
@@ -168,7 +169,7 @@ impl Package {
                     palette.get("title").cloned().unwrap_or_else(|| Value::String(op.clone()));
                 let mut command = serde_json::json!({ "op": op, "title": title });
                 if let Some(when) = palette.get("when") {
-                    command["when"] = when.clone();
+                    command.insert("when", when.clone());
                 }
                 Some(command)
             })
@@ -403,7 +404,7 @@ fn package(dir: &Path, kind: DirKind) -> Result<Package, String> {
             .unwrap_or_default());
     }
     let manifest = report.manifest.ok_or("no manifest")?;
-    let id = manifest["id"].as_str().unwrap_or_default().to_string();
+    let id = manifest.field("id").as_str().unwrap_or_default().to_string();
     let publisher = id.split('/').next().unwrap_or_default();
     let first_party = FIRST_PARTY.contains(&publisher);
     match kind {
@@ -430,7 +431,7 @@ fn package(dir: &Path, kind: DirKind) -> Result<Package, String> {
         Source::Bundled
     };
     let package = Package {
-        version: manifest["version"].as_str().unwrap_or_default().to_string(),
+        version: manifest.field("version").as_str().unwrap_or_default().to_string(),
         id,
         tier,
         source,

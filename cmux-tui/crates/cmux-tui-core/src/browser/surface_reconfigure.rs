@@ -2,6 +2,7 @@
 //! waiters, confirmation, failure retries, and release.
 
 use super::*;
+use crate::panic_free::RecoverPoison;
 
 impl BrowserSurface {
     pub fn resize(&self, cols: u16, rows: u16) -> anyhow::Result<bool> {
@@ -70,7 +71,7 @@ impl BrowserSurface {
     }
 
     pub(crate) fn cell_pixel_size(&self) -> (u16, u16) {
-        *self.cell_pixels.lock().unwrap()
+        *self.cell_pixels.lock().recover_poison()
     }
 
     pub fn set_cell_pixel_size_reporting(
@@ -82,7 +83,7 @@ impl BrowserSurface {
         // Store desired metrics before calculating the candidate geometry.
         // Settled geometry remains in BrowserState, so an enqueue rejection
         // leaves a visible mismatch that the same request can retry.
-        *self.cell_pixels.lock().unwrap() = (width_px.max(1), height_px.max(1));
+        *self.cell_pixels.lock().recover_poison() = (width_px.max(1), height_px.max(1));
         let (cols, rows) = self.size();
         self.resize_reporting_acceptance(cols, rows, report)
     }
@@ -93,7 +94,7 @@ impl BrowserSurface {
         rows: u16,
     ) -> Option<QueuedBrowserGeometry> {
         let geometry = self.resize_geometry(cols, rows);
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         if state.pending_reconfigures.back().is_some_and(|queued| queued.geometry == geometry)
             || state.pending_reconfigures.is_empty() && browser_geometry_locked(&state) == geometry
         {
@@ -120,7 +121,7 @@ impl BrowserSurface {
         rows: u16,
     ) -> anyhow::Result<Option<PendingBrowserResize>> {
         let geometry = self.resize_geometry(cols, rows);
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         if let Some(pending) =
             state.pending_reconfigures.iter().rev().find(|pending| pending.geometry == geometry)
         {
@@ -150,15 +151,20 @@ impl BrowserSurface {
         reservation: u64,
         outcome: BrowserResizeOutcome,
     ) {
-        let waiters =
-            self.state.lock().unwrap().reconfigure_waiters.remove(&reservation).unwrap_or_default();
+        let waiters = self
+            .state
+            .lock()
+            .recover_poison()
+            .reconfigure_waiters
+            .remove(&reservation)
+            .unwrap_or_default();
         for waiter in waiters {
             let _ = waiter.send(outcome.clone());
         }
     }
 
     pub(super) fn confirm_reconfigure(&self, queued: QueuedBrowserGeometry, frame_epoch: u64) {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         let Some(index) =
             state.pending_reconfigures.iter().position(|pending| pending.id == queued.id)
         else {
@@ -194,7 +200,7 @@ impl BrowserSurface {
         &self,
         queued: QueuedBrowserGeometry,
     ) -> Option<(u8, Option<Duration>)> {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         let index =
             state.pending_reconfigures.iter().position(|pending| pending.id == queued.id)?;
         state.pending_reconfigures.remove(index);
@@ -230,7 +236,7 @@ impl BrowserSurface {
 
     pub(super) fn release_reconfigure(&self, queued: QueuedBrowserGeometry) {
         let waiters = {
-            let mut state = self.state.lock().unwrap();
+            let mut state = self.state.lock().recover_poison();
             if let Some(index) =
                 state.pending_reconfigures.iter().position(|pending| pending.id == queued.id)
             {
@@ -277,7 +283,7 @@ impl BrowserSurface {
 
     pub(crate) fn resize_needed(&self, cols: u16, rows: u16) -> bool {
         let geometry = self.resize_geometry(cols, rows);
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         if state.reconfigure_failure.is_some_and(|failure| failure.geometry != geometry) {
             state.reconfigure_failure = None;
         }
@@ -295,7 +301,7 @@ impl BrowserSurface {
 
     pub(super) fn resize_geometry(&self, cols: u16, rows: u16) -> BrowserGeometry {
         let (cols, rows) = (cols.max(1), rows.max(1));
-        let cell = *self.cell_pixels.lock().unwrap();
+        let cell = *self.cell_pixels.lock().recover_poison();
         let pixel_w = cols as u32 * cell.0.max(1) as u32;
         let pixel_h = rows as u32 * cell.1.max(1) as u32;
         let capture_scale = capture_scale_for(pixel_w, pixel_h, self.capture_options);

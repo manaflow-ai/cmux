@@ -6,6 +6,7 @@ use std::collections::{BTreeSet, HashMap};
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
+use crate::panic_free::JsonFields;
 use serde_json::Value;
 
 const SCOPES_JSON: &str = include_str!("../../../cmux-app-host/generated/scopes.json");
@@ -34,9 +35,10 @@ impl ScopeTable {
     pub fn get() -> &'static ScopeTable {
         static TABLE: OnceLock<ScopeTable> = OnceLock::new();
         TABLE.get_or_init(|| {
+            #[allow(clippy::expect_used, reason = "INVARIANT: SCOPES_JSON is the generated scopes.json compiled in (include_str!); the grants tests parse it")]
             let doc: Value =
                 serde_json::from_str(SCOPES_JSON).expect("generated scopes.json is JSON");
-            let ops = doc["ops"]
+            let ops = doc.field("ops")
                 .as_object()
                 .into_iter()
                 .flatten()
@@ -50,7 +52,7 @@ impl ScopeTable {
                     (name.clone(), (entry["scope"].as_str().unwrap_or_default().to_string(), class))
                 })
                 .collect();
-            let never = doc["never"]
+            let never = doc.field("never")
                 .as_array()
                 .into_iter()
                 .flatten()

@@ -25,6 +25,7 @@ use serde_json::{Value, json};
 use super::mirror::{Origin, SetOp};
 use super::store::{params, risk, text, to_value};
 use super::supervisor::{ApiError, Supervisor};
+use crate::panic_free::JsonFields;
 
 /// The largest asset `asset.get` answers (an icon, never a bundle).
 const MAX_ASSET_BYTES: usize = 512 * 1024;
@@ -172,7 +173,9 @@ impl Supervisor {
         let mut scopes = Vec::new();
         if let Some(package) = inner.catalog.packages.get(&p.app) {
             for (field, optional) in [("scopes", false), ("optionalScopes", true)] {
-                for (scope, reason) in package.manifest[field].as_object().into_iter().flatten() {
+                for (scope, reason) in
+                    package.manifest.field(field).as_object().into_iter().flatten()
+                {
                     scopes.push(GrantRow {
                         scope: scope.clone(),
                         reason: text(reason),
@@ -199,7 +202,7 @@ impl Supervisor {
         }
         let limit = p.limit.map_or(MAX_LOG_LINES, |l| l as usize).clamp(1, MAX_LOG_LINES);
         let all = self.logs(client, &p.app, false);
-        let lines = all["lines"].as_array().cloned().unwrap_or_default();
+        let lines = all.field("lines").as_array().cloned().unwrap_or_default();
         let skip = lines.len().saturating_sub(limit);
         Ok(json!({ "app": p.app, "lines": lines.into_iter().skip(skip).collect::<Vec<_>>() }))
     }

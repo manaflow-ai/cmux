@@ -34,6 +34,7 @@ use serde_json::{Value, json};
 
 use super::agent_message_release::expire_held;
 use super::agent_message_store::{not_found, snapshot};
+use crate::panic_free::JsonFields;
 
 /// What acpmux answered a withdraw of one delivered message.
 #[cfg_attr(not(unix), allow(dead_code))]
@@ -143,11 +144,14 @@ const MESSAGE_MAX: usize = 1024;
 /// At most `max` UTF-8 bytes of `text`, cut on a character boundary (the
 /// catalog counts a string's length in bytes).
 pub(crate) fn clip(text: &str, max: usize) -> String {
-    let mut end = text.len().min(max);
-    while !text.is_char_boundary(end) {
-        end -= 1;
+    let mut clipped = String::new();
+    for character in text.chars() {
+        if character.len_utf8() > max.saturating_sub(clipped.len()) {
+            break;
+        }
+        clipped.push(character);
     }
-    text[..end].to_owned()
+    clipped
 }
 
 /// Apply the unsend to every delivery of `message_id` (or `recipient`'s)
@@ -199,7 +203,7 @@ pub(crate) fn unsend(
         .map(|(recipient, outcome, error)| {
             let mut entry = json!({"recipient": recipient, "outcome": outcome.wire()});
             if let Some(error) = error {
-                entry["error"] = error.clone();
+                entry.insert("error", error.clone());
             }
             entry
         })
@@ -248,5 +252,22 @@ fn outcome(current: &str, answer: Option<Withdrawn>, handed_over: bool) -> Outco
         // longer holds: it reached the agent.
         _ if handed_over => Outcome::TooLate,
         _ => Outcome::Unsent,
+    }
+}
+
+#[cfg(test)]
+mod clip_tests {
+    use super::clip;
+
+    #[test]
+    fn clip_cuts_before_a_character_that_would_pass_the_limit() {
+        assert_eq!(clip("abc", 10), "abc");
+        assert_eq!(clip("abc", 2), "ab");
+        // `é` is two bytes: at a limit of 2 it does not fit after `a`.
+        assert_eq!(clip("aé", 2), "a");
+        assert_eq!(clip("aé", 3), "aé");
+        assert_eq!(clip("日本", 4), "日");
+        assert_eq!(clip("日本", 0), "");
+        assert_eq!(clip("", 5), "");
     }
 }

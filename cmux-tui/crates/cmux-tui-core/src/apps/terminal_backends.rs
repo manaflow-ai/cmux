@@ -16,6 +16,7 @@ use std::time::{Duration, Instant};
 use serde_json::{Value, json};
 
 use super::supervisor::{Out, Supervisor};
+use crate::panic_free::RecoverPoison;
 use crate::terminal_backend::channel::ChannelEnd;
 use crate::terminal_backend::pty::{BackendSide, SendLine};
 use crate::terminal_backend::terminals::{ChannelRequest, SshTransport};
@@ -91,7 +92,12 @@ impl Supervisor {
             }
         };
         let placement = Placement { surface: created.surface, deadline: now + PLACEMENT };
-        self.terminals.backend.placements.lock().unwrap().insert(terminal.clone(), placement);
+        self.terminals
+            .backend
+            .placements
+            .lock()
+            .recover_poison()
+            .insert(terminal.clone(), placement);
         let me = self.me.clone();
         self.timers.schedule(PLACEMENT, move || {
             if let Some(me) = me.upgrade() {
@@ -160,7 +166,8 @@ impl Supervisor {
                 .and_then(Value::as_array)
                 .map(|argv| argv.iter().filter_map(Value::as_str).map(str::to_owned).collect()),
         };
-        let open = self.terminals.backend.ssh.lock().unwrap().open(app, terminal, request)?;
+        let open =
+            self.terminals.backend.ssh.lock().recover_poison().open(app, terminal, request)?;
         Ok(json!({ "channel": open.channel, "window_bytes": open.window_bytes }))
     }
 
@@ -169,7 +176,7 @@ impl Supervisor {
     /// closed ids.
     pub(crate) fn close_unplaced_terminals_at(&self, now: Instant) -> Vec<String> {
         let due: Vec<(String, crate::SurfaceId)> = {
-            let mut placements = self.terminals.backend.placements.lock().unwrap();
+            let mut placements = self.terminals.backend.placements.lock().recover_poison();
             let due: Vec<String> = placements
                 .iter()
                 .filter(|(_, p)| p.deadline <= now)
@@ -192,7 +199,8 @@ impl Supervisor {
     /// A backend terminal ended: an unplaced one leaves the session host.
     /// Runs outside the supervisor lock (the mux is called).
     pub(super) fn backend_terminal_ended(&self, ended: &ChannelEnd) -> Out {
-        let placement = self.terminals.backend.placements.lock().unwrap().remove(&ended.channel);
+        let placement =
+            self.terminals.backend.placements.lock().recover_poison().remove(&ended.channel);
         if let Some(placement) = placement {
             // Only a never-viewed terminal goes; a viewed one keeps its views.
             self.router.close_backend_terminal(placement.surface);

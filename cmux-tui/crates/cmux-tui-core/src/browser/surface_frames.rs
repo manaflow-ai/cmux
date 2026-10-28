@@ -2,12 +2,13 @@
 //! navigation capture reconciliation when a frame is stored.
 
 use super::*;
+use crate::panic_free::RecoverPoison;
 
 impl BrowserSurface {
     pub fn attach_frames(&self) -> (BrowserAttachState, BrowserFrameStream) {
         let (tx, rx) = crate::stream_interrupt::signal();
         let slot = Arc::new(Mutex::new(BrowserAttachUpdate::default()));
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         let pointer_frame_floor_seq = self.exported_pointer_frame_floor_seq_locked(&state);
         let pointer_frame_seq = self.exported_pointer_frame_seq_locked(&state);
         let snapshot = browser_attach_state_locked(
@@ -39,7 +40,7 @@ impl BrowserSurface {
     }
 
     pub(super) fn set_screencast_paused(&self, paused: bool) {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         state.screencast_paused = paused;
         if !paused {
             // Frames are due from now on, not since the page went live.
@@ -50,7 +51,7 @@ impl BrowserSurface {
     }
 
     pub(super) fn screencast_paused(&self) -> bool {
-        self.state.lock().unwrap().screencast_paused
+        self.state.lock().recover_poison().screencast_paused
     }
 
     /// Worker side of frame demand for a natively hosted page: screencast
@@ -62,14 +63,14 @@ impl BrowserSurface {
         let session = if self.is_dead() {
             None
         } else {
-            match self.session.lock().unwrap().as_ref() {
+            match self.session.lock().recover_poison().as_ref() {
                 Some(session) if session.runtime.native_hosted() => Some(session.clone()),
                 _ => None,
             }
         };
         let wanted = self.has_frame_viewers();
         {
-            let mut state = self.state.lock().unwrap();
+            let mut state = self.state.lock().recover_poison();
             if session.is_none() || wanted != state.screencast_paused {
                 state.frame_demand_retry_at = None;
                 return;
@@ -86,11 +87,11 @@ impl BrowserSurface {
         } else {
             client.stop_screencast(&session.session_id)
         };
-        let current = self.session.lock().unwrap();
+        let current = self.session.lock().recover_poison();
         if current.as_ref().is_none_or(|live| live.session_id != session.session_id) {
             return;
         }
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         if result.is_err() {
             state.frame_demand_retry_at = Some(Instant::now() + FRAME_DEMAND_RETRY_DELAY);
             return;
@@ -101,7 +102,7 @@ impl BrowserSurface {
         if !wanted {
             // Nobody views the page now: the next viewer must not get, or
             // aim guarded pointer input at, pixels from before the pause.
-            let mut state = self.state.lock().unwrap();
+            let mut state = self.state.lock().recover_poison();
             state.latest_frame = None;
             Self::set_pointer_frame_locked(&mut state, None);
             self.set_pending_attach_frame_locked(&mut state, None);
@@ -111,7 +112,7 @@ impl BrowserSurface {
 
     /// When the worker retries a failed screencast start or stop.
     pub(super) fn frame_demand_retry_at(&self) -> Option<Instant> {
-        self.state.lock().unwrap().frame_demand_retry_at
+        self.state.lock().recover_poison().frame_demand_retry_at
     }
 
     #[cfg(test)]
@@ -129,7 +130,7 @@ impl BrowserSurface {
     }
 
     pub(super) fn store_frame_for_epoch(&self, frame: BrowserFrame, frame_epoch: u64) -> bool {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         if let Some(pending_epoch) = state.pending_frame_epoch {
             if frame_epoch >= pending_epoch
                 && state
@@ -235,7 +236,7 @@ impl BrowserSurface {
             update.pointer_frame_seq,
         );
         state.taps.retain(|tap| {
-            let mut slot = tap.slot.lock().unwrap();
+            let mut slot = tap.slot.lock().recover_poison();
             slot.frame = Some(update.clone());
             if slot.state.is_some() {
                 slot.state = Some(attach_state.clone());
