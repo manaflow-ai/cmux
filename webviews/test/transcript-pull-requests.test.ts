@@ -545,6 +545,19 @@ test("a create followed by a view only opens the created PR", () => {
   ]);
 });
 
+test("a view followed by a create attributes the later output URL to the create", () => {
+  const rows = toolsRows(
+    shell(
+      "gh pr view 7 -R acme/app --json url --jq .url && gh pr create -R acme/app --title created",
+      "https://github.com/acme/app/pull/7\nhttps://github.com/acme/app/pull/8\n",
+    ),
+  );
+  expect(transcriptPullRequests(rows).sort((a, b) => a.number - b.number)).toMatchObject([
+    { repo: "acme/app", number: 7, opened: false },
+    { repo: "acme/app", number: 8, opened: true },
+  ]);
+});
+
 test("mutating MCP payloads are not Sources", () => {
   const rows = [
     activity(
@@ -552,6 +565,22 @@ test("mutating MCP payloads are not Sources", () => {
         tool("mcp__slack__send_message", "other", "completed", {
           inputSummary: JSON.stringify({ message: "See https://example.com/payload" }),
           output: "sent",
+          exitCode: 0,
+        }),
+      ],
+      1,
+    ),
+  ];
+  expect(sessionSummary(rows, "acme/app").sources).toEqual([]);
+});
+
+test("mutating MCP output URLs are not Sources", () => {
+  const rows = [
+    activity(
+      [
+        tool("mcp__slack__send_message", "other", "completed", {
+          inputSummary: JSON.stringify({ message: "sent" }),
+          output: "permalink https://example.com/result",
           exitCode: 0,
         }),
       ],
@@ -625,6 +654,14 @@ test("a PR mutation target with a comment fragment is marked changed", () => {
 });
 
 const shellRegressionCases: [string, string, number[]][] = [
+  ["POSIX left associative and-or", "true || gh pr view 1 -R acme/app && gh pr merge 2 -R acme/app", [2]],
+  ["all unknown arms succeed", "if test -f x; then true; else true; fi || gh pr merge 41 -R acme/app", []],
+  ["all unknown arms fail", "if test -f x; then false; else false; fi && gh pr merge 41 -R acme/app; true", []],
+  [
+    "earlier unknown arm can fail",
+    "if test -f x; then false; elif true; then true; fi || gh pr merge 41 -R acme/app",
+    [41],
+  ],
   ["unknown and fallback", "test -f missing && true || gh pr merge 41 -R acme/app --squash", [41]],
   ["unknown or continuation", "test -f exists || false && gh pr merge 41 -R acme/app", [41]],
   ["unknown and false is false", "test -f exists && false && gh pr merge 41 -R acme/app; true", []],
@@ -766,4 +803,23 @@ test("broker mutation targets remain actionable without live status", () => {
   const [pr] = transcriptPullRequests(toolsRows(shell("glaeda-gh post pr-merge acme/app#41")));
   expect(pr).toMatchObject({ repo: "acme/app", number: 41, changed: true, state: "merged" });
   expect(pr?.mentioned).toBeUndefined();
+});
+
+test("create attribution excludes read targets on both sides and repeated output", () => {
+  const rows = toolsRows(
+    shell(
+      "gh pr view 7 -R acme/app --json url && gh pr create -R acme/app && gh pr view 9 -R acme/app --json url",
+      "https://github.com/acme/app/pull/7\nhttps://github.com/acme/app/pull/8\nhttps://github.com/acme/app/pull/8\nhttps://github.com/acme/app/pull/9",
+    ),
+  );
+  expect(sessionPullRequests(rows).map((pr) => pr.number)).toEqual([8]);
+});
+test("ambiguous create output never invents opened PRs", () => {
+  const rows = toolsRows(
+    shell(
+      "gh pr create -R acme/app && cat report.txt",
+      "https://github.com/acme/app/pull/8\nhttps://github.com/acme/app/pull/9",
+    ),
+  );
+  expect(sessionPullRequests(rows)).toEqual([]);
 });

@@ -190,6 +190,8 @@ function sources(rows: readonly AcpmuxRow[], pullRequests: readonly SummaryPullR
       if (!tool.tool) continue;
       const item = tool.tool;
       if (item.status !== "completed" || (item.exitCode ?? 0) !== 0) continue;
+      const call = mcpCall(item);
+      if (call && !mcpIsObservational(call)) continue;
       const inputFields = input(item);
       const inputCommandValue = inputFields.command;
       const inputCommandArray = Array.isArray(inputCommandValue);
@@ -209,14 +211,13 @@ function sources(rows: readonly AcpmuxRow[], pullRequests: readonly SummaryPullR
       const title = item.command || inputCommand ? command : item.title;
       // When raw input carries a shell command, scanning the JSON would reintroduce URLs from
       // --body/--body-file payloads that the command sanitizer intentionally removed.
-      const call = mcpCall(item);
-      const inputText = inputCommand || (call && !mcpIsObservational(call)) ? "" : (item.inputSummary ?? "");
+      const inputText = inputCommand ? "" : (item.inputSummary ?? "");
       const text = `${title} ${command} ${inputText} ${item.output ?? ""}`;
       const order = rowIndex + toolIndex / 1000;
       addUrls(text, order);
       if (item.kind === "fetch" && !/https?:\/\//.test(text)) add({ label: item.title }, order);
       if (item.kind === "read") for (const path of editedPaths(item)) add({ label: path, kind: "file" }, order);
-      if (call && mcpIsObservational(call)) add({ label: mcpPlainName(call), kind: "mcp" }, order);
+      if (call) add({ label: mcpPlainName(call), kind: "mcp" }, order);
     }
   }
   // Add shorthand-only references after transcript URLs have been encountered, so a URL earlier

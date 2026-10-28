@@ -52,38 +52,35 @@ export function shellCommands(text: string): string[] {
     if (tokens[at] === "if") {
       at++;
       let remaining = active;
-      let uncertain = false;
-      let hasElse = false;
-      // An if with no matching arm and no else succeeds.
-      status = true;
+      const outcomes: Status[] = [];
       while (at < tokens.length) {
         const condition = list(remaining, ["then", "fi"], depth);
-        if (remaining && condition === undefined) uncertain = true;
         if (tokens[at] !== "then") {
+          if (remaining) outcomes.push(undefined);
           if (tokens[at] === "fi") at++;
           break;
         }
         at++;
         const body = list(remaining && condition !== false, ["elif", "else", "fi"], depth);
-        if (remaining && condition !== false) status = body;
+        if (remaining && condition !== false) outcomes.push(body);
         if (condition === true) remaining = false;
         if (tokens[at] === "elif") {
           at++;
           continue;
         }
         if (tokens[at] === "else") {
-          hasElse = true;
           at++;
           const other = list(remaining, ["fi"], depth);
-          if (remaining) status = other;
+          if (remaining) outcomes.push(other);
+          remaining = false;
         }
         if (tokens[at] === "fi") at++;
         break;
       }
-      // With no matching arm, a shell `if` exits successfully. An unknown guard
-      // remains definitely successful when every possible executed body succeeds;
-      // a possible failing body keeps the status uncertain.
-      if (uncertain) status = !hasElse && status === true ? true : undefined;
+      // An unmatched if succeeds. Combine all reachable arm results, retaining
+      // certainty only when every possible path has the same status.
+      if (remaining) outcomes.push(true);
+      status = outcomes.length && outcomes.every((value) => value === outcomes[0]) ? outcomes[0] : undefined;
     } else if (tokens[at] === "(") {
       at++;
       status = list(active, [")"], depth);

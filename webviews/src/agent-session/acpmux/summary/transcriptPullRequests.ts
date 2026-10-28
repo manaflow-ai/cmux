@@ -199,22 +199,36 @@ function toolFindings(tool: Tool): Finding[] {
     .split("\n")
     .filter((part) => isPullRequestCommand(part) && !/(?:^|\s)(?:--help|-h)(?=\s|$)/.test(part));
   const found: Finding[] = [];
-  let createCount = calls.filter((call) => CREATE.test(call)).length;
+  const createCount = calls.filter((call) => CREATE.test(call)).length;
   if (createCount > 0) {
-    const title = TITLE.exec(command);
+    const title = createCount === 1 ? TITLE.exec(command) : null;
     const text = title ? (title[1] ?? title[2] ?? title[3])?.replace(/\\(.)/g, "$1") : undefined;
-    // A shell can create a PR and then print another PR's URL (for example from
-    // `gh pr view --json url`). Only one URL per create call is opening evidence.
+    // Shell output has no per-command boundary. Exclude explicit targets of other
+    // calls, then require one distinct remaining URL per create. Ambiguous output
+    // stays unclassified instead of attributing every viewed PR to a create.
+    const otherTargets = calls.flatMap((call) =>
+      CREATE.test(call) ? [] : [...call.matchAll(CALL)].flatMap((match) => callTarget(match[3] ?? "") ?? []),
+    );
+    const candidates = new Map<string, RegExpMatchArray>();
     for (const match of (tool.output ?? "").matchAll(PR_URL)) {
-      if (createCount === 0) break;
-      found.push({
-        how: "opened",
-        repo: match[1]!,
-        number: Number(match[2]),
-        ...(text ? { title: text } : {}),
-      });
-      createCount--;
+      if (
+        otherTargets.some(
+          (target) =>
+            target.number === Number(match[2]) &&
+            (target.ref.kind !== "full" || target.ref.repo.toLowerCase() === match[1]!.toLowerCase()),
+        )
+      )
+        continue;
+      candidates.set(`${match[1]!.toLowerCase()}#${match[2]}`, match);
     }
+    if (candidates.size === createCount)
+      for (const match of candidates.values())
+        found.push({
+          how: "opened",
+          repo: match[1]!,
+          number: Number(match[2]),
+          ...(text ? { title: text } : {}),
+        });
     // Continue scanning the same successful shell for later commands separated by &&/;.
   }
   // Preserve execution order across gh and broker lifecycle commands.
