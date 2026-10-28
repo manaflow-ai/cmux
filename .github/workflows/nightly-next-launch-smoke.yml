@@ -19,9 +19,11 @@ name: nightly-next launch smoke
 #               (if_newest), so a second report of the same build, or a newer build
 #               published meanwhile, is never pulled.
 #
-# Every 10 minutes it checks the feed's newest build once (a pass or a
-# cannot-run is cached per build); a tick with no new build stops in the Linux
-# pick job. A crash is not cached, so it is retried until its rollback lands. A schedule and a dispatch register only
+# Every 10 minutes it checks the feed's newest build: a pass is cached per build,
+# so a tick with no new build stops in the Linux pick job. A cannot-run is cached
+# for the rest of its UTC hour only, so a build the infrastructure could not
+# smoke is tried again at most an hour later. A crash is not cached, so it is
+# retried until its rollback lands. A schedule and a dispatch register only
 # from the default branch, so this file is on main too; every run takes its
 # tooling from feat-cmux-next (a pull request into feat-cmux-next, from its own
 # head). A pull request's run smokes the newest feed build and never rolls back
@@ -68,7 +70,8 @@ jobs:
       build: ${{ steps.feed.outputs.build }}
       url: ${{ steps.feed.outputs.url }}
       length: ${{ steps.feed.outputs.length }}
-      checked: ${{ steps.seen.outputs.cache-hit }}
+      checked: ${{ steps.seen.outputs.cache-hit == 'true' || steps.seen-hour.outputs.cache-hit == 'true' }}
+      hour: ${{ steps.hour.outputs.hour }}
     steps:
       - name: Read the feed
         id: feed
@@ -98,15 +101,30 @@ jobs:
           PY
           cat "$GITHUB_OUTPUT"
 
-      # One verdict per build: a scheduled tick skips a build an earlier tick
-      # judged (pass, crash or cannot-run). A dispatch or a pull request always runs.
-      - name: Skip a build already smoked
+      # A scheduled tick skips a build an earlier tick passed, and a build an earlier
+      # tick could not smoke in this same UTC hour (a bounded retry: one transient
+      # infrastructure failure never stops the build from being smoked). A crash is
+      # never cached. A dispatch or a pull request always runs.
+      - name: Skip a build already passed
         id: seen
         if: github.event_name == 'schedule'
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: smoke-verdict
           key: ${{ env.SMOKE_CACHE_PREFIX }}${{ steps.feed.outputs.build }}
+          lookup-only: true
+
+      - name: Read the hour
+        id: hour
+        run: echo "hour=$(date -u +%Y%m%d%H)" >> "$GITHUB_OUTPUT"
+
+      - name: Skip a build that could not be smoked this hour
+        id: seen-hour
+        if: github.event_name == 'schedule' && steps.seen.outputs.cache-hit != 'true'
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: smoke-verdict
+          key: ${{ env.SMOKE_CACHE_PREFIX }}${{ steps.feed.outputs.build }}-cannot-run-${{ steps.hour.outputs.hour }}
           lookup-only: true
 
   smoke:
@@ -211,7 +229,7 @@ jobs:
           name: launch-smoke-${{ env.BUILD }}
           path: ${{ runner.temp }}/launch-smoke
           if-no-files-found: ignore
-          retention-days: 30
+          retention-days: 3
 
   # A crash: roll the feed back (only while the build is still its newest) and
   # file the evidence. A pull request's run does neither.
@@ -258,15 +276,11 @@ jobs:
           if [ "$action" = rollback ]; then
             reason="build $BUILD crashed at launch in the fresh-home smoke: $RUN_URL"
             # if_newest makes the rollback re-check, on its own read, that BUILD is still the
-            # newest. A nightly-next branch older than that input rejects it; then the check above
-            # (seconds old) stands alone.
-            if ! gh workflow run nightly-next-rollback.yml -R "$GITHUB_REPOSITORY" --ref nightly-next \
-                -f bad_build="$BUILD" -f if_newest="$BUILD" -f reason="$reason" 2>dispatch.err; then
-              cat dispatch.err >&2
-              grep -qi "unexpected inputs" dispatch.err
-              gh workflow run nightly-next-rollback.yml -R "$GITHUB_REPOSITORY" --ref nightly-next \
-                -f bad_build="$BUILD" -f reason="$reason"
-            fi
+            # newest, so a build published while the rollback waited in a queue is never pulled.
+            # There is no dispatch without it: a nightly-next branch that predates the input
+            # rejects the dispatch, this step fails, and the issue says the rollback was not made.
+            gh workflow run nightly-next-rollback.yml -R "$GITHUB_REPOSITORY" --ref nightly-next \
+              -f bad_build="$BUILD" -f if_newest="$BUILD" -f reason="$reason"
             echo "action=requested" >> "$GITHUB_OUTPUT"
           else
             echo "action=none" >> "$GITHUB_OUTPUT"
@@ -284,7 +298,7 @@ jobs:
           case "${ACTION:-failed}" in
             requested) what="The feed rollback was requested (nightly-next-rollback.yml, bad_build $BUILD): $WHY." ;;
             none) what="No rollback: $WHY." ;;
-            *) what="Requesting the rollback FAILED, so the build may still be on the feed. Roll it back: \`gh workflow run nightly-next-rollback.yml -R manaflow-ai/cmux --ref nightly-next -f bad_build=$BUILD -f reason=\"launch crash\"\`" ;;
+            *) what="Requesting the rollback FAILED, so the build may still be on the feed. Roll it back: \`gh workflow run nightly-next-rollback.yml -R manaflow-ai/cmux --ref nightly-next -f bad_build=$BUILD -f if_newest=$BUILD -f reason=\"launch crash\"\`" ;;
           esac
           {
             echo "cmux NEXT build $BUILD crashed at launch from a fresh home on every attempt: $RUN_URL"
@@ -303,9 +317,10 @@ jobs:
             gh issue create -R "$GITHUB_REPOSITORY" --title "$title" --body-file body.md
           fi
 
-  # Mark a pass or a cannot-run build smoked. A crash is never marked: while the
-  # build is still the feed's newest, the next tick smokes it again and asks for
-  # the rollback again, so a rollback that failed is retried until the build is off.
+  # Mark a passed build smoked, and a cannot-run build for the rest of the pick's
+  # UTC hour only. A crash is never marked: while the build is still the feed's
+  # newest, the next tick smokes it again and asks for the rollback again, so a
+  # rollback that failed is retried until the build is off.
   record:
     needs: [pick, smoke]
     if: always() && github.event_name == 'schedule' && (needs.smoke.outputs.verdict == 'pass' || needs.smoke.outputs.verdict == 'cannot-run')
@@ -324,4 +339,4 @@ jobs:
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: smoke-verdict
-          key: ${{ env.SMOKE_CACHE_PREFIX }}${{ needs.pick.outputs.build }}
+          key: ${{ env.SMOKE_CACHE_PREFIX }}${{ needs.pick.outputs.build }}${{ needs.smoke.outputs.verdict == 'cannot-run' && format('-cannot-run-{0}', needs.pick.outputs.hour) || '' }}

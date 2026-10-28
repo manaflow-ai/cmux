@@ -215,6 +215,10 @@
       "class": "macos-runtime-tests",
       "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly on attempt 1 (#26688); take the label from a placement job like pick-train-runner"
     },
+    "nightly-next-launch-smoke.yml#smoke": {
+      "class": "apple-gui",
+      "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly on attempt 1, as nightly-next-canary.yml#canary does; a placement job would need the routing App's secret, and this job has none"
+    },
     "nightly-next-train.yml#build": "apple-app-build",
     "nightly.yml#build-nightly-app": "apple-app-build",
     "nightly.yml#build-nightly-ghostty-cli-helper": "apple-app-build",

@@ -195,8 +195,14 @@ class NothingWaitsOnTheSmokeTests(unittest.TestCase):
         run = "\n".join(step.get("run", "") for step in crashed["steps"])
         self.assertIn("gh workflow run nightly-next-rollback.yml", run)
         self.assertIn('-f bad_build="$BUILD" -f if_newest="$BUILD"', run)
-        # The fallback without if_newest only for a nightly-next branch that predates the input.
-        self.assertIn('grep -qi "unexpected inputs" dispatch.err', run)
+        # Every rollback dispatch carries if_newest: one without it would pull a build published
+        # while the rollback waited in a queue. A target that predates the input fails the step.
+        joined = re.sub(r"\\\n\s*", " ", self.text)
+        dispatches = re.findall(r"gh workflow run nightly-next-rollback\.yml[^\n]*", joined)
+        self.assertTrue(dispatches)
+        for dispatch in dispatches:
+            self.assertIn("if_newest", dispatch, dispatch)
+        self.assertNotIn("unexpected inputs", self.text)
         self.assertEqual(crashed["concurrency"]["cancel-in-progress"], False)
         self.assertIn("needs.pick.outputs.build", crashed["concurrency"]["group"])
         self.assertIn("--state all", run)
@@ -220,6 +226,23 @@ class NothingWaitsOnTheSmokeTests(unittest.TestCase):
         guard = run.index("if [ ! -f scripts/ci/nightly_next_launch_smoke.py ]; then")
         self.assertLess(guard, run.index("nightly_next_launch_smoke.py verdict"))
         self.assertIn("exit 0", run[guard:run.index("fi", guard)])
+
+    def test_a_cannot_run_is_retried_within_the_hour(self) -> None:
+        # A pass is cached per build; a cannot-run only under a key for the pick's UTC hour, so
+        # one transient infrastructure failure never stops a build from being smoked again.
+        record = self.jobs["record"]
+        key = record["steps"][-1]["with"]["key"]
+        self.assertEqual(key, "${{ env.SMOKE_CACHE_PREFIX }}${{ needs.pick.outputs.build }}"
+                              "${{ needs.smoke.outputs.verdict == 'cannot-run' && "
+                              "format('-cannot-run-{0}', needs.pick.outputs.hour) || '' }}")
+        steps = {step.get("id"): step for step in self.jobs["pick"]["steps"]}
+        self.assertEqual(steps["seen"]["with"]["key"],
+                         "${{ env.SMOKE_CACHE_PREFIX }}${{ steps.feed.outputs.build }}")
+        self.assertEqual(steps["seen-hour"]["with"]["key"],
+                         "${{ env.SMOKE_CACHE_PREFIX }}${{ steps.feed.outputs.build }}"
+                         "-cannot-run-${{ steps.hour.outputs.hour }}")
+        self.assertIn("date -u +%Y%m%d%H", steps["hour"]["run"])
+        self.assertEqual(self.jobs["pick"]["outputs"]["hour"], "${{ steps.hour.outputs.hour }}")
 
     def test_a_crash_is_never_marked_smoked_so_a_failed_rollback_is_retried(self) -> None:
         record = self.jobs["record"]
