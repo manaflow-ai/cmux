@@ -333,10 +333,13 @@ public final class CrashReporter: Sendable {
     /// telemetry. `message` must hold no user content: it is sent as is.
     public func recordFailure(_ name: String, message: String) {
         guard isStarted else { return }
+        // One issue per failure name: the send runs on the delivery queue, so the stack Sentry attaches is that
+        // queue's and would group every failure as one.
         deliver {
             SentrySDK.capture(message: "\(name): \(message)") { scope in
                 scope.setTag(value: name, key: "failure")
                 scope.setLevel(.warning)
+                scope.setFingerprint(["failure", name])
             }
         }
     }
@@ -358,21 +361,47 @@ public final class CrashReporter: Sendable {
     public func captureNonFatal(_ message: String, type: String, fingerprint: [String], tags: [String: String] = [:],
                                 extra: [String: String] = [:]) {
         guard isStarted else { return }
-        // The event is built in the send (`Event` is not Sendable).
+        // The caller's stack, taken here: the send runs on the delivery queue (a layout loop reports from main inside
+        // layout, and that stack is the report).
+        let addresses = Thread.callStackReturnAddresses.map(\.uintValue)
+        // The event is built in the send (`Event` is not Sendable; the images are resolved off the caller).
         deliver {
-            let event = Event(level: .error)
-            let exception = Exception(value: message, type: type)
-            let mechanism = Mechanism(type: "cmux_guard")
-            mechanism.handled = true
-            exception.mechanism = mechanism
-            event.exceptions = [exception]
-            event.message = SentryMessage(formatted: message)
-            event.fingerprint = fingerprint
-            event.tags = tags
-            event.extra = extra
-            SentrySDK.capture(event: event)
+            SentrySDK.capture(event: Self.nonFatalEvent(message, type: type, fingerprint: fingerprint, tags: tags, extra: extra,
+                                                        addresses: addresses))
         }
     }
+
+    /// A handled guard's event, with the caller's stack `addresses` (innermost first) as the exception's
+    /// stacktrace and their images as debug meta. Resolves images (dladdr): call off main.
+    static func nonFatalEvent(_ message: String, type: String, fingerprint: [String], tags: [String: String],
+                              extra: [String: String], addresses: [UInt]) -> Event {
+        let event = Event(level: .error)
+        let exception = Exception(value: message, type: type)
+        let mechanism = Mechanism(type: "cmux_guard")
+        mechanism.handled = true
+        exception.mechanism = mechanism
+        let images = MainThreadHangEvent.images(for: addresses)
+        if !addresses.isEmpty {
+            exception.stacktrace = MainThreadHangEvent.stacktrace(addresses, images: images, packages: true)
+        }
+        event.exceptions = [exception]
+        event.message = SentryMessage(formatted: message)
+        event.fingerprint = fingerprint
+        event.tags = tags
+        event.extra = extra
+        if !images.isEmpty {
+            event.debugMeta = images.map { image in
+                let meta = DebugMeta()
+                meta.type = "macho"
+                meta.debugID = image.uuid
+                meta.imageSize = NSNumber(value: image.size)
+                meta.codeFile = image.path
+                return meta
+            }
+        }
+        return event
+    }
+
 
     /// Sends one app hang from the main-thread watchdog (``AppHangReporter``).
     /// Call off the main thread (builds debug-image metadata). Does nothing

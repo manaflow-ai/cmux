@@ -4,9 +4,11 @@ public import Sentry
 /// Applies a ``SentryScrubber`` to outgoing Sentry events and breadcrumbs so
 /// file paths, emails, and secrets are redacted before they leave the device.
 ///
-/// Wire it into `SentrySDK.start` via `options.beforeSend`,
-/// `options.beforeBreadcrumb`, and (when performance tracing is on)
-/// `options.beforeSendSpan`. The Sentry SDK calls those closures on the dispatch
+/// Wire it into `SentrySDK.start` via `options.beforeSend` (which scrubs the
+/// breadcrumbs an event carries) and, when performance tracing is on,
+/// `options.beforeSendSpan`. ``scrub(_:)-(Breadcrumb)`` also suits
+/// `options.beforeBreadcrumb`, but that runs in the thread that records the
+/// breadcrumb; cmux-next scrubs at send time only. The Sentry SDK calls those closures on the dispatch
 /// queue that produced the event; the scrub is pure and synchronous, so no
 /// isolation is required.
 ///

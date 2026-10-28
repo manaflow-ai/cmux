@@ -57,4 +57,17 @@ import Testing
         }
         #expect(offMain, "the send ran on the main thread")
     }
+
+    /// A non-fatal guard sent from the delivery queue still carries its caller's stack (taken where it was
+    /// called), with the images that hold it, and its own fingerprint.
+    @Test func aNonFatalEventCarriesTheCallersStack() throws {
+        let addresses = Thread.callStackReturnAddresses.map(\.uintValue)
+        let event = CrashReporter.nonFatalEvent("layout loop", type: "LayoutLoop", fingerprint: ["layout-loop"], tags: [:],
+                                                extra: [:], addresses: addresses)
+        let frames = try #require(event.exceptions?.first?.stacktrace?.frames)
+        #expect(frames.count == addresses.count)
+        #expect(frames.last?.instructionAddress == MainThreadHangEvent.hex(UInt64(addresses[0])), "innermost frame last")
+        #expect(event.debugMeta?.isEmpty == false)
+        #expect(event.fingerprint == ["layout-loop"])
+    }
 }
