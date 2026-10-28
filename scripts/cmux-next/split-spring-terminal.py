@@ -61,6 +61,11 @@ if "--suite=pane-bench" not in sys.argv and "--suite=action-budget-bench" not in
 if "--suite=newterm" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "newterm-cold-warm-bench.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=newterm"])
+if "--suite=leak" in sys.argv or "--suite=resource" in sys.argv:  # leak-harness.py (cleanup.md, resource-minimum.md)
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "leak-harness.py")
+    extra = ["--resource-bench"] if "--suite=resource" in sys.argv else []
+    os.execv(sys.executable, [sys.executable, suite] + extra
+             + [a for a in sys.argv[1:] if a not in ("--suite=leak", "--suite=resource", "--")])
 if "--suite=first5s" in sys.argv:  # the first 5 s of typing (first-5s-typing.py)
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "first-5s-typing.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=first5s"])

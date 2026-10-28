@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SCRATCH MEASUREMENT REF ONLY (cp/lag-newterm-*): never lands. split-spring.sh builds the app with this script;
+# SCRATCH MEASUREMENT REF ONLY (cp/lag-newterm-*, cp/leak-measure): never lands. split-spring.sh builds the app with this script;
 # here it fetches a finished fleet build to measure instead, so the step measures that exact binary.
 # split-spring.sh --config=NAME picks it: v21 (default; chrome-parity-v2-1, job 2769005f506cef2d9a476d02),
 # v11 (chrome-parity-v1-1, job 567b4a26d93aa86fdce19821) or a raw artifact sha256. LAG_NEWTERM_APP_SHA256 overrides.
