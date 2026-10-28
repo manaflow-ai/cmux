@@ -23,7 +23,7 @@ whole app is already arm64-only and stripped.
 | &nbsp;&nbsp;`resources.pak` (already gzip/brotli/FLAC inside) | 20.3 MB | 20.1 MB | |
 | &nbsp;&nbsp;`libvk_swiftshader.dylib` | 16.0 MB | 4.0 MB | |
 | &nbsp;&nbsp;`icudtl.dat` | 10.8 MB | 3.4 MB | |
-| &nbsp;&nbsp;22 locale `.lproj` (already trimmed to our 21 languages) | 17.4 MB | 3.0 MB | |
+| &nbsp;&nbsp;22 locale `.lproj` (trimmed to our 21 languages then; since 2026-10-28 all 228 ship: 52.8 MB, 8.4 MB xz) | 17.4 MB | 3.0 MB | |
 | &nbsp;&nbsp;`chrome_100/200_percent.pak`, `CREDITS.html`, shader cache, V8 snapshot | 12.0 MB | 2.6 MB | |
 | `Resources/bin` (Rust `cmux` 68 MB = cmux-tui + acpmux; optchat-chief 10 MB; ghostty 5.7; browser-host 5; tui-host 2.7; cloud 1.9; app-host 1.7) | 98.5 MB | 29.3 MB | 16% |
 | `MacOS/cmux` (Swift app, 74 MB `__text`) | 98.1 MB | 27.3 MB | 15% |
@@ -55,7 +55,7 @@ bead cx-b6r7 plus older commits:
   (−3.4 MB).
 - Fat LTO for cmux-tui (−11.1 MB).
 - `-dead_strip`.
-- Unused CEF locales trimmed (#16732).
+- Unused CEF locales trimmed (#16732); undone 2026-10-28: every language ships (chromium-slim.md).
 - CEF dylibs stripped (−7 MiB).
 - Strings tables as binary plists (−10 MiB).
 - `-no_exported_symbols` plus `cmux-symbols.bin` (−11 MiB).
@@ -137,7 +137,7 @@ What I kept, and why:
 - Widevine. Spotify DRM was verified working on CEF (browser.md §6).
 - PDF viewer, printing and DevTools. Users and agents use them.
 - Extensions and uBlock. They are product features.
-- All 22 CEF locales. They map to our 21 languages.
+- All 228 CEF locale catalogs (chromium-slim.md, Lawrence 2026-10-28: keep every language).
 - swiftshader. It is the WebGL fallback.
 - `gpu_shader_cache.bin`. It makes first paint faster.
 - CREDITS.html and the license folders. Licenses are required, and they

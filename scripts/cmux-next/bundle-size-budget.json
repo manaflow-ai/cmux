@@ -1,12 +1,12 @@
 {
   "schema": 1,
-  "about": "Size budget of the cmux NEXT nightly app, checked by scripts/cmux-next/bundle-size.py check. Caps are bytes: the measured size plus about 5% headroom. Lower a cap when a cut lands; raise one only with a reason in the commit. Baseline: nightly-next arm64 2026-10-20 (DMG 205352329, app 664782233). Plan: plans/cmux-next/bundle-size-DESIGN.md.",
+  "about": "Size budget of the cmux NEXT nightly app, checked by scripts/cmux-next/bundle-size.py check. Caps are bytes: the measured size plus about 5% headroom. Lower a cap when a cut lands; raise one only with a reason in the commit. Baseline: nightly-next arm64 2026-10-20 (DMG 205352329, app 664782233). Plan: plans/cmux-next/bundle-size-DESIGN.md. 2026-10-28: the framework and app caps rose by every Chromium locale catalog (228 .lproj, +35.5 MB on disk, +5.4 MB xz in the DMG; Lawrence, chromium-slim.md: keep all languages).",
   "variants": {
     "arm64": {
       "dmg_max_bytes": 216000000,
-      "app_max_bytes": 700000000,
+      "app_max_bytes": 735000000,
       "components": {
-        "Contents/Frameworks/Chromium Embedded Framework.framework": 350000000,
+        "Contents/Frameworks/Chromium Embedded Framework.framework": 402000000,
         "Contents/Resources/bin": 104000000,
         "Contents/MacOS/cmux": 104000000,
         "Contents/Resources/markdown-viewer": 28200000,
