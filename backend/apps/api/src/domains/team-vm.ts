@@ -7,6 +7,9 @@ import { pauseWakeAt, reduceMemberRemoved, reduceRebuildRequested, reduceRetired
 
 export type TeamVmStatus = "none" | "provisioning" | "starting" | "running" | "paused" | "failed"
 export type ProviderState = "starting" | "running" | "pausing" | "paused" | "stopped"
+const PROVIDER_STATES: ReadonlySet<string> = new Set(["starting", "running", "pausing", "paused", "stopped"])
+/** A provider's state string as a ProviderState (anything unknown reads as starting). */
+export const asState = (s: unknown): ProviderState => (typeof s === "string" && PROVIDER_STATES.has(s) ? (s as ProviderState) : "starting")
 
 export interface TeamVmLease {
   readonly holder: string
