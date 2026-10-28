@@ -100,6 +100,53 @@ def files_written(roots, since):
     return dict(sorted(out.items(), key=lambda kv: -kv[1][1])[:40])
 
 
+UBO_ID = "cjpalhdlnbpafiamejdnhcphjbkeiagm"
+UBO_STATE = r"""(async () => {
+  const ub = self.µBlock;
+  const local = await chrome.storage.local.get(null);
+  const sizes = {};
+  for (const [k, v] of Object.entries(local)) { let n = 0; try { n = JSON.stringify(v).length; } catch (e) {} sizes[k] = n; }
+  const reg = local.assetCacheRegistry || {};
+  const registry = {};
+  for (const [k, v] of Object.entries(reg)) { registry[k] = { writeTime: v && v.writeTime, readTime: v && v.readTime }; }
+  let idb = null;
+  try { idb = (await indexedDB.databases()).map(d => d.name + ':' + d.version); } catch (e) { idb = String(e); }
+  const hs = (ub && ub.hiddenSettings) || {};
+  return { now: Date.now(), t0: self.vAPI && vAPI.T0, allReadyAfter: ub && ub.supportStats && ub.supportStats.allReadyAfter,
+           supportStats: ub && ub.supportStats, selfieIsInvalid: ub && ub.selfieIsInvalid,
+           version: local.version, compiledMagic: local.compiledMagic, selfieMagic: local.selfieMagic,
+           storageKeys: sizes, registry, idb,
+           hidden: { autoUpdateDelayAfterLaunch: hs.autoUpdateDelayAfterLaunch, selfieDelayInSeconds: hs.selfieDelayInSeconds,
+                     cacheStorageAPI: hs.cacheStorageAPI, autoUpdatePeriod: hs.autoUpdatePeriod },
+           autoUpdate: ub && ub.userSettings && ub.userSettings.autoUpdate,
+           lists: ub && Object.entries(ub.availableFilterLists || {}).filter(([k, v]) => v.off !== true && v.content === 'filters').map(([k]) => k) };
+})()"""
+
+
+def ubo_state(port):
+    """uBlock Origin's own state in every profile's background page: whether it loaded from its selfie, its cache's
+    registry write times, its storage keys and sizes."""
+    sys.path.insert(0, HERE)
+    from ext_e2e import cdp
+    out = []
+    try:
+        targets = cdp.targets(port)
+    except Exception as error:  # noqa: BLE001
+        return [{"error": f"targets: {error}"[:200]}]
+    for t in targets:
+        if not (t.get("url") or "").startswith(f"chrome-extension://{UBO_ID}/") or t.get("type") != "background_page":
+            continue
+        try:
+            session = cdp.page_session(port, t["id"])
+            try:
+                out.append({"target": t["id"], "state": session.evaluate(UBO_STATE, timeout=20)})
+            finally:
+                session.close()
+        except Exception as error:  # noqa: BLE001
+            out.append({"target": t.get("id"), "error": f"{type(error).__name__}: {error}"[:200]})
+    return out
+
+
 def network_callers(path):
     """The main thread's call paths through Chromium's network and update code in a `sample` report: for each line
     naming SimpleURLLoader, update_client, component_updater, safe_browsing or a URL loader, the line and its eight
@@ -153,8 +200,13 @@ def run_round(name, app, opts, roots):
         port = sock.getsockname()[1]
         sock.close()
         env["CMUX_NEXT_CEF_EXTRA_SWITCHES"] = f"remote-debugging-port={port}:remote-allow-origins=*"
+    if opts.extra_switch:
+        env["CMUX_NEXT_CEF_EXTRA_SWITCHES"] = ":".join(filter(None, [env.get("CMUX_NEXT_CEF_EXTRA_SWITCHES"), opts.extra_switch]))
+        report_extra = opts.extra_switch
+    else:
+        report_extra = None
     bench = BenchApp(app, out=out, env=env)
-    report = {"round": name}
+    report = {"round": name, "extra_switch": report_extra}
     try:
         state = os.path.join(os.path.expanduser("~"), "Library/Application Support/cmux/tags", bench.tag, "tui")
         shutil.rmtree(state, ignore_errors=True)
@@ -174,6 +226,8 @@ def run_round(name, app, opts, roots):
                            for k in b if isinstance(b.get(k), (int, float)) and b.get(k) != a.get(k)}})
             last = cur
         report["settle_series"] = series
+        if port:
+            report["ubo_after_settle"] = ubo_state(port)
         note(f"FIRSTRUN {name}: settle pump per s every 10 s: {json.dumps(series)[:600]}")
         tracer = None
         if port:
@@ -208,6 +262,20 @@ def run_round(name, app, opts, roots):
         report["pump_after"] = after
         report["cpu"] = cpu
         report["files_written"] = files_written(roots, since)
+        if port:
+            report["ubo_after_window"] = ubo_state(port)
+            for when in ("ubo_after_settle", "ubo_after_window"):
+                for entry in report.get(when) or []:
+                    st = entry.get("state") or {}
+                    now = st.get("now") or 0
+                    fresh = {k: round((now - (v.get("writeTime") or 0)) / 1000) for k, v in (st.get("registry") or {}).items()
+                             if v.get("writeTime") and now - v["writeTime"] < 600000}
+                    note(f"FIRSTRUN {name}: UBO {when} {entry.get('target', '')[:8]} allReadyAfter={st.get('allReadyAfter')!r} "
+                         f"selfieIsInvalid={st.get('selfieIsInvalid')} version={st.get('version')} magic={st.get('compiledMagic')}/{st.get('selfieMagic')} "
+                         f"autoUpdate={st.get('autoUpdate')} hidden={st.get('hidden')} idb={st.get('idb')} err={entry.get('error')}")
+                    note(f"FIRSTRUN {name}: UBO {when} registry entries written in the last 10 min (age s): {json.dumps(fresh)[:900]}")
+                    big = sorted((st.get("storageKeys") or {}).items(), key=lambda kv: -kv[1])[:15]
+                    note(f"FIRSTRUN {name}: UBO {when} storage.local biggest keys: {json.dumps(big)[:700]}")
         if tracer:
             tracer.stop()
             try:
@@ -267,6 +335,7 @@ def main():
                         help="warm: the root as it is; newcopy: a new copy of the bundle at a new path (an update's new"
                              " binary, same root); fresh: no Chromium root; warm2: again")
     parser.add_argument("--trace", action="store_true", help="Chromium's own trace over CDP (Debug builds only)")
+    parser.add_argument("--extra-switch", default="", help="a Chromium switch for every round (Debug builds: CMUX_NEXT_CEF_EXTRA_SWITCHES)")
     parser.add_argument("--settle", type=float, default=20)
     parser.add_argument("--window", type=float, default=60)
     opts, _ = parser.parse_known_args()
