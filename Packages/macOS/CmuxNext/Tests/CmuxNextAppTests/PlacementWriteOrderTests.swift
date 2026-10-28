@@ -12,7 +12,7 @@ import Testing
 /// checks the scripted daemon's persisted order after its personal events.
 @MainActor @Suite(.serialized)
 struct PlacementWriteOrderTests {
-    private struct Seed: DaemonRequest {
+    private nonisolated struct Seed: DaemonRequest {
         typealias Response = EmptyResponse
         static let command = "gallery-seed-burst"
     }

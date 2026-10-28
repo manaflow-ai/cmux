@@ -27,11 +27,11 @@ nonisolated struct PlacementGalleryCaptured: Decodable, Sendable {
 /// covered independently. Artifact: Packages/macOS/CmuxNext/placement-stale-rows-gallery.tar.
 @MainActor @Suite(.serialized)
 struct PlacementStaleRowsGalleryTests {
-    private struct Seed: DaemonRequest {
+    private nonisolated struct Seed: DaemonRequest {
         typealias Response = EmptyResponse
         static let command = "gallery-seed"
     }
-    private struct WaitForWrite: DaemonRequest {
+    private nonisolated struct WaitForWrite: DaemonRequest {
         typealias Response = EmptyResponse
         static let command = "gallery-wait-for-write"
     }

@@ -101,7 +101,7 @@ extension SidebarBridge {
                     finished = true
                     done.resume(returning: ok)
                 }
-                life.commit("set-personal-workspace", ending: ending, recheck: { life.emptied(by: moving, into: group) },
+                life.commit("set-personal-workspace", ending: ending, recheck: { ending.filter(life.isEmptyUnpinned) },
                             failed: { failed() }, completed: { finish($0) }) { sending in
                     guard sending === connection else { throw DaemonError.notConnected }
                     for step in plan.steps {
