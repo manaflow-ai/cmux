@@ -32,7 +32,7 @@ final class CrashRecoveryService {
         marker = marksRun ? AppRunMarker(directory: AppRunMarker.standardDirectory(bundleID: bundleID)) : nil
         writer = CrashReportWriter.standard(bundleID: bundleID)
         if let previous = marker?.recovery.previous {
-            logger.error("previous run ended unexpectedly signal=\(previous.signal ?? 0) exception=\(previous.exception?.name ?? "none", privacy: .public) safe=\(self.recovery.skipsBrowserPages)")
+            logger.error("previous run ended unexpectedly signal=\(previous.signal ?? 0) exception=\(previous.exception?.name ?? "none", privacy: .public) safe=\(self.recovery.isSafeRestart) held_pages=\(self.recovery.crashedPages.count)")
             reportTask = Task { [weak self, writer] in  // task-owner: stored in reportTask, cancelled with the service
                 // The DiagnosticReports listing and the report write stay off the main thread.
                 let found = await Task.detached(priority: .utility) {
@@ -59,7 +59,7 @@ final class CrashRecoveryService {
     func showRestartNotice(on window: NSWindow?) {
         guard recovery.isRestart, !noticeShown, let window else { return }
         noticeShown = true
-        var text = recovery.skipsBrowserPages ? CrashStrings.restartNoticeSafe : CrashStrings.restartNotice
+        var text = CrashStrings.restartNotice
         if let previous = recovery.previous, let cause = CrashIssueReport.cause(of: previous) {
             text += " " + CrashStrings.cause(cause.count > 80 ? String(cause.prefix(79)) + "…" : cause)
         }
@@ -133,7 +133,7 @@ final class CrashRecoveryService {
             "lived_past_quick_window": previous.survived,
             "bundle_id": writer.bundleID,
             "version": writer.version,
-            "browser_pages_restored": !recovery.skipsBrowserPages,
+            "browser_pages_held": recovery.crashedPages.count,
         ]
         if let signal = previous.signal {
             object["signal"] = Int(signal)

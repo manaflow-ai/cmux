@@ -23,11 +23,30 @@ import Testing
 
     @Test func aRestoredTabLoadsWhenShownAfterASafeRestart() throws {
         let cache = cache()
-        cache.defersRestoredPages = true
         let tab = restoredTab(71)
+        cache.crashedPages = ["some-other-tab"]
+        var started: [String] = []
+        cache.onRestoredPageStart = { started.append($0) }
         defer { cache.release(tab.id) }
         let entry = try #require(cache.browser(for: tab))
         #expect(!(entry.tab is DeferredBrowserTab), "the shown tab waited for Reload instead of loading")
         #expect(entry.chrome.noticeText == nil, "the shown tab said it was not reopened")
+        #expect(started == [tab.id], "the run marker did not learn the page started")
+    }
+
+    /// The page that was loading when the restart loop ended waits, with its own notice; Reload opens it.
+    @Test func thePageThatEndedTheLoopWaitsWithItsOwnNotice() throws {
+        let cache = cache()
+        let tab = restoredTab(72)
+        defer { cache.release(tab.id) }
+        cache.crashedPages = [tab.id]
+        cache.findTab = { $0 == tab.id ? tab : nil }
+        let entry = try #require(cache.browser(for: tab))
+        let page = try #require(entry.tab as? DeferredBrowserTab)
+        #expect(page.state.url?.absoluteString == "https://example.com/docs")
+        #expect(entry.chrome.noticeText == CrashStrings.crashedPageNotice)
+        page.reload()
+        let started = try #require(cache.existingBrowser(tab.id))
+        #expect(!(started.tab is DeferredBrowserTab), "Reload did not open the held page")
     }
 }

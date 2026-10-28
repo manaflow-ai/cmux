@@ -61,8 +61,9 @@ nonisolated func arrivedOnASystemCall(_ context: UnsafeMutableRawPointer?) -> Bo
 /// read each other's marker.
 ///
 /// - `run.json`: pid, launch time, whether this run is a restart, whether
-///   it lived past the quick-crash window, and whether a requested quit had
-///   begun (`markQuitting`).
+///   it lived past the quick-crash window, whether a requested quit had
+///   begun (`markQuitting`), and the restored pages started within that
+///   window (`notePageStarted`).
 /// - `run.signal`: empty until a fatal signal handler writes its number.
 ///
 /// A normal quit removes both. A quit that had begun, or a requested-quit
@@ -159,6 +160,16 @@ final class AppRunMarker {
 
     private func markSurvived() {
         marker.survived = true
+        marker.startedPages = nil
+        writeMarker()
+    }
+
+    /// Restored browser tab `key` started its page. Recorded only within the quick-crash window: if
+    /// this run then ends early in a restart loop, the next launch holds that page
+    /// (`LaunchRecovery.crashedPages`).
+    func notePageStarted(_ key: String) {
+        guard !marker.survived, marker.startedPages?.contains(key) != true else { return }
+        marker.startedPages = (marker.startedPages ?? []) + [key]
         writeMarker()
     }
 
