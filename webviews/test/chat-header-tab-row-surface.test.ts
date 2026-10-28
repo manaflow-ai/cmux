@@ -91,70 +91,81 @@ await requireBrowserLane("chat-header-tab-row-surface.test.ts", async () => {
     await page.close();
   });
 
-  test("floating header tools keep plain icons without background plates", async () => {
-    const shellCss = [read("agent-session/acpmux/styles.css"), read("agent-session/acpmux/header/header.css")].join(
-      "\n",
-    );
-    const page = await browser.newPage({ viewport: { width: 320, height: 120 } });
-    await page.setContent(`<!doctype html><html><head><style>
-      html, body { width: 100%; height: 100%; margin: 0; background: rgb(10, 20, 30); color: white; }
-      :root { --agent-text: rgb(240, 240, 240); --agent-muted: rgb(150, 160, 170); --agent-soft: rgb(100, 110, 120); }
-      ${shellCss}
-    </style></head><body>
-      <header class="acpmux-floating-header"><button class="acpmux-header-tool">list</button></header>
-    </body></html>`);
-    const button = page.locator(".acpmux-header-tool");
-    const style = () =>
-      button.evaluate((node) => {
-        const computed = getComputedStyle(node);
-        return {
-          background: computed.backgroundColor,
-          color: computed.color,
-          outline: computed.outlineStyle,
-          shadow: computed.boxShadow,
-        };
+  for (const host of ["acpmux-floating-header", "acpmux-floating-bar"]) {
+    for (const state of ["rest", "hover", "pressed", "popup-open", "focus-visible", "disabled"] as const) {
+      test(`${host} keeps plain icons in its ${state} state`, async () => {
+        // Match the shipped cascade: the shared pane sheet supplies the important focus gradient.
+        const shellCss = [
+          read("agent-session/shared/styles.css"),
+          read("agent-session/acpmux/styles.css"),
+          read("agent-session/acpmux/header/header.css"),
+        ].join("\n");
+        const page = await browser.newPage({ viewport: { width: 320, height: 120 } });
+        try {
+          await page.setContent(`<!doctype html><html><head><style>
+            ${shellCss}
+            :root {
+              --agent-text: rgb(240, 240, 240); --agent-muted: rgb(150, 160, 170);
+              --agent-soft: rgb(100, 110, 120); --agent-accent: rgb(200, 120, 80);
+              --acpmux-motion-hover: 0ms;
+            }
+          </style></head><body>
+            <header class="${host}"><button class="acpmux-header-tool" aria-label="Panel">
+              <span class="acpmux-header-symbol" style="width:16px;height:16px"></span>
+            </button></header>
+          </body></html>`);
+          const button = page.locator(".acpmux-header-tool");
+          await page.mouse.move(319, 119);
+          if (state === "hover") await button.hover();
+          if (state === "pressed") {
+            await button.evaluate((node) => {
+              node.setAttribute("aria-pressed", "true");
+              // HeaderIcon(selected) supplies accent ink on the glyph, not the button's surface.
+              (node.firstElementChild as HTMLElement).style.color = "var(--agent-accent)";
+            });
+          }
+          if (state === "popup-open") await button.evaluate((node) => node.setAttribute("data-popup-open", ""));
+          if (state === "focus-visible") {
+            await page.keyboard.press("Tab");
+            expect(await button.evaluate((node) => node.matches(":focus-visible"))).toBe(true);
+          }
+          if (state === "disabled") await button.evaluate((node) => ((node as HTMLButtonElement).disabled = true));
+          const computed = await button.evaluate((node) => {
+            const style = getComputedStyle(node);
+            return {
+              background: style.backgroundColor,
+              image: style.backgroundImage,
+              color: style.color,
+              outline: style.outlineStyle,
+              outlineWidth: style.outlineWidth,
+              shadow: style.boxShadow,
+              glyph: getComputedStyle(node.firstElementChild!).color,
+            };
+          });
+          const color =
+            state === "disabled"
+              ? "rgb(100, 110, 120)"
+              : state === "hover" || state === "pressed" || state === "popup-open"
+                ? "rgb(240, 240, 240)"
+                : "rgb(150, 160, 170)";
+          expect(computed).toMatchObject({
+            background: "rgba(0, 0, 0, 0)",
+            image: "none",
+            color,
+            outline: state === "focus-visible" ? "solid" : "none",
+            shadow: "none",
+            glyph: state === "pressed" ? "rgb(200, 120, 80)" : color,
+          });
+          if (state === "focus-visible") {
+            expect(parseFloat(computed.outlineWidth)).toBeGreaterThan(0);
+            expect(parseFloat(computed.outlineWidth)).toBeLessThanOrEqual(1.5);
+          }
+        } finally {
+          await page.close();
+        }
       });
-    await page.mouse.move(0, 0);
-    expect(await style()).toEqual({
-      background: "rgba(0, 0, 0, 0)",
-      color: "rgb(150, 160, 170)",
-      outline: "none",
-      shadow: "none",
-    });
-    await button.hover();
-    expect(await style()).toEqual({
-      background: "rgba(0, 0, 0, 0)",
-      color: "rgb(240, 240, 240)",
-      outline: "none",
-      shadow: "none",
-    });
-    await page.mouse.move(0, 0);
-    await button.evaluate((node) => node.setAttribute("aria-pressed", "true"));
-    expect(await style()).toEqual({
-      background: "rgba(0, 0, 0, 0)",
-      color: "rgb(240, 240, 240)",
-      outline: "none",
-      shadow: "none",
-    });
-    await button.evaluate((node) => {
-      node.removeAttribute("aria-pressed");
-      (node as HTMLButtonElement).focus();
-    });
-    const focused = await style();
-    expect(focused.background).toBe("rgba(0, 0, 0, 0)");
-    expect(focused.outline).toBe("solid");
-    await button.evaluate((node) => {
-      (node as HTMLButtonElement).blur();
-      (node as HTMLButtonElement).disabled = true;
-    });
-    expect(await style()).toEqual({
-      background: "rgba(0, 0, 0, 0)",
-      color: "rgb(100, 110, 120)",
-      outline: "none",
-      shadow: "none",
-    });
-    await page.close();
-  });
+    }
+  }
 
   test("the loading shell carries the offered row state before the handshake", () => {
     const app = read("agent-session/acpmux/App.tsx");
