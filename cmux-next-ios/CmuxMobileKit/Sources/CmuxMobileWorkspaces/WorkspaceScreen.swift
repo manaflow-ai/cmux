@@ -40,7 +40,6 @@ public struct WorkspaceScreen: View {
     @State private var renameText = ""
     @State private var renameID: String?
     @State private var renamePlaceholder = "Name"
-    @State private var groupName = ""
     @Environment(\.dismiss) private var dismiss
     #if DEBUG
     private let director = WorkspaceDemoDirector.shared
@@ -77,6 +76,13 @@ public struct WorkspaceScreen: View {
             .toolbar(.hidden, for: .navigationBar)
             .toolbar(.hidden, for: .tabBar)
             .background(InteractivePopEnabler())
+            // Screens and a tab group's actions: pages pushed over the workspace (swipe back returns).
+            .navigationDestination(item: Binding(get: { source.route }, set: { source.route = $0 })) { route in
+                switch route {
+                case .screens: ScreensPage(source: source)
+                case .tabGroup(let group): TabGroupPage(source: source, groupID: group)
+                }
+            }
             .onAppear {
                 source.exit = { dismiss() }
                 source.opened()
@@ -116,10 +122,11 @@ public struct WorkspaceScreen: View {
                     if let id = renameID { Task { await source.rename(id, to: renameText) } }
                 }
             }
-            .modifier(TabMoveAndGroupSheets(source: source, groupName: $groupName))
+            .modifier(TabMoveAndGroupSheets(source: source))
             // Closing a tab with a running program asks first (Codex QA F9).
+            // While a page is pushed, its own copy of this question shows (this screen is under it).
             .alert(source.pendingClose?.title ?? "", isPresented: Binding(
-                get: { source.pendingClose != nil },
+                get: { source.pendingClose != nil && source.route == nil },
                 set: { shown in if !shown { source.resolvePendingClose(false) } }
             )) {
                 // The Mac's close question's button ("Close").
