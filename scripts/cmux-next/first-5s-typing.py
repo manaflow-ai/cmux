@@ -468,7 +468,10 @@ class NextApp:
                 if start_ns - 50e6 <= ns <= end_ns:
                     item = {"list": kind, "at_ms": round((ns - start_ns) / 1e6, 1), "ms": round(r.get("duration_ms") or 0, 1),
                             "cpu_ms": round(r.get("cpu_ms") or 0, 1),
-                            "frames": [f for f in (r.get("frames") or []) if "cmux" in f or "Cmux" in f][:28] or (r.get("frames") or [])[:28]}
+                            "frames": [f for f in (r.get("frames") or []) if "cmux" in f or "Cmux" in f][:28] or (r.get("frames") or [])[:28],
+                            # A long one keeps its whole stack (Chromium's, AppKit's and the run loop's frames too): a
+                            # nested run loop or a window-server wait shows only there.
+                            "all_frames": (r.get("frames") or [])[:96] if (r.get("duration_ms") or 0) >= 200 else None}
                     for k, v in r.items():
                         if k not in ("frames", "frame_details", "start_uptime_ns", "duration_ms", "cpu_ms", "sequence") and not isinstance(v, (list, dict)):
                             item[k] = v
