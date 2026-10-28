@@ -36,6 +36,47 @@ import Testing
         #expect(await attempt.value == false)
     }
 
+    @Test func callbackAfterRelaunchReportsFailureAndFreshSignInCanRetry() async throws {
+        let previousLaunch = HostBrowserSignInFlowHarness()
+        let signInURL = previousLaunch.flow.manualSignInURL
+        let state = try #require(URLComponents(url: signInURL, resolvingAgainstBaseURL: false)?
+            .queryItems?.first(where: { $0.name == "cmux_auth_state" })?.value)
+        let harness = HostBrowserSignInFlowHarness(user: CMUXAuthUser(id: "u1", primaryEmail: nil, displayName: nil))
+
+        #expect(await harness.flow.handleCallbackURL(harness.callbackURL(state: state)) == false)
+        #expect(harness.flow.lastFailure == .invalidCallback)
+        #expect(harness.flow.isPresentingSignIn == false)
+        #expect(harness.coordinator.isAuthenticated == false)
+        #expect(await harness.tokenStore.getStoredRefreshToken() == nil)
+        #expect(await harness.tokenStore.getStoredAccessToken() == nil)
+
+        let retry = Task { await harness.flow.signIn(timeout: 60) }
+        await harness.waitForSession()
+        #expect(harness.flow.lastFailure == nil)
+        let session = harness.factory.sessions[0]
+        session.deliver(harness.callbackURL(state: harness.callbackState(session)))
+
+        #expect(await retry.value)
+        #expect(harness.coordinator.isAuthenticated)
+        #expect(harness.flow.lastFailure == nil)
+    }
+
+    @Test func replayedCallbackDoesNotReplaceSignedInSessionOrReportFailure() async {
+        let harness = HostBrowserSignInFlowHarness(user: CMUXAuthUser(id: "u1", primaryEmail: nil, displayName: nil))
+        let attempt = Task { await harness.flow.signIn(timeout: 60) }
+        await harness.waitForSession()
+        let session = harness.factory.sessions[0]
+        let callback = harness.callbackURL(state: harness.callbackState(session))
+        session.deliver(callback)
+        #expect(await attempt.value)
+
+        #expect(await harness.flow.handleCallbackURL(callback) == false)
+        #expect(harness.coordinator.isAuthenticated)
+        #expect(harness.flow.lastFailure == nil)
+        #expect(await harness.tokenStore.getStoredRefreshToken() == "refresh-1")
+        #expect(await harness.tokenStore.getStoredAccessToken() == "access-1")
+    }
+
     @Test func callbackTokensThatDoNotValidateRecordUnauthorizedFailure() async {
         let harness = HostBrowserSignInFlowHarness(user: nil)
 
