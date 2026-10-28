@@ -24,9 +24,27 @@ A Chromium page is a borderless child `NSWindow` (fork `CmuxParentViewTracker`,
 - Show: `addChildWindow`, then `ShowInactive` (order in), then compositor `Unsuspend`. The window shows
   only what Chromium draws next. An evicted frame waits for the renderer.
 - Resize: `NativeWidgetNSWindowBridge::UpdateWindowGeometry` calls
-  `CATransactionCoordinator::Synchronize`. Its pre-commit wait is skipped outside a real live resize
-  (`kOnlyUseWindowResizeHelperOnResize`: the wait is 1 ns when no observed window `inLiveResize`).
-  So a pane resize shows the old-size frame (a gap or a clip) until Chromium catches up.
+  `CATransactionCoordinator::Synchronize` when the content size changed. Its pre-commit handler then waits, inside
+  the next Core Animation commit of the cmux main thread, while any page window's `ShouldWaitInPreCommit` is true
+  (its content size is not yet its compositor frame's size), pumping Chromium's UI tasks, until the latest
+  `start + PreCommitTimeout()` (`kUIPaintTimeout`, 500 ms). Read in the Chromium 154.0.8037.58 sources
+  (`components/remote_cocoa/app_shim/native_widget_ns_window_bridge.mm`,
+  `ui/accelerated_widget_mac/ca_transaction_observer.mm`, `ui/base/ui_base_features.cc`):
+  `kOnlyUseWindowResizeHelperOnResize`, the only switch that shortens the wait to 1 ns outside a live resize, is
+  disabled by default and cmux does not enable it (`CEFSwitches`). So before fork API 27 every page-window resize
+  (each tracker `setFrame` during a split, close or column spring, and the window's live resize) could hold a cmux
+  frame for up to 500 ms. `IsWindowInLiveResize` has one reader, that handler, and only for the disabled switch: the
+  API 27 patch's `inLiveResize || timeout > 0` changes nothing in Chromium 154. The deadline is checked only between
+  whole UI tasks (`WaitForSingleTaskToRun`), so one long task can pass it.
+  Second wait (review 2): `Synchronize` also calls `OnActivateForTransaction`, so the GPU process starts a CA
+  transaction and holds its commits for every page, and `PostCommitHandler`
+  (`ui/accelerated_widget_mac/ca_transaction_observer.mm`, `content/browser/gpu/ca_transaction_gpu_coordinator.cc`)
+  then waits on the cmux main thread up to `kPostCommitTimeout` (50 ms) for the GPU's `CommitCATransaction` reply.
+  The API 27 patch changes only `PreCommitTimeout` and `IsWindowInLiveResize`, so this post-commit wait still runs on
+  every page-window resize with a deadline of 0, hosted or not: "0 never holds the commit" is false until the fork
+  skips `Synchronize()` in `UpdateWindowGeometry` for a 0 deadline (sent to PL-cef-layer for cmux.33). Not measured
+  yet: either wait (`cef-resize-sync-bench.py`, `debug.motion` work `ca.commit`, which sees only the run-loop
+  commit: not an explicit `CATransaction.flush()` nor AppKit's flushes inside a window live resize).
 
 ## 2. Design
 
@@ -72,17 +90,45 @@ events, and the Chromium UI thread off the cmux main thread, keep this seam.
 What this fixes:
 - Pixels move, clip and show in the cmux window's own CA transaction. No tearing, and overlays are
   above the page in the same tree.
-- Show: the context keeps the last committed frame while the page is hidden, so the host shows
-  it at once.
+- Hide: the host layer leaves in the switch's own transaction; the page window's
+  `removeChildWindow` and `Widget::Hide` run from that transaction's completion block (b2f6842a), so they
+  leave the switch's turn but still run on main right after the commit. A show still orders the page window
+  in (`addChildWindow`, `ShowInactive`, `setFrame`) in the switch's turn: slice 3.
+- Show: not verified. A hidden page window still runs `Widget::Hide` (the compositor is suspended) and the renderer
+  can evict a hidden tab's frame (section 1), so the hosted context may show nothing until Chromium's next frame.
+  Slice 3 keeps the frame while hidden; until a check sees the page's pixels in the first commit after a show, do not
+  count a faster show.
 
 ### Live resize (Lawrence 2026-10-23: no snapshot freeze; owner PL-motion-cef)
 
 Every motion frame must show the page at that frame's size, in the same CA transaction as the pane.
 Layer hosting makes this possible: the hosted root, the cmux layers and the GPU fence port all commit in
-one main-thread transaction of one process. The remaining piece is a fork switch that makes the
-bridge's pre-commit wait apply during embedder motion, so the page window counts as in live resize,
-with an embedder deadline instead of `kUIPaintTimeout` (500 ms). PL-motion-cef builds it as API 27 on top of
-this branch.
+one main-thread transaction of one process. Fork API 27 (`cmux_browser_set_resize_sync`, designed by
+PL-motion-cef) replaces `kUIPaintTimeout` for an embedded page window with the embedder's deadline, 0 by
+default, so no page ever holds a cmux frame unless asked. The app asks for `browserResize.syncDeadline`
+(8 ms) while a page is hosted and `browserResize.liveResizeDeadline` (16 ms) for every page during the
+window's live resize (which Chromium used to keep in sync). Open (review 1): a fixed 8 ms per frame can take a
+whole 120 Hz frame of the main thread while a spring runs; the frame at the new size needs a BeginFrame, so it
+may often miss the deadline. Next: wait only on discrete resizes and the landing frame, or derive the deadline
+from the display link's target time; no bench yet measures the main-thread wait with hosting on.
+
+API 27 (`cmux_browser_set_resize_sync`, fork 437ed1cc): an embedded page window's `PreCommitTimeout` is the
+embedder's deadline, 0 by default. While a page is hosted, `CEFLayerHosting` gives it `CEFResizeSyncDeadline`: the
+`browserResize.syncDeadline` tunable (8 ms) capped at half the shortest frame of all displays (8 ms with only 60 Hz
+displays, 4 ms once one runs at 120 Hz), because the wait runs on the main thread in every commit of a spring, once
+for all waiting pages (the latest deadline, not a sum), and that one commit carries every cmux window. A tunable
+edit or a display change (`didChangeScreenParametersNotification`) reaches the fork at the next show or display
+change, with a call only when the value changed, recorded only when the fork took it, and sent to a live browser of
+the page window (a closed tab hands it to another). Open: whether Chromium's frame at the new size (a renderer frame,
+then a Views compositor frame driven by BeginFrame) makes that deadline at all during a spring; if it mostly
+misses, the wait buys nothing and the deadline should apply only to discrete resizes and a spring's landing frame.
+`cef-resize-sync-bench.py` measures it (commit time and missed frames, hosting off / on / on with 0, light and
+STRESS, one run per build for API 26 against API 27). With API 27 a page that is not hosted gets 0 outside the
+window's live resize; during it `CEFLayerHosting.windowLiveResize` gives every page `browserResize.liveResizeDeadline`
+(16 ms), capped at half a display frame like every deadline, and 0 (or its pane deadline) after it. AppKit tells only
+the views in the window when its live resize starts and ends, so a host view that changes windows
+(`CEFLayerHosting.windowDidChange`) takes the new window's `inLiveResize` (review 3: a view parked during a live
+resize kept the live-resize wait for every later pane resize).
 
 ## 3. Features, status
 
@@ -95,7 +141,7 @@ this branch.
 | DevTools docked or in its own cmux window | its own page window over its own `CEFHostView` (`CEFDevToolsController.views.host`), so its own context: hosted from `opened` (end of that turn); a tunable change applies at the next open; close turns it off (`removeViews`) | code in, not run (fork API 26 build pending) |
 | Drag and drop | page window is the drag destination and source | open |
 | Full screen | host layer moves with the cmux window; tracker follows | open |
-| Popup windows (API 13 trackers) | not hosted in slice 1 | open |
+| Popup windows | a popup host (`adoptPopup` placeholder window) asks like any pane host (`CEFPaneHost.windowCreated` makes no exception for `isPopupHost`); extension popup windows that attach later (API 13 trackers) are not hosted | open (not verified on screen) |
 
 ## 4. Risks
 
@@ -114,4 +160,9 @@ this branch.
    split, close, scroll, full screen. Target < 10 ms p95 to commit, 0 dropped frames.
 3. Switch path: keep the frame while hidden (no eviction of a recently shown tab), and no `orderOut` or
    `removeChildWindow` churn for an input-only window. Overlays stay in the root while every page is hosted.
+   Today (fork b2f6842a) only the hide waits for the commit, and it still runs right after it on the main thread
+   (`removeChildWindow`, `Widget::Hide`), so its cost moves to the next frame or input; a show still runs
+   `removeChildWindow`/`addChildWindow`, `ShowInactive` and `setFrame display:YES` in the switch's turn (12 windows
+   for a STRESS workspace). Measure input to commit for both directions with the `action.perform`/`action.commit`
+   signposts, light and STRESS, then remove the show side (the input window stays ordered in, or moves off screen).
 4. Default on, after parity.

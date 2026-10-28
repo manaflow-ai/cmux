@@ -239,6 +239,23 @@ await requireBrowserLane("agent-pane-permission-deny-feedback.test.ts", async ()
     await page.close();
   });
 
+  test("an Allow acpmux refuses says so on the card, and the ask can be answered again", async () => {
+    const page = await open(CODEX);
+    refuseDeny = true;
+    try {
+      await page.getByRole("button", { name: "Allow once" }).click();
+      // The pane's own wiring (App answerPermission) hands the refusal to the card.
+      await page.locator(".acpmux-permission-refused").waitFor({ timeout: 10_000 });
+      expect(answers()).toEqual(["respond approved"]);
+    } finally {
+      refuseDeny = false;
+    }
+    await page.getByRole("button", { name: "Allow once" }).click();
+    await heard(2);
+    expect(answers()).toEqual(["respond approved", "respond approved"]);
+    await page.close();
+  });
+
   test("every ask with a deny option offers it; sent empty, it only declines", async () => {
     const page = await open(CODEX);
     // Codex's Decline is the card's Deny.

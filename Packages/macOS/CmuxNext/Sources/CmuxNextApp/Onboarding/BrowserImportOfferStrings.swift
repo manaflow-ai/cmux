@@ -15,6 +15,11 @@ nonisolated enum BrowserImportOfferStrings {
     static var importData: String {
         String(localized: "browserImportOffer.import", defaultValue: "Import…", table: "BrowserImportOffer", bundle: .module)
     }
+    /// Why an import action does not run while `browser.import.enabled` is off.
+    static var turnedOff: String {
+        String(localized: "browserImportOffer.turnedOff", defaultValue: "Import from Browser is turned off in Settings > Browser.",
+               table: "BrowserImportOffer", bundle: .module)
+    }
     static var notNow: String {
         String(localized: "browserImportOffer.notNow", defaultValue: "Not Now", table: "BrowserImportOffer", bundle: .module)
     }

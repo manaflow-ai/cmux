@@ -1376,6 +1376,12 @@ The daemon owns the records in `chiefs.sqlite3` in the session state
 directory. A Chief's id is its conversation participant id: the default
 Chief is `agent_mux` and exists from the first read; a new Chief is `agent_`
 and 26 Crockford base32 characters. A deleted id is never reused.
+`chief.profile.list` answers `{chiefs, deleted}`: the live records and the ids
+of deleted Chiefs, so a client hides their conversations. Deleting a Chief
+stops its brain, ends its sessions and then removes its brain home
+(`<home>/c/<id tail>`, its memory and state) when its `chief-id` names that Chief
+and no brain holds its lock (a folder still locked stays); the default Chief is
+never deleted.
 
 With `chief-profile-history-v1` every committed state of a record is kept as a
 revision (the newest 100 per Chief, dropped with a deleted Chief):

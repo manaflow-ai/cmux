@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxMobileLive
 import CmuxMobileModel
 import CmuxMobileTerminal
 import CmuxMobileWorkspaces
@@ -142,6 +143,8 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     var mockDataEnabled = false
     /// The workspace's Mac, for the connecting placeholder's label.
     var macName: (@MainActor (Workspace) -> String?)?
+    /// Opens Connected Devices for a live terminal of a Mac (its session, its Mac).
+    var showConnectedDevices: (@MainActor (DaemonTerminalSession, _ macID: String) -> Void)?
 
     private func host(for tab: WorkspaceTab, in workspace: Workspace) -> TerminalTabHost {
         // Another Mac's tab with the same id: its host (and its attach) goes, and
@@ -426,7 +429,12 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         let model = host(for: tab, in: workspace).model
         // The keyboard toggle and ^C live on the key bar, and Back leaves
         // the workspace, so the menu does not repeat them (design/terminal P1).
-        return [
+        var actions: [TerminalTabAction] = []
+        // A Mac terminal: who shows it, the size each asks for, and the Mac's sizing policy.
+        if let live = model.session as? DaemonTerminalSession, let macID = hostMacs[tab.id], let show = showConnectedDevices {
+            actions.append(TerminalTabAction(title: "Connected Devices…", systemImage: "laptopcomputer.and.iphone") { show(live, macID) })
+        }
+        return actions + [
             TerminalTabAction(title: "Files and Links", systemImage: "folder") { model.showFilesAndLinks() },
             TerminalTabAction(title: "Paste", systemImage: "doc.on.clipboard") { model.paste() },
             TerminalTabAction(title: "Clear", systemImage: "clear") { model.sendControl("l") },

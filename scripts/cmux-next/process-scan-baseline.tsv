@@ -20,11 +20,12 @@ cmux-tui/crates/cmux-tui/src/bin/cmux-tui-hook/tmux_route.rs	1	remove	cx-t2sqm.8
 cmux-tui/crates/cmux-tui-platform/src/windows_processes.rs	4	remove	cx-t2sqm.9
 cmux-tui/crates/cmux-tui/src/config/ghostty_helper.rs	1	remove	cx-t2sqm.10
 cmux-tui/crates/cmux-tui/src/link/machine_update/apply.rs	1	remove	cx-t2sqm.10
+cmux-tui/crates/cmux-host/src/github_cli.rs	2	keep	this helper's own ancestors only (at most 8, no enumeration): the git command that called it, to ask for a read token on a fetch and write on a push; the credential protocol does not say which
 cmux-tui/crates/cmux-host/src/linux/procs.rs	2	remove	cx-t2sqm.10
 cmux-tui/crates/cmux-host/src/team_ssh/linux_host.rs	2	remove	cx-t2sqm.10
 cmux-tui/crates/cmux-remote-browser-host/src/smoke.rs	1	remove	cx-t2sqm.10
 cmux-tui/crates/cmux-tui-platform/src/process_identity.rs	2	keep	one pid: forensic log line naming the sender of a received signal
-cmux-tui/crates/cmux-tui-platform/src/platform/peer_process.rs	1	keep	peer authentication of one connected socket (LOCAL_PEERPID / SO_PEERCRED)
+cmux-tui/crates/cmux-tui-platform/src/platform/peer_process.rs	2	keep	peer authentication of one connected socket (LOCAL_PEERPID / SO_PEERCRED): its start time and, for the origin gate, its executable
 cmux-tui/crates/cmux-browser-host/src/egress_listeners.rs	5	keep	security egress guard (loopback listener holders); decision pending in cx-t2sqm
 cmux-tui/crates/cmux-browser-host/src/egress_holders.rs	4	keep	security egress guard (loopback listener holders); decision pending in cx-t2sqm
 cmux-tui/crates/cmux-browser-host/src/egress_services.rs	5	keep	security egress guard (loopback listener holders); decision pending in cx-t2sqm
@@ -45,3 +46,5 @@ cmux-tui/crates/cmux-tui-platform/src/platform/codex_daemon.rs	4	keep	this proce
 cmux-tui/crates/cmux-tui-platform/src/platform/job_launch.rs	3	keep	one pid: the foreground job of a PTY this daemon holds (tcgetpgrp), read once when an agent session starts for its flags and account dir (#22199)
 cmux-tui/crates/cmux-worktree-care/src/procs.rs	1	keep	one bounded check of one folder right before worktree care removes it (lsof -t +d <folder>: top level only, 10 s, a hit or an error keeps it); never a machine scan
 cmux-tui/crates/cmux-pty/src/macos.rs	2	keep	this process only: PROC_PIDLISTFDS of getpid() between fork and exec, to mark its own inherited descriptors close-on-exec (new-terminal-100x; macOS has no close_range)
+cmux-tui/crates/acpmux/src/agent_host/scope.rs	1	keep	one held child: the agent host this daemon just spawned, read only for its own cgroup to confirm systemd moved it into its scope before it starts its harness (#24858)
+cmux-tui/crates/acpmux/src/linux_sandbox/supervisor.rs	2	keep	seccomp supervisor resolves its own sandboxed child's /proc/<pid>/fd aliases (one held child)

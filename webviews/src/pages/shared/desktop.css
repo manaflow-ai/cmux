@@ -16,7 +16,29 @@
   text-size-adjust: none;
   -webkit-tap-highlight-color: transparent;
   -webkit-font-smoothing: antialiased;
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  /* The UI font, Inter with its tracking (schemas/type-scale/type-scale.json; leo-bans.json pins it). */
+  font-family: var(--font-ui);
+  /* Adopted design audit scale. Existing aliases below keep today's pixels while new work uses
+     the shared spacing, control and glass names. */
+  --ds-space-1: 4px;
+  --ds-space-2: 8px;
+  --ds-space-3: 12px;
+  --ds-space-4: 16px;
+  --ds-space-5: 24px;
+  --ds-space-6: 32px;
+  --ds-control-icon: 20px;
+  --ds-control-compact: 24px;
+  --ds-control-row: 28px;
+  --ds-control-primary: 32px;
+  --ds-radius-control: 6px;
+  --ds-radius-popup: 8px;
+  --ds-radius-card: 14px;
+  --ds-radius-composer: 18px;
+  --ds-glass-plain-tint: 60%;
+  --ds-glass-plain-blur: blur(20px) saturate(1.4);
+  --ds-glass-lens-tint: 40%;
+  --ds-glass-lens-blur: blur(6px) saturate(1.3);
+  --ds-glass-edge: var(--cmux-hairline);
   /* The theme accent: the text color by default (no system blue), the theme's hue with
      appearance.accent. */
   accent-color: var(--cmux-accent, currentColor);
@@ -76,25 +98,6 @@ body {
   }
 }
 
-/* Buttons and links are controls: the arrow, as in native apps. A real web link inside content
-   (`.selectable a[href]`) keeps the hand. */
-button,
-a,
-[role="button"],
-[role="link"],
-[role="tab"],
-[role="menuitem"],
-[role="option"],
-label,
-summary,
-select {
-  cursor: default;
-}
-
-.selectable a[href] {
-  cursor: pointer;
-}
-
 /* One tooltip, the native one's (CmuxNextDesign/Tooltip/TooltipPanel.swift): Base UI's tooltip
    (ui/Tooltip.tsx), a toolbar hint (ui/Toolbar.tsx) and the title tooltip that replaces WebKit's
    bubble on every first-party page (ui/titleTooltips.ts) all sit on the one tooltip surface
@@ -118,7 +121,7 @@ select {
   /* The host's tooltip ink (TooltipSurface.ink): the text, pushed only where a translucent tint
      needs it. */
   color: var(--cmux-tooltip-ink, var(--cmux-text, CanvasText));
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  font-family: var(--font-ui);
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
   /* Wraps between words; only a word wider than the whole tooltip (a long path) breaks. */
@@ -198,30 +201,125 @@ a {
   -webkit-user-drag: none;
 }
 
-/* Opt-in content selection. */
+/* Opt-in content selection: the I-beam over its text (a clickable thing in it still shows the hand,
+   below; zero specificity, so it never beats a surface's own cursor). */
 .selectable,
 .selectable * {
   -webkit-user-select: text;
   user-select: text;
+}
+:where(.selectable, .selectable *) {
   cursor: auto;
 }
 
-/* Fields always select and show the text cursor. */
+/* Fields always select and show the text cursor. Two rules, not one list: jsdom scores a rule by
+   its most specific selector, which would let `[contenteditable]:not(…)` beat the clickable inputs
+   below in clickable-cursor.test.ts; browsers score each selector. */
 input,
-textarea,
+textarea {
+  -webkit-user-select: text;
+  user-select: text;
+  cursor: text;
+}
 [contenteditable]:not([contenteditable="false"]) {
   -webkit-user-select: text;
   user-select: text;
   cursor: text;
 }
 
-input[type="checkbox"],
-input[type="radio"],
-input[type="range"],
-input[type="color"],
-input[type="button"],
-input[type="submit"] {
+input[type="range"] {
   cursor: default;
+}
+
+/* Everything clickable shows the pointing hand, its label and icons too; a disabled one keeps the
+   arrow (Leo 2026-10-21: "LOTS OF AREAS LIKE THAT SHOULD BE CHANGING MY CURSOR INDICATOR TO
+   CLICKABLE"; this replaces the R139 arrow on buttons and links). Zero specificity (:where), so a
+   surface's own cursor still wins: text in a field, a resize or drag cursor, zoom-in on an image.
+   A surface never sets `default` or `auto` on a clickable element (clickable-cursor.test.ts); a
+   clickable div gets a role instead of a cursor rule.
+   What is inside a clickable thing takes its cursor (`inherit`, not `pointer`): the hand inside
+   selectable text, where `.selectable *` would give its label the I-beam, and a surface's own
+   cursor on the clickable thing too, so a sent or queued image's thumbnail keeps the button's
+   zoom-in. This rule comes first so a clickable thing nested in another still gets the hand. */
+:where(
+    button,
+    a[href],
+    [role="button"],
+    [role="link"],
+    [role="menuitem"],
+    [role="menuitemcheckbox"],
+    [role="menuitemradio"],
+    [role="tab"],
+    [role="option"],
+    [role="treeitem"],
+    [role="switch"],
+    [role="checkbox"],
+    [role="radio"],
+    summary,
+    label[for],
+    label:has(input[type="checkbox"], input[type="radio"])
+  )
+  * {
+  cursor: inherit;
+}
+:where(
+    button,
+    a[href],
+    [role="button"],
+    [role="link"],
+    [role="menuitem"],
+    [role="menuitemcheckbox"],
+    [role="menuitemradio"],
+    [role="tab"],
+    [role="option"],
+    [role="treeitem"],
+    [role="switch"],
+    [role="checkbox"],
+    [role="radio"],
+    summary,
+    label[for],
+    label:has(input[type="checkbox"], input[type="radio"]),
+    select
+  ) {
+  cursor: pointer;
+}
+input:is(
+    [type="checkbox"],
+    [type="radio"],
+    [type="button"],
+    [type="submit"],
+    [type="reset"],
+    [type="color"],
+    [type="file"]
+  ) {
+  cursor: pointer;
+}
+/* A disabled thing never shows the hand, whatever a surface's rule for it says, nor does anything
+   in it: a disabled control, anything aria-disabled (ARIA disables its descendants too), and a
+   disabled fieldset except its first legend (HTML leaves that legend enabled; what is disabled on
+   its own in it still is) and the links and other clickables in it, which still work. Nor does a
+   locked choice's label (no `for`, a disabled field inside and no enabled one: Cloud's locked
+   memory sizes), apart from a link or button in it. CSS cannot follow `for` to its control, so a
+   `for` label keeps the hand. A surface that shows another cursor there (`not-allowed`) says so
+   with !important on a :disabled rule. Inert content takes no pointer input at all (a sheet's
+   background, a closing popup), so it and everything in it keep the arrow too. */
+[inert],
+[inert] *,
+[aria-disabled="true"],
+[aria-disabled="true"] *,
+:disabled:not(fieldset),
+:disabled:not(fieldset) *,
+fieldset:disabled,
+fieldset:disabled > :not(legend:first-of-type):not(:is(a[href], button, input, select, textarea, summary, [role="button"], [role="link"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="tab"], [role="option"], [role="treeitem"], [role="switch"], [role="checkbox"], [role="radio"])),
+fieldset:disabled > :not(legend:first-of-type) :not(:is(a[href], button, input, select, textarea, summary, [role="button"], [role="link"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="tab"], [role="option"], [role="treeitem"], [role="switch"], [role="checkbox"], [role="radio"]), :is(a[href], button, input, select, textarea, summary, [role="button"], [role="link"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="tab"], [role="option"], [role="treeitem"], [role="switch"], [role="checkbox"], [role="radio"]) *),
+label:not([for]):has(:is(input, select, textarea):disabled):not(
+    :has(:is(input:not([type="hidden"]), select, textarea):enabled)
+  ),
+label:not([for]):has(:is(input, select, textarea):disabled):not(
+    :has(:is(input:not([type="hidden"]), select, textarea):enabled)
+  )
+  :not(:is(a[href], button, input, select, textarea, summary, [role="button"], [role="link"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="tab"], [role="option"], [role="treeitem"], [role="switch"], [role="checkbox"], [role="radio"]), :is(a[href], button, input, select, textarea, summary, [role="button"], [role="link"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="tab"], [role="option"], [role="treeitem"], [role="switch"], [role="checkbox"], [role="radio"]) *) {
+  cursor: default !important;
 }
 
 /* Focus rings only for keyboard focus. */
@@ -240,7 +338,7 @@ input[type="submit"] {
    that hold their active row, show focus as the row tint below instead. An open menu or
    popover takes focus so its keys work; it never draws a ring around itself (Leo 2026-10-11).
    `scripts/cmux-next/check-text-focus-rings.py` refuses a new focus outline on a text field. */
-:focus-visible:not(:where(input:not([type="button"], [type="submit"], [type="reset"], [type="checkbox"], [type="radio"], [type="range"], [type="color"], [type="file"], [type="image"]), textarea, [contenteditable]:not([contenteditable="false"]), [role="textbox"], [role="searchbox"])):not([data-focus-ring="none"], [data-focus-ring="row"], [data-focus-ring="rows"], [role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"], [role="option"], [role="menu"], .ui-popup) {
+:focus-visible:not(:where(input:not([type="button"], [type="submit"], [type="reset"], [type="checkbox"], [type="radio"], [type="range"], [type="color"], [type="file"], [type="image"]), textarea, [contenteditable]:not([contenteditable="false"]), [role="textbox"], [role="searchbox"], .acpmux-row)):not([data-focus-ring="none"], [data-focus-ring="row"], [data-focus-ring="rows"], [role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"], [role="option"], [role="menu"], .ui-popup) {
   outline-width: var(--cmux-focus-ring-width) !important;
   outline-style: solid !important;
   outline-color: var(--cmux-focus-ring-color) !important;
@@ -363,7 +461,7 @@ input[type="submit"] {
      (color-mix(in srgb, <fill> var(--surface-text-min), transparent)); menus and popovers are the
      liquid glass (ui/popupSurface.css). Reduce Transparency makes every translucent surface opaque. */
   --surface-text-min: 92%;
-  --surface-blur: blur(20px) saturate(1.4);
+  --surface-blur: var(--ds-glass-plain-blur);
   /* The solid popup surface: a menu's, popover's and picker's fill under Reduce Transparency
      (they are the liquid glass otherwise, ui/popupSurface.css), and what the tooltip tint mixes from: the host's popup fill (WebTheme.swift, the same color as native overlays'
      Palette.popupSurface), else the page color lifted toward the text. */
@@ -414,21 +512,30 @@ input[type="submit"] {
 /* type-scale:begin. GENERATED by scripts/cmux-next/gen-type-scale.py from schemas/type-scale/type-scale.json; do not edit. */
 :root {
   --cmux-interface-scale: 1;
+  /* The UI font: Inter, bundled (WebTheme's page bootstrap declares the face), then the system's. */
+  --font-ui: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
   --text-caption: calc(11px * var(--cmux-interface-scale, 1)); /* shortcuts, badges, counters, tooltips, group labels */
   --text-caption--line-height: calc(14px * var(--cmux-interface-scale, 1));
+  --text-caption--letter-spacing: 0.0048em;
   --text-detail: calc(12px * var(--cmux-interface-scale, 1)); /* secondary lines, metadata, section headers, footer rows */
   --text-detail--line-height: calc(16px * var(--cmux-interface-scale, 1));
+  --text-detail--letter-spacing: 0.0005em;
   --text-body: calc(13px * var(--cmux-interface-scale, 1)); /* chrome text: labels, rows, menus, controls, settings */
   --text-body--line-height: calc(18px * var(--cmux-interface-scale, 1));
+  --text-body--letter-spacing: -0.0032em;
   --text-field: calc(14px * var(--cmux-interface-scale, 1)); /* the browser address bar's text */
   --text-field--line-height: calc(18px * var(--cmux-interface-scale, 1));
+  --text-field--letter-spacing: -0.0062em;
   --text-title: calc(15px * var(--cmux-interface-scale, 1)); /* card and panel titles, search fields */
   --text-title--line-height: calc(20px * var(--cmux-interface-scale, 1));
+  --text-title--letter-spacing: -0.0088em;
   --text-heading: calc(20px * var(--cmux-interface-scale, 1)); /* page headings */
   --text-heading--line-height: calc(26px * var(--cmux-interface-scale, 1));
+  --text-heading--letter-spacing: -0.0167em;
   /* Menu and picker rows: the body step (NSFont.menuFont is the system size). */
   --text-control: var(--text-body);
   --text-control--line-height: var(--text-body--line-height);
+  --text-control--letter-spacing: var(--text-body--letter-spacing);
   /* Reading content (transcript, markdown, the prompt): the user's agent pane font size. */
   --text-content: var(--cv-font-size, 14px);
   --text-content--line-height: var(--cv-line-height, 22.75px);

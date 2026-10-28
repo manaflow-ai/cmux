@@ -19,6 +19,13 @@ public protocol SettingsDeviceDirectory: AnyObject {
     /// its pairing keys are replaced, and the next connection asks the Mac
     /// again. Sign-out does not do this (verify/persistence.md).
     func removeThisPhoneFromMacs() async
+    /// A scanned Mac pairing code (`cmux-next://pair?…`): the phone moves to
+    /// that Mac and pairs with it. False when the text is no live code for this account.
+    func openPairingCode(_ text: String) -> Bool
+}
+
+extension SettingsDeviceDirectory {
+    public func openPairingCode(_ text: String) -> Bool { false }
 }
 
 /// The account's devices from the service, shared by the Settings root (its
@@ -66,33 +73,54 @@ struct DevicesPage: View {
     @State private var removalError: ServiceFailureMessage?
     /// Rows whose removal is in flight (shown dimmed, not removable twice).
     @State private var removing: Set<String> = []
+    /// "Scan QR on your Mac" is open.
+    @State private var scanning = false
     @Environment(\.dynamicTypeSize) private var typeSize
     @ScaledMetric(relativeTo: .body) private var dotSize: CGFloat = 8
     @ScaledMetric(relativeTo: .body) private var dotLift: CGFloat = 6
-    @ScaledMetric(relativeTo: .body) private var iconColumn: CGFloat = 22
 
     var body: some View {
         List {
             if let relay = directory?.relayAvailable, !relay {
                 Section {
-                    Label("Relay unavailable. Connections from outside your network may fail.", systemImage: "exclamationmark.triangle")
-                        .font(theme.type.meta)
-                        .foregroundStyle(theme.colors.label2)
+                    CmuxMobileGutterRow {
+                        SettingsIcon("exclamationmark.triangle").accessibilityHidden(true)
+                    } content: {
+                        Text("Relay unavailable. Connections from outside your network may fail.")
+                    }
+                    .font(theme.type.meta)
+                    .foregroundStyle(theme.colors.label2)
+                    .accessibilityElement(children: .combine)
                 }
             }
             Section {
                 if macs.isEmpty {
                     Text(loadedMacs == nil ? "Loading…" : "No Macs yet. Open cmux on your Mac and sign in with this account.")
                         .font(theme.type.meta).foregroundStyle(theme.colors.label2)
+                        .cmuxMobileTextColumn()
                 }
                 ForEach(macs) { mac in
                     removableRow(mac)
                 }
                 .onDelete { offsets in pendingRemoval = offsets.first.map { macs[$0] } }
+                if directory != nil {
+                    Button {
+                        scanning = true
+                    } label: {
+                        CmuxMobileGutterRow {
+                            SettingsIcon("qrcode.viewfinder").accessibilityHidden(true)
+                        } content: {
+                            Text("Scan QR on your Mac").font(theme.type.rowTitle)
+                        }
+                    }
+                    .accessibilityIdentifier("settings.scanMacCode")
+                }
             } header: {
-                Text("Macs")
+                Text("Macs").cmuxMobileTextColumn()
             } footer: {
-                if directory != nil { Text("Remove a Mac you no longer use. It comes back if cmux on that Mac signs in again.") }
+                if directory != nil {
+                    Text("Remove a Mac you no longer use. It comes back if cmux on that Mac signs in again.").cmuxMobileTextColumn()
+                }
             }
             if directory != nil, !phones.isEmpty {
                 Section {
@@ -101,9 +129,10 @@ struct DevicesPage: View {
                     }
                     .onDelete { offsets in pendingRemoval = offsets.first.map { phones[$0] } }
                 } header: {
-                    Text("Phones")
+                    Text("Phones").cmuxMobileTextColumn()
                 } footer: {
                     Text(directory != nil ? "To remove this iPhone, use Remove This iPhone from My Macs below." : "Sign out to remove this iPhone.")
+                        .cmuxMobileTextColumn()
                 }
             }
             if directory != nil {
@@ -112,18 +141,23 @@ struct DevicesPage: View {
                         confirmingPhoneRemoval = true
                     } label: {
                         Text(removingPhone ? "Removing…" : "Remove This iPhone from My Macs")
+                            .cmuxMobileTextColumn()
                     }
                     .disabled(removingPhone)
                     .accessibilityIdentifier("settings.removeThisPhone")
                 } footer: {
                     Text("Signing out keeps this iPhone allowed on your Macs. Remove it to make each Mac ask again before it connects.")
+                        .cmuxMobileTextColumn()
                 }
             }
             if let loadError = list.loadError {
-                Section { Text(loadError).font(theme.type.meta).foregroundStyle(theme.colors.danger) }
+                Section { Text(loadError).font(theme.type.meta).foregroundStyle(theme.colors.danger).cmuxMobileTextColumn() }
             }
         }
         .settingsPage("Devices")
+        .sheet(isPresented: $scanning) {
+            PairCodeScannerSheet { directory?.openPairingCode($0) ?? false }
+        }
         .toolbar { if directory != nil { EditButton() } }
         .refreshable { await list.load(directory) }
         .task { await list.load(directory) }
@@ -234,7 +268,8 @@ struct DevicesPage: View {
     }
 
     @ViewBuilder private func row(_ device: SettingsDevice) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 14) {
+        // The dot or glyph in the icon column; the name at the headers' x.
+        CmuxMobileGutterRow(alignment: .firstTextBaseline) {
             Group {
                 if device.kind == .mac {
                     // 8 pt at Large, growing with the text up to 16 pt.
@@ -244,10 +279,10 @@ struct DevicesPage: View {
                     SettingsIcon("iphone")
                 }
             }
-            .frame(width: min(iconColumn, theme.metrics.settingsIconFrame * 2))
             // Centered on the name's line, not the two-line block (the offset
             // from the baseline is about half the text's cap height).
             .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + dotLift }
+        } content: {
             VStack(alignment: .leading, spacing: 2) {
                 let tag = device.kind == .mac ? sameNames.tag(for: device.id) : nil
                 if typeSize.isAccessibilitySize {

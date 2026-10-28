@@ -5,7 +5,8 @@ import Testing
 /// worker whose account is not the console user) `NSOpenPanel()` waits on its view service, gets no answer,
 /// and comes back with a nil prompt and message (`String!`); the made-ahead warm-up read them into `String`
 /// and the app died at launch (MadeAheadOpenPanel.swift:62, aws-m4pro-3, -4 and -6). These panels stand in
-/// for `NSOpenPanel`, which this test host cannot make without that service.
+/// for `NSOpenPanel`, which this test host cannot make without that service. What the made-ahead store does with
+/// such a panel (keeps none, arms no other warm-up) is in `MadeAheadPanelStoreTests`.
 @MainActor
 struct OpenPanelDefaultsTests {
     private final class Panel: OpenPanelLabels {
@@ -21,7 +22,7 @@ struct OpenPanelDefaultsTests {
         }
     }
 
-    @Test func aPanelWhoseServiceNeverAnsweredIsNotKeptAndDoesNotCrash() {
+    @Test func aPanelWithNoPromptHasNoDefaults() {
         let defaults: OpenPanelDefaults? = OpenPanelDefaults(of: Panel(prompt: nil, message: nil))
         #expect(defaults == nil, "a panel with no prompt never loaded its view; keep none")
     }

@@ -713,6 +713,161 @@ fn the_owners_typing_reaches_the_socket_subscribers_that_asked_for_it() {
     mux.cloud_conversations().unwrap().shutdown();
 }
 
+/// `cloud-conversation-presence`: the person views the conversation while
+/// any client of the daemon does, so only a change of that goes out as the
+/// owner's `presence.set {conversation, viewing}` frame on the shared
+/// socket: again on a new socket while viewing, and off when the last
+/// viewing client closes or unsubscribes. Without a subscriber it is
+/// refused and nothing is sent.
+#[test]
+fn presence_goes_out_as_the_owners_presence_set_frame_on_the_shared_socket() {
+    let (mux, client, backend) = cloud_mux();
+    let identity = run(&mux, client, json!({"cmd":"identify"})).unwrap();
+    let advertised = identity["capabilities"].as_array().unwrap();
+    assert!(advertised.iter().any(|v| v == "cloud-conversation-presence-v1"), "{identity}");
+    sign_in(&mux, client);
+    let presence = json!({"id":1,"cmd":"cloud-conversation-presence","conversation":CONV,
+                          "viewing":true});
+    let refused = reply(&mux, client, presence);
+    assert_eq!(refused["ok"], false, "{refused}");
+    assert_eq!(refused["reason"], "not_subscribed", "{refused}");
+
+    let welcome = || {
+        json!({"t":"welcome","principal":{"user":ME},"streams":[format!("conv:{CONV}")]})
+            .to_string()
+    };
+    let events = mux.subscribe();
+    let wire = backend.wire();
+    wire.push_text(welcome());
+    run(&mux, client, json!({"cmd":"cloud-conversation-subscribe","conversation":CONV})).unwrap();
+    // Another subscriber keeps the socket when `client` unsubscribes.
+    let other = mux.control_clients.register(ClientTransport::Unix, writer());
+    run(&mux, other, json!({"cmd":"cloud-conversation-subscribe","conversation":CONV})).unwrap();
+    let mut seen = Vec::new();
+    wait_until("the socket to go live", || {
+        seen.extend(cloud_events(&events));
+        seen.iter()
+            .any(|event| event["event"] == "cloud-subscription-state" && event["state"] == "live")
+    });
+    let frames = |wire: &crate::cloud_conversations::testing::ScriptedWire| -> Vec<Value> {
+        wire.sent()
+            .iter()
+            .filter_map(|frame| serde_json::from_str::<Value>(frame).ok())
+            .filter(|frame| frame["t"] == "presence.set")
+            .collect()
+    };
+    let frame = |viewing: bool| json!({"t":"presence.set","conversation":CONV,"viewing":viewing});
+    let view = |client: u64, viewing: bool| {
+        let sent = run(
+            &mux,
+            client,
+            json!({"cmd":"cloud-conversation-presence","conversation":CONV,"viewing":viewing}),
+        )
+        .unwrap();
+        assert_eq!(sent["conversation"], CONV, "{sent}");
+    };
+    let first = mux.control_clients.register(ClientTransport::Unix, writer());
+    let second = mux.control_clients.register(ClientTransport::Unix, writer());
+    view(first, true);
+    wait_until("the viewing frame", || !frames(&wire).is_empty());
+    // A second viewer, and the first one leaving, change nothing upstream.
+    view(second, true);
+    view(first, false);
+    // The last viewer's connection closes: the person stops viewing.
+    disconnect_client(&mux, second, false);
+    wait_until("the viewing off", || frames(&wire).len() > 1);
+    view(first, true);
+    wait_until("the viewing again", || frames(&wire).len() > 2);
+    assert_eq!(frames(&wire), vec![frame(true), frame(false), frame(true)]);
+
+    // The socket drops while viewing: the next socket sends it again once live.
+    let next = backend.wire();
+    wire.push_close(None);
+    next.push_text(welcome());
+    wait_until("the viewing frame on the new socket", || !frames(&next).is_empty());
+    // A subscriber views too; the first viewer closes; then the subscriber
+    // unsubscribes (`other` keeps the socket) and the person stops viewing.
+    view(client, true);
+    disconnect_client(&mux, first, false);
+    run(&mux, client, json!({"cmd":"cloud-conversation-unsubscribe","conversation":CONV})).unwrap();
+    wait_until("the viewing off on the new socket", || frames(&next).len() > 1);
+    assert_eq!(frames(&next), vec![frame(true), frame(false)]);
+    mux.cloud_conversations().unwrap().shutdown();
+}
+
+/// The owner's `conversation-presence` set of a subscribed conversation
+/// reaches the daemon socket's subscribers that echoed
+/// `cloud-conversation-presence-v1` as `cloud-conversation-presence
+/// {conversation, participants:[{participant, viewing}]}`. Another
+/// conversation's set and a malformed one do not pass; when the socket ends
+/// the daemon sends an empty set (the owner sends it again only to the next
+/// socket). A subscribe replays the live socket's last set after its reply.
+/// A connection that did not echo the capability hears none.
+#[cfg(unix)]
+#[test]
+fn the_owners_presence_reaches_the_socket_subscribers_that_asked_for_it() {
+    use super::super::client_hello::tests::Client;
+    let (mux, client, backend) = cloud_mux();
+    sign_in(&mux, client);
+    let mut page = Client::connect(&mux, "cloud-presence-page");
+    let echoed = page.request(json!({"cmd":"set-client-info","name":"cmux page: home-channels",
+        "capabilities":["cloud-conversation-presence-v1"]}));
+    assert_eq!(echoed["ok"], true, "{echoed}");
+    assert_eq!(page.request(json!({"cmd":"subscribe"}))["ok"], true);
+    let mut old = Client::connect(&mux, "cloud-presence-old");
+    assert_eq!(old.request(json!({"cmd":"subscribe"}))["ok"], true);
+
+    let wire = backend.wire();
+    wire.push_text(
+        json!({"t":"welcome","principal":{"user":ME},"streams":[format!("conv:{CONV}")]})
+            .to_string(),
+    );
+    run(&mux, client, json!({"cmd":"cloud-conversation-subscribe","conversation":CONV})).unwrap();
+    let live =
+        |event: &Value| event["event"] == "cloud-subscription-state" && event["state"] == "live";
+    assert!(page.event_within(Duration::from_secs(10), live).is_some(), "the socket went live");
+    assert!(old.event_within(Duration::from_secs(10), live).is_some(), "the old one hears it");
+
+    let viewers = json!([{"participant":ME,"viewing":true}]);
+    let set = |conversation: &str, participants: Value| {
+        json!({"t":"conversation-presence","conversation":conversation,
+               "participants":participants})
+        .to_string()
+    };
+    wire.push_text(set("conv_ZZZZZZZZZZZZZZZZZZZZZZZZZZ", viewers.clone()));
+    wire.push_text(set(CONV, json!([{"participant":ME}])));
+    wire.push_text(set(CONV, viewers.clone()));
+    let is_presence = |event: &Value| event["event"] == "cloud-conversation-presence";
+    let expected = |participants: Value| {
+        json!({"event":"cloud-conversation-presence","conversation":CONV,
+               "participants":participants})
+    };
+    let shown = page.event_within(Duration::from_secs(10), is_presence);
+    assert_eq!(shown, Some(expected(viewers.clone())));
+    // The dropped frames were before the one that passed.
+    assert!(page.event_within(Duration::from_millis(300), is_presence).is_none());
+
+    // A subscribe (a page that lost events subscribes again) replays the
+    // current set after its reply, without waiting for a change.
+    let again = mux.control_clients.register(ClientTransport::Unix, writer());
+    let subscribed = reply(
+        &mux,
+        again,
+        json!({"id":7,"cmd":"cloud-conversation-subscribe","conversation":CONV}),
+    );
+    assert_eq!(subscribed["ok"], true, "{subscribed}");
+    let replayed = page.event_within(Duration::from_secs(10), is_presence);
+    assert_eq!(replayed, Some(expected(viewers)));
+
+    // The socket drops: the set it showed empties for the page.
+    let _next = backend.wire();
+    wire.push_close(None);
+    let emptied = page.event_within(Duration::from_secs(10), is_presence);
+    assert_eq!(emptied, Some(expected(json!([]))));
+    assert!(old.event_within(Duration::from_millis(300), is_presence).is_none());
+    mux.cloud_conversations().unwrap().shutdown();
+}
+
 /// One `message.send` event of the conversation stream at `seq`.
 fn message_event(seq: u64) -> String {
     json!({"t":"event","stream":format!("conv:{CONV}"),"seq":seq,"tx":format!("tx-{seq}"),

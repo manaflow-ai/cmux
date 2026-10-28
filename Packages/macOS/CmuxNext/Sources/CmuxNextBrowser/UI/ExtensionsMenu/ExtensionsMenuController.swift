@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 
 /// Owns one browser pane's Extensions bubble (Chrome's `ExtensionsMenuView`): the native popup
@@ -252,17 +253,14 @@ final class ExtensionsMenuController {
         guard let host, let handler, let info = Self.listed(host).first(where: { $0.id == id }) else { return }
         let model = ExtensionContextMenuModel(info: info, supportsManagement: host.extensionStore.supportsManagement, source: source)
         let menu = model.menu(extensionID: id, title: info.name, handler: ClosingHandler(controller: self, inner: handler))
-        CFRunLoopPerformBlock(CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue) { [weak self, weak view] in
-            MainActor.assumeIsolated { // main-proof: a CFRunLoopGetMain() block runs on the main thread
-                guard let self, let view, view.window != nil else { return }
-                self.presentedContextMenu = menu
-                menu.popUp(positioning: nil, at: CmuxPopoverAnchor.menuPoint(for: menu, in: view, gap: 0), in: view)
-                self.presentedContextMenu = nil
-                (view as? ExtensionsMenuHoverButton)?.refreshHover()
-                (view.superview as? ExtensionsMenuItemView)?.refreshHover()
-            }
+        MainRunLoopBlock.perform { [weak self, weak view] in
+            guard let self, let view, view.window != nil else { return }
+            self.presentedContextMenu = menu
+            menu.popUp(positioning: nil, at: CmuxPopoverAnchor.menuPoint(for: menu, in: view, gap: 0), in: view)
+            self.presentedContextMenu = nil
+            (view as? ExtensionsMenuHoverButton)?.refreshHover()
+            (view.superview as? ExtensionsMenuItemView)?.refreshHover()
         }
-        CFRunLoopWakeUp(CFRunLoopGetMain())
     }
 
     // MARK: Keyboard

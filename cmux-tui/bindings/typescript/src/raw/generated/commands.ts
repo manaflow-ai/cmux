@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 5d3ff5ed972a33f5c4bb6a49a9dd6aeed437faa9b1ef702813aa5522af7f0eb0. */
+/* cmux-tui mux protocol 12, IR 6e6661334b6d20f300c49059740a6892b48e7c6c773fef091543291b5b518022. */
 
 
 import type * as T from "./types.js";
@@ -452,6 +452,14 @@ export interface CloudConversationOpRequest extends CmuxRequestBase {
   "origin"?: (string) | null;
 }
 export type CloudConversationOpResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
+export interface CloudConversationPresenceRequest extends CmuxRequestBase {
+  cmd: "cloud-conversation-presence";
+  "conversation": string;
+  "viewing": boolean;
+}
+export type CloudConversationPresenceResult = T.JsonValue;
 
 /** Protocol v12; authority: local-admin. */
 export interface CloudConversationRunRequest extends CmuxRequestBase {
@@ -1270,6 +1278,12 @@ export interface GetFrontendProjectionRequest extends CmuxRequestBase {
   "subject_key": string;
 }
 export type GetFrontendProjectionResult = T.FrontendProjection;
+
+/** Protocol v12; authority: control. */
+export interface GetHostSizePolicyRequest extends CmuxRequestBase {
+  cmd: "get-host-size-policy";
+  "surface"?: (T.Id) | null;
+}
 
 /** Protocol v12; authority: control. */
 export interface GetSizeStateRequest extends CmuxRequestBase {
@@ -2244,6 +2258,7 @@ export interface SendRequest extends CmuxRequestBase {
   "bytes"?: (T.Base64) | null;
   "expect_agent"?: (T.SendExpectAgent) | null;
   "expect_foreground"?: (string) | null;
+  "flow"?: (bigint) | null;
   "paste"?: boolean;
   "submit"?: boolean;
   "surface"?: (T.Id) | null;
@@ -2287,6 +2302,7 @@ export interface SetClientInfoRequest extends CmuxRequestBase {
   "install"?: (string) | null;
   "kind"?: (string) | null;
   "name"?: (string) | null;
+  "remote"?: (boolean) | null;
   "user_id"?: (string) | null;
   "version"?: (string) | null;
 }
@@ -2338,6 +2354,12 @@ export interface SetFrontendBrowserHistoryRequest extends CmuxRequestBase {
   "surface": T.Id;
 }
 export type SetFrontendBrowserHistoryResult = T.JsonValue;
+
+/** Protocol v12; authority: control. */
+export interface SetHostSizePolicyRequest extends CmuxRequestBase {
+  cmd: "set-host-size-policy";
+  "policy": T.HostSizePolicyRequest;
+}
 
 /** Protocol v12; authority: control. */
 export interface SetPersonalTerminalRequest extends CmuxRequestBase {
@@ -2718,6 +2740,7 @@ export interface UpdateBrowserProfileRequest extends CmuxRequestBase {
   "color"?: (string) | null;
   "icon"?: (string) | null;
   "name"?: (string) | null;
+  "proxy"?: (T.JsonValue) | null;
 }
 export type UpdateBrowserProfileResult = T.JsonValue;
 
@@ -2902,6 +2925,7 @@ export type CmuxRequest =
   | CloudConversationHistoryRequest
   | CloudConversationLiveRequest
   | CloudConversationOpRequest
+  | CloudConversationPresenceRequest
   | CloudConversationRunRequest
   | CloudConversationRunsRequest
   | CloudConversationSnapshotRequest
@@ -2982,6 +3006,7 @@ export type CmuxRequest =
   | GetCellPixelsRequest
   | GetFrontendBrowserHistoryRequest
   | GetFrontendProjectionRequest
+  | GetHostSizePolicyRequest
   | GetSizeStateRequest
   | HistorySearchRequest
   | HomeInboxRequest
@@ -3089,6 +3114,7 @@ export type CmuxRequest =
   | SetColumnDockRequest
   | SetDefaultColorsRequest
   | SetFrontendBrowserHistoryRequest
+  | SetHostSizePolicyRequest
   | SetPersonalTerminalRequest
   | SetPersonalWorkspaceRequest
   | SetProfileFollowsRequest
@@ -3459,6 +3485,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "local-admin";
     since: 12;
     capability: "cloud-conversations-v1";
+    stream: null;
+  };
+  "cloud-conversation-presence": {
+    request: CloudConversationPresenceRequest;
+    result: CloudConversationPresenceResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "cloud-conversation-presence-v1";
     stream: null;
   };
   "cloud-conversation-run": {
@@ -4099,6 +4133,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 7;
     capability: null;
+    stream: null;
+  };
+  "get-host-size-policy": {
+    request: GetHostSizePolicyRequest;
+    result: T.GetHostSizePolicyResult;
+    authority: "control";
+    since: 12;
+    capability: "host-size-policy-v1";
     stream: null;
   };
   "get-size-state": {
@@ -4955,6 +4997,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 12;
     capability: "frontend-browser-history-v1";
+    stream: null;
+  };
+  "set-host-size-policy": {
+    request: SetHostSizePolicyRequest;
+    result: T.SetHostSizePolicyResult;
+    authority: "control";
+    since: 12;
+    capability: "host-size-policy-v1";
     stream: null;
   };
   "set-personal-terminal": {

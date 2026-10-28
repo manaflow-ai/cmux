@@ -973,6 +973,20 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
 /// time; cmux-tui-core gets them at start (`install_build_stamp`), so a new
 /// stamp recompiles this crate and not the libraries.
 fn build_stamp() -> cmux_tui_core::server::BuildStamp {
+    // The source commit's time (`identify {revisions: true}`): what
+    // `link machine update --if-older` orders two builds by.
+    #[cfg(unix)]
+    let build_time = cmux_build_identity::BUILD_TIME;
+    #[cfg(not(unix))]
+    let build_time = 0;
+    // Test seam, debug builds only: a daemon that reports another build time,
+    // so a journey can stand one binary in for an older or a newer machine
+    // daemon (machine_update_journey.rs). Release builds report their own.
+    #[cfg(debug_assertions)]
+    let build_time = std::env::var("CMUX_TEST_DAEMON_BUILD_TIME")
+        .ok()
+        .and_then(|time| time.trim().parse().ok())
+        .unwrap_or(build_time);
     cmux_tui_core::server::BuildStamp::new(
         // `or` before the filter: a set but empty CMUX_TUI_BUILD_COMMIT hides
         // CMUX_MUX_BUILD_COMMIT (no stamp), as before the stamp moved here.
@@ -981,6 +995,7 @@ fn build_stamp() -> cmux_tui_core::server::BuildStamp {
             .filter(|commit| !commit.is_empty()),
         option_env!("CMUX_TUI_GHOSTTY_COMMIT"),
     )
+    .with_build_time(build_time)
 }
 
 pub(crate) fn version_string() -> String {
@@ -1448,7 +1463,7 @@ fn rewrite_server_start(args: &mut Vec<String>) {
     }
 }
 
-const STARTUP_VALUE_OPTIONS: &[&str] = &[
+pub(crate) const STARTUP_VALUE_OPTIONS: &[&str] = &[
     "--socket",
     "--session",
     "--machine",
@@ -1780,12 +1795,10 @@ fn run_main() {
     // beside it when that is this build (macOS; host_exe.rs).
     #[cfg(unix)]
     cmux_tui_core::host_exe::use_sibling_host(cmux_build_identity::BUILD_IDENTITY);
-    // `cmux acp …` (and `cmux harness|chats|route …` = `cmux acp harness|chats|route …`) runs acpmux
-    // in this process. It needs none of the mux's provider credentials or signal handlers.
+    // `cmux acp …` (and `cmux harness|chats …` = `cmux acp harness|chats …`) runs acpmux in
+    // this process. It needs none of the mux's provider credentials or signal handlers.
     #[cfg(unix)]
-    if let Some(head @ ("acp" | "harness" | "chats" | "route")) =
-        raw_args.first().map(String::as_str)
-    {
+    if let Some(head @ ("acp" | "harness" | "chats")) = raw_args.first().map(String::as_str) {
         discard_provider_secret_environment();
         let args = std::env::args_os().skip(if head == "acp" { 2 } else { 1 }).collect();
         client_log::exit(acp::run_scope(head, args));
@@ -1804,6 +1817,13 @@ fn run_main() {
     if devices::handles(&raw_args) {
         discard_provider_secret_environment();
         client_log::exit(devices::run(&raw_args[1..]));
+    }
+    // `cmux route` was removed with the route CLI. Refuse it before the generic
+    // unknown-command app fallback or daemon skew re-exec can touch a socket or
+    // revive the command through an older daemon.
+    if cli::removed_route_requested(&raw_args) {
+        eprintln!("cmux: unknown resource scope \"route\"");
+        client_log::exit(2);
     }
     #[cfg(unix)]
     if let Some(run) = cli::early_unix_scope(&raw_args) {

@@ -11,6 +11,7 @@ import {
   mapProgress,
   mapThumb,
   mapY,
+  marksIn,
   markAt,
   scrollTopAt,
 } from "../src/agent-session/acpmux/threadMinimap/mapGeometry";
@@ -85,4 +86,18 @@ test("marks grow by their distance from the pointer", () => {
   expect(mapProgress(0)).toBe(1);
   expect(mapProgress(-10)).toBeGreaterThan(mapProgress(20));
   expect(mapProgress(80)).toBe(0);
+});
+
+test("finds the marks under the view without scanning the full map", () => {
+  const marks = [
+    { kind: "user" as const, row: 0, turn: 0, y: 10 },
+    { kind: "agent" as const, row: 1, turn: 0, y: 20 },
+    { kind: "user" as const, row: 2, turn: 1, y: 20 },
+    { kind: "agent" as const, row: 3, turn: 1, y: 40 },
+    { kind: "user" as const, row: 4, turn: 2, y: 60 },
+  ];
+  expect(marksIn(marks, 20, 40)).toEqual({ first: 1, last: 3 });
+  expect(marksIn(marks, 21, 39)).toBeUndefined();
+  expect(marksIn(marks, -10, 10)).toEqual({ first: 0, last: 0 });
+  expect(marksIn(marks, 61, 80)).toBeUndefined();
 });

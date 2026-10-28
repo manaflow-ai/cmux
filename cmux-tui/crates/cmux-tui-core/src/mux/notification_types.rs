@@ -2,6 +2,8 @@
 //! broadcast when it is posted, the durable resource row, and the per-surface
 //! unread marker.
 
+use std::sync::Arc;
+
 use super::NotificationLevel;
 use crate::SurfaceId;
 use crate::resource::{NotificationPublicId, TerminalPublicId, WorkspacePublicId};
@@ -86,6 +88,9 @@ pub struct NotificationEvent {
     /// An agent's last message for a turn-done or error banner, memory only: never in the
     /// durable ledger (`agent_prompts.rs`). The app shows it per its Show Previews setting.
     pub preview: Option<String>,
+    /// The question an agent's question notification asks (`agent_hook_question.rs`), memory
+    /// only: `{harness, tool_use_id?, questions: [{question, header?, multiSelect, options}]}`.
+    pub question: Option<Arc<serde_json::Value>>,
     pub level: NotificationLevel,
     pub surface: Option<SurfaceId>,
     /// The workspace a terminal-less notification belongs to (`cmux notify
@@ -117,6 +122,26 @@ pub struct ResourceNotification {
     pub desktop: bool,
     /// true: the banner takes a typed reply for the terminal (`notify --reply`).
     pub reply: bool,
+}
+
+/// The program that held a notification's terminal when it was posted
+/// (memory only): a typed reply goes only to that same program
+/// (cmux-next-ios `mailbox_apply.rs`), never to whatever runs there later.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NotificationPoster {
+    /// The terminal's foreground process-group leader.
+    pub pid: u32,
+    /// Its executable, as `process-info`'s `foreground_executable` names it.
+    pub executable: String,
+}
+
+/// What the daemon remembers about a ledger row it posted in this run
+/// (memory only): the `notification` event's number and the poster.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NotificationPost {
+    /// The `notification` field of the `notification` event.
+    pub notification: u64,
+    pub poster: Option<NotificationPoster>,
 }
 
 #[derive(Debug, Clone, Copy)]

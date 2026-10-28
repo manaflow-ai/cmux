@@ -25,6 +25,24 @@ nonisolated enum FeedStrings {
     static var startAgent: String { t("feed.startAgent", "Start agent") }
     static var comment: String { t("feed.comment", "Comment") }
 
+    static var reportsTitle: String { t("reports.title", "Reports basket") }
+    static var reportsSubtitle: String { t("reports.subtitle", "Human view · reports do not wake a model") }
+    static var reportsLabs: String { t("reports.labs", "LABS") }
+    static var reportsEmpty: String { t("reports.empty", "No agent reports yet") }
+    static var reportsEmptyHint: String {
+        t("reports.emptyHint", "Deliver to reports:<person> to add one without waking a Chief.")
+    }
+    static var reportsSelect: String { t("reports.select", "Select a report") }
+    static var reportsEmptyBody: String { t("reports.emptyBody", "(empty report)") }
+    static var reportsReplyPlaceholder: String { t("reports.replyPlaceholder", "Reply to this sending session…") }
+    static var reportsReply: String { t("reports.reply", "Reply") }
+    /// Under the reply field when acpmux did not take the reply (the draft stays).
+    static var reportsNotSent: String { t("reports.notSent", "Not sent. Try again.") }
+    /// The detail line under a report's sender: who sent it and when it arrived.
+    static func reportFrom(_ sender: String, _ arrived: String) -> String {
+        t("reports.from", "From \(sender) · \(arrived)")
+    }
+
     static var needsYou: String { t("group.needsYou", "Needs you") }
     static var today: String { t("group.today", "Today") }
     static var earlier: String { t("group.earlier", "Earlier") }

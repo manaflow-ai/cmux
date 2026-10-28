@@ -60,9 +60,10 @@ enum SidebarStyle {
     /// thing too big, revert to old icon sizes".
     static var avatarDiameter: CGFloat { iconBox }
     static var footerHeight: CGFloat { Metrics.sidebarRowHeightWithSubtitle - Metrics.space2 }
-    /// The margin under everything the sidebar draws (Leo 2026-10-20: the account row, the last
-    /// rows and the scroller sat on the window's bottom edge): space4, as the agent composer's.
-    static var bottomInset: CGFloat { Metrics.space4 }
+    /// The margin under everything the sidebar draws: the 4 pt grid step (space2 at compact). It was
+    /// space4 (8 pt) since Leo 2026-10-20. Lawrence 2026-10-27 (message 13901): the footer is still too
+    /// tall, so the margin is cut.
+    static var bottomInset: CGFloat { Metrics.space2 }
     static var autoscrollZone: CGFloat { Metrics.sidebarRowHeight }
     /// Rows realized past each edge of the visible list. A scroll draws rows as they come in
     /// (one or two a frame), so a deep overscan bought nothing and cost every frame: each realized
@@ -114,8 +115,10 @@ enum SidebarStyle {
     }
     /// How much of the header's ink the member count takes: lighter than the name.
     static let groupHeaderCountInkAlpha: CGFloat = 0.7
-    /// The members' bar: 3 pt at the 32 pt row, scaled; at the members' leading edge.
-    static var groupBarWidth: CGFloat { max(2, (Metrics.sidebarRowHeight * 0.1).rounded()) }
+    /// An archived row's ink, icon and group bar (plans/cmux-next/archiving-DESIGN.md): dimmed, still legible.
+    static let archivedAlpha: CGFloat = 0.45
+    /// The members' line: 2 pt, as Chrome's (Leo 2026-10-19), at every density.
+    static var groupBarWidth: CGFloat { Metrics.space1 }
     static var groupBarX: CGFloat { (Metrics.sidebarRowHeight * 0.12).rounded() }
     /// One nesting step: a nested group's rows move in this far per level below the top.
     static var groupGutter: CGFloat { groupBarX + groupBarWidth + Metrics.space1 }
@@ -133,6 +136,21 @@ enum SidebarStyle {
     /// every level and density (Lawrence 2026-10-23: "the bar, left side, should be aligned with the
     /// header part left side"), while the header's name keeps the rows' text column.
     static var groupRailReach: CGFloat { Metrics.space1 + groupBarWidth }
+    /// The least room a group header's bar and rail keep from the list's left edge (Lawrence 2026-10-25: "groups
+    /// headers and rails need more left padding"): they sat flush at 0 and 2 pt. One inset less than the
+    /// rows' (4 pt compact, 6 pt comfortable), at every level and in Minimal Mode.
+    static var groupEdgePadding: CGFloat { max(0, horizontalInset - Metrics.space1) }
+    /// The cut between a header's bar and its members' line: Chrome's (Leo 2026-10-19: "chrome has a neat little
+    /// cut line"). A `joined` line has none.
+    static var groupLineCut: CGFloat { Metrics.space3 }
+    /// The Debug `sidebar.groupLineLayout` choice.
+    static var groupLineLayout: SidebarGroupLineLayout { SidebarGroupLineLayout.tunable.value }
+    /// How far inside a header's left edge Chrome sets its line (Leo 2026-10-19: about 4 to 5 pt): the line's right
+    /// edge meets the end of the bar's corner arc.
+    static var groupLineCornerInset: CGFloat { max(0, rowCornerRadius - groupBarWidth) }
+    /// How much further left than its rail a group header's bar reaches: `inside`, the corner inset, so the line sits
+    /// under the bar's rounded corner (never past the list's edge, `SidebarListView.railReach(for:)`).
+    static var groupHeaderOverhang: CGFloat { groupLineLayout == .inside ? groupLineCornerInset : 0 }
     /// The quiet group headers' color dot, in the header's leading corner (cx-25az).
     static var groupDotSize: CGFloat { max(6, (Metrics.sidebarRowHeight * 0.28).rounded()) }
     static var headerFont: NSFont { Typography.header }

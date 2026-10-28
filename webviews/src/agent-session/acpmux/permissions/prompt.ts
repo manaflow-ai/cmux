@@ -129,6 +129,44 @@ export function alwaysAllowScope(permission: AcpmuxPermission, option: Permissio
   return name;
 }
 
+/// The longest agent label a button keeps as it is: past it the button says what the option does
+/// by its ACP kind, and the agent's text is its hover title and accessible description.
+const SHORT_LABEL = 24;
+
+/// A button label for an option beyond the three answers (a second grant, Codex's "No, continue
+/// without running it"): the agent's name when it is short, else its kind's label ("Allow once",
+/// "Always allow", "Deny", "Always deny"), numbered ("Always allow 2") when another button already
+/// says that. Only an option of a kind the pane has no word for keeps its long name, which the
+/// button cuts with an ellipsis. The agent's whole text is the button's title and description.
+/// Leo 2026-10-25: a long agent label made "Always allow" a wide row.
+export function optionButtonLabel(option: PermissionOption, t: Translate, taken: ReadonlySet<string>): string {
+  const name = option.name.trim();
+  if (name && name.length <= SHORT_LABEL) return name;
+  const kind = permissionOptionKind(option);
+  const label =
+    option.kind?.toLowerCase() === "reject_always"
+      ? t("permission.alwaysDeny")
+      : kind === "allow_once"
+        ? t("permission.allowOnce")
+        : kind === "allow_always"
+          ? t("permission.alwaysAllow")
+          : kind === "allow_chat"
+            ? t("permission.allowChat")
+            : kind === "deny"
+              ? t("permission.deny")
+              : undefined;
+  if (!label) return name || option.id;
+  let numbered = label;
+  for (let n = 2; taken.has(numbered); n++) numbered = `${label} ${n}`;
+  return numbered;
+}
+
+/** The concrete target an approval covers, kept visible beside its actions. */
+export function permissionScopeText(permission: AcpmuxPermission, t: Translate): string | undefined {
+  const scope = permission.scope;
+  return scope ? t("permission.cwd", { path: scope.value }) : undefined;
+}
+
 /// Where the keyboard belongs to something else: typing, a menu, a list or a dialog.
 const OWNS_KEYS =
   'input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"], [role="menu"], [role="menubar"], [role="listbox"], [role="dialog"], [role="combobox"], [role="grid"], [role="tree"]';

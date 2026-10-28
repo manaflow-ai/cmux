@@ -15,6 +15,9 @@ public struct AgentPaneHeaderHooks {
     /// `/btw` side session): a tab in the chat's side pane when one is open, else a new split
     /// (``AgentSidePanes``).
     public var openSide: @MainActor (_ chat: String, _ fork: String) -> Void
+    /// Opens acpmux session `id` on the chat's right as a link opens (`layout.linkPlacement`): a
+    /// tab in the pane on its right, else a new split there; false when nothing opened.
+    public var openRight: @MainActor (String) -> Bool
     /// Opens acpmux session `id` (a fork, a started Continue In…) at a ``AgentForkDestination``: a
     /// new tab beside the chat's, a split beside it, a new workspace or a new window, so the chat
     /// keeps its own tab and session; false when nothing opened.
@@ -48,11 +51,15 @@ public struct AgentPaneHeaderHooks {
     /// depth, or the session that started it (acpmux `startedBy`, mirrored by the app's turn-state
     /// watch). ``AgentPaneOfferOpen`` opens only those, or the pane's own sessions; none by default.
     public var isFamily: @MainActor (_ session: String, _ chat: String) -> Bool
+    /// Changes with a chat turn (``AgentPaneDiffTurn``): the diff beside the chat with that turn
+    /// as its Last turn, toggled (`true`) or opened. Nil: the header runs Changes without it.
+    public var diffTurn: (@MainActor (_ cwd: String?, _ turn: AgentPaneDiffTurn, _ toggle: Bool) -> Void)?
 
     public init(run: @escaping @MainActor (String, String?) -> Void,
                 toggle: (@MainActor (String, String?) -> Void)? = nil,
                 tabState: @escaping @MainActor () -> AgentPaneHeaderState,
                 openSide: @escaping @MainActor (String, String) -> Void = { _, _ in },
+                openRight: @escaping @MainActor (String) -> Bool = { _ in false },
                 openTab: @escaping @MainActor (String, AgentForkDestination) -> Bool = { _, _ in false },
                 openSubagent: @escaping @MainActor (String, String, Bool) -> Bool = { _, _, _ in false },
                 openProcess: @escaping @MainActor (AgentPaneProcessViewer) -> Bool = { _ in false },
@@ -68,6 +75,7 @@ public struct AgentPaneHeaderHooks {
         self.toggle = toggle ?? run
         self.tabState = tabState
         self.openSide = openSide
+        self.openRight = openRight
         self.openTab = openTab
         self.openSubagent = openSubagent
         self.openProcess = openProcess
@@ -109,6 +117,8 @@ extension AgentPaneModel {
         "moveSurfaceToPaneRight", "palette.moveTabToNewWorkspace", "tab.moveToNewWindow", "closeTab",
     ]
 
+    /// The header's Changes, the diff viewer beside the chat.
+    static let diffAction = "openDiffViewer"
     /// The header's [+] New tab / Hide tabs (`pane.action {id: "sideTabs"}`), answered with `{shown}`.
     static let sideTabsAction = "sideTabs"
     /// The header's Preview (`pane.action {id: "preview", url}`), ``AgentPaneRequest/preview(url:toggle:)``.
@@ -145,6 +155,14 @@ extension AgentPaneModel {
             // `ran`: the page knows the App took the action (a host without panes, such as the
             // gallery, answers null), so its diff link opens the diff beside the chat, not in place.
             return AgentPaneReply.success(["ran": true])
+        case .diffTurn(let turn, let cwd, let toggle):
+            guard newTab == nil, let header else {
+                return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: pane.action")
+            }
+            let folder = folderForOtherTabs(cwd)
+            if let diffTurn = header.diffTurn { diffTurn(folder, turn, toggle) }
+            else if toggle { header.toggle(Self.diffAction, folder) } else { header.run(Self.diffAction, folder) }
+            return AgentPaneReply.success(["ran": true])
         case .tabRowTools(let width):
             tabRow.report(width: CGFloat(width)) // used only while chrome.tabs.rowTools is on and the pane offered the row
             return AgentPaneReply.success()
@@ -179,6 +197,8 @@ extension AgentPaneModel {
             return AgentPaneOfferOpen.respond(session, sender: sender, in: self)
         case .asksOpen(let session):
             return AgentPaneAskOpen.respond(session, in: self)
+        case .asksAnswer(let ask):
+            return await ask.respond(in: self)
         case .newChatHere(let cwd):
             guard sessionId != nil, newTab == nil, let header, header.newChat(cwd) else {
                 return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: chat.newHere")

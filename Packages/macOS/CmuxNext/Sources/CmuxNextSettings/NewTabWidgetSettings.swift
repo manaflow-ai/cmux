@@ -27,6 +27,14 @@ public nonisolated struct NewTabWidgetSettings: Sendable, Equatable {
     public var weatherCity = NewTabWidgetSettings.weatherCityDefault
     /// The machines a chat can start on, each with its color, icon and online state.
     public var machines = NewTabWidgetSettings.machinesDefault
+    /// A quiet local clock beside the composer.
+    public var clock = NewTabWidgetSettings.clockDefault
+    /// A small elapsed-time stopwatch beside the composer.
+    public var timer = NewTabWidgetSettings.timerDefault
+    /// The original time-of-day greeting wording.
+    public var warmGreeting = NewTabWidgetSettings.warmGreetingDefault
+    /// A bundled public-domain quote that changes daily.
+    public var quote = NewTabWidgetSettings.quoteDefault
     /// The movable widgets in the order the page shows them (`tabs.newTabWidgets.order`,
     /// NewTabWidgetEdits.swift), every one of ``movable`` once.
     public var order = NewTabWidgetSettings.movable
@@ -38,8 +46,9 @@ public nonisolated struct NewTabWidgetSettings: Sendable, Equatable {
     /// own row under the composer, not moved by the edit mode).
     public var ids: [String] {
         let on = ["greeting": greeting, "projects": projects, "actions": actions, "chats": chats, "styleDots": styleDots,
-                  "weather": weather, "machines": machines]
-        return (["greeting"] + order + ["styleDots", "weather", "machines"]).filter { on[$0] == true }
+                  "weather": weather, "machines": machines, "clock": clock, "timer": timer,
+                  "warmGreeting": warmGreeting, "quote": quote]
+        return (["greeting"] + order + ["styleDots", "weather", "machines", "clock", "timer", "warmGreeting", "quote"]).filter { on[$0] == true }
     }
 
     static func parse(_ root: JSONValue, diagnostics: inout [SettingsDiagnostic]) -> Self {
@@ -58,6 +67,10 @@ public nonisolated struct NewTabWidgetSettings: Sendable, Equatable {
             settings.weatherCity = value.trimmingCharacters(in: .whitespacesAndNewlines)
         }
         if let value = reader.bool("machines") { settings.machines = value }
+        if let value = reader.bool("clock") { settings.clock = value }
+        if let value = reader.bool("timer") { settings.timer = value }
+        if let value = reader.bool("warmGreeting") { settings.warmGreeting = value }
+        if let value = reader.bool("quote") { settings.quote = value }
         diagnostics += reader.diagnostics
         settings.order = parseOrder(root, diagnostics: &diagnostics)
         return settings

@@ -1,7 +1,5 @@
-// The New Tab composer and the agent composer are one card (Leo 2026-10-13: the field, its
-// selection and the project and model pickers under it read as illogical). As in the agent
-// composer (Composer.tsx): the field on top, then the bar with the agent's model chip and Send,
-// then the location row with the project, inside the same card. The project is never in the bar.
+// New Tab preserves the shared composer controls. Claude's split places location and model in
+// one quiet footer row; other looks keep their existing strip and in-card controls.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
@@ -21,6 +19,8 @@ const keys = [
   "getComputedStyle",
   "requestAnimationFrame",
   "cancelAnimationFrame",
+  "ResizeObserver",
+  "MutationObserver",
 ] as const;
 const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
 let root: Root | undefined;
@@ -40,6 +40,8 @@ beforeAll(() => {
     document: window.document,
     navigator: window.navigator,
     HTMLElement: window.HTMLElement,
+    ResizeObserver: window.ResizeObserver,
+    MutationObserver: window.MutationObserver,
     IS_REACT_ACT_ENVIRONMENT: true,
     // The suggestions' Popover (Base UI and Floating UI) reads these.
     Node: window.Node,
@@ -51,8 +53,8 @@ beforeAll(() => {
   host = window.document.getElementById("root")!;
 });
 
-afterAll(() => {
-  act(() => root?.unmount());
+afterAll(async () => {
+  await act(async () => root?.unmount());
   for (const [key, had, value] of saved) {
     if (had) scope[key] = value;
     else delete scope[key];
@@ -70,6 +72,7 @@ async function mount(
     machineName?: string;
     snapshot?: AcpmuxSnapshot;
     onCommands?(harness: string, cwd?: string): void;
+    template?: "cards";
   } = {},
 ) {
   const { createRoot } = await import("react-dom/client");
@@ -80,6 +83,7 @@ async function mount(
     root!.render(
       <NewTabScreen
         snapshot={options.snapshot ?? noChat()}
+        {...(options.template ? { template: options.template } : {})}
         {...(options.machineName ? { machineName: options.machineName } : {})}
         lastAgent="claude"
         cwd="/Users/you"
@@ -137,6 +141,25 @@ test("the New Tab card is the composer's: the project strip on its top edge, the
   expect(card.querySelector(".acpmux-composer-context, .acpmux-location-button")).toBeNull();
 });
 
+// Leo: "the claw thing should be one single row". The Claude split keeps the existing
+// mode/model row and moves the folder/computer into it; Codex retains its top tray.
+test("Claude New Tab location and model share the quiet row under the box", async () => {
+  const { setComposerLook } = await import("../src/agent-session/acpmux/composerLook");
+  act(() => setComposerLook("claude", { remember: false }));
+  await mount({ template: "cards" });
+  const composer = host.querySelector<HTMLElement>(".nt-composer")!;
+  const row = composer.querySelector<HTMLElement>(".nt-foot .acpmux-composer-foot")!;
+  expect(row.querySelector(".acpmux-composer-context")?.textContent).toContain("app");
+  expect(row.querySelector(".acpmux-chips")).not.toBeNull();
+  expect(composer.querySelector(".nt-above")).toBeNull();
+  expect(composer.querySelectorAll(".acpmux-composer-context")).toHaveLength(1);
+
+  act(() => setComposerLook("codex", { remember: false }));
+  expect(composer.querySelector(".nt-above .acpmux-composer-context")).not.toBeNull();
+  expect(composer.querySelector(".nt-foot")).toBeNull();
+  act(() => setComposerLook("claude", { remember: false }));
+});
+
 // Review (#20148): the composer's Computer menu listed a remote chat's machine, so the row could
 // name it while Return started the chat on this one. A New Tab chat starts where the page runs:
 // the row names that machine as the host does, and offers no other.
@@ -183,7 +206,8 @@ test("a deferred chat's later command publication reaches New Tab and a supersed
 test("deferred command reads request the newest publication", async () => {
   const { AcpmuxDirectClient } = await import("../src/agent-session/acpmux/direct");
   const calls: Record<string, unknown>[] = [];
-  const client = Object.create(AcpmuxDirectClient.prototype) as AcpmuxDirectClient & {
+  const client = Object.create(AcpmuxDirectClient.prototype) as {
+    sessionCommands(sessionId: string): Promise<unknown>;
     typed(method: string, params: Record<string, unknown>): Promise<unknown>;
   };
   client.typed = async (_method, params) => {

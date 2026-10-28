@@ -1,0 +1,7 @@
+{
+  "title": "Stop all agents toast: a subagent that could not be stopped and one still starting",
+  "steps": [
+    {"title": "Launch", "wait": 2, "shot": false},
+    {"title": "Stop all agents: a1 and a3 stopped (a1 still starting), a2 refused", "rpc": {"method": "debug.toast", "params": {"stop_all": {"stopped": true, "subagents": ["a1", "a3"], "errors": ["a2: its turn did not stop: acpmux refused the cancel"], "note": "a1 is still starting; it stops as soon as it starts."}}}, "wait": 1.5}
+  ]
+}

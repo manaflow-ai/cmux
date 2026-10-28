@@ -25,7 +25,10 @@ enum MenuIdentityHeader {
     static func install(in menu: NSMenu, registry: ActionRegistry, target: ActionTargetRef, name: String?, rename: ActionID,
                         current: GroupColor? = nil, noColor: Bool = false) {
         // A rename that can't run on this target (no daemon support yet) keeps its disabled row, not a dead field.
-        let renames = ActionTargetReasons.canPerform(rename, invocation: ActionInvocation(target: target), in: registry)
+        // The field always sends a name, so ask whether a rename with this name can run: a pinned
+        // workspace's tile has no list row for the inline rename, yet renames by name.
+        let named = name.map { ["name": ActionValue.string($0)] } ?? [:]
+        let renames = ActionTargetReasons.canPerform(rename, invocation: ActionInvocation(target: target, arguments: named), in: registry)
         let renameIndex = name == nil || !renames ? nil : menu.items.firstIndex { ActionRegistry.menuRun(of: $0)?.id == rename }
         let colorIndex = menu.items.firstIndex { item in
             (item.submenu?.items.filter { color(of: $0) != nil }.count ?? 0) >= 2

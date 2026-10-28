@@ -31,6 +31,7 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
         capabilities.push(cloud_conversations::CLOUD_RUNS_CAPABILITY);
         capabilities.push(cloud_conversations::CLOUD_LIVE_CAPABILITY);
         capabilities.push(cloud_conversations::CLOUD_TYPING_CAPABILITY);
+        capabilities.push(cloud_conversations::CLOUD_PRESENCE_CAPABILITY);
         capabilities.push(cloud_attachments::CAPABILITY);
         capabilities.push(cloud_conversations::SELFHOST_CAPABILITY);
     }
@@ -47,6 +48,7 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     #[cfg(unix)]
     if mux.serves_agent_session_attach() {
         capabilities.push(AGENT_SESSION_ATTACH_CAPABILITY);
+        capabilities.push(agent_session_attach::AGENT_SESSION_PRESENCE_CAPABILITY);
         capabilities.push(agent_inventory::CAPABILITY);
         capabilities.push(agent_inventory::OWNER_CAPABILITY);
         capabilities.push(agent_inventory::REFRESH_CAPABILITY);
@@ -62,7 +64,9 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     if mux.serves_agent_session_start() {
         capabilities.push(AGENT_SESSION_START_CAPABILITY);
         capabilities.push(AGENT_SESSION_TRUST_CAPABILITY);
+        capabilities.push(AGENT_SESSION_TRUST_VM_KIND_CAPABILITY);
         capabilities.push(AGENT_SESSION_START_KEYED_REASON_CAPABILITY);
+        capabilities.push(AGENT_SESSION_START_VM_KIND_CAPABILITY);
     }
     #[cfg(unix)]
     if mux.serves_agent_update() {
@@ -72,6 +76,7 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     #[cfg(unix)]
     if mux.serves_agent_transfer() {
         capabilities.push(agent_transfer::AGENT_TRANSFER_CAPABILITY);
+        capabilities.push(agent_transfer::AGENT_TRANSFER_VM_KIND_CAPABILITY);
     }
     #[cfg(unix)]
     if mux.on_cloud_host() {
@@ -221,6 +226,8 @@ pub(super) fn advertised_capabilities(
         SHARED_SIZING_CAPABILITY,
         SIZING_VIEW_DETACH_CAPABILITY,
         SIZE_LEASE_CAPABILITY,
+        crate::mux::host_policy::HOST_SIZE_POLICY_CAPABILITY,
+        HOST_GRID_VIEW_CAPABILITY,
         OPEN_DEVICE_KINDS_CAPABILITY,
         TERMINAL_COLOR_OVERRIDES_CAPABILITY,
         TERMINAL_PENDING_SEQUENCE_CAPABILITY,
@@ -333,6 +340,7 @@ pub(super) fn advertised_capabilities(
         crate::state::tabs::TAB_GROUP_ICON_CAPABILITY,
         crate::state::sidebar_layout_store::CAPABILITY,
         crate::state::sidebar_doc_store::CAPABILITY,
+        crate::state::sidebar_doc_store::HOST_GROUP_OPTOUT_CAPABILITY,
         crate::state::placement_shift::CAPABILITY,
         crate::state::projects_store::CAPABILITY,
         crate::state::projects_store::SOURCES_CAPABILITY,

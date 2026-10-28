@@ -15,7 +15,8 @@ struct RelaySession {
 
     let generation: Int
     var phase = Phase.preparing
-    var map = CDPRawIDMap()
+    /// The id map, shared with the link's write queue (replies are mapped back there).
+    let table: CDPRelayTable
     /// Host commands that arrived while preparing (bounded).
     var queued: [String] = []
     var deadline: DemandTimer?
@@ -39,7 +40,7 @@ extension BrowserHostProvider {
         guard relays[targetID] == nil else { return }
         relayGeneration += 1
         let gen = relayGeneration
-        var session = RelaySession(generation: gen, map: CDPRawIDMap(firstRawID: rawIDCursor[targetID]))
+        var session = RelaySession(generation: gen, table: CDPRelayTable(firstRawID: rawIDCursor[targetID]))
         let deadline = DemandTimer(owner: "browser-host.relay-prepare", clock: clock)
         deadline.schedule(after: prepareDeadline) { @MainActor [weak self] in
             self?.prepareFailed(targetID, gen, "the tab's page did not start in time")
@@ -107,15 +108,14 @@ extension BrowserHostProvider {
         case .relaying:
             break
         }
-        guard let out = session.map.outbound(message) else {
+        guard let out = session.table.outbound(message) else {
             logger.notice("browser host provider: cdp message without an integer id dropped (\(targetID, privacy: .public))")
             return
         }
-        // Stored before the send: a reply may arrive while it runs.
-        relays[targetID] = session
-        rawIDCursor[targetID] = session.map.nextRawID
+        // Mapped before the send: a reply may arrive while it runs.
+        rawIDCursor[targetID] = session.table.nextRawID
         let result = relay?.send(targetID: targetID, message: out.message) ?? .noBrowser
-        if result != .sent { relays[targetID]?.map.forget(rawID: out.rawID) }
+        if result != .sent { session.table.forget(rawID: out.rawID) }
         switch result {
         case .sent: break
         case .noBrowser: replyError(targetID, to: message, "the tab's page has no browser")
@@ -125,22 +125,27 @@ extension BrowserHostProvider {
 
     /// A raw message from the tab's browser: replies get the host's id back,
     /// events pass unchanged, replies the host never asked for are dropped.
+    /// The main actor only queues it: the id scan, the rewrite and the encode
+    /// run on the link's write queue, in order with every other frame.
     private func relayFromBrowser(_ targetID: String, _ gen: Int, _ message: String) {
-        guard var session = relays[targetID], session.generation == gen else { return }
-        let forward = session.map.inbound(message)
-        relays[targetID] = session
-        if let forward { send(.cdp(targetID: targetID, message: forward)) }
+        guard let session = relays[targetID], session.generation == gen else { return }
+        let table = session.table
+        send { table.inbound(message).map { [.cdp(targetID: targetID, message: $0)] } ?? [] }
     }
 
     /// The browser went away under a live relay (rebuilt, closed): the host
     /// drops its driver for the tab and attaches again on its next call.
     private func relayClosedByBrowser(_ targetID: String, _ gen: Int) {
-        guard var session = relays[targetID], session.generation == gen else { return }
+        guard let session = relays[targetID], session.generation == gen else { return }
         relays[targetID] = nil
         session.deadline?.cancel()
-        // Every command still waiting is answered before the host hears the close.
-        for waiting in session.map.drainPending() { replyError(targetID, waiting, "the tab's page closed") }
-        send(.event(name: "tab.relay.closed", payload: .object(["targetId": .string(targetID)])))
+        // Every command still waiting is answered before the host hears the close, after the
+        // replies already queued (the drain runs on the write queue, behind them).
+        let table = session.table
+        send {
+            Self.errorReplies(targetID, table.drainPending(), "the tab's page closed")
+                + [.event(name: "tab.relay.closed", payload: .object(["targetId": .string(targetID)]))]
+        }
     }
 
     /// `cdp.detach` from the host.
@@ -153,13 +158,23 @@ extension BrowserHostProvider {
     /// error for every command still waiting (the tab left while the host
     /// still holds the relay).
     func endRelay(_ targetID: String, answering: Bool = false) {
-        guard var session = relays.removeValue(forKey: targetID) else { return }
+        guard let session = relays.removeValue(forKey: targetID) else { return }
         session.deadline?.cancel()
         session.preparing?.cancel()
         if case .relaying = session.phase { relay?.stopRelay(targetID: targetID) }
         guard answering else { return }
-        for message in session.queued { replyError(targetID, to: message, "the tab closed") }
-        for waiting in session.map.drainPending() { replyError(targetID, waiting, "the tab closed") }
+        let (queued, table) = (session.queued, session.table)
+        send {
+            queued.compactMap { message in CDPRawIDMap.errorReply(to: message, text: "the tab closed").map { .cdp(targetID: targetID, message: $0) } }
+                + Self.errorReplies(targetID, table.drainPending(), "the tab closed")
+        }
+    }
+
+    /// CDP error replies for the host's commands still waiting on a relay.
+    nonisolated static func errorReplies(_ targetID: String, _ waiting: [(hostID: Int, sessionID: String?)], _ text: String) -> [ProviderFrame] {
+        waiting.compactMap { waiting in
+            CDPRawIDMap.errorReply(hostID: waiting.hostID, sessionID: waiting.sessionID, text: text).map { .cdp(targetID: targetID, message: $0) }
+        }
     }
 
     private func replyError(_ targetID: String, to message: String, _ text: String) {
@@ -167,8 +182,4 @@ extension BrowserHostProvider {
         send(.cdp(targetID: targetID, message: reply))
     }
 
-    private func replyError(_ targetID: String, _ waiting: (hostID: Int, sessionID: String?), _ text: String) {
-        guard let reply = CDPRawIDMap.errorReply(hostID: waiting.hostID, sessionID: waiting.sessionID, text: text) else { return }
-        send(.cdp(targetID: targetID, message: reply))
-    }
 }

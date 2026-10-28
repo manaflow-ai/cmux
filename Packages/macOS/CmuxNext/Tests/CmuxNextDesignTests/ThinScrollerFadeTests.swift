@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextDesign
 import Testing
+import CmuxNextWakeupsTestSupport
 
 /// Lawrence 2026-10-23 (msg 11494): "the scrollbar stuff needs to be fixed so it auto-fades away,
 /// and grows bigger on near-hover so it's easier to grab". The shared thin scroller (sidebar, hover
@@ -12,10 +13,10 @@ import Testing
 struct ThinScrollerFadeTests {
     /// A scroll view whose content is four times its height, with the shared thin scroller on
     /// `clock`, scrolled to the top.
-    private static func scrollView(clock: ThinScrollerManualClock = ThinScrollerManualClock()) -> (NSScrollView, ThinScroller) {
+    private static func scrollView(clock: ManualClock = ManualClock()) -> (NSScrollView, ThinScroller) {
         let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 240, height: 200))
         scrollView.hasVerticalScroller = true
-        scrollView.verticalScroller = ThinScroller(frame: .zero, clock: clock)
+        scrollView.verticalScroller = ThinScroller(frame: .zero, clock: clock, notificationCenter: NotificationCenter())
         SystemScrollers.followThin(scrollView)
         scrollView.documentView = NSView(frame: NSRect(x: 0, y: 0, width: 240, height: 800))
         scrollView.tile()
@@ -33,23 +34,23 @@ struct ThinScrollerFadeTests {
     }
 
     /// What AppKit posts while the user scrolls a scroll view (wheel, trackpad, a knob drag).
-    private static func userScroll(_ scrollView: NSScrollView) {
-        NotificationCenter.default.post(name: NSScrollView.didLiveScrollNotification, object: scrollView)
+    private static func userScroll(_ scrollView: NSScrollView, center: NotificationCenter) {
+        center.post(name: NSScrollView.didLiveScrollNotification, object: scrollView)
     }
 
     @Test func scrollingShowsTheKnobAndItFadesAfterTheRestDelay() async throws {
-        let clock = ThinScrollerManualClock()
+        let clock = ManualClock()
         let (scrollView, scroller) = Self.scrollView(clock: clock)
         scroller.doubleValue = 0.5 // the app or a layout moved it: no knob
         #expect(!scroller.isKnobShown)
-        Self.userScroll(scrollView)
+        Self.userScroll(scrollView, center: scroller.notificationCenter)
         #expect(scroller.isKnobShown)
         #expect(!scroller.isKnobExpanded) // thin while it only scrolls
         try await clock.waitForSleeper()
         clock.advance(by: .milliseconds(400))
         #expect(scroller.isKnobShown) // not yet
         // A new scroll step restarts the rest delay.
-        Self.userScroll(scrollView)
+        Self.userScroll(scrollView, center: scroller.notificationCenter)
         try await clock.waitForSleeper()
         clock.advance(by: ThinScroller.restDelay)
         await scroller.restTask?.value
@@ -77,7 +78,7 @@ struct ThinScrollerFadeTests {
     }
 
     @Test func aDragKeepsTheKnobWideAndItStaysAMomentAfter() async throws {
-        let clock = ThinScrollerManualClock()
+        let clock = ManualClock()
         let (_, scroller) = Self.scrollView(clock: clock)
         var presence = scroller.presence
         presence.drag(true)
@@ -91,14 +92,14 @@ struct ThinScrollerFadeTests {
     /// The terminal: the pointer does not reveal a knob at rest (the last column is the
     /// terminal's), but it holds and widens one a scroll showed, so it can be grabbed.
     @Test func withoutRevealAtRestThePointerOnlyHoldsAShownKnob() async throws {
-        let clock = ThinScrollerManualClock()
+        let clock = ManualClock()
         let (scrollView, scroller) = Self.scrollView(clock: clock)
         scroller.revealsNearPointerAtRest = false
         scroller.showsOnScroll = false
         let near = CGPoint(x: scrollView.bounds.maxX - 3, y: 100)
         scroller.pointerMoved(to: near)
         #expect(!scroller.isKnobShown)
-        Self.userScroll(scrollView) // the terminal shows it only for moves through its scrollback
+        Self.userScroll(scrollView, center: scroller.notificationCenter) // the terminal shows it only for moves through its scrollback
         #expect(!scroller.isKnobShown)
         scroller.pointerMoved(to: nil)
         scroller.flash() // a move through the scrollback

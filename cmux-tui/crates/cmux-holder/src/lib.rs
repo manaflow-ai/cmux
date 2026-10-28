@@ -89,8 +89,9 @@ pub struct Listed {
     pub exited: bool,
     /// The custody dup of the master (`None` from the holder's own encode).
     pub master: Option<std::os::fd::OwnedFd>,
-    /// The custody dup of its output ring segment (wire version 4; `None`
-    /// from an older holder or a ring in private memory).
+    /// The custody dup of its output ring segment (`None` from a holder
+    /// older than wire version 4, on a link below `wire::RING_VERSION` to
+    /// this build's holder, or for a ring in private memory).
     pub ring: Option<std::os::fd::OwnedFd>,
 }
 
@@ -105,18 +106,29 @@ impl Listed {
             .0
     }
 
-    /// Decode a LISTED payload; `fds` are the master, then the ring
-    /// segment when the frame had [`wire::FLAG_RING`].
+    /// Decode a LISTED frame; `fds` are the master, then the ring segment
+    /// when its `flags` have [`wire::FLAG_RING`]. A LISTED without either
+    /// one it says it passes is an error: the link is broken.
     pub(crate) fn decode(
         chan: u32,
+        flags: u16,
         payload: &[u8],
         fds: Vec<std::os::fd::OwnedFd>,
     ) -> io::Result<Self> {
+        let missing = || io::Error::new(io::ErrorKind::InvalidData, "a LISTED without its master");
         let mut input = wire::In(payload);
         let mut fds = fds.into_iter();
+        let master = fds.next().ok_or_else(missing)?;
+        let ring = if flags & wire::FLAG_RING != 0 {
+            Some(fds.next().ok_or_else(|| {
+                io::Error::new(io::ErrorKind::InvalidData, "a LISTED without its ring segment")
+            })?)
+        } else {
+            None
+        };
         Ok(Self {
-            master: fds.next(),
-            ring: fds.next(),
+            master: Some(master),
+            ring,
             chan,
             pid: input.i32()?,
             oldest: input.u64()?,
@@ -160,11 +172,23 @@ impl ExitStatus {
 /// every shell. The same name a spawned terminal host reads.
 pub const NOFILE_SOFT_ENV: &str = "CMUX_TUI_HOST_NOFILE_SOFT";
 
+/// The environment variable that gives a holder an orphan grace in
+/// milliseconds: once no daemon was linked for that long it ends every
+/// terminal (a DEV build's, debug build's or test's daemon sets it, as it
+/// gives its terminal hosts one; normal installs never do). An environment
+/// variable, not an argument, so an older holder that does not know it
+/// still starts.
+pub const ORPHAN_GRACE_ENV: &str = "CMUX_HOLDER_ORPHAN_GRACE_MS";
+
 /// What `cmux-holder --version` prints: the program and the wire versions
 /// it serves. A daemon starts a holder binary only when it reports this
 /// shape (`cmux-holder wire MIN-MAX`) with a range it speaks. No build
-/// identity: a holder whose code did not change is the same file in every
-/// cmux build, so an update reuses its content-addressed copy.
+/// identity, so the answer depends only on the wire range. The file itself
+/// still differs between signed builds: release and nightly strip the
+/// holder and re-sign it with a secure timestamp, so its SHA-256, and so its
+/// content-addressed copy, is new in every signed build (a running holder
+/// keeps its own locked copy; nothing breaks). Only unsigned builds of
+/// unchanged holder code reuse one copy.
 pub fn version_line() -> String {
     format!("cmux-holder wire {}-{}", wire::MIN_VERSION, wire::VERSION)
 }
@@ -197,12 +221,20 @@ pub fn serve(args: &[String]) -> io::Result<()> {
         return stdout.flush();
     }
     hold_copy_in_use();
+    // Key-press flow marks start here, before the first terminal (`CMUX_TRACE_FLOWS`).
+    cmux_flow_trace::init();
     let mut args = args.iter().cloned();
     let mut socket = None;
     let mut idle_exit = None;
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--socket" => socket = args.next().map(PathBuf::from),
+            // `<bundle>:<tag>@<daemon pid>`, as a terminal host's: only a
+            // mark in the command line, so a teardown finds this tag's
+            // holder after its daemon is gone (tag_teardown.py).
+            "--owner" => {
+                args.next().ok_or_else(|| invalid("--owner takes a value"))?;
+            }
             "--idle-exit-ms" => {
                 let millis = args.next().and_then(|value| value.parse::<u64>().ok());
                 let millis = millis.ok_or_else(|| invalid("--idle-exit-ms takes milliseconds"))?;
@@ -213,6 +245,11 @@ pub fn serve(args: &[String]) -> io::Result<()> {
     }
     let child_open_file_limit =
         std::env::var(NOFILE_SOFT_ENV).ok().and_then(|value| value.parse::<u64>().ok());
+    let orphan_grace = std::env::var(ORPHAN_GRACE_ENV)
+        .ok()
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        .filter(|millis| *millis > 0)
+        .map(|millis| std::time::Duration::from_millis(millis.min(30 * 24 * 3600 * 1000)));
     let socket = socket.ok_or_else(|| invalid("--socket PATH is required"))?;
     let mut line = String::new();
     io::stdin().lock().read_line(&mut line)?;
@@ -237,6 +274,7 @@ pub fn serve(args: &[String]) -> io::Result<()> {
     let listener = UnixListener::bind(&socket)?;
     let mut holder = holder::Holder::new(listener, token)?;
     holder.set_child_open_file_limit(child_open_file_limit);
+    holder.set_orphan_grace(orphan_grace);
     if let Some(idle_exit) = idle_exit {
         holder.set_idle_exit(idle_exit);
     }

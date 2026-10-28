@@ -8,11 +8,12 @@ export const chiefMainConversation = (chief: string): string => `conv_${invites.
 
 /**
  * Chief records in UserDO (plans/cmux-next/chief-mac.md section 9). The user's principal is
- * the only writer, through chief.create, chief.update and chief.archive. Exactly one active
+ * the only writer, through chief.create, chief.update, chief.archive and chief.delete. Exactly one active
  * chief is the default. A new chief's MuxDO is bound (mux.bind) and receives the user's text
  * confirmation level (mux.text_confirm.level.sync) through the outbox. Archived chiefs stay
  * restorable for 30 days; after that only a tombstone {id, owner_user, archived_at} is kept,
- * so an id is never reused. Each chief gets one main conversation (kind chief, created by the
+ * so an id is never reused. chief.delete skips the window: the record becomes that tombstone at once
+ * (active or archived, never the default). Each chief gets one main conversation (kind chief, created by the
  * system through the outbox, id derived from the chief id); a DM with your own chief opens it.
  */
 /** A paired server running the chief's brain (G8): its team host and its daemon install. */
@@ -47,7 +48,7 @@ export interface ChiefsState {
   readonly chief_tombstones?: Readonly<Record<string, ChiefTombstone>>
 }
 
-export const CHIEF_OPS = new Set(["chief.create", "chief.update", "chief.archive"])
+export const CHIEF_OPS = new Set(["chief.create", "chief.update", "chief.archive", "chief.delete"])
 export const RESTORE_WINDOW_MS = 30 * 24 * 3_600_000
 /** A chief's agent class (participant `agent_class`); only this class acts under its owner's reach. */
 export const CHIEF_AGENT_CLASS = "mux"
@@ -265,6 +266,17 @@ export const reduceChief = (stateIn: UserState, op: string, params: Params, ctx:
       if (cur.archived_at !== null) return { ok: true, state, value: cur, changed: false }
       const archived: ChiefRecord = { ...cur, archived_at: now, rev: cur.rev + 1, updated_at: now }
       return commit({ ...chiefs, [cur.id]: archived }, archived)
+    }
+    case "chief.delete": {
+      // A replay of a done delete answers the stored result (idempotency key); a new key finds the tombstone.
+      const id = typeof params.chief === "string" ? params.chief : undefined
+      const cur = id ? chiefs[id] : undefined
+      if (!cur) return reject("selector.not_found", id && state.chief_tombstones?.[id] ? "chief_expired" : "chief not found")
+      if (params.expected_rev !== cur.rev) return reject("revision.conflict", `expected_rev ${String(params.expected_rev)} does not match ${cur.rev}`)
+      if (cur.is_default) return reject("chief_is_default", "make another chief the default first")
+      const rest = Object.fromEntries(Object.entries(chiefs).filter(([key]) => key !== cur.id))
+      const tomb: ChiefTombstone = { id: cur.id, owner_user: cur.owner_user, archived_at: cur.archived_at ?? now }
+      return { ok: true, state: { ...state, chiefs: rest, chief_tombstones: { ...(state.chief_tombstones ?? {}), [cur.id]: tomb } }, value: { ...cur, archived_at: tomb.archived_at }, outbox: [] }
     }
     default:
       return reject("validation.invalid", `unknown op ${op}`)

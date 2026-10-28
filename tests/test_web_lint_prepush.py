@@ -117,6 +117,8 @@ class WebLintPrePushTests(unittest.TestCase):
             "scripts/web_lint_prepush.py",
             "scripts/ci/fast_gate_webviews_checks.py",
             "scripts/cmux-next/prepush-gate.py",
+            "scripts/cmux-next/push_range.py",
+            "scripts/cmux-next/git_batch.py",
             "scripts/ci/base_merge_warning.py",
             "scripts/web-lint.sh",
             "scripts/merge-xcstrings.py",
@@ -275,6 +277,30 @@ class WebLintPrePushTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.remote_head(), self.git("rev-parse", "HEAD").stdout.strip())
         self.assertIn("BAD_LANE", (self.repo / "webviews/src/app.ts").read_text(), "the working tree is left alone")
+
+    def test_a_rebased_branch_force_push_lints_only_its_own_files(self):
+        # The branch is pushed once, then rebased onto a base that gained a web lint error (someone pushed it
+        # with --no-verify). The remote head sits on the old base: a range from its merge base with the new head
+        # would lint upstream's file and refuse the branch for it.
+        self.git("checkout", "--quiet", "-b", "topic")
+        self.write("web/app/page.tsx", "export const page = 2;\n")
+        self.commit("topic web change")
+        self.assertEqual(self.git("push", "--quiet", "--no-verify", "origin", "topic").returncode, 0)
+        self.git("checkout", "--quiet", "feat-cmux-next")
+        self.write("web/app/upstream.tsx", "export const upstream = BAD_ESLINT;\n")
+        self.commit("someone else's lint error on the base")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        self.git("fetch", "--quiet", "origin")
+        self.git("checkout", "--quiet", "topic")
+        self.git("rebase", "--quiet", "origin/feat-cmux-next")
+
+        result = subprocess.run(["git", "-C", str(self.repo), "push", "--force", "origin", "topic"],
+                                env=self.env, text=True, capture_output=True)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        linted = self.eslint_log.read_text() if self.eslint_log.exists() else ""
+        self.assertIn("app/page.tsx", linted, "the branch's own file is linted")
+        self.assertNotIn("upstream.tsx", linted, "a file only the rebased-over commits change is not")
 
     def test_pushing_a_branch_that_is_not_checked_out_lints_that_branch(self):
         self.git("checkout", "--quiet", "-b", "side")

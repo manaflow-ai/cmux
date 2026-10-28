@@ -1,7 +1,7 @@
 import AppKit
 import CmuxNextCloud
+import CmuxNextCompat
 import CmuxNextDaemon
-import CmuxNextHomeEngine
 import CmuxNextSidebar
 import Foundation
 
@@ -31,7 +31,7 @@ extension CloudService {
         let ops = appOps
         // The team the relay's create bills: the install token's team claim,
         // captured now, when the person starts or confirms this create.
-        let team = Self.team(ofToken: try await installIdentity.installToken()) ?? ""
+        let team = MacInstallIdentity.team(ofToken: try await installIdentity.installToken()) ?? ""
         let flow = CloudMachineCreateFlow(
             run: { op, args, key, origin in
                 await onSent()
@@ -46,15 +46,10 @@ extension CloudService {
                 try await ContinuousClock().sleep(for: CloudMachineCreateFlow.backoff(attempt))
             }
         )
-        let record = try await flow.create(name: name, startedByPerson: startedByPerson, askedBy: askedBy)
+        let record = try await flow.create(name: name, startedByPerson: startedByPerson, askedBy: askedBy, gate: createGate)
         guard let machine = CloudMachine(next: record) else { throw CloudAppOpFailure(code: "cmux.cloud.bad_response", message: "cloud.machine.create answered no machine") }
         return machine
     }
-
-    /// The `team` claim of an install token (the owner's own token over
-    /// TLS; read for consistency, never trusted as a credential). Nil when
-    /// the token is not a JWT with a team.
-    nonisolated static func team(ofToken token: String) -> String? { HomeCloudLease.team(ofJWT: token) }
 
     /// POSTs to the API Worker as the signed-in person (Stack session), the
     /// way the feed does; used only to answer a G8 approval after the
@@ -89,10 +84,20 @@ extension CloudPresenter {
     /// Confirms a Cloud machine create: true only for the person's click on Create; no window answers
     /// false. An agent's or a script's request waits in the sidebar's card (`asks`), the backend's hold in a sheet.
     /// `chatOpen` says whether an agent chat is still open: a card its asking chat had goes, a no, when the chat closes.
-    @MainActor static func confirmCreate(_ prompt: CloudMachineCreateFlow.Prompt, in window: NSWindow?, asks: SidebarAsks?, chatOpen: @escaping @MainActor @Sendable (String) -> Bool = { _ in true }) async -> Bool {
-        let (intro, machine) = switch prompt {
-        case .agentRequest(let machine): (CloudStrings.createRequestDetail, machine)
-        case .approval(_, let machine): (CloudStrings.createConfirmApproval, machine)
+    @MainActor static func confirmCreate(_ prompt: CloudMachineCreateFlow.Prompt, in window: NSWindow?, asks: SidebarAsks?, chatOpen: @escaping @MainActor @Sendable (String) -> Bool = { _ in true },
+                                         openPricing: @MainActor (URL) -> Void = { NSWorkspace.shared.openInBackground($0) }) async -> Bool {
+        if case .upgrade(let need) = prompt {
+            // No window or sidebar to show the card in: nothing is opened without the person's click.
+            guard let asks, window != nil else { return false }
+            let upgrade = await asks.ask(CloudStrings.upgradeTitle, detail: CloudStrings.upgradeDetail(need.reason), symbol: "cloud", yes: CloudStrings.upgradeButton, no: CloudStrings.notNow)
+            if upgrade { openPricing(StaticURL.pricing.url) }
+            return upgrade
+        }
+        let intro: String, machine: CloudMachineCreateFlow.Machine
+        switch prompt {
+        case .agentRequest(let asked): (intro, machine) = (CloudStrings.createRequestDetail, asked)
+        case .approval(_, let held): (intro, machine) = (CloudStrings.createConfirmApproval, held)
+        case .upgrade: return false // answered above
         }
         let lines = (machine.name.map { [CloudStrings.createConfirmName($0)] } ?? []) + (machine.sizeShown ? [CloudStrings.createConfirmSize(cpu: machine.cpu, memoryGB: machine.memoryMB / 1024, diskGB: machine.diskMB / 1024)] : [])
         if case .agentRequest = prompt, let asks { return window != nil ? await asks.ask(CloudStrings.createConfirmTitle, detail: intro, lines: lines, symbol: "cloud", yes: CloudStrings.createConfirmButton, no: CloudStrings.cancel, asker: machine.askedBy, present: chatOpen) : false }

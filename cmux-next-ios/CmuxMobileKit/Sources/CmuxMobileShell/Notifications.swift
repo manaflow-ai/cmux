@@ -2,6 +2,7 @@
 import CmuxMobileAgentChat
 import CmuxMobileLive
 import CmuxMobileModel
+import CmuxMobileNotifications
 import CmuxMobileSettings
 import Foundation
 import Observation
@@ -11,49 +12,122 @@ import UserNotifications
 
 private let log = Logger(subsystem: "dev.cmux.mobile", category: "push")
 
-/// What a push from the Mac points at (PROTOCOL.md `POST /v1/devices/:id/notify`,
-/// the payload's `mobile` object).
+/// What a push from the Mac points at (PROTOCOL.md "Push notifications"):
+/// the screen a tap opens, on that push's Mac.
 public struct NotificationRoute: Equatable, Sendable {
     public var kind: String
     public var mac: String?
     public var sessionID: String?
     public var workspaceID: String?
     public var tabID: String?
+    public var conversationID: String?
+
+    public init(kind: String, mac: String? = nil, sessionID: String? = nil, workspaceID: String? = nil, tabID: String? = nil,
+                conversationID: String? = nil) {
+        self.kind = kind
+        self.mac = mac
+        self.sessionID = sessionID
+        self.workspaceID = workspaceID
+        self.tabID = tabID
+        self.conversationID = conversationID
+    }
+
+    init(_ payload: PushPayload) {
+        self.init(kind: payload.kind.rawValue, mac: payload.mac, sessionID: payload.sessionId, workspaceID: payload.workspaceId,
+                  tabID: payload.tabId, conversationID: payload.conversationId)
+    }
+
+    init(_ reply: PushReply) {
+        self.init(kind: reply.kind.rawValue, mac: reply.mac, sessionID: reply.sessionId, workspaceID: reply.workspaceId,
+                  tabID: reply.tabId, conversationID: reply.conversationId)
+    }
 
     /// Reads `userInfo["cmuxMobile"]`; nil for anything else.
     init?(userInfo: [AnyHashable: Any]) {
-        guard let mobile = userInfo["cmuxMobile"] as? [String: Any], let kind = mobile["kind"] as? String else { return nil }
-        self.kind = kind
-        mac = mobile["mac"] as? String
-        sessionID = mobile["sessionId"] as? String
-        workspaceID = mobile["workspaceId"] as? String
-        tabID = mobile["tabId"] as? String
+        guard let payload = PushPayload(userInfo: userInfo) else { return nil }
+        self.init(payload)
     }
 }
 
 /// Hands notification taps to the shell, and asks it whether a notification's
-/// tab is already on screen (then no banner shows).
+/// screen is already on screen (then no banner shows). A route set before the
+/// shell exists (a cold launch) waits here until it does.
 @MainActor
 @Observable
 public final class NotificationRouter {
     public static let shared = NotificationRouter()
 
     /// A tapped notification the shell has not opened yet.
-    public var pending: NotificationRoute?
-    /// Set by the shell: whether this route's tab is what the user is looking at.
+    public private(set) var pending: NotificationRoute?
+    /// When `pending` was set: past `waitBudget` it opens the Feed (review #4).
+    @ObservationIgnored private(set) var pendingSince: ContinuousClock.Instant?
+    /// How long a route waits for its Mac's tree before it settles for the Feed.
+    static let waitBudget: Duration = .seconds(10)
+    @ObservationIgnored var clock: any Clock<Duration> = ContinuousClock()
+    /// Settings → Require Face ID has the app locked (AppLock): replies that
+    /// need Face ID wait, so the two prompts never overlap.
+    public internal(set) var appLocked = false {
+        didSet { if !appLocked { PushReplies.shared.appStateChanged() } }
+    }
+    /// Set by the shell: whether this route's screen is what the user is looking at.
     @ObservationIgnored var isShowing: (NotificationRoute) -> Bool = { _ in false }
 
     init() {}
+
+    func open(_ payload: PushPayload) {
+        set(NotificationRoute(payload))
+    }
+
+    func open(reply: PushReply) {
+        set(NotificationRoute(reply))
+    }
+
+    /// Waits for `route`, at most `waitBudget`: then it is tried once more, as expired.
+    func set(_ route: NotificationRoute?, at now: ContinuousClock.Instant = .now) {
+        pending = route
+        pendingSince = route == nil ? nil : now
+        guard let route else { return }
+        let clock = clock
+        Task { @MainActor [weak self] in
+            try? await clock.sleep(for: Self.waitBudget)
+            guard let self, self.pending == route else { return }
+            self.expired += 1
+        }
+    }
+
+    /// Bumped when a waiting route's budget ends (the shell then opens the Feed).
+    public private(set) var expired = 0
+
+    func isExpired(at now: ContinuousClock.Instant = .now) -> Bool {
+        pendingSince.map { now - $0 > Self.waitBudget } ?? false
+    }
+
+    /// The route was opened (or settled for the Feed).
+    func opened() {
+        set(nil)
+    }
+
+    /// The person went to another screen while a route waited: it is dropped.
+    func userNavigated() {
+        if pending != nil { set(nil) }
+    }
 }
 
 /// The app delegate: remote-notification registration and notification
-/// presentation and taps. Notification permission is asked in setup (or
-/// Settings → Notifications); once granted, every launch registers so the
+/// presentation, taps and buttons. Notification permission is asked in setup
+/// (or Settings → Notifications); once granted, every launch registers so the
 /// token stays current.
 @MainActor
 public final class CmuxMobileAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
     public func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         UNUserNotificationCenter.current().delegate = self
+        // The App Group resolves once, off the main thread (its lookup is a synchronous XPC).
+        PushAppGroup.prime()
+        PushReplies.shared.registerCategories()
+        #if DEBUG && targetEnvironment(simulator)
+        SimulatedServiceExtension.deliverIfAsked()
+        SimulatedServiceExtension.registerStandInTokenIfAsked()
+        #endif
         Task {
             let status = await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
             if BuildCapabilities.current.push, [.authorized, .provisional, .ephemeral].contains(status) { application.registerForRemoteNotifications() }
@@ -69,16 +143,43 @@ public final class CmuxMobileAppDelegate: NSObject, UIApplicationDelegate, UNUse
         log.error("APNs registration failed: \(String(describing: error), privacy: .public)")
     }
 
-    public nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
+    /// A push while the app is in front. The completion handler form, called on
+    /// the main thread, like `didReceive`: the async form of a
+    /// UNUserNotificationCenterDelegate method calls UIKit's handler from a
+    /// background thread (NotificationDelegateThreadTests).
+    public nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
+                                                   withCompletionHandler completionHandler: @escaping @Sendable (UNNotificationPresentationOptions) -> Void) {
         let route = NotificationRoute(userInfo: notification.request.content.userInfo)
-        let showing = await MainActor.run { route.map { NotificationRouter.shared.isShowing($0) } ?? false }
-        return showing ? [] : [.banner, .list, .sound]
+        Task { @MainActor in
+            let showing = route.map { NotificationRouter.shared.isShowing($0) } ?? false
+            completionHandler(showing ? [] : [.banner, .list, .sound])
+        }
     }
 
-    public nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
-        guard response.actionIdentifier == UNNotificationDefaultActionIdentifier,
-              let route = NotificationRoute(userInfo: response.notification.request.content.userInfo) else { return }
-        await MainActor.run { NotificationRouter.shared.pending = route }
+    /// Taps and buttons. iOS keeps a background launch alive until the
+    /// completion handler runs, so a background reply is delivered (or fails)
+    /// first. The handler must run on the main thread: UIKit updates the app's
+    /// snapshot in it and aborts off the main thread (verify/push-matrix.md,
+    /// failure 2: the async form returned on a background thread and every
+    /// notification button crashed the app; TestFlight 1.2.0 (20261023213712)
+    /// crashed the same way on a plain tap). Never make this `async`:
+    /// NotificationDelegateThreadTests fails if the handler leaves the main thread.
+    public nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
+                                                   withCompletionHandler completionHandler: @escaping @Sendable () -> Void) {
+        // Only Sendable values cross to the main actor.
+        let content = response.notification.request.content
+        let userInfo = content.userInfo
+        let shown = PushTrustGate.Shown(title: content.title, subtitle: content.subtitle, body: content.body,
+                                        category: content.categoryIdentifier)
+        // Only the app's own (local) notifications may carry a retry (review H1).
+        let fromPush = response.notification.request.trigger is UNPushNotificationTrigger
+        let read = PushReplies.Response(actionIdentifier: response.actionIdentifier,
+                                        text: (response as? UNTextInputNotificationResponse)?.userText,
+                                        userInfo: userInfo, fromPush: fromPush, retries: PushRetryStore.app, shown: shown)
+        Task { @MainActor in
+            await PushReplies.shared.handle(read)
+            completionHandler()
+        }
     }
 }
 
@@ -141,6 +242,11 @@ final class LiveDeviceDirectory: SettingsDeviceDirectory {
 
     func removeThisPhoneFromMacs() async {
         await live?.removeThisPhoneFromMacs()
+    }
+
+    func openPairingCode(_ text: String) -> Bool {
+        guard let live, let invite = PairInvite(text: text) else { return false }
+        return live.accept(invite)
     }
 }
 #endif

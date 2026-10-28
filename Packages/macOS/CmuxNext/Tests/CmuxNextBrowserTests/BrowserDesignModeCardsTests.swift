@@ -14,6 +14,7 @@ import Testing
             "tag_name": tag, "dom_snippet": "<\(tag) class=\"cta\">\(text)</\(tag)>", "text_content": text,
             "text_editable": true, "computed_styles": ["color": "rgb(0, 0, 0)", "font-size": "14px"],
             "react_components": ["PricingCard"], "react_prop_keys": ["plan"],
+            "source_location": ["file": "src/PricingCard.tsx", "line": 42, "column": 7],
             "bounds": ["x": x, "y": y, "width": 120, "height": 32],
             "viewport": ["width": 1280, "height": 800, "scroll_x": 0, "scroll_y": 0],
             "color": "#0a84ff",
@@ -39,6 +40,7 @@ import Testing
         #expect(card.text.contains("#buy"))
         #expect(card.text.contains("Buy now"))
         #expect(card.text.contains("PricingCard"))
+        #expect(card.text.contains("src/PricingCard.tsx:42:7"))
         #expect(card.bounds == CGRect(x: 10, y: 20, width: 120, height: 32))
         #expect(card.viewportWidth == 1280)
         #expect(card.id.hasPrefix("design-"))

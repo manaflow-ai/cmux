@@ -507,7 +507,10 @@ fn a_finished_turn_banner_previews_the_last_message_in_memory_only() {
 
 /// Runs `hooks` (provider, event, payload) in one terminal, then returns the daemon's
 /// `notification` event that follows, read on the app's event stream.
-fn agent_notification(name: &str, hooks: &[(&str, serde_json::Value)]) -> (RecoveryHarness, serde_json::Value, PathBuf) {
+fn agent_notification(
+    name: &str,
+    hooks: &[(&str, serde_json::Value)],
+) -> (RecoveryHarness, serde_json::Value, PathBuf) {
     let harness = RecoveryHarness::start(name);
     let helper = env!("CARGO_BIN_EXE_cmux-tui");
     let payload_dir = std::env::temp_dir().join(format!("cmux-{name}-{}", std::process::id()));
@@ -578,7 +581,8 @@ fn a_finished_turn_notification_carries_the_whole_prompt_and_answer_for_the_feed
     assert!(preview.starts_with(marker) && !preview.contains('\n'), "{event}");
     assert!(preview.chars().count() <= 200, "{}", preview.chars().count());
     // The event names its ledger row.
-    let ledger = request(&harness.socket, serde_json::json!({"id": 3, "cmd": "list-notifications"}));
+    let ledger =
+        request(&harness.socket, serde_json::json!({"id": 3, "cmd": "list-notifications"}));
     let rows = ledger["notifications"].as_array().cloned().unwrap_or_default();
     assert!(
         rows.iter().any(|row| row["id"] == event["id"] && row["title"] == "Claude finished"),
@@ -595,7 +599,10 @@ fn a_finished_turn_notification_carries_the_whole_prompt_and_answer_for_the_feed
     let leaked = files_containing(&harness.dir, marker.as_bytes());
     let leaked_prompt = files_containing(&harness.dir, b"feed-prompt-marker");
     let _ = fs::remove_dir_all(&payload_dir);
-    assert!(leaked.is_empty() && leaked_prompt.is_empty(), "the texts reached disk: {leaked:?} {leaked_prompt:?}");
+    assert!(
+        leaked.is_empty() && leaked_prompt.is_empty(),
+        "the texts reached disk: {leaked:?} {leaked_prompt:?}"
+    );
 }
 
 /// A failed tool's card says what went wrong (Claude's PostToolUseFailure `error`), not only the
@@ -653,8 +660,13 @@ fn a_feed_reply_reaches_only_the_waiting_agent_session() {
     wait_for_agent_state(&harness, "idle");
     let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
     let program = loop {
-        let info = request(&harness.socket, serde_json::json!({"id": 4, "cmd": "process-info", "surface": surface}));
-        if let Some(name) = info["foreground_executable"].as_str().filter(|name| name.ends_with("cat")) {
+        let info = request(
+            &harness.socket,
+            serde_json::json!({"id": 4, "cmd": "process-info", "surface": surface}),
+        );
+        if let Some(name) =
+            info["foreground_executable"].as_str().filter(|name| name.ends_with("cat"))
+        {
             break name.to_string();
         }
         assert!(Instant::now() < deadline, "cat never became the foreground: {info}");
@@ -690,12 +702,17 @@ fn a_feed_reply_reaches_only_the_waiting_agent_session() {
         assert!(Instant::now() < deadline, "the reply was typed but not submitted:\n{screen}");
         std::thread::sleep(Duration::from_millis(50));
     };
-    assert!(!screen.contains("wrong_session_reply") && !screen.contains("unnamed_reply"), "{screen}");
+    assert!(
+        !screen.contains("wrong_session_reply") && !screen.contains("unnamed_reply"),
+        "{screen}"
+    );
     // The agent went back to work, then asks for approval (its own hooks, from another shell):
     // refused both times.
     // The terminal's public id, as the finished turn's ledger row names it.
-    let terminal_id = request(&harness.socket, serde_json::json!({"id": 7, "cmd": "list-notifications"}))
-        ["notifications"][0]["terminal_id"]
+    let terminal_id = request(
+        &harness.socket,
+        serde_json::json!({"id": 7, "cmd": "list-notifications"}),
+    )["notifications"][0]["terminal_id"]
         .as_str()
         .expect("the agent's public terminal id")
         .to_string();
@@ -715,16 +732,25 @@ fn a_feed_reply_reaches_only_the_waiting_agent_session() {
             String::from_utf8_lossy(&output.stderr)
         );
     };
-    hook("UserPromptSubmit", serde_json::json!({"session_id":"reply-s1","hook_event_name":"UserPromptSubmit","cwd":"/tmp","prompt":"again"}));
+    hook(
+        "UserPromptSubmit",
+        serde_json::json!({"session_id":"reply-s1","hook_event_name":"UserPromptSubmit","cwd":"/tmp","prompt":"again"}),
+    );
     wait_for_agent_state(&harness, "working");
     let busy = reply(8, "busy_reply", "reply-s1");
     assert_eq!(busy["ok"], false, "{busy}");
-    hook("PermissionRequest", serde_json::json!({"session_id":"reply-s1","hook_event_name":"PermissionRequest","cwd":"/tmp","tool_name":"Bash"}));
+    hook(
+        "PermissionRequest",
+        serde_json::json!({"session_id":"reply-s1","hook_event_name":"PermissionRequest","cwd":"/tmp","tool_name":"Bash"}),
+    );
     wait_for_agent_state(&harness, "blocked");
     let asking = reply(10, "asking_reply", "reply-s1");
     assert_eq!(asking["ok"], false, "{asking}");
     let _ = fs::remove_dir_all(&payload_dir);
-    let screen = request(&harness.socket, serde_json::json!({"cmd": "read-screen", "surface": surface}))["text"]
+    let screen = request(
+        &harness.socket,
+        serde_json::json!({"cmd": "read-screen", "surface": surface}),
+    )["text"]
         .as_str()
         .unwrap_or_default()
         .to_string();
@@ -764,4 +790,106 @@ fn a_shell_at_its_prompt_names_when_it_last_printed() {
     let extra = terminal_extra(&harness);
     let later = ms(&extra["last_output"]["at_ms"]);
     assert!(later >= stepped && later <= now_ms(), "{later} outside {stepped}..now: {extra}");
+}
+
+/// A terminal agent's AskUserQuestion reaches the phone with its question and options
+/// (cmux-next-ios `verify/rich-push.md`, "Terminal agents"): the notification event and the
+/// ledger row carry it while the agent waits, it is gone once the agent works again, and no
+/// daemon state file ever holds it.
+#[test]
+fn an_agent_question_reaches_the_notification_and_its_row_in_memory_only() {
+    let _exclusive = exclusive_process_test();
+    let harness = RecoveryHarness::start("command-activity-agent-question");
+    let helper = env!("CARGO_BIN_EXE_cmux-tui");
+    let marker = "question-marker-text";
+    let payload_dir = std::env::temp_dir().join(format!("cmux-question-{}", std::process::id()));
+    fs::create_dir_all(&payload_dir).unwrap();
+    let ask = payload_dir.join("ask.json");
+    let resume = payload_dir.join("resume.json");
+    fs::write(
+        &ask,
+        serde_json::json!({"session_id":"question-1","hook_event_name":"PreToolUse","cwd":"/tmp",
+            "tool_name":"AskUserQuestion","tool_use_id":"toolu_q1","tool_input":{"questions":[
+                {"question":format!("{marker} which branch?"),"header":"Branch","multiSelect":false,
+                 "options":[{"label":"main","description":"the default"},{"label":"dev"},{"label":"release"}]},
+                {"question":"Which checks?","header":"Checks","multiSelect":true,
+                 "options":[{"label":"lint"},{"label":"tests"}]}]}})
+        .to_string(),
+    )
+    .unwrap();
+    fs::write(
+        &resume,
+        serde_json::json!({"session_id":"question-1","hook_event_name":"UserPromptSubmit","cwd":"/tmp","prompt":"go on"})
+            .to_string(),
+    )
+    .unwrap();
+    let stream = transport::connect(&harness.socket).unwrap();
+    let mut writer = stream.try_clone_box().unwrap();
+    let mut reader = BufReader::new(stream);
+    writeln!(writer, "{}", serde_json::json!({"id": 1, "cmd": "subscribe"})).unwrap();
+    let (events, received) = mpsc::channel();
+    std::thread::spawn(move || {
+        let mut line = String::new();
+        while reader.read_line(&mut line).is_ok_and(|read| read > 0) {
+            let _ = events.send(std::mem::take(&mut line));
+        }
+    });
+    let script = format!(
+        "[ -n \"$CMUX_TUI_TERMINAL_ID\" ] && printf 'agent\\r\\n'; read step; \
+         '{helper}' __agent-hook claude PreToolUse < '{}'; printf 'asked\\r\\n'; read step; \
+         '{helper}' __agent-hook claude UserPromptSubmit < '{}'; printf 'resumed\\r\\n'; sleep 600",
+        ask.display(),
+        resume.display()
+    );
+    let (surface, _) = run_script(&harness, "command-activity-agent-question", &script, "agent");
+    step(&harness, surface);
+    assert!(wait_for_screen(&harness.socket, surface, "asked").contains("asked"));
+    let deadline = Instant::now() + Duration::from_secs(20);
+    let banner = loop {
+        let left = deadline.saturating_duration_since(Instant::now());
+        let line = received.recv_timeout(left).expect("no notification event for the question");
+        let event: serde_json::Value = serde_json::from_str(&line).unwrap_or_default();
+        if event["event"] == "notification" {
+            break event;
+        }
+    };
+    assert_eq!(banner["title"], "Claude asked a question", "{banner}");
+    let question = &banner["question"];
+    assert_eq!(question["harness"], "claude", "{banner}");
+    assert_eq!(question["tool_use_id"], "toolu_q1", "{banner}");
+    assert_eq!(question["questions"][0]["question"], format!("{marker} which branch?"));
+    assert_eq!(question["questions"][0]["options"][0]["description"], "the default");
+    assert_eq!(question["questions"][1]["multiSelect"], true);
+    // The ledger row shows it while the agent waits.
+    let rows = request(&harness.socket, serde_json::json!({"id": 4, "cmd": "list-notifications"}));
+    let row = rows["notifications"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|row| row["title"] == "Claude asked a question")
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(row["question"], *question, "{rows}");
+    // No daemon state file holds it, also after a checkpoint.
+    resource_request(
+        &harness.socket,
+        "agent-question-checkpoint",
+        "session.journal.checkpoint.create",
+        serde_json::json!({"machine":"current","session":"current"}),
+        Some("agent-question-checkpoint"),
+    );
+    let leaked = files_containing(&harness.dir, marker.as_bytes());
+    assert!(leaked.is_empty(), "the question reached disk: {leaked:?}");
+    // Working again (answered in the terminal or from the phone): the row no longer asks.
+    step(&harness, surface);
+    assert!(wait_for_screen(&harness.socket, surface, "resumed").contains("resumed"));
+    wait_for_agent_state(&harness, "working");
+    let rows = request(&harness.socket, serde_json::json!({"id": 5, "cmd": "list-notifications"}));
+    let still = rows["notifications"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .any(|row| row["title"] == "Claude asked a question" && !row["question"].is_null());
+    let _ = fs::remove_dir_all(&payload_dir);
+    assert!(!still, "an answered question is forgotten: {rows}");
 }

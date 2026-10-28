@@ -12,6 +12,7 @@ import type {
   WhatsNewEntry,
 } from "./types";
 import { subjectArea, type AreaKey } from "./areas";
+import type { UpdateHighlightItem, UpdateHighlights } from "./updateHighlights";
 import { readableChange, revertedSubject, shortTitle, tidyTitle, titleTail } from "./readableChange";
 
 export const CATEGORY_ORDER: readonly WhatsNewCategory[] = ["new", "improved", "fixed", "security"];
@@ -163,6 +164,8 @@ function readableItem(item: ReleaseItem, changes: ChangeItem[], machine: boolean
           .map((c) => readableChange(c.title).title)
           .find((text) => !text.endsWith("…") && stemOf(text).startsWith(stem) && text.length > stem.length);
     full = whole ?? full.slice(0, -1).trim();
+    // The cut title may have dropped the words that mark the line internal ("… the Chief Dock squash").
+    if (machine && readableChange(full).internal) return undefined;
   }
   let summary = !echoes ? item.summary : lineWhole ? capitalized(titleTail(line, full)) : "";
   let title = full;
@@ -172,6 +175,37 @@ function readableItem(item: ReleaseItem, changes: ChangeItem[], machine: boolean
     summary = capitalized(titleTail(full, short));
   }
   return { ...item, title, summary: distinctSummary(title, summary) };
+}
+
+/** The update card's and popup's items (`UpdateHighlights`, at most three) as the page reads them:
+    notes published before the readable rules (#21873) carry digest titles cut with "…",
+    work-stream lines and titles repeated as their description. A summary or appcast line is
+    machine-made; a What's New entry or highlight with its own id is a person's. */
+export function readableUpdateItems(items: UpdateHighlightItem[]): UpdateHighlightItem[] {
+  const seen = new Set<string>();
+  return items.flatMap((item) => {
+    const machine = /^(?:summary|appcast)-\d+$/.test(item.id);
+    const readable = readableItem(
+      { id: item.id, category: item.category, title: item.title, summary: item.summary ?? "" },
+      [],
+      machine,
+    );
+    const key = readable?.title.toLowerCase();
+    if (!readable || !key || seen.has(key)) return [];
+    seen.add(key);
+    return [{ ...item, title: readable.title, summary: readable.summary || null }];
+  });
+}
+
+/** The whole update as the card and popover read it: `items` and every change after them (`rest`)
+    through the same rules, so no internal or cut line reaches the popover's list or the card's
+    summary (review of #22099). A change in `rest` that repeats one shown above drops; `moreCount`
+    keeps counting the changes the host did not send. */
+export function readableUpdate(data: UpdateHighlights): UpdateHighlights {
+  const items = readableUpdateItems(data.items);
+  if (!data.rest) return { ...data, items };
+  const rest = readableUpdateItems([...data.items, ...data.rest]).slice(items.length);
+  return { ...data, items, rest, moreCount: Math.max(0, data.moreCount - (data.rest.length - rest.length)) };
 }
 
 function stemOf(text: string): string {
@@ -200,12 +234,14 @@ export function readableChanges<T extends ChangeItem>(items: T[]): { changes: T[
     if (revertedSubject(item.title) || reverted.has(bareSubject(item.title))) continue;
     const readable = readableChange(item.title);
     const key = item.pr !== undefined ? `#${item.pr}` : readable.title.toLowerCase();
-    const row = { key, item: { ...item, title: readable.title }, internal: readable.internal };
+    // The notes mark a commit that touches only CI or tooling files internal, whatever its subject.
+    const internal = readable.internal || item.internal === true;
+    const row = { key, item: { ...item, title: readable.title }, internal };
     const at = byKey.get(key);
     if (at === undefined) {
       byKey.set(key, rows.length);
       rows.push(row);
-    } else if (rows[at]!.internal && !readable.internal) rows[at] = row;
+    } else if (rows[at]!.internal && !row.internal) rows[at] = row;
   }
   const hidden = rows.filter((r) => r.internal).map((r) => r.item);
   return { changes: rows.filter((r) => !r.internal).map((r) => r.item), internal: hidden.length, hidden };

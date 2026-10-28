@@ -2,6 +2,7 @@
 // by project. It follows the acpmux TUI sidebar (crates/acpmux/src/tui/render),
 // so a session reads the same in the terminal and in the pane.
 import { type Translate, translate } from "./i18n";
+import { readRetry, type RetryState } from "./subagents/retryState";
 
 /** A session as the sidebar sees it, cut from acpmux's session summary. */
 export type AcpmuxSessionEntry = {
@@ -59,9 +60,15 @@ export type AcpmuxSessionEntry = {
   lane?: SessionLane;
   /** Prompts waiting behind its running turn, when any. */
   queued?: number;
+  /** Its parent already runs as many sub-sessions as `maxRunning` allows: its first prompt waits
+   *  for a run slot (acpmux `waitsForSlot`), so it has not started. */
+  waitsForSlot?: true;
   /** One line of what its running turn does now: its plan step and latest tool, as acpmux says it
    *  to the parent's agent (`doing`). */
   doing?: string;
+  /** The tool part of `doing` (acpmux `turn.activity`, its latest tool call's title), when it has
+   *  one: the tray reads a shell call's title, the command as typed, as "Running <command>". */
+  doingTool?: string;
   /** What it waits on the person for, while it does: an agent question (with its first prompt)
    *  or a tool's permission. acpmux names it on a sub-session's family rows (`waitingOn`,
    *  subsession_send.rs `waiting_on`); a summary that does not leaves it unknown. */
@@ -80,6 +87,14 @@ export type AcpmuxSessionEntry = {
   /** The folder of a sub-session this chat's agent wants to start but cannot until the person trusts
    *  it (acpmux tag `trust.pending:<name>`, hub/trust_wait.rs): the row says "Needs trust". */
   trustPending?: string;
+  /** acpmux's retry of its failed turn while one waits (session/list `retry`, subagents/retryState.ts). */
+  retry?: RetryState;
+  /** acpmux is settling whether its failed turn is retried, or that retry starts or runs
+   *  (session/list `retryDeciding`): no Retry is offered meanwhile. */
+  retryDeciding?: true;
+  /** Why its failed or lost turn failed, as acpmux's lane says it (`lane.error`, secrets masked):
+   *  a retry acpmux refused before its turn started leaves it failed with this. */
+  laneError?: string;
 };
 
 export type LifecycleReceipt = {
@@ -217,7 +232,9 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
     shortName: text(session.shortName),
     lane: LANES.includes(session.lane?.state) ? session.lane.state : undefined,
     queued: Number(session.queued) > 0 ? Number(session.queued) : undefined,
+    ...(session.waitsForSlot === true && { waitsForSlot: true as const }),
     doing: doingLine(session),
+    doingTool: session.lane?.state === "working" ? text(session.turn?.activity) : undefined,
     waitingOn: sessionWaiting(session),
     forkSeq: typeof session.forkSeq === "number" ? session.forkSeq : undefined,
     turnCount: typeof session.turnCount === "number" ? session.turnCount : undefined,
@@ -234,6 +251,9 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
     worked: session.lastTurn?.status === "completed",
     lifecycleReceipt: lifecycleReceipt(session.lifecycleReceipt),
     trustPending: trustPending(session.tags),
+    retry: readRetry(session.retry) ?? undefined,
+    ...(session.retryDeciding === true && { retryDeciding: true as const }),
+    laneError: text(session.lane?.error),
   };
 }
 

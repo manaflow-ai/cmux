@@ -26,8 +26,10 @@ extension SidebarBridge {
             // The drag's rule for every path: a group holds one machine row's workspaces.
             guard SidebarEdits.canMove(ids, toGroup: group, in: model.sections) else { resync(); return true }
             groupFlow.move(ids, into: group, intent)
-        case .createGroup(let group, let name, let color, let ids, _, let collapsed, _):
-            groupFlow.create(group, name: name, color: color, ids, collapsed: collapsed, room: state.profileID, intent)
+        case .createGroup(let group, let name, let color, let ids, _, let collapsed, let index):
+            // `index` is the group's place among the personal groups (nil, or `Int.max`: last, the daemon's default).
+            groupFlow.create(group, name: name, color: color, ids, collapsed: collapsed, room: state.profileID,
+                             index: index.flatMap { $0 == .max ? nil : $0 }, intent)
         case .groupEditorEnded(let group):
             groupFlow.editorEnded(WorkspaceGroupID(rawValue: SidebarDocStore.personalGroupID(item: group.rawValue)))
         case .renameGroup(let group, let name):
@@ -77,7 +79,9 @@ extension SidebarBridge {
     /// each in the home session; the workspace's own daemon is not written.
     func placePersonal(_ ids: [SidebarWorkspaceID], at position: DropPosition, in sections: [SidebarRowSection],
                        edit: SidebarPendingEdits.Token? = nil) {
-        let group = position.group.map { WorkspaceGroupID(rawValue: $0.rawValue) }
+        // A position the sidebar document listed names the group by its item (`itm_g_<id>`); the home session
+        // knows only the personal id, and an unknown one would take the rows out of their group.
+        let group = position.group.map { WorkspaceGroupID(rawValue: SidebarDocStore.personalGroupID(item: $0.rawValue)) }
         let (failed, applied) = rows.outcome(edit, resync: { [weak self] in self?.resync() })
         guard let plan = PersonalSidebarPlanner(machines: services.machines).dropPlan(ids, at: position, in: sections) else { return failed() }
         let regroup = statePersonal ? plan.regroup : []
