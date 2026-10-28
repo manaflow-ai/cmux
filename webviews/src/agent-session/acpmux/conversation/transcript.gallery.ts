@@ -105,6 +105,44 @@ const selectionRows = [
   summary(4.9, { id: "gallery-selection-summary", status: "completed" }),
 ];
 
+// Message-surface review fixture: the same prompt, background work, assistant answer and a long
+// received peer message are captured over busy wallpaper and a plain dark surface. The `bordered`
+// arm preserves today's look; `soft` keeps a quiet fill only for long cut content; the selected
+// default is borderless.
+const messageSurfaceChat = chat([
+  user("Review the release notes and tell the lane what changed", 7, { id: "message-surface-user" }),
+  activity(
+    [
+      tool("Read CHANGELOG.md", "read", "completed", { locations: [{ path: "CHANGELOG.md" }] }),
+      tool("Run transcript checks", "execute", "completed", { command: "bun test conversation" }),
+    ],
+    6.8,
+    { id: "message-surface-tools" },
+  ),
+  assistant("The release notes are updated and the transcript remains readable.", 6.4, {
+    id: "message-surface-answer",
+  }),
+  user(
+    "The lane sent a review report. It stays readable without a second message plate.\n\n" +
+      "The report includes the changed files, test result, and the final verification notes.",
+    5.8,
+    {
+      id: "message-surface-peer",
+      incoming: {
+        kind: "message",
+        message: {
+          name: "review-lane",
+          text:
+            "The lane sent a review report.\n\n- CHANGELOG.md updated\n- Transcript checks pass\n- Light and dark captures are ready\n\nThe full report remains available with Show more.",
+          raw: "[review-lane] The lane sent a review report.",
+        },
+      },
+      untyped: true,
+    },
+  ),
+  summary(5.7, { status: "completed", durationMs: 78_000, toolCount: 2 }),
+]);
+
 const keyboardRows = [
   user("Open the work details with the keyboard", 4, { id: "gallery-keyboard-user" }),
   activity(
@@ -724,6 +762,26 @@ const liveLineClear = async (ctx: PlayContext) => {
   if (hint) await ctx.waitFor(() => getComputedStyle(hint).opacity === "1");
 };
 
+/// The selected borderless message arm is a real rendered contract: the prompt keeps liquid glass
+/// without an edge, received/agent bodies have no box shadow, and the assistant prose stays plain.
+const messageSurfaceComputedStyle = async (ctx: PlayContext) => {
+  await ctx.waitFor(() => ctx.document.querySelector('[data-row-id="message-surface-peer"] .cv-received__body'));
+  const view = ctx.document.defaultView!;
+  const prompt = ctx.document.querySelector<HTMLElement>('[data-row-id="message-surface-user"] .cv-user__bubble');
+  const peer = ctx.document.querySelector<HTMLElement>('[data-row-id="message-surface-peer"] .cv-received__body');
+  const assistant = ctx.document.querySelector<HTMLElement>('[data-row-id="message-surface-answer"] .cv-md');
+  if (!prompt || !peer || !assistant) throw new Error("message surface fixture did not render");
+  const promptStyle = view.getComputedStyle(prompt);
+  const peerStyle = view.getComputedStyle(peer);
+  if (promptStyle.getPropertyValue("--glass-edge").trim() !== "transparent")
+    throw new Error("the selected user bubble still has a glass edge");
+  if (peerStyle.boxShadow !== "none" || peerStyle.borderRadius !== "0px")
+    throw new Error(`the selected peer body is still boxed: ${peerStyle.boxShadow} / ${peerStyle.borderRadius}`);
+  const assistantStyle = view.getComputedStyle(assistant);
+  if (assistantStyle.backgroundColor !== "rgba(0, 0, 0, 0)" || assistantStyle.boxShadow !== "none")
+    throw new Error("assistant prose picked up a message container surface");
+};
+
 /// The running line ("Thinking", "Working for") holds still: no mark blinks before its words and
 /// nothing on it loops (Leo, 2026-10-20, "the blinking ascii").
 /// The running line starts with its words, with no mark before them. Only the word Thinking may
@@ -1158,6 +1216,21 @@ export default agentPaneEntry({
     "agent-session/acpmux/chips/BareReferenceChip.tsx#BareReferenceChip",
   ],
   variants: {
+    "message-surfaces-bordered": {
+      note: "Before arm: current bordered user and received message containers, captured on busy wallpaper and plain dark surfaces in light and dark themes.",
+      documentAttributes: { "message-surfaces": "bordered" },
+      snapshot: messageSurfaceChat,
+    },
+    "message-surfaces-soft": {
+      note: "Gallery arm: borderless containers with a soft fill only behind long cut peer content, preserving Show more without a rim.",
+      documentAttributes: { "message-surfaces": "soft" },
+      snapshot: messageSurfaceChat,
+    },
+    "message-surfaces-borderless": {
+      note: "Selected arm: stronger glass fill for the user's prompt, peer sender chip plus dimmed text, and borderless peer content with no layout changes.",
+      snapshot: messageSurfaceChat,
+      play: messageSurfaceComputedStyle,
+    },
     conversation: {
       note: "A finished exchange: prompt, markdown reply, turn footer.",
       snapshot: completedFooterSnapshot,

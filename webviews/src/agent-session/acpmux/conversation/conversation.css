@@ -131,15 +131,29 @@
    It keeps no backdrop blur of its own: a long transcript repeats it, and the lens frosts it. Reduce
    Transparency makes it the same grey, opaque. */
 .cv-user__bubble {
-  --glass-tint: var(--cv-bubble);
+  /* The selected borderless arm keeps a stronger glass fill for wallpaper contrast while its
+     outline is removed. The fill remains liquid glass; it is not a solid message plate. */
+  --glass-tint: color-mix(in srgb, var(--cv-fg) 10%, transparent);
   /* glass-opaque-allow: the Reduce Transparency fill only (glass.css applies it under that setting) */
-  --glass-opaque: color-mix(in srgb, var(--cv-fg) 5%, var(--glass-surface));
-  --glass-edge: var(--acpmux-composer-edge, transparent);
+  --glass-opaque: color-mix(in srgb, var(--cv-fg) 10%, var(--glass-surface));
+  --glass-edge: transparent;
   --glass-backdrop: none;
 }
 .acpmux-shell .cv-user__bubble {
-  --glass-tint: color-mix(in srgb, var(--agent-text) 12%, transparent);
+  --glass-tint: color-mix(in srgb, var(--agent-text) 14%, transparent);
   /* glass-opaque-allow: the Reduce Transparency fill only (glass.css applies it under that setting) */
+  --glass-opaque: color-mix(in srgb, var(--agent-text) 14%, var(--glass-surface));
+}
+
+/* Message-surface gallery arms. The selected default is borderless; the historical bordered arm
+   remains available for before/after captures without changing the app's other surfaces. */
+:root[data-message-surfaces="bordered"] .cv-user__bubble {
+  --glass-tint: var(--cv-bubble);
+  --glass-opaque: color-mix(in srgb, var(--cv-fg) 5%, var(--glass-surface));
+  --glass-edge: var(--acpmux-composer-edge, transparent);
+}
+:root[data-message-surfaces="bordered"] .acpmux-shell .cv-user__bubble {
+  --glass-tint: color-mix(in srgb, var(--agent-text) 12%, transparent);
   --glass-opaque: color-mix(in srgb, var(--agent-text) 12%, var(--glass-surface));
 }
 
@@ -2306,17 +2320,28 @@ button.cv-received__name:focus-visible {
   box-sizing: border-box;
   margin: 4px 0 6px 22px;
   padding: 8px 12px;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--cv-text);
+  line-height: var(--cv-line-height);
+  overflow-wrap: anywhere;
+  user-select: text;
+  -webkit-user-select: text;
+}
+/* The historical bordered arm and the optional soft-fill arm are gallery-only comparisons. The
+   latter is reserved for long pasted cards, keeping Show more legible without restoring a rim. */
+:root[data-message-surfaces="bordered"] .cv-received__body {
   border-radius: 12px;
   background: color-mix(in srgb, var(--agent-text, var(--cv-text)) 6%, transparent);
   box-shadow:
     inset 0 0 0 var(--cmux-hairline, 0.5px)
       color-mix(in srgb, var(--agent-accent) 22%, var(--acpmux-composer-edge, transparent)),
     inset 0 1px 0 color-mix(in srgb, #fff 5%, transparent);
-  color: var(--cv-text);
-  line-height: var(--cv-line-height);
-  overflow-wrap: anywhere;
-  user-select: text;
-  -webkit-user-select: text;
+}
+:root[data-message-surfaces="soft"] .cv-received__body[data-cut] {
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--agent-text, var(--cv-text)) 3%, transparent);
 }
 /* A closed long card: whole lines within RECEIVED_LINES (lineCut.ts), then Show more; a click
    opens it. model.ts estimates the text plus the control's 24px. */
