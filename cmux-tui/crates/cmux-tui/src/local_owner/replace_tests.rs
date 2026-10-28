@@ -26,6 +26,22 @@ fn connection_limit_probe_bounds_a_peer_that_never_terminates_its_line() {
 }
 
 #[test]
+fn connection_limit_probe_keeps_a_peer_that_sends_a_partial_line() {
+    let (client, mut server) = UnixStream::pair().unwrap();
+    let sent = std::thread::spawn(move || {
+        server.write_all(b"{").unwrap();
+        std::thread::park();
+    });
+    let result = probe(Box::new(client), Instant::now() + Duration::from_millis(100));
+    sent.thread().unpark();
+    let _ = sent.join();
+    assert!(
+        matches!(result, Probe::Answered),
+        "partial protocol data must not authorize replacement"
+    );
+}
+
+#[test]
 fn connection_limit_recovery_gets_a_full_identify_deadline() {
     let dir = tempfile::tempdir_in("/tmp").unwrap();
     let spec = super::super::recovery_tests::owner_spec(dir.path().join("owner.sock"));
