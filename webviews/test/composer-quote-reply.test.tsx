@@ -176,6 +176,28 @@ test("definition-like text preserves surrounding quote blocks and serialized sof
   expect(content().lastElementChild?.tagName).toBe("P");
 });
 
+test("a literal definition stays between the selected list and its surrounding paragraphs", async () => {
+  await render("Draft text");
+  await act(async () =>
+    handle.current!.quoteReply("> Before\n> \n> - one\n> - two\n> \n> [ref]: https://example.com\n> \n> After\n\n"),
+  );
+  const quote = content().querySelector("blockquote")!;
+  expect([...quote.children].map((node) => node.tagName)).toEqual(["P", "UL", "P", "P"]);
+  expect([...quote.children].map((node) => node.textContent)).toEqual([
+    "Before",
+    "onetwo",
+    "[ref]: https://example.com",
+    "After",
+  ]);
+  const serialized = handle.current!.agentText(handle.current!.value());
+  expect(serialized).toContain("> Before");
+  expect(serialized).toContain("> - one\n> - two");
+  expect(serialized).toContain("> [ref]: https://example.com");
+  expect(serialized).toContain("> After");
+  expect(serialized).not.toContain("\\\n");
+  expect(content().lastElementChild?.tagName).toBe("P");
+});
+
 for (const selected of [
   "[ref]: https://example.com",
   "Before the example\n\n[ref]: https://example.com\n\nAfter the example",
@@ -193,7 +215,12 @@ for (const selected of [
     await act(async () => handle.current!.quoteReply(markdown));
     const quote = content().querySelector("blockquote")!;
     expect(quote.innerHTML).not.toBe("");
-    expect(handle.current!.plainText()).toContain(selected);
+    const visibleLines = handle.current!
+      .plainText()
+      .split(/\n+/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+    expect(visibleLines).toEqual(["Draft text", ...selected.split(/\n+/).map((line) => line.trim())]);
     expect(content().firstElementChild?.textContent).toBe("Draft text");
     const sent = handle.current!.agentText(handle.current!.value());
     expect(sent).toContain("[ref]:");
