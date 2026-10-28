@@ -320,10 +320,17 @@ export function losesNumbers(printed: string): boolean {
 /// clear emphasis. Shell and log output never reaches this classifier; ToolRow keeps those mono.
 const MARKDOWN =
   /^(?:#{1,6} \S|```|\s*(?:[-*+]|\d+\.) \S|\|.*\|\s*$|> \S|.*(?:\*\*[^*\n]+\*\*|\*[^*\n]+\*).*)/m;
-const LOG_LINE =
-  /^\s*(?:\[[^\]]+\]\s*)?(?:(?:\[(?:debug|info|warn|error|trace)\]|(?:debug|info|warn|error|trace)\b)|(?:line|row|chunk|step|test|pass|fail)\s+\d+\b)/i;
-const CODE_DECLARATION =
-  /^\s*(?:#!|from|import|def|class|const|let|var|function|return|if|for|while|try|except|async|await|export)\b/m;
+const LOG_LINE = new RegExp(
+  String.raw`^\s*(?:\[[^\]]+\]\s*)?` +
+    String.raw`(?:(?:\[(?:debug|info|warn|error|trace)\]|(?:debug|info|warn|error|trace)\b)|` +
+    String.raw`(?:line|row|chunk|step|test|pass|fail)\s+\d+\b)`,
+  "i",
+);
+const CODE_DECLARATION = new RegExp(
+  String.raw`^\s*(?:#!|from|import|def|class|const|let|var|function|return|if|for|while|` +
+    String.raw`try|except|async|await|export)\b`,
+  "m",
+);
 const CODE_ASSIGNMENT = /^\s*[A-Za-z_]\w*\s*=\s*[^=]/m;
 const DUNDER = /(?:^|[^\w])__\w+__(?=$|[^\w])/;
 /// Results longer than this stay plain text: Markdown is for a result someone reads.
