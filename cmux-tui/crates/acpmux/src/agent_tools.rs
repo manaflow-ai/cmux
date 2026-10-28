@@ -820,6 +820,9 @@ impl AgentTools {
     /// this launch does not have.
     pub fn claude_args(&self, config_file: &Path) -> Vec<String> {
         let mut args = Vec::new();
+        // Each launch starts the hook's turned-away calls afresh: one from a launch with other
+        // servers is not a retry in this one.
+        let _ = std::fs::remove_file(crate::bg_hook::denied_path(config_file));
         if self.servers.is_empty() {
             let _ = std::fs::remove_file(config_file);
         }

@@ -172,7 +172,8 @@ fn own_servers_run_under_the_daemon_prefix() {
 }
 
 /// A launch without servers removes the last launch's MCP config, so the background-shell hook
-/// (`bg_hook.rs`) never points the agent at a `bg_start` it no longer has.
+/// (`bg_hook.rs`) never points the agent at a `bg_start` it no longer has, and every launch drops
+/// the calls the hook turned away under the last one.
 #[test]
 fn a_launch_without_servers_removes_the_last_mcp_config() {
     let root = std::env::temp_dir().join(format!("acpmux-stale-mcp-{}", uuid::Uuid::now_v7()));
@@ -186,6 +187,11 @@ fn a_launch_without_servers_removes_the_last_mcp_config() {
     });
     assert!(with.claude_args(&file).contains(&"--mcp-config".to_owned()));
     assert!(file.is_file());
+    // A call the hook turned away under the last launch is no retry under the next.
+    let denied = crate::bg_hook::denied_path(&file);
+    std::fs::write(&denied, "a-hash\n").unwrap();
+    with.claude_args(&file);
+    assert!(!denied.exists(), "a launch kept the last launch's turned-away calls");
     let args = super::AgentTools::default().claude_args(&file);
     assert!(!args.contains(&"--mcp-config".to_owned()), "{args:?}");
     assert!(!file.exists(), "the last launch's config stayed for the hook to read");
