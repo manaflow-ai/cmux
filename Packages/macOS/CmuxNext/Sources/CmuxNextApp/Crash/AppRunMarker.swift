@@ -157,6 +157,13 @@ final class AppRunMarker {
         QuitSignal.reclaim()
     }
 
+    /// Stores what the run is doing (`CrashContextRecorder`) for the next launch's crash report.
+    func record(context: CrashContext) {
+        guard marker.context != context else { return }
+        marker.context = context
+        writeMarker()
+    }
+
     private func markSurvived() {
         marker.survived = true
         writeMarker()
@@ -195,7 +202,7 @@ final class AppRunMarker {
         file.close()
     }
 
-    /// Encodes the marker (about 120 bytes) and hands it to the background
+    /// Encodes the marker (about 120 bytes, up to about 2 KB with a `CrashContext`) and hands it to the background
     /// writer.
     private func writeMarker() {
         let encoder = JSONEncoder()

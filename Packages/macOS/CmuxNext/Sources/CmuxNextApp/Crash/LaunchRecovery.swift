@@ -1,3 +1,4 @@
+import CmuxNextCrashReporting
 import Foundation
 
 /// What the previous run left behind (`AppRunMarker`).
@@ -20,9 +21,12 @@ nonisolated struct PreviousRun: Codable, Equatable, Sendable {
     /// (`UncaughtExceptionRecorder`). Read from `run.exception`, never
     /// encoded into `run.json`.
     var exception: RecordedException?
+    /// What the run was doing shortly before it ended (`CrashContextRecorder`).
+    /// Nil in markers written before this field existed, and before the first snapshot.
+    var context: CrashContext?
 
     private enum CodingKeys: String, CodingKey {
-        case pid, launched, recovery, survived, signal, quitting
+        case pid, launched, recovery, survived, signal, quitting, context
     }
 
     /// The run ended because someone asked it to: a requested-quit signal

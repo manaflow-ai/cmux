@@ -1,5 +1,7 @@
 import AppKit
 import CmuxNextBrowser
+import CmuxNextControl
+import CmuxNextCrashReporting
 import Foundation
 import os
 import CmuxNextCompat
@@ -23,6 +25,8 @@ final class CrashRecoveryService {
     private var notice: RestartNoticePanel?
     private var noticeShown = false
     private var reportTask: Task<Void, Never>?
+    /// Keeps this run's `CrashContext` in the run marker; nil without a marker.
+    private(set) var contextRecorder: CrashContextRecorder?
 
     var recovery: LaunchRecovery { marker?.recovery ?? .clean }
 
@@ -52,6 +56,16 @@ final class CrashRecoveryService {
         crashLog = log
         let writer = writer
         crashObserver = log.addObserver { record in writer.writeInBackground(record) }
+    }
+
+    /// Records what this run is doing on every action run (`CrashContextRecorder`), for the next
+    /// launch's crash report. Does nothing without a run marker (tests).
+    func recordContext<Run: Sendable>(on runs: AsyncStream<Run>, snapshot: @escaping CrashContextRecorder.Snapshot) {
+        guard let marker, contextRecorder == nil else { return }
+        let recorder = CrashContextRecorder(snapshot: snapshot) { [weak marker] in marker?.record(context: $0) }
+        recorder.start(runs)
+        recorder.record()
+        contextRecorder = recorder
     }
 
     /// Shows "cmux restarted after a problem" once per launch, on the first
@@ -93,15 +107,33 @@ final class CrashRecoveryService {
 
     /// The notice's Report button: the previous crash as a prefilled GitHub
     /// issue in the default browser. The user reads it and sends it, or not.
-    @discardableResult
-    func reportCrash() -> URL? {
-        guard let previous = recovery.previous,
-              let url = CrashIssueReport(previous: previous, version: writer.version, bundleID: writer.bundleID).url else { return nil }
+    /// macOS's report is read and symbolicated off the main thread.
+    func reportCrash() {
+        guard let previous = recovery.previous else { return }
+        let writer = writer
+        let found = previousCrashLog
         let logger = logger
-        NSWorkspace.shared.openInBackground(url) { opened in
-            if !opened { logger.error("crash report page did not open") }
+        Task.detached(priority: .userInitiated) {  // task-owner: one-shot report; nothing to cancel
+            let url = CrashRecoveryService.issueReport(previous: previous, writer: writer, systemLog: found).url
+            await MainActor.run {
+                guard let url else { return logger.error("crash report page has no URL") }
+                NSWorkspace.shared.openInBackground(url) { opened in
+                    if !opened { logger.error("crash report page did not open") }
+                }
+            }
         }
-        return url
+    }
+
+    /// The Report button's issue: `previous` with macOS's report of it (`systemLog`, else the
+    /// newest one written after its launch) and this build's commit. Reads files; call off main.
+    nonisolated static func issueReport(previous: PreviousRun, writer: CrashReportWriter, systemLog: URL?,
+                                        info: [String: Any] = Bundle.main.infoDictionary ?? [:]) -> CrashIssueReport {
+        let log = systemLog ?? systemCrashLog(after: previous.launched)
+        let system = log.flatMap { try? Data(blockingContentsOf: $0) }.flatMap(SystemCrashReport.init(data:))
+        let symbolicator = StackSymbolicator()
+        return CrashIssueReport(previous: previous, version: writer.version, bundleID: writer.bundleID,
+                                commit: info["CMUXCommit"] as? String, system: system, systemReportName: log?.lastPathComponent,
+                                executableFunction: { symbolicator.executableFunction(uuid: $0, imageOffset: $1, returnAddress: $2) })
     }
 
     nonisolated static var systemLogsFolder: URL {
@@ -119,6 +151,7 @@ final class CrashRecoveryService {
 
     /// A normal quit.
     func applicationWillTerminate() {
+        contextRecorder?.stop()
         if let crashObserver { crashLog?.removeObserver(crashObserver) }
         marker?.markCleanExit()
     }
