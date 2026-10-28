@@ -1,13 +1,6 @@
 import type { Translate } from "./i18n";
 import type { SlashCommand } from "./slashCommands";
 
-/**
- * The command palette rows exposed by the composer's + menu.
- *
- * The registry owns labels, descriptions, icons and stable action ids. Hosts provide the live
- * rows for tools, sessions and tabs; the composer routes these stable ids to its existing handlers
- * rather than adding a second implementation of each action.
- */
 export const COMPOSER_PLUS_SECTIONS = ["add", "tools", "sessions", "tabs", "files"] as const;
 export type ComposerPlusSection = (typeof COMPOSER_PLUS_SECTIONS)[number];
 
@@ -30,17 +23,11 @@ export type ComposerPlusExtension = Omit<ComposerPlusEntry, "section"> & {
 };
 
 export type ComposerPlusRegistryOptions = {
-  /** The commands advertised by the harness; skills and prompts become Add rows. */
   commands?: readonly SlashCommand[];
-  /** The pane translator keeps existing composer actions localized. */
   translate?: Translate;
-  /** A harness can omit screenshots/window capture when its capture bridge is unavailable. */
   canCapture?: boolean;
-  /** Whether this surface can select a project/cwd before sending. */
   canChooseProject?: boolean;
-  /** Whether the composer can change its run mode from this menu. */
   planMode?: { id: string; name: string; description: string };
-  /** Live rows from the command-palette registry for tools, sessions, tabs and file search. */
   extensions?: readonly ComposerPlusExtension[];
 };
 
@@ -71,10 +58,6 @@ function extensionKey(entry: ComposerPlusEntry): string {
   return `${entry.section}:${entry.id}`;
 }
 
-/**
- * Builds the + menu in display order. Empty sections are omitted by consumers, while the returned
- * section field keeps rows interoperable with the native command-palette section ordering.
- */
 export function composerPlusRegistry(options: ComposerPlusRegistryOptions = {}): ComposerPlusEntry[] {
   const text = (key: Parameters<Translate>[0], fallback: string) => options.translate?.(key) ?? fallback;
   const label = text;
@@ -203,7 +186,6 @@ export function composerPlusRegistry(options: ComposerPlusRegistryOptions = {}):
   });
 }
 
-/** Group entries without changing the registry's explicit section and row order. */
 export function composerPlusSections(
   entries: readonly ComposerPlusEntry[],
 ): Map<ComposerPlusSection, ComposerPlusEntry[]> {
@@ -214,15 +196,12 @@ export function composerPlusSections(
   return sections;
 }
 
-/** The + menu is an instant command surface; it must never fade in. */
 export const COMPOSER_PLUS_MOTION = "none" as const;
 
-/** A single dispatch path for a + row. The composer supplies its existing action callbacks. */
 export function runComposerPlusAction(
   action: ComposerPlusAction,
   handlers: {
     command(id: string, modeId?: string): void;
-    /** Dispatches a host-provided command-palette ID, such as palette.openBrowser. */
     extension?(id: string): void;
     slash(command: SlashCommand): void;
   },
