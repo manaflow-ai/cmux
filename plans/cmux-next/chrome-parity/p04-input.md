@@ -670,10 +670,11 @@ Paths: `S/` = `Packages/macOS/CmuxNext/Sources/`, `T/` = `Packages/macOS/CmuxNex
   pane page -> agentPane; NSTextInputClient -> textView; CEF host -> chromiumPage; WKWebView -> webkitPage; layout
   scroll take -> layout. dispatchEnd after super.sendEvent; KeyFrameSignpost and ScrollFrameSignpost move into the
   tracker. causedFrameUpdate from the commit (any layer or contents change). SyntheticInput -> entrypoint
-  automation, excluded from person histograms.
+  automation, excluded from person histograms. The tracker's emit also publishes each closed slot to
+  `AppServices.inputLatencyFeed` (`InputLatencySlotFeed`, the latency HUD's input rows, 009).
 - Acceptance: exactly one tracker call per tracked event; a plain mouseMoved is not tracked; key, click and scroll
   each give one closed slot with the right kind and target; synthetic labelled automation; a key with no visible
-  change still closes (key kinds kept).
+  change still closes (key kinds kept); each closed slot reaches `inputLatencyFeed` once.
 - Test phase: UNIT(InputLatencyWiringTests); GUI smoke input-latency-bench.py --surfaces terminal --keys 50.
 - Size M. Depends: 004, 011.
 
@@ -722,7 +723,9 @@ Paths: `S/` = `Packages/macOS/CmuxNext/Sources/`, `T/` = `Packages/macOS/CmuxNex
 - Size S. Depends: 004.
 
 #### p04-input-009 Action Latency HUD input rows
-- Files: `S/CmuxNextFocusUI/ActionLatency/ActionLatencyHUD.swift`, `S/CmuxNextInputDiagnostics/DebugInput.swift`.
+- Files: `S/CmuxNextFocusUI/ActionLatency/ActionLatencyHUD.swift`, `S/CmuxNextInputCore/InputLatencySlotFeed.swift`
+  (the closed-slot fan-out; 005's tracker publishes to it), `S/CmuxNextApp/AppServices.swift` (one line),
+  `S/CmuxNextApp/Control/CaptureSceneRegistry.swift` (scene `latency-hud`).
 - Change: newest 16 input events: kind, target, total ms, dominant stage; rows over 8.3 ms in the danger color;
   no reader while the HUD is closed.
 - Acceptance: subscribe in show, unsubscribe in hide (diff); strings in the localization catalog.
