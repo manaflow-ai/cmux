@@ -165,7 +165,7 @@ describe("retired identities", () => {
         clientSession: () => mint(),
         dropClientIdentity: async (id: string) => (dropFails ? Promise.reject(new Error("503")) : void dropped.push(id))
       } as unknown as GuardedCloudDriver
-      let members = [true]
+      let members = [true, true]
       const sinces: Array<number> = []
       let retries = 0
       const host: ClientSessionHost = {
@@ -184,17 +184,22 @@ describe("retired identities", () => {
       expect(await mintClientSessionOn(host, p, machine, 600)).toEqual({ ok: false, refusal: "provider_failed" })
       expect(store.retired(10)).toEqual(["fsid-left"])
       expect(retries).toBe(1)
+      // Once the provider can delete again, the next failed mint deletes it right away, not at the alarm.
+      dropFails = false
+      expect(await mintClientSessionOn(host, p, machine, 600)).toEqual({ ok: false, refusal: "provider_failed" })
+      expect(store.retired(10)).toEqual([])
+      expect(dropped).toEqual(["fsid-left"])
+      dropped.length = 0
 
       // The member check passes before the provider call and fails after it: no token, and the new identity goes.
-      dropFails = false
       members = [true, false]
       mint = async () => ({ grant: { identity: "fsid-new", token: "tok-secret", expiresAt: 601_000, vmId: "fsvm-1", linuxUser: "cmux", apiBaseUrl: "https://freestyle.test", ssh: null }, stale: null })
       expect(await mintClientSessionOn(host, p, machine, 600)).toEqual({ ok: false, refusal: "forbidden" })
       expect(store.get(machine, "user_a")).toBeNull()
-      expect(dropped.sort()).toEqual(["fsid-left", "fsid-new"])
+      expect(dropped).toEqual(["fsid-new"])
       expect(store.retired(10)).toEqual([])
       // Both checks ask about departures since the same instant, taken before the provider call.
-      expect(sinces.slice(1)).toEqual([sinces[1], sinces[1]])
+      expect(sinces.slice(-2)).toEqual([sinces.at(-2), sinces.at(-2)])
 
       // A grant that would expire within seconds of the answer is refused.
       members = [true, true]

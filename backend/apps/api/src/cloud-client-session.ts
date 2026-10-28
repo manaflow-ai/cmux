@@ -221,7 +221,8 @@ export const mintClientSessionOn = async (host: ClientSessionHost, p: Principal,
       if (e instanceof ClientIdentityLeft) {
         if (host.identities.get(machine, user)?.identity === e.identity) host.identities.forget(machine, user, host.now())
         else host.identities.retire(e.identity, host.now())
-        host.retryLater()
+        // Deleted now, not at the next alarm: a failed delete stays retired and is retried.
+        if (await sweepClientIdentities(host.identities, host.machine, driver, host.now()).catch(() => true)) host.retryLater()
       }
       // Only a code: a DriverError's message names the step and status, never a body or a token.
       const code = e instanceof DriverError ? e.code : "cloud.provider.unavailable"
