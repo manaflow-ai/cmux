@@ -2,6 +2,7 @@
 @testable import CmuxNextApp
 import Foundation
 import Testing
+import CmuxNextWakeups
 
 /// The New Tab default project is the project of the chat the person last picked and started (Leo
 /// 2026-10-21: "we dont wanna have stuff constantly get clobbered by agents making projects ... your
@@ -23,7 +24,7 @@ struct NewTabStartedProjectTests {
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let memory = NewTabChoiceMemory(defaults: defaults)
-        let model = AgentPaneModel(host: NoHost(), allowsTabConversion: true)
+        let model = AgentPaneModel(runner: BackgroundWork(label: "test.agent-pane"), host: NoHost(), allowsTabConversion: true)
         model.onRememberNewTab = { memory.remember($0) }
         #expect(memory.startedProject == nil)
         let reply = await Self.remember(model, ["started": "/Users/you/src/atlas"])

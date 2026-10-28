@@ -113,6 +113,12 @@ public final class DaemonConnectMarks: Sendable {
         await connection.prefetchSnapshot(onReceived: { self.mark(.snapshotReceived, of: connection) })
     }
 
+    /// Whether a startup attempt started a daemon (``Milestone/spawned`` went out): false when the launch found the
+    /// daemon running, as after the app alone ended (`kill -9`, a crash), whose terminals kept running in it.
+    public var startedDaemon: Bool {
+        state.withLock { $0.sent & Milestone.spawned.bit != 0 }
+    }
+
     /// The startup connect gave up (cancelled, or a permanent failure): nothing more is sent.
     public func close() {
         state.withLock { state in

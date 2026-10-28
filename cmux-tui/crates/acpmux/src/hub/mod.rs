@@ -781,13 +781,18 @@ impl Hub {
     ) {
         let workers = std::thread::available_parallelism().map_or(4, |n| n.get()).clamp(1, 8);
         let next = std::sync::atomic::AtomicUsize::new(0);
-        std::thread::scope(|scope| {
-            for _ in 0..workers.min(sessions.len()) {
-                scope.spawn(|| {
-                    while let Some(session) = sessions.get(next.fetch_add(1, Ordering::Relaxed)) {
-                        work(session);
-                    }
-                });
+        let drain = || {
+            while let Some(session) = sessions.get(next.fetch_add(1, Ordering::Relaxed)) {
+                work(session);
+            }
+        };
+        let qos = cmux_threads::caller_qos(cmux_threads::ThreadQos::Utility);
+        cmux_threads::scope(|scope| {
+            let started = (0..workers.min(sessions.len()))
+                .filter(|_| scope.spawn("acpmux-session-worker", qos, drain).is_ok())
+                .count();
+            if started == 0 {
+                drain();
             }
         });
     }

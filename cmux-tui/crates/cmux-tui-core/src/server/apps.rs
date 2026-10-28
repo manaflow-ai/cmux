@@ -185,7 +185,13 @@ pub fn start_apps_when_ready(mux: &Arc<Mux>) {
 }
 
 fn spawn_off_startup(job: impl FnOnce() + Send + 'static) -> std::io::Result<SupervisedThread<()>> {
-    supervised::spawn("cmux-apps-start", Fatal, ShutdownBehavior::Continue, job)
+    supervised::spawn_at(
+        "cmux-apps-start",
+        cmux_threads::ThreadQos::Utility,
+        Fatal,
+        ShutdownBehavior::Continue,
+        job,
+    )
 }
 
 /// Whether origin `user` is allowed on `client` now: both checks of this

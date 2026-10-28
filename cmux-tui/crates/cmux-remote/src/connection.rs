@@ -17,6 +17,7 @@ use crate::crypto::{
 };
 use crate::link::{FrameLink, LaneMuxLink, LinkError, LinkRoute};
 use crate::observability::{ClientConnectionSnapshot, ConnectionState};
+use crate::per_lane::PerLane;
 use crate::provider::{LinkGroup, LinkRequest, ProviderError, lane_bindings};
 use crate::session::{ReceivedFrame, ReliableSession, SessionError, SessionLimits};
 
@@ -141,7 +142,7 @@ pub struct ClientConnection {
     next_generation: AtomicU64,
     daemon_public_key: [u8; 32],
     reconnecting: Arc<Mutex<()>>,
-    lane_sends: [Mutex<()>; 4],
+    lane_sends: PerLane<Mutex<()>>,
     receiving: Mutex<()>,
     /// Linearizes shutdown start with the short reconnect publication window.
     /// Reconnect attempts do not hold this gate while dialing or replaying.
@@ -266,7 +267,7 @@ impl ClientConnection {
             next_generation: AtomicU64::new(1),
             daemon_public_key,
             reconnecting: Arc::new(Mutex::new(())),
-            lane_sends: std::array::from_fn(|_| Mutex::new(())),
+            lane_sends: PerLane::from_fn(|_| Mutex::new(())),
             receiving: Mutex::new(()),
             shutdown_gate: Mutex::new(()),
             deferred_receive: StdMutex::new(None),
@@ -364,7 +365,7 @@ impl ClientConnection {
         payload: Bytes,
         flags: FrameFlags,
     ) -> Result<u64, ConnectionError> {
-        let _lane = self.lane_sends[lane as usize].lock().await;
+        let _lane = self.lane_sends.get(lane).lock().await;
         loop {
             if self.closed.load(Ordering::Acquire) {
                 return Err(ConnectionError::Closed);
@@ -1002,6 +1003,10 @@ async fn establish_physical_links(
         .map_err(|error| ConnectionError::Crypto(CryptoError::Random(error.to_string())))?;
     let connection_attempt = ConnectionAttemptId(connection_attempt);
     let bindings = lane_bindings(config.lane_policy, group.capabilities());
+    #[allow(
+        clippy::expect_used,
+        reason = "INVARIANT: lane_bindings returns at least one binding for every policy"
+    )]
     let first_lanes = bindings.first().expect("lane bindings are never empty").clone();
     let (_, first, daemon_resume) = authenticate_one(
         group.clone(),
@@ -1066,6 +1071,10 @@ async fn authenticate_one(
     resume: BTreeMap<Lane, u64>,
     context: LinkHandshakeContext,
 ) -> Result<(Vec<Lane>, crate::crypto::SecureLink, BTreeMap<Lane, u64>), ConnectionError> {
+    #[allow(
+        clippy::indexing_slicing,
+        reason = "INVARIANT: every lane_bindings binding names at least one lane"
+    )]
     let primary = lanes[0];
     let physical =
         group.open(LinkRequest { lane: primary, generation: context.generation }).await?;

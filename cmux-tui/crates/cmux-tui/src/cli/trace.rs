@@ -350,13 +350,11 @@ impl RecordWait for SignalWait {
         let (signalled, signal) = mpsc::channel();
         // The watcher only peeks at the wake byte, so it never takes a signal from anyone else.
         // supervise-allow: this CLI run's signal watcher; a panic drops `signalled`, so the wait below falls back to the clock.
-        std::thread::Builder::new()
-            .name("cmux-trace-wait".into())
-            .spawn(move || {
-                crate::wait_for_shutdown_signal_peek();
-                let _ = signalled.send(());
-            })
-            .ok();
+        cmux_threads::spawn("cmux-trace-wait", cmux_threads::ThreadQos::Utility, move || {
+            crate::wait_for_shutdown_signal_peek();
+            let _ = signalled.send(());
+        })
+        .ok();
         // wakeup-allow: cli-only `cmux trace`'s recording window, once; a shutdown signal ends it first
         match crate::blocking::sync::recv_timeout(&signal, duration) {
             Ok(()) if crate::shutdown_requested() => Waited::Interrupted,

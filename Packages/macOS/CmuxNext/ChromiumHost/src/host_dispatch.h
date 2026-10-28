@@ -95,6 +95,8 @@
 //   kOpEvent   CMUX_SHIM_COLOR_CHOOSER, _DEVICE_CHOOSER, _DESKTOP_MEDIA: an
 //              installed chooser handler's event, the fork's struct as s1's
 //              bytes (EncodePayloadEvent, host_choosers.h)
+//   kOpEvent   CMUX_SHIM_HELPER_EXIT: one of the host's helpers ended
+//              (host_helper_exits.h, task p01-process-225)
 //   kOpEvent   CMUX_SHIM_WHEEL_ACK: the fork's ack of one of a page's wheels,
 //              with that wheel's input seq (host_wheel_ack.h); the HELLO lists
 //              kWheelAcksHelloName when the fork has the handler
@@ -127,6 +129,7 @@
 #include "chromium_host_wire.h"
 #include "host_choosers.h"
 #include "host_energy_saver.h"
+#include "host_helper_exits.h"
 #include "host_locks.h"
 #include "host_mirror.h"
 #include "host_page_activity.h"
@@ -288,6 +291,11 @@ class HostContext {
   // the fork's first ack of that browser after the acks of the wheels sent
   // before it answers it.
   void WheelSent(int chromium_id, uint32_t seq, bool momentum) { wheel_acks_.Sent(chromium_id, seq, momentum); }
+  // One of the host's helpers ended (HelperExitWatcher, handed to the main
+  // thread): CMUX_SHIM_HELPER_EXIT goes to cmux like a shim event, so it
+  // waits behind an op being dispatched as every event does (task
+  // p01-process-225).
+  void HelperExited(const HelperExit& ended);
   // cmux_shim_password_reveal's done; ctx is the reveal's PasswordReveal.
   static void OnPasswordRevealed(void* ctx, const char* password, size_t length);
 
