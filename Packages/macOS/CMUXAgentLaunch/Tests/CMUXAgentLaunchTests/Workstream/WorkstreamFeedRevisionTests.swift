@@ -17,11 +17,11 @@ struct WorkstreamFeedRevisionTests {
         let beforeBoundary = WorkstreamFeedRevision(workstream: 2_147_483_647).value
         let atBoundary = WorkstreamFeedRevision(workstream: 2_147_483_648).value
 
-        #expect(beforeBoundary >= 0)
-        #expect(atBoundary == beforeBoundary + 1)
+        #expect(beforeBoundary == Int.max)
+        #expect(atBoundary == Int.max)
 
         let later = WorkstreamFeedRevision(workstream: 2_147_483_649).value
-        #expect(later > atBoundary)
+        #expect(later == Int.max)
     }
 
     @Test("Mobile Feed revision crosses the compatibility cutover monotonically")
@@ -29,6 +29,7 @@ struct WorkstreamFeedRevisionTests {
         let before = WorkstreamFeedRevision(workstream: 1_073_741_823).value
         let after = WorkstreamFeedRevision(workstream: 1_073_741_824).value
         #expect(after > before)
+        #expect(after >= ((1_073_741_824 << 32) | 0xFFFF_FFFF))
     }
 
     @Test("Mobile Feed revision never drops below a revision an older Mac sent")

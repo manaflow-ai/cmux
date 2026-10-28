@@ -270,7 +270,11 @@ public actor WorkstreamPersistence {
             // holds no complete row. Paging from the end skips an oversized
             // complete row and reaches the history before it; keep the empty
             // result when even that finds nothing (an unterminated tail).
-            let fromEnd = try loadPage(endingBefore: nil, limit: limit)
+            let fromEnd = try loadPage(
+                endingBefore: nil,
+                limit: limit,
+                deadlineNanoseconds: deadline
+            )
             if !fromEnd.items.isEmpty {
                 let latest = fromEnd.latestItems
                 items = latest

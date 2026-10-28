@@ -15,12 +15,14 @@ public struct WorkstreamFeedRevision: Sendable {
     /// The signed validator sent in both feed snapshots and invalidation events.
     public var value: Int {
         let workstreamValue = UInt64(workstream)
-        let legacyCutover: UInt64 = 0x4000_0000
-        if workstreamValue >= legacyCutover {
-            let cutoverPacked = (legacyCutover << 32) | 0xFFFF_FFFF
-            let continuation = cutoverPacked + (workstreamValue - legacyCutover)
-            return Int(min(continuation, UInt64(Int.max)))
+        let legacyLaneLimit = UInt64(Int.max) >> 32
+        if workstreamValue <= legacyLaneLimit {
+            // Preserve the complete legacy packed namespace, including the
+            // low notification lane pinned at its maximum during migration.
+            return Int((workstreamValue << 32) | 0xFFFF_FFFF)
         }
-        return Int((workstreamValue << 32) | 0xFFFF_FFFF)
+        // Signed Int has no representable value above the packed namespace.
+        // Saturate rather than wrap negative or regress below an older value.
+        return Int.max
     }
 }

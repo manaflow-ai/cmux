@@ -16,7 +16,8 @@ extension WorkstreamPersistence {
     private func loadPage(
         endingBefore endOffset: UInt64?,
         limit: Int,
-        oversizedRowRecoveryDepth: Int
+        oversizedRowRecoveryDepth: Int,
+        deadlineNanoseconds: UInt64? = nil
     ) throws -> Page {
         guard limit > 0 else {
             return Page(items: [], hasMoreBefore: false, startOffset: nil)
@@ -42,6 +43,10 @@ extension WorkstreamPersistence {
         var totalBytes = 0
         var newlineCount = 0
         while offset > 0 {
+            if let deadlineNanoseconds,
+               DispatchTime.now().uptimeNanoseconds >= deadlineNanoseconds {
+                break
+            }
             let remainingBudget = maximumTailBytes - totalBytes
             guard remainingBudget > 0 else { break }
             let readSize = min(chunkSize, min(remainingBudget, Int(offset)))
@@ -131,7 +136,8 @@ extension WorkstreamPersistence {
                     let older = try loadPage(
                         endingBefore: result.offset,
                         limit: max(1, limit - out.count),
-                        oversizedRowRecoveryDepth: oversizedRowRecoveryDepth + 1
+                        oversizedRowRecoveryDepth: oversizedRowRecoveryDepth + 1,
+                        deadlineNanoseconds: deadlineNanoseconds
                     )
                     out = older.items + out
                     pageStartOffset = older.startOffset ?? result.offset
