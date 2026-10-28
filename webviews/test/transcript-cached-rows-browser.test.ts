@@ -29,6 +29,46 @@ await requireBrowserLane("transcript-cached-rows-browser.test.ts", async () => {
     await vite?.close();
   });
 
+  test("a prefetched row mounted before intersection does not fade again after reattachment", async () => {
+    const { port } = vite.httpServer!.address() as { port: number };
+    const page = await browser.newPage({ viewport: { width: 900, height: 700 } });
+    try {
+      await installPaintedFrames(page);
+      await page.goto(`http://127.0.0.1:${port}/test/browser/transcript-fling.html`);
+      await page.waitForFunction(() => "__debug" in window);
+      await page.evaluate(`window.__debug.seedRows(9000)`);
+      await page.waitForFunction(
+        () => Number(document.querySelector(".acpmux-row")?.getAttribute("aria-setsize")) >= 9000,
+      );
+      await page.evaluate(async () => {
+        const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+        scroller.dispatchEvent(new WheelEvent("wheel", { deltaY: -1e9, bubbles: true }));
+        scroller.scrollTop = 0;
+        for (let frame = 0; frame < 24; frame++) await window.cmuxPaintFrame();
+      });
+      const showOlder = async (shown: boolean) => {
+        await page.evaluate((shown) => (window as unknown as { __showOlder(shown: boolean): void }).__showOlder(shown), shown);
+        await page.evaluate(async () => {
+          await window.cmuxPaintFrame();
+          await window.cmuxPaintFrame();
+        });
+      };
+      await showOlder(true);
+      const prefetched = page.locator('[data-row-id="prefetched-older"]');
+      expect(await prefetched.count()).toBe(1);
+      // Keep the prefetched row above the view: first render happened, first intersection did not.
+      expect(await prefetched.getAttribute("data-older-shown")).toBeNull();
+      await showOlder(false);
+      expect(await prefetched.count()).toBe(0);
+      await showOlder(true);
+      expect(await prefetched.count()).toBe(1);
+      expect(await prefetched.evaluate((row) => row.classList.contains("acpmux-row--older"))).toBe(false);
+      expect(await prefetched.evaluate((row) => getComputedStyle(row).opacity)).toBe("1");
+    } finally {
+      await page.close();
+    }
+  });
+
   for (const way of ["jump", "revisit"] as const)
     test(`${way}: cached rows paint immediately at the target`, async () => {
       const { port } = vite.httpServer!.address() as { port: number };
