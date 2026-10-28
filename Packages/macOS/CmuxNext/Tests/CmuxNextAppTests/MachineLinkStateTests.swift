@@ -41,6 +41,7 @@ import Testing
     /// dot), red when offline, green once connected, grey when paused.
     @Test func theHeaderDrawsTheWord() {
         #expect(Self.header(.connected).statusTone == .success)
+        #expect(Self.header(.updateAvailable).statusTone == .success, "An optional update reads as connected, as in the strip")
         #expect(Self.header(.connecting).statusTone == .working)
         #expect(Self.header(.reconnecting).statusTone == .working)
         #expect(Self.header(.offline).statusTone == .danger)

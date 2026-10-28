@@ -59,10 +59,10 @@ final class SectionHeaderRowView: SidebarRowView {
     /// when paused. This Mac draws nothing while connected.
     static func tone(_ machine: SidebarMachine, hostGroup: Bool) -> StatusTone? {
         switch (machine.kind, machine.status) {
-        case (.local, .connected): return nil
+        case (.local, .connected), (.local, .updateAvailable): return nil
         // An optional update is not the sidebar's to say (Lawrence 2026-10-21: "wtf is chief
-        // update available"): the header reads as connected, and the tooltip says it.
-        case (_, .updateAvailable): return hostGroup ? .success : nil
+        // update available"): the header reads as connected, its green dot as the composer
+        // strip's, and the tooltip says it.
         default: break
         }
         return switch machine.status.linkState {
