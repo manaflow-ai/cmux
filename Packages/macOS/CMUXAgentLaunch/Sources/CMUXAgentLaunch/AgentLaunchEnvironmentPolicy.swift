@@ -343,17 +343,6 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
         return AgentLaunchCaptureTrust.launcherDescribesKind(normalizedKind, kind: "opencode")
     }
 
-    private func selectedNodeOptions(from env: [String: String]) -> String? {
-        switch normalizedValue(env["CMUX_ORIGINAL_NODE_OPTIONS_PRESENT"]) {
-        case "1":
-            return sanitizedNodeOptions(env["CMUX_ORIGINAL_NODE_OPTIONS"])
-        case "0":
-            return nil
-        default:
-            return sanitizedNodeOptions(env["NODE_OPTIONS"])
-        }
-    }
-
     /// One NODE_OPTIONS argument: `value` is what Node sees after unquoting,
     /// `raw` is the original text, kept so re-serialization preserves quoting.
     private struct NodeOptionsToken {
@@ -406,7 +395,7 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
         return tokens
     }
 
-    private func sanitizedNodeOptions(_ rawValue: String?) -> String? {
+    func sanitizedNodeOptions(_ rawValue: String?) -> String? {
         let parsed = nodeOptionsTokens(rawValue ?? "")
         guard !parsed.isEmpty else { return nil }
         let tokens = parsed.map(\.value)
@@ -445,6 +434,18 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
         return joined.isEmpty ? nil : joined
     }
 
+    func containsCmuxNodeOptionsRestoreModule(_ rawValue: String) -> Bool {
+        let tokens = nodeOptionsTokens(rawValue).map(\.value)
+        return tokens.indices.contains { index in
+            let token = tokens[index]
+            if let path = inlineRequireOptionPath(token) {
+                return isCmuxNodeOptionsRestoreModulePath(path)
+            }
+            return isRequireOption(token) && index + 1 < tokens.count
+                && isCmuxNodeOptionsRestoreModulePath(tokens[index + 1])
+        }
+    }
+
     private func normalizedValue(_ value: String?) -> String? {
         guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
               !trimmed.isEmpty else {
@@ -469,7 +470,7 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
         guard URL(fileURLWithPath: trimmed).lastPathComponent == "restore-node-options.cjs" else {
             return false
         }
-        return trimmed.contains("/cmux-")
+        return trimmed.contains("/cmux-claude-node-options/")
     }
 
     private func isInjectedNodeHeapCap(_ tokens: [String], index: Int) -> Bool {

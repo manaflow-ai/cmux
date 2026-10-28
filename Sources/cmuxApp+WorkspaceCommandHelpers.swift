@@ -1,6 +1,22 @@
+import CMUXAgentLaunch
+import Darwin
 import Foundation
 
 extension cmuxApp {
+    /// Removes a stale Claude restore preload before terminals inherit it.
+    static func removeInheritedClaudeNodeOptionsPreload() {
+        let updates = AgentLaunchEnvironmentPolicy().inheritedNodeOptionsRepair(
+            from: ProcessInfo.processInfo.environment
+        )
+        for (key, value) in updates {
+            if let value {
+                setenv(key, value, 1)
+            } else {
+                unsetenv(key)
+            }
+        }
+    }
+
     /// Resolves a workspace's current sidebar position for command enablement.
     func selectedWorkspaceIndex(in manager: TabManager, workspaceId: UUID) -> Int? {
         manager.tabs.firstIndex { $0.id == workspaceId }

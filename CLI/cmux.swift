@@ -27019,14 +27019,33 @@ struct CMUXCLI {
                 (key: "CMUX_CLAUDE_TEAMS_TMUX_SHIM", value: shimDirectory.appendingPathComponent("tmux").path),
             ]
         )
+        configureClaudeNodeOptionsRestore(processEnvironment: processEnvironment)
+    }
+
+    /// Prepends the restore preload to the caller's own NODE_OPTIONS. A preload
+    /// inherited from an earlier cmux Claude launch is dropped first: it can point
+    /// at a file that no longer exists, which makes every Node process fail (#22274).
+    private func configureClaudeNodeOptionsRestore(processEnvironment: [String: String]) {
+        let repair = AgentLaunchEnvironmentPolicy().inheritedNodeOptionsRepair(from: processEnvironment)
+        let existingNodeOptions: String?
+        if let repairedNodeOptions = repair["NODE_OPTIONS"] {
+            existingNodeOptions = repairedNodeOptions
+        } else {
+            existingNodeOptions = processEnvironment["NODE_OPTIONS"]
+        }
         guard let restoreModuleURL = try? createClaudeNodeOptionsRestoreModule() else {
             unsetenv("CMUX_ORIGINAL_NODE_OPTIONS_PRESENT")
             unsetenv("CMUX_ORIGINAL_NODE_OPTIONS")
+            if let existingNodeOptions {
+                setenv("NODE_OPTIONS", existingNodeOptions, 1)
+            } else {
+                unsetenv("NODE_OPTIONS")
+            }
             return
         }
-        if let existing = processEnvironment["NODE_OPTIONS"] {
+        if let existingNodeOptions {
             setenv("CMUX_ORIGINAL_NODE_OPTIONS_PRESENT", "1", 1)
-            setenv("CMUX_ORIGINAL_NODE_OPTIONS", normalizedNodeOptionsForRestore(existing), 1)
+            setenv("CMUX_ORIGINAL_NODE_OPTIONS", normalizedNodeOptionsForRestore(existingNodeOptions), 1)
         } else {
             setenv("CMUX_ORIGINAL_NODE_OPTIONS_PRESENT", "0", 1)
             unsetenv("CMUX_ORIGINAL_NODE_OPTIONS")
@@ -27034,7 +27053,7 @@ struct CMUXCLI {
         setenv(
             "NODE_OPTIONS",
             mergedNodeOptions(
-                existing: processEnvironment["NODE_OPTIONS"],
+                existing: existingNodeOptions,
                 restoreModulePath: restoreModuleURL.path
             ),
             1
@@ -29637,26 +29656,7 @@ struct CMUXCLI {
         )
         clearInheritedClaudeLaunchEnvironment()
         // omc wraps Claude Code, so it needs the same NODE_OPTIONS restore module
-        guard let restoreModuleURL = try? createClaudeNodeOptionsRestoreModule() else {
-            unsetenv("CMUX_ORIGINAL_NODE_OPTIONS_PRESENT")
-            unsetenv("CMUX_ORIGINAL_NODE_OPTIONS")
-            return
-        }
-        if let existing = processEnvironment["NODE_OPTIONS"] {
-            setenv("CMUX_ORIGINAL_NODE_OPTIONS_PRESENT", "1", 1)
-            setenv("CMUX_ORIGINAL_NODE_OPTIONS", normalizedNodeOptionsForRestore(existing), 1)
-        } else {
-            setenv("CMUX_ORIGINAL_NODE_OPTIONS_PRESENT", "0", 1)
-            unsetenv("CMUX_ORIGINAL_NODE_OPTIONS")
-        }
-        setenv(
-            "NODE_OPTIONS",
-            mergedNodeOptions(
-                existing: processEnvironment["NODE_OPTIONS"],
-                restoreModulePath: restoreModuleURL.path
-            ),
-            1
-        )
+        configureClaudeNodeOptionsRestore(processEnvironment: processEnvironment)
     }
 
     private func runOMC(
