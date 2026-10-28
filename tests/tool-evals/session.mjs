@@ -103,7 +103,9 @@ async function runSetup(cmux, setup, origin, work) {
       throw new Error(`unknown setup op ${step.op}`);
     }
   }
-  if (setup.length) await sleep(800);
+  // Setup commands print before the agent's first look (a fast agent read a
+  // terminal before its `echo` ran). Harness-only settle time.
+  if (setup.length) await sleep(setup.some((step) => step.run) ? 2500 : 800);
   return aliases;
 }
 

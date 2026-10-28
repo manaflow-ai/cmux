@@ -131,9 +131,12 @@ pub(super) fn descriptors(tools: &[Value]) -> Vec<Value> {
              - terminal_input_write {{terminal, text: \"cmd\\n\"}}; terminal_wait {{terminal, \
              pattern, timeout_ms}} waits for text (never sleep or poll); terminal_screen_read and \
              terminal_history_read {{terminal}} read it.\n\
-             - tab_rename, tab_close, tab_focus {{tab}}; workspace_rename {{workspace, name}}; \
-             tab_group_create, workspace_group_create; workspace_status_set; \
-             notification_create.\n\n\
+             - tab_rename {{tab, name}}, tab_close {{tab}}, tab_focus {{tab}}; workspace_rename \
+             {{workspace, name}}.\n\
+             - Groups: tab_group_create {{tabs: [ids], name}}; workspace_group_create {{name}}, \
+             then workspace_place {{workspace, group: <its id>}} for each member.\n\
+             - workspace_status_set {{workspace, key, text}} (a sidebar status pill); \
+             notification_create {{title, body}}.\n\n\
              Anything else: `await cmux.docs(\"words\")` answers {{tools: [{{name, description, \
              inputSchema}}], more: [names]}}; a tool's exact name finds it first. \
              app_* tools are the app's menu actions. A failed call throws an Error whose `cmux` \
