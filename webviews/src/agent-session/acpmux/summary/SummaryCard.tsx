@@ -323,7 +323,7 @@ export function SummaryCard({
                   sessions={children}
                   subsessions={subsessionRows}
                   workflows={workflows}
-                  onOpen={hasSubagents ? () => setTab("subagents") : onOpenWorkflow}
+                  onOpen={agents.length > 0 ? () => setTab("subagents") : onOpenWorkflow}
                 />
                 {hasSubagents && (
                   <SubagentStatusList

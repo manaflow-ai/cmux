@@ -8,8 +8,7 @@ import type { WorkflowSummary } from "../summary/workflow";
 import type { Subagent } from "../subagents/subagentFold";
 import type { SubsessionRow } from "../subagents/subsessions";
 import type { StartedSession } from "../started/startedSessions";
-import { sessionRetry } from "../subagents/retryState";
-import { subagentTally } from "./SubagentsSection";
+import { subagentTally, subsessionTally } from "./SubagentsSection";
 import "./SubagentSummaryCard.css";
 
 type Props = {
@@ -21,18 +20,6 @@ type Props = {
   onOpen?: () => void;
   variant?: "line" | "segmented" | "chips";
   showEmpty?: boolean;
-};
-
-const countSubsessions = (rows: readonly SubsessionRow[]) => {
-  const counts = { running: 0, queued: 0, done: 0, failed: 0 };
-  for (const row of rows) {
-    const retry = sessionRetry(row);
-    if (retry.kind === "retrying" || row.state === "working") counts.running += 1;
-    else if (row.state === "input" || row.slot) counts.queued += 1;
-    else if (row.state === "done") counts.done += 1;
-    else counts.failed += 1;
-  }
-  return counts;
 };
 
 export function SubagentSummaryCard({
@@ -48,10 +35,10 @@ export function SubagentSummaryCard({
   const t = useT();
   const counts = useMemo(() => {
     const source = subagentTally(agents, waiting, sessions);
-    const sub = countSubsessions(subsessions);
+    const sub = subsessionTally(subsessions);
     const result = {
       running: source.running + sub.running,
-      queued: source.waiting + sub.queued,
+      queued: source.waiting + sub.waiting,
       done: source.done + sub.done,
       failed: source.failed + source.stopped + sub.failed,
     };

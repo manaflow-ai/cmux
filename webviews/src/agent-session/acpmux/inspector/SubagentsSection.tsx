@@ -50,6 +50,20 @@ export function subagentTally(
   return out;
 }
 
+/// The same tally shape for App.tsx's folded `chatSubsessions` rows. Compact summaries and the
+/// Inspector header share this helper so a sub-session cannot disappear from either count.
+export function subsessionTally(rows: readonly SubsessionRow[] = NO_SUBSESSIONS): SubagentTally {
+  const out: SubagentTally = { waiting: 0, running: 0, failed: 0, stopped: 0, done: 0 };
+  rows.forEach((row) => {
+    const retry = sessionRetry(row);
+    if (retry.kind === "retrying" || row.state === "working") out.running += 1;
+    else if (row.state === "input" || row.slot) out.waiting += 1;
+    else if (row.state === "done") out.done += 1;
+    else out.failed += 1;
+  });
+  return out;
+}
+
 /// "1 waiting · 3 running · 40 done" for the section's head, the started chats counted with the
 /// subagents, or nothing for neither.
 export function subagentCounts(
@@ -57,8 +71,14 @@ export function subagentCounts(
   agents: readonly Subagent[],
   waiting: ReadonlySet<string>,
   sessions: readonly StartedSession[] = NO_SESSIONS,
+  subsessions: readonly SubsessionRow[] = NO_SUBSESSIONS,
 ): string {
   const counts = subagentTally(agents, waiting, sessions);
+  const sub = subsessionTally(subsessions);
+  counts.waiting += sub.waiting;
+  counts.running += sub.running;
+  counts.failed += sub.failed;
+  counts.done += sub.done;
   return [
     counts.waiting > 0 && t("summary.subagents.waiting", { n: counts.waiting }),
     counts.running > 0 && t("summary.subagents.running", { n: counts.running }),

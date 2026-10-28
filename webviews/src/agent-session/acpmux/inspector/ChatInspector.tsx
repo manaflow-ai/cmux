@@ -1184,9 +1184,15 @@ export function ChatInspector({
       title={t("summary.subagents")}
       open={state.subagents}
       onOpenChange={fold("subagents")}
-      meta={value(subagentCounts(t, listedAgents, waiting, sessions))}
+      meta={value(subagentCounts(t, listedAgents, waiting, sessions, subsessions))}
     >
-      <SubagentLimitStepper chatId={chatId} limits={limits} sessions={sessions} onSet={setRunningLimit} />
+      <SubagentLimitStepper
+        chatId={chatId}
+        limits={limits}
+        sessions={sessions}
+        subsessions={subsessions}
+        onSet={setRunningLimit}
+      />
       {listedAgents.length + sessions.length + subsessions.length > 0 && (
         <SubagentsSection
           agents={listedAgents}
@@ -1206,7 +1212,9 @@ export function ChatInspector({
       sessions={sessions}
       subsessions={subsessions}
       workflows={workflows}
-      onOpen={() => fold(workflows.length > 0 ? "tasks" : "subagents")(true)}
+      onOpen={() =>
+        fold(listedAgents.length + sessions.length + subsessions.length > 0 ? "subagents" : "tasks")(true)
+      }
     />
   ) : null;
   // The dev servers are background commands too: their rows head the one Background tasks section

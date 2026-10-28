@@ -105,7 +105,7 @@ function GalleryInspector({
   ...props
 }: Props) {
   return (
-    <div className="acpmux-shell" style={{ display: "flex", flexDirection: "column", justifyContent: "flex-end", height: "100%", ...tones }}>
+    <div className="acpmux-shell" style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", justifyContent: "flex-end", height: "100%", ...tones }}>
       {ceiling ? <style>{`.acpmux-chat-inspector[data-placement]{max-height:${ceiling}}`}</style> : null}
       {transcript ? <Transcript /> : null}
       {cardDemo && <SummaryCardDemo demo={cardDemo} />}
