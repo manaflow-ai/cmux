@@ -209,39 +209,65 @@ impl Hub {
         Ok(bg_view(&dir, &record, LIST_TAIL))
     }
 
-    /// A purged chat's tasks are stopped and waited for (at most [`STOP_WAIT`], all at once).
-    /// Its folder then goes, so a chat that later takes its id (an import) finds none. A runner
-    /// that outlived the wait keeps its files, moved to `bg/.purged/<chat>-<n>` where no chat
-    /// looks; whatever it writes later under the old path carries the old generation, which a new
-    /// folder of this name does not list. A folder that neither moves nor goes fails the purge,
-    /// so the chat stays (stopped) rather than leave its tasks to a later chat of this id. It
-    /// holds the start lock, so a start in flight is either seen here or sees the chat closing.
+    /// A purged chat's tasks are stopped at once and its folder goes at once, moved to
+    /// `bg/.purged/<chat>-<uuid>` where no chat looks, so a purge never waits with the chat still
+    /// open (a prompt meanwhile could reopen it) and a chat that later takes its id (an import)
+    /// finds none. The runners exit on their own; a background wait ([`STOP_WAIT`]) then removes
+    /// the moved folder, and each purge also clears earlier moved folders whose runners are all
+    /// gone. A runner that writes later under the old path finds no folder, or a new one whose
+    /// generation is not its own (its records never show there). A folder that neither moves nor
+    /// goes fails the purge, so the chat stays (stopped) rather than leave its tasks to a later
+    /// chat of this id. It holds the start lock, so a start in flight is either seen here or sees
+    /// the chat closing.
     pub(super) async fn bg_purge(&self, session: &Session) -> Result<(), RpcError> {
         let _one = self.bg_starts.lock().await;
         let dir = self.bg_dir(session);
-        let mut gone = Vec::new();
-        for record in self.bg_records(&dir) {
-            bg_run::request_stop(&dir, &record.id);
-            let dir = dir.clone();
-            gone.push(async move { bg_wait_gone(&dir, &record.id).await });
-        }
-        if futures::future::join_all(gone).await.into_iter().all(|g| g) {
+        let aside = crate::config::home().join("bg").join(".purged");
+        bg_sweep(&aside);
+        let ids: Vec<String> = self.bg_records(&dir).into_iter().map(|r| r.id).collect();
+        if ids.is_empty() {
             let _ = std::fs::remove_dir_all(&dir);
             return bg_cleared(&dir);
         }
-        let aside = crate::config::home().join("bg").join(".purged");
+        for id in &ids {
+            bg_run::request_stop(&dir, id);
+        }
         let to = aside.join(format!("{}-{}", session.id, uuid::Uuid::now_v7().simple()));
         match std::fs::create_dir_all(&aside).and_then(|()| std::fs::rename(&dir, &to)) {
-            Ok(()) => tracing::warn!(to = %to.display(),
-                "a purged chat's background task outlived its stop; its files were moved aside"),
-            // Where no move works, nothing is left to read or stop: the records go, so the id
-            // lists no task. A runner still there keeps its open files and exits on its own.
+            // The runners' locks moved with the folder (same files), so the wait reads them there.
+            Ok(()) => {
+                tokio::spawn(async move {
+                    let waits = ids.iter().map(|id| bg_wait_gone(&to, id));
+                    futures::future::join_all(waits).await;
+                    bg_sweep_one(&to);
+                });
+            }
+            // Where no move works, the folder goes; a runner keeps its open files.
             Err(e) => {
-                tracing::error!(dir = %dir.display(), "a purged chat's tasks could not be moved aside: {e}");
+                tracing::warn!(dir = %dir.display(), "a purged chat's tasks could not be moved aside: {e}");
                 let _ = std::fs::remove_dir_all(&dir);
             }
         }
         bg_cleared(&dir)
+    }
+}
+
+/// Clears the moved folders of earlier purges whose runners are all gone.
+fn bg_sweep(aside: &std::path::Path) {
+    for entry in std::fs::read_dir(aside).into_iter().flatten().flatten() {
+        bg_sweep_one(&entry.path());
+    }
+}
+
+/// Removes a purged chat's moved folder once nothing holds any of its locks.
+fn bg_sweep_one(dir: &std::path::Path) {
+    let locks = std::fs::read_dir(dir).into_iter().flatten().flatten().filter_map(|e| {
+        let name = e.file_name().into_string().ok()?;
+        name.strip_suffix(".lock").map(str::to_owned)
+    });
+    let ids: Vec<String> = locks.collect();
+    if ids.iter().all(|id| bg_gone(dir, id)) {
+        let _ = std::fs::remove_dir_all(dir);
     }
 }
 
