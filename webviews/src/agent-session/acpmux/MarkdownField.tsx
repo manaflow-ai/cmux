@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef } from "react";
 import { PASTE_FILE_CHARS } from "./pastedText";
-import { insertReplyQuote } from "./quoteReply";
+import { escapeDefinitions, insertReplyQuote } from "./quoteReply";
 import { pasteIsOnlyFileNames } from "./attachments";
 import { COMPOSER_READY_EVENT } from "./composerFocus";
 import { liftInlineImages, withoutMarkdownImages } from "./inlineImages";
@@ -308,7 +308,11 @@ function asWritten(node: MdNode): MdNode {
  * (`\\[`, `http\\:`, `\\*`) so that reading it back gives the same text, not a link or
  * emphasis. The agent gets the typed characters; formatted nodes keep their markdown syntax. */
 function typedText(remark: RemarkParser, markdown: string): string {
-  const tree = remark.runSync(remark.parse(markdown), markdown) as unknown as MdNode;
+  // ProseMirror has no reference-definition node. A serialized paragraph that looks like one
+  // is literal text; protect it before inline-links can remove it on this second parsing pass.
+  const parsed = remark.parse(markdown);
+  const safe = escapeDefinitions(markdown, parsed as unknown as MdNode);
+  const tree = remark.runSync(safe === markdown ? parsed : remark.parse(safe), safe) as unknown as MdNode;
   return clean(String(remark.stringify(asWritten(tree) as unknown as Parameters<RemarkParser["stringify"]>[0])));
 }
 

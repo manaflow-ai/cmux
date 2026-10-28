@@ -15,7 +15,7 @@ type ParsedNode = {
 // A selected code/escaped line can look like a reference definition. Milkdown's inline-links
 // plugin removes definitions, so escape only each definition opener before the normal parser runs.
 // The source positions keep every surrounding heading, list, code block and paragraph intact.
-function escapeDefinitions(markdown: string, node: ParsedNode): string {
+export function escapeDefinitions(markdown: string, node: ParsedNode): string {
   const offsets: number[] = [];
   const visit = (current: ParsedNode) => {
     if (current.type === "definition") {
