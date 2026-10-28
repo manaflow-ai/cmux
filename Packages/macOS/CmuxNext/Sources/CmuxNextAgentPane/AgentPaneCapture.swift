@@ -80,10 +80,14 @@ enum AgentPaneCapture {
 
     /// Saves `file` as taken through the chat's upload stager (begin, chunks of at most
     /// ``chunkBytes`` read from the file, finish), as the page's staged upload would, without a
-    /// gesture of its own: the capture's click already paid for it. The saved path, nil when the
+    /// gesture of its own: the capture's click already paid for it. A fresh chat has no session
+    /// until its first prompt: the stager is asked for none, and the one for a chat on this Mac
+    /// (AgentChatUploads) saves a new chat's upload under Chat Uploads itself; one that needs a
+    /// session refuses, and the capture keeps its preview alone. The saved path, nil when the
     /// chat's host saves nothing or the save failed (what it staged is cancelled).
     @MainActor static func stage(_ file: URL, name: String, size: Int, in model: AgentPaneModel) async -> String? {
-        guard let stager = model.onUploadStage?(), let session = model.sessionId else { return nil }
+        guard let stager = model.onUploadStage?() else { return nil }
+        let session = model.sessionId
         let begun = value(await stager(.begin(name: name, size: size, batchToken: nil, batch: nil), session))
         guard let token = begun?["token"] as? String, !token.isEmpty, (begun?["size"] as? NSNumber)?.intValue == size else { return nil }
         let chunk = min((begun?["chunkSize"] as? NSNumber)?.intValue ?? chunkBytes, chunkBytes)
