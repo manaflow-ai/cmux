@@ -85,8 +85,14 @@ describe("pickMachineSize from measured runs", () => {
   });
 
   test("busy cores raise the shape when memory would not", () => {
-    // 3000 MiB fits sm, but 3.5 busy cores * 1.2 -> 5 cores needs lg.
-    expect(pick({ taskKind: "chat", measuredRuns: [run(3000, 3.5)] }).pick).toBe("lg");
+    // 3000 MiB fits sm, but 3.5 busy cores -> 4 cores needs md.
+    expect(pick({ taskKind: "chat", measuredRuns: [run(3000, 3.5)] }).pick).toBe("md");
+    // 4.2 -> 5 cores needs lg.
+    expect(pick({ taskKind: "chat", measuredRuns: [run(3000, 4.2)] }).pick).toBe("lg");
+  });
+
+  test("cores take no margin: a run averaging 2 cores stays on 2 vCPU", () => {
+    expect(pick({ taskKind: "chat", measuredRuns: [run(2000, 2)] }).pick).toBe("sm");
   });
 
   test("a run that ran short sends the next pick above the shape it had", () => {

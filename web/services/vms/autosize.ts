@@ -6,11 +6,13 @@
  * It is the fleet's sizing model (manaflow-ai/cmuxterm-hq build-fleet), over
  * cloud machine shapes:
  * - A task's need is a grant from a declarative table (TASK_NEEDS), keyed by
- *   what the fleet measured for the same kind of work (ci_step_mem.go grants,
- *   cpubudget class defaults, codex-lane-hosts profiles).
- * - Once the same repo and task kind has measured runs, their peaks replace the
- *   table: p95 of the peak plus a 20% margin, rounded up to whole GiB, the
- *   controller's rule for memory grants.
+ *   what the fleet measured for the same kind of work (ci_step_mem.go memory
+ *   grants, ci_step_cpu.go core demands, codex-lane-hosts profiles).
+ * - Once the same repo and task kind has measured runs, they replace the
+ *   table, by the controller's rules: memory and disk are p95 of the peak plus
+ *   a 20% margin, rounded up to whole GiB (ci_step_mem.go); cores are p90 of
+ *   the measured busy cores, rounded up (ci_step_cpu.go: the Release compile's
+ *   p90 3.26 cores is its 4-core demand).
  * - The machine is the smallest shape that covers every need, from the one
  *   shape ladder (images/sizes.ts) cut to the plan's sizes.
  */
@@ -125,18 +127,18 @@ export function toolchainFromRootFiles(files: readonly string[] | undefined): Au
   return "unknown";
 }
 
-/** Nearest-rank p95 (with fewer than 20 values, the largest). */
-const p95 = (values: readonly number[]) => [...values].sort((a, b) => a - b)[Math.ceil(values.length * 0.95) - 1]!;
+/** Nearest-rank percentile (p95 with fewer than 20 values is the largest). */
+const percentile = (values: readonly number[], p: number) => [...values].sort((a, b) => a - b)[Math.ceil(values.length * p) - 1]!;
 const withMargin = (mb: number) => Math.ceil((mb * MEASURED_MARGIN) / GIB) * GIB;
 
 /** Need from measured runs, per axis that has measurements; null axes fall back to the table. */
 function measuredNeed(runs: readonly MeasuredRun[]) {
-  const pick = (values: (number | undefined)[]) => {
+  const pick = (values: (number | undefined)[], p = 0.95) => {
     const known = values.filter((v): v is number => typeof v === "number" && Number.isFinite(v) && v >= 0);
-    return known.length ? p95(known) : null;
+    return known.length ? percentile(known, p) : null;
   };
   const memory = pick(runs.map((run) => (run.ranShort === "memory" ? undefined : run.peakMemoryMb)));
-  const cpus = pick(runs.map((run) => run.meanBusyCpus));
+  const cpus = pick(runs.map((run) => run.meanBusyCpus), 0.9);
   const disk = pick(runs.map((run) => (run.ranShort === "disk" ? undefined : run.peakDiskMb)));
   // A run that ran short used all it had on that axis and wanted more. Whatever
   // the other runs say, the need there is above the largest shape that ran
@@ -146,7 +148,7 @@ function measuredNeed(runs: readonly MeasuredRun[]) {
   const withFloor = (measured: number | null, min: number) => (min > 1 ? Math.max(measured ?? 0, min) : measured);
   return {
     memoryMb: withFloor(memory === null ? null : withMargin(memory), floor("memory", (run) => run.memoryMb)),
-    cpus: cpus === null ? null : Math.ceil(cpus * MEASURED_MARGIN),
+    cpus: cpus === null ? null : Math.ceil(cpus),
     diskMb: withFloor(disk === null ? null : withMargin(disk), floor("disk", (run) => run.storageMb ?? run.peakDiskMb)),
   };
 }
