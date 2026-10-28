@@ -178,6 +178,9 @@ struct EternalTerminalCommandBuilderTests {
             "/usr/bin/ssh", "-o", "RemoteCommand=none", "-p", "2222", "-i", "/keys/id",
             "-o", "ControlPath=/tmp/cm-%C", "-o", "RequestTTY=no", "-T",
         ]) == ["RemoteCommand=none", "Port=2222", "IdentityFile=/keys/id", "ControlPath=/tmp/cm-%C"])
+        #expect(EternalTerminalCommandBuilder.sessionSSHOptions(fromSSHArguments: [
+            "/usr/bin/ssh", "-i", "/keys/id with space",
+        ]) == [#"IdentityFile="/keys/id with space""#])
     }
 
     @Test("forwards the agent only for an effective ForwardAgent request")

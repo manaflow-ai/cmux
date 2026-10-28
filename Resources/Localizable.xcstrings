@@ -111395,121 +111395,121 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "ssh: يجب أن يتبع ‎--transport‎ الخيار 'ssh' أو 'mosh'"
+            "value": "ssh: يجب أن يتبع --transport الخيار 'ssh' أو 'mosh' أو 'et'"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "ssh: nakon --transport mora slijediti 'ssh' ili 'mosh'"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "ssh: --transport skal efterfølges af 'ssh' eller 'mosh'"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "ssh: Auf --transport muss 'ssh' oder 'mosh' folgen"
+            "value": "ssh: Auf --transport muss 'ssh', 'mosh' oder 'et' folgen"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "ssh: --transport must be followed by 'ssh' or 'mosh'"
+            "value": "ssh: --transport must be followed by 'ssh', 'mosh', or 'et'"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "ssh: --transport debe ir seguido de 'ssh' o 'mosh'"
+            "value": "ssh: --transport debe ir seguido de 'ssh', 'mosh' o 'et'"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "ssh : --transport doit être suivi de 'ssh' ou 'mosh'"
+            "value": "ssh : --transport doit être suivi de 'ssh', 'mosh' ou 'et'"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "ssh: --transport deve essere seguito da 'ssh' o 'mosh'"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ssh: --transport の後には 'ssh' または 'mosh' を指定してください"
+            "value": "ssh: --transport の後には 'ssh'、'mosh'、'et' のいずれかを指定してください"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "ssh៖ --transport ត្រូវតែបន្តដោយ 'ssh' ឬ 'mosh'"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "ssh: --transport 뒤에는 'ssh' 또는 'mosh'를 지정해야 합니다"
+            "value": "ssh: --transport 뒤에는 'ssh', 'mosh' 또는 'et'를 지정해야 합니다"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "ssh: --transport må etterfølges av 'ssh' eller 'mosh'"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "ssh: po --transport należy podać 'ssh' albo 'mosh'"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "ssh: --transport deve ser seguido por 'ssh' ou 'mosh'"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "ssh: после --transport необходимо указать 'ssh' или 'mosh'"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "ssh: --transport ต้องตามด้วย 'ssh' หรือ 'mosh'"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "ssh: --transport seçeneğini 'ssh' veya 'mosh' izlemelidir"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "ssh: після --transport потрібно вказати 'ssh' або 'mosh'"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "ssh：--transport 后必须指定 'ssh' 或 'mosh'"
+            "value": "ssh：--transport 后必须指定 'ssh'、'mosh' 或 'et'"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "ssh：--transport 後必須指定 'ssh' 或 'mosh'"
+            "value": "ssh：--transport 後必須指定 'ssh'、'mosh' 或 'et'"
           }
         }
       }
@@ -438607,121 +438607,121 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يجب أن يكون نقل الطرفية البعيدة SSH أو Mosh."
+            "value": "يجب أن يكون نقل الطرفية البعيدة SSH أو Mosh أو Eternal Terminal."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Transport udaljenog terminala mora biti SSH ili Mosh."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Fjernterminalens transport skal være SSH eller Mosh."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Der Transport des Remote-Terminals muss SSH oder Mosh sein."
+            "value": "Der Transport des Remote-Terminals muss SSH, Mosh oder Eternal Terminal sein."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The remote terminal transport must be SSH or Mosh."
+            "value": "The remote terminal transport must be SSH, Mosh, or Eternal Terminal."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "El transporte del terminal remoto debe ser SSH o Mosh."
+            "value": "El transporte del terminal remoto debe ser SSH, Mosh o Eternal Terminal."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le transport du terminal distant doit être SSH ou Mosh."
+            "value": "Le transport du terminal distant doit être SSH, Mosh ou Eternal Terminal."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Il trasporto del terminale remoto deve essere SSH o Mosh."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "リモートターミナルのトランスポートは SSH または Mosh にする必要があります。"
+            "value": "リモートターミナルのトランスポートは SSH、Mosh、Eternal Terminal のいずれかにする必要があります。"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "មធ្យោបាយស្ថានីយពីចម្ងាយត្រូវតែជា SSH ឬ Mosh។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "원격 터미널 전송 방식은 SSH 또는 Mosh여야 합니다."
+            "value": "원격 터미널 전송 방식은 SSH, Mosh 또는 Eternal Terminal이어야 합니다."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Fjernterminalens transport må være SSH eller Mosh."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Transport zdalnego terminala musi używać SSH albo Mosh."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "O transporte do terminal remoto deve ser SSH ou Mosh."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Транспорт удалённого терминала должен использовать SSH или Mosh."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "การส่งเทอร์มินัลระยะไกลต้องใช้ SSH หรือ Mosh"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Uzak terminal aktarımı SSH veya Mosh olmalıdır."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Транспорт віддаленого термінала має використовувати SSH або Mosh."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "远程终端传输必须使用 SSH 或 Mosh。"
+            "value": "远程终端传输必须使用 SSH、Mosh 或 Eternal Terminal。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "遠端終端傳輸必須使用 SSH 或 Mosh。"
+            "value": "遠端終端傳輸必須使用 SSH、Mosh 或 Eternal Terminal。"
           }
         }
       }
@@ -438732,121 +438732,121 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يتطلب نقل طرفية Mosh مساحة عمل مُدارة عبر SSH."
+            "value": "يتطلب نقل طرفية Mosh وEternal Terminal مساحة عمل مُدارة عبر SSH."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Mosh transport terminala zahtijeva workspace kojim upravlja SSH."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Mosh-terminaltransport kræver et SSH-administreret arbejdsområde."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Der Mosh-Terminaltransport erfordert einen per SSH verwalteten Workspace."
+            "value": "Mosh- und Eternal-Terminal-Transport erfordern einen per SSH verwalteten Workspace."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mosh terminal transport requires an SSH-managed workspace."
+            "value": "Mosh and Eternal Terminal transports require an SSH-managed workspace."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "El transporte de terminal Mosh requiere un espacio de trabajo gestionado por SSH."
+            "value": "Los transportes de terminal Mosh y Eternal Terminal requieren un espacio de trabajo gestionado por SSH."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le transport de terminal Mosh nécessite un espace de travail géré par SSH."
+            "value": "Les transports de terminal Mosh et Eternal Terminal nécessitent un espace de travail géré par SSH."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Il trasporto terminale Mosh richiede un workspace gestito da SSH."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mosh ターミナルトランスポートには SSH 管理のワークスペースが必要です。"
+            "value": "Mosh および Eternal Terminal のターミナルトランスポートには SSH 管理のワークスペースが必要です。"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "មធ្យោបាយស្ថានីយ Mosh ត្រូវការកន្លែងធ្វើការដែលគ្រប់គ្រងដោយ SSH។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mosh 터미널 전송 방식에는 SSH 관리 워크스페이스가 필요합니다."
+            "value": "Mosh 및 Eternal Terminal 터미널 전송 방식에는 SSH 관리 워크스페이스가 필요합니다."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Mosh-terminaltransport krever et SSH-administrert arbeidsområde."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Transport terminala Mosh wymaga obszaru roboczego zarządzanego przez SSH."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "O transporte de terminal Mosh exige um workspace gerenciado por SSH."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Транспорт терминала Mosh требует рабочего пространства под управлением SSH."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "การส่งเทอร์มินัล Mosh ต้องใช้เวิร์กสเปซที่จัดการด้วย SSH"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Mosh terminal aktarımı, SSH tarafından yönetilen bir çalışma alanı gerektirir."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Транспорт термінала Mosh потребує робочого простору під керуванням SSH."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mosh 终端传输需要由 SSH 管理的工作区。"
+            "value": "Mosh 与 Eternal Terminal 终端传输需要由 SSH 管理的工作区。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mosh 終端傳輸需要由 SSH 管理的工作區。"
+            "value": "Mosh 與 Eternal Terminal 終端傳輸需要由 SSH 管理的工作區。"
           }
         }
       }
@@ -671649,6 +671649,655 @@
           "stringUnit": {
             "state": "translated",
             "value": "Подвійне клацання роздільника робить панелі в його рядку або стовпці однаковими за розміром."
+          }
+        }
+      }
+    },
+    "cli.ssh.et.bootstrapInstallFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Remote bootstrap install failed; continuing over SSH."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] فشل تثبيت التمهيد عن بعد؛ سيتم المتابعة عبر SSH."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Remote-Bootstrap-Installation fehlgeschlagen; es wird über SSH fortgefahren."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Falló la instalación del bootstrap remoto; se continúa por SSH."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Échec de l'installation du bootstrap distant ; poursuite via SSH."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] リモートのブートストラップのインストールに失敗しました。SSH で続行します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] 원격 부트스트랩 설치에 실패했습니다. SSH로 계속합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] 远程 bootstrap 安装失败；改用 SSH 继续。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] 遠端 bootstrap 安裝失敗；改以 SSH 繼續。"
+          }
+        }
+      }
+    },
+    "cli.ssh.et.localMissing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Eternal Terminal (et) is not installed locally; continuing over SSH."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Eternal Terminal (et) غير مثبت محليًا؛ سيتم المتابعة عبر SSH."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Eternal Terminal (et) ist lokal nicht installiert; es wird über SSH fortgefahren."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Eternal Terminal (et) no está instalado localmente; se continúa por SSH."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Eternal Terminal (et) n'est pas installé localement ; poursuite via SSH."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Eternal Terminal (et) がローカルにインストールされていません。SSH で続行します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Eternal Terminal (et)이(가) 로컬에 설치되어 있지 않습니다. SSH로 계속합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] 本地未安装 Eternal Terminal (et)；改用 SSH 继续。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] 本機未安裝 Eternal Terminal (et)；改以 SSH 繼續。"
+          }
+        }
+      }
+    },
+    "cli.ssh.et.probeFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Could not verify remote Eternal Terminal support; continuing over SSH."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] تعذر التحقق من دعم Eternal Terminal على المضيف البعيد؛ سيتم المتابعة عبر SSH."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Remote-Unterstützung für Eternal Terminal konnte nicht überprüft werden; es wird über SSH fortgefahren."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] No se pudo verificar la compatibilidad remota con Eternal Terminal; se continúa por SSH."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Impossible de vérifier la prise en charge d'Eternal Terminal à distance ; poursuite via SSH."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] リモートの Eternal Terminal 対応を確認できませんでした。SSH で続行します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] 원격 Eternal Terminal 지원을 확인할 수 없습니다. SSH로 계속합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] 无法验证远程的 Eternal Terminal 支持；改用 SSH 继续。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] 無法驗證遠端的 Eternal Terminal 支援；改以 SSH 繼續。"
+          }
+        }
+      }
+    },
+    "cli.ssh.et.remoteMissing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] etterminal was not found on the remote host; continuing over SSH. Install Eternal Terminal there or pass --et-terminal-path."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] لم يتم العثور على etterminal على المضيف البعيد؛ سيتم المتابعة عبر SSH. ثبّت Eternal Terminal هناك أو مرّر --et-terminal-path."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] etterminal wurde auf dem Remote-Host nicht gefunden; es wird über SSH fortgefahren. Installiere Eternal Terminal dort oder übergib --et-terminal-path."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] No se encontró etterminal en el host remoto; se continúa por SSH. Instala Eternal Terminal allí o pasa --et-terminal-path."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] etterminal est introuvable sur l'hôte distant ; poursuite via SSH. Installez Eternal Terminal sur cet hôte ou passez --et-terminal-path."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] リモートホストで etterminal が見つかりません。SSH で続行します。そのホストに Eternal Terminal をインストールするか、--et-terminal-path を指定してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] 원격 호스트에서 etterminal을 찾을 수 없습니다. SSH로 계속합니다. 해당 호스트에 Eternal Terminal을 설치하거나 --et-terminal-path를 전달하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] 在远程主机上找不到 etterminal；改用 SSH 继续。请在该主机上安装 Eternal Terminal，或传入 --et-terminal-path。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] 在遠端主機上找不到 etterminal；改以 SSH 繼續。請在該主機上安裝 Eternal Terminal，或傳入 --et-terminal-path。"
+          }
+        }
+      }
+    },
+    "cli.ssh.et.serverUnreachable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] etserver is not reachable on the remote host's Eternal Terminal port; continuing over SSH."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] تعذر الوصول إلى etserver على منفذ Eternal Terminal للمضيف البعيد؛ سيتم المتابعة عبر SSH."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] etserver ist auf dem Eternal-Terminal-Port des Remote-Hosts nicht erreichbar; es wird über SSH fortgefahren."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] etserver no es accesible en el puerto de Eternal Terminal del host remoto; se continúa por SSH."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] etserver est inaccessible sur le port Eternal Terminal de l'hôte distant ; poursuite via SSH."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] リモートホストの Eternal Terminal ポートで etserver に到達できません。SSH で続行します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] 원격 호스트의 Eternal Terminal 포트에서 etserver에 연결할 수 없습니다. SSH로 계속합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] 无法访问远程主机 Eternal Terminal 端口上的 etserver；改用 SSH 继续。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] 無法連線到遠端主機 Eternal Terminal 連接埠上的 etserver；改以 SSH 繼續。"
+          }
+        }
+      }
+    },
+    "cli.help.ssh.et": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eternal Terminal transport:\n  --transport et              Carry the interactive terminal over Eternal Terminal (et)\n  --et-port <n>               etserver port (default: 2022)\n  --et-terminal-path <path>   Remote etterminal path when it is not on the remote PATH\n  --et-tunnel <spec>          ET --tunnel forward (repeatable)\n  --et-reversetunnel <spec>   ET --reversetunnel forward (repeatable)\n\nSSH continues to handle remote features; ET carries only the interactive terminal\nand forwards the SSH agent when agent forwarding is on. If et, etterminal, or a\nreachable etserver is missing, cmux reports it and uses SSH.\n\nExample:\n  cmux ssh dev@my-host --transport et --et-port 2022"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "وسيط نقل Eternal Terminal:\n  --transport et              نقل الطرفية التفاعلية عبر Eternal Terminal (et)\n  --et-port <n>               منفذ etserver (الافتراضي: 2022)\n  --et-terminal-path <path>   مسار etterminal البعيد إذا لم يكن ضمن PATH البعيد\n  --et-tunnel <spec>          إعادة توجيه ET عبر --tunnel (قابل للتكرار)\n  --et-reversetunnel <spec>   إعادة توجيه ET عبر --reversetunnel (قابل للتكرار)\n\nيستمر SSH في معالجة الميزات البعيدة؛ بينما ينقل ET الطرفية التفاعلية فقط\nويمرر وكيل SSH عند تفعيل تمرير الوكيل. إذا كان et أو etterminal أو etserver\nيمكن الوصول إليه غير متوفر، فسيقوم cmux بالإبلاغ عن ذلك ويستخدم SSH.\n\nمثال:\n  cmux ssh dev@my-host --transport et --et-port 2022"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eternal-Terminal-Transport:\n  --transport et              Interaktives Terminal über Eternal Terminal (et) übertragen\n  --et-port <n>               etserver-Port (Standard: 2022)\n  --et-terminal-path <path>   Remote-Pfad von etterminal, wenn es nicht im Remote-PATH liegt\n  --et-tunnel <spec>          ET-Weiterleitung per --tunnel (wiederholbar)\n  --et-reversetunnel <spec>   ET-Weiterleitung per --reversetunnel (wiederholbar)\n\nSSH übernimmt weiterhin Remote-Funktionen; ET überträgt nur das interaktive Terminal\nund leitet den SSH-Agent weiter, wenn die Agent-Weiterleitung aktiv ist. Wenn et,\netterminal oder ein erreichbarer etserver fehlt, meldet cmux dies und verwendet SSH.\n\nBeispiel:\n  cmux ssh dev@my-host --transport et --et-port 2022"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transporte Eternal Terminal:\n  --transport et              Transporta la terminal interactiva mediante Eternal Terminal (et)\n  --et-port <n>               Puerto de etserver (por defecto: 2022)\n  --et-terminal-path <path>   Ruta remota de etterminal si no está en el PATH remoto\n  --et-tunnel <spec>          Reenvío --tunnel de ET (repetible)\n  --et-reversetunnel <spec>   Reenvío --reversetunnel de ET (repetible)\n\nSSH continúa manejando las funciones remotas; ET solo transporta la terminal interactiva\ny reenvía el agente SSH cuando el reenvío de agente está activado. Si falta et, etterminal\no un etserver accesible, cmux lo reporta y utiliza SSH.\n\nEjemplo:\n  cmux ssh dev@my-host --transport et --et-port 2022"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transport Eternal Terminal :\n  --transport et              Transporter le terminal interactif via Eternal Terminal (et)\n  --et-port <n>               Port d'etserver (par défaut : 2022)\n  --et-terminal-path <path>   Chemin distant d'etterminal s'il n'est pas dans le PATH distant\n  --et-tunnel <spec>          Redirection --tunnel d'ET (répétable)\n  --et-reversetunnel <spec>   Redirection --reversetunnel d'ET (répétable)\n\nSSH continue de gérer les fonctionnalités distantes ; ET ne prend en charge que le terminal\ninteractif et transmet l'agent SSH lorsque le transfert d'agent est activé. Si et, etterminal\nou un etserver joignable est manquant, cmux le signale et utilise SSH.\n\nExemple:\n  cmux ssh dev@my-host --transport et --et-port 2022"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eternal Terminal 転送:\n  --transport et              Eternal Terminal (et) でインタラクティブなターミナルを転送\n  --et-port <n>               etserver のポート（デフォルト: 2022）\n  --et-terminal-path <path>   リモートの PATH にない場合の etterminal のリモートパス\n  --et-tunnel <spec>          ET の --tunnel フォワード（繰り返し指定可）\n  --et-reversetunnel <spec>   ET の --reversetunnel フォワード（繰り返し指定可）\n\nリモート機能は引き続き SSH が処理し、ET はインタラクティブなターミナルのみを転送します。\nエージェント転送が有効な場合は SSH エージェントも転送します。et、etterminal、\nまたは到達可能な etserver がない場合、cmux はそれを報告して SSH を使用します。\n\n例:\n  cmux ssh dev@my-host --transport et --et-port 2022"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eternal Terminal 전송:\n  --transport et              Eternal Terminal (et)로 대화형 터미널 전송\n  --et-port <n>               etserver 포트 (기본값: 2022)\n  --et-terminal-path <path>   원격 PATH에 없을 때 원격 etterminal 경로\n  --et-tunnel <spec>          ET --tunnel 포워딩 (반복 가능)\n  --et-reversetunnel <spec>   ET --reversetunnel 포워딩 (반복 가능)\n\nSSH는 계속해서 원격 기능을 처리하며, ET는 대화형 터미널만 전송하고\n에이전트 포워딩이 켜져 있으면 SSH 에이전트를 전달합니다. et, etterminal 또는\n접근 가능한 etserver가 없으면 cmux는 이를 보고하고 SSH를 사용합니다.\n\n예시:\n  cmux ssh dev@my-host --transport et --et-port 2022"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eternal Terminal 传输：\n  --transport et              通过 Eternal Terminal (et) 承载交互式终端\n  --et-port <n>               etserver 端口（默认：2022）\n  --et-terminal-path <path>   etterminal 不在远程 PATH 中时的远程路径\n  --et-tunnel <spec>          ET 的 --tunnel 转发（可重复）\n  --et-reversetunnel <spec>   ET 的 --reversetunnel 转发（可重复）\n\nSSH 继续处理远程功能；ET 仅承载交互式终端，\n并在启用代理转发时转发 SSH 代理。如果缺少 et、etterminal\n或可访问的 etserver，cmux 会进行报告并使用 SSH。\n\n示例:\n  cmux ssh dev@my-host --transport et --et-port 2022"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eternal Terminal 傳輸：\n  --transport et              透過 Eternal Terminal (et) 承載互動式終端機\n  --et-port <n>               etserver 連接埠 (預設值：2022)\n  --et-terminal-path <path>   etterminal 不在遠端 PATH 時的遠端路徑\n  --et-tunnel <spec>          ET 的 --tunnel 轉送 (可重複)\n  --et-reversetunnel <spec>   ET 的 --reversetunnel 轉送 (可重複)\n\nSSH 繼續處理遠端功能；ET 僅承載互動式終端機，\n並在啟用代理轉送時轉送 SSH 代理。如果缺少 et、etterminal\n或可連線的 etserver，cmux 會回報並使用 SSH。\n\n範例:\n  cmux ssh dev@my-host --transport et --et-port 2022"
+          }
+        }
+      }
+    },
+    "cli.ssh.et.optionRequiresValue": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: %@ requires a value"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: يتطلب %@ قيمة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: %@ erfordert einen Wert"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: %@ requiere un valor"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh : %@ nécessite une valeur"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: %@ には値が必要です"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: %@에는 값이 필요합니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh：%@ 需要提供值"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh：%@ 需要提供值"
+          }
+        }
+      }
+    },
+    "cli.ssh.et.optionsInvalid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: --et-* values must be non-empty and free of control characters"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: يجب ألا تكون قيم --et-* فارغة وألا تحتوي على أحرف تحكم"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: --et-*-Werte dürfen nicht leer sein und keine Steuerzeichen enthalten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: los valores de --et-* no deben estar vacíos ni contener caracteres de control"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh : les valeurs --et-* doivent être non vides et sans caractères de contrôle"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: --et-* の値は空にできず、制御文字を含めることもできません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: --et-* 값은 비어 있지 않아야 하며 제어 문자를 포함할 수 없습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh：--et-* 的值不得为空，且不得包含控制字符"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh：--et-* 的值不得為空，且不得包含控制字元"
+          }
+        }
+      }
+    },
+    "cli.ssh.et.optionsRequireTransport": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: --et-* options require --transport et"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: تتطلب خيارات --et-* استخدام --transport et"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: --et-*-Optionen erfordern --transport et"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: las opciones --et-* requieren --transport et"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh : les options --et-* nécessitent --transport et"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: --et-* オプションには --transport et が必要です"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: --et-* 옵션에는 --transport et가 필요합니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh：--et-* 选项需要搭配 --transport et"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh：--et-* 選項需要搭配 --transport et"
+          }
+        }
+      }
+    },
+    "cli.ssh.et.portInvalid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: --et-port must be 1-65535"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: يجب أن يكون --et-port بين 1 و65535"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: --et-port muss zwischen 1 und 65535 liegen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: --et-port debe estar entre 1 y 65535"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh : --et-port doit être compris entre 1 et 65535"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: --et-port は 1～65535 の範囲で指定してください"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: --et-port는 1-65535 범위여야 합니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh：--et-port 必须介于 1 到 65535 之间"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh：--et-port 必須介於 1 到 65535 之間"
+          }
+        }
+      }
+    },
+    "socket.workspace.remote.terminalTransport.etOptionsInvalid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eternal Terminal options need a port from 1 to 65535 and non-empty values without control characters."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تتطلب خيارات Eternal Terminal منفذًا من 1 إلى 65535 وقيمًا غير فارغة بدون أحرف تحكم."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eternal-Terminal-Optionen erfordern einen Port von 1 bis 65535 und nicht leere Werte ohne Steuerzeichen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las opciones de Eternal Terminal requieren un puerto de 1 a 65535 y valores no vacíos sin caracteres de control."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les options d'Eternal Terminal nécessitent un port de 1 à 65535 et des valeurs non vides sans caractères de contrôle."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eternal Terminal のオプションには、1 から 65535 までのポートと、制御文字を含まない空でない値が必要です。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eternal Terminal 옵션에는 1~65535 범위의 포트와 제어 문자가 없는 비어 있지 않은 값이 필요합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eternal Terminal 选项需要 1 到 65535 的端口，且值不得为空或包含控制字符。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eternal Terminal 選項需要 1 到 65535 的連接埠，且值不得為空或包含控制字元。"
           }
         }
       }
