@@ -19,17 +19,21 @@ private final class HoverInteractionBody: NSView, HoverCardInteractiveBody {
 private final class HoverInteractionSource: HoverCardSource {
     let window: NSWindow
     let body: HoverInteractionBody
-    let target = HoverTarget(id: HoverTargetID("ws:workspace"), window: 1, delay: .zero)
+    let target: HoverTarget
     let anchor: CGRect
 
     init(window: NSWindow, body: HoverInteractionBody, anchor: CGRect) {
         self.window = window
         self.body = body
+        self.target = HoverTarget(id: HoverTargetID("ws:workspace"), window: window.windowNumber, delay: .zero,
+                                  leave: .hides(reshow: .milliseconds(300)))
         self.anchor = anchor
     }
 
     var hoverCardWindow: NSWindow? { window }
-    func hoverCardHit(at _: CGPoint) -> HoverCardHit? { nil }
+    func hoverCardHit(at point: CGPoint) -> HoverCardHit? {
+        anchor.contains(point) ? HoverCardHit(target: target, anchor: anchor) : nil
+    }
     func hoverCardAnchor(for _: HoverTargetID) -> CGRect? { anchor }
     func hoverCardTargetFrame(for _: HoverTargetID) -> CGRect? { anchor }
     func hoverCardBody(for _: HoverTargetID) -> HoverCardBody? {
@@ -109,22 +113,30 @@ struct WorkspaceTabHoverCardTests {
 
     @Test func interactiveCardHandlesKeysWhilePointerStaysOnWorkspaceRow() async throws {
         _ = NSApplication.shared
-        let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 240, height: 160), styleMask: [.borderless],
+        let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 240, height: 600), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView = NSView(frame: NSRect(x: 0, y: 0, width: 240, height: 160))
         window.orderFrontRegardless()
         defer { window.contentView = nil; window.close() }
+        try #require(window.isVisible, "the source window was not visible")
+        try #require(window.windowNumber > 0, "the source window has no window number")
         let body = HoverInteractionBody()
         let row = window.convertToScreen(NSRect(x: 12, y: 72, width: 120, height: 36))
         let source = HoverInteractionSource(window: window, body: body, anchor: row)
         let coordinator = HoverCardCoordinator()
         coordinator.appIsActive = { true }
+        coordinator.hoverCardsEnabled = { true }
+        coordinator.mouseButtonDown = { false }
+        coordinator.windowNumberAt = { [weak window] _ in window?.windowNumber }
         coordinator.pointerLocation = { row.origin }
-        coordinator.pin(source.target, from: source)
+        coordinator.register(source)
+        coordinator.pointerMoved(to: row.origin)
+        try #require(coordinator.machine.shownTarget?.id == source.target.id, "the visible row did not produce its hover target")
         let event = try #require(NSEvent.keyEvent(with: .keyDown, location: row.origin, modifierFlags: [], timestamp: 1,
                                                   windowNumber: window.windowNumber, context: nil, characters: "\u{F701}",
                                                   charactersIgnoringModifiers: "\u{F701}", isARepeat: false, keyCode: 125))
+        try #require(event.window === window, "the key event was not associated with the visible source window")
         #expect(coordinator.handleMonitoredEvent(event) == nil, "the row key was passed through")
         #expect(body.keys == [125])
         #expect(coordinator.machine.shownTarget?.id == source.target.id)
