@@ -15,6 +15,10 @@
   -webkit-backdrop-filter: blur(24px) saturate(1.2);
   backdrop-filter: blur(24px) saturate(1.2);
 }
+/* Leave the native shared tab row and its trailing-tools hole clear. */
+.acpmux-shell[data-tab-row] .acpmux-workflow-side-tab {
+  top: var(--acpmux-tab-row-height, 0px);
+}
 @media (prefers-reduced-transparency: reduce) {
   .acpmux-workflow-side-tab { background: var(--cmux-surface-solid, var(--agent-page-bg)); -webkit-backdrop-filter: none; backdrop-filter: none; }
 }
