@@ -83,6 +83,57 @@ describe("Home attachments: upload and dedupe", { timeout: 60_000 }, () => {
     expect((await testEnv.HOME_ATTACHMENTS.list({ prefix: `home/v1/${id}/` })).objects).toHaveLength(1)
   })
 
+  it("each part PUT and the completion make the same R2 calls whatever the file's size (Workers cap subrequests per invocation)", async () => {
+    const alice = await signIn("att-multipart-calls")
+    const { id } = await group(alice)
+    const { handleAttachmentMultipartComplete, handleAttachmentMultipartPart } = await import("../src/home-attachments.ts")
+    const counted = (calls: Array<string>) => {
+      const wrap = <T extends object>(target: T, name: string): T =>
+        new Proxy(target, {
+          get(t, p) {
+            const v = Reflect.get(t, p) as unknown
+            if (typeof v !== "function") return v
+            return (...args: Array<unknown>) => {
+              calls.push(`${name}.${String(p)}`)
+              const out = v.apply(t, args)
+              if (p === "resumeMultipartUpload") return wrap(out, "upload")
+              return p === "createMultipartUpload" ? out.then((u: object) => wrap(u, "upload")) : out
+            }
+          }
+        })
+      return { ...testEnv, HOME_ATTACHMENTS: wrap(testEnv.HOME_ATTACHMENTS, "bucket") }
+    }
+    const run = async (body: Uint8Array) => {
+      const r = await intent(alice, id, body, { multipart: true, mime_type: "application/octet-stream", name: "a.bin", width: undefined, height: undefined })
+      const size = r.json.value.part_size as number
+      const token = new URL(r.json.value.upload_url).pathname.split("/").pop()!
+      const puts: Array<string> = []
+      const parts: Array<{ part_number: number; byte_count: number; etag: string }> = []
+      for (let start = 0, part = 1; start < body.length; start += size, part++) {
+        const piece = body.subarray(start, start + size)
+        const calls: Array<string> = []
+        const req = new Request(r.json.value.upload_url, { method: "PUT", body: piece, headers: { "content-length": String(piece.byteLength), "x-cmux-part-number": String(part) } })
+        const res = await handleAttachmentMultipartPart(req, counted(calls), id, token)
+        expect(res.status).toBe(200)
+        parts.push({ part_number: part, byte_count: piece.byteLength, etag: ((await res.json()) as any).value.etag })
+        puts.push(calls.join())
+      }
+      const complete: Array<string> = []
+      const req = new Request("https://api.test/v1/home/attachments/multipart/complete", {
+        method: "POST",
+        headers: { authorization: `Bearer ${alice.token}`, "content-type": "application/json" },
+        body: JSON.stringify({ conversation: id, slot: r.json.value.slot, parts })
+      })
+      expect((await handleAttachmentMultipartComplete(req, counted(complete))).status).toBe(200)
+      return { puts, complete }
+    }
+    const one = await run(new Uint8Array(32_000_017).fill(1))
+    const two = await run(new Uint8Array(32 * 1024 * 1024 + 17).fill(2))
+    expect([one.puts.length, two.puts.length]).toEqual([1, 2])
+    expect(new Set([...one.puts, ...two.puts]).size).toBe(1)
+    expect(two.complete).toEqual(one.complete)
+  })
+
   it("bytes whose SHA-256 differs from the declared hash are refused and not kept", async () => {
     const alice = await signIn("att-hash-alice")
     const { id } = await group(alice)
