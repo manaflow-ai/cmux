@@ -117,6 +117,9 @@ struct AcpmuxUnresponsiveIdentityTests {
         process.arguments = ["-c", (ignoresTerm ? "trap '' TERM; " : "") + "exec /bin/sleep 3600"]
         process.standardInput = FileHandle.nullDevice
         try process.run()
+        // The caller's cleanup starts once this returns; until then a failed start kills it here.
+        var started = false
+        defer { if !started { kill(process.processIdentifier, SIGKILL) } }
         // Signalled before its `exec`, bash would still take SIGTERM. A load-tolerant deadline:
         // the test checks the signals, not how fast a child starts.
         let deadline = ContinuousClock.now + .seconds(60)
@@ -125,6 +128,7 @@ struct AcpmuxUnresponsiveIdentityTests {
             try await Task.sleep(for: .milliseconds(10))
         }
         try #require(AcpmuxVersionHandoff.executablePath(pid: process.processIdentifier) == "/bin/sleep")
+        started = true
         return process
     }
 
