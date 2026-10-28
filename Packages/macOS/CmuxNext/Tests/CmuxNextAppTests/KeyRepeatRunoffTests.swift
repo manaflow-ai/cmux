@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextDaemon
 import CmuxNextInput
 @testable import CmuxNextApp
 import Foundation
@@ -9,8 +10,9 @@ import Testing
 /// ctrl+`" (repeat-runoff.md 1, hold-shortcuts-ux.md 1). Key repeat is a real input stream: a held shortcut acts once
 /// per repeat event the system delivers while the key is down, never on a backlog of repeats that waited in the queue
 /// while the main thread was busy, so nothing happens after the key goes up. A physical press always acts, at any
-/// speed (input-principles.md). Each key goes through the real dispatcher (`KeyRouter.interceptKeyDown`) of the app
-/// on a same-tree cmux-tui daemon.
+/// speed (input-principles.md). Each key goes through the real dispatcher (`KeyRouter.interceptKeyDown`, inside an
+/// input dispatch as `CmuxApplication.sendEvent` opens one) of the app on a same-tree cmux-tui daemon. The gate's clock
+/// and key state are a virtual clock here, so the main thread's real speed on the test Mac changes no result.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(4)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct KeyRepeatRunoffTests {
     /// A shortcut of the shortcut-spam list and the action its default key runs.
@@ -31,58 +33,91 @@ struct KeyRepeatRunoffTests {
         static let all: [Shortcut] = [.cmdT, .ctrlBacktick, .cmdN, .cmdD, .cmdW, .ctrlTab]
     }
 
+    /// The gate's clock and the system's key state, as a test drives them.
+    @MainActor final class Virtual {
+        var now: TimeInterval = 10_000
+        var keyUp: TimeInterval = .infinity
+        var down: Bool { now < keyUp }
+    }
+
+    static let interval: TimeInterval = 0.033 // the fastest System Settings repeat rate
+
+    static func install(_ virtual: Virtual, _ services: AppServices) {
+        services.keyRouter.repeats.now = { virtual.now }
+        services.keyRouter.repeats.keyIsDown = { _, _ in virtual.down }
+        services.keyRouter.repeats.repeatInterval = { interval }
+    }
+
     /// The main thread was busy for 2 s while the key was held; the key went up 100 ms ago. Every repeat still in the
-    /// queue is older than one repeat interval: none of them runs its action (before: each ran, after the key-up).
+    /// queue is older than one repeat interval: none runs its action. Even with the key state still reading down (the
+    /// key-up not seen yet), the age alone stops them.
     @Test(arguments: Shortcut.all)
     func aBacklogOfRepeatsRunsNothingAfterTheKeyUp(_ shortcut: Shortcut) async throws {
         try await PinnedPageTests.withApp { services, _ in
             let window = try #require(services.windows.active?.window)
             try Self.requireBinding(shortcut, services: services, window: window)
+            let virtual = Virtual()
+            Self.install(virtual, services)
             let runs = Self.countRuns(of: shortcut.action, services)
-            // Worst case: the key state still reads down (the key-up has not reached the system yet); only the
-            // repeats' age shows they are a backlog.
-            services.keyRouter.repeats.keyIsDown = { _ in true }
-            services.keyRouter.repeats.repeatInterval = { 0.033 } // the fastest System Settings rate
-            let now = ProcessInfo.processInfo.systemUptime
-            let keyUp = now - 0.1
-            var time = now - 2.0 + 0.5 // after the system's initial repeat delay
+            let start = virtual.now
+            virtual.now = start + 2.1
             var delivered = 0
-            while time < keyUp {
-                Self.dispatch(Self.event(shortcut, at: time, isRepeat: true, window: window), services: services, window: window)
+            var made = start + 0.5
+            while made < start + 2.0 {
+                Self.dispatch(Self.event(shortcut, at: made, isRepeat: true, window: window), services: services, window: window)
                 delivered += 1
-                time += 0.033
+                made += Self.interval
             }
             try #require(delivered > 40)
             #expect(runs.count == 0, "\(shortcut.name): \(runs.count) of \(delivered) stale repeats ran after the key went up")
         }
     }
 
-    /// A physical press always acts, however long it waited (fast presses all count).
-    @Test func aPhysicalPressRunsHoweverLongItWaited() async throws {
-        try await PinnedPageTests.withApp { services, _ in
+    /// A fresh repeat of a key that is up (its key-up raced the repeat) runs nothing.
+    @Test func aRepeatOfAKeyThatIsUpRunsNothing() async throws {
+        try await PinnedPageTests.withApp { services, connection in
             let window = try #require(services.windows.active?.window)
             try Self.requireBinding(.ctrlTab, services: services, window: window)
+            try await Self.secondTab(services, connection)
+            let virtual = Virtual()
+            Self.install(virtual, services)
+            virtual.keyUp = virtual.now - 0.001
             let runs = Self.countRuns(of: Shortcut.ctrlTab.action, services)
-            let old = ProcessInfo.processInfo.systemUptime - 1.5
+            Self.dispatch(Self.event(.ctrlTab, at: virtual.now, isRepeat: true, window: window), services: services, window: window)
+            #expect(runs.count == 0, "a repeat after the key-up ran")
+        }
+    }
+
+    /// A physical press always acts, however long it waited (fast presses all count).
+    @Test func aPhysicalPressRunsHoweverLongItWaited() async throws {
+        try await PinnedPageTests.withApp { services, connection in
+            let window = try #require(services.windows.active?.window)
+            try Self.requireBinding(.ctrlTab, services: services, window: window)
+            try await Self.secondTab(services, connection)
+            let virtual = Virtual()
+            Self.install(virtual, services)
+            virtual.keyUp = virtual.now - 1
+            let runs = Self.countRuns(of: Shortcut.ctrlTab.action, services)
             for index in 0..<5 {
-                Self.dispatch(Self.event(.ctrlTab, at: old + Double(index) * 0.001, isRepeat: false, window: window), services: services, window: window)
+                Self.dispatch(Self.event(.ctrlTab, at: virtual.now - 1.5 + Double(index) * 0.001, isRepeat: false, window: window),
+                              services: services, window: window)
             }
             #expect(runs.count == 5, "\(runs.count) of 5 physical presses ran")
         }
     }
 
-    /// A held key whose repeats arrive on time (the main thread keeps up): one action per repeat, none dropped.
+    /// A held key whose repeats arrive on time: one action per repeat, none dropped.
     @Test func aHeldKeyRunsOncePerRepeatDeliveredOnTime() async throws {
-        try await PinnedPageTests.withApp { services, _ in
+        try await PinnedPageTests.withApp { services, connection in
             let window = try #require(services.windows.active?.window)
             try Self.requireBinding(.ctrlTab, services: services, window: window)
+            try await Self.secondTab(services, connection)
+            let virtual = Virtual()
+            Self.install(virtual, services)
             let runs = Self.countRuns(of: Shortcut.ctrlTab.action, services)
-            services.keyRouter.repeats.keyIsDown = { _ in true }
-            services.keyRouter.repeats.repeatInterval = { 0.033 } // the fastest System Settings rate
             for _ in 0..<12 {
-                let now = ProcessInfo.processInfo.systemUptime
-                Self.dispatch(Self.event(.ctrlTab, at: now, isRepeat: true, window: window), services: services, window: window)
-                try await Task.sleep(for: .milliseconds(40))
+                virtual.now += Self.interval
+                Self.dispatch(Self.event(.ctrlTab, at: virtual.now - 0.002, isRepeat: true, window: window), services: services, window: window)
             }
             #expect(runs.count == 12, "\(runs.count) of 12 on-time repeats ran")
         }
@@ -90,67 +125,96 @@ struct KeyRepeatRunoffTests {
 
     /// At most one repeat action per display frame per key: two repeats of one key in the same frame act once.
     @Test func twoRepeatsInOneFrameActOnce() async throws {
-        try await PinnedPageTests.withApp { services, _ in
+        try await PinnedPageTests.withApp { services, connection in
             let window = try #require(services.windows.active?.window)
             try Self.requireBinding(.ctrlTab, services: services, window: window)
+            try await Self.secondTab(services, connection)
+            let virtual = Virtual()
+            Self.install(virtual, services)
             let runs = Self.countRuns(of: Shortcut.ctrlTab.action, services)
-            services.keyRouter.repeats.keyIsDown = { _ in true }
-            services.keyRouter.repeats.repeatInterval = { 0.033 } // the fastest System Settings rate
-            let now = ProcessInfo.processInfo.systemUptime
-            Self.dispatch(Self.event(.ctrlTab, at: now, isRepeat: true, window: window), services: services, window: window)
-            Self.dispatch(Self.event(.ctrlTab, at: now + 0.0005, isRepeat: true, window: window), services: services, window: window)
+            Self.dispatch(Self.event(.ctrlTab, at: virtual.now, isRepeat: true, window: window), services: services, window: window)
+            virtual.now += 0.002
+            Self.dispatch(Self.event(.ctrlTab, at: virtual.now, isRepeat: true, window: window), services: services, window: window)
             #expect(runs.count == 1, "\(runs.count) repeat actions in one frame")
         }
     }
 
-    /// The brief's check (repeat-runoff.md 1): hold the key 2 s, then release. Repeats are made every 33 ms on the
-    /// system's clock whatever the main thread does; a repeat made while the main thread was busy waits, as in the
-    /// event queue. Nothing runs more than one frame after the key-up, and the items made are the repeats delivered
-    /// while the key was down (the physical press included), within one.
+    /// Every entrypoint is gated, not only the key router's table: a stale repeat dispatching a menu key equivalent
+    /// (the registry run a menu item makes) runs nothing; an action a gated run performs inside the same dispatch runs.
+    @Test func aStaleRepeatRunsNothingThroughTheMenuPathEither() async throws {
+        try await PinnedPageTests.withApp { services, connection in
+            let window = try #require(services.windows.active?.window)
+            try await Self.secondTab(services, connection)
+            let virtual = Virtual()
+            Self.install(virtual, services)
+            let runs = Self.countRuns(of: Shortcut.ctrlTab.action, services)
+            let stale = Self.event(.ctrlTab, at: virtual.now - 1, isRepeat: true, window: window)
+            _ = services.keyRouter.dispatchingSynthetic(stale) {
+                services.registry.perform("nextSurface", invocation: ActionInvocation(origin: .user))
+            }
+            #expect(runs.count == 0, "a stale repeat ran an action through the registry")
+            let fresh = Self.event(.ctrlTab, at: virtual.now, isRepeat: true, window: window)
+            _ = services.keyRouter.dispatchingSynthetic(fresh) {
+                services.registry.perform("nextSurface", invocation: ActionInvocation(origin: .user))
+                services.registry.perform("nextSurface", invocation: ActionInvocation(origin: .user))
+            }
+            #expect(runs.count == 2, "one dispatch's nested runs got \(runs.count) runs, not 2")
+        }
+    }
+
+    /// The brief's check (repeat-runoff.md 1): hold the key 2 s, then release. Repeats are made every 33 ms whatever the
+    /// main thread does; each run of the action costs 50 ms of main-thread time (more than the repeat interval, as a
+    /// create did), so repeats wait in the queue. Nothing runs more than one frame after the key-up, and the actions that
+    /// ran are at most the repeats delivered while the key was down (the press included).
     @Test(arguments: [Shortcut.cmdT, .ctrlBacktick, .ctrlTab])
     func holdTwoSecondsThenReleaseRunsNothingAfterTheKeyUp(_ shortcut: Shortcut) async throws {
-        try await PinnedPageTests.withApp { services, _ in
+        try await PinnedPageTests.withApp { services, connection in
             let window = try #require(services.windows.active?.window)
             try Self.requireBinding(shortcut, services: services, window: window)
+            try await Self.secondTab(services, connection)
+            let virtual = Virtual()
+            Self.install(virtual, services)
             let runs = Self.countRuns(of: shortcut.action, services)
-            let start = ProcessInfo.processInfo.systemUptime
-            let keyUp = start + 2.0, frame = 1.0 / 60
-            // The system's key state: down until the key-up.
-            services.keyRouter.repeats.keyIsDown = { _ in ProcessInfo.processInfo.systemUptime < keyUp }
-            services.keyRouter.repeats.repeatInterval = { 0.033 } // the fastest System Settings rate
-            var deliveredWhileDown = 0
-            var lateRuns = 0
-            var index = 0
-            while true {
-                let made = start + (index == 0 ? 0 : 0.5 + Double(index - 1) * 0.033)
-                guard made < keyUp else { break }
-                var now = ProcessInfo.processInfo.systemUptime
-                if now < made {
-                    try await Task.sleep(for: .milliseconds(Int(((made - now) * 1000).rounded(.up))))
-                    now = ProcessInfo.processInfo.systemUptime
-                }
-                if now < keyUp { deliveredWhileDown += 1 }
+            let start = virtual.now, frame = 1.0 / 60, cost = 0.050
+            virtual.keyUp = start + 2.0
+            var made: [TimeInterval] = [start]
+            var next = start + 0.5
+            while next < virtual.keyUp { made.append(next); next += Self.interval }
+            var deliveredWhileDown = 0, lateRuns = 0
+            for (index, time) in made.enumerated() {
+                // The main thread takes the next event when it is free and the event exists.
+                virtual.now = max(virtual.now, time)
+                if virtual.down { deliveredWhileDown += 1 }
                 let before = runs.count
-                Self.dispatch(Self.event(shortcut, at: made, isRepeat: index > 0, window: window), services: services, window: window)
-                if runs.count > before, now > keyUp + frame { lateRuns += 1 }
-                index += 1
-                // The main thread's other work between events (frames, replies) runs here, as in the app.
+                Self.dispatch(Self.event(shortcut, at: time, isRepeat: index > 0, window: window), services: services, window: window)
+                if runs.count > before {
+                    if virtual.now > virtual.keyUp + frame { lateRuns += 1 }
+                    virtual.now += cost
+                }
                 await Task.yield()
             }
-            print("hold-2s \(shortcut.name): \(index) repeats made, \(deliveredWhileDown) delivered while down, \(runs.count) ran, \(lateRuns) after the key-up")
+            print("hold-2s \(shortcut.name): \(made.count) keys made, \(deliveredWhileDown) delivered while down, \(runs.count) ran, \(lateRuns) after the key-up")
             #expect(lateRuns == 0, "\(shortcut.name): \(lateRuns) actions ran more than one frame after the key-up")
-            #expect(runs.count >= 1, "\(shortcut.name): the physical press did not run")
+            #expect(runs.count >= 2, "\(shortcut.name): the held key ran \(runs.count) times")
             #expect(runs.count <= deliveredWhileDown + 1, "\(shortcut.name): \(runs.count) actions for \(deliveredWhileDown) keys delivered while down")
         }
     }
 
     // MARK: Helpers
 
+    /// A second tab in the focused pane, so Next Tab (Ctrl-Tab) has somewhere to go.
+    static func secondTab(_ services: AppServices, _ connection: DaemonConnection) async throws {
+        let pane = try #require(services.windows.active?.focusedPane)
+        let surface = try await connection.newTab(in: pane.pane.handle).surface
+        try await PinnedPageTests.until({ pane.orderedIDs.contains { $0.rawValue == services.daemon.store.tab(surface: surface)?.id } },
+                                        report: { "the second tab never reached the strip" })
+    }
+
     @MainActor final class Runs {
         var count = 0
     }
 
-    /// Counts the runs of `action` from now on (the registry's will-run notice, refused runs included).
+    /// Counts the runs of `action` from now on (the registry's will-run notice).
     static func countRuns(of action: String, _ services: AppServices) -> Runs {
         let runs = Runs()
         services.registry.willRunObservers.append { [weak runs] id, _ in

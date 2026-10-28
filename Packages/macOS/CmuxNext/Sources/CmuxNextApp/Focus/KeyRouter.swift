@@ -62,6 +62,8 @@ final class KeyRouter: BrowserKeyRouting {
     let keyInput = KeyInputScope()
     /// Drops key repeats that would run a shortcut's action after the key went up, or as a backlog (``KeyRepeatGate``).
     var repeats = KeyRepeatGate()
+    /// The repeat gate's last answer (``admitsRepeat(_:)``).
+    private var lastRepeatAnswer: (event: NSEvent, serial: UInt64?, admitted: Bool)?
     /// Notes what happens to the key `debug.key` dispatches (nil otherwise).
     var trace: ((String) -> Void)?
     /// The leader's which-key overlay, shown while Cmd-J waits.
@@ -308,13 +310,6 @@ final class KeyRouter: BrowserKeyRouting {
         let decision = decide(event, focus: focus, context: context, facts: facts)
         trace?("dispatcher: \(decision)")
         switch decision {
-        case .run, .offerToPage:
-            // A repeat of a key that went up, or one behind a newer repeat, runs nothing (``KeyRepeatGate``).
-            if !admitsRepeat(event, in: window) { return true }
-        default:
-            break
-        }
-        switch decision {
         case .run(let candidate):
             // The key's own time starts a tab switch's or a pane focus move's input stage (debug.tab_switch, switch.pane_focus).
             keyInput.handling(input: event.timestamp) { run(candidate, context: context, window: controller.state.id) }
@@ -342,7 +337,6 @@ final class KeyRouter: BrowserKeyRouting {
         // `routesBareKey` checked the key is bare and the page owns bare keys.
         guard let winner = resolve(event, context: context) else { return false }
         decided.add(event)
-        if !admitsRepeat(event, in: window) { return true }
         let candidate = Candidate(id: winner.command, tier: registry.keyTier(for: winner.command), source: .registry(argument: winner.argument),
                                   arguments: winner.arguments)
         // The key's own time starts a pane focus move's or a tab switch's input stage, as for a chord.
@@ -350,16 +344,18 @@ final class KeyRouter: BrowserKeyRouting {
         return true
     }
 
-    /// Whether `event`, a key-down about to run a shortcut's action, may run it: a physical press always, a repeat
-    /// only while its key is down and it is the newest repeat (``KeyRepeatGate``). A refused repeat is consumed.
-    func admitsRepeat(_ event: NSEvent, in window: NSWindow) -> Bool {
-        guard event.isARepeat else { return repeats.admits(event, frame: 0) }
-        let frame = 1 / Double(max(window.screen?.maximumFramesPerSecond ?? 60, 1))
-        guard repeats.admits(event, frame: frame) else {
-            trace?("repeat gate: a key repeat after the key-up or behind a newer repeat runs nothing")
-            return false
-        }
-        return true
+    /// `ActionRegistry.repeatGate`: whether `event`, a repeat key-down about to run a person's action, may run it
+    /// (``KeyRepeatGate``). One dispatch asks once: a nested run in it (an action that performs another) gets the same
+    /// answer; the same event dispatched again later (a held key's replay) is a new dispatch and asks again.
+    func admitsRepeat(_ event: NSEvent) -> Bool {
+        let serial = inputDispatch.dispatchSerial
+        if let last = lastRepeatAnswer, last.event === event, last.serial == serial { return last.admitted }
+        let screen = NSApp.window(withWindowNumber: event.windowNumber)?.screen
+        let frame = 1 / Double(max(screen?.maximumFramesPerSecond ?? 60, 1))
+        let admitted = repeats.admits(event, frame: frame)
+        if !admitted { trace?("repeat gate: a key repeat after the key-up or behind a newer repeat runs nothing") }
+        lastRepeatAnswer = (event, serial, admitted)
+        return admitted
     }
 
     func run(_ candidate: Candidate, context: KeyContext, window: String) {

@@ -93,13 +93,16 @@ enum DebugKey {
         // The client's send time when it sent `timestamp` (the probe counts the socket lane and the main-thread
         // wait, as a real key's wait in the event queue), else now; the reply returns the injection time too.
         let time = InjectedKeyTime(params: params)
-        // `repeat`: an auto-repeat of the key, which a journey or bench holds down (the slot has no physical key, so
-        // the repeat gate reads this key as down for this dispatch; its age and frame rules still apply).
+        // `repeat`: an auto-repeat of the key, which a journey or bench holds down. A slot has no physical key, so the
+        // repeat gate reads this key as held from its first repeat until `{up: true}` (its age and frame rules still
+        // apply), including a replay of a held repeat after this request returned.
+        if params["up"]?.boolValue == true {
+            services.keyRouter.repeats.held.remove(press.keyCode)
+            return .object(["up": .bool(true), "key_code": JSONValue(Int(press.keyCode))])
+        }
         let isRepeat = params["repeat"]?.boolValue == true
         guard let event = keyDown(press, at: time, windowNumber: window.windowNumber, isRepeat: isRepeat) else { return .object(["error": .string("bad key")]) }
-        let keyState = services.keyRouter.repeats.keyIsDown
-        if isRepeat { services.keyRouter.repeats.keyIsDown = { [keyCode = event.keyCode] in $0 == keyCode || keyState($0) } }
-        defer { services.keyRouter.repeats.keyIsDown = keyState }
+        if isRepeat { services.keyRouter.repeats.held.insert(event.keyCode) }
         // `dry_run`: what the key router would do with this key in the shell window's focus, run
         // nothing (shortcut sweeps: every app shortcut routes while a page has the keyboard).
         // Only the router's decision: no chord sequences, intercepts or focus-kind checks.

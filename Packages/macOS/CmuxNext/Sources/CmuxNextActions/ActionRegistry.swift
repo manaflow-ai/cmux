@@ -76,6 +76,10 @@ public final class ActionRegistry {
     /// between dispatches. The App installs it (`InputDispatchContext`: `sendEvent`'s event and the key router's own); the action
     /// signposts read it for a `user` run's `input_age_ms`. Nil (the default) records -1.
     @ObservationIgnored public var dispatchingInputEvent: @MainActor () -> NSEvent? = { nil }
+    /// Whether a key repeat that would run a person's action may run it (the App's `KeyRepeatGate`): a held shortcut acts
+    /// once per repeat while its key is down, never on a backlog after the key-up. Asked for a user run whose
+    /// ``dispatchingInputEvent`` is a repeat key-down; nil allows every repeat.
+    @ObservationIgnored public var repeatGate: (@MainActor (NSEvent) -> Bool)?
     /// Called when a run's ``ActionEffect`` says the next frame shows its change: ``ActionEffect/done`` (the whole
     /// change happened on the turn; an untyped `invoke:` / `handler:` run settles as done),
     /// ``ActionEffect/applied(_:)`` (a store intent included) or ``ActionEffect/waiting(_:_:)``; never
