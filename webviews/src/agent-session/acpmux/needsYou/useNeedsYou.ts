@@ -42,7 +42,7 @@ export function useNeedsYou({
   callNative,
   sideSession,
 }: {
-  snapshot: Pick<AcpmuxSnapshot, "sessions" | "asks" | "sessionId" | "rows" | "queue">;
+  snapshot: Pick<AcpmuxSnapshot, "sessions" | "asks" | "sessionId" | "rows"> & { queue?: AcpmuxSnapshot["queue"] };
   callNative: CallNative;
   /// Opens a side session about chat `sessionId` with `question` (direct.ts `btw`, then the host's
   /// `chat.sideChat`); rejects when acpmux or the relay refused it.
