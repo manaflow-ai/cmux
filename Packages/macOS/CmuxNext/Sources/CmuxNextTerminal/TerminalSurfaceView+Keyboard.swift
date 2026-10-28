@@ -22,6 +22,8 @@ extension TerminalSurfaceView {
             interpret(event, as: event)
             return
         }
+        // A held frame over this live surface goes before the key is handled: its echo shows (audit B3).
+        session?.personInput()
         // Copy mode takes every key except Command chords before Ghostty or
         // an input method sees it.
         if copyMode.handleKeyDown(event) {

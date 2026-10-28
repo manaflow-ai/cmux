@@ -16,14 +16,34 @@ import IOSurface
 /// fresh surface's layer is only the container of the renderer's leaf, so its contents say nothing.
 @MainActor
 final class TerminalFrameHold {
-    /// The longest the old frame stays once the content it waits for is queued: a surface that
-    /// never draws shows as it is after this.
+    /// The longest the old frame stays once the content it waits for is queued, while that content
+    /// is still being parsed on the surface's lane (a whole replayed screen and its history): the
+    /// fresh surface has nothing of it to draw before the parse ends, and a key's echo comes after it
+    /// in stream order, so the old frame is what the pane should show. A surface whose lane never
+    /// drains shows as it is after this.
     static let limit: Duration = .milliseconds(500)
+    /// The longest the old frame stays once the content is parsed: the live surface has it and
+    /// only has to present it, so the held frame goes within two frames (audit B3), whether or not the
+    /// renderer reported the new frame. A precise deadline, so it is not aligned later.
+    static let drawLimit: Duration = .milliseconds(33)
     /// The longest a last frame waits for its session's first content (a failed or slow attach):
     /// after it, the pane shows the surface as it is.
     static let contentLimit: Duration = .seconds(3)
 
     private let view = HeldFrameView()
+    /// The measured stage of this terminal's holds (`debug.surfaces` `frame_hold_ends`, `frame_hold_max_ms`).
+    private(set) var stage = Stage()
+    /// When the hold on screen began (uptime ns).
+    private var began: UInt64 = 0
+
+    /// How this terminal's holds ended and the longest: the held frame's measured stage.
+    struct Stage: Equatable {
+        /// Ended holds by how they ended: `drawn` (the fresh surface presented), `parse_limit` (``limit``),
+        /// `draw_limit` (``drawLimit``), `input` (the person's key or click), `replaced` (a new hold or a teardown).
+        var ends: [String: Int] = [:]
+        /// The longest hold, ms.
+        var maxMilliseconds: Double = 0
+    }
     private weak var surface: TerminalSurfaceView?
     /// Once the replay is parsed: the fresh surface's frame then, and the ticks seen since. A frame
     /// captured before the parse can still present on the next tick, so only a change seen two
@@ -47,7 +67,7 @@ final class TerminalFrameHold {
     init(deadlines: MainDeadlineScheduler) {
         mainWork = deadlines.work
         parsedOwner = deadlines.work.board.owner("TerminalFrameHold.parsed")
-        deadline = MainDeadline(owner: "TerminalFrameHold.limit", workClass: .visible, scheduler: deadlines)
+        deadline = MainDeadline(owner: "TerminalFrameHold.limit", workClass: .visible, alignment: .precise, scheduler: deadlines)
     }
 
     /// Whether a held frame is on screen.
@@ -93,6 +113,7 @@ final class TerminalFrameHold {
 
     private func show(_ held: Any, over fresh: TerminalSurfaceView, like source: CALayer?, in host: NSView) {
         generation &+= 1
+        began = DispatchTime.now().uptimeNanoseconds
         surface = fresh
         view.show(held, like: source, frame: fresh.frame)
         // Above the surface, so above the leaf its renderer presents into (a sublayer of the
@@ -106,7 +127,7 @@ final class TerminalFrameHold {
         frames.activate()
         deadline.schedule(after: Self.limit) { [weak self] in
             guard let self, self.generation == generation else { return }
-            self.end()
+            self.end(as: "parse_limit")
         }
         // Runs after the caller queued the content on the lane: once that is parsed, one `visible` task
         // (the pane shows the held frame meanwhile) asks for a frame of the parsed state.
@@ -118,13 +139,36 @@ final class TerminalFrameHold {
     private func replayParsed(generation: Int) {
         guard self.generation == generation, let surface else { return }
         parsed = (surface.presentedFrame, 0)
+        // The live surface has the content now: the held frame goes as it presents, at most two frames on.
+        deadline.schedule(after: Self.drawLimit) { [weak self] in
+            guard let self, self.generation == generation else { return }
+            self.end(as: "draw_limit")
+        }
         // A frame from the parsed state, even if the renderer has nothing else to draw.
         // SAFETY: the held view's live surface (TerminalSurfaceView.surface), on the main actor.
         if let ghostty = surface.surface { unsafe ghostty_surface_refresh(ghostty) }
     }
 
+    /// The person's key or click reached the terminal under the held frame. Once its content is
+    /// parsed, the live surface shows from now on, so the input's echo is drawn where the person sees
+    /// it. Before that the held frame stays: the surface under it has nothing yet, and the input's
+    /// echo comes after the content in stream order (the terminal queues the input meanwhile).
+    // perf-hot: 1ms terminal-key (every key typed into a terminal: one stored read while nothing is held)
+    func personInput() {
+        guard parsed != nil, isHolding else { return }
+        end(as: "input")
+    }
+
     /// Takes the held frame away.
     func end() {
+        end(as: "replaced")
+    }
+
+    private func end(as how: String) {
+        if isHolding {
+            stage.ends[how, default: 0] += 1
+            stage.maxMilliseconds = max(stage.maxMilliseconds, Double(DispatchTime.now().uptimeNanoseconds &- began) / 1_000_000)
+        }
         frames.deactivate()
         deadline.cancel()
         view.removeFromSuperview()
@@ -143,7 +187,7 @@ final class TerminalFrameHold {
         parsed.ticks += 1
         self.parsed = parsed
         guard parsed.ticks >= 2, let shown = surface.presentedFrame, shown !== parsed.frame else { return true }
-        end()
+        end(as: "drawn")
         return false
     }
 }

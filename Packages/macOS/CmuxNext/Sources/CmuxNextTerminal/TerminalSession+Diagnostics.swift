@@ -53,6 +53,11 @@ public struct TerminalSurfaceDiagnostics: Sendable, Equatable {
     public var lastFrameHolds: Int = 0
     /// A held frame (a last frame, or the old surface's after a swap) is on screen now.
     public var holdingFrame: Bool = false
+    /// How this terminal's held frames ended (`drawn`, `parse_limit`, `draw_limit`, `input`, `replaced`): the hold's
+    /// measured stage (audit B3).
+    public var frameHoldEnds: [String: Int] = [:]
+    /// The longest held frame over this terminal, ms.
+    public var frameHoldMaxMilliseconds: Double = 0
 
     /// True when the surface can show terminal content right now.
     public var isPresentable: Bool {
@@ -127,7 +132,9 @@ extension TerminalSession {
                               width: rect.width / frame.width, height: rect.height / frame.height)
             },
             lastFrameHolds: lastFrameHolds,
-            holdingFrame: frameHold.isHolding
+            holdingFrame: frameHold.isHolding,
+            frameHoldEnds: frameHold.stage.ends,
+            frameHoldMaxMilliseconds: frameHold.stage.maxMilliseconds
         )
     }
 }

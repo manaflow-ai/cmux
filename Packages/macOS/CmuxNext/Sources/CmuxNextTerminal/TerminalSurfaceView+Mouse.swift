@@ -13,6 +13,7 @@ extension TerminalSurfaceView {
 
     public override func mouseDown(with event: NSEvent) {
         pointerFrames?.flush()
+        session?.personInput()
         session?.surfaceClicked()
         if !isFirstResponder { window?.makeFirstResponder(self) }
         // A Cmd-press on a URL a program broke onto rows is this view's (TerminalLinkPointer).

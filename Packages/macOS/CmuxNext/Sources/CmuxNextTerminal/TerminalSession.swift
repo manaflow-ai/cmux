@@ -404,6 +404,12 @@ public final class TerminalSession {
 
     /// A click in the surface: a disconnected terminal re-attaches now, also
     /// one waiting out its backoff between retries.
+    /// The person's key or click reached this terminal's surface: a held frame over its parsed
+    /// content goes first (``TerminalFrameHold/personInput()``).
+    func personInput() {
+        frameHold.personInput()
+    }
+
     func surfaceClicked() {
         guard case .disconnected = model.connection else { return }
         input.reconnect()
