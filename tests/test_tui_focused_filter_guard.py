@@ -6,6 +6,8 @@ from pathlib import Path
 
 import yaml
 
+from runs_on_labels import disallowed_labels
+
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "cmux-tui.yml"
@@ -203,12 +205,12 @@ def test_lint_is_one_required_job_and_os_matrix_only_runs_behavior_tests() -> No
     assert lint["needs"] == "validate-inputs"
     assert lint["name"] == "lint (${{ matrix.os }})"
     assert lint["strategy"]["fail-fast"] is False
-    assert lint["strategy"]["matrix"]["include"] == [
-        {
-            "os": "linux",
-            "runner": "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(vars.LINUX_RUNNER, '32vcpu') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}",
-        },
-    ]
+    [row] = lint["strategy"]["matrix"]["include"]
+    assert set(row) == {"os", "runner"} and row["os"] == "linux", row
+    # Every label the runner can resolve to is Blacksmith Linux. LINUX_RUNNER is the repository's own
+    # Linux runner override, read only behind contains(vars.LINUX_RUNNER, '32vcpu').
+    assert "contains(vars.LINUX_RUNNER, '32vcpu') && vars.LINUX_RUNNER" in row["runner"], row
+    assert disallowed_labels(row["runner"], allow_vars=frozenset({"LINUX_RUNNER"})) == {}, row
     # Same OS matrix; only lint honors a LINUX_RUNNER override.
     oses = lambda job: [row["os"] for row in job["strategy"]["matrix"]["include"]]
     assert oses(test) == oses(lint) == ["linux"]
