@@ -1,15 +1,15 @@
 // Retry's model menu (RetryModelMenu.tsx): a harness's models in the composer model menu's order
 // (Leo 2026-10-20: "why is this still unstyled", the list showed Opus 5.5, Sonnet 5.5 and Haiku 5.5
-// twice and every old release in one column). The harness's curated top models (topModels/) come
-// first, else each family's newest; every other model folds under More models (modelSections.ts),
+// twice and every old release in one column). The harness's reported menu comes
+// first, else each family's newest; every other model folds under More models (relevantModels.ts),
 // as the composer's picker folds them. A model the harness offers twice is one row: the same id,
 // the alias the harness named as a release beside that release (`release`, modelCatalogData.ts
 // foldAliases), or two rows of the same name. What a bare alias runs is never guessed: only the
 // harness says it (Claude Code's `haiku` changes with its version).
-import { curatedSections, modelSections } from "../modelSections";
+import { relevantModelSections } from "../relevantModels";
 
 /** A model Retry can move the chat to; `release` names the release an alias runs, when known. */
-export type RetryModel = { id: string; name: string; release?: string };
+export type RetryModel = { id: string; name: string; release?: string; family?: string; unavailable?: string };
 
 /** The rows shown at once (`latest`) and the ones folded under More models (`more`), each in order. */
 export type RetrySections = { latest: RetryModel[]; more: RetryModel[] };
@@ -38,18 +38,15 @@ export function uniqueRetryModels(models: readonly RetryModel[], current: string
 
 /**
  * Splits `models` into the rows shown at once and the ones under More models, one row per model.
- * `harness` is the harness's name (it decides a model's family when the name alone does not);
- * `top` its curated list. The model the chat runs is never folded: a folded one is listed last
- * among the shown rows, as the composer's picker lists it.
+ * `top` is the same harness-reported menu the composer uses. Without a report, both menus
+ * show the newest available family members. A running older model stays under More models.
  */
 export function retryModelSections(
   models: readonly RetryModel[],
   current: string | undefined,
-  harness = "",
+  _harness = "",
   top?: readonly string[],
 ): RetrySections {
-  const { latest, older } = curatedSections(modelSections(uniqueRetryModels(models, current), harness), top);
-  const runs = older.find((model) => model.id === current);
-  if (!runs) return { latest, more: older };
-  return { latest: [...latest, runs], more: older.filter((model) => model !== runs) };
+  const { shown, more } = relevantModelSections(uniqueRetryModels(models, current), top);
+  return { latest: shown, more };
 }
