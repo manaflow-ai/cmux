@@ -484,7 +484,7 @@ final class AppServices {
                 preference: { [weak self] in
                     self?.settings?.snapshot.browserDefaultEngine ?? self?.cache.browserTabs.preference.defaultEngine ?? .fallback
                 },
-                keyRouter: keyRouter, work: work, dialogs: .shared,
+                keyRouter: keyRouter, work: work, mainWork: mainWork, dialogs: .shared,
                 hangWork: features.isEnabled(.pageHangNotice) ? mainWork : nil, pageChannel: features.isEnabled(.pageHostChannel),
                 pushChannel: features.isEnabled(.pagePushChannel)),
             openPanel: openPanel, memory: memoryCoordinator, registry: .processWide, deadlines: mainDeadlines,
@@ -681,7 +681,7 @@ final class AppServices {
     /// The sidebar Chief item's pet picture, one for every window: loaded once off the main thread, then a new
     /// window draws it in its first frame.
     private(set) lazy var chiefSidebarPicture = ChiefSidebarPicture(work: work, mainWork: mainWork)
-    let pages = InternalPageTabStore()  // internal page tabs (Settings, Debug Settings, the App Store)
+    private(set) lazy var pages = InternalPageTabStore(mainWork: mainWork)  // internal page tabs (Settings, Debug Settings, the App Store)
     /// Where imported bookmarks go (the bookmarks feature sets it); nil keeps them in the import store only.
     var importedBookmarkSink: (any ImportedBookmarkSink)?
     /// Browser tab favicons per profile, for tab strips.
