@@ -192,7 +192,7 @@ import { AgentsPill } from "./subagents/AgentsPill";
 import { SubagentTray } from "./subagents/SubagentTray";
 import { settleTrayExit } from "./subagents/trayMotion";
 import { SubagentDoneLine } from "./subagents/SubagentDoneLine";
-import { configureWorkflowCardOpen, WorkflowCard } from "./summary/WorkflowCard";
+import { configureWorkflowCardOpen, configureWorkflowCardSideTab, WorkflowCard } from "./summary/WorkflowCard";
 import {
   type DoneLineCache,
   configureSubagentTray,
@@ -207,6 +207,7 @@ import { useSummaryCard, useSummaryColumn } from "./summary/cardState";
 import { chatHasSummaryContent } from "./summary/summaryContent";
 import { createWorkflowAdapter } from "./summary/foldWorkflows";
 import type { WorkflowSummary } from "./summary/workflow";
+import { WorkflowSideTab } from "./summary/WorkflowSideTab";
 import {
   openSubagentPane,
   revealedSubagent,
@@ -5277,6 +5278,15 @@ function AcpmuxPane() {
     () => (workflowLabsEnabled && shownSessionId ? workflowAdapter(freshAgents, shownSessionId) : []),
     [workflowLabsEnabled, workflowAdapter, freshAgents, shownSessionId],
   );
+  const [workflowSideTabId, setWorkflowSideTabId] = useState<string>();
+  const workflowSideTab = useMemo(
+    () => (workflowLabsEnabled ? workflows.find((workflow) => workflow.id === workflowSideTabId) : undefined),
+    [workflowLabsEnabled, workflows, workflowSideTabId],
+  );
+  const openWorkflowSideTab = useCallback((id: string) => setWorkflowSideTabId(id), []);
+  useEffect(() => {
+    setWorkflowSideTabId(undefined);
+  }, [shownSessionId, workflowLabsEnabled]);
   const summaryHasContent = useMemo(
     () => chatHasSummaryContent(snapshot.rows) || chatSubsessions.rows.length > 0 || workflows.length > 0,
     [snapshot.rows, chatSubsessions, workflows],
@@ -6254,9 +6264,18 @@ function AcpmuxPane() {
   }, [inspector.toggle]);
   const revealInspector = inspector.reveal;
   useEffect(() => {
-    configureWorkflowCardOpen(revealInspector ? () => revealInspector("tasks") : undefined);
+    const openCard = revealInspector
+      ? () => revealInspector("tasks")
+      : workflowLabsEnabled
+        ? openWorkflowSideTab
+        : undefined;
+    configureWorkflowCardOpen(openCard);
     return () => configureWorkflowCardOpen(undefined);
-  }, [revealInspector]);
+  }, [openWorkflowSideTab, revealInspector, workflowLabsEnabled]);
+  useEffect(() => {
+    configureWorkflowCardSideTab(workflowLabsEnabled ? openWorkflowSideTab : undefined);
+    return () => configureWorkflowCardSideTab(undefined);
+  }, [openWorkflowSideTab, workflowLabsEnabled]);
   // The running line's counts (conversation/WorkingFor.tsx), with the tray off (Debug Settings):
   // the subagents still running, the background commands that have not ended and the started chats
   // that run. A count of one opens its subagent, the command's row or the chat; of several, the
@@ -10340,6 +10359,9 @@ function AcpmuxPane() {
             onIndex={(index) => setImageView((current) => current && { ...current, index })}
             onClose={() => setImageView(undefined)}
           />
+        )}
+        {workflowSideTab && (
+          <WorkflowSideTab workflow={workflowSideTab} onClose={() => setWorkflowSideTabId(undefined)} onStop={stopSubagent} />
         )}
       </section>
     </ShortcutsContext.Provider>

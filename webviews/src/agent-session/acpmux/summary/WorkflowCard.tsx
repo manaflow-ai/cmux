@@ -14,9 +14,8 @@ import { tally, workflowOf } from "./foldWorkflows";
 import "./WorkflowCard.css";
 import "./workflowDots.css";
 
-/// Opens Session Info's Background tasks for workflow `id`; absent, the card is no button. The pane
-/// sets it as its Inspector comes and goes (App.tsx), as subagents/runningTray.ts's switch is set.
 let opener: ((id: string) => void) | undefined;
+let sideTabOpener: ((id: string) => void) | undefined;
 const listeners = new Set<() => void>();
 export function configureWorkflowCardOpen(open: ((id: string) => void) | undefined): void {
   if (open === opener) return;
@@ -29,53 +28,40 @@ const subscribe = (listener: () => void) => {
 };
 const current = () => opener;
 
+/// Opens the same workflow in the chat's full-height side tab; absent when the Labs surface is off.
+export function configureWorkflowCardSideTab(open: ((id: string) => void) | undefined): void {
+  if (open === sideTabOpener) return;
+  sideTabOpener = open;
+  for (const listener of listeners) listener();
+}
+const currentSideTab = () => sideTabOpener;
+
 export type WorkflowCardPresentation = "selected" | "compact" | "phases";
 
 const localizedState = (t: ReturnType<typeof useT>, state: WorkflowAgent["state"]): string => {
   switch (state) {
-    case "running":
-      return t("subagents.state.running");
-    case "completed":
-      return t("subagents.state.completed");
-    case "failed":
-      return t("subagents.state.failed");
-    case "waiting":
-      return t("subagents.state.waiting");
-    case "paused":
-      return t("goal.paused");
-    case "cancelled":
-      return t("subagents.state.cancelled");
-    case "unknown":
-      return t("inspector.unknown");
-    default:
-      return t("plan.status.pending");
+    case "running": return t("subagents.state.running");
+    case "completed": return t("subagents.state.completed");
+    case "failed": return t("subagents.state.failed");
+    case "waiting": return t("subagents.state.waiting");
+    case "paused": return t("goal.paused");
+    case "cancelled": return t("subagents.state.cancelled");
+    case "unknown": return t("inspector.unknown");
+    default: return t("plan.status.pending");
   }
 };
-
-const compactTokens = (value: number) =>
-  new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 }).format(value);
-
+const compactTokens = (value: number) => new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 }).format(value);
 const latestAgentLine = (node: Subagent, agent: WorkflowAgent | undefined): string | undefined => {
   if (!agent) return undefined;
-  // #26990 supplies `lastMessage` through foldWorkflows. Keep the fallback to the folded result
-  // while that PR is in flight, then to the current action for older journals.
   const summaryAgent = agent as WorkflowAgent & { lastMessage?: string };
-  const raw =
-    agent.index === undefined || !(node.workflowAgents instanceof Map)
-      ? undefined
-      : node.workflowAgents.get(agent.index);
+  const raw = agent.index === undefined || !(node.workflowAgents instanceof Map) ? undefined : node.workflowAgents.get(agent.index);
   return summaryAgent.lastMessage ?? raw?.result ?? agent.doing;
 };
 
-export function WorkflowCard({
-  node,
-  presentation = "selected",
-}: {
-  node: Subagent;
-  presentation?: WorkflowCardPresentation;
-}) {
+export function WorkflowCard({ node, presentation = "selected" }: { node: Subagent; presentation?: WorkflowCardPresentation }) {
   const t = useT();
   const open = useSyncExternalStore(subscribe, current, current);
+  const openSideTab = useSyncExternalStore(subscribe, currentSideTab, currentSideTab);
   const workflow = useMemo(() => workflowOf(node, ""), [node]);
   const counts = tally(workflow.agents);
   const running = workflow.state === "running" && counts.running > 0;
@@ -87,79 +73,18 @@ export function WorkflowCard({
   const progress = total > 0 ? Math.min(1, done / total) : 0;
   const activeAgents = workflow.agents.filter((agent) => agent.state === "running" || agent.state === "paused");
   const focusAgent = activeAgents.at(-1) ?? workflow.agents.at(-1);
-  const currentPhase =
-    workflow.phases.find((phase) => phase.state === "running") ??
-    (focusAgent ? workflow.phases.find((phase) => phase.agentIds.includes(focusAgent.id)) : undefined);
-  const focusElapsed = focusAgent
-    ? (focusAgent.elapsedMs ??
-      (focusAgent.startedAt !== undefined ? Math.max(0, now - focusAgent.startedAt) : undefined))
-    : undefined;
+  const currentPhase = workflow.phases.find((phase) => phase.state === "running") ?? (focusAgent ? workflow.phases.find((phase) => phase.agentIds.includes(focusAgent.id)) : undefined);
+  const focusElapsed = focusAgent ? (focusAgent.elapsedMs ?? (focusAgent.startedAt !== undefined ? Math.max(0, now - focusAgent.startedAt) : undefined)) : undefined;
   const latest = latestAgentLine(node, focusAgent);
   const tokens = workflow.tokens ?? workflow.projectedTokens;
   return (
-    <button
-      type="button"
-      className={`acpmux-workflow-card acpmux-workflow-card--${presentation}`}
-      data-state={workflow.state}
-      data-presentation={presentation}
-      disabled={!open}
-      onClick={() => open?.(node.id)}
-    >
-      <span className="acpmux-workflow-card__head">
-        <span className="acpmux-workflow-card__name">{workflow.title}</span>
-        <Icon name="disclosure.collapsed" size={11} />
-      </span>
-      <span className="acpmux-workflow-card__meta">
-        <span>{localizedState(t, workflow.state)}</span>
-        {currentPhase?.name && <span>{currentPhase.name}</span>}
-        {total > 0 && (
-          <span>
-            {done}/{total}
-          </span>
-        )}
-        <span>{formatDuration(elapsed)}</span>
-        {tokens !== undefined && <span>{t("subagents.tokens", { n: tokens, tokens: compactTokens(tokens) })}</span>}
-      </span>
-      {presentation === "compact" ? (
-        <span
-          className="acpmux-workflow-card__progress"
-          // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a styled bar; <progress> cannot take the fill span.
-          role="progressbar"
-          aria-label={t("summary.subagents.done", { n: done })}
-          aria-valuemin={0}
-          aria-valuemax={total}
-          aria-valuenow={done}
-        >
-          <span style={{ transform: `scaleX(${progress})` }} />
-        </span>
-      ) : presentation === "phases" ? (
-        <span className="acpmux-workflow-card__phases" aria-label={currentPhase?.name}>
-          {workflow.phases.map((phase) => (
-            <span key={phase.id} data-state={phase.state} title={phase.name} />
-          ))}
-        </span>
-      ) : (
-        <>
-          <span className="acpmux-workflow-card__latest" title={latest}>
-            {latest ?? ""}
-          </span>
-          <span
-            className="acpmux-workflow-card__progress"
-            // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a styled bar; <progress> cannot take the fill span.
-            role="progressbar"
-            aria-label={t("summary.subagents.done", { n: done })}
-            aria-valuemin={0}
-            aria-valuemax={total}
-            aria-valuenow={done}
-          >
-            <span style={{ transform: `scaleX(${progress})` }} />
-          </span>
-          <span className="acpmux-workflow-card__focus">
-            {focusAgent?.model && <span>{focusAgent.model}</span>}
-            {focusElapsed !== undefined && <span>{formatDuration(focusElapsed)}</span>}
-          </span>
-        </>
-      )}
-    </button>
+    <div className="acpmux-workflow-card-wrap">
+      <button type="button" className={`acpmux-workflow-card acpmux-workflow-card--${presentation}`} data-state={workflow.state} data-presentation={presentation} disabled={!open} onClick={() => open?.(node.id)}>
+        <span className="acpmux-workflow-card__head"><span className="acpmux-workflow-card__name">{workflow.title}</span><Icon name="disclosure.collapsed" size={11} /></span>
+        <span className="acpmux-workflow-card__meta"><span>{localizedState(t, workflow.state)}</span>{currentPhase?.name && <span>{currentPhase.name}</span>}{total > 0 && <span>{done}/{total}</span>}<span>{formatDuration(elapsed)}</span>{tokens !== undefined && <span>{t("subagents.tokens", { n: tokens, tokens: compactTokens(tokens) })}</span>}</span>
+        {presentation === "compact" ? <span className="acpmux-workflow-card__progress" role="progressbar" aria-label={t("summary.subagents.done", { n: done })} aria-valuemin={0} aria-valuemax={total} aria-valuenow={done}><span style={{ transform: `scaleX(${progress})` }} /></span> : presentation === "phases" ? <span className="acpmux-workflow-card__phases" aria-label={currentPhase?.name}>{workflow.phases.map((phase) => <span key={phase.id} data-state={phase.state} title={phase.name} />)}</span> : <><span className="acpmux-workflow-card__latest" title={latest}>{latest ?? ""}</span><span className="acpmux-workflow-card__progress" role="progressbar" aria-label={t("summary.subagents.done", { n: done })} aria-valuemin={0} aria-valuemax={total} aria-valuenow={done}><span style={{ transform: `scaleX(${progress})` }} /></span><span className="acpmux-workflow-card__focus">{focusAgent?.model && <span>{focusAgent.model}</span>}{focusElapsed !== undefined && <span>{formatDuration(focusElapsed)}</span>}</span></>}
+      </button>
+      {openSideTab && <button type="button" className="acpmux-workflow-card__side-tab" aria-label={t("workflow.openInSideTab")} title={t("workflow.openInSideTab")} onClick={() => openSideTab(node.id)}><Icon name="tunable.sidebar" size={12} /></button>}
+    </div>
   );
 }
