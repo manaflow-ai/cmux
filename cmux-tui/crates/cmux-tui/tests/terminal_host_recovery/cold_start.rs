@@ -26,6 +26,7 @@ fn tabs(tree: &serde_json::Value) -> Vec<serde_json::Value> {
 
 #[test]
 fn a_cold_start_answers_before_it_ends_its_dead_hosts_and_respawns_an_attached_one_first() {
+    let phase_clock = Instant::now();
     const COUNT: usize = 200;
     // Each committed host loss waits this long after its commit (debug hook):
     // ending COUNT hosts before the first answer costs COUNT times this (4 s).
@@ -44,6 +45,7 @@ fn a_cold_start_answers_before_it_ends_its_dead_hosts_and_respawns_an_attached_o
         );
     }
     let records = wait_for_host_records(&harness.host_root(), COUNT);
+    eprintln!("PHASE created t={:?}", phase_clock.elapsed());
     // Records are taken in path order: the last one is the last in the queue.
     let last = records.iter().map(|(_, record)| record.terminal_id.clone()).max().unwrap();
     let before = request(&harness.socket, serde_json::json!({"cmd": "list-workspaces"}));
@@ -54,6 +56,7 @@ fn a_cold_start_answers_before_it_ends_its_dead_hosts_and_respawns_an_attached_o
         .unwrap_or_else(|| panic!("no tab shows terminal {last}: {before}"));
     // The daemon goes first, so no owner sees the hosts die.
     harness.sigkill();
+    eprintln!("PHASE killed t={:?}", phase_clock.elapsed());
     for (_, record) in &records {
         // SAFETY: the record PID is a harness-owned terminal host.
         unsafe { libc::kill(record.host_pid as libc::pid_t, libc::SIGKILL) };
@@ -72,8 +75,10 @@ fn a_cold_start_answers_before_it_ends_its_dead_hosts_and_respawns_an_attached_o
         .push(("CMUX_TUI_TEST_HOST_LOSS_LOG_DELAY_MS".to_string(), LOSS_DELAY_MS.to_string()));
     let started = Instant::now();
     harness.restart();
+    eprintln!("PHASE restarted t={:?}", phase_clock.elapsed());
     request(&harness.socket, serde_json::json!({"id": 1, "cmd": "identify"}));
     let answered = started.elapsed();
+    eprintln!("PHASE answered t={:?}", phase_clock.elapsed());
     // The bound: ending the hosts first costs at least COUNT * LOSS_DELAY_MS
     // (4 s) by construction, plus the start pass; answering first costs only
     // the start pass, which answers_before_adoption bounds at 3 s for a
@@ -92,9 +97,11 @@ fn a_cold_start_answers_before_it_ends_its_dead_hosts_and_respawns_an_attached_o
     // R41: a tab whose terminal respawns never reads as dead meanwhile.
     assert_eq!(tab["terminal_state"], "adopting", "the last-queued tab is not pending: {tab}");
     let surface = tab["surface"].as_u64().unwrap();
+    eprintln!("PHASE tab-pending t={:?}", phase_clock.elapsed());
 
     let attach_started = Instant::now();
     let stream = transport::connect(&harness.socket).unwrap();
+    stream.set_read_timeout(Some(Duration::from_secs(20))).ok();
     let mut writer = stream.try_clone_box().unwrap();
     let mut reader = BufReader::new(stream);
     writeln!(
@@ -112,6 +119,7 @@ fn a_cold_start_answers_before_it_ends_its_dead_hosts_and_respawns_an_attached_o
         }
     };
     let attached = attach_started.elapsed();
+    eprintln!("PHASE attached t={:?}", phase_clock.elapsed());
     let pending = tabs(&request(&harness.socket, serde_json::json!({"cmd": "list-workspaces"})))
         .into_iter()
         .filter(|tab| tab["terminal_state"] == "adopting")
