@@ -12,7 +12,8 @@ path such as `perf_harness.py` never trigger it.
 Such a pull request records its deltas in a `## Performance` section holding a Markdown table with
 the columns metric | before | after | delta | harness or run link, and at least one row with every
 cell filled in (placeholders such as `<before>`, `TBD`, `-` or `?` are empty). When there are no
-numbers to record, a line `No perf numbers: <why>` says so instead.
+numbers to record (the change is not about speed), a line `No perf numbers: <why>` inside the
+Performance section says so instead.
 
 A docs-only change (every path under docs/ or a Markdown file) is exempt. Prints GitHub annotations
 and, on a failure, the template. Exits 1 on a missing or incomplete section, 0 otherwise (2 on bad
@@ -126,29 +127,50 @@ def column_index(header: list[str]) -> dict[str, int] | None:
     return found if len(found) == len(COLUMNS) else None
 
 
-def problems(text: str) -> list[str]:
-    """What the Performance section is missing; empty when its table is complete."""
-    lines = [l for l in text.splitlines()]
+SEPARATOR = re.compile(r"^\s*:?-{3,}:?\s*$")
+
+
+def tables(lines: list[str]):
+    """Each Markdown table in the lines: (header cells, data rows). The separator row must have
+    as many cells as the header."""
     for i in range(len(lines) - 1):
-        if "|" not in lines[i] or not re.match(r"^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)*\|?\s*$", lines[i + 1]):
+        if "|" not in lines[i] or "|" not in lines[i + 1]:
             continue
-        index = column_index(cells(lines[i]))
-        if index is None:
-            return ["the table needs the columns metric | before | after | delta | harness or run link"]
+        header, separator = cells(lines[i]), cells(lines[i + 1])
+        if len(separator) != len(header) or not all(SEPARATOR.match(c) for c in separator):
+            continue
         rows = []
         for line in lines[i + 2:]:
             if "|" not in line:
                 break
             rows.append(cells(line))
-        if not rows:
-            return ["the table has no rows"]
-        issues = []
-        for n, row in enumerate(rows, 1):
-            empty = [k for k, at in index.items() if at >= len(row) or PLACEHOLDER.match(row[at].strip())]
-            if empty:
-                issues.append(f"row {n} has no {', '.join(empty)}")
-        return issues
-    return ["the section has no before/after table"]
+        yield header, rows
+
+
+def table_problems(header: list[str], rows: list[list[str]]) -> list[str]:
+    index = column_index(header)
+    if index is None:
+        return ["the table needs the columns metric | before | after | delta | harness or run link"]
+    if not rows:
+        return ["the table has no rows"]
+    issues = []
+    for n, row in enumerate(rows, 1):
+        empty = [k for k, at in index.items() if at >= len(row) or PLACEHOLDER.match(row[at].strip())]
+        if empty:
+            issues.append(f"row {n} has no {', '.join(empty)}")
+    return issues
+
+
+def problems(text: str) -> list[str]:
+    """What the Performance section is missing; empty when one of its tables is complete. When none
+    is, the problems of the first table that has the required columns (else the first table)."""
+    found = [table_problems(header, rows) for header, rows in tables(text.splitlines())]
+    if not found:
+        return ["the section has no before/after table"]
+    if any(not issues for issues in found):
+        return []
+    columned = [issues for issues in found if "needs the columns" not in issues[0]]
+    return (columned or found)[0]
 
 
 def check(title: str, body: str, labels: set[str], paths: list[str]) -> tuple[int, str]:
@@ -157,11 +179,11 @@ def check(title: str, body: str, labels: set[str], paths: list[str]) -> tuple[in
     why = trigger(title, body, labels)
     if not why:
         return 0, "Not a performance change: no Performance table needed."
-    if NO_NUMBERS.search(FENCE.sub("", COMMENT.sub("", body or ""))):
-        return 0, f"Performance change ({why}); the description says why it has no numbers."
     text = section(body)
     if text is None:
         return 1, f"Performance change ({why}) and the description has no `## Performance` section."
+    if NO_NUMBERS.search(text):
+        return 0, f"Performance change ({why}); its Performance section says why it has no numbers."
     issues = problems(text)
     if issues:
         return 1, f"Performance change ({why}); the Performance section is incomplete: {'; '.join(issues)}."
@@ -187,7 +209,7 @@ def main(argv: list[str] | None = None) -> int:
         print(message)
         return 0
     print(f"::error title=No Performance table::{message} Record the before/after numbers from the same "
-          "harness, or write `No perf numbers: <why>`.")
+          "harness, or write `No perf numbers: <why>` under the heading.")
     print("Add this to the description (editing it re-runs the check):\n\n" + TEMPLATE)
     return 1
 

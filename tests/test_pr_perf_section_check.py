@@ -127,9 +127,23 @@ class SectionTests(unittest.TestCase):
         body = "## Performance\n\nsoon\n\n## Testing\n\n" + COMPLETE.split("## Performance")[1]
         self.assertEqual(self.check(body)[0], 1)
 
-    def test_no_numbers_line_passes(self):
-        self.assertEqual(self.check("No perf numbers: a rename; the word speed is in a symbol name.")[0], 0)
-        self.assertEqual(self.check("No perf numbers:")[0], 1)
+    def test_no_numbers_line_passes_only_in_the_section(self):
+        line = "No perf numbers: a rename; the word speed is in a symbol name."
+        self.assertEqual(self.check("## Performance\n\n" + line + "\n")[0], 0)
+        self.assertEqual(self.check(line)[0], 1)
+        self.assertEqual(self.check("## Performance\n\nNo perf numbers:\n")[0], 1)
+        self.assertEqual(self.check("## Performance\n\nsoon\n\n## Testing\n\n" + line)[0], 1)
+
+    def test_separator_must_match_the_header(self):
+        body = ("## Performance\n\n| metric | before | after | delta | run |\n| --- |\n"
+                "| p50 | 20 ms | 18 ms | -10% | bun bench |\n")
+        self.assertIn("no before/after table", self.check(body)[1])
+
+    def test_an_unrelated_table_first_does_not_fail_a_good_one(self):
+        other = "| file | change |\n| --- | --- |\n| a.swift | cache |\n\n"
+        body = COMPLETE.replace("## Performance\n\n", "## Performance\n\n" + other)
+        self.assertEqual(self.check(body)[0], 0)
+        self.assertEqual(self.check("## Performance\n\n" + other)[0], 1)
 
     def test_not_perf_passes(self):
         self.assertEqual(self.check("## Summary\n\nFix the caret.", title="Fix the composer caret")[0], 0)
