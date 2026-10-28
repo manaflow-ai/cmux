@@ -84,6 +84,15 @@ await requireBrowserLane("composer-content-font.test.ts", async () => {
               expect(await font(".cv-table")).toBeCloseTo(size * 0.875, 2);
             }
           }
+          // Shell mode is another editor in the same box and must keep the chosen size.
+          const prompt = page.locator(context === "new-tab" ? ".nt-field" : ".acpmux-md").first();
+          await prompt.fill("");
+          await prompt.press("!");
+          const shell = page.locator(
+            context === "new-tab" ? ".nt-screen[data-shell] .nt-field" : ".acpmux-shell-field",
+          );
+          await shell.waitFor();
+          expect(await shell.evaluate((element) => parseFloat(getComputedStyle(element).fontSize))).toBeCloseTo(28, 2);
         } finally {
           await page.close();
         }
