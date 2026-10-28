@@ -78,6 +78,7 @@ describe("pricing plans", () => {
       expect(LEGACY_PRICE_LOOKUP_KEYS).not.toContain(price.lookupKey);
     }
     expect(LEGACY_PRICE_LOOKUP_KEYS).toEqual([
+      "cmux-go-monthly-10",
       "cmux-pro-monthly",
       "cmux-pro-yearly",
       "cmux-pro-yearly-288",

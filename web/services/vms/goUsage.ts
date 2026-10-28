@@ -5,9 +5,12 @@ import { personalBillingPeriod, runtimeSecondsWithinPeriod, subscriptionPeriodSt
 
 export { runtimeSecondsWithinPeriod, subscriptionPeriodStart };
 
-export const GO_INCLUDED_VM_HOURS = 40;
+// Two 2 vCPU / 4 GiB machines, 80 aggregate VM-hours and 32 GiB retained disk:
+// 80 * (2 * $0.04032 + 4 * $0.0129) + 32 * $0.063 = $12.60/month
+// at the provider's list rates, leaving headroom within the $20 web price.
+export const GO_INCLUDED_VM_HOURS = 80;
 export const GO_INCLUDED_VM_SECONDS = GO_INCLUDED_VM_HOURS * 3600;
-/** Two retained machines in total, at most one of them running. */
+/** Two retained machines in total; both may run within the shared allowance. */
 export const GO_SAVED_VM_LIMIT = 2;
 
 export type GoVmUsage = {

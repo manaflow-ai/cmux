@@ -81,7 +81,7 @@ describe("Cloud entitlement matrix", () => {
       maxMemoryMb: 4 * GB,
       maxVcpus: 2,
       maxDiskMb: 16 * GB,
-      maxActiveVms: 1,
+      maxActiveVms: 2,
       pool: null,
       lockedUpgrade: "pro",
     },

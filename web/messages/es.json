@@ -130,13 +130,13 @@
       "action": "cmux vm new --size {max}g"
     },
     "goLimit": {
-      "savedMessage": "Go incluye dos VM guardadas, incluida la VM en ejecución.",
+      "savedMessage": "Starter: 2 VM guardadas en total, incluidas las máquinas en pausa",
       "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
-      "activeMessage": "Go incluye una VM en ejecución a la vez.",
+      "activeMessage": "Starter: Hasta 2 VM de Cloud activas",
       "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
-      "hoursMessage": "Go ha agotado sus 40 horas de VM de este mes. Las VM guardadas estarán disponibles en el próximo período de facturación.",
+      "hoursMessage": "Starter: 80 horas de VM compartidas al mes; las VM se pausan al alcanzar el límite",
       "hoursAction": "cmux billing checkout --plan pro",
-      "shapeMessage": "Go admite 2 vCPU, 4 GiB de RAM y 16 GiB de disco.",
+      "shapeMessage": "Starter: Cada VM: 2 vCPU, 4 GiB de RAM y 16 GiB de disco",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
     },
     "planBudget": {
@@ -556,7 +556,7 @@
         },
         "names": {
           "free": "Free",
-          "go": "Go",
+          "go": "Starter",
           "pro": "Pro",
           "max": "Max",
           "team": "Team"
@@ -568,9 +568,10 @@
             "Historial de sesiones local"
           ],
           "go": [
-            "1 Cloud VM activa",
-            "40 horas de VM al mes",
-            "2 VM guardadas"
+            "Hasta 2 VM de Cloud activas",
+            "Cada VM: 2 vCPU, 4 GiB de RAM y 16 GiB de disco",
+            "2 VM guardadas en total, incluidas las máquinas en pausa",
+            "80 horas de VM compartidas al mes; las VM se pausan al alcanzar el límite"
           ],
           "pro": [
             "Agentes en la nube en Cloud VMs",
@@ -635,6 +636,12 @@
         "title": "Facturado a través del App Store",
         "body": "Tu plan se compró en la app de cmux para iPhone y Apple lo factura. Cámbialo o cancélalo en tus suscripciones del App Store.",
         "manage": "Gestionar en el App Store"
+      },
+      "go": {
+        "name": "cmux Starter",
+        "activeBody": "Tu plan Starter se renueva el {date}.",
+        "pendingBody": "Tu plan Starter termina el {date}.",
+        "monthlyPrice": "${amount}/mes"
       }
     },
     "mobileDevices": {
@@ -969,7 +976,7 @@
       },
       "plan": {
         "free": "Gratis",
-        "go": "Go",
+        "go": "Starter",
         "pro": "Pro",
         "max": "Max",
         "team": "Team"
@@ -3039,7 +3046,7 @@
       "agentUpdatesToggle": "La hoja Nueva máquina activa esta opción de forma predeterminada. Para cambiarla en una máquina existente, haz clic derecho en la máquina y elige Mantener los agentes actualizados, o ejecuta cmux vm agent-updates. cmux vm new conserva las versiones de la imagen salvo que pases --agent-updates latest. Al desactivar las actualizaciones se conservan las versiones ya instaladas.",
       "agentUpdatesNetwork": "Las actualizaciones solo usan github.com, api.github.com, objects.githubusercontent.com y release-assets.githubusercontent.com. cmux permite estos hosts en todos los modos de red, incluidos Lista permitida y Sin internet, así que una política de red nunca bloquea las actualizaciones.",
       "resizeTitle": "Cambiar tamaño",
-      "resizeDesc": "Puedes ampliar una máquina sin perder datos. Haz clic derecho en la máquina y elige Resize machine, o usa cmux vm resize. Solo se puede ampliar una máquina, no reducirla. El disco crece en incrementos de 4 GB hasta 128 GB en Pro y Team, o 256 GB en Max (Go está limitado a 16 GB). La memoria crece hasta 16 GB y la CPU hasta 8 vCPU en Pro y Team, o hasta 64 GB y 32 vCPU en Max. Una máquina más grande usa más de tu fondo. Tu plan fija el máximo real.",
+      "resizeDesc": "Puedes ampliar una máquina sin perder datos. Haz clic derecho en la máquina y elige Resize machine, o usa cmux vm resize. Solo se puede ampliar una máquina, no reducirla. El disco crece en incrementos de 4 GB hasta 128 GB en Pro y Team, o 256 GB en Max (Starter está limitado a 16 GB). La memoria crece hasta 16 GB y la CPU hasta 8 vCPU en Pro y Team, o hasta 64 GB y 32 vCPU en Max. Una máquina más grande usa más de tu fondo. Tu plan fija el máximo real.",
       "pauseTitle": "Pausar y reanudar",
       "pauseDesc": "cmux vm pause detiene el cómputo de la máquina. El disco, los espacios de trabajo y el historial de los terminales se conservan. Los procesos en ejecución se detienen. cmux vm resume vuelve a iniciar la máquina. Abrir una máquina en pausa o ejecutar un comando en ella también la inicia.",
       "pauseIdle": "Las máquinas no se pausan solas cuando están inactivas. Una máquina sigue en ejecución hasta que la pausas o la eliminas.",
@@ -5330,7 +5337,18 @@
     "billingUnavailable": "La facturación no está disponible ahora. Inténtalo de nuevo más tarde.",
     "signedOutNotice": "No has iniciado sesión. Inicia sesión para ver tu plan actual o restaurar una compra existente.",
     "signedOutSignIn": "Iniciar sesión",
-    "manageInAppStore": "Gestionar en el App Store"
+    "manageInAppStore": "Gestionar en el App Store",
+    "go": {
+      "name": "Starter",
+      "cta": "Obtener Starter",
+      "featuresLead": "Incluye:",
+      "features": [
+        "Hasta 2 VM de Cloud activas",
+        "Cada VM: 2 vCPU, 4 GiB de RAM y 16 GiB de disco",
+        "2 VM guardadas en total, incluidas las máquinas en pausa",
+        "80 horas de VM compartidas al mes; las VM se pausan al alcanzar el límite"
+      ]
+    }
   },
   "platforms": {
     "macos": "macOS",

@@ -130,13 +130,13 @@
       "action": "cmux vm new --size {max}g"
     },
     "goLimit": {
-      "savedMessage": "تتضمن Go جهازين افتراضيين محفوظين، بما فيهما الجهاز قيد التشغيل.",
+      "savedMessage": "Starter: جهازان محفوظان إجمالاً، بما في ذلك الأجهزة المتوقفة مؤقتاً",
       "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
-      "activeMessage": "تتضمن Go جهازاً افتراضياً واحداً قيد التشغيل في كل مرة.",
+      "activeMessage": "Starter: حتى جهازين افتراضيين نشطين في Cloud",
       "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
-      "hoursMessage": "استهلكت Go ساعات تشغيل الأجهزة الأربعين لهذا الشهر. ستتوفر الأجهزة المحفوظة مجدداً عند بدء فترة الفوترة التالية.",
+      "hoursMessage": "Starter: 80 ساعة تشغيل مشتركة شهرياً؛ تتوقف الأجهزة مؤقتاً عند بلوغ الحد",
       "hoursAction": "cmux billing checkout --plan pro",
-      "shapeMessage": "تدعم Go معالجين افتراضيين وذاكرة 4 GiB وقرصاً بسعة 16 GiB.",
+      "shapeMessage": "Starter: لكل جهاز: 2 vCPU و4 GiB من RAM و16 GiB من القرص",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
     },
     "planBudget": {
@@ -556,7 +556,7 @@
         },
         "names": {
           "free": "Free",
-          "go": "Go",
+          "go": "Starter",
           "pro": "Pro",
           "max": "Max",
           "team": "Team"
@@ -568,9 +568,10 @@
             "سجل الجلسات المحلي"
           ],
           "go": [
-            "جهاز Cloud VM نشط واحد",
-            "40 ساعة VM شهريًا",
-            "جهازا VM محفوظان"
+            "حتى جهازين افتراضيين نشطين في Cloud",
+            "لكل جهاز: 2 vCPU و4 GiB من RAM و16 GiB من القرص",
+            "جهازان محفوظان إجمالاً، بما في ذلك الأجهزة المتوقفة مؤقتاً",
+            "80 ساعة تشغيل مشتركة شهرياً؛ تتوقف الأجهزة مؤقتاً عند بلوغ الحد"
           ],
           "pro": [
             "وكلاء سحابيون على Cloud VMs",
@@ -635,6 +636,12 @@
         "title": "تتم الفوترة عبر App Store",
         "body": "تم شراء خطتك في تطبيق cmux على iPhone وتتولى Apple فوترتها. يمكنك تغييرها أو إلغاؤها من اشتراكات App Store.",
         "manage": "الإدارة في App Store"
+      },
+      "go": {
+        "name": "cmux Starter",
+        "activeBody": "تتجدد خطة Starter في {date}.",
+        "pendingBody": "تنتهي خطة Starter في {date}.",
+        "monthlyPrice": "${amount}/شهر"
       }
     },
     "mobileDevices": {
@@ -969,7 +976,7 @@
       },
       "plan": {
         "free": "مجاني",
-        "go": "Go",
+        "go": "Starter",
         "pro": "Pro",
         "max": "Max",
         "team": "Team"
@@ -3037,7 +3044,7 @@
       "agentUpdatesToggle": "تفعّل ورقة جهاز جديد هذا الإعداد افتراضيًا. لتغييره لجهاز موجود، انقر بزر الماوس الأيمن على الجهاز واختر إبقاء الوكلاء محدَّثين، أو شغّل cmux vm agent-updates. يحتفظ cmux vm new بإصدارات الصورة ما لم تمرّر --agent-updates latest. عند إيقاف التحديثات تبقى الإصدارات المثبتة كما هي.",
       "agentUpdatesNetwork": "تستخدم التحديثات فقط github.com, api.github.com, objects.githubusercontent.com وrelease-assets.githubusercontent.com. يسمح cmux بهذه المضيفات في كل أوضاع الشبكة، بما في ذلك قائمة السماح وبلا إنترنت، لذلك لا تمنع سياسة الشبكة التحديثات أبدًا.",
       "resizeTitle": "تغيير الحجم",
-      "resizeDesc": "يمكنك تكبير جهاز دون فقدان البيانات. انقر بزر الفأرة الأيمن على الجهاز واختر Resize machine، أو استخدم cmux vm resize. يمكن لتغيير الحجم تكبير الجهاز فقط. يكبر القرص بخطوات 4 GB حتى 128 GB في Pro وTeam، أو 256 GB في Max (وGo محدود بـ16 GB). تكبر الذاكرة حتى 16 GB والمعالج حتى 8 vCPU في Pro وTeam، أو حتى 64 GB و32 vCPU في Max. يستخدم الجهاز الأكبر جزءاً أكبر من مجمعك. تحدد خطتك الحد الأقصى الفعلي.",
+      "resizeDesc": "يمكنك تكبير جهاز دون فقدان البيانات. انقر بزر الفأرة الأيمن على الجهاز واختر Resize machine، أو استخدم cmux vm resize. يمكن لتغيير الحجم تكبير الجهاز فقط. يكبر القرص بخطوات 4 GB حتى 128 GB في Pro وTeam، أو 256 GB في Max (وStarter محدود بـ16 GB). تكبر الذاكرة حتى 16 GB والمعالج حتى 8 vCPU في Pro وTeam، أو حتى 64 GB و32 vCPU في Max. يستخدم الجهاز الأكبر جزءاً أكبر من مجمعك. تحدد خطتك الحد الأقصى الفعلي.",
       "pauseTitle": "الإيقاف المؤقت والاستئناف",
       "pauseDesc": "يوقف cmux vm pause موارد الحوسبة للجهاز. يبقى القرص ومساحات العمل وسجل الطرفية. تتوقف العمليات العاملة. يعيد cmux vm resume تشغيل الجهاز. كما أن فتح جهاز متوقف مؤقتاً أو تشغيل أمر عليه يبدأ تشغيله أيضاً.",
       "pauseIdle": "لا تتوقف الأجهزة مؤقتاً من تلقاء نفسها عندما تكون خاملة. يستمر الجهاز في العمل حتى توقفه مؤقتاً أو تحذفه.",
@@ -5328,7 +5335,18 @@
     "billingUnavailable": "الفوترة غير متاحة الآن. يُرجى المحاولة مرة أخرى لاحقًا.",
     "signedOutNotice": "لم تسجّل الدخول. سجّل الدخول لعرض خطتك الحالية أو استعادة عملية شراء سابقة.",
     "signedOutSignIn": "تسجيل الدخول",
-    "manageInAppStore": "الإدارة في App Store"
+    "manageInAppStore": "الإدارة في App Store",
+    "go": {
+      "name": "Starter",
+      "cta": "اختر Starter",
+      "featuresLead": "يشمل:",
+      "features": [
+        "حتى جهازين افتراضيين نشطين في Cloud",
+        "لكل جهاز: 2 vCPU و4 GiB من RAM و16 GiB من القرص",
+        "جهازان محفوظان إجمالاً، بما في ذلك الأجهزة المتوقفة مؤقتاً",
+        "80 ساعة تشغيل مشتركة شهرياً؛ تتوقف الأجهزة مؤقتاً عند بلوغ الحد"
+      ]
+    }
   },
   "platforms": {
     "macos": "macOS",

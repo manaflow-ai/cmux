@@ -1,4 +1,4 @@
--- Run against an isolated development database after the Go migration.
+-- Run against an isolated database after the Starter limits migration.
 BEGIN;
 DO $$
 DECLARE
@@ -17,21 +17,16 @@ BEGIN
   IF (SELECT count(*) FROM cloud_vm_runtime_intervals WHERE vm_id=first_id AND ended_at IS NULL) <> 1 THEN
     RAISE EXCEPTION 'repeated running update duplicated billing';
   END IF;
-  rejected := false;
-  BEGIN
-    INSERT INTO cloud_vms(user_id,billing_team_id,billing_plan_id,provider,image_id,status)
-      VALUES (u,u || '-other-team','go','freestyle','test','running');
-  EXCEPTION WHEN check_violation THEN
-    GET STACKED DIAGNOSTICS constraint_seen=CONSTRAINT_NAME;
-    rejected := constraint_seen='cmux_go_active_limit';
-  END;
-  IF NOT rejected THEN RAISE EXCEPTION 'cross-team active cap failed'; END IF;
+  INSERT INTO cloud_vms(user_id,billing_team_id,billing_plan_id,provider,image_id,status)
+    VALUES (u,u || '-other-team','go','freestyle','test','running') RETURNING id INTO second_id;
+  IF (SELECT count(*) FROM cloud_vms WHERE user_id=u AND status='running') <> 2 THEN
+    RAISE EXCEPTION 'Starter did not allow both saved machines to run';
+  END IF;
   UPDATE cloud_vms SET status='paused' WHERE id=first_id;
   IF EXISTS (SELECT 1 FROM cloud_vm_runtime_intervals WHERE vm_id=first_id AND ended_at IS NULL) THEN
     RAISE EXCEPTION 'pause did not close runtime';
   END IF;
-  INSERT INTO cloud_vms(user_id,billing_team_id,billing_plan_id,provider,image_id,status)
-    VALUES (u,u,'go','freestyle','test','paused') RETURNING id INTO second_id;
+  UPDATE cloud_vms SET status='paused' WHERE id=second_id;
   rejected := false;
   BEGIN
     INSERT INTO cloud_vms(user_id,billing_team_id,billing_plan_id,provider,image_id,status)
@@ -41,7 +36,7 @@ BEGIN
     rejected := constraint_seen='cmux_go_saved_limit';
   END;
   IF NOT rejected THEN RAISE EXCEPTION 'saved cap failed'; END IF;
-  UPDATE cloud_vm_runtime_intervals SET started_at=now()-interval '41 hours', ended_at=now() WHERE vm_id=first_id;
+  UPDATE cloud_vm_runtime_intervals SET started_at=now()-interval '81 hours', ended_at=now() WHERE vm_id=first_id;
   UPDATE cloud_vms SET status='destroyed', destroyed_at=now() WHERE id=first_id;
   rejected := false;
   BEGIN
@@ -82,7 +77,7 @@ BEGIN
   INSERT INTO cloud_vms(user_id,billing_team_id,billing_plan_id,provider,image_id,status)
     VALUES (u,u,'go','freestyle','test','running') RETURNING id INTO apple_vm;
   UPDATE cloud_vms SET status='paused' WHERE id=apple_vm;
-  UPDATE cloud_vm_runtime_intervals SET started_at=now()-interval '41 hours', ended_at=now() WHERE vm_id=apple_vm;
+  UPDATE cloud_vm_runtime_intervals SET started_at=now()-interval '81 hours', ended_at=now() WHERE vm_id=apple_vm;
   rejected := false;
   BEGIN
     UPDATE cloud_vms SET status='running' WHERE id=apple_vm;

@@ -122,7 +122,7 @@ describe("localized pricing page", () => {
       const html = await renderSettled(await PricingPage({ params: Promise.resolve({ locale: "en" }) }));
       expect(html).toContain("Get Pro");
       expect(html).toContain("Get Max");
-      expect(html).not.toContain("Get Go");
+      expect(html).not.toContain("Get Starter");
       expect(html).not.toContain("$10");
       expect(html).toContain("25% repeat(5,15%)");
     } finally {
@@ -212,7 +212,7 @@ describe("localized pricing page", () => {
       ),
     ).toEqual({
       label: "Concurrent Cloud VMs",
-      go: "1",
+      go: "2",
       free: "false",
       pro: "5",
       max: "5",
@@ -321,7 +321,10 @@ describe("localized pricing page", () => {
     expect(html).toContain("$160");
     expect(html).toContain("Yearly");
     expect(html).toContain("Up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM");
-    expect(html).toContain("Get Go");
+    expect(html).toContain("Get Starter");
+    expect(html).toContain("$20");
+    expect(html).toContain("80 shared VM-hours each month");
+    expect(html).toContain("Up to 2 active Cloud VMs");
     expect(html).toContain("2 vCPU, 4 GiB RAM, and 16 GiB disk");
     expect(html).toContain("For individuals");
     expect(html).toContain("For teams and businesses");

@@ -130,13 +130,13 @@
       "action": "cmux vm new --size {max}g"
     },
     "goLimit": {
-      "savedMessage": "Go 最多保存两台 VM，包括正在运行的 VM。",
+      "savedMessage": "Starter: 共可保存 2 台 VM，包括已暂停的机器",
       "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
-      "activeMessage": "Go 同时可运行一台 VM。",
+      "activeMessage": "Starter: 最多 2 台活跃的 Cloud VM",
       "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
-      "hoursMessage": "Go 本月的 40 VM 小时已用完。保存的 VM 可在下一个计费周期开始后继续使用。",
+      "hoursMessage": "Starter: 每月共享 80 VM 小时；达到上限后 VM 将暂停",
       "hoursAction": "cmux billing checkout --plan pro",
-      "shapeMessage": "Go 支持 2 vCPU、4 GiB 内存和 16 GiB 磁盘。",
+      "shapeMessage": "Starter: 每台 VM：2 vCPU、4 GiB 内存和 16 GiB 磁盘",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
     },
     "planBudget": {
@@ -556,7 +556,7 @@
         },
         "names": {
           "free": "Free",
-          "go": "Go",
+          "go": "Starter",
           "pro": "Pro",
           "max": "Max",
           "team": "Team"
@@ -568,9 +568,10 @@
             "本地会话历史"
           ],
           "go": [
-            "1 台运行中的 Cloud VM",
-            "每月 40 VM 小时",
-            "2 台已保存的 VM"
+            "最多 2 台活跃的 Cloud VM",
+            "每台 VM：2 vCPU、4 GiB 内存和 16 GiB 磁盘",
+            "共可保存 2 台 VM，包括已暂停的机器",
+            "每月共享 80 VM 小时；达到上限后 VM 将暂停"
           ],
           "pro": [
             "在 Cloud VM 上运行云端智能体",
@@ -635,6 +636,12 @@
         "title": "通过 App Store 计费",
         "body": "你的方案是在 cmux iPhone 应用中购买的，由 Apple 计费。请在 App Store 订阅中更改或取消。",
         "manage": "在 App Store 中管理"
+      },
+      "go": {
+        "name": "cmux Starter",
+        "activeBody": "你的 Starter 套餐将于 {date} 续订。",
+        "pendingBody": "你的 Starter 套餐将于 {date} 结束。",
+        "monthlyPrice": "${amount}/月"
       }
     },
     "mobileDevices": {
@@ -969,7 +976,7 @@
       },
       "plan": {
         "free": "免费",
-        "go": "Go",
+        "go": "Starter",
         "pro": "Pro",
         "max": "Max",
         "team": "Team"
@@ -3040,7 +3047,7 @@
       "agentUpdatesToggle": "“新建机器”面板默认开启此设置。要为现有机器更改，请右键点击机器并选择“让代理保持最新”，或运行 cmux vm agent-updates。除非传入 --agent-updates latest，否则 cmux vm new 会保留镜像中的版本。关闭更新后，已安装的版本会保留。",
       "agentUpdatesNetwork": "更新只使用 github.com, api.github.com, objects.githubusercontent.com 和 release-assets.githubusercontent.com。cmux 在所有网络模式下都允许这些主机，包括“允许列表”和“无互联网”，因此网络策略不会阻止更新。",
       "resizeTitle": "调整规格",
-      "resizeDesc": "你可以在不丢失数据的情况下扩大机器。右键点击机器并选择 Resize machine，或使用 cmux vm resize。调整规格只能扩大机器。磁盘以 4 GB 为步长，在 Pro 和 Team 中最多扩展到 128 GB，在 Max 中最多扩展到 256 GB（Go 限制为 16 GB）。在 Pro 和 Team 中，内存最多 16 GB，CPU 最多 8 vCPU；在 Max 中，内存最多 64 GB，CPU 最多 32 vCPU。机器越大，占用的资源池越多。实际上限由你的套餐决定。",
+      "resizeDesc": "你可以在不丢失数据的情况下扩大机器。右键点击机器并选择 Resize machine，或使用 cmux vm resize。调整规格只能扩大机器。磁盘以 4 GB 为步长，在 Pro 和 Team 中最多扩展到 128 GB，在 Max 中最多扩展到 256 GB（Starter 限制为 16 GB）。在 Pro 和 Team 中，内存最多 16 GB，CPU 最多 8 vCPU；在 Max 中，内存最多 64 GB，CPU 最多 32 vCPU。机器越大，占用的资源池越多。实际上限由你的套餐决定。",
       "pauseTitle": "暂停与恢复",
       "pauseDesc": "cmux vm pause 会停止机器的计算资源。磁盘、工作区和终端历史会保留，正在运行的进程会停止。cmux vm resume 会重新启动机器。打开已暂停的机器或在其上运行命令也会启动它。",
       "pauseIdle": "机器空闲时不会自动暂停。机器会一直运行，直到你暂停或删除它。",
@@ -5331,7 +5338,18 @@
     "billingUnavailable": "目前无法使用结算功能。请稍后再试。",
     "signedOutNotice": "你尚未登录。登录后可查看当前方案或恢复已有购买。",
     "signedOutSignIn": "登录",
-    "manageInAppStore": "在 App Store 中管理"
+    "manageInAppStore": "在 App Store 中管理",
+    "go": {
+      "name": "Starter",
+      "cta": "获取 Starter",
+      "featuresLead": "包含：",
+      "features": [
+        "最多 2 台活跃的 Cloud VM",
+        "每台 VM：2 vCPU、4 GiB 内存和 16 GiB 磁盘",
+        "共可保存 2 台 VM，包括已暂停的机器",
+        "每月共享 80 VM 小时；达到上限后 VM 将暂停"
+      ]
+    }
   },
   "platforms": {
     "macos": "macOS",

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { FEATURE_FLAGS } from "../app/lib/feature-flags";
-import { isGoPlanEnabled } from "../services/billing/goPlanFlag";
+import { isGoPlanEnabled, isWebStarterPlanEnabled } from "../services/billing/goPlanFlag";
 
 const response = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
 
@@ -17,4 +17,10 @@ describe("Go rollout flag", () => {
     expect(await isGoPlanEnabled("test-user", async () => response({ flags: { [FEATURE_FLAGS.goPlan.key]: { enabled: false } } }))).toBe(false);
     expect(await isGoPlanEnabled("test-user", async () => response({}, 503))).toBe(false);
   });
+});
+
+// Releasing web Starter must not accidentally release App Store Go.
+test("web Starter is available while App Store Go still honors its release flag", async () => {
+  expect(await isWebStarterPlanEnabled("test-user")).toBe(true);
+  expect(await isGoPlanEnabled("test-user", async () => response({}, 503))).toBe(false);
 });

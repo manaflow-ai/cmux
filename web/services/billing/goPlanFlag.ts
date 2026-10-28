@@ -6,6 +6,11 @@ import {
   postHogFlagsUrl,
 } from "../client-config/posthogFlags";
 
+/** Web Starter is publicly available. App Store Go keeps its own rollout. */
+export async function isWebStarterPlanEnabled(_distinctId = "anonymous"): Promise<boolean> {
+  return (process.env.NODE_ENV ?? "test") !== "test" || process.env.CMUX_TEST_GO_PLAN_DISABLED !== "1";
+}
+
 /**
  * Go is a release-gated product. The safe fallback hides the plan and rejects
  * checkout when PostHog is unavailable, so a flag outage cannot sell a plan

@@ -130,13 +130,13 @@
       "action": "cmux vm new --size {max}g"
     },
     "goLimit": {
-      "savedMessage": "Go, çalışan VM dahil iki kayıtlı VM içerir.",
+      "savedMessage": "Starter: Duraklatılan makineler dahil toplam 2 kayıtlı VM",
       "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
-      "activeMessage": "Go aynı anda bir VM çalıştırabilir.",
+      "activeMessage": "Starter: En fazla 2 etkin Cloud VM",
       "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
-      "hoursMessage": "Go bu ayki 40 VM saatini kullandı. Kayıtlı VM’ler sonraki fatura döneminde yeniden kullanılabilir.",
+      "hoursMessage": "Starter: Ayda paylaşılan 80 VM saati; sınıra ulaşınca VM’ler duraklatılır",
       "hoursAction": "cmux billing checkout --plan pro",
-      "shapeMessage": "Go, 2 vCPU, 4 GiB RAM ve 16 GiB disk destekler.",
+      "shapeMessage": "Starter: Her VM: 2 vCPU, 4 GiB RAM ve 16 GiB disk",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
     },
     "planBudget": {
@@ -556,7 +556,7 @@
         },
         "names": {
           "free": "Free",
-          "go": "Go",
+          "go": "Starter",
           "pro": "Pro",
           "max": "Max",
           "team": "Team"
@@ -568,9 +568,10 @@
             "Yerel oturum geçmişi"
           ],
           "go": [
-            "1 etkin Cloud VM",
-            "Ayda 40 VM saati",
-            "2 kayıtlı VM"
+            "En fazla 2 etkin Cloud VM",
+            "Her VM: 2 vCPU, 4 GiB RAM ve 16 GiB disk",
+            "Duraklatılan makineler dahil toplam 2 kayıtlı VM",
+            "Ayda paylaşılan 80 VM saati; sınıra ulaşınca VM’ler duraklatılır"
           ],
           "pro": [
             "Cloud VMs üzerinde bulut ajanları",
@@ -635,6 +636,12 @@
         "title": "App Store üzerinden faturalandırılır",
         "body": "Planınız cmux iPhone uygulamasında satın alındı ve Apple tarafından faturalandırılıyor. Planı App Store aboneliklerinizden değiştirin veya iptal edin.",
         "manage": "App Store'da yönet"
+      },
+      "go": {
+        "name": "cmux Starter",
+        "activeBody": "Starter planınız {date} tarihinde yenilenir.",
+        "pendingBody": "Starter planınız {date} tarihinde sona erer.",
+        "monthlyPrice": "${amount}/ay"
       }
     },
     "mobileDevices": {
@@ -969,7 +976,7 @@
       },
       "plan": {
         "free": "Ücretsiz",
-        "go": "Go",
+        "go": "Starter",
         "pro": "Pro",
         "max": "Max",
         "team": "Team"
@@ -3038,7 +3045,7 @@
       "agentUpdatesToggle": "New Machine sayfası bu ayarı varsayılan olarak açar. Mevcut bir makinede değiştirmek için makineye sağ tıklayıp Keep Agents Up to Date seçeneğini seçin veya cmux vm agent-updates komutunu çalıştırın. cmux vm new, --agent-updates latest geçmediğiniz sürece imajdaki sürümleri korur. Güncellemeleri kapatmak, kurulu sürümleri korur.",
       "agentUpdatesNetwork": "Güncellemeler yalnızca github.com, api.github.com, objects.githubusercontent.com ve release-assets.githubusercontent.com kullanır. cmux bu sunuculara Allowlist ve No internet dahil her ağ modunda izin verir, bu yüzden bir ağ politikası güncellemeleri asla engellemez.",
       "resizeTitle": "Yeniden boyutlandırma",
-      "resizeDesc": "Bir makineyi veri kaybı olmadan büyütebilirsiniz. Makineye sağ tıklayıp Resize machine'i seçin veya cmux vm resize kullanın. Yeniden boyutlandırma yalnızca büyütebilir. Disk Pro ve Team'de 4 GB'lık adımlarla 128 GB'a, Max'te 256 GB'a kadar büyür (Go 16 GB ile sınırlıdır). Bellek Pro ve Team'de 16 GB'a, CPU 8 vCPU'ya; Max'te 64 GB'a ve 32 vCPU'ya kadar büyür. Daha büyük bir makine havuzunuzdan daha fazla kullanır. Gerçek üst sınırı planınız belirler.",
+      "resizeDesc": "Bir makineyi veri kaybı olmadan büyütebilirsiniz. Makineye sağ tıklayıp Resize machine'i seçin veya cmux vm resize kullanın. Yeniden boyutlandırma yalnızca büyütebilir. Disk Pro ve Team'de 4 GB'lık adımlarla 128 GB'a, Max'te 256 GB'a kadar büyür (Starter 16 GB ile sınırlıdır). Bellek Pro ve Team'de 16 GB'a, CPU 8 vCPU'ya; Max'te 64 GB'a ve 32 vCPU'ya kadar büyür. Daha büyük bir makine havuzunuzdan daha fazla kullanır. Gerçek üst sınırı planınız belirler.",
       "pauseTitle": "Duraklatma ve sürdürme",
       "pauseDesc": "cmux vm pause makinenin işlem kaynaklarını durdurur. Disk, çalışma alanları ve terminal geçmişi korunur. Çalışan işlemler durur. cmux vm resume makineyi yeniden başlatır. Duraklatılmış bir makineyi açmak veya üzerinde komut çalıştırmak da onu başlatır.",
       "pauseIdle": "Makineler boşta kaldıklarında kendiliğinden duraklamaz. Bir makine siz onu duraklatana veya silene kadar çalışmaya devam eder.",
@@ -5329,7 +5336,18 @@
     "billingUnavailable": "Faturalandırma şu anda kullanılamıyor. Lütfen daha sonra tekrar deneyin.",
     "signedOutNotice": "Oturum açmadınız. Mevcut planınızı görmek veya önceki bir satın almayı geri yüklemek için oturum açın.",
     "signedOutSignIn": "Oturum aç",
-    "manageInAppStore": "App Store'da yönet"
+    "manageInAppStore": "App Store'da yönet",
+    "go": {
+      "name": "Starter",
+      "cta": "Starter seç",
+      "featuresLead": "Dahil olanlar:",
+      "features": [
+        "En fazla 2 etkin Cloud VM",
+        "Her VM: 2 vCPU, 4 GiB RAM ve 16 GiB disk",
+        "Duraklatılan makineler dahil toplam 2 kayıtlı VM",
+        "Ayda paylaşılan 80 VM saati; sınıra ulaşınca VM’ler duraklatılır"
+      ]
+    }
   },
   "platforms": {
     "macos": "macOS",
