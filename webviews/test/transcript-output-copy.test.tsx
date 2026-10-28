@@ -106,11 +106,11 @@ test("a code handoff completes immediately when pane animation is disabled", asy
   }
 });
 
-const call = (kind: string, output: string, command?: string) =>
+const call = (kind: string, output: string, command?: string, title = "Tool") =>
   ({
     kind: "activity",
     text: "Ran",
-    tool: { id: `${kind}-call`, kind, title: "Tool", status: "completed", command, output },
+    tool: { id: `${kind}-call`, kind, title, status: "completed", command, output },
   }) as never;
 
 async function openRow(kind: string, output: string, command?: string) {
@@ -123,6 +123,34 @@ test("an opened call shows its output without terminal colour codes", async () =
   await openRow("execute", "\x1b[32mok\x1b[0m 3 passed\n", "bun test");
   const shown = host.querySelector(".cv-shell__output")?.textContent;
   expect(shown).toBe("ok 3 passed");
+});
+
+test("a fetch result with prose Markdown renders it and keeps JSON mono", async () => {
+  await openRow("fetch", "# Status\n\nThe **service** is healthy.");
+  expect(host.querySelector(".cv-tool-output__markdown h1")?.textContent).toBe("Status");
+  expect(host.querySelector(".cv-tool-output__markdown strong")?.textContent).toBe("service");
+
+  await openRow("fetch", JSON.stringify({ ok: true }));
+  expect(host.querySelector(".cv-tool-output__markdown")).toBeNull();
+  expect(host.querySelector(".cv-tool-output")).not.toBeNull();
+});
+
+test("a long Markdown result can show every line and toggle to Raw", async () => {
+  const lines = Array.from({ length: 20 }, (_, index) => `## Result ${index}`);
+  await openRow("fetch", lines.join("\n"));
+  const showAll = [...host.querySelectorAll("button")].find((node) => node.textContent === "Show all 20 lines");
+  expect(showAll).toBeDefined();
+  expect(host.querySelector(".cv-tool-output__markdown")?.getAttribute("data-preview")).toBe("cut");
+
+  await click(showAll);
+  expect(host.querySelector(".cv-tool-output__markdown")?.getAttribute("data-preview")).toBe("all");
+  expect([...host.querySelectorAll("button")].some((node) => node.textContent === "Show less")).toBe(true);
+
+  const raw = [...host.querySelectorAll("button")].find((node) => node.textContent?.trim() === "Raw");
+  expect(raw).toBeDefined();
+  await click(raw);
+  expect(host.querySelector(".cv-tool-output__markdown")).toBeNull();
+  expect(host.querySelector("pre.cv-tool-output")?.textContent).toContain("## Result 0");
 });
 
 test("an output of exactly 400 lines and a final newline shows whole", async () => {
