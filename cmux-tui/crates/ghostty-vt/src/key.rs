@@ -3,7 +3,7 @@ use std::ptr;
 use ghostty_vt_sys as sys;
 
 use crate::terminal::Terminal;
-use crate::{Result, check};
+use crate::{Error, Result, check};
 
 /// Key press/release/repeat.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -155,7 +155,7 @@ pub fn key_input_from_chord(chord: &str) -> Option<KeyInput> {
             }
         }
         name if name.starts_with('f') => {
-            let n = name[1..].parse::<u32>().ok()?;
+            let n = name.strip_prefix('f')?.parse::<u32>().ok()?;
             if !(1..=24).contains(&n) {
                 return None;
             }
@@ -313,11 +313,12 @@ impl KeyEncoder {
                     &mut written2,
                 )
             })?;
-            append_encoded_key(input, &big[..written2], out);
+            // A written length past the buffer breaks the encoder's contract.
+            append_encoded_key(input, big.get(..written2).ok_or(Error::OutOfSpace)?, out);
             return Ok(());
         }
         check(result)?;
-        append_encoded_key(input, &buf[..written], out);
+        append_encoded_key(input, buf.get(..written).ok_or(Error::OutOfSpace)?, out);
         Ok(())
     }
 }
@@ -331,12 +332,18 @@ fn append_encoded_key(input: &KeyInput, encoded: &[u8], out: &mut Vec<u8>) {
         out.extend_from_slice(encoded);
         return;
     }
-    if !encoded.starts_with(b"\x1b[") || !encoded.ends_with(b"u") {
+    let Some(rest) = encoded.strip_prefix(b"\x1b[").filter(|rest| rest.ends_with(b"u")) else {
         out.extend_from_slice(encoded);
         return;
-    }
-    let key_field_end = encoded.iter().position(|byte| *byte == b';').unwrap_or(encoded.len() - 1);
-    let key_field = &encoded[2..key_field_end];
+    };
+    // The key field runs to the first `;`, or to the final `u` when the
+    // sequence has no modifier field.
+    let key_field_len =
+        rest.iter().position(|byte| *byte == b';').unwrap_or(rest.len().saturating_sub(1));
+    let Some((key_field, tail)) = rest.split_at_checked(key_field_len) else {
+        out.extend_from_slice(encoded);
+        return;
+    };
     let colon_count = key_field.iter().filter(|byte| **byte == b':').count();
     if !(1..=2).contains(&colon_count)
         || !key_field.iter().all(|byte| byte.is_ascii_digit() || *byte == b':')
@@ -345,54 +352,49 @@ fn append_encoded_key(input: &KeyInput, encoded: &[u8], out: &mut Vec<u8>) {
         return;
     }
 
-    // colon_count >= 1 above, so the key field has a separator.
-    let Some(shifted_separator) = key_field.iter().position(|byte| *byte == b':') else {
+    // `key:shifted` or `key:shifted:base`; colon_count >= 1 above.
+    let mut slots = key_field.splitn(3, |byte| *byte == b':');
+    let (Some(key_code), Some(reported_shifted)) = (slots.next(), slots.next()) else {
         out.extend_from_slice(encoded);
         return;
     };
-    let shifted_start = shifted_separator + 1;
-    let base_separator = key_field[shifted_start..]
-        .iter()
-        .position(|byte| *byte == b':')
-        .map(|index| shifted_start + index);
-    let shifted_end = base_separator.unwrap_or(key_field.len());
-    let reported_shifted = &key_field[shifted_start..shifted_end];
+    let reported_base = slots.next();
     let mut shifted_decimal = [0u8; 10];
     let shifted_digits = (reported_shifted.is_empty() && input.shifted_codepoint != 0)
         .then(|| decimal_u32(input.shifted_codepoint, &mut shifted_decimal));
     let mut base_decimal = [0u8; 10];
-    let base_digits = (base_separator.is_none() && input.base_layout_codepoint != 0)
+    let base_digits = (reported_base.is_none() && input.base_layout_codepoint != 0)
         .then(|| decimal_u32(input.base_layout_codepoint, &mut base_decimal));
     out.reserve(
         encoded.len()
             + shifted_digits.map_or(0, <[u8]>::len)
             + base_digits.map_or(0, |digits| 1 + digits.len()),
     );
-    out.extend_from_slice(&encoded[..2 + shifted_start]);
-    if let Some(digits) = shifted_digits {
-        out.extend_from_slice(digits);
-    } else {
-        out.extend_from_slice(reported_shifted);
-    }
-    if let Some(separator) = base_separator {
-        out.extend_from_slice(&key_field[separator..]);
-    } else if let Some(digits) = base_digits {
+    out.extend_from_slice(b"\x1b[");
+    out.extend_from_slice(key_code);
+    out.push(b':');
+    out.extend_from_slice(shifted_digits.unwrap_or(reported_shifted));
+    if let Some(base) = reported_base.or(base_digits) {
         out.push(b':');
-        out.extend_from_slice(digits);
+        out.extend_from_slice(base);
     }
-    out.extend_from_slice(&encoded[key_field_end..]);
+    out.extend_from_slice(tail);
 }
 
-fn decimal_u32(mut value: u32, buffer: &mut [u8; 10]) -> &[u8] {
-    let mut start = buffer.len();
-    loop {
-        start -= 1;
-        buffer[start] = b'0' + (value % 10) as u8;
-        value /= 10;
-        if value == 0 {
-            return &buffer[start..];
-        }
+/// Decimal digits of `value` without leading zeros (u32::MAX has 10 digits).
+fn decimal_u32(value: u32, buffer: &mut [u8; 10]) -> &[u8] {
+    let mut rest = value;
+    for slot in buffer.iter_mut().rev() {
+        *slot = b'0' + (rest % 10) as u8;
+        rest /= 10;
     }
+    let mut digits: &[u8] = buffer;
+    while let [b'0', tail @ ..] = digits
+        && !tail.is_empty()
+    {
+        digits = tail;
+    }
+    digits
 }
 
 impl Drop for KeyEncoder {

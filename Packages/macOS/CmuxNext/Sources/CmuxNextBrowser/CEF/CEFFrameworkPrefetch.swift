@@ -284,7 +284,7 @@ nonisolated final class CEFFrameworkPrefetch: Sendable {
         reading: for url in urls where !state.withLock({ $0.done.contains(url) }) {
             // SAFETY: open reads the NUL-terminated copy of the path Swift makes for the call.
             // concurrency-allow: a files-lane item or the library-load thread (Task.detached in CEFRuntime.start/preload), never the main thread
-            let descriptor = unsafe open(url.path, O_RDONLY | O_CLOEXEC)
+            let descriptor = unsafe blockingOpen(url.path, O_RDONLY | O_CLOEXEC)
             guard descriptor >= 0 else {
                 state.withLock { _ = $0.done.insert(url) }
                 continue
@@ -349,7 +349,7 @@ nonisolated final class CEFFrameworkPrefetch: Sendable {
         while offset < end {
             // SAFETY: pread writes at most min(size, end - offset) <= size bytes into `buffer`, which holds `size`.
             // concurrency-allow: a files-lane item or the library-load thread, never the main thread
-            let count = unsafe pread(descriptor, buffer, min(size, end - offset), off_t(offset))
+            let count = unsafe blockingPread(descriptor, buffer, min(size, end - offset), off_t(offset))
             if count < 0, errno == EINTR { continue }
             guard count > 0 else { break }
             offset += count

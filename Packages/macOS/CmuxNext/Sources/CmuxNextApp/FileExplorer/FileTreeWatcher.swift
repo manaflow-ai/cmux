@@ -1,6 +1,7 @@
 import CoreServices
 import Foundation
 import CmuxNextFilesUI
+import CmuxNextCompat
 import CmuxNextWakeups
 
 /// FSEvents under a few folders, delivered as an `AsyncStream` (no polling):
@@ -51,7 +52,7 @@ nonisolated enum FolderWatcherPath {
         let standard = folder.standardizedFileURL.path
         // SAFETY: with a nil buffer realpath returns a NUL-terminated path it malloc'd (or nil), which String
         // copies before the deferred free; nothing else holds it.
-        guard let resolved = unsafe realpath(standard, nil) else { return standard }
+        guard let resolved = unsafe blockingRealpath(standard, nil) else { return standard }
         defer { unsafe free(resolved) }
         return unsafe String(cString: resolved)
     }

@@ -478,6 +478,7 @@ command_table! {
     Subscribe => "subscribe", Other;
     AttachSurface => "attach-surface", Other;
     CancelStream => "cancel-stream", TerminalIo;
+    SetStreamPriority => "set-stream-priority", TerminalIo;
     SnapshotRequest => "snapshot-request", Other;
     TerminalHistory => "terminal-history", TerminalIo;
     TerminalReadRange => "terminal-read-range", TerminalIo;

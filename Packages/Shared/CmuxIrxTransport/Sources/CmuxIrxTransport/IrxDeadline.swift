@@ -25,7 +25,8 @@ func withIrxDeadlineResult<T: Sendable>(
         }
         let timeoutTask = Task {
             do {
-                try await ContinuousClock().sleep(for: limit)
+                // wakeup-allow: deadline of one operation, raced against it and cancelled when it ends
+                try await ContinuousClock().sleep(for: limit, tolerance: IrxWakeLeeway(delay: limit).tolerance)
                 continuation.yield(.timeout)
                 continuation.finish()
             } catch {

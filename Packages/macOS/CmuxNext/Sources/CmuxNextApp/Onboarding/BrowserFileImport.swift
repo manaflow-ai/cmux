@@ -5,6 +5,7 @@ import CmuxNextDesign
 import CmuxNextWakeups
 import Foundation
 import UniformTypeIdentifiers
+import CmuxNextCompat
 
 /// Import from Another Browser… (`browser.importFromFiles`, cx-d0d.65): cmux
 /// reads no other browser's own data here. The person picks the browser,
@@ -68,9 +69,9 @@ struct BrowserFileImport {
     /// with commas goes to the CSV import, which names a file without
     /// website and password columns.
     nonisolated static func kind(of url: URL) -> FileKind? {
-        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+        guard let handle = try? FileHandle.blockingForReading(from: url) else { return nil }
         defer { try? handle.close() }
-        let bytes = (try? handle.read(upToCount: 4096)) ?? Data()
+        let bytes = (try? handle.blockingRead(upToCount: 4096)) ?? Data()
         if ExportArchive.isArchive(bytes) { return .archive }
         let head = String(decoding: bytes, as: UTF8.self)
         let text = head.drop(while: { $0.isWhitespace || $0 == "\u{FEFF}" })

@@ -58,16 +58,16 @@ public struct RustPanicSource: Sendable, Equatable {
     /// `holder_pid`, `holder_socket` and `holder_wire`.
     public static let holder = RustPanicSource(process: "cmux-holder", fingerprintPrefix: "holder-panic",
                                                crashSource: "holder_panic_log", label: "cmux-holder panic")
-    /// An acpmux agent host.
+    /// The acpmux daemon's agent hosts, `acpmux __agent-host` (`$ACPMUX_HOME/agent-host-panics.jsonl`).
     public static let agentHost = RustPanicSource(process: "acpmux-agent-host", fingerprintPrefix: "agent-host-panic",
                                                   crashSource: "agent_host_panic_log", label: "acpmux agent host panic")
-    /// The sandboxed first-party app host (`cmux-app-host`).
+    /// The owner's sandboxed first-party app hosts, `cmux-app-host` (`app-host-panics.jsonl` at the owner's state root).
     public static let appHost = RustPanicSource(process: "cmux-app-host", fingerprintPrefix: "app-host-panic",
                                                 crashSource: "app_host_panic_log", label: "cmux-app-host panic")
-    /// The browser host (`cmux-browser-host`).
+    /// The owner's browser host, `cmux-browser-host serve` (`browser-host-panics.jsonl` at the owner's state root).
     public static let browserHost = RustPanicSource(process: "cmux-browser-host", fingerprintPrefix: "browser-host-panic",
                                                     crashSource: "browser_host_panic_log", label: "cmux-browser-host panic")
-    /// `cmux mcp serve`.
+    /// `cmux mcp serve` (`mcp-panics.jsonl` at the owner's state root).
     public static let mcp = RustPanicSource(process: "cmux-mcp", fingerprintPrefix: "mcp-panic",
                                             crashSource: "mcp_panic_log", label: "cmux mcp serve panic")
     /// The cmux Cloud server (`cmux-cloud`).
@@ -107,6 +107,13 @@ public struct RustPanicSource: Sendable, Equatable {
     /// - Returns: `<acpmuxHome>/panics.jsonl`.
     public static func acpmuxLog(acpmuxHome: URL) -> URL {
         acpmuxHome.appending(path: "panics.jsonl")
+    }
+
+    /// The agent hosts' panic log under the acpmux home (acpmux `agent_host::panic_log_path`).
+    /// - Parameter acpmuxHome: The daemon's `ACPMUX_HOME`.
+    /// - Returns: `<acpmuxHome>/agent-host-panics.jsonl`.
+    public static func agentHostLog(acpmuxHome: URL) -> URL {
+        acpmuxHome.appending(path: "agent-host-panics.jsonl")
     }
 
     /// The holders' panic log: in the daemon's private holder socket directory

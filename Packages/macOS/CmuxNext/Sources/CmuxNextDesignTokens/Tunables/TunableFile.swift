@@ -130,12 +130,11 @@ package nonisolated final class TunableFileWriter: Sendable {
     }
 
     private static func write(_ snapshot: [String: TunableValue], to url: URL) {
-        let manager = FileManager.default
         if snapshot.isEmpty {
-            try? manager.removeItem(at: url)
+            try? FileManager.checked.removeItem(at: url)
             return
         }
-        try? manager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? FileManager.checked.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try? TunableFile.encode(snapshot).write(to: url, options: .atomic)
     }
 }

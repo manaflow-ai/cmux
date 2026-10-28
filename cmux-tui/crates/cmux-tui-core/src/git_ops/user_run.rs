@@ -20,13 +20,13 @@
 //!   output pipes does not hold the reply: the pipes are read for a short
 //!   grace after git exits.
 
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use cmux_threads::checked::sync as waits;
 use std::collections::{BTreeMap, VecDeque};
 use std::ffi::{OsStr, OsString};
 use std::io::{ErrorKind, Read};
 use std::path::Path;
 use std::sync::{Arc, Mutex, PoisonError, mpsc};
-use std::thread;
 use std::time::{Duration, Instant};
 
 use cmux_process::{Child, Command, Stdio};
@@ -245,7 +245,8 @@ impl Pipe {
         let (sender, done) = mpsc::channel();
         let buffer = Arc::clone(&kept);
         let half = limit / 2;
-        thread::spawn(move || {
+        // A thread that does not start drops `sender`: `collect` returns at once with nothing kept.
+        let _ = supervised::spawn("git-run-pipe", Fatal, ShutdownBehavior::Continue, move || {
             let mut chunk = [0_u8; 16 * 1024];
             loop {
                 match reader.read(&mut chunk) {

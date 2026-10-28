@@ -1,4 +1,5 @@
 public import Foundation
+import CmuxNextCompat
 
 /// Changes to the contents of some folders as an `AsyncStream`: one element per burst of
 /// file-system events, never a poll (plans/cmux-next/idle-wakeups.md). A folder that does not
@@ -97,7 +98,7 @@ public struct FolderChanges: Sendable {
         let (events, continuation) = AsyncStream<FolderWatch.Event>.makeStream(bufferingPolicy: .bufferingNewest(8))
         // DispatchSource for file watching: no Foundation async equivalent (idle-wakeups.md).
         let sources = paths.compactMap { folder -> (any DispatchSourceFileSystemObject)? in
-            let fd = open(folder, O_EVTONLY)
+            let fd = blockingOpen(folder, O_EVTONLY)
             guard fd >= 0 else { return nil }
             let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd, eventMask: [.write, .rename, .delete, .link],
                                                                    queue: .global(qos: .utility))

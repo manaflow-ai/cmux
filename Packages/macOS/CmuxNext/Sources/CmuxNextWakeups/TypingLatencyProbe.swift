@@ -194,7 +194,7 @@ public final class TypingLatencyProbe: Sendable {
         signposter = Signposter(category: .key, trace: trace)
         self.hopRecorder = hopRecorder
         if let path, !path.isEmpty, FileManager.default.createFile(atPath: path, contents: nil),
-           let handle = FileHandle(forWritingAtPath: path) {
+           let handle = try? FileHandle.blockingForWriting(to: URL(fileURLWithPath: path)) {
             output = handle
             let header = (["index", "complete", "io_write_on_main"] + Mark.allCases.map(\.columnName)).joined(separator: ",") + "\n"
             handle.write(Data(header.utf8))

@@ -1,0 +1,506 @@
+{
+ "generator": "scripts/cmux-next/oracle/gen_tui.py",
+ "suite": "tui",
+ "task": "p15-oracle-234",
+ "inventory": "cmux-tui/spec/inventory.json",
+ "total": 104,
+ "covered": 61,
+ "excluded": {
+  "tui_actions/new-browser-tab": "new-browser-tab opens a browser tab whose engine never starts in the hermetic case (no browser host): the tab shows `starting browser...` until the start times out, so neither its screen nor its daemon state settles",
+  "tui_actions/provider-menu": "provider-menu needs a machine provider (--machine-provider); the hermetic case has none",
+  "tui_actions/browser-back": "browser-back acts only on a browser tab (app/action_policy.rs browser_only_action; on a terminal tab the key goes to the shell, which case tui/browser-back checks), and no browser tab settles in the hermetic case: the tab's engine never starts (no browser host)",
+  "tui_actions/browser-forward": "browser-forward acts only on a browser tab (app/action_policy.rs browser_only_action; on a terminal tab the key goes to the shell, which case tui/browser-forward checks), and no browser tab settles in the hermetic case: the tab's engine never starts (no browser host)",
+  "tui_actions/browser-reload": "browser-reload acts only on a browser tab (app/action_policy.rs browser_only_action; on a terminal tab the key goes to the shell, which case tui/browser-reload checks), and no browser tab settles in the hermetic case: the tab's engine never starts (no browser host)",
+  "tui_actions/browser-edit-url": "browser-edit-url acts only on a browser tab (app/action_policy.rs browser_only_action; on a terminal tab the key goes to the shell, which case tui/browser-edit-url checks), and no browser tab settles in the hermetic case: the tab's engine never starts (no browser host)",
+  "menu_actions/RenameClientMachine": "RenameClientMachine is reached only from a context menu, which opens on a mouse right-click (app/menu_build.rs open_context_menu); a tui.key step sends keys only",
+  "menu_actions/RenameManagedMachine": "RenameManagedMachine needs a machine provider (--machine-provider); the hermetic case has none",
+  "menu_actions/DeleteManagedMachine": "DeleteManagedMachine needs a machine provider (--machine-provider); the hermetic case has none",
+  "menu_actions/RestoreManagedMachine": "RestoreManagedMachine needs a machine provider (--machine-provider); the hermetic case has none",
+  "menu_actions/PurgeManagedMachine": "PurgeManagedMachine needs a machine provider (--machine-provider); the hermetic case has none",
+  "menu_actions/RenameManagedWorkspace": "RenameManagedWorkspace needs a machine provider (--machine-provider); the hermetic case has none",
+  "menu_actions/CopyWorkspaceId": "CopyWorkspaceId is reached only from a context menu, which opens on a mouse right-click (app/menu_build.rs open_context_menu); a tui.key step sends keys only",
+  "menu_actions/DeleteManagedWorkspace": "DeleteManagedWorkspace needs a machine provider (--machine-provider); the hermetic case has none",
+  "menu_actions/RestoreManagedWorkspace": "RestoreManagedWorkspace needs a machine provider (--machine-provider); the hermetic case has none",
+  "menu_actions/PurgeManagedWorkspace": "PurgeManagedWorkspace needs a machine provider (--machine-provider); the hermetic case has none",
+  "menu_actions/BrowserBack": "BrowserBack acts only on a browser tab (app/action_policy.rs browser_only_action; on a terminal tab the key goes to the shell, which case tui/browser-back checks), and no browser tab settles in the hermetic case: the tab's engine never starts (no browser host)",
+  "menu_actions/BrowserForward": "BrowserForward acts only on a browser tab (app/action_policy.rs browser_only_action; on a terminal tab the key goes to the shell, which case tui/browser-forward checks), and no browser tab settles in the hermetic case: the tab's engine never starts (no browser host)",
+  "menu_actions/BrowserReload": "BrowserReload acts only on a browser tab (app/action_policy.rs browser_only_action; on a terminal tab the key goes to the shell, which case tui/browser-reload checks), and no browser tab settles in the hermetic case: the tab's engine never starts (no browser host)",
+  "menu_actions/BrowserEditUrl": "BrowserEditUrl acts only on a browser tab (app/action_policy.rs browser_only_action; on a terminal tab the key goes to the shell, which case tui/browser-edit-url checks), and no browser tab settles in the hermetic case: the tab's engine never starts (no browser host)",
+  "menu_actions/BrowserCopyUrl": "BrowserCopyUrl is reached only from a context menu, which opens on a mouse right-click (app/menu_build.rs open_context_menu); a tui.key step sends keys only, on a browser tab the hermetic daemon cannot open",
+  "menu_actions/BrowserActivate": "BrowserActivate is reached only from a context menu, which opens on a mouse right-click (app/menu_build.rs open_context_menu); a tui.key step sends keys only, on a browser tab the hermetic daemon cannot open",
+  "menu_actions/RenameSurface": "RenameSurface is reached only from a context menu, which opens on a mouse right-click (app/menu_build.rs open_context_menu); a tui.key step sends keys only",
+  "menu_actions/CopyTabId": "CopyTabId is reached only from a context menu, which opens on a mouse right-click (app/menu_build.rs open_context_menu); a tui.key step sends keys only",
+  "menu_actions/CopyPaneId": "CopyPaneId is reached only from a context menu, which opens on a mouse right-click (app/menu_build.rs open_context_menu); a tui.key step sends keys only",
+  "menu_actions/CopyStatusMessage": "CopyStatusMessage is reached only from a context menu, which opens on a mouse right-click (app/menu_build.rs open_context_menu); a tui.key step sends keys only",
+  "menu_actions/NewBrowserTab": "NewBrowserTab opens a browser tab whose engine never starts in the hermetic case (no browser host): the tab shows `starting browser...` until the start times out, so neither its screen nor its daemon state settles",
+  "menu_actions/ActivateSidebarProfile": "ActivateSidebarProfile is reached only from a context menu, which opens on a mouse right-click (app/menu_build.rs open_context_menu); a tui.key step sends keys only",
+  "menu_actions/SetSidebarViewVisible": "SetSidebarViewVisible is reached only from a context menu, which opens on a mouse right-click (app/menu_build.rs open_context_menu); a tui.key step sends keys only",
+  "menu_actions/SetClientSizing": "SetClientSizing is reached only from a context menu, which opens on a mouse right-click (app/menu_build.rs open_context_menu); a tui.key step sends keys only",
+  "menu_actions/UseClientSize": "UseClientSize is reached only from a context menu, which opens on a mouse right-click (app/menu_build.rs open_context_menu); a tui.key step sends keys only",
+  "menu_actions/RestoreAllClientSizing": "RestoreAllClientSizing is reached only from a context menu, which opens on a mouse right-click (app/menu_build.rs open_context_menu); a tui.key step sends keys only",
+  "menu_actions/DisconnectClient": "DisconnectClient is reached only from a context menu, which opens on a mouse right-click (app/menu_build.rs open_context_menu); a tui.key step sends keys only",
+  "menu_actions/SetSizeMode": "SetSizeMode is reached only from a context menu, which opens on a mouse right-click (app/menu_build.rs open_context_menu); a tui.key step sends keys only",
+  "menu_actions/SetSizeCounts": "SetSizeCounts is reached only from a context menu, which opens on a mouse right-click (app/menu_build.rs open_context_menu); a tui.key step sends keys only",
+  "menu_actions/DisconnectSizeParticipant": "DisconnectSizeParticipant is reached only from a context menu, which opens on a mouse right-click (app/menu_build.rs open_context_menu); a tui.key step sends keys only",
+  "menu_actions/SelectProviderScope": "SelectProviderScope needs a machine provider (--machine-provider); the hermetic case has none",
+  "menu_actions/InvokeProviderAction": "InvokeProviderAction needs a machine provider (--machine-provider); the hermetic case has none",
+  "menu_actions/CreateMachineFrom": "CreateMachineFrom is reached only from a context menu, which opens on a mouse right-click (app/menu_build.rs open_context_menu); a tui.key step sends keys only",
+  "menu_actions/ConnectMachineTarget": "ConnectMachineTarget is reached only from a context menu, which opens on a mouse right-click (app/menu_build.rs open_context_menu); a tui.key step sends keys only",
+  "menu_actions/ConnectOtherMachine": "ConnectOtherMachine is reached only from a context menu, which opens on a mouse right-click (app/menu_build.rs open_context_menu); a tui.key step sends keys only",
+  "menu_actions/RunConfigured": "RunConfigured is reached only from a context menu, which opens on a mouse right-click (app/menu_build.rs open_context_menu); a tui.key step sends keys only",
+  "menu_actions/MoveTabToWorkspace": "MoveTabToWorkspace is reached only from a context menu, which opens on a mouse right-click (app/menu_build.rs open_context_menu); a tui.key step sends keys only"
+ },
+ "missing": [],
+ "tui_actions": {
+  "send-prefix": {
+   "cases": [
+    "send-prefix"
+   ]
+  },
+  "new-tab": {
+   "cases": [
+    "new-tab"
+   ]
+  },
+  "new-browser-tab": {
+   "reason": "new-browser-tab opens a browser tab whose engine never starts in the hermetic case (no browser host): the tab shows `starting browser...` until the start times out, so neither its screen nor its daemon state settles"
+  },
+  "new-pane-smart": {
+   "cases": [
+    "new-pane-smart",
+    "new-pane-smart-alt"
+   ]
+  },
+  "next-tab": {
+   "cases": [
+    "next-tab"
+   ]
+  },
+  "prev-tab": {
+   "cases": [
+    "prev-tab"
+   ]
+  },
+  "select-tab-{number}": {
+   "cases": [
+    "select-tab"
+   ]
+  },
+  "split-right": {
+   "cases": [
+    "split-right"
+   ]
+  },
+  "split-down": {
+   "cases": [
+    "split-down"
+   ]
+  },
+  "close-tab": {
+   "cases": [
+    "close-tab"
+   ]
+  },
+  "close-pane": {
+   "cases": [
+    "close-pane"
+   ]
+  },
+  "rename-tab": {
+   "cases": [
+    "rename-tab"
+   ]
+  },
+  "rename-screen": {
+   "cases": [
+    "rename-screen"
+   ]
+  },
+  "rename-workspace": {
+   "cases": [
+    "rename-workspace"
+   ]
+  },
+  "close-screen": {
+   "cases": [
+    "close-screen"
+   ]
+  },
+  "prev-screen": {
+   "cases": [
+    "prev-screen"
+   ]
+  },
+  "next-screen": {
+   "cases": [
+    "next-screen"
+   ]
+  },
+  "select-screen-{number}": {
+   "cases": [
+    "select-screen"
+   ]
+  },
+  "new-screen": {
+   "cases": [
+    "new-screen"
+   ]
+  },
+  "prev-workspace": {
+   "cases": [
+    "prev-workspace"
+   ]
+  },
+  "next-workspace": {
+   "cases": [
+    "next-workspace"
+   ]
+  },
+  "new-workspace": {
+   "cases": [
+    "new-workspace"
+   ]
+  },
+  "close-workspace": {
+   "cases": [
+    "close-workspace"
+   ]
+  },
+  "toggle-sidebar": {
+   "cases": [
+    "toggle-sidebar"
+   ]
+  },
+  "toggle-sidebar-compact": {
+   "cases": [
+    "toggle-sidebar-compact"
+   ]
+  },
+  "provider-menu": {
+   "reason": "provider-menu needs a machine provider (--machine-provider); the hermetic case has none"
+  },
+  "toggle-sidebar-view": {
+   "cases": [
+    "toggle-sidebar-view"
+   ]
+  },
+  "focus-sidebar": {
+   "cases": [
+    "focus-sidebar",
+    "pin-workspace"
+   ]
+  },
+  "new-pane-right": {
+   "cases": [
+    "new-pane-right"
+   ]
+  },
+  "undo-layout": {
+   "cases": [
+    "undo-layout",
+    "undo-layout-nothing"
+   ]
+  },
+  "focus-left": {
+   "cases": [
+    "focus-left"
+   ]
+  },
+  "focus-right": {
+   "cases": [
+    "focus-right"
+   ]
+  },
+  "focus-up": {
+   "cases": [
+    "focus-up"
+   ]
+  },
+  "focus-down": {
+   "cases": [
+    "focus-down"
+   ]
+  },
+  "focus-next-pane": {
+   "cases": [
+    "focus-next-pane"
+   ]
+  },
+  "swap-pane-prev": {
+   "cases": [
+    "swap-pane-prev"
+   ]
+  },
+  "swap-pane-next": {
+   "cases": [
+    "swap-pane-next"
+   ]
+  },
+  "zoom-pane": {
+   "cases": [
+    "zoom-pane"
+   ]
+  },
+  "resize-grow": {
+   "cases": [
+    "resize-grow"
+   ]
+  },
+  "resize-shrink": {
+   "cases": [
+    "resize-shrink"
+   ]
+  },
+  "scroll-up": {
+   "cases": [
+    "scroll-up"
+   ]
+  },
+  "scroll-down": {
+   "cases": [
+    "scroll-down"
+   ]
+  },
+  "clear-history": {
+   "cases": [
+    "clear-history"
+   ]
+  },
+  "browser-back": {
+   "reason": "browser-back acts only on a browser tab (app/action_policy.rs browser_only_action; on a terminal tab the key goes to the shell, which case tui/browser-back checks), and no browser tab settles in the hermetic case: the tab's engine never starts (no browser host)"
+  },
+  "browser-forward": {
+   "reason": "browser-forward acts only on a browser tab (app/action_policy.rs browser_only_action; on a terminal tab the key goes to the shell, which case tui/browser-forward checks), and no browser tab settles in the hermetic case: the tab's engine never starts (no browser host)"
+  },
+  "browser-reload": {
+   "reason": "browser-reload acts only on a browser tab (app/action_policy.rs browser_only_action; on a terminal tab the key goes to the shell, which case tui/browser-reload checks), and no browser tab settles in the hermetic case: the tab's engine never starts (no browser host)"
+  },
+  "browser-edit-url": {
+   "reason": "browser-edit-url acts only on a browser tab (app/action_policy.rs browser_only_action; on a terminal tab the key goes to the shell, which case tui/browser-edit-url checks), and no browser tab settles in the hermetic case: the tab's engine never starts (no browser host)"
+  },
+  "show-shortcuts": {
+   "cases": [
+    "show-shortcuts"
+   ]
+  },
+  "detach": {
+   "cases": [
+    "detach"
+   ]
+  },
+  "user-command-{index}": {
+   "cases": [
+    "user-command"
+   ]
+  }
+ },
+ "menu_actions": {
+  "RenameClientMachine": {
+   "reason": "RenameClientMachine is reached only from a context menu, which opens on a mouse right-click (app/menu_build.rs open_context_menu); a tui.key step sends keys only"
+  },
+  "RenameManagedMachine": {
+   "reason": "RenameManagedMachine needs a machine provider (--machine-provider); the hermetic case has none"
+  },
+  "DeleteManagedMachine": {
+   "reason": "DeleteManagedMachine needs a machine provider (--machine-provider); the hermetic case has none"
+  },
+  "RestoreManagedMachine": {
+   "reason": "RestoreManagedMachine needs a machine provider (--machine-provider); the hermetic case has none"
+  },
+  "PurgeManagedMachine": {
+   "reason": "PurgeManagedMachine needs a machine provider (--machine-provider); the hermetic case has none"
+  },
+  "RenameWorkspace": {
+   "cases": [
+    "rename-workspace"
+   ]
+  },
+  "RenameManagedWorkspace": {
+   "reason": "RenameManagedWorkspace needs a machine provider (--machine-provider); the hermetic case has none"
+  },
+  "CopyWorkspaceId": {
+   "reason": "CopyWorkspaceId is reached only from a context menu, which opens on a mouse right-click (app/menu_build.rs open_context_menu); a tui.key step sends keys only"
+  },
+  "PinWorkspace": {
+   "cases": [
+    "pin-workspace"
+   ]
+  },
+  "CloseWorkspace": {
+   "cases": [
+    "close-workspace"
+   ]
+  },
+  "DeleteManagedWorkspace": {
+   "reason": "DeleteManagedWorkspace needs a machine provider (--machine-provider); the hermetic case has none"
+  },
+  "RestoreManagedWorkspace": {
+   "reason": "RestoreManagedWorkspace needs a machine provider (--machine-provider); the hermetic case has none"
+  },
+  "PurgeManagedWorkspace": {
+   "reason": "PurgeManagedWorkspace needs a machine provider (--machine-provider); the hermetic case has none"
+  },
+  "RenameScreen": {
+   "cases": [
+    "rename-screen"
+   ]
+  },
+  "CloseScreen": {
+   "cases": [
+    "close-screen"
+   ]
+  },
+  "BrowserBack": {
+   "reason": "BrowserBack acts only on a browser tab (app/action_policy.rs browser_only_action; on a terminal tab the key goes to the shell, which case tui/browser-back checks), and no browser tab settles in the hermetic case: the tab's engine never starts (no browser host)"
+  },
+  "BrowserForward": {
+   "reason": "BrowserForward acts only on a browser tab (app/action_policy.rs browser_only_action; on a terminal tab the key goes to the shell, which case tui/browser-forward checks), and no browser tab settles in the hermetic case: the tab's engine never starts (no browser host)"
+  },
+  "BrowserReload": {
+   "reason": "BrowserReload acts only on a browser tab (app/action_policy.rs browser_only_action; on a terminal tab the key goes to the shell, which case tui/browser-reload checks), and no browser tab settles in the hermetic case: the tab's engine never starts (no browser host)"
+  },
+  "BrowserEditUrl": {
+   "reason": "BrowserEditUrl acts only on a browser tab (app/action_policy.rs browser_only_action; on a terminal tab the key goes to the shell, which case tui/browser-edit-url checks), and no browser tab settles in the hermetic case: the tab's engine never starts (no browser host)"
+  },
+  "BrowserCopyUrl": {
+   "reason": "BrowserCopyUrl is reached only from a context menu, which opens on a mouse right-click (app/menu_build.rs open_context_menu); a tui.key step sends keys only, on a browser tab the hermetic daemon cannot open"
+  },
+  "BrowserActivate": {
+   "reason": "BrowserActivate is reached only from a context menu, which opens on a mouse right-click (app/menu_build.rs open_context_menu); a tui.key step sends keys only, on a browser tab the hermetic daemon cannot open"
+  },
+  "RenameTab": {
+   "cases": [
+    "rename-tab"
+   ]
+  },
+  "RenameSurface": {
+   "reason": "RenameSurface is reached only from a context menu, which opens on a mouse right-click (app/menu_build.rs open_context_menu); a tui.key step sends keys only"
+  },
+  "CopyTabId": {
+   "reason": "CopyTabId is reached only from a context menu, which opens on a mouse right-click (app/menu_build.rs open_context_menu); a tui.key step sends keys only"
+  },
+  "CopyPaneId": {
+   "reason": "CopyPaneId is reached only from a context menu, which opens on a mouse right-click (app/menu_build.rs open_context_menu); a tui.key step sends keys only"
+  },
+  "CopyStatusMessage": {
+   "reason": "CopyStatusMessage is reached only from a context menu, which opens on a mouse right-click (app/menu_build.rs open_context_menu); a tui.key step sends keys only"
+  },
+  "NewPaneSmart": {
+   "cases": [
+    "new-pane-smart"
+   ]
+  },
+  "NewTab": {
+   "cases": [
+    "new-tab"
+   ]
+  },
+  "NewBrowserTab": {
+   "reason": "NewBrowserTab opens a browser tab whose engine never starts in the hermetic case (no browser host): the tab shows `starting browser...` until the start times out, so neither its screen nor its daemon state settles"
+  },
+  "SplitRight": {
+   "cases": [
+    "split-right"
+   ]
+  },
+  "SplitDown": {
+   "cases": [
+    "split-down"
+   ]
+  },
+  "CloseTab": {
+   "cases": [
+    "close-tab"
+   ]
+  },
+  "ClosePane": {
+   "cases": [
+    "close-pane"
+   ]
+  },
+  "TogglePaneZoom": {
+   "cases": [
+    "zoom-pane"
+   ]
+  },
+  "ToggleSidebar": {
+   "cases": [
+    "toggle-sidebar"
+   ]
+  },
+  "ToggleSidebarCompact": {
+   "cases": [
+    "toggle-sidebar-compact"
+   ]
+  },
+  "FocusSidebar": {
+   "cases": [
+    "focus-sidebar"
+   ]
+  },
+  "ActivateSidebarProfile": {
+   "reason": "ActivateSidebarProfile is reached only from a context menu, which opens on a mouse right-click (app/menu_build.rs open_context_menu); a tui.key step sends keys only"
+  },
+  "SetSidebarViewVisible": {
+   "reason": "SetSidebarViewVisible is reached only from a context menu, which opens on a mouse right-click (app/menu_build.rs open_context_menu); a tui.key step sends keys only"
+  },
+  "ShowShortcuts": {
+   "cases": [
+    "show-shortcuts"
+   ]
+  },
+  "SetClientSizing": {
+   "reason": "SetClientSizing is reached only from a context menu, which opens on a mouse right-click (app/menu_build.rs open_context_menu); a tui.key step sends keys only"
+  },
+  "UseClientSize": {
+   "reason": "UseClientSize is reached only from a context menu, which opens on a mouse right-click (app/menu_build.rs open_context_menu); a tui.key step sends keys only"
+  },
+  "RestoreAllClientSizing": {
+   "reason": "RestoreAllClientSizing is reached only from a context menu, which opens on a mouse right-click (app/menu_build.rs open_context_menu); a tui.key step sends keys only"
+  },
+  "DisconnectClient": {
+   "reason": "DisconnectClient is reached only from a context menu, which opens on a mouse right-click (app/menu_build.rs open_context_menu); a tui.key step sends keys only"
+  },
+  "SetSizeMode": {
+   "reason": "SetSizeMode is reached only from a context menu, which opens on a mouse right-click (app/menu_build.rs open_context_menu); a tui.key step sends keys only"
+  },
+  "SetSizeCounts": {
+   "reason": "SetSizeCounts is reached only from a context menu, which opens on a mouse right-click (app/menu_build.rs open_context_menu); a tui.key step sends keys only"
+  },
+  "DisconnectSizeParticipant": {
+   "reason": "DisconnectSizeParticipant is reached only from a context menu, which opens on a mouse right-click (app/menu_build.rs open_context_menu); a tui.key step sends keys only"
+  },
+  "SelectProviderScope": {
+   "reason": "SelectProviderScope needs a machine provider (--machine-provider); the hermetic case has none"
+  },
+  "InvokeProviderAction": {
+   "reason": "InvokeProviderAction needs a machine provider (--machine-provider); the hermetic case has none"
+  },
+  "CreateMachineFrom": {
+   "reason": "CreateMachineFrom is reached only from a context menu, which opens on a mouse right-click (app/menu_build.rs open_context_menu); a tui.key step sends keys only"
+  },
+  "ConnectMachineTarget": {
+   "reason": "ConnectMachineTarget is reached only from a context menu, which opens on a mouse right-click (app/menu_build.rs open_context_menu); a tui.key step sends keys only"
+  },
+  "ConnectOtherMachine": {
+   "reason": "ConnectOtherMachine is reached only from a context menu, which opens on a mouse right-click (app/menu_build.rs open_context_menu); a tui.key step sends keys only"
+  },
+  "RunConfigured": {
+   "reason": "RunConfigured is reached only from a context menu, which opens on a mouse right-click (app/menu_build.rs open_context_menu); a tui.key step sends keys only"
+  },
+  "MoveTabToWorkspace": {
+   "reason": "MoveTabToWorkspace is reached only from a context menu, which opens on a mouse right-click (app/menu_build.rs open_context_menu); a tui.key step sends keys only"
+  }
+ },
+ "nondeterministic": {
+  "close-workspace": "two workspaces: session.snapshot orders screens by workspace id (workspace_registry resource_store/topology_load.rs load_screens, ORDER BY workspace_id), and ids are random until p15-oracle-185 seeds them, so the canonical labels swap in about half the runs; the daemon-ops suite's two-workspace cases show the same",
+  "new-pane-right": "#26031 cmux-tui: the frontend selects a surface it created when the creation's completion arrives, and only if its tree already holds the surface (app/session_apply.rs select_completed_surface, tab_locations); when the remote tree refresh lands after the completion, the old pane or screen stays selected (1 to 3 runs in 20 on the VM). The daemon facet is the same; the screen differs",
+  "new-pane-smart": "#26031 cmux-tui: the frontend selects a surface it created when the creation's completion arrives, and only if its tree already holds the surface (app/session_apply.rs select_completed_surface, tab_locations); when the remote tree refresh lands after the completion, the old pane or screen stays selected (1 to 3 runs in 20 on the VM). The daemon facet is the same; the screen differs",
+  "new-screen": "#26031 cmux-tui: the frontend selects a surface it created when the creation's completion arrives, and only if its tree already holds the surface (app/session_apply.rs select_completed_surface, tab_locations); when the remote tree refresh lands after the completion, the old pane or screen stays selected (1 to 3 runs in 20 on the VM). The daemon facet is the same; the screen differs",
+  "new-workspace": "two workspaces: session.snapshot orders screens by workspace id (workspace_registry resource_store/topology_load.rs load_screens, ORDER BY workspace_id), and ids are random until p15-oracle-185 seeds them, so the canonical labels swap in about half the runs; the daemon-ops suite's two-workspace cases show the same",
+  "next-workspace": "two workspaces: session.snapshot orders screens by workspace id (workspace_registry resource_store/topology_load.rs load_screens, ORDER BY workspace_id), and ids are random until p15-oracle-185 seeds them, so the canonical labels swap in about half the runs; the daemon-ops suite's two-workspace cases show the same",
+  "prev-workspace": "two workspaces: session.snapshot orders screens by workspace id (workspace_registry resource_store/topology_load.rs load_screens, ORDER BY workspace_id), and ids are random until p15-oracle-185 seeds them, so the canonical labels swap in about half the runs; the daemon-ops suite's two-workspace cases show the same",
+  "split-down": "#26031 cmux-tui: the frontend selects a surface it created when the creation's completion arrives, and only if its tree already holds the surface (app/session_apply.rs select_completed_surface, tab_locations); when the remote tree refresh lands after the completion, the old pane or screen stays selected (1 to 3 runs in 20 on the VM). The daemon facet is the same; the screen differs",
+  "split-right": "#26031 cmux-tui: the frontend selects a surface it created when the creation's completion arrives, and only if its tree already holds the surface (app/session_apply.rs select_completed_surface, tab_locations); when the remote tree refresh lands after the completion, the old pane or screen stays selected (1 to 3 runs in 20 on the VM). The daemon facet is the same; the screen differs"
+ }
+}
