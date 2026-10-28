@@ -153,6 +153,9 @@ async fn adopted_running_prompt_resend_joins_its_live_outcome() {
     drop(rpc);
     daemon.start();
     daemon.wait_event(&session, "host adoption", |e| e["kind"] == "host_adopted");
+    let attached =
+        daemon.rpc().await.call("_acpmux/attach", json!({"sessionId": session, "limit": 0})).await;
+    assert_eq!(attached["session"]["status"], "running", "{attached:#}");
     let mut rpc = daemon.rpc().await;
     let request_id = rpc.send("session/prompt", params.clone()).await;
     // An adopted prompt must join the pending ledger entry, not answer "interrupted" from

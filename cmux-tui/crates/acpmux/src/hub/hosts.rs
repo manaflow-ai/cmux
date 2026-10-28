@@ -1040,6 +1040,7 @@ impl Hub {
                     self.save_meta(session);
                 }
                 (Some(request_id), answer) => {
+                    let outcome = super::prompt_ledger::recover(session, &prompt_id);
                     // Before anything can force its end (`turn_answer`).
                     let ended = session.steer_end.subscribe();
                     // Its start as logged: a restart does not make it new.
@@ -1099,9 +1100,20 @@ impl Hub {
                             }
                             (None, None) => Err(RpcError::internal("agent answer lost")),
                         };
-                        let _ = hub
+                        let mut result = hub
                             .finish_turn(&s, &c, result, &prompt_id, &turn_id, turn_seq, None)
                             .await;
+                        if let Ok(value) = &mut result {
+                            super::merge_mux_meta(
+                                value,
+                                json!({"promptId": prompt_id,
+                                "turnId": turn_id, "turnSeq": turn_seq}),
+                            );
+                        }
+                        outcome.send_replace(Some(result));
+                        super::prompt_ledger::prune(
+                            &mut s.prompts.lock().unwrap_or_else(|e| e.into_inner()),
+                        );
                         // A recovered turn is not continued (`auto_resume.rs`); settle its mark.
                         hub.schedule_auto_resume(&s, &turn_id, None);
                         // A route switch or an update asked for a restart

@@ -3,6 +3,19 @@
 use super::{Hub, PromptOutcome, Session};
 use serde_json::{Value, json};
 use std::collections::VecDeque;
+use std::sync::Arc;
+
+/// An adopted turn owns its prompt id until its real answer arrives. A resend then joins
+/// this pending outcome instead of interpreting the open journal turn as interrupted.
+pub(super) fn recover(session: &Session, prompt_id: &str) -> PromptOutcome {
+    let mut ledger = session.prompts.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((_, outcome)) = ledger.iter().find(|(id, _)| id == prompt_id) {
+        return outcome.clone();
+    }
+    let outcome = Arc::new(tokio::sync::watch::channel(None).0);
+    ledger.push_back((prompt_id.to_owned(), outcome.clone()));
+    outcome
+}
 
 /// Only completed outcomes count against the retry cache's bound. Pending senders
 /// must stay discoverable, including restored prompts whose completion looks them up.
