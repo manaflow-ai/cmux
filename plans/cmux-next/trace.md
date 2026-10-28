@@ -181,8 +181,8 @@ files.
 | `app.key.terminal` (optional: drawn when emitted, not needed for a complete press) | app main (`TerminalSurfaceView.keyDown`) | flow id |
 | `app.io_write` | Ghostty IO thread (`io_write_cb`) | flow id |
 | `app.send` | the same thread (`TerminalAttachment.enqueueInput`; the `send` request gets `flow`) | flow id |
-| `daemon.send.write`, `daemon.send.written` | daemon `mux-control-dispatch` (`cmd_terminal_io::send`) | flow id |
-| `host.pty.write` (host model) or `daemon.pty.write` (holder model: the daemon writes the PTY itself) | `terminal-host-client-input` / `mux-control-dispatch` | terminal |
+| `daemon.send.write`, `daemon.send.written` | daemon `mux-seq-control` pool worker (`cmd_terminal_io::send`) | flow id |
+| `host.pty.write` (host model) or `daemon.pty.write` (holder model: the daemon writes the PTY itself) | `terminal-host-client-input` / `mux-seq-control` | terminal |
 | `host.pty.read` or `holder.pty.read` | `terminal-host-pty` / the holder's poll loop | terminal |
 | `daemon.output.host` or `daemon.output.holder` | `surface-<id>-host` / `surface-<id>-reader` | terminal |
 | `daemon.output.attach` | the same thread (`broadcast_attach_output`) | terminal |
@@ -400,7 +400,7 @@ the tables of "Release trace ring v1"; the Swift `TraceRuntime.Role` and `TraceR
     trace event (base/threading/scoped_blocking_call.cc). Begin arg0: the kind's code in bits 0-7
     (`BlockingKind.traceCode`: 1 file-io, 2 socket-read, 3 socket-write, 4 sync-wait, 5 ipc-reply,
     6 process-wait, 7 process-spawn, 8 lock-wait, 9 system-call, 10 sleep, 11 wrong-lane, 12 cpu-intensive,
-    13 fs-metadata, 14 sqlite, 15 process-reap, 16 system-query, 17 priority-inversion, 18 ffi) and the call's `#line` above them. Begin
+    13 fs-metadata, 14 sqlite, 15 process-reap, 16 system-query, 17 priority-inversion, 18 ffi, 19 xpc-reply) and the call's `#line` above them. Begin
     arg1: FNV-1a 64 of the call's `#fileID` (`Module/File.swift`). The end has no arguments; a written begin
     always gets its end, also when the body throws or the category turns off meanwhile. Only the app's
     `TraceRuntime.shared` routes them, while its `task` bit is on.

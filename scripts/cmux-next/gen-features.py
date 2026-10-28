@@ -579,7 +579,8 @@ def _bool(value):
 def rust(features):
     """The daemon-side features in the shape cmux-features/src/lib.rs reads: `TABLE` and one handle per entry
     (`feature_handles!`, which fails the build on a name `TABLE` lacks). The daemon's `Snapshot` resolves only
-    the defaults and the process; the other fields stay in the JSON and the Swift registry."""
+    the defaults, the kind (a client hello applies a kill switch at once) and the process; the other fields
+    stay in the JSON and the Swift registry."""
     daemon = [feature for feature in features if feature["process"] in ("daemon", "both")]
     entries = []
     handles = []
@@ -588,10 +589,12 @@ def rust(features):
         entries.append("""    crate::FeatureDef {{
         name: {name},
         defaults: crate::Defaults {{ dev: {dev}, nightly: {nightly}, release: {release} }},
+        kind: crate::Kind::{kind},
         process: crate::Process::{process},
     }},""".format(
             name=_string(feature["name"]), dev=_bool(defaults["dev"]), nightly=_bool(defaults["nightly"]),
-            release=_bool(defaults["release"]), process=feature["process"].capitalize()))
+            release=_bool(defaults["release"]), kind=feature["kind"][0].upper() + feature["kind"][1:],
+            process=feature["process"].capitalize()))
         handles.append("        /// {description}\n        {const} = {name},".format(
             description=feature["description"], const=rust_const(feature["name"]), name=_string(feature["name"])))
     comment = "\n".join("// " + line for line in HEADER.split("\n"))

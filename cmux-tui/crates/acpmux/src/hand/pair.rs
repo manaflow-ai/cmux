@@ -27,8 +27,10 @@ pub fn check_api(api: &str) -> Result<String> {
 pub fn hostname() -> String {
     let mut buf = [0u8; 256];
     #[cfg(unix)]
-    unsafe {
-        if libc::gethostname(buf.as_mut_ptr().cast(), buf.len()) == 0 {
+    {
+        // SAFETY: `buf` is a writable buffer of the length passed; gethostname
+        // writes at most that many bytes.
+        if unsafe { libc::gethostname(buf.as_mut_ptr().cast(), buf.len()) } == 0 {
             let end = buf.iter().position(|&b| b == 0).unwrap_or(buf.len());
             return String::from_utf8_lossy(&buf[..end]).into_owned();
         }
@@ -51,10 +53,16 @@ pub async fn pair(
         (Profile::Sandbox, true) => vec![PathBuf::from("/")],
         // Broad by default (#13742): the person's home; the classifier and the hard denies guard it.
         (Profile::Mac, true) => vec![dirs::home_dir().context("no home folder")?],
-        (_, false) => roots
-            .into_iter()
-            .map(|r| std::fs::canonicalize(&r).with_context(|| format!("root {}", r.display())))
-            .collect::<Result<Vec<_>>>()?,
+        (_, false) => {
+            let mut canonical = Vec::with_capacity(roots.len());
+            for r in roots {
+                let root = tokio::fs::canonicalize(&r)
+                    .await
+                    .with_context(|| format!("root {}", r.display()))?;
+                canonical.push(root);
+            }
+            canonical
+        }
     };
     let agent_policy = agent_policy.unwrap_or_else(|| match profile {
         Profile::Sandbox => "approve-edits".into(),

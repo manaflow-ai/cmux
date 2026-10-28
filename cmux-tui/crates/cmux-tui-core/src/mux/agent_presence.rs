@@ -11,6 +11,7 @@ use serde_json::Value;
 
 use super::*;
 use crate::agent_hooks::semantic_key;
+use crate::panic_free::RecoverPoison;
 
 const MAX_PRESENCE_TOOL_BYTES: usize = 128;
 
@@ -249,7 +250,7 @@ impl Mux {
         // Emit while holding the table so two events of one terminal reach
         // subscribers in the order they changed it. `emit` takes only the
         // subscriber lock and never this one.
-        let mut table = self.agent_presence.lock().unwrap();
+        let mut table = self.agent_presence.lock().recover_poison();
         let slot = table.entry(terminal_id.clone()).or_default();
         if slot.sequence >= sequence && slot.sequence != 0 {
             return;
@@ -277,7 +278,7 @@ impl Mux {
     /// by any path, including a screen-detected exit or a socket report that
     /// sends no hook event (a Ctrl-C'd or crashed agent).
     pub(super) fn clear_agent_presence(&self, terminal_id: &TerminalPublicId, surface: SurfaceId) {
-        let mut table = self.agent_presence.lock().unwrap();
+        let mut table = self.agent_presence.lock().recover_poison();
         let Some(slot) = table.get_mut(terminal_id) else { return };
         if slot.presence.take().is_some() {
             self.emit(MuxEvent::AgentPresenceChanged { surface, presence: None });

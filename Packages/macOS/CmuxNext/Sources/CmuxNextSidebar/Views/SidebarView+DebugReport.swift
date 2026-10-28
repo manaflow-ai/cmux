@@ -32,6 +32,7 @@ extension SidebarViewComponents {
         }
     }
 
+    #if DEBUG || CMUX_BENCH_HOOKS
     /// `{"motion": "start"|"stop"}`: the per-display-frame samples (SidebarMotionFrame); stop returns them as
     /// {t, scroll, lift, work_ms, revision, settling, views: {key: [x, y, w, h, opacity]}}.
     public func debugMotionReport(start: Bool) -> [String: Any] {
@@ -39,9 +40,10 @@ extension SidebarViewComponents {
         return ["frames": debugMotion(start: start).map { frame -> [String: Any] in
             ["t": frame.time, "scroll": Double(frame.scrollY), "lift": frame.lift.map(box) ?? NSNull(), "work_ms": frame.dragWorkMs,
              "revision": Double(frame.revision), "settling": frame.settling,
-             "views": Dictionary(uniqueKeysWithValues: frame.views.map { key, rect in (key, box(rect) + [Double(frame.opacity[key] ?? 1)]) })]
+             "views": Dictionary(frame.views.map { key, rect in (key, box(rect) + [Double(frame.opacity[key] ?? 1)]) }, uniquingKeysWith: { first, _ in first })]
         }]
     }
+    #endif
 
     private static func row(_ row: SidebarDebugRow) -> [String: Any] {
         [

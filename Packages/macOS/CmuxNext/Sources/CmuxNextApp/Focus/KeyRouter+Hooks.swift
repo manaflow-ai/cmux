@@ -2,6 +2,8 @@ import AppKit
 import CmuxNextActions
 import CmuxNextBrowser
 import CmuxNextFocus
+import CmuxNextRemoteBrowser
+import CmuxNextTerminal
 
 // The places a key can reach after the dispatcher: the window hook, the
 // Chromium hooks and main-menu key equivalents. Each runs nothing for a key
@@ -22,6 +24,49 @@ extension KeyRouter {
             return RegistryKeyBindings(registry).run(winner, keyContext: context.bits)
         }
         return runExtensionShortcut(event, focus: focus)
+    }
+
+    /// The view a chord the dispatcher decided goes to as a key equivalent, instead of AppKit's
+    /// depth-first walk over every view of the window. Chrome's `CommandDispatcher` gives a key to a
+    /// first responder that is a `CommandDispatcherTarget` the same way, with no walk
+    /// (ui/base/cocoa/command_dispatcher.mm, `performKeyEquivalent:`).
+    /// - A surface that takes its own key equivalents (a terminal, a page host): that view alone. Every
+    ///   other view that takes a chord in a pane (a find bar, a dialog, a Mac Screen button) takes it
+    ///   only while it holds the keyboard.
+    /// - A field editor in a pane: that pane, whose walk reaches the field's own ancestors (a find bar's
+    ///   Cmd-G, the browser chrome's keys), never a sibling pane.
+    ///
+    /// Nil for any other key or responder (a field outside every pane): AppKit's walk.
+    func directKeyEquivalentTarget(for event: NSEvent, firstResponder: NSResponder?) -> NSView? { // perf-hot: 0.5ms key-dispatch (every chord a window gets)
+        guard Self.isChord(event.modifierFlags), let view = firstResponder as? NSView, decided.contains(event) else { return nil }
+        if Self.takesOwnKeyEquivalents(view) {
+            decided.offers.focusedSurface += 1
+            trace?("window: key equivalent to the focused surface only")
+            return view
+        }
+        if (view as? NSTextView)?.isFieldEditor == true, let pane = Self.enclosingPane(of: view) {
+            decided.offers.fieldPane += 1
+            trace?("window: key equivalent to the field's pane only")
+            return pane
+        }
+        decided.offers.windowWalks += 1
+        return nil
+    }
+
+    /// The pane that holds `view`, nil outside every pane.
+    static func enclosingPane(of view: NSView) -> PaneContentView? {
+        var ancestor = view.superview
+        while let current = ancestor {
+            if let pane = current as? PaneContentView { return pane }
+            ancestor = current.superview
+        }
+        return nil
+    }
+
+    /// A surface whose key equivalents are its own while it is first responder: the terminal (its
+    /// Ghostty keybinds), a Chromium host page and a remote browser page (their page's keys).
+    static func takesOwnKeyEquivalents(_ view: NSView) -> Bool {
+        view is TerminalSurfaceView || view is ChromiumHostPageView || view is RemoteBrowserContentView
     }
 
     /// An overlay (palette, sheet, rename, group editor) has the keyboard. AppKit also offers
@@ -89,6 +134,9 @@ extension KeyRouter {
     private func menuGate(_ id: ActionID) -> Bool {
         if let event = inputDispatch.event, event.type == .keyDown, decided.contains(event),
            !Self.menuKeyEquivalentAllowedAfterDispatch(registry.keyTier(for: id), eventWasDecided: true) { return false }
+        // A page's keyboard lock takes cmux's chords from the main menu too, not only from the dispatcher
+        // (``keyboardLockTakes(_:facts:)``): the key went to the page, so no menu item runs it after.
+        if !Self.keyboardLockKeeps.contains(id), keyWindowPageLocksKeys?() ?? pageLocksKeysInKeyWindow() { return false }
         let (controller, kind) = keyWindowFocus()
         guard let controller else { return true }
         return Self.allowsMenu(registry.keyTier(for: id), id: id, focus: controller.focus.state, keyWindow: kind)
@@ -109,6 +157,14 @@ extension KeyRouter {
         case .textPanel: tier != .content
         case .content: id.map { allows(tier, id: $0, focus: focus) } ?? allows(tier, focus: focus)
         }
+    }
+
+    /// ``KeyFacts/pageLocksKeys`` of the key window's live facts; false outside a cmux content window.
+    private func pageLocksKeysInKeyWindow() -> Bool {
+        guard let key = NSApp.keyWindow else { return false }
+        let (controller, kind) = focus(for: key)
+        guard let controller, kind == .content else { return false }
+        return facts(in: key, controller: controller).pageLocksKeys
     }
 
     private func keyWindowFocus() -> (WindowController?, KeyWindowKind) {

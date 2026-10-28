@@ -7,8 +7,9 @@
 //
 // The exports are generated (generated/remote_shim.inc, scripts/cmux-next/gen-chromium-host-wire.py)
 // except the `local` ones: remote_shim.mm (load, prepare_application, initialize, do_work, free,
-// free_owned, password_entry_size) and remote_shim_local.mm (task 014b: the exports with a
-// function-pointer parameter). This header is the interface both include.
+// free_owned, password_entry_size, and set_lock_handler, whose fn ../src/host_locks.h's LockClient
+// keeps, task 229) and remote_shim_local.mm (task 014b: the exports with a function-pointer
+// parameter). This header is the interface both include.
 //
 // Threads: every shim call is on the main thread (cmux_cef_shim.h), so the client's state is
 // main-thread state with no lock; each entry asserts it. The control channel's reader thread
@@ -82,8 +83,8 @@ CMUX_REMOTE_EXPORT void cmux_remote_shim_configure(const cmux_remote_shim_callba
 // is attached already.
 CMUX_REMOTE_EXPORT int cmux_remote_shim_attach(int ctl_fd, void* in_ring, void* out_ring);
 // Main thread. Disconnects (host exit, Reload): closes the channel, drops the mirror cache, the
-// pending marks, the awaited tokens and the posts still waiting for the HELLO; `ended` is not
-// called. Posts fail until the next attach, which replays the preinit log (asking no verdict
+// pending marks, the awaited tokens and the posts still waiting for the HELLO, and ends each
+// pending password reveal as not found (PostPasswordReveal); `ended` is not called. Posts fail until the next attach, which replays the preinit log (asking no verdict
 // twice) and INITIALIZE to the new host. Ids and tokens keep counting.
 CMUX_REMOTE_EXPORT void cmux_remote_shim_detach(void);
 CMUX_REMOTE_EXPORT int cmux_remote_shim_attached(void);
@@ -99,6 +100,11 @@ CMUX_REMOTE_EXPORT uint32_t cmux_remote_shim_last_reply_token(void);
 // callback and its ctx (task 018: CEFRemoteShim hands them to CEFHostReplies); NULL drops them
 // (replies_unhandled). The next cmux_remote_shim_configure sets them again.
 CMUX_REMOTE_EXPORT void cmux_remote_shim_set_reply(void* ctx, cmux_remote_reply_fn reply);
+// Main thread. The channel's end goes to `ended(ctx, reason)` from now on, in place of the
+// configured callback and its ctx (task 091: CEFRemoteShim hands it to CEFHostReplies, whose
+// tokens then resolve as hostGone in that turn); NULL drops it. A detach cmux asks for is never
+// reported. The next cmux_remote_shim_configure sets it again.
+CMUX_REMOTE_EXPORT void cmux_remote_shim_set_ended(void* ctx, cmux_remote_ended_fn ended);
 // Main thread. The input ring's writer (ChromiumHostInputRing, tasks 041 and 042) calls it for
 // each frame of an input kind (IsOrderedInput) it writes, in write order (kPing and kStats keep
 // `seq` as their request id): returns the frame's input seq (Header::seq) and puts in
@@ -168,6 +174,18 @@ bool PostForReply(uint16_t op, uint32_t token, const TlvWriter& args);
 // host's verdict once (PostForReply). Returns the client's check of the arguments, the
 // in-process shim's own: 1 accepted, 0 refused (nothing recorded).
 int32_t PostPreinit(uint16_t op, uint32_t token, const TlvWriter& args);
+// cmux_shim_password_reveal's wire (task p01-process-025), for remote_shim_local.mm's
+// LocalTransport::send_password_reveal, with its DeliverPasswordReveal as `revealed`:
+// kOpPasswordReveal with str profile_cache_path and str id under `token`. The host's REPLY is
+// one bytes field, the password, or none when its shim found none; it goes to `revealed` once,
+// on main (the bytes valid during the call), never to the reply callback, and nothing here
+// logs or counts it. A reveal that gets no answer ends with revealed(token, NULL, 0) once:
+// a detach, the host's end or a malformed frame, or a queued op that was then not sent.
+// False when not sent: no host attached, or the channel refused it; `revealed` never runs then.
+// The password crosses as a plain frame: the channel's buffers are not zeroed, as Chrome's
+// plaintext answer crosses its IPC (passwords_private_delegate_impl.cc).
+using PasswordRevealedFn = bool (*)(uint32_t token, const char* password, size_t length);
+bool PostPasswordReveal(uint32_t token, const char* profile_cache_path, const char* id, PasswordRevealedFn revealed);
 // Never 0.
 uint32_t NextToken();
 // Browser ids from 1 << 20, so they never meet one Chromium assigned; DevTools message ids below

@@ -96,11 +96,23 @@ final class CEFTabNodeVisibility {
             done = setFrozen(browser, frozen ? 1 : 0) == 1
         } else {
             // No one waits for the reply (the runtime drops a reply without a waiter).
-            let state = CEFDevToolsResult.params(["state": frozen ? "frozen" : "active"])
-            done = shim.devToolsCall(browser, "Page.setWebLifecycleState", state) != 0
+            done = tab.runtime.sendDevTools(browser, method: "Page.setWebLifecycleState", params: ["state": frozen ? "frozen" : "active"]) != nil
         }
         if done { isPageFrozen = frozen }
         return done
+    }
+
+    /// ``CEFTab/freezeShownInOffScreenWindow()``: the page an off-screen window shows (p07-memory-097). A tab that
+    /// follows its node was hidden to Chromium by the window node and freezes as a hidden page. One that follows none
+    /// (a fork before API 37) still counts visible to Chromium, so `SetPageFrozen` would refuse it: DevTools
+    /// `Page.setWebLifecycleState` hides it first (`WasHidden`), as for a page that is never shown. Its thaw is
+    /// ``setFrozen(_:of:)`` with `false`, sent now, so an agent call after it reaches a live page.
+    func freezeShown(of tab: CEFTab) -> Bool {
+        guard node == nil else { return setFrozen(true, of: tab) }
+        guard let browser = tab.browserID, !tab.isClosed else { return false }
+        if isPageFrozen { return true }
+        if tab.runtime.sendDevTools(browser, method: "Page.setWebLifecycleState", params: ["state": "frozen"]) != nil { isPageFrozen = true }
+        return isPageFrozen
     }
 
     /// Freezes a page that is never shown: the spare window's about:blank placeholder, on a fork with no
@@ -119,6 +131,6 @@ final class CEFTabNodeVisibility {
             _ = freeze(browser, 1)
             return
         }
-        _ = shim.devToolsCall(browser, "Page.setWebLifecycleState", CEFDevToolsResult.params(["state": "frozen"]))
+        runtime.sendDevTools(browser, method: "Page.setWebLifecycleState", params: ["state": "frozen"])
     }
 }

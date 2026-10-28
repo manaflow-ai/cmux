@@ -1,0 +1,13 @@
+{
+  "agents": {
+    "subsessions": {
+      "answerQuestions": 1
+    }
+  },
+  "appearance": {
+    "focusIndicator": "none"
+  },
+  "sidebar": {
+    "showColors": 1
+  }
+}

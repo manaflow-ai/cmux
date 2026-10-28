@@ -480,5 +480,86 @@ class CommandTests(unittest.TestCase):
         self.assertIn(field.URL_ENV, stderr.getvalue())
 
 
+def site(site_id, kind, count, total_ms=0):
+    """One task-226 `blocking_sites[]` entry."""
+    return {"site": site_id, "kind": kind, "count": count, "total_ms": total_ms}
+
+
+# The client's ids (HangReportWireFormatTests.blockingSitesJSON).
+STORE_SITE = "8ef2dbd38483c034"  # CmuxNextApp/WorkspaceStore.swift:42
+SIDEBAR_SITE = "2fc36eeebd7c605e"  # CmuxNextSidebar/SidebarModel.swift:9
+
+
+class BlockingSiteTests(unittest.TestCase):
+    """Task 226: the top main-thread blocking sites per build, by hashed site id."""
+
+    def test_the_query_reads_the_reports_blocking_sites(self):
+        script = field.reports_query(since_hours=24, channel="nightly")
+        self.assertIn("'blocking_sites', payload->'blocking_sites'", script)
+        field.assert_select_only(script)
+
+    def test_site_id_matches_the_clients(self):
+        self.assertEqual(field.site_id("CmuxNextApp/WorkspaceStore.swift:42"), STORE_SITE)
+        self.assertEqual(field.site_id("CmuxNextSidebar/SidebarModel.swift:9"), SIDEBAR_SITE)
+
+    def test_sites_add_per_build_most_calls_first_and_skip_malformed_entries(self):
+        rows = [row(build="2001") | {"blocking_sites": [site(STORE_SITE, "file-io", 4, 9), site(SIDEBAR_SITE, "sqlite", 6),
+                                                        site("Sources/App.swift", "file-io", 9),
+                                                        site(STORE_SITE.upper(), "file-io", 9),
+                                                        site(SIDEBAR_SITE, "File IO", 9), site(SIDEBAR_SITE, "sqlite", 0),
+                                                        "x"]},
+                row(build="2001") | {"blocking_sites": [site(STORE_SITE, "file-io", 5, 3)]},
+                row(build="2002") | {"blocking_sites": "nope"}]
+        groups = field.aggregate(rows)
+        self.assertEqual(groups[0].top_blocking_sites(),
+                         [(STORE_SITE, "file-io", 9, 12, 2), (SIDEBAR_SITE, "sqlite", 6, 0, 1)])
+        self.assertEqual(groups[1].top_blocking_sites(), [])
+        metrics = {r["metric"]: (r["value"], r["unit"], r["samples"]) for r in field.field_rows(groups[:1])}
+        self.assertEqual(metrics[f"blocking_site.{STORE_SITE}.file-io"], (9, "calls", 2))
+        self.assertEqual(metrics[f"blocking_site.{STORE_SITE}.file-io.total_ms"], (12, "ms", 2))
+        for item in field.field_rows(groups):
+            dashboard.FieldRow(**item)
+
+    def test_a_group_reports_at_most_the_top_sites(self):
+        sites = [site(f"{index:016x}", "sleep", index + 1) for index in range(field.TOP_BLOCKING_SITES + 4)]
+        group = field.aggregate([row() | {"blocking_sites": sites}])[0]
+        self.assertEqual([calls for _, _, calls, _, _ in group.top_blocking_sites()],
+                         list(range(field.TOP_BLOCKING_SITES + 4, 4, -1)))
+
+    def test_sites_from_a_checkout_name_each_id(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "Packages" / "macOS" / "CmuxNext" / "Sources" / "CmuxNextApp" / "Workspace"
+            source.mkdir(parents=True)
+            (source / "WorkspaceStore.swift").write_text("\n" * 50)
+            hidden = root / ".claude" / "worktrees" / "x" / "Sources" / "CmuxNextSidebar"
+            hidden.mkdir(parents=True)
+            (hidden / "SidebarModel.swift").write_text("\n" * 20)
+            fixture = root / "rows.jsonl"
+            fixture.write_text(json.dumps(row() | {"blocking_sites": [site(STORE_SITE, "file-io", 3, 7),
+                                                                      site(SIDEBAR_SITE, "sqlite", 1)]}) + "\n")
+            stdout = io.StringIO()
+            with contextlib.redirect_stdout(stdout):
+                code = lab.main(["field", "--fixture", str(fixture), "--json", "--sites-from", str(root)])
+            self.assertEqual(code, 0)
+            sites = json.loads(stdout.getvalue())["groups"][0]["blocking_sites"]
+            self.assertEqual([(s["site"], s["location"]) for s in sites],
+                             [(STORE_SITE, "CmuxNextApp/WorkspaceStore.swift:42"), (SIDEBAR_SITE, None)])
+            text = field.render_text(field.report(field.aggregate([json.loads(fixture.read_text())]), since_hours=None,
+                                                  channel="nightly", source="fixture"))
+            self.assertIn(f"blocking {STORE_SITE} file-io: 3 calls, 7 ms (n=1)", text)
+
+    def test_a_missing_sites_checkout_exits_2(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = Path(directory) / "rows.jsonl"
+            fixture.write_text(json.dumps(row() | {"blocking_sites": [site(STORE_SITE, "file-io", 1)]}) + "\n")
+            stderr = io.StringIO()
+            args = argparse.Namespace(since="7d", channel="nightly", fixture=str(fixture), out=None, json=True,
+                                      sites_from=str(Path(directory) / "missing"))
+            with contextlib.redirect_stderr(stderr), contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(field.run("field", args), 2)
+        self.assertIn("--sites-from is not a directory", stderr.getvalue())
+
+
 if __name__ == "__main__":
     unittest.main()

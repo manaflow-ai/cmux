@@ -1,5 +1,6 @@
 import CmuxNextCompat
-import CmuxNextTrace
+// Public: ``CrashKeySlots/page`` is the Trace module's attached crash-key page.
+public import CmuxNextTrace
 
 /// The app's in-process crash keys (plans/cmux-next/chrome-parity/p10-stability.md section 3B, task 207): a
 /// fixed block of 64-bit words, allocated once when the slots are made and never resized, that their owners
@@ -240,6 +241,9 @@ public final class CrashKeySlots: Sendable {
     /// in `init`, freed in `deinit`. Kept as an integer so the class is `Sendable` with no unchecked claim; every
     /// access goes through ``AtomicPointerSlot``.
     public let wordsAddress: UInt
+    /// The process's crash-key page (``CrashKeyPage``, p09-observability-078), attached by the composition root
+    /// once its black box made it: the owners these slots reach store the page's keys through it too.
+    public let page = AttachedCrashKeyPage()
 
     /// Empty slots: every key 0, no hung thread.
     public init() {
