@@ -25,6 +25,7 @@ final class AgentQuestionPillButton: NSButton {
         layer?.cornerRadius = bounds.height / 2
     }
 
+    // visibility-walk-allow: applyColors stores the pill's layer fill and recolors its one-line title, no layout or text measure; cheaper than a deferral
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyColors()

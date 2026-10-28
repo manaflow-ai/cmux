@@ -64,8 +64,11 @@ class Percentiles(unittest.TestCase):
     def test_stats_rows_come_from_raw_samples(self):
         vals = [float(v) for v in range(100, 0, -1)]
         row = bench.stats(vals)
+        # perf_stats.pct (linear interpolation); nearest rank gave 50, 95, 99 on this vector.
         self.assertEqual((row["n"], row["p50_ms"], row["p95_ms"], row["p99_ms"], row["max_ms"]),
-                         (100, 50.0, 95.0, 99.0, 100.0))
+                         (100, 50.5, 95.05, 99.01, 100.0))
+        for q, key in ((0.5, "p50_ms"), (0.95, "p95_ms"), (0.99, "p99_ms")):
+            self.assertEqual(row[key], round(bench.lab.perf_stats.pct(vals, q), 3))
         self.assertEqual(row["mean_ms"], 50.5)
         self.assertEqual(row["samples_ms"], vals)  # in arrival order
         self.assertNotIn("samples_ms", bench.stats(vals, keep_samples=False))

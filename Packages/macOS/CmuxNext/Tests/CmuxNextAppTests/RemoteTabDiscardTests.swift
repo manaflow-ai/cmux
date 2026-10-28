@@ -7,6 +7,7 @@ import CmuxNextInputCore
 @testable import CmuxNextRemoteBrowser
 @testable import CmuxNextRemoteView
 @testable import CmuxNextRemoteViewSessions
+import CmuxNextWakeups
 import CmuxNextWakeupsTestSupport
 import CoreVideo
 import Foundation
@@ -49,7 +50,8 @@ import Testing
     /// across the stop and answers after it, as a slow hardware decode does.
     @Test func aFrameDecodedAcrossTheDesktopPanesStopNeverShows() async throws {
         let source = HeldFrameSource()
-        let pane = RemoteDesktopPane(hostName: RemoteViewPageSession.mockHost, source: source, inputSink: nil, presenter: .layerContents)
+        let pane = RemoteDesktopPane(hostName: RemoteViewPageSession.mockHost, source: source, inputSink: nil,
+                                     mainWork: MainWorkScheduler(budget: MainFrameBudget()), presenter: .layerContents)
         pane.start()
         try await Self.until("the pane asks for a frame") { source.asked == 1 }
         let first = try #require(Self.decodedFrame(1))
@@ -69,7 +71,8 @@ import Testing
         let host = MockRemoteStreamSource(width: 160, height: 100)
         try #require(host.canEncode, "VideoToolbox has no H.264 encoder here")
         let source = CountingSource(host: host)
-        let surfaces = RemoteBrowserSurfaces(page: RemoteBrowserContentView(), source: { _ in source }, send: { _, _ in })
+        let surfaces = RemoteBrowserSurfaces(page: RemoteBrowserContentView(), source: { _ in source }, send: { _, _ in },
+                                             mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         defer { surfaces.closeAll() }
         let anchor = CGRect(x: 0, y: 0, width: 160, height: 100)
         surfaces.apply(.show(surface: 1, stream: 2, kind: "autofill", anchor: anchor, pixelWidth: 160, pixelHeight: 100))
@@ -493,7 +496,7 @@ import Testing
         private nonisolated let count = Mutex(0)
 
         init() {
-            shown = LayerContentsPresenter()
+            shown = LayerContentsPresenter(mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         }
 
         var kind: RemotePresenterKind { shown.kind }

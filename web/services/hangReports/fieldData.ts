@@ -12,6 +12,7 @@ import {
   BLACKBOX_PROCESSES,
   BLOCKING_CONTEXTS,
   BLOCKING_KINDS,
+  DAEMON_KINDS,
   INPUT_LABELS,
   SCROLL_JANK_NAMES,
   TASK_CLASSES,
@@ -33,7 +34,7 @@ import {
  *   know, or that time a key or link one input across processes. The client
  *   never sends the latter (`TraceBlackBoxUpload.keeps`); the server drops
  *   them again so none is ever stored;
- * - `labels`: hang samples whose blocking kind or context, task classes,
+ * - `labels`: hang samples whose blocking kind or context or daemon kind, task classes,
  *   input latency rows and scroll jank histograms with a label this server
  *   does not know (the sample, the task, the row or the histogram is left out).
  */
@@ -176,14 +177,16 @@ function knownCounts(counts: CountMap, names: ReadonlySet<string>): Kept<CountMa
 }
 
 /**
- * A detector sample of an unknown kind or context is left out; an unknown task
- * class loses its task; an unknown thread kind is stored as `other`.
+ * A detector or daemon sample of an unknown kind or context is left out; an
+ * unknown task class loses its task; an unknown thread kind is stored as `other`.
  */
 function knownHangs(hangs: ReadonlyArray<HangReportHangV3>): Kept<ReadonlyArray<HangReportHangV3>> {
   const kept: HangReportHangV3[] = [];
   let dropped = 0;
   for (const hang of hangs) {
     if (hang.blocking && !(BLOCKING_KINDS.has(hang.blocking.kind) && BLOCKING_CONTEXTS.has(hang.blocking.context))) {
+      dropped += 1;
+    } else if (hang.daemon && !DAEMON_KINDS.has(hang.daemon.kind)) {
       dropped += 1;
     } else if (hang.task && !TASK_CLASSES.has(hang.task.class)) {
       dropped += 1;

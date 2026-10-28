@@ -24,8 +24,8 @@ public nonisolated enum BookmarkURL {
     public static func displayText(_ url: URL) -> String {
         var text = url.absoluteString
         for prefix in ["https://", "http://"] where text.lowercased().hasPrefix(prefix) {
-            text.removeFirst(prefix.count)
-            if text.lowercased().hasPrefix("www.") { text.removeFirst(4) }
+            text = String(text.dropFirst(prefix.count))
+            if text.lowercased().hasPrefix("www.") { text = String(text.dropFirst(4)) }
             if text.hasSuffix("/"), text.firstIndex(of: "/") == text.index(before: text.endIndex) { text.removeLast() }
             return text
         }

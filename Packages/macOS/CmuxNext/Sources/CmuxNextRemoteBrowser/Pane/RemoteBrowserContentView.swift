@@ -44,11 +44,11 @@ public final class RemoteBrowserContentView: NSView {
     nonisolated public override var isFlipped: Bool { true }
     public override var acceptsFirstResponder: Bool { true }
 
-    /// The page's cursor (`rb.cursor`), shown over the whole page area.
+    /// The page's cursor (`rb.cursor`), shown over the whole page area: set when the pointer enters
+    /// (the hover area's `.cursorUpdate`, p04-input-090) and when the page changes it under the pointer.
     public var pageCursor: NSCursor = .arrow {
         didSet {
             guard pageCursor !== oldValue else { return }
-            window?.invalidateCursorRects(for: self)
             if let window, bounds.contains(convert(window.mouseLocationOutsideOfEventStream, from: nil)) { pageCursor.set() }
         }
     }
@@ -89,11 +89,13 @@ public final class RemoteBrowserContentView: NSView {
         onPlacementChange?()
     }
 
+    // visibility-walk-allow: the hide's own effect, never deferred work (p06 rule 3): the page's popup panels order out with it, and back in on unhide
     public override func viewDidHide() {
         super.viewDidHide()
         onPlacementChange?()
     }
 
+    // visibility-walk-allow: as viewDidHide: the popup panels come back with the page in the unhide's turn
     public override func viewDidUnhide() {
         super.viewDidUnhide()
         onPlacementChange?()
@@ -118,9 +120,7 @@ public final class RemoteBrowserContentView: NSView {
         onViewport?(viewport)
     }
 
-    public override func resetCursorRects() {
-        addCursorRect(bounds, cursor: pageCursor)
-    }
+    public override func cursorUpdate(with event: NSEvent) { pageCursor.set() }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -167,22 +167,18 @@ public final class RemoteBrowserContentView: NSView {
     }
 
     /// Hover: mouse moves, enter and exit while the pointer is over the
-    /// page (CSS `:hover`, tooltips, cursors), with no button down. Covers
-    /// the visible rect, so it follows every resize by itself.
+    /// page (CSS `:hover`, tooltips, cursors), with no button down, and the
+    /// page's cursor on entry. Covers the visible rect, so it follows every
+    /// resize by itself.
     private var hover: NSTrackingArea?
 
     private func installHover() {
         if let hover, trackingAreas.contains(hover) { return }
         let active: NSTrackingArea.Options = isSurface ? .activeInActiveApp : .activeInKeyWindow
         let area = NSTrackingArea(
-            rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, active, .inVisibleRect], owner: self, userInfo: nil)
+            rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .cursorUpdate, active, .inVisibleRect], owner: self, userInfo: nil)
         hover = area
         addTrackingArea(area)
-    }
-
-    public override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        installHover()
     }
 
     @available(*, unavailable)
@@ -205,7 +201,9 @@ public final class RemoteBrowserContentView: NSView {
     }
 
     public override func mouseUp(with event: NSEvent) { discrete(event) }
+    // local-monitor-allow: continuous posts to the window's FrameInputCoalescer (pointerFrameRemoteInput) and forwards each event at once without it; a discrete event flushes what waits first, so the page gets every event in order
     public override func mouseDragged(with event: NSEvent) { continuous(event) }
+    // local-monitor-allow: as mouseDragged: the window's FrameInputCoalescer, the page's events kept in order
     public override func mouseMoved(with event: NSEvent) { continuous(event) }
     public override func mouseEntered(with event: NSEvent) { discrete(event) }
     public override func mouseExited(with event: NSEvent) { discrete(event) }
@@ -214,6 +212,7 @@ public final class RemoteBrowserContentView: NSView {
     /// Wheel and trackpad scrolls go to the page (`wheel`), phases and momentum included: a scroll in
     /// the middle of its gesture, or a wheel notch, waits for the frame; a phase edge goes at once
     /// after what waits.
+    // local-monitor-allow: a mid-gesture scroll goes through the window's FrameInputCoalescer (continuous), a phase edge flushes it and goes at once: the page's wheel events keep their order
     public override func scrollWheel(with event: NSEvent) {
         if event.isMergeableScroll { continuous(event) } else { discrete(event) }
     }

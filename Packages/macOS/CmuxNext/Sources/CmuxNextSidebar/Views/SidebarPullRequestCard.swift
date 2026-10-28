@@ -28,7 +28,7 @@ final class SidebarPullRequestCardController {
 
     private let host = SidebarPopoverIslandHost(width: SidebarPullRequestCardView.width)
     private let content = SidebarPullRequestCardView()
-    private let closer = DemandTimer(owner: "sidebar.pull-request-card.close")
+    private let closer = DemandTimer(owner: "sidebar.pull-request-card.close") // timer-class-allow: the 250 ms grace a pointer crossing to the card waits on (visible); no MainDeadlineScheduler reaches the sidebar's cards yet
     private weak var badge: SidebarPullRequestBadgeView?
     private weak var cards: HoverCardCoordinator?
     private var open: ((URL) -> Void)?
@@ -165,7 +165,7 @@ final class SidebarPullRequestCardView: NSView, HoverCardTextReporting {
         performWithTheme { rows.forEach { $0.applyColors() } }
     }
 
-    override func viewDidChangeEffectiveAppearance() {
+    override func viewDidChangeEffectiveAppearance() { // visibility-walk-allow: the rows' label and pill colors only, and the card shows only while presented
         super.viewDidChangeEffectiveAppearance()
         applyColors()
     }
@@ -201,7 +201,6 @@ final class SidebarPullRequestCardRow: NSView {
     private let additions = ChromeLabel(font: SidebarStyle.badgeFont)
     private let deletions = ChromeLabel(font: SidebarStyle.badgeFont)
     private var hovered = false { didSet { if hovered != oldValue { applyColors() } } }
-    private var tracking: NSTrackingArea?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -212,6 +211,7 @@ final class SidebarPullRequestCardRow: NSView {
         [title, pill, place, additions, deletions].forEach(addSubview)
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect], owner: self))
     }
 
     @available(*, unavailable)
@@ -283,14 +283,6 @@ final class SidebarPullRequestCardRow: NSView {
         trailing = pill.frame.minX - gap
         let titleSize = size(title)
         title.frame = NSRect(x: inset, y: cy - titleSize.height / 2, width: max(0, trailing - inset), height: ceil(titleSize.height))
-    }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self)
-        addTrackingArea(area)
-        tracking = area
     }
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
