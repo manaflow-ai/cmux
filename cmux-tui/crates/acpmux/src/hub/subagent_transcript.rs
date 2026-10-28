@@ -380,6 +380,104 @@ mod tests {
         let _ = std::fs::remove_dir_all(home);
     }
 
+    /// Reads through the real session/profile resolution, never a directory supplied by a caller.
+    fn transcript_hub(home: &Path) -> std::sync::Arc<Hub> {
+        let cfg: crate::config::Config = serde_json::from_value(json!({
+            "harnesses": {"claude": {"kind": "claude-stdio", "argv": ["claude"],
+                "env": {"CLAUDE_CONFIG_DIR": home}}},
+            "defaultHarness": "claude", "store": {"mode": "memory"}
+        }))
+        .unwrap();
+        let store = crate::store::open(&cfg.store, home).unwrap();
+        let meta: crate::store::SessionMeta = serde_json::from_value(json!({
+            "schema": crate::store::META_SCHEMA, "id": "chat", "name": "chat",
+            "harness": "claude", "cwd": home, "status": "idle",
+            "createdAt": 1, "updatedAt": 1, "agentSessionId": "s1"
+        }))
+        .unwrap();
+        store.save(&meta).unwrap();
+        Hub::new(cfg, store)
+    }
+
+    fn transcript_request(run: &str) -> Value {
+        json!({"sessionId": "chat", "runId": run, "agentId": "a01"})
+    }
+
+    fn scoped_store(name: &str) -> PathBuf {
+        let home = store(name);
+        let project = home.join("projects/-work");
+        write(&project.join("s1/subagents/workflows/wf_own"), "a01", 3);
+        write(&project.join("sibling/subagents/workflows/wf_other"), "a01", 3);
+        home
+    }
+
+    #[tokio::test]
+    async fn handle_reads_own_run_and_hides_a_siblings_run_as_missing() {
+        let home = scoped_store("scope");
+        let hub = transcript_hub(&home);
+        let own = handle(&hub, &transcript_request("wf_own")).await.unwrap();
+        assert_eq!(own["lines"], 4);
+        assert!(!own["updates"].as_array().unwrap().is_empty());
+        let absent = handle(&hub, &transcript_request("wf_missing")).await.unwrap_err();
+        let sibling = handle(&hub, &transcript_request("wf_other")).await.unwrap_err();
+        assert_eq!(serde_json::to_vec(&sibling).unwrap(), serde_json::to_vec(&absent).unwrap());
+        assert_eq!(absent.data.unwrap()["reason"], "transcript.missing");
+        let _ = std::fs::remove_dir_all(home);
+    }
+
+    #[tokio::test]
+    async fn peer_and_paired_device_read_only_the_listed_chats_own_transcript() {
+        use crate::server::{ConnAuth, Origin, serve_connection_authed};
+        let home = scoped_store("peer-scope");
+        let hub = transcript_hub(&home);
+        for auth in [ConnAuth::PeerToken, ConnAuth::Device] {
+            let (send, inbound) = tokio::sync::mpsc::channel(8);
+            let (out, mut recv) = tokio::sync::mpsc::channel(64);
+            let server = tokio::spawn(serve_connection_authed(
+                hub.clone(),
+                inbound,
+                out,
+                Origin::Peer,
+                auth,
+            ));
+            let requests = [
+                ("initialize", json!({"protocolVersion": 1})),
+                ("_acpmux/resolve", json!({"query": "chat"})),
+                ("_acpmux/subagent_transcript", transcript_request("wf_own")),
+                ("_acpmux/subagent_transcript", transcript_request("wf_missing")),
+                ("_acpmux/subagent_transcript", transcript_request("wf_other")),
+            ];
+            let mut replies = Vec::new();
+            for (id, (method, params)) in requests.into_iter().enumerate() {
+                send.send(crate::rpc::Message::request(id as i64, method, params).to_line())
+                    .await
+                    .unwrap();
+                loop {
+                    let line =
+                        tokio::time::timeout(std::time::Duration::from_secs(10), recv.recv())
+                            .await
+                            .unwrap()
+                            .unwrap();
+                    let reply: Value = serde_json::from_str(&line).unwrap();
+                    if reply.get("id") == Some(&json!(id)) {
+                        replies.push(reply);
+                        break;
+                    }
+                }
+            }
+            assert_eq!(replies[1]["result"]["session"]["sessionId"], "chat", "{replies:?}");
+            assert_eq!(replies[2]["result"]["lines"], 4, "{replies:?}");
+            assert_eq!(replies[3]["error"]["data"]["reason"], "transcript.missing");
+            assert_eq!(
+                serde_json::to_vec(&replies[3]["error"]).unwrap(),
+                serde_json::to_vec(&replies[4]["error"]).unwrap()
+            );
+            drop(send);
+            server.await.unwrap();
+        }
+        let _ = std::fs::remove_dir_all(home);
+    }
+
     #[cfg(unix)]
     #[test]
     fn a_link_in_the_store_is_never_followed() {
