@@ -205,14 +205,8 @@ function sources(rows: readonly AcpmuxRow[], pullRequests: readonly SummaryPullR
         ? pullRequestSourceCommand(item.command)
         : inputCommandArray
           ? ""
-          : (inputCommand ?? "");
-      const title = item.command
-        ? pullRequestSourceCommand(item.command)
-        : inputCommandArray
-          ? ""
-          : inputCommand
-            ? pullRequestSourceCommand(inputCommand)
-            : item.title;
+          : pullRequestSourceCommand(inputCommand ?? "");
+      const title = item.command || inputCommand ? command : item.title;
       // When raw input carries a shell command, scanning the JSON would reintroduce URLs from
       // --body/--body-file payloads that the command sanitizer intentionally removed.
       const inputText = inputCommand ? "" : (item.inputSummary ?? "");
@@ -237,15 +231,7 @@ function sources(rows: readonly AcpmuxRow[], pullRequests: readonly SummaryPullR
           label: pr.title ?? (ambiguous ? `${pr.repo}#${pr.number}` : `${pr.repo} #${pr.number}`),
           kind: ambiguous ? "url" : (pr.kind ?? "pullRequest"),
         },
-        (() => {
-          const order = pr.firstTouched ?? pr.touched ?? Number.MAX_SAFE_INTEGER;
-          const sourceKeyValue = sourceKey({
-            url: ambiguous ? `https://github.com/${pr.repo}/issues/${pr.number}` : pr.url,
-            label: pr.title ?? (ambiguous ? `${pr.repo}#${pr.number}` : `${pr.repo} #${pr.number}`),
-            kind: ambiguous ? "url" : (pr.kind ?? "pullRequest"),
-          });
-          return order;
-        })(),
+        pr.firstTouched ?? pr.touched ?? Number.MAX_SAFE_INTEGER,
       );
     }
   return [...seen.values()].sort((a, b) => a.order - b.order || a.sequence - b.sequence).map(({ source }) => source);

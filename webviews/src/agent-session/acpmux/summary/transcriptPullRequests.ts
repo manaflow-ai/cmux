@@ -18,6 +18,7 @@
 // Changes lists the most recent first. A row's findings are kept per row object, so a transcript
 // that grows re-reads only its new and changed rows.
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
+import { shellCommands, isPullRequestCommand } from "./shellCommands";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 
@@ -53,8 +54,6 @@ const ISSUE_CALL = /\bgh\s+issue\s+([a-z][\w-]*)(?=\s|$)([^\n;&|]*)/g;
 /// Writes sent through glaeda's broker are mutations even though they do not use `gh pr`.
 const BROKER_CALL =
   /\bglaeda-gh\s+(?:[a-z][\w-]*\s+)*(pr-(?:comment|edit|close|reopen|merge|review|approve|request-changes|update-branch)|issue-(?:comment|edit|close|reopen|create|lock|unlock|delete|pin|unpin|transfer))(?=\s|$)([^\n;&|]*)/g;
-const EXECUTED_PR_COMMAND =
-  /^\s*(?:(?:[A-Za-z_]\w*=\S*|env|command|nohup|time)\s+)*(?:(?:[\w./~-]*\/)?timeout\s+(?:(?:--\S+\s+|-k\s+\S+\s+)*\d+(?:\.\d+)?[smhd]?\s+))?(?:[\w./~-]*\/)?(?:gh|glaeda-gh|gh-merge-green)(?:\s|$)/;
 /// One call that acts on a single pull request: a `gh pr` verb, `gh-merge-green`, or `glaeda-gh`
 /// with a `pr` argument (`wait pr`, `status pr`, `checks pr`), up to the end of the call.
 const CALL =
@@ -114,13 +113,6 @@ const MUTATING = new Set("merge close edit comment review ready reopen lock unlo
 const succeeded = (tool: Tool) => tool.status === "completed" && (tool.exitCode ?? 0) === 0;
 const urlOf = (repo: string, number: number) => `https://github.com/${repo}/pull/${number}`;
 const issueUrlOf = (repo: string, number: number) => `https://github.com/${repo}/issues/${number}`;
-/// A command without the text it carries as data.
-const bare = (command: string) =>
-  command
-    .replace(HEREDOC, "$3\n")
-    .replace(QUOTED, " ")
-    .replace(/(^|[ \t;&|])#.*$/gm, "$1");
-
 /// Keep a quoted GitHub target available to call parsing, while dropping quoted bodies and titles.
 const quotedTarget = (value: string) =>
   new RegExp(`^${PR_URL.source}(?:[/?#]\\S*)?$`).test(value) ||
@@ -137,65 +129,8 @@ const callText = (command: string) =>
     })
     .replace(/(^|[ \t;&|])#.*$/gm, "$1");
 
-/// Shell text after dropping unexecuted short-circuit and conditional branches. Changes and Sources
-/// must scan the same executed command text or they will disagree about URLs from skipped arms.
-const executedShellText = (command: string): string => {
-  let text = callText(command);
-  text = text
-    .replace(/\bif\s+true\s*(?:;|\n)\s*then\s+([\s\S]*?)\s*\b(?:elif|else)\b[\s\S]*?\bfi\b/g, "$1")
-    .replace(/\bif\s+true\s*(?:;|\n)\s*then\s+([\s\S]*?)\s*\bfi\b/g, "$1")
-    .replace(/\bif\s+false\b[\s\S]*?\belif\s+((?!(?:true|false)\b)[\s\S]*?)\s*(?:;|\n)\s*then[\s\S]*?\bfi\b/g, "$1")
-    .replace(/\bif\s+false\b[\s\S]*?\belif\s+((?!(?:true|false)\b)[\s\S]*?)\s*(?:;|\n)\s*fi\b/g, "$1")
-    .replace(/\bif\s+false\b[\s\S]*?\belse\s+([\s\S]*?)\s*\bfi\b/g, "$1")
-    .replace(/\bif\s+false\b[\s\S]*?\bfi\b/g, "");
-  text = text.replace(
-    /\bif\s+(true|false)\s*(?:;|\n)\s*then\s+([\s\S]*?)(?=\s*(?:;|\n)\s*(?:elif|else|fi)\b)([\s\S]*?)\bfi\b/g,
-    (_, condition: string, thenBody: string, rest: string) => {
-      if (condition === "true") return thenBody.split(/\b(?:elif|else)\b/)[0]!;
-      const directElif = /^[;\n\s]*elif\s+(?!true\s*(?:;|\n)|false\s*(?:;|\n))/i.exec(rest);
-      if (directElif) return rest.replace(/^[;\n\s]*elif\s+/, "");
-      const clauses = [
-        ...rest.matchAll(
-          /\b(?:;|\n)?\s*elif\s+(true|false)\s*(?:;|\n)\s*then\s+([\s\S]*?)(?=\s*(?:;|\n)\s*(?:elif|else)\b|$)/g,
-        ),
-      ];
-      const chosen = clauses.find((clause) => clause[1] === "true")?.[2];
-      if (chosen) return chosen;
-      return /\belse\s+/.test(rest) ? rest.replace(/^([\s\S]*?)\belse\s+/, "") : "";
-    },
-  );
-  return text
-    .replace(/!\s+true\b/g, "false")
-    .replace(/!\s+false\b/g, "true")
-    .split(/;|\n|(?<!&)&(?!&)/)
-    .flatMap((statement) => {
-      const pieces: { text: string; op?: "&&" | "||" }[] = [];
-      let last = 0;
-      const operators = /\s*(&&|\|\|)\s*/g;
-      let match: RegExpExecArray | null;
-      while ((match = operators.exec(statement))) {
-        pieces.push({ text: statement.slice(last, match.index), op: match[1] as "&&" | "||" });
-        last = operators.lastIndex;
-      }
-      pieces.push({ text: statement.slice(last) });
-      const kept: string[] = [];
-      let status: boolean | undefined;
-      for (const [index, piece] of pieces.entries()) {
-        const value = piece.text.trim();
-        const run = index === 0 || status === undefined || (pieces[index - 1]!.op === "&&" ? status : !status);
-        if (run && value) kept.push(value);
-        if (run) status = value === "true" ? true : value === "false" ? false : undefined;
-        else if (pieces[index - 1]?.op === "&&") status = false;
-        else if (pieces[index - 1]?.op === "||") status = true;
-      }
-      return kept;
-    })
-    .join("; ");
-};
-
-/// Command text suitable for Sources scanning: payloads such as PR comment bodies are data, not
-/// activity or external references.
-export const pullRequestSourceCommand = executedShellText;
+/// Both consumers use the same executed branches and exclude quoted payloads.
+export const pullRequestSourceCommand = (command: string): string => shellCommands(callText(command)).join("\n");
 
 /// Only explicit JSON title fields or a `.title` query are title evidence.
 function outputTitle(tool: Tool): string | undefined {
@@ -258,33 +193,10 @@ function toolFindings(tool: Tool): Finding[] {
   if (!succeeded(tool)) return [];
   const command = tool.command ?? "";
   // Strip body/title payloads before URL and shorthand scans; those are data, not activity.
-  const scanPlain = executedShellText(command);
-  const parts = executedShellText(command)
-    .replace(/(?<!\\)\$\(([^()]*)\)/g, "\n$1\n")
-    .split(/[\n;&|]+/);
-  let skipFalseBranch = false;
-  const calls = parts
-    .flatMap((part) => {
-      const trimmed = part.trim();
-      if (/^(?:if|elif)\s+false\s*$/.test(trimmed)) {
-        skipFalseBranch = true;
-        return [];
-      }
-      if (/^(?:else|elif)\b/.test(trimmed)) skipFalseBranch = false;
-      if (/^fi\b/.test(trimmed)) {
-        skipFalseBranch = false;
-        return [];
-      }
-      if (skipFalseBranch) return [];
-      const normalized = part
-        .replace(/^\s*[({]\s*/, "")
-        .replace(/\s*[)}]\s*$/, "")
-        .replace(/^\s*(?:(?:if|then|do|else|elif)\s+)+/, "")
-        .replace(/^\s*!\s*/, "! ");
-      return EXECUTED_PR_COMMAND.test(normalized) && !/(?:^|\s)(?:--help|-h)(?=\s|$)/.test(normalized)
-        ? [normalized]
-        : [];
-    })
+  const scanPlain = pullRequestSourceCommand(command);
+  const calls = scanPlain
+    .split("\n")
+    .filter((part) => isPullRequestCommand(part) && !/(?:^|\s)(?:--help|-h)(?=\s|$)/.test(part))
     .join("\n");
   const found: Finding[] = [];
   if (CREATE.test(calls)) {

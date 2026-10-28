@@ -1,0 +1,126 @@
+// A bounded walk over sanitized shell text. This is evidence extraction, not shell execution:
+// literal predicates are known; external command statuses remain unknown. Never execute input.
+type Status = boolean | undefined;
+const invert = (value: Status): Status => (value === undefined ? undefined : !value);
+
+export function shellCommands(text: string): string[] {
+  const tokens = text.match(/&&|\|\||\$\(|[;\n&|()]|(?:(?!\$\()[^\s;&|()])+/g) ?? [];
+  const commands: string[] = [];
+  let at = 0;
+  const list = (active: boolean, stops: readonly string[], depth: number): Status => {
+    if (depth > 64) {
+      at = tokens.length;
+      return undefined;
+    }
+    let status: Status;
+    let operator = ";";
+    while (at < tokens.length && !stops.includes(tokens[at]!)) {
+      const token = tokens[at]!;
+      if ([";", "\n", "&", "&&", "||", "|"].includes(token)) {
+        if (token !== "\n" || !["&&", "||"].includes(operator)) operator = token;
+        at++;
+        continue;
+      }
+      const runs = active && (operator === "&&" ? status !== false : operator === "||" ? status !== true : true);
+      const previous = at;
+      let result = compound(runs, depth + 1);
+      // A short-circuit guard applies to every component of the following pipeline.
+      while (tokens[at] === "|") {
+        at++;
+        while (tokens[at] === "\n") at++;
+        result = compound(runs, depth + 1);
+      }
+      if (operator === "&&" && status === false) {
+        /* skipped: status stays false */
+      } else if (operator === "||" && status === true) {
+        /* skipped: status stays true */
+      } else status = result;
+      operator = ";";
+      if (at === previous) at++;
+    }
+    return status;
+  };
+  const compound = (active: boolean, depth: number): Status => {
+    let negate = false;
+    while (tokens[at] === "!") {
+      negate = !negate;
+      at++;
+    }
+    let status: Status;
+    if (tokens[at] === "if") {
+      at++;
+      let remaining = active;
+      // An if with no matching arm and no else succeeds.
+      status = true;
+      while (at < tokens.length) {
+        const condition = list(remaining, ["then", "fi"], depth);
+        if (tokens[at] !== "then") {
+          if (tokens[at] === "fi") at++;
+          break;
+        }
+        at++;
+        const body = list(remaining && condition !== false, ["elif", "else", "fi"], depth);
+        if (remaining && condition !== false) status = body;
+        if (condition === true) remaining = false;
+        if (tokens[at] === "elif") {
+          at++;
+          continue;
+        }
+        if (tokens[at] === "else") {
+          at++;
+          const other = list(remaining, ["fi"], depth);
+          if (remaining) status = other;
+        }
+        if (tokens[at] === "fi") at++;
+        break;
+      }
+    } else if (tokens[at] === "(") {
+      at++;
+      status = list(active, [")"], depth);
+      if (tokens[at] === ")") at++;
+    } else {
+      const words: string[] = [];
+      while (at < tokens.length && ![";", "\n", "&", "&&", "||", "|", "(", ")"].includes(tokens[at]!)) {
+        if (tokens[at] === "$(") {
+          at++;
+          list(active, [")"], depth);
+          if (tokens[at] === ")") at++;
+          words.push("$()");
+        } else words.push(tokens[at++]!);
+      }
+      if (active && words.length) commands.push(`${negate ? "! " : ""}${words.join(" ")}`);
+      status = words.length === 1 && ["true", "false", ":"].includes(words[0]!) ? words[0] !== "false" : undefined;
+    }
+    return negate ? invert(status) : status;
+  };
+  list(true, [], 0);
+  return commands;
+}
+
+// Peel known wrappers by their argument grammar, so `timeout 60 echo gh ...` stays echo.
+export function isPullRequestCommand(command: string): boolean {
+  const words = command.trim().split(/\s+/);
+  let at = 0;
+  while (at < words.length) {
+    const word = words[at]!;
+    const name = word.slice(word.lastIndexOf("/") + 1);
+    if (/^[A-Za-z_]\w*=/.test(word) || ["env", "command", "nohup", "time"].includes(name)) {
+      at++;
+      continue;
+    }
+    if (name !== "timeout") return ["gh", "glaeda-gh", "gh-merge-green"].includes(name);
+    at++;
+    while (words[at]?.startsWith("-")) {
+      const option = words[at++]!;
+      if (option === "--") break;
+      if (["-k", "-s", "--kill-after", "--signal"].includes(option)) at++;
+      else if (
+        !["--foreground", "--preserve-status", "--verbose", "-v", "-p"].includes(option) &&
+        !/^--(?:kill-after|signal)=/.test(option)
+      )
+        return false;
+    }
+    if (!/^\d+(?:\.\d+)?[smhd]?$/.test(words[at++] ?? "")) return false;
+  }
+  return false;
+}
