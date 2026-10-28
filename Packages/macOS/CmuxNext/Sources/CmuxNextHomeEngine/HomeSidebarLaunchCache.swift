@@ -1,6 +1,6 @@
 public import CmuxNextDaemon
 public import CmuxNextHome
-import CmuxNextCompat
+public import CmuxNextCompat
 public import Foundation
 
 /// What the Home list showed last, beyond the conversations themselves (those are `HomeCache`'s):
@@ -44,11 +44,13 @@ public nonisolated struct HomeSidebarLaunchSnapshot: Codable, Equatable, Sendabl
 // memory: fixed at most two snapshots of one account's list (the one waiting to be written and the
 // last one written), a few KB of JSON each; a newer save replaces the waiting one.
 /// The launch snapshot's file: read on a launch lane from `main` with the conversations' `HomeCache`
-/// (``HomeListLaunchRead``, a few KB of JSON), written off the main actor after the list changes: one write at a
-/// time, the newest snapshot wins, an unchanged one is not written (no timer: the list's changes
-/// are the only wakeups).
+/// (``HomeListLaunchRead``, a few KB of JSON), written on the files lane at `.bestEffort` after the list
+/// changes: one write at a time, the newest snapshot wins, an unchanged one is not written (no timer: the
+/// list's changes are the only wakeups). Quit writes the pending one itself (``flush()``).
 public nonisolated final class HomeSidebarLaunchCache: Sendable {
     public let url: URL
+    /// The lanes the file is written on.
+    private let lanes: any MayBlockRunner
     private struct State: Sendable {
         var pending: HomeSidebarLaunchSnapshot?
         var written: HomeSidebarLaunchSnapshot?
@@ -56,16 +58,20 @@ public nonisolated final class HomeSidebarLaunchCache: Sendable {
     }
     private let state = Mutex(State())
 
-    public init(url: URL) {
+    /// - Parameters:
+    ///   - url: the snapshot's file.
+    ///   - files: the lanes the file is written on (the app's `work`).
+    public init(url: URL, files: any MayBlockRunner) {
         self.url = url
+        self.lanes = files
     }
 
     /// `Caches/cmux-home/<owner>/sidebar.json` in the user's Caches folder, beside the conversations'
     /// `HomeCache` of the same owner.
-    public static func standard(owner: String) -> HomeSidebarLaunchCache {
+    public static func standard(owner: String, files: any MayBlockRunner) -> HomeSidebarLaunchCache {
         let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
             ?? FileManager.default.temporaryDirectory
-        return standard(owner: owner, caches: caches)
+        return standard(owner: owner, caches: caches, files: files)
     }
 
     /// `<caches>/cmux-home/<owner>/sidebar.json`, beside the conversations' `HomeCache` of the same owner.
@@ -73,10 +79,11 @@ public nonisolated final class HomeSidebarLaunchCache: Sendable {
     /// - Parameters:
     ///   - owner: The Chief owner the cache belongs to.
     ///   - caches: The folder that holds the Home caches (the user's Caches folder in the app).
+    ///   - files: The lanes the file is written on.
     /// - Returns: The cache at that path.
-    public static func standard(owner: String, caches: URL) -> HomeSidebarLaunchCache {
+    public static func standard(owner: String, caches: URL, files: any MayBlockRunner) -> HomeSidebarLaunchCache {
         let component = String(owner.map { $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" ? $0 : "-" })
-        return HomeSidebarLaunchCache(url: caches.appendingPathComponent("cmux-home/\(component)/sidebar.json"))
+        return HomeSidebarLaunchCache(url: caches.appendingPathComponent("cmux-home/\(component)/sidebar.json"), files: files)
     }
 
     /// The last snapshot for `account`; nil when there is none, it is another account's, or another version's.
@@ -106,8 +113,9 @@ public nonisolated final class HomeSidebarLaunchCache: Sendable {
             return true
         }
         guard schedule else { return }
-        // task-owner: one coalesced write; ends after it (a save meanwhile replaces what it writes)
-        Task.detached(priority: .utility) { [self] in flush() }
+        // One coalesced write; a save meanwhile replaces what it writes. Nobody waits for it, and quit
+        // flushes the pending snapshot itself, so one not started at quit is dropped.
+        lanes.postFiles(.bestEffort, shutdown: .skipOnShutdown) { [self] in flush() }
     }
 
     /// Writes the pending snapshot now (app quit, tests). The file is written outside the lock.

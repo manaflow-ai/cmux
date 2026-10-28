@@ -25,7 +25,7 @@ import Testing
         snapshot.conversations = [CmuxHomeCore.ConversationSummary(id: conversation, owner: .local, title: "Launch", participants: [me],
                                                                    createdAt: at, updatedAt: at)]
         try await HomeCache.standard(owner: owner, caches: caches).save(snapshot)
-        let sidebar = HomeSidebarLaunchCache.standard(owner: owner, caches: caches)
+        let sidebar = HomeSidebarLaunchCache.standard(owner: owner, caches: caches, files: BackgroundWork())
         sidebar.save(HomeSidebarLaunchSnapshot(account: "acct_test", archivedChiefs: ["agent_old"]))
         sidebar.flush()
     }
@@ -35,7 +35,7 @@ import Testing
         try await Self.lastQuit(caches: caches)
         let onMain = OSAllocatedUnfairLock<[Bool]>(initialState: [])
         let conversations = HomeCache.standard(owner: Self.owner, caches: caches)
-        let sidebar = HomeSidebarLaunchCache.standard(owner: Self.owner, caches: caches)
+        let sidebar = HomeSidebarLaunchCache.standard(owner: Self.owner, caches: caches, files: BackgroundWork())
         let read = HomeListLaunchRead(owner: Self.owner, caches: caches, conversations: conversations, sidebar: sidebar, on: BackgroundWork()) {
             onMain.withLock { $0.append(Thread.isMainThread) }
             return HomeListLaunchRead.Value(conversations: conversations.load(), sidebar: sidebar.read())
@@ -56,7 +56,7 @@ import Testing
         #expect(value.conversations?.conversations.map(\.id) == [Self.conversation])
         #expect(value.sidebar?.archivedChiefs == ["agent_old"])
         #expect(read.conversations.url == HomeCache.standard(owner: Self.owner, caches: caches).url)
-        #expect(read.sidebar.url == HomeSidebarLaunchCache.standard(owner: Self.owner, caches: caches).url)
+        #expect(read.sidebar.url == HomeSidebarLaunchCache.standard(owner: Self.owner, caches: caches, files: BackgroundWork()).url)
         #expect(read.reads(owner: Self.owner, caches: caches))
         #expect(!read.reads(owner: "cmux-chief-other", caches: caches))
         #expect(!read.reads(owner: Self.owner, caches: Self.caches()))
@@ -67,7 +67,7 @@ import Testing
         let caches = Self.caches()
         let gate = DispatchSemaphore(value: 0)
         let read = HomeListLaunchRead(owner: Self.owner, caches: caches, conversations: HomeCache.standard(owner: Self.owner, caches: caches),
-                                      sidebar: HomeSidebarLaunchCache.standard(owner: Self.owner, caches: caches), on: BackgroundWork()) {
+                                      sidebar: HomeSidebarLaunchCache.standard(owner: Self.owner, caches: caches, files: BackgroundWork()), on: BackgroundWork()) {
             gate.wait()
             return HomeListLaunchRead.Value()
         }

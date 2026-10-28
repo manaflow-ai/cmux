@@ -1,6 +1,7 @@
 import CmuxNextAgentPane
 import CmuxNextDaemon
 import CmuxNextHomeEngine
+import CmuxNextWakeups
 import Foundation
 
 /// Which acpmux an agent tab's pane attaches to.
@@ -37,11 +38,12 @@ struct ChiefHomeAcpmux {
     /// - Parameters:
     ///   - local: this Mac's pane host; a Chief on the app's own acpmux
     ///     (``ChiefHome/usesAppAcpmux``) attaches its tabs there.
+    ///   - work: the app's background work (a heal's follow-up after a busy host's turn).
     ///   - ensureHost: starts the Chief brain host when none runs
     ///     (`ChiefBrainKeeper.ensure`), after a heal stopped the stale one.
     ///   - ownHost: the pane host of the Chief home's own acpmux (its environment) for a Chief
     ///     on the app's acpmux: the daemon its subagents ran on before the move.
-    init(home: ChiefHome, local: any AgentPaneHostProviding, ensureHost: @escaping @Sendable () async -> Void,
+    init(home: ChiefHome, local: any AgentPaneHostProviding, work: BackgroundWork, ensureHost: @escaping @Sendable () async -> Void,
          ownHost: @escaping @Sendable (AcpmuxEnvironment?) -> any AgentPaneHostProviding = { AcpmuxHost(environment: $0) }) {
         let host = Self.host(muxHome: home.muxHome)
         self.host = host
@@ -68,7 +70,7 @@ struct ChiefHomeAcpmux {
         // replaced bundle is healed through its owner (ChiefAcpmuxHeal), while the app runs.
         var healReplaced: (@Sendable () async -> Bool)?
         if let environment {
-            let heal = ChiefAcpmuxHeal(home: home, environment: environment, ensureHost: ensureHost)
+            let heal = ChiefAcpmuxHeal(home: home, environment: environment, work: work, ensureHost: ensureHost)
             healReplaced = { @Sendable () async -> Bool in await heal.heal() }
         }
         let chief = AcpmuxHost(environment: environment, startsDaemons: false, healReplaced: healReplaced)

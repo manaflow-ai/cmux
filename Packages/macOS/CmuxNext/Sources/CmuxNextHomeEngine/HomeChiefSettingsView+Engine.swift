@@ -8,18 +8,19 @@ extension HomeChiefSettingsView {
     // MARK: Engine
 
     /// Re-reads the engine and the last turns (a new message or a turn's
-    /// end) off the main actor, then shows them, or why it could not.
+    /// end), then shows them, or why it could not. The source reads its files on a
+    /// files lane and its brain through the daemon or the Cloud service, so the main
+    /// actor only awaits.
     @discardableResult
     public func refresh() -> Task<Void, Never> {
         let source = source
         let home = muxHome
-        // task-owner: one read off the main actor; ends when it is shown
+        // task-owner: one read (files on a lane, the brain through its daemon); ends when it is shown
         return Task { [weak self] in
             // This Mac's acpmux harnesses, for a brain that runs here (a paired server's are its own).
             if let self, source.isLocal { listedHarnesses = await listHarnesses() }
-            let result = await Task.detached { () async -> Result<HomeChiefSnapshot, HomeChiefEngineError> in
-                do { return .success(try await source.read()) } catch let error as HomeChiefEngineError { return .failure(error) } catch { return .failure(.other(String(describing: error))) }
-            }.value
+            let result: Result<HomeChiefSnapshot, HomeChiefEngineError>
+            do { result = .success(try await source.read()) } catch { result = .failure(error) }
             // A read of the Chief shown before (another conversation) is not shown.
             guard let self, self.source.isLocal == source.isLocal, self.source.place == source.place, muxHome == home else { return }
             switch result {
@@ -43,11 +44,10 @@ extension HomeChiefSettingsView {
         let source = source
         let home = muxHome
         changeFailed = false
-        // task-owner: one write off the main actor; ends when its result is shown
+        // task-owner: one write (the source awaits the brain); ends when its result is shown
         return Task { [weak self] in
-            let result = await Task.detached { () async -> Result<HomeChiefSnapshot, HomeChiefEngineError> in
-                do { return .success(try await source.set(fields)) } catch let error as HomeChiefEngineError { return .failure(error) } catch { return .failure(.other(String(describing: error))) }
-            }.value
+            let result: Result<HomeChiefSnapshot, HomeChiefEngineError>
+            do { result = .success(try await source.set(fields)) } catch { result = .failure(error) }
             // A pick for the Chief shown before (another conversation, or its other host) is not shown.
             guard let self, muxHome == home, self.source.isLocal == source.isLocal, self.source.place == source.place else { return }
             switch result {
