@@ -83,14 +83,11 @@ jobs:
     if: inputs.mode == 'prod-copy'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
-    outputs:
-      reviewed: ${{ steps.gate.outputs.reviewed }}
     env:
       GH_TOKEN: ${{ github.token }}
       PROD_ENV: cmux-next-vm-image-prod
     steps:
       - name: Check the production environment
-        id: gate
         run: |
           set -euo pipefail
           refuse() { echo "::error title=Production environment::$1"; exit 1; }
@@ -101,11 +98,6 @@ jobs:
           gh api "repos/$GITHUB_REPOSITORY/environments/$PROD_ENV/deployment-branch-policies" --jq '[.branch_policies[] | "\(.type // "branch"):\(.name)"] | sort | join(",")' > "$RUNNER_TEMP/prod-env-branches.txt" || refuse "cannot read the branch policies of $PROD_ENV: $inert"
           [ "$(cat "$RUNNER_TEMP/prod-env-branches.txt")" = "branch:feat-cmux-next" ] || refuse "$PROD_ENV allows $(cat "$RUNNER_TEMP/prod-env-branches.txt"), not branch feat-cmux-next only: $inert"
           echo "$PROD_ENV exists and allows branch feat-cmux-next only"
-          # With required reviewers a person approves each production job before it starts; the first
-          # production copy (no recorded production snapshot to identify the account by) needs that.
-          reviewed="$(jq -r 'if any(.protection_rules[]?; .type == "required_reviewers") then "yes" else "" end' "$RUNNER_TEMP/prod-env.json")"
-          echo "required reviewers: ${reviewed:-none}"
-          echo "reviewed=$reviewed" >> "$GITHUB_OUTPUT"
 
   bake:
     needs: prod-gate
@@ -233,22 +225,34 @@ jobs:
             > "$OUT_DIR/channel-dev.json"
           cat "$OUT_DIR/channel-dev.json"
 
-      # The copy repeats the dev image's lock and flags; the key must not be the dev account's.
+      # The copy repeats the dev image's lock and flags, and the key must be the production account's
+      # (prod-copy.ts account-check: it resolves the environment's FREESTYLE_PROD_ANCHOR or a recorded
+      # production snapshot to its id, and is not the dev key). In every prod-copy step the key reaches
+      # bun only as a 0600 file (FREESTYLE_API_KEY_FILE), never in a child's environment.
       - name: Plan the production copy
         if: inputs.mode == 'prod-copy'
         id: plan
         env:
-          FREESTYLE_API_KEY: ${{ secrets.FREESTYLE_API_KEY }}
+          FREESTYLE_KEY_SECRET: ${{ secrets.FREESTYLE_API_KEY }}
           DEV_SNAPSHOT: ${{ inputs.dev_snapshot }}
-          CMUX_PROD_ENV_REVIEWED: ${{ needs.prod-gate.outputs.reviewed }}
+          FREESTYLE_PROD_ANCHOR: ${{ vars.FREESTYLE_PROD_ANCHOR }}
         run: |
           set -euo pipefail
+          # First: the key moves to an unexported shell variable, so no child process inherits it.
+          key="$FREESTYLE_KEY_SECRET"
+          unset FREESTYLE_KEY_SECRET
+          umask 077
+          key_file="$(mktemp "$RUNNER_TEMP/freestyle-key.XXXXXX")"
+          trap 'rm -f "$key_file"' EXIT
+          printf '%s' "$key" > "$key_file"
+          unset key
+          chmod 600 "$key_file"
           bun scripts/cmux-vm-image/prod-copy.ts plan --dev-snapshot "$DEV_SNAPSHOT" | tee "$RUNNER_TEMP/prod-copy-plan.out"
           flags="$(sed -n 's/^FLAGS //p' "$RUNNER_TEMP/prod-copy-plan.out")"
           var="$(sed -n 's/^VAR //p' "$RUNNER_TEMP/prod-copy-plan.out")"
           [[ "$flags" =~ ^--prod-copy( --agent-tools)?( --team-vm)?$ ]]
           [[ "$var" =~ ^(CLOUD_FREESTYLE_SNAPSHOT|TEAM_VM_SNAPSHOT)$ ]]
-          bun scripts/cmux-vm-image/prod-copy.ts account-check
+          FREESTYLE_API_KEY_FILE="$key_file" bun scripts/cmux-vm-image/prod-copy.ts account-check
           {
             echo "flags=$flags"
             echo "var=$var"
@@ -259,13 +263,22 @@ jobs:
         if: inputs.mode == 'prod-copy'
         id: prod_bake
         env:
-          FREESTYLE_API_KEY: ${{ secrets.FREESTYLE_API_KEY }}
+          FREESTYLE_KEY_SECRET: ${{ secrets.FREESTYLE_API_KEY }}
           FLAGS: ${{ steps.plan.outputs.flags }}
         run: |
           set -euo pipefail
+          # First: the key moves to an unexported shell variable, so no child process inherits it.
+          key="$FREESTYLE_KEY_SECRET"
+          unset FREESTYLE_KEY_SECRET
+          umask 077
+          key_file="$(mktemp "$RUNNER_TEMP/freestyle-key.XXXXXX")"
+          trap 'rm -f "$key_file"' EXIT
+          printf '%s' "$key" > "$key_file"
+          unset key
+          chmod 600 "$key_file"
           mkdir -p "$OUT_DIR"
           # shellcheck disable=SC2086
-          bun ../images/cmux-vm/bake.ts --tag "$TAG" --out-dir "$OUT_DIR" $FLAGS | tee "$OUT_DIR/bake.out"
+          FREESTYLE_API_KEY_FILE="$key_file" bun ../images/cmux-vm/bake.ts --tag "$TAG" --out-dir "$OUT_DIR" $FLAGS | tee "$OUT_DIR/bake.out"
           snapshot="$(awk '/^IMAGE_ID /{print $2}' "$OUT_DIR/bake.out" | tail -1)"
           test -n "$snapshot"
           echo "snapshot=$snapshot" >> "$GITHUB_OUTPUT"
@@ -273,14 +286,23 @@ jobs:
       - name: Smoke the production copy
         if: inputs.mode == 'prod-copy'
         env:
-          FREESTYLE_API_KEY: ${{ secrets.FREESTYLE_API_KEY }}
+          FREESTYLE_KEY_SECRET: ${{ secrets.FREESTYLE_API_KEY }}
           SNAPSHOT: ${{ steps.prod_bake.outputs.snapshot }}
           CLONES: ${{ inputs.clones }}
           TEAM_VM: ${{ steps.plan.outputs.team_vm }}
         run: |
           set -euo pipefail
+          # First: the key moves to an unexported shell variable, so no child process inherits it.
+          key="$FREESTYLE_KEY_SECRET"
+          unset FREESTYLE_KEY_SECRET
+          umask 077
+          key_file="$(mktemp "$RUNNER_TEMP/freestyle-key.XXXXXX")"
+          trap 'rm -f "$key_file"' EXIT
+          printf '%s' "$key" > "$key_file"
+          unset key
+          chmod 600 "$key_file"
           # shellcheck disable=SC2086
-          bun ../images/cmux-vm/smoke.ts --snapshot "$SNAPSHOT" --tag "$TAG" --clones "$CLONES" --out-dir "$OUT_DIR" $TEAM_VM | tee "$OUT_DIR/smoke.out"
+          FREESTYLE_API_KEY_FILE="$key_file" bun ../images/cmux-vm/smoke.ts --snapshot "$SNAPSHOT" --tag "$TAG" --clones "$CLONES" --out-dir "$OUT_DIR" $TEAM_VM | tee "$OUT_DIR/smoke.out"
 
       # What promote-record.ts --production-copy records as names.production of the dev entry.
       - name: Production copy candidate
@@ -323,16 +345,39 @@ jobs:
       # Deletes every id the ledger recorded and did not delete yet: the bake
       # snapshot, and any builder or clone a failed or cancelled step left.
       - name: Delete everything this run created
-        if: always()
+        if: always() && inputs.mode != 'prod-copy'
         env:
           FREESTYLE_API_KEY: ${{ secrets.FREESTYLE_API_KEY }}
           # Keep the snapshot only when its smoke (and a dev tree's first build) passed; a failed bake leaves nothing behind.
-          # A production copy is kept only once its candidate (a passed smoke) is written.
-          KEEP: ${{ ((inputs.keep_snapshot && inputs.mode == 'bake' && steps.smoke.outcome == 'success' && (!inputs.dev_tree || steps.first_build.outcome == 'success')) || (inputs.mode == 'prod-copy' && steps.prod_candidate.outcome == 'success')) && '--keep-snapshot' || '' }}
+          KEEP: ${{ inputs.keep_snapshot && inputs.mode == 'bake' && steps.smoke.outcome == 'success' && (!inputs.dev_tree || steps.first_build.outcome == 'success') && '--keep-snapshot' || '' }}
         run: |
           if [ -f "$OUT_DIR/resources.tsv" ]; then
             # shellcheck disable=SC2086
             bun ../images/cmux-vm/cleanup.ts --ledger "$OUT_DIR/resources.tsv" $KEEP
+          else
+            echo "no ledger; nothing was created"
+          fi
+
+      # The production copy is kept only once its candidate (a passed smoke) is written.
+      - name: Delete everything this production copy run created
+        if: always() && inputs.mode == 'prod-copy'
+        env:
+          FREESTYLE_KEY_SECRET: ${{ secrets.FREESTYLE_API_KEY }}
+          KEEP: ${{ steps.prod_candidate.outcome == 'success' && '--keep-snapshot' || '' }}
+        run: |
+          set -euo pipefail
+          # First: the key moves to an unexported shell variable, so no child process inherits it.
+          key="$FREESTYLE_KEY_SECRET"
+          unset FREESTYLE_KEY_SECRET
+          umask 077
+          key_file="$(mktemp "$RUNNER_TEMP/freestyle-key.XXXXXX")"
+          trap 'rm -f "$key_file"' EXIT
+          printf '%s' "$key" > "$key_file"
+          unset key
+          chmod 600 "$key_file"
+          if [ -f "$OUT_DIR/resources.tsv" ]; then
+            # shellcheck disable=SC2086
+            FREESTYLE_API_KEY_FILE="$key_file" bun ../images/cmux-vm/cleanup.ts --ledger "$OUT_DIR/resources.tsv" $KEEP
           else
             echo "no ledger; nothing was created"
           fi

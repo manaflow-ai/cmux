@@ -15,9 +15,9 @@
  *     dev account's key: it resolves the dev channel's snapshot name to its recorded id. Once a production
  *     snapshot is recorded (channels/production.json, or names.production in dev.json history), the key must
  *     also resolve one of them to its recorded id, so a third account's key is refused too. The first
- *     production copy has no such record to identify the account by, so it needs a person instead: it runs
- *     only when cmux-next-vm-image-prod has required reviewers (CMUX_PROD_ENV_REVIEWED=yes, from the
- *     workflow's prod-gate job), who approve the job before it starts. Read-only GETs.
+ *     production copy has no such record, so the environment names one: FREESTYLE_PROD_ANCHOR, a variable
+ *     (not a secret) of cmux-next-vm-image-prod set next to the key, `<slug> <sh-id>` of any snapshot on
+ *     the production account. Without an anchor of either kind it refuses. Read-only GETs.
  */
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
@@ -71,7 +71,7 @@ export function planCopy(root: string, devSnapshot: string): CopyPlan {
   return { flags: ["--prod-copy", ...flags!], var: v as CopyPlan["var"], lockSha256: lock };
 }
 
-type Pointer = { snapshot: string; snapshot_id: string };
+export type Pointer = { snapshot: string; snapshot_id: string };
 const isPointer = (p: unknown, prefix: string): p is Pointer => {
   const r = p as Json | undefined;
   return typeof r?.snapshot === "string" && r.snapshot.startsWith(prefix) && /^[a-z0-9-]+$/.test(r.snapshot) && typeof r.snapshot_id === "string" && SNAPSHOT_ID.test(r.snapshot_id);
@@ -93,19 +93,28 @@ export function productionAnchors(root: string): Pointer[] {
  * Throws unless `resolve` (one account's view of snapshot names) is the production account's: it must not resolve
  * the dev channel's snapshot to its recorded id, and, once production snapshots are recorded, must resolve one of them.
  */
-export async function accountCheck(root: string, resolve: (name: string) => Promise<string | undefined>, reviewed = false): Promise<string> {
+/** FREESTYLE_PROD_ANCHOR: `<slug> <sh-id>` of a snapshot on the production account; undefined when unset, throws when malformed. */
+export function parseAnchor(raw: string | undefined): Pointer | undefined {
+  const value = raw?.trim();
+  if (!value) return undefined;
+  const m = value.match(/^([a-z0-9][a-z0-9-]*) (sh-[0-9a-f]{32})$/);
+  if (!m) throw new Error("FREESTYLE_PROD_ANCHOR must be `<snapshot slug> <sh-id>` of a snapshot on the production account; refusing");
+  if (m[1]!.startsWith("cmuxnp-dev-")) throw new Error("FREESTYLE_PROD_ANCHOR names a cmuxnp-dev- snapshot, which lives on the dev account; refusing");
+  return { snapshot: m[1]!, snapshot_id: m[2]! };
+}
+
+export async function accountCheck(root: string, resolve: (name: string) => Promise<string | undefined>, anchor?: Pointer): Promise<string> {
   const dev = readDev(root);
   if (!isPointer(dev, "cmuxnp-dev-vmimg-")) throw new Error(`${DEV} has no dev snapshot name and id to check the key against; refusing`);
   if ((await resolve(dev.snapshot)) === dev.snapshot_id) {
     throw new Error(`the Freestyle key resolves the dev channel's ${dev.snapshot} to ${dev.snapshot_id}: it is the dev account's key, not production's; refusing`);
   }
-  const anchors = productionAnchors(root);
+  const anchors = [...(anchor ? [anchor] : []), ...productionAnchors(root).filter((a) => a.snapshot_id !== anchor?.snapshot_id)];
   if (!anchors.length) {
-    if (!reviewed) throw new Error("no production snapshot is recorded yet to identify the account by, and cmux-next-vm-image-prod has no required reviewers to approve the first copy; refusing");
-    return `account check passed: not the dev account (${dev.snapshot} is not ${dev.snapshot_id} here); the first production copy, approved through the environment's required reviewers`;
+    throw new Error("nothing identifies the production account: no production snapshot is recorded and cmux-next-vm-image-prod sets no FREESTYLE_PROD_ANCHOR (`<slug> <sh-id>` of a snapshot on that account); refusing");
   }
   for (const a of anchors) if ((await resolve(a.snapshot)) === a.snapshot_id) return `account check passed: not the dev account, and ${a.snapshot} resolves to the recorded ${a.snapshot_id}`;
-  throw new Error(`the Freestyle key resolves none of the ${anchors.length} recorded production snapshots (${anchors.map((a) => a.snapshot).join(", ")}) to its id: it is not the production account's key; refusing`);
+  throw new Error(`the Freestyle key resolves none of the ${anchors.length} known production snapshots (${anchors.map((a) => a.snapshot).join(", ")}) to its id: it is not the production account's key; refusing`);
 }
 
 /** `GET /v5/snapshots/{slug}`: the id, or undefined on 404. The key is read here and never printed. */
@@ -127,7 +136,7 @@ if (process.argv[1] !== undefined && path.resolve(process.argv[1]) === fileURLTo
       console.log(`FLAGS ${plan.flags.join(" ")}`);
       console.log(`VAR ${plan.var}`);
     } else if (command === "account-check") {
-      console.log(await accountCheck(REPO_ROOT, (name) => freestyleResolve(name), process.env.CMUX_PROD_ENV_REVIEWED === "yes"));
+      console.log(await accountCheck(REPO_ROOT, (name) => freestyleResolve(name), parseAnchor(process.env.FREESTYLE_PROD_ANCHOR)));
     } else {
       console.error("usage: prod-copy.ts plan --dev-snapshot <sh-id> | account-check");
       process.exit(2);

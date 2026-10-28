@@ -5,7 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { bakeOptionsFromArgv } from "../scripts/cmux-vm-image/bake";
 import { imageResourceName, lockDigest } from "../scripts/cmux-vm-image/lock";
-import { accountCheck, planCopy, recordedFlags } from "../scripts/cmux-vm-image/prod-copy";
+import { accountCheck, parseAnchor, planCopy, recordedFlags } from "../scripts/cmux-vm-image/prod-copy";
 import { recordCandidate, recordProductionCopy } from "../scripts/cmux-vm-image/promote-record";
 import { runChild } from "./helpers/run-child";
 
@@ -14,7 +14,7 @@ import { runChild } from "./helpers/run-child";
 // a gate refuses before that environment is named while it is missing or not limited to feat-cmux-next,
 // and the copy is the dev image's lock and flags on the production account, recorded as names.production.
 
-type Step = { name?: string; run?: string; env?: Record<string, string> };
+type Step = { name?: string; if?: string; run?: string; env?: Record<string, string> };
 type Job = { environment?: string; if?: string; needs?: string; env?: Record<string, string>; steps: Step[] };
 type Workflow = { jobs: Record<string, Job> };
 
@@ -98,14 +98,27 @@ describe("prod-gate", () => {
     expect(r.status).toBe(0);
     expect(r.argv).toContain("api repos/manaflow-ai/cmux/environments/cmux-next-vm-image-prod");
     expect(r.stdout).toContain("allows branch feat-cmux-next only");
-    expect(r.output).toBe("reviewed=\n");
   });
 
-  test("reports required reviewers, which the first production copy needs", async () => {
-    const r = await runGate({ ...custom, protection_rules: [{ type: "branch_policy" }, { type: "required_reviewers", reviewers: [] }] }, "branch:feat-cmux-next");
-    expect(r.status).toBe(0);
-    expect(r.output).toBe("reviewed=yes\n");
-    for (const wf of [bakeWf, promoteWf]) expect((wf.jobs["prod-gate"] as Job & { outputs?: Record<string, string> }).outputs).toEqual({ reviewed: "${{ steps.gate.outputs.reviewed }}" });
+  test("the account check gets the environment's anchor on production only", () => {
+    const plan = bakeWf.jobs.bake!.steps.find((s) => s.name === "Plan the production copy")!;
+    expect(plan.env!.FREESTYLE_PROD_ANCHOR).toBe("${{ vars.FREESTYLE_PROD_ANCHOR }}");
+    const promote = promoteWf.jobs.promote!.steps.find((s) => s.name === "Promote (fresh-clone smoke on the channel's account)")!;
+    expect(promote.env!.FREESTYLE_PROD_ANCHOR).toBe("${{ inputs.channel == 'production' && vars.FREESTYLE_PROD_ANCHOR || '' }}");
+  });
+
+  test("every prod-copy step that holds the key passes it to bun only as a 0600 file", () => {
+    const prodSteps = bakeWf.jobs.bake!.steps.filter((s) => s.env?.FREESTYLE_KEY_SECRET);
+    expect(prodSteps.map((s) => s.name)).toEqual(["Plan the production copy", "Bake the production copy", "Smoke the production copy", "Delete everything this production copy run created"]);
+    for (const s of prodSteps) {
+      expect(s.env).not.toHaveProperty("FREESTYLE_API_KEY");
+      const lines = s.run!.split("\n").filter((l) => l.trim() && !l.trim().startsWith("#"));
+      expect(lines.slice(0, 3)).toEqual(["set -euo pipefail", 'key="$FREESTYLE_KEY_SECRET"', "unset FREESTYLE_KEY_SECRET"]);
+      expect(s.run).toContain("trap 'rm -f \"$key_file\"' EXIT");
+      for (const call of s.run!.match(/^.*\bbun .*$/gm) ?? []) if (!call.includes("prod-copy.ts plan")) expect(call).toContain('FREESTYLE_API_KEY_FILE="$key_file" bun ');
+    }
+    // No prod-copy step gets the raw key: the dev steps that do never run in prod-copy mode.
+    for (const s of bakeWf.jobs.bake!.steps.filter((s) => s.env?.FREESTYLE_API_KEY)) expect(s.if ?? "").toMatch(/inputs\.mode == 'bake'|inputs\.mode == 'repro'|inputs\.mode != 'prod-copy'/);
   });
 
   const refused: Array<[string, Record<string, unknown> | "missing", string, string?]> = [
@@ -211,14 +224,27 @@ describe("prod-copy.ts account-check", () => {
     await expect(accountCheck(root, async (n) => (n === "cmuxnp-dev-vmimg-ci-100-1" ? ID(100) : undefined))).rejects.toThrow(/dev account's key/);
   });
 
-  test("before any production snapshot is recorded, the first copy needs the environment's required reviewers", async () => {
+  test("before any production snapshot is recorded, only the environment's FREESTYLE_PROD_ANCHOR identifies the account", async () => {
     const { root } = fakeRoot([]);
     const asked: string[] = [];
-    await expect(accountCheck(root, async (n) => (asked.push(n), undefined))).rejects.toThrow(/no required reviewers/);
-    expect(await accountCheck(root, async () => ID(5), true)).toContain("approved through the environment's required reviewers");
-    // The dev key is refused even then.
-    await expect(accountCheck(root, async () => ID(100), true)).rejects.toThrow(/dev account's key/);
+    // No anchor: refused, whatever the key sees.
+    await expect(accountCheck(root, async (n) => (asked.push(n), undefined))).rejects.toThrow(/nothing identifies the production account/);
+    await expect(accountCheck(root, async () => ID(5))).rejects.toThrow(/nothing identifies the production account/);
     expect(asked).toEqual(["cmuxnp-dev-vmimg-ci-100-1"]);
+    const anchor = parseAnchor("cmux-devbox-prod-1 " + ID(77))!;
+    // The production key resolves the anchor to its id; an arbitrary key does not.
+    expect(await accountCheck(root, async (n) => (n === anchor.snapshot ? anchor.snapshot_id : undefined), anchor)).toContain(`cmux-devbox-prod-1 resolves to the recorded ${ID(77)}`);
+    await expect(accountCheck(root, async () => undefined, anchor)).rejects.toThrow(/not the production account's key/);
+    await expect(accountCheck(root, async () => ID(5), anchor)).rejects.toThrow(/not the production account's key/);
+    // The dev key is refused even when it could see the anchor.
+    await expect(accountCheck(root, async (n) => (n === "cmuxnp-dev-vmimg-ci-100-1" ? ID(100) : anchor.snapshot_id), anchor)).rejects.toThrow(/dev account's key/);
+  });
+
+  test("FREESTYLE_PROD_ANCHOR is `<slug> <sh-id>`, never a dev snapshot", () => {
+    expect(parseAnchor(undefined)).toBeUndefined();
+    expect(parseAnchor("  ")).toBeUndefined();
+    expect(parseAnchor(`cmuxnp-prod-vmimg-x ${ID(1)}`)).toEqual({ snapshot: "cmuxnp-prod-vmimg-x", snapshot_id: ID(1) });
+    for (const bad of [ID(1), "slug", `slug ${ID(1)} extra`, `Slug ${ID(1)}`, `cmuxnp-dev-vmimg-x ${ID(1)}`]) expect(() => parseAnchor(bad)).toThrow(/refusing/);
   });
 
   test("once production snapshots are recorded, the key must resolve one of them to its id: a third account is refused", async () => {

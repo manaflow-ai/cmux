@@ -51,7 +51,7 @@ function evaluate(value: string, ctx: { inputs: Inputs; out: string; snapshot: s
       "secrets.FREESTYLE_API_KEY": ctx.key,
       "steps.bake.outputs.snapshot": ctx.snapshot,
       "steps.prod_bake.outputs.snapshot": ctx.snapshot,
-      "needs.prod-gate.outputs.reviewed": "yes",
+      "vars.FREESTYLE_PROD_ANCHOR": `cmux-prod-anchor sh-${"7".repeat(32)}`,
     };
     if (expr in fixed) return fixed[expr]!;
     throw new Error(`unhandled expression ${expr}`);
@@ -63,7 +63,7 @@ async function runStep(name: string, inputs: Inputs, dir: string, snapshot = "sh
   const bin = path.join(dir, "bin");
   mkdirSync(bin, { recursive: true });
   const stub = path.join(bin, "bun");
-  writeFileSync(stub, `#!/usr/bin/env bash\nprintf '%s\\n' "$*" >> "${path.join(dir, "bun.argv")}"\ncase "$1" in *bake.ts) echo "IMAGE_ID ${snapshot}";; *prod-copy.ts) [ "$2" != plan ] || printf '%b' '${extra.bunOut ?? ""}';; esac\n`);
+  writeFileSync(stub, `#!/usr/bin/env bash\nprintf '%s\\n' "$*" >> "${path.join(dir, "bun.argv")}"\n[ -z "$FREESTYLE_API_KEY_FILE" ] || echo "key-in-env=$(env | grep -c s3cr3t || true) file-mode=$(stat -c %a "$FREESTYLE_API_KEY_FILE" 2>/dev/null || stat -f %Lp "$FREESTYLE_API_KEY_FILE")" >> "${path.join(dir, "bun.env")}"\ncase "$1" in *bake.ts) echo "IMAGE_ID ${snapshot}";; *prod-copy.ts) [ "$2" != plan ] || printf '%b' '${extra.bunOut ?? ""}';; esac\n`);
   chmodSync(stub, 0o755);
   const ctx = { inputs, out, snapshot, key: extra.key ?? "", plan: extra.plan ?? {}, missing: extra.missing };
   const env: Record<string, string> = { PATH: `${bin}:${process.env.PATH}`, GITHUB_OUTPUT: path.join(dir, "github-output"), GITHUB_SHA: "0123456789abcdef0123456789abcdef01234567", GITHUB_REF: extra.ref ?? "refs/heads/feat-cmux-next", RUNNER_TEMP: dir };
@@ -114,7 +114,7 @@ describe("cloud-vm-image-bake.yml", () => {
     expect(JSON.parse(readFileSync(path.join(bake.out, "channel-dev.json"), "utf8")).bake).toBe("images/cmux-vm/bake.ts --agent-tools --dev-tree (CI run 4242)");
     // Both sides build the run's commit, and a dev tree snapshot is kept only when its first build passed (not skipped or cancelled).
     expect(workflowText).toContain('first-build.ts --mode before --snapshot "$snapshot" --tag "$TAG" --ref "$GITHUB_SHA"');
-    expect(workflowText).toContain("(inputs.keep_snapshot && inputs.mode == 'bake' && steps.smoke.outcome == 'success' && (!inputs.dev_tree || steps.first_build.outcome == 'success')) || ");
+    expect(workflowText).toContain("steps.smoke.outcome == 'success' && (!inputs.dev_tree || steps.first_build.outcome == 'success') && '--keep-snapshot'");
   });
 
   test("no run script interpolates an expression (inputs reach scripts through env only)", () => {
@@ -180,13 +180,13 @@ describe("cloud-vm-image-bake.yml mode prod-copy", () => {
   };
   const refusals: Array<[string, Partial<Inputs>, { key?: string; ref?: string; missing?: string }]> = [
     ["no production key", {}, { key: "" }],
-    ["no test profile email", {}, { key: "k", missing: "CMUX_UITEST_STACK_EMAIL" }],
-    ["no test profile password", {}, { key: "k", missing: "CMUX_UITEST_STACK_PASSWORD" }],
-    ["a dispatch from another branch", {}, { key: "k", ref: "refs/heads/main" }],
-    ["a dev_snapshot that is not an id", { dev_snapshot: "cmuxnp-dev-vmimg-x" }, { key: "k" }],
-    ["agent_tools set by hand", { agent_tools: true }, { key: "k" }],
-    ["probes (the dev API)", { probes: true }, { key: "k" }],
-    ["dev_tree", { dev_tree: true }, { key: "k" }],
+    ["no test profile email", {}, { key: "s3cr3t-key", missing: "CMUX_UITEST_STACK_EMAIL" }],
+    ["no test profile password", {}, { key: "s3cr3t-key", missing: "CMUX_UITEST_STACK_PASSWORD" }],
+    ["a dispatch from another branch", {}, { key: "s3cr3t-key", ref: "refs/heads/main" }],
+    ["a dev_snapshot that is not an id", { dev_snapshot: "cmuxnp-dev-vmimg-x" }, { key: "s3cr3t-key" }],
+    ["agent_tools set by hand", { agent_tools: true }, { key: "s3cr3t-key" }],
+    ["probes (the dev API)", { probes: true }, { key: "s3cr3t-key" }],
+    ["dev_tree", { dev_tree: true }, { key: "s3cr3t-key" }],
   ];
   for (const [label, over, extra] of refusals) {
     test(`refuses ${label} before checkout, creating nothing`, async () => {
@@ -200,26 +200,29 @@ describe("cloud-vm-image-bake.yml mode prod-copy", () => {
 
   test("plans, checks the account, bakes with the dev image's flags, smokes, and writes channel-production.json", async () => {
     const dir = mkdir();
-    expect((await runStep("Check the production copy inputs", PROD_COPY, dir, "sh-test", { key: "k" })).result.status).toBe(0);
-    const planned = await runStep("Plan the production copy", PROD_COPY, dir, "sh-test", { key: "k", bunOut: "FLAGS --prod-copy --agent-tools --team-vm\\nVAR TEAM_VM_SNAPSHOT\\n" });
+    expect((await runStep("Check the production copy inputs", PROD_COPY, dir, "sh-test", { key: "s3cr3t-key" })).result.status).toBe(0);
+    const planned = await runStep("Plan the production copy", PROD_COPY, dir, "sh-test", { key: "s3cr3t-key", bunOut: "FLAGS --prod-copy --agent-tools --team-vm\\nVAR TEAM_VM_SNAPSHOT\\n" });
     expect(planned.result.status).toBe(0);
     expect(planned.argv).toEqual([`scripts/cmux-vm-image/prod-copy.ts plan --dev-snapshot ${PROD_COPY.dev_snapshot}`, "scripts/cmux-vm-image/prod-copy.ts account-check"]);
-    // account-check learns from the gate whether the environment has required reviewers (the first copy needs them).
-    expect(planned.env.CMUX_PROD_ENV_REVIEWED).toBe("yes");
+    // account-check gets the environment's anchor; the key only as a 0600 file, never in bun's environment.
+    expect(planned.env.FREESTYLE_PROD_ANCHOR).toBe(`cmux-prod-anchor sh-${"7".repeat(32)}`);
+    expect(readFileSync(path.join(dir, "bun.env"), "utf8")).toBe("key-in-env=0 file-mode=600\n");
     const outputs = readFileSync(path.join(dir, "github-output"), "utf8");
     expect(outputs).toBe("flags=--prod-copy --agent-tools --team-vm\nvar=TEAM_VM_SNAPSHOT\nteam_vm=--team-vm\n");
     const plan = { flags: "--prod-copy --agent-tools --team-vm", var: "TEAM_VM_SNAPSHOT", team_vm: "--team-vm" };
 
-    const bake = await runStep("Bake the production copy", PROD_COPY, dir, "sh-prod", { key: "k", plan });
+    const bake = await runStep("Bake the production copy", PROD_COPY, dir, "sh-prod", { key: "s3cr3t-key", plan });
     expect(bake.result.status).toBe(0);
     expect(bake.argv.at(-1)).toBe(`../images/cmux-vm/bake.ts --tag ci-4242-1 --out-dir ${bake.out} --prod-copy --agent-tools --team-vm`);
-    const smoke = await runStep("Smoke the production copy", PROD_COPY, dir, "sh-prod", { key: "k", plan });
+    const smoke = await runStep("Smoke the production copy", PROD_COPY, dir, "sh-prod", { key: "s3cr3t-key", plan });
     expect(smoke.argv.at(-1)).toBe(`../images/cmux-vm/smoke.ts --snapshot sh-prod --tag ci-4242-1 --clones 2 --out-dir ${smoke.out} --team-vm`);
 
+    // account-check, bake and smoke each saw a 0600 key file and no key in their environment.
+    expect(readFileSync(path.join(dir, "bun.env"), "utf8")).toBe("key-in-env=0 file-mode=600\n".repeat(3));
     const name = "cmuxnp-prod-vmimg-ci-4242-1";
     writeFileSync(path.join(bake.out, `bake-${name}.json`), JSON.stringify({ name, lockSha256: "f".repeat(64), teamFilesRoot: "/srv/team root:cmux-ssh 2750" }));
     writeFileSync(path.join(bake.out, "smoke-ci-4242-1.json"), JSON.stringify({ passed: true, checks: { a: { ok: true } } }));
-    const candidate = await runStep("Production copy candidate", PROD_COPY, dir, "sh-prod", { key: "k", plan });
+    const candidate = await runStep("Production copy candidate", PROD_COPY, dir, "sh-prod", { key: "s3cr3t-key", plan });
     expect(candidate.result.status).toBe(0);
     expect(JSON.parse(readFileSync(path.join(bake.out, "channel-production.json"), "utf8"))).toMatchObject({
       schema: 1,
@@ -238,17 +241,20 @@ describe("cloud-vm-image-bake.yml mode prod-copy", () => {
     // A dev-named bake is never written as a production candidate.
     rmSync(path.join(bake.out, `bake-${name}.json`));
     writeFileSync(path.join(bake.out, "bake-cmuxnp-dev-vmimg-ci-4242-1.json"), JSON.stringify({ name: "cmuxnp-dev-vmimg-ci-4242-1", lockSha256: "f".repeat(64) }));
-    expect((await runStep("Production copy candidate", PROD_COPY, dir, "sh-prod", { key: "k", plan })).result.status).not.toBe(0);
+    expect((await runStep("Production copy candidate", PROD_COPY, dir, "sh-prod", { key: "s3cr3t-key", plan })).result.status).not.toBe(0);
   });
 
   test("a plan with unexpected flags stops before the account check", async () => {
     const dir = mkdir();
-    const r = await runStep("Plan the production copy", PROD_COPY, dir, "sh-test", { key: "k", bunOut: "FLAGS --prod-copy --dev-tree\\nVAR CLOUD_FREESTYLE_SNAPSHOT\\n" });
+    const r = await runStep("Plan the production copy", PROD_COPY, dir, "sh-test", { key: "s3cr3t-key", bunOut: "FLAGS --prod-copy --dev-tree\\nVAR CLOUD_FREESTYLE_SNAPSHOT\\n" });
     expect(r.result.status).not.toBe(0);
     expect(r.argv).toEqual([`scripts/cmux-vm-image/prod-copy.ts plan --dev-snapshot ${PROD_COPY.dev_snapshot}`]);
   });
 
   test("the copy is kept only once its candidate is written; dev keeping is unchanged", () => {
-    expect(workflowText).toContain("|| (inputs.mode == 'prod-copy' && steps.prod_candidate.outcome == 'success')) && '--keep-snapshot' || ''");
+    const prod = job.steps.find((s) => s.name === "Delete everything this production copy run created")!;
+    expect(prod.if).toBe("always() && inputs.mode == 'prod-copy'");
+    expect(prod.env!.KEEP).toBe("${{ steps.prod_candidate.outcome == 'success' && '--keep-snapshot' || '' }}");
+    expect(job.steps.find((s) => s.name === "Delete everything this run created")!.if).toBe("always() && inputs.mode != 'prod-copy'");
   });
 });
