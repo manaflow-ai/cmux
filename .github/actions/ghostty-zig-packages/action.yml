@@ -3,7 +3,7 @@ description: >-
   Hydrate Zig's packages for a Ghostty source with as little network as possible: none when
   every package is already on the machine (a mini's persistent cache), else the cache store
   (keyed by every build.zig.zon of the source), else the deadlined, retried download in
-  scripts/ci/fetch-ghostty-zig-packages.sh. A push (never a pull request) saves what it fetched.
+  scripts/ci/fetch-ghostty-zig-packages.sh. Only a push saves what it fetched (never a pull request or pull_request_target run).
 
 inputs:
   source:
@@ -54,7 +54,7 @@ runs:
       run: ./scripts/ci/fetch-ghostty-zig-packages.sh "${{ inputs.source }}"
 
     - name: Save the Zig packages
-      if: ${{ steps.probe.outputs.present != 'true' && steps.restore.outputs.cache-hit != 'true' && github.event_name != 'pull_request' }}
+      if: ${{ steps.probe.outputs.present != 'true' && steps.restore.outputs.cache-hit != 'true' && github.event_name == 'push' }}
       continue-on-error: true
       uses: ./.github/actions/cache-save
       with:
