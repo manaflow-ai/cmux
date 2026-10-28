@@ -25,7 +25,7 @@ pub(super) struct HostedReader {
     /// frames carry the key press they echo.
     pub(super) input_flow: bool,
     /// The connection negotiated `FLAG_INPUT_STAGES`: those output frames
-    /// also carry the host's PTY write and read of the press (p04-input-094).
+    /// also carry the host's PTY write and read of the press.
     pub(super) input_stages: bool,
     pub(super) applied_color_overrides: TerminalColorOverrides,
     pub(super) applied_color_revision: u64,

@@ -335,7 +335,7 @@ extension TabHoverCardController: MemoryConsumer {
         return .done
     }
 
-    /// Thumbnail pixels (bytes per row x height each), locked apart from volatile (p07-memory-107). A sample
+    /// Thumbnail pixels (bytes per row x height each), locked apart from volatile. A sample
     /// is a few hundred bytes and counts as an entry only.
     var memoryUsage: MemoryUsage? {
         thumbnails.usage(entries: thumbnails.count + lastReports.count)

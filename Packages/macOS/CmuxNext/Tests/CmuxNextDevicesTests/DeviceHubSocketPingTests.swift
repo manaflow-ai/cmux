@@ -4,7 +4,7 @@ import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
-/// p14-energy-066c: the hub socket's keepalive goes only after a whole interval of silence, at most a
+/// The hub socket's keepalive goes only after a whole interval of silence, at most a
 /// tenth of the interval late. A socket with a frame every 5 s and a 15 s interval sends no ping at all.
 @Suite(.timeLimit(.minutes(1)))
 struct DeviceHubSocketPingTests {

@@ -42,7 +42,7 @@ export const EDITOR_KEY_SEQUENCE_OP = "cmux.editor.keySequence";
 export const EDITOR_FLUSH_OP = "cmux.editor.flush";
 // Host -> page: `{dirty, view}`, asked right before the host discards a hidden tab's page: `view` is
 // Monaco's view state (cursor, selections, scroll, folds), which the next page gets back as the
-// config's `viewState`; `dirty` keeps a page with edits not on disk (p07-memory-026). An edit not
+// config's `viewState`; `dirty` keeps a page with edits not on disk. An edit not
 // reported yet is reported first.
 export const EDITOR_VIEW_STATE_OP = "cmux.editor.viewState";
 /** Host to page: the selection's text and lines, `{text, startLine, endLine}`, or null with nothing

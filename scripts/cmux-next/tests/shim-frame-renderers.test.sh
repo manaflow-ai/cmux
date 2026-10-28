@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Compiles the shim's frame renderer reports (CEFShim/src/frame_renderers.h, no
-# CEF needed) and runs its cases (p01-process-225): FRAME_RENDERERS goes out once
+# CEF needed) and runs its cases: FRAME_RENDERERS goes out once
 # per burst of frame changes, and only for a new set of renderers.
 # Small: one clang++ call.
 #

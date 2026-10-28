@@ -3,7 +3,7 @@ import AppKit
 import CmuxNextWakeups
 import Testing
 
-/// p14-energy-055b: an `.activeForHover` tracking area hears no exit while another app is active,
+/// An `.activeForHover` tracking area hears no exit while another app is active,
 /// so cmux resigning active ends every hover it shows (a toast's hold included) and an enter while
 /// inactive hovers nothing. A view in a panel that floats over another app (`.activeAlways`) keeps
 /// hovering.

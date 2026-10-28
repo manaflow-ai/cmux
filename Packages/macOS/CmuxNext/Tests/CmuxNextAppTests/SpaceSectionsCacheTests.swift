@@ -4,7 +4,7 @@ import CmuxNextBridge
 import Observation
 import Testing
 
-/// The swipe pages' cache of other spaces' rows (p04-input-026): a change to what an entry read marks it stale in
+/// The swipe pages' cache of other spaces' rows: a change to what an entry read marks it stale in
 /// the change's own turn, with no hop, and the entry is recomputed only when it is read again.
 @MainActor @Suite struct SpaceSectionsCacheTests {
     @MainActor @Observable final class Rows {

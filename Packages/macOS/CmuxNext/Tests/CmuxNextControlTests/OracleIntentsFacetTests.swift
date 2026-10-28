@@ -5,7 +5,7 @@ import CmuxNextDaemon
 import CmuxNextOracle
 import Testing
 
-/// The oracle's `intents` facet (p15-oracle-040): pending intents with their transaction, case and target's
+/// The oracle's `intents` facet: pending intents with their transaction, case and target's
 /// public id; a refused command (the daemon error of the fleet case) gives one rolledBack delta and names its
 /// case; a refused turn (an action that did not run, a handler that refused) gives one refused delta and names
 /// the action; a refusal outside a turn counts nothing; reading the facet changes no state, and the turn

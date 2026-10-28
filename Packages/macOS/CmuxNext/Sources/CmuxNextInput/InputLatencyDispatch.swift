@@ -1,7 +1,7 @@
 public import AppKit
 public import CmuxNextInputCore
 
-/// The input latency part of `NSApplication.sendEvent` (p04-input-005): one slot per tracked event, opened before the
+/// The input latency part of `NSApplication.sendEvent`: one slot per tracked event, opened before the
 /// event is dispatched and finished right after, closed by the tracker at the turn's commit.
 ///
 /// ``InputLatencySampling`` decides which events open a slot and their kind, ``InputTargetClassifier`` where they
@@ -12,7 +12,7 @@ public import CmuxNextInputCore
 /// ``CmuxNextInputCore/InputEntrypoint/automation`` so the person's histograms leave it out. Key presses and scrolls
 /// also carry the older `key.frame` and `key.scroll_frame` intervals (``InputFrameInterval``), so `sendEvent` has one
 /// classification and one commit boundary per turn for all three. While a key press's slot is in dispatch, its text
-/// view's input method call stamps `textInputStart` and `textInputEnd` through ``textInput`` (p04-input-101).
+/// view's input method call stamps `textInputStart` and `textInputEnd` through ``textInput``.
 ///
 /// A slot's frame update comes from what AppKit holds for the commit once the dispatch returned (views marked for
 /// display or layout, in the event's window or the window that presents it) or the layout taking the scroll (it

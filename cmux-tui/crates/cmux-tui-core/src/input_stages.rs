@@ -1,9 +1,9 @@
-//! A terminal key's stages across processes (p04-input-094): when the daemon
+//! A terminal key's stages across processes: when the daemon
 //! received the key press, when its bytes reached the PTY and when the read
 //! that echoes them came back, stamped on the trace clock
 //! (`cmux_trace::clock`, `CLOCK_UPTIME_RAW` on macOS, the app's
 //! `NSEvent.timestamp` clock). The output event that carries the key's
-//! `flow` (p09-observability-018) also carries these stamps and the time it
+//! `flow` also carries these stamps and the time it
 //! was sent, so the app's input latency slot fills `daemonReceived`,
 //! `ptyWritten`, `echoRead` and `echoSent`, as Chromium's `EventMetrics`
 //! takes each dispatch stage's time in the process that saw it

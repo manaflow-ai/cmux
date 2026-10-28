@@ -122,7 +122,7 @@ struct MuxEventMailbox {
     state: Mutex<MuxEventMailboxState>,
     changed: Condvar,
     /// The subscriber's drain task when it runs on a sequence instead of
-    /// blocking on `changed` (attach streams, p05-ipc-079).
+    /// blocking on `changed` (attach streams).
     ready_hook: crate::stream_interrupt::ReadyHook,
 }
 

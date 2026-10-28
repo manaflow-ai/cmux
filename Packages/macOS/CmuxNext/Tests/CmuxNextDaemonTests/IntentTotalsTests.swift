@@ -4,7 +4,7 @@ import CmuxNextWakeups
 import Observation
 import Testing
 
-/// The store's intent totals (p15-oracle-040, the oracle's `intents` facet): each intent counts once when it
+/// The store's intent totals (the oracle's `intents` facet): each intent counts once when it
 /// leaves the log, as applied or rolled back; a refused command names its intent's case in `lastRolledBack`;
 /// the totals only grow; an observer of them hears a rollback, with the cause of the intent that left; the
 /// pending list carries each transaction.
@@ -82,7 +82,7 @@ import Testing
         #expect(heard.value)
     }
 
-    /// The totals change with the cause of the intents that left (p06-scheduler-032, StoreCauses), not with the
+    /// The totals change with the cause of the intents that left (StoreCauses), not with the
     /// cause current where they left: a person's rename refused outside any scope (program) publishes as person.
     @Test func theTotalsChangeWithTheCauseOfTheIntentsThatLeft() {
         let causes = MainWorkScheduler(budget: MainFrameBudget()).causes

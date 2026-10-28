@@ -6,7 +6,7 @@ import Darwin
 import Foundation
 import Testing
 
-/// The input ring to the Chromium Host (p01-process-041): the same golden
+/// The input ring to the Chromium Host: the same golden
 /// bytes as ChromiumHost/tests/chromium_host_input_ring_test.cpp
 /// (scripts/cmux-next/tests/chromium-host-input-ring.test.sh), the backlog of
 /// a full ring (keys and clicks never dropped, moves folded per page), a
@@ -230,8 +230,8 @@ import Testing
         #expect(ring.stats.dropped == 0)
     }
 
-    /// A page's wheels fold only within one phase and momentum phase
-    /// (p04-input-063), so a gesture's begin and end and its momentum's start
+    /// A page's wheels fold only within one phase and momentum phase,
+    /// so a gesture's begin and end and its momentum's start
     /// each reach the host. Before, a waiting wheel took any newer one and
     /// its phases with it.
     @Test func wheelsFoldOnlyWithinAPhase() throws {

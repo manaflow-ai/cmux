@@ -5,7 +5,7 @@ import CryptoKit
 import Foundation
 import Testing
 
-/// What the oracle's settings facet (p15-oracle-039) records of an applied snapshot: the sha256 of the effective
+/// What the oracle's settings facet records of an applied snapshot: the sha256 of the effective
 /// document as canonical JSON (the runner's form) and the catalog keys set to a value other than their default.
 /// Run: `swift test --filter CmuxConfigSnapshotOracleDigestTests`.
 struct CmuxConfigSnapshotOracleDigestTests {

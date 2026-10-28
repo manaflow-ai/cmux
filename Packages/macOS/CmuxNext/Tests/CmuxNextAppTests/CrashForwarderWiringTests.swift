@@ -3,7 +3,7 @@ import CmuxNextWakeups
 import Foundation
 import Testing
 
-/// p09-observability-097, the app's wiring of the crash forwarder: the hang-reports controller decides whether a
+/// The app's wiring of the crash forwarder: the hang-reports controller decides whether a
 /// Rust crash's black box may go (``CmuxNextCrashReporting/RustBlackBoxConsent``), and the forwarder looks for host
 /// and holder copies where the app's daemon puts them.
 @MainActor @Suite struct CrashForwarderWiringTests {

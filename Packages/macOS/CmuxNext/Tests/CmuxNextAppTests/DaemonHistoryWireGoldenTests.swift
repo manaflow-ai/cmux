@@ -7,7 +7,7 @@ import CmuxNextIPC
 import Foundation
 import Testing
 
-/// p05-ipc-047: History, Home's Chief owner calls and the page relay's confirmation send generated
+/// History, Home's Chief owner calls and the page relay's confirmation send generated
 /// `cmux.protocol/2` requests instead of runtime-named `ResourceRelayClient` envelopes, and every
 /// migrated call writes the same line byte for byte. Each expected envelope below is the params
 /// dictionary the call site built before the migration.

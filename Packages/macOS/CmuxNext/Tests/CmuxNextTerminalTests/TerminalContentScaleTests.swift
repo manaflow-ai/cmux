@@ -5,7 +5,7 @@ import Testing
 /// A terminal's backing scale reaches its root layer before its Ghostty surface (``TerminalContentScale``):
 /// ghostty-next's renderer copies the root layer's `contentsScale` to its own layer on each
 /// `ghostty_surface_set_content_scale` (src/renderer/metal/DrawablePresenter.zig), so a surface given the new
-/// scale while the root layer still has the old one draws at the old scale (p03-rendering-093).
+/// scale while the root layer still has the old one draws at the old scale.
 @MainActor @Suite(.timeLimit(.minutes(1)))
 struct TerminalContentScaleTests {
     /// A root layer and surface that record each call, with the root layer's scale at the time of each

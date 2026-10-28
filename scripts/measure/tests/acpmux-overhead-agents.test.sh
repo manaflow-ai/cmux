@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/measure/acpmux-overhead.sh bench=agents (p07-memory-064): each side's row carries its label, the before=
+# scripts/measure/acpmux-overhead.sh bench=agents: each side's row carries its label, the before=
 # side runs this ref's bench (copied over a ref that has none) and only measures, this ref holds the 2048 KB budget,
 # and a before= side that did not run is not a comparison. Runs the script in a scratch git repo with a stub cargo
 # (no Rust build), so it is safe anywhere.

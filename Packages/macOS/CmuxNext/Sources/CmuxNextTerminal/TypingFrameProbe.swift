@@ -11,7 +11,7 @@ import QuartzCore
 /// frame is awaited (``TerminalContentsGate``), the frame marks that surface's ``TerminalEchoStage``, and
 /// while the ``TypingLatencyProbe`` records, the frame is the ``TypingLatencyProbe/Mark/contents`` mark of
 /// the presses open on the layer's surface (``TypingLatencyProbe/SurfaceKey``). With the hook
-/// (``FrameSource/traceHook``), its `CONTENTS_SET` is the only frame source (p09-observability-049), in
+/// (``FrameSource/traceHook``), its `CONTENTS_SET` is the only frame source, in
 /// every build, so a frame is marked once and keeps its GPU wait; the override then only makes a
 /// `debug.new_terminal_trace` run's `first_contents` and `prompt_contents` marks (``NewTerminalTrace``).
 /// Otherwise each frame pays the override's call, the superclass IMP lookup and two relaxed loads.
@@ -21,7 +21,7 @@ import QuartzCore
 /// superclass's IMP up on each call, so a hook installed there later (RenderStats) runs while it is
 /// in and never after it is out.
 ///
-/// With renderer-owned frames (`GHOSTTY_RENDERER_FRAMES`, p03-rendering-081) the renderer presents into
+/// With renderer-owned frames (`GHOSTTY_RENDERER_FRAMES`) the renderer presents into
 /// its own leaf and no frame passes through `setContents:`, so there is no hook in any build: every
 /// contents mark, the new-terminal trace's too, is the renderer's presented-frame callback
 /// (`presented_cb`, ``ghosttySurfacePresented(_:_:_:_:)``).

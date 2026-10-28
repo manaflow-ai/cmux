@@ -1,4 +1,4 @@
-// The page clock (p14-energy-060): one aligned setTimeout chain per page and granularity, however
+// The page clock: one aligned setTimeout chain per page and granularity, however
 // many labels read it; none while the page is hidden or nobody subscribes; one tick on show when a
 // boundary passed while hidden.
 import { afterEach, describe, expect, test } from "bun:test";

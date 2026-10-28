@@ -3,7 +3,7 @@ import CmuxNextWakeups
 import CmuxNextWakeupsTestSupport
 import Testing
 
-/// The agent panes' launch images are one startup ref (p08-startup-016): afterStartup work (the
+/// The agent panes' launch images are one startup ref: afterStartup work (the
 /// palette's warm-up steps) waits until the last image went (cx-z9kz0), with no timer of its own.
 @MainActor
 @Suite(.timeLimit(.minutes(1))) struct LaunchImageHoldTests {

@@ -3,7 +3,7 @@ import AppKit
 import CmuxNextWakeupsTestSupport
 import Testing
 
-/// Palette hover once per frame (feature `pointerFrameHover`, p04-input-037) on p04-input-030's
+/// Palette hover once per frame (feature `pointerFrameHover`) on p04-input-030's
 /// `FrameInputCoalescer`, as Chromium delivers rAF-aligned moves (main_thread_event_queue.cc): the
 /// first move of a frame interval hovers in its own turn, the rest of the interval once at the frame,
 /// the row under the latest point. An exit and a press land the pending move first; a key does too

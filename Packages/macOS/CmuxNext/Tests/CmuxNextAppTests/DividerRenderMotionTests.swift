@@ -4,7 +4,7 @@ import CmuxNextDesign
 import QuartzCore
 import Testing
 
-/// Dividers as layers (chrome-parity p03-rendering-024, `motion.renderServer` on): a split's divider gets
+/// Dividers as layers (`motion.renderServer` on): a split's divider gets
 /// its rest frame once in the key's turn, through the one placement path (`ScreenDividers.place`), and
 /// springs on the render server with the panes' token, its line with it; nothing sets its frame again
 /// before it lands. It takes no hover and shows no resize cursor mid-spring, and its landing alone hovers it

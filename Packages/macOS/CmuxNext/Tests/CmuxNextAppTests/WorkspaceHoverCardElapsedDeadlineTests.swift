@@ -3,7 +3,7 @@ import Foundation
 import Testing
 
 /// The hover card's running time arms one deadline for its next text change, not a periodic
-/// tick (p14-energy-057): a second boundary under an hour, a minute boundary under a day, an
+/// tick: a second boundary under an hour, a minute boundary under a day, an
 /// hour boundary after. The old one-minute repeat past an hour let "1h 3m" lag up to 59 s.
 @MainActor @Suite struct WorkspaceHoverCardElapsedDeadlineTests {
     private static let now = Date(timeIntervalSinceReferenceDate: 800_000_000)

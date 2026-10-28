@@ -6,7 +6,7 @@ import CmuxNextCompat
 import ObjectiveC
 import Testing
 
-/// p01-process-230: in host mode cmux is the frontmost process, so the page view turns on secure event input
+/// In host mode cmux is the frontmost process, so the page view turns on secure event input
 /// while a password field of the page has focus, as Chrome's browser process holds a
 /// `ui::ScopedPasswordInputEnabler` (ui/base/cocoa/secure_password_input.mm), and turns it off on blur, hide (which
 /// blurs), a window that stops being key, a host that ends and close. The system switch is a recorder: secure input is on

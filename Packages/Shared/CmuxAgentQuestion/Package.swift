@@ -20,7 +20,7 @@ let package = Package(
         .library(name: "CmuxAgentQuestion", targets: ["CmuxAgentQuestion"]),
     ],
     dependencies: [
-        // blockingCall for the fixture reads (p02-threads-130, 146).
+        // blockingCall for the fixture reads.
         .package(path: "../CmuxThreading"),
     ],
     targets: [

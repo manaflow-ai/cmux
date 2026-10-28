@@ -231,7 +231,7 @@ fn an_admitted_frame_reaches_dispatch() {
     assert_eq!(reply["ok"], json!(true), "{reply}");
 }
 
-/// p01-process-203: a remote connection's handshake thread
+/// A remote connection's handshake thread
 /// (`mux-remote-conn`) ends once the dial reaches the line connection; the
 /// mux-io loop serves it from there, as it serves a local one.
 #[test]

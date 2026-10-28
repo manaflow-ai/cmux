@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Compiles the shim's suggestion rows (CEFShim/src/suggestion_rows.h, no CEF
-# needed: the SUGGESTIONS event's JSON, task p01-process-061) and runs their
+# needed: the SUGGESTIONS event's JSON) and runs their
 # cases. With CMUX_CEF_FORK=<manaflow-ai/cef checkout at API 31>, also checks
 # the shim's copies of the fork's structs against its include/cef_cmux.h.
 # Small: one clang++ call.

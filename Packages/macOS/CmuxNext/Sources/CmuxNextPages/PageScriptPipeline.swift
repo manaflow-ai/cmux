@@ -16,7 +16,7 @@ import Foundation
 /// every script was evaluated synchronously. ``reset()`` drops what is queued (the router closed:
 /// those envelopes belong to cancelled subscriptions of an old document).
 ///
-/// On frames (``deliverOnFrames(_:)``, p06-scheduler-222) envelopes wait for the next frame, and
+/// On frames (``deliverOnFrames(_:)``) envelopes wait for the next frame, and
 /// each run of them between two gates reaches the page as one `receiveMany` script: 20 envelopes
 /// in a frame are 1 evaluate. Chrome's renderer main thread takes the browser's IPC the same way,
 /// with input and IPC aligned to the begin-frame (third_party/blink/renderer/platform/scheduler/

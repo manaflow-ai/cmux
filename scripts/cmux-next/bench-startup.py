@@ -158,7 +158,7 @@ PRODUCT_CONFIGS = ("Debug", "Release")
 FINAL_MARK = "first_terminal_frame"
 AGENT_MARK = "agent_pane.handshake_end"
 SIDEBAR_MARK = "sidebar_rows_shown"
-# p08-startup-093: the daemon's own start (identify {startup_marks}), measured in the daemon from its main() and
+# The daemon's own start (identify {startup_marks}), measured in the daemon from its main() and
 # recorded by the app after the first snapshot; daemon_steps_summary names the slowest step.
 DAEMON_STEPS = [
     ("daemon.main_start", "daemon: main()"),
@@ -184,7 +184,7 @@ MARKS = [
     ("main.delegate", "main: launch order and delegate"),
     ("main.nsapp", "main: NSApp set up"),
     ("main.run", "main: run()"),
-    # p08-startup-039: the launch thread's icon pack and catalog decode; the first tab or sidebar icon reads both.
+    # The launch thread's icon pack and catalog decode; the first tab or sidebar icon reads both.
     ("icons_decoded", "launch thread: icon pack and catalog decoded"),
     ("run_loop_start", "main run loop started"),
     ("did_finish_launching_start", "AppKit ready (applicationDidFinishLaunching)"),
@@ -207,7 +207,7 @@ MARKS = [
     ("dfl.first_window_hooks", "dfl: first window hooks"),
     ("dfl.home_history", "dfl: home, bookmarks, history"),
     ("window_display", "first window ordered on screen"),
-    # p08-startup-059: the front window's saved picture as the first frame (savedWindowPicture), or why not.
+    # The front window's saved picture as the first frame (savedWindowPicture), or why not.
     ("launch_picture_shown", "first window shown as its saved picture"),
     ("launch_picture_mismatch", "saved picture's meta did not match the window (today's path)"),
     ("launch_picture_removed", "saved picture left the live window"),
@@ -222,7 +222,7 @@ MARKS = [
     ("launch.agent_page_warmup_not_needed", "agent page WebKit warm-up not needed (a page started WebKit)"),
     ("launch.agent_page_warmup_chromium", "agent page WebKit warm-up not made (agent pages open in Chromium)"),
     ("control.serving", "app control socket accepting (p08-startup-019)"),
-    # p08-startup-066: the daemon connect milestones (DaemonConnectMarks), once each per launch; connect_started
+    # The daemon connect milestones (DaemonConnectMarks), once each per launch; connect_started
     # lands in main(), before main.prestart (the table orders rows by time).
     ("daemon.connect_started", "daemon connect started (prestart in main)"),
     ("daemon.connect_start", "first connect attempt"),
@@ -269,11 +269,11 @@ MARKS = [
     ("terminal.launch_frames_read", "saved terminal frames read and decoded"),
     ("terminal.launch_frame_missed", "a terminal asked before its read ended"),
     ("terminal.launch_frame_shown", "a terminal's saved frame shown"),
-    # p08-startup-058: the front window's saved picture, read and decoded on the files lane from main().
+    # The front window's saved picture, read and decoded on the files lane from main().
     ("launch_picture_decoded", "front window's saved picture read and decoded"),
     ("launch_picture_missed", "the first window asked before its picture's read ended"),
     ("launch_picture_dropped", "the front window's picture untaken at startup complete"),
-    # p08-startup-012: StartupScheduler's refs are all released (or its 10 s failsafe fired); --startup-complete
+    # StartupScheduler's refs are all released (or its 10 s failsafe fired); --startup-complete
     # waits for it after the first content.
     ("startup_complete", "startup complete (StartupScheduler)"),
 ]
@@ -318,14 +318,14 @@ PAGEINS_RUN_LOOP = "launch.pageins_run_loop_start"
 PAGEINS = "launch.pageins_first_frame"
 MAIN_CPU = "launch.main_cpu_ms"
 INTERRUPTED = "launch.interrupted"
-# p08-startup-064: the sidebar row views built before startup_complete, and the rows its clip showed then.
+# The sidebar row views built before startup_complete, and the rows its clip showed then.
 SIDEBAR_ROWS_BUILT = "launch.sidebar_rows_built"
 SIDEBAR_ROWS_VISIBLE = "launch.sidebar_rows_visible"
 # The off-screen rows a launch may build (SidebarModel.LaunchRows.Report.slack).
 SIDEBAR_ROWS_SLACK = 2
 # How long a launch that completed waits for the sidebar's row counts, sent right after startup_complete.
 SIDEBAR_ROWS_WAIT_S = 0.5
-# The pane content views made before startup_complete (p08-startup-065, `launchVisiblePanesOnly`): == visible panes.
+# The pane content views made before startup_complete (`launchVisiblePanesOnly`): == visible panes.
 # The app sends it just before startup_complete, so a --startup-complete run has it.
 VIEWS_BUILT = "launch.views_built"
 # p08-startup-068 (LaunchThreadCensus, Debug and bench builds): the process's threads right after the first frame,
@@ -617,7 +617,7 @@ CORPUS = None
 # --startup-complete: each launch also waits (within --timeout) for `startup_complete` and its reason.
 WAIT_STARTUP_COMPLETE = False
 # The --order terms (and LAUNCH_ORDER's in budget mode): each launch also waits (within --timeout)
-# for one mark of each term, since afterStartup posts (p08-startup-017) mark after the first content.
+# for one mark of each term, since afterStartup posts mark after the first content.
 ORDER_MARKS = []
 # --milestones: each run that reached its first frames also waits for every MILESTONES mark, within the same timeout.
 WAIT_MILESTONES = False
@@ -963,12 +963,12 @@ def one_run(tag, mode, timeout, profile=None, purge_cold=False, purge_cache=purg
         if reached and WAIT_STARTUP_COMPLETE:
             # Startup completes after the first content; the reason mark comes before it on the pipe.
             launch.wait_for(STARTUP_COMPLETE, max(0.0, timeout - (time.monotonic() - started)))
-            # The sidebar's row counts are sent in the same main turn, right after it (p08-startup-064); a build
+            # The sidebar's row counts are sent in the same main turn, right after it; a build
             # without them, or a launch with no window, costs SIDEBAR_ROWS_WAIT_S.
             if STARTUP_COMPLETE in launch.marks:
                 launch.wait_for([SIDEBAR_ROWS_BUILT, SIDEBAR_ROWS_VISIBLE], SIDEBAR_ROWS_WAIT_S)
         if reached:
-            # p08-startup-068: the census comes after the first frame, so a quit at the content mark can beat it.
+            # The census comes after the first frame, so a quit at the content mark can beat it.
             launch.wait_for(list(THREAD_MARKS), THREAD_MARKS_WAIT_S)
         for term in ORDER_MARKS if reached else []:
             launch.wait_for(term_marks(term), max(0.0, timeout - (time.monotonic() - started)), any_of=True)

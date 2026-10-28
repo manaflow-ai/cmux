@@ -1,4 +1,4 @@
-//! Daemon request QoS (p06-scheduler-035): a request runs at the class of
+//! Daemon request QoS: a request runs at the class of
 //! its cause, and a lowered thread is raised before it waits for a ranked
 //! lock and while it holds one, so a frontend request never waits behind a
 //! UTILITY thread.

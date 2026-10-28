@@ -2,7 +2,7 @@
 import CmuxNextSettings
 import Testing
 
-/// `debug.shipping_mode` (p14-energy-100): the keys idle-budget's `shipping_fields` reads, the app's own
+/// `debug.shipping_mode`: the keys idle-budget's `shipping_fields` reads, the app's own
 /// values (never a prediction), and null once the services are gone.
 @Suite struct ShippingModeReportTests {
     private static let sending = ShippingModeReport.State(

@@ -9,7 +9,7 @@ import os
 import CmuxNextProfileRuntimeC
 #endif
 
-/// The profile build's two profiles from one run (p08-startup-103, plans/cmux-next/chrome-parity/p08-startup.md
+/// The profile build's two profiles from one run (plans/cmux-next/chrome-parity/p08-startup.md
 /// section F): `launch.profraw` holds the counters from process start to startup complete, `rest.profraw`
 /// those from then to `debug.pgo_flush` before quit. The scenario runner (050) merges both into
 /// `cmux-next.profdata` and keeps the launch profile's functions for the order file (109).

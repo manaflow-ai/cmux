@@ -515,7 +515,7 @@ fn request_watchdog_records_a_slow_sniffed_frame() {
 /// (the client registry is held 300 ms, so the reader's client lookup is
 /// slow) and, ended before the watchdog looks, named by the stage it ended
 /// in: the reader hands a remote line to the relay on its connection's
-/// control sequence (p05-ipc-086).
+/// control sequence.
 #[cfg(unix)]
 #[test]
 fn request_watchdog_records_a_slow_remote_fs_frame() {

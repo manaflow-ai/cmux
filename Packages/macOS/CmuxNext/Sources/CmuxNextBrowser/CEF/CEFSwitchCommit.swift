@@ -1,7 +1,7 @@
 import AppKit
 import CmuxNextWakeups
 
-/// The app-wide LRU of hidden pages' and terminals' last frames (`HiddenFrameLRU`, task p03-rendering-099), as a
+/// The app-wide LRU of hidden pages' and terminals' last frames (`HiddenFrameLRU`), as a
 /// hosted page uses it. Chrome keeps one such list for every saved frame of the browser process
 /// (`FrameEvictionManager`, components/viz/client/frame_eviction_manager.h): a shown frame is locked, a hidden
 /// one waits unlocked and the least recently used unlocked frames go first. There is no per-pane limit.
@@ -65,7 +65,7 @@ extension CEFLayerHosting {
     }
 
     /// A page window's visibility as the app gives it to the fork: the raw values are the shim's
-    /// `cmux_shim_embedder_visibility_t` (`cmux_shim_browser_set_embedder_visibility`, task p03-rendering-058).
+    /// `cmux_shim_embedder_visibility_t` (`cmux_shim_browser_set_embedder_visibility`).
     /// `visible`, `occluded` and `hidden` mean Chrome's `content::Visibility` (content/public/browser/visibility.h).
     nonisolated enum PageVisibility: Int32, Sendable {
         /// The page window's order and occlusion decide (the fork's default).
@@ -76,8 +76,8 @@ extension CEFLayerHosting {
     }
 }
 
-/// The fork work of a hosted page's show or hide, run once after the switch's commit
-/// (p03-rendering-054), for one ``CEFLayerHosting``.
+/// The fork work of a hosted page's show or hide, run once after the switch's commit,
+/// for one ``CEFLayerHosting``.
 ///
 /// In the switch's turn the page's layer only goes in or out with its view, so the switch's frame has
 /// no fork call in it. After that commit one pass runs what the turn left: the shown tab's activation
@@ -155,7 +155,7 @@ final class CEFSwitchCommit {
     /// the list while shown and kept unlocked while hidden. A refused call is tried at the next pass.
     ///
     /// The list's eviction of a hidden frame is the page's grace ending: ``pastGrace`` (the layer hosting's
-    /// snapshot, p03-rendering-055) takes it and calls ``evictFrame(browser:fork:)`` once its host is gone.
+    /// snapshot) takes it and calls ``evictFrame(browser:fork:)`` once its host is gone.
     func apply(_ wanted: CEFLayerHosting.PageVisibility, browser: Int32, fork: CEFLayerHosting.Fork) {
         target = (browser, fork)
         guard wanted != applied, let setVisibility = fork.setVisibility else { return }

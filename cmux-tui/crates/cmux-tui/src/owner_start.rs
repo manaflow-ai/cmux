@@ -33,7 +33,7 @@ pub(crate) fn register_main_thread() -> bool {
     cmux_threads::register_current("main", MAIN_THREAD_QOS)
 }
 
-/// The daemon's black box (p09-observability-095), first: its heap ring takes records at once and
+/// The daemon's black box, first: its heap ring takes records at once and
 /// a one-shot thread maps its file in the app's trace folder ([`cmux_trace::process_dir`]), which
 /// the daemon's hosts share. Then, once per start and never on a timer, a background thread
 /// deletes the rings of processes that ended long ago ([`cmux_trace::cleanup`]).

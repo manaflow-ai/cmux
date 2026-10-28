@@ -1,4 +1,4 @@
-//! The inline write fast path (p05-ipc-140): on an idle connection replies
+//! The inline write fast path: on an idle connection replies
 //! and input-lane echo frames leave on the producer's thread with no writer
 //! turn; what the socket does not take is the writer's next write, in order;
 //! nothing is written inline while an item waits or the writer is writing.
@@ -20,7 +20,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
-/// The daemon's socket buffer size (p05-ipc-083).
+/// The daemon's socket buffer size.
 const SOCKET_BUFFER: libc::c_int = 512 * 1024;
 
 /// A connected pair with the daemon's buffer sizes: the daemon's end, the
@@ -172,7 +172,7 @@ fn message_writer_nothing_is_written_inline_while_an_item_waits_or_the_writer_wr
     writer.send_control(&json!({"id": 2, "ok": true})).unwrap();
     nothing_on_the_wire();
 
-    // The writer's turn holds the queued items (one batch, p05-ipc-088);
+    // The writer's turn holds the queued items (one batch);
     // while it lives the queue is not idle even once it is empty.
     let mut batch = Vec::new();
     let turn = outbound.recv_turn(&mut batch).unwrap();

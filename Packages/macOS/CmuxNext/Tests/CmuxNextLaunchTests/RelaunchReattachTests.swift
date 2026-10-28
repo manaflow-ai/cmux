@@ -1,7 +1,7 @@
 import CmuxNextLaunch
 import Testing
 
-/// p01-process-152: after `kill -9` of the app the daemon kept every terminal, but the relaunch drew the terminal
+/// After `kill -9` of the app the daemon kept every terminal, but the relaunch drew the terminal
 /// frames and the window picture the last quit saved (an earlier run's screens), then the live screens replaced them.
 /// With `relaunchReattach` on, a launch after a run that ended with no quit in this boot drops both before any pane
 /// mounts and runs the takeover steps (TerminalLaunchFrameTests covers the discard itself, WindowPictureLaunchRulesTests

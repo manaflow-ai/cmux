@@ -108,7 +108,7 @@ fn tester_rollout_a_worker_thread_panic_is_logged_and_the_owner_keeps_running() 
     }
 }
 
-/// p10-stability-032: the headless owner's request watchdog writes a scope
+/// The headless owner's request watchdog writes a scope
 /// busy past its hang tier to `owner-hangs-<session>.jsonl` beside the panic
 /// log, with the owner's fields and the hung thread's stack.
 #[test]

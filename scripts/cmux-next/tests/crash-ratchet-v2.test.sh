@@ -11,7 +11,7 @@
 #    spell its selector (PointerHover's `mouseEntered(with:)` was exported as
 #    `mouseEnteredWith:` and AppKit raised "unrecognized selector");
 #  - dynamic_dispatch: string selectors and KVC by string key are counted;
-#  - invariant_check / dump_will_be_check: report-only (p10-stability-199); the CI compare never judges them.
+#  - invariant_check / dump_will_be_check: report-only; the CI compare never judges them.
 set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 tmp="$(mktemp -d)"
@@ -372,7 +372,7 @@ if out="$(ratchet)"; then fail "an array or Data index, or an inferred read, pas
 g reset -q
 reset
 
-# 20. The Invariant API (p10-stability-099, 199): invariant_check and dump_will_be_check are report-only, so the CI
+# 20. The Invariant API: invariant_check and dump_will_be_check are report-only, so the CI
 #    compare passes a check or dumpWillBeCheck site with no crash-allowlist entry, even when the allowlist names the
 #    classes as banned (an unknown class bans nothing); --report counts each once. notFatalUntil is not a class, and a
 #    doc comment that names a call never counts. guardrails.py's local-only invariant-site rule judges the sites.
@@ -394,7 +394,7 @@ counts="$(printf '%s' "$out" | python3 -c 'import json, sys; d = json.load(sys.s
 g reset -q
 reset
 
-# 21. trap_api (report-only, p10-stability-092): every pattern counts in every package's Sources (also outside
+# 21. trap_api (report-only): every pattern counts in every package's Sources (also outside
 #     the app's closure), per module; a guarded removal, a checked offset, a safe count, comments and strings do
 #     not; a crash-allow does not hide a hit from the report; the CI compare never sees the class.
 report() { python3 "$tmp/scripts/cmux-next/crash_ratchet.py" --repo "$tmp" --report "$@"; }
@@ -476,7 +476,7 @@ out="$(report trap_api)" || fail "--report trap_api failed: $out"
 printf 'guard !other.isEmpty else { return }\nlet b = queue.removeFirst()\n' > "$app/Sources/M/A.swift"
 out="$(report trap_api)" || fail "--report trap_api failed: $out"
 [[ "$(hits trap_api M <<<"$out")" == 1 ]] || fail "another collection's guard exempted a removal: $out"
-# 21b. (p10-stability-098) validated counts and longer guards: a count shown non-negative (a literal comparison, a
+# 21b. validated counts and longer guards: a count shown non-negative (a literal comparison, a
 #      guard above in scope, a `let` of a safe count, a `max` assignment, a type constant, a C constant, base64
 #      padding, a ternary of literals, sums and products of those) and a removal behind a guard whose else block
 #      runs several lines, or bounded by its receiver's count, do not count; the same shapes with a value that may
@@ -551,7 +551,7 @@ func next() -> Int? {
 SWIFT
 out="$(report trap_api)" || fail "--report trap_api failed: $out"
 [[ "$(hits trap_api M <<<"$out")" == 9 ]] || fail "an unvalidated count or an unguarded removal was missed (want 9): $out"
-# 21c. (p10-stability-098) a check that does not hold at the call proves nothing: each shape counts once. A
+# 21c. a check that does not hold at the call proves nothing: each shape counts once. A
 #      comparison in the false branch of a ternary, in an `if` block that closed before the call or in its `else`,
 #      in a `||`; a `let` or a `guard` in another function; a C constant that is not a size; a clamp the value then
 #      leaves (`max(0, x) - 10`); a clamp of `self.width` for a count of the parameter `width`; a reassignment, an
@@ -753,7 +753,7 @@ cmp -s "$ci" "$tmp/ci-before.json" || fail "--update-baseline wrote a report row
 rm -f "$tmp/ci-before.json" "$rb"
 reset
 
-# 24. --classify (p10-stability-205, Q21): every hit gets exactly one trap class, input or invariant, and the
+# 24. --classify (Q21): every hit gets exactly one trap class, input or invariant, and the
 #     rule that gave it. Input: a decode entry point (Swift parse*, Rust decode*), its same-file callees, a body
 #     that reads file bytes, a `// trap-class: input` mark. Invariant: an `INVARIANT:` reason (Rust) or no rule.
 #     A string or a block comment never declares a function, and a bad mark is an error (exit 1).

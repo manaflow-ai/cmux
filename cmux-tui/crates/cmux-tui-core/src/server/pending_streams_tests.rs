@@ -1,4 +1,4 @@
-//! Pending streams over a real socket pair (p05-ipc-087): INPUT and stream
+//! Pending streams over a real socket pair: INPUT and stream
 //! requests sent right behind `attach-surface{stream}` wait for its reply
 //! and then reach the PTY in order; a stream that was never announced is a
 //! bad message; an overflow ends only its own stream.

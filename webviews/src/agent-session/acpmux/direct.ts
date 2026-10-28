@@ -1240,7 +1240,7 @@ export class AcpmuxDirectClient {
   /// Each peer's link state, last-seen time and failed attempts, for why a chat is not listed.
   private peerStatus: Record<string, PeerStatus> = {};
   /// The reconnect's backoff, which rests while the page is hidden and tries once on show
-  /// (retryBackoff.ts, p13-webui-069).
+  /// (retryBackoff.ts).
   private readonly reconnect: RetryBackoff;
   /// Called once when an established connection drops. The host then asks Swift
   /// for a fresh handshake, because a restarted daemon has a new port and token.

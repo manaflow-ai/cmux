@@ -74,7 +74,7 @@ public nonisolated struct ChromiumHelperProcess: Sendable, Equatable {
         return out
     }
 
-    /// Each live tab renderer of `parent` with its counters now (the Energy Saver's busy hidden pages, p14-energy-039).
+    /// Each live tab renderer of `parent` with its counters now (the Energy Saver's busy hidden pages).
     /// Blocking syscalls (``ProcessUsage/sample(_:)`` per renderer): call it off the main actor.
     public static func tabRendererUsage(parent: pid_t?) -> [(renderer: ProcessUsage.Renderer, usage: ProcessUsage)] {
         list(parent: parent).compactMap { helper -> (renderer: ProcessUsage.Renderer, usage: ProcessUsage)? in

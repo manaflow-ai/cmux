@@ -6,7 +6,7 @@ import CmuxNextWakeups
 import Foundation
 import Testing
 
-/// `debug.energy.simulate` (p14-energy-123): each input by its wire name reaches the monitor's
+/// `debug.energy.simulate`: each input by its wire name reaches the monitor's
 /// simulation in one main-actor turn before the answer, which is `debug.energy`'s report;
 /// `{clear: true}` alone hands it nil; anything else is `invalid_params` and changes nothing.
 @Suite(.timeLimit(.minutes(1)))

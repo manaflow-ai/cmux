@@ -1,5 +1,5 @@
 //! The agent tool servers this daemon serves on its own socket
-//! (p07-memory-092, `subsession_mcp::DaemonTools`): a unix connection whose
+//! (`subsession_mcp::DaemonTools`): a unix connection whose
 //! first `initialize` carries a caller token that proves its session
 //! (`hub/person.rs` (a)) and names a server ([`SERVER_FIELD`]) is that
 //! session's MCP server for its whole life. Every later line is MCP

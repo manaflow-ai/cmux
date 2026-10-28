@@ -7,7 +7,7 @@ import CmuxNextWakeups
 import QuartzCore
 import Testing
 
-/// chrome-parity p03-rendering-101, the top-left strip under a render-server band reveal: the strip's inset
+/// The top-left strip under a render-server band reveal: the strip's inset
 /// clears the badge where it lands after the band (it was measured against the badge's old frame, so a close
 /// left the tabs inset by the open band), and an overflowing strip's scrolling layer and edge fade spring with
 /// its clip, so the tabs and the fade fill the clip that shows through the spring.

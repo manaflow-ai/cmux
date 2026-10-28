@@ -400,7 +400,7 @@ fn json_parses_of(mux: &Arc<Mux>, client: u64, line: &str) -> u64 {
 }
 
 /// json_parses counts every parse where it happens: a line takes its
-/// RequestHead and then the one handler its head names (p05-ipc-062), the
+/// RequestHead and then the one handler its head names, the
 /// `Command` parse or a feature route's, and `server-stats` `ipc` sees the
 /// same count as the line's `daemon.frame.json_parses` trace instant.
 #[cfg(unix)]

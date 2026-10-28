@@ -5,7 +5,7 @@ import CmuxNextSignposts
 import ObjectiveC
 import Testing
 
-/// The input latency wiring of `sendEvent` (p04-input-005): which events open a slot and as what kind, where they
+/// The input latency wiring of `sendEvent`: which events open a slot and as what kind, where they
 /// land, the layout's scroll take, synthetic input, frame updates, drags once per frame, and the `key.frame` and
 /// `key.scroll_frame` intervals the slots carry. Slots close through ``InputLatencyTrackerTests/Harness``'s fake
 /// commit boundary: a view's at its turn's commit, a terminal's, page's or agent pane's at its own frame or its

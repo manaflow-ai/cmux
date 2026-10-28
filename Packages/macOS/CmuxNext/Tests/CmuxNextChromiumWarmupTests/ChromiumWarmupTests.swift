@@ -7,7 +7,7 @@ import CmuxNextInputCoreTestSupport
 import Foundation
 import Testing
 
-/// When the warm start skips, and that every step is an idle task (p06-scheduler-050): posted once
+/// When the warm start skips, and that every step is an idle task: posted once
 /// startup settled, never run in the turn that asked, each with a `maxDelay`; the steps that hold
 /// the main thread wait for 750 ms with no input and for a slot that may run past its deadline. An
 /// engine with no embedded runtime is unavailable, so nothing here maps or starts Chromium (the
@@ -214,7 +214,7 @@ import Testing
         warmup.stop()
     }
 
-    /// p13-webui-016: a spare window came up while the pages kind has none (`CEFSpareWindow.windowCameUp`
+    /// A spare window came up while the pages kind has none (`CEFSpareWindow.windowCameUp`
     /// reports `onSpareWindowNeeded`): an idle task, never the turn that asked, builds the next spare with
     /// the pages switch read then. Read again at each step: off, the step keeps no pages spare.
     @Test func eachSpareStepReadsThePagesSwitchWhenItRuns() {
@@ -234,7 +234,7 @@ import Testing
         warmup.stop()
     }
 
-    /// p13-webui-016: `browser.defaultEngine` left Chromium, so pages no longer use it: the untaken
+    /// `browser.defaultEngine` left Chromium, so pages no longer use it: the untaken
     /// pages spare closes at once; back on Chromium, an idle task builds it again. Before Chromium
     /// runs, nothing happens (the first spare step reads the switch itself).
     @Test func thePagesSpareFollowsTheSwitch() {
@@ -262,8 +262,8 @@ import Testing
         warmup.stop()
     }
 
-    /// p07-memory-047, Chrome's spare rule: a warning holds the spare windows (the untaken one
-    /// stays, p13-webui-047) and no spare step is posted or runs; critical keeps the hold and closes
+    /// Chrome's spare rule: a warning holds the spare windows (the untaken one
+    /// stays) and no spare step is posted or runs; critical keeps the hold and closes
     /// the untaken one; back at normal the hold lets go and an idle task, never the level's turn,
     /// builds the spare again.
     @Test func noSpareWindowUnderPressureAndNoRefillUntilNormal() {
@@ -425,7 +425,7 @@ import Testing
         #expect(idle.queued.isEmpty)
     }
 
-    /// p08-startup-018: the idle `CefInitialize` step runs Chromium's start in the slot it was given
+    /// The idle `CefInitialize` step runs Chromium's start in the slot it was given
     /// (`initializeLoaded`, no await), so the start lands in the idle period the scheduler picked
     /// after the input quiet, and the spare step is posted from that same turn.
     @Test func theIdleInitializeStepStartsChromiumInItsOwnTurn() async {

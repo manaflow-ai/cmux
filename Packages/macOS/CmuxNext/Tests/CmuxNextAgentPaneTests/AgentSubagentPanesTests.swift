@@ -5,8 +5,8 @@ import Testing
 @testable import CmuxNextInput
 import CmuxNextWakeups
 
-/// A subagent open's watch for the person's next action goes through the app's input tap
-/// (p04-input-017): one press subscription, held only while a focus is owed, that hears key-downs and
+/// A subagent open's watch for the person's next action goes through the app's input tap:
+/// one press subscription, held only while a focus is owed, that hears key-downs and
 /// mouse-downs in any window and nothing else, and leaves the tap when the watch stops.
 @Suite(.serialized)
 @MainActor

@@ -12,7 +12,7 @@ public import WebKit
 /// Safari uses for `window.open`) runs in that page's process, and WebKit shares a process only
 /// between views of one data store, so each group's pages use that group's store
 /// (``dataStore(for:)``): one non-persistent store per group, as Chrome keeps WebUI storage per
-/// site, so pages of different groups never share localStorage (p13-webui-015).
+/// site, so pages of different groups never share localStorage.
 ///
 /// This is the WebKit side of Chrome's process-per-site for WebUI: Chrome lets WebUI pages share a
 /// renderer only within their process lock (content/browser/site_info.cc,

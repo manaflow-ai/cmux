@@ -4,7 +4,7 @@ import MessagesLabHome
 
 /// The MessagesLab controller's display frames (its FrameTick: page landings, the engine jobs a
 /// keystroke went ahead of) as a client of the pane window's FrameScheduler, so Home shares the
-/// window's one display link instead of making its own (p14-energy-050; Chrome: one
+/// window's one display link instead of making its own (Chrome: one
 /// `viz::BeginFrameSource` per display, components/viz/common/frame_sinks/begin_frame_source.h).
 ///
 /// The client is ``FrameRate/motion``: Home typing is key to frame, so it never takes an ambient

@@ -1,7 +1,7 @@
-//! The sequenced pool (p05-ipc-073): per-sequence FIFO with no overlap,
+//! The sequenced pool: per-sequence FIFO with no overlap,
 //! independent sequences, blocking compensation from the blocking sites,
 //! fences, caps, worker start failures, no idle wakeups and a thread count
-//! independent of the number of sequences; delayed tasks (p05-ipc-079).
+//! independent of the number of sequences; delayed tasks.
 
 use std::io::Write;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -657,7 +657,7 @@ fn a_delayed_post_no_worker_can_run_is_refused() {
     assert_eq!(rx.recv_timeout(WAIT), Err(mpsc::RecvTimeoutError::Disconnected));
 }
 
-/// A connection's shape (p01-process-203): an outside thread (the mux-io
+/// A connection's shape: an outside thread (the mux-io
 /// loop) posts each line to one sequence, whose task posts the line's
 /// request to a second sequence. At most two tasks are ever runnable at
 /// once, so the pool starts at most two workers: a worker notified for a

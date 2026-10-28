@@ -1,7 +1,7 @@
 public import AppKit
 
-/// What the host needs to discard a hidden Files pane and show it again (`memoryDiscardInternalPages`,
-/// p07-memory-026): whether a window the pane opened still shows, and the shown layout's scroll.
+/// What the host needs to discard a hidden Files pane and show it again (`memoryDiscardInternalPages`):
+/// whether a window the pane opened still shows, and the shown layout's scroll.
 extension FilesPaneView {
     /// A Get Info panel this pane opened still shows; ``stop()`` would close it.
     public var showsInfoPanels: Bool { !infoWindows.isEmpty }

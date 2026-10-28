@@ -5,7 +5,7 @@ import CmuxNextTerminalFind
 import CmuxNextWakeups
 import Testing
 
-/// p03-rendering-073: the terminal's status banner, "Sized for" chip, copy-mode badge and find bar
+/// The terminal's status banner, "Sized for" chip, copy-mode badge and find bar
 /// lay out by frames (``ChipLayout``), not Auto Layout: a pane resized every frame of a drag frames
 /// them in `layout()` and solves no constraints. Each holds no constraint of its own, reports the
 /// size the host frames it at, and lays its content out for narrow, normal, wide and right-to-left

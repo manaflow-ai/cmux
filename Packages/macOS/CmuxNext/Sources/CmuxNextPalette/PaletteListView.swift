@@ -28,7 +28,7 @@ final class PaletteListView: NSScrollView, NSTableViewDataSource, NSTableViewDel
     /// No rubber band while every result fits.
     private var scrollFit: ScrollFitElasticity?
 
-    /// AppKit scrolls the results off the main thread (p03-rendering-110): no `scrollWheel` override, and
+    /// AppKit scrolls the results off the main thread: no `scrollWheel` override, and
     /// the hover follows a scroll from the clip's own hook (`scrollGeometryDidChange`).
     override class var isCompatibleWithResponsiveScrolling: Bool { true }
 

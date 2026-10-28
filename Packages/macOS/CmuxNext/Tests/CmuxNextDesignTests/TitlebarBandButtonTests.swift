@@ -2,7 +2,7 @@ import AppKit
 @testable import CmuxNextDesign
 import Testing
 
-/// Back and Forward's long press from the button's own mouse events and a deadline (p04-input-069): before,
+/// Back and Forward's long press from the button's own mouse events and a deadline: before,
 /// `mouseDown` ran a `nextEvent(matching:)` loop that held the main thread until the release or the deadline.
 /// A release before the double-click interval is a click; a press held past it shows the history menu.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(1)))

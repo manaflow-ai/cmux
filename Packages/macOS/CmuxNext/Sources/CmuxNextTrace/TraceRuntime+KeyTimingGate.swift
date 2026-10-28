@@ -1,6 +1,6 @@
 import CmuxNextCompat
 
-/// The category flags' writers and the keystroke-timing privacy gate (p09-observability-128, rule 5 of
+/// The category flags' writers and the keystroke-timing privacy gate (rule 5 of
 /// plans/cmux-next/chrome-parity/p09-observability.md): ``TraceRuntime/categoryMask`` is the requested flags
 /// without ``TraceCategories/keyTiming`` while any ``TraceRuntime/KeyTimingHold`` is set. Chrome turns on secure
 /// event input for a focused password field (ui/base/cocoa/secure_password_input.mm); here that input also stops

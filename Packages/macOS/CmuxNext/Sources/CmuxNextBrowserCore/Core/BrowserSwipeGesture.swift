@@ -41,8 +41,8 @@ package nonisolated struct BrowserSwipeEdges: Equatable, Sendable {
 /// every event until the answer comes, so a carousel or a wide table scrolls as before.
 /// Only a swipe that starts at the scroll edge, or reaches it in a later gesture, navigates.
 ///
-/// A gesture that begins with `pageAcks` (a hosted page whose host acks each wheel, task
-/// p01-process-234) probes nothing: it decides from Chromium's acks of its own wheels
+/// A gesture that begins with `pageAcks` (a hosted page whose host acks each wheel)
+/// probes nothing: it decides from Chromium's acks of its own wheels
 /// (``wheelAcked(_:)``), as Chrome's history swiper does
 /// (`chrome/browser/renderer_host/chrome_render_widget_host_view_mac_history_swiper.mm`): the
 /// page keeps the gesture when its first scroll update scrolled anything or a script took a

@@ -9,7 +9,7 @@ import Testing
 /// server, the viewer's input frames on the stream's data channel, the host's display
 /// frames, and pairing links. None of them traps; a session over any server bytes ends
 /// failed with a message, and what it reported on the way stays inside the RFB limits.
-/// Seeded property tests on CmuxFuzzSupport (long mode: CMUX_FUZZ_SECONDS); p10-stability-023.
+/// Seeded property tests on CmuxFuzzSupport (long mode: CMUX_FUZZ_SECONDS).
 @MainActor
 @Suite struct ScreenKitFuzzTests {
     /// The largest framebuffer side a server may set (`RFBLimits.maxSide`).

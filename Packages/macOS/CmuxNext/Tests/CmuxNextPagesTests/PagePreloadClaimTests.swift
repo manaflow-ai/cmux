@@ -7,7 +7,7 @@ import CmuxNextSettings
 import Foundation
 import Testing
 
-/// How a preloaded page's document takes its claim (p13-webui-045, cx-5vg7), engine-neutral, on a
+/// How a preloaded page's document takes its claim (cx-5vg7), engine-neutral, on a
 /// Chromium page whose document the test answers for: an acknowledged claim keeps the document (no
 /// reload); a first claim that the document refuses or leaves unanswered reloads it once, and the
 /// reloaded document gets the claim at its load; a later document's claim never reloads (no reload

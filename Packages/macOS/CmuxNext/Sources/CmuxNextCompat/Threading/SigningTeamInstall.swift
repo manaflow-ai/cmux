@@ -7,7 +7,7 @@ import Foundation
 ///
 /// The composition root loads it at launch (`work.post(.userVisible, mayBlock: .system) { install.load() }`);
 /// a read before that asks securityd itself through the checked Security seams (``PreloadedValue``). It
-/// replaces the static initializers that asked securityd on whichever thread came first (p02-threads-122).
+/// replaces the static initializers that asked securityd on whichever thread came first.
 public nonisolated final class SigningTeamInstall: Sendable {
     /// The process's install: the running code's team is the same for every reader.
     public static let process = SigningTeamInstall()

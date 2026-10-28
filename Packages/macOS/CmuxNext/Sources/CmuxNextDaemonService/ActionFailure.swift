@@ -15,7 +15,7 @@ public struct ActionFailure: Error, Hashable, CustomStringConvertible {
         self.isQuiet = isQuiet
     }
 
-    /// An action reached a service after the app's services were gone (p10-stability-091).
+    /// An action reached a service after the app's services were gone.
     public static var appClosing: ActionFailure { ActionFailure(message: RefusalStrings.appClosing) }
 
     /// The cmux-tui daemon does not serve `capability`.

@@ -6,7 +6,7 @@ import CmuxNextWakeups
 import CmuxNextWakeupsTestSupport
 import Testing
 
-/// p08-startup-064: with 60 workspaces, the sidebar builds row views only for the rows its clip shows
+/// With 60 workspaces, the sidebar builds row views only for the rows its clip shows
 /// (at most `LaunchRows.Report.slack` more) until startup completes, and its overscan rows in the
 /// afterStartup task. Prints one `SIDEBAR-LAUNCH-ROWS` line with the counts, held and not held.
 @MainActor @Suite(.serialized)

@@ -5,7 +5,7 @@ import Foundation
 import Testing
 @testable import CmuxNextDaemon
 
-/// p14-energy-064: the daemon heartbeat asks only after a silence, 15 s while a window shows or a
+/// The daemon heartbeat asks only after a silence, 15 s while a window shows or a
 /// request waits, 60 s while hidden for a connection with a notification stream, never while hidden
 /// for the others, and once when a window shows or the app activates.
 @Suite(.timeLimit(.minutes(1)))

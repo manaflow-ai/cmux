@@ -22,7 +22,7 @@ extension CEFTab: BrowserFreezing {
 
     /// The spare window's placeholder that still has a renderer: an about:blank page that is never shown.
     /// It exists only while the fork pin (API 24) has no renderer-less placeholder
-    /// (`cmux_shim_placeholder_supported`, p13-webui-017) or the `rendererlessSpareWindow` feature is off;
+    /// (`cmux_shim_placeholder_supported`) or the `rendererlessSpareWindow` feature is off;
     /// with both, every spare's placeholder is ``isRendererlessPlaceholder`` and this is never true.
     var isFrozenSparePlaceholder: Bool { host.quietsPlaceholder && host.placeholder === self && !host.placeholderHasNoRenderer }
 
@@ -33,7 +33,7 @@ extension CEFTab: BrowserFreezing {
 
 /// Chrome's in-place discard (Memory Saver): a hidden page's renderer and document go and its tab
 /// stays, `WebContents::Discard` (content/public/browser/web_contents.h) through the fork's
-/// `cmux_shim_tab_discard` (p13-webui-018).
+/// `cmux_shim_tab_discard`.
 extension CEFTab {
     /// Discards the hidden page in place: the tab keeps its browser, window slot, NavigationEntry and
     /// session storage, and Chromium reloads the entry when the page shows. Makes no call into the page.

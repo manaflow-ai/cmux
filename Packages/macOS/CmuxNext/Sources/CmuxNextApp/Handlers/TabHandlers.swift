@@ -145,7 +145,7 @@ enum TabHandlers {
         })
     }
 
-    /// Next/Previous Tab in Pane. From a person's key (`directionalPrewarm`, p04-input-044), the tab one step past
+    /// Next/Previous Tab in Pane. From a person's key (`directionalPrewarm`), the tab one step past
     /// the awake neighbors that way prewarms in the background: the neighbor rule keeps the nearer ones awake.
     private static func stepTab(_ ctx: AppActionContext, _ invocation: ActionInvocation, by offset: Int) -> ActionEffect {
         guard let pane = ctx.paneController(invocation) else { return .done }
@@ -168,7 +168,7 @@ enum TabHandlers {
         // tab.focus and Go to Tab focus by purpose (`focuses`); any other
         // caller only with the run's view-change permission.
         guard ActionRunScope.viewChangeAllowed() else { return }
-        // view-observation-allow: one MachineTabIndex lookup (p06-scheduler-051), no observation
+        // view-observation-allow: one MachineTabIndex lookup, no observation
         guard let (tab, paneModel) = ctx.services.locateTab(tabID) ?? ctx.notFound(RefusalStrings.noTab(tabID)) else { return }
         guard let (workspace, screen) = owner(of: paneModel, ctx) ?? ctx.notFound(RefusalStrings.noTab(tabID)) else { return }
         reveal(workspace: workspace, screen: screen, pane: paneModel, tab: tab, ctx: ctx)
@@ -308,7 +308,7 @@ enum TabHandlers {
         }
         // The tab menu reads Pin Tab or Unpin Tab for the right-clicked tab.
         ActionTargetTitles.set("palette.toggleTabPin", in: registry) { invocation in
-            // view-observation-allow: one MachineTabIndex lookup (p06-scheduler-051) per menu row, no observation
+            // view-observation-allow: one MachineTabIndex lookup per menu row, no observation
             guard let id = invocation.target?.id, let (tab, _) = ctx.services.locateTab(id) else { return nil }
             return tab.pinned ? PinStrings.unpinTab : PinStrings.pinTab
         }

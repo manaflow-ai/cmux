@@ -11,12 +11,12 @@ import Foundation
 import Observation
 import Testing
 
-/// The oracle's `tabs` facet read through the engine-neutral `BrowserTab` protocol (p15-oracle-037): `engine` comes
+/// The oracle's `tabs` facet read through the engine-neutral `BrowserTab` protocol: `engine` comes
 /// from `engineKind` and every other field from `BrowserTabState`; with no engine page (none yet, or a hibernated or
 /// deferred stand-in) the tab is `unloaded`; titles go in only as hashes; the app composes each pane's tabs as its
 /// strip lists them, and a page installed later wakes a `wait_for` read.
 /// Whether WebKit and Chromium reach the same state for one navigation is not shown here (MockBrowserTab drives
-/// both engine kinds alike): that is the fleet tabs-and-browser journey's (p15-oracle-089).
+/// both engine kinds alike): that is the fleet tabs-and-browser journey's.
 /// Run: `swift test --filter OracleBrowserTabTests`.
 @MainActor @Suite(.serialized) struct OracleBrowserTabTests {
     /// A page on `kind` that loaded two addresses, was titled, zoomed and muted.
@@ -56,7 +56,7 @@ import Testing
         }
     }
 
-    /// The chromium-renderer-hang journey's error state (p15-oracle-223): a hung page is unresponsive until it
+    /// The chromium-renderer-hang journey's error state: a hung page is unresponsive until it
     /// answers, and its renderer's end makes it crashed and no longer unresponsive.
     @Test func aHungPageIsUnresponsiveUntilItAnswersOrEnds() throws {
         for kind in BrowserEngineKind.allCases {

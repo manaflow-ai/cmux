@@ -8,7 +8,7 @@ import Foundation
 import Testing
 
 /// A daemon terminal's input lane drains through `DaemonTerminalIO.inputDrain(on:driver:creating:)`
-/// (p04-input-058, the drain `inputDrain()` returns): every record reaches the attach driver on the input
+/// (the drain `inputDrain()` returns): every record reaches the attach driver on the input
 /// queue, in lane order. While the terminal is still being created a chunk goes by id and the lane holds every later
 /// record until that send returned; a chunk the daemon refused goes by the attachment before them; once the
 /// input goes by the attachment, bytes go to the link without an await.
@@ -49,7 +49,7 @@ import Testing
         #expect(inputs == ["input b", "snapshot gap", "input c"])
     }
 
-    /// p04-input-094: a key's bytes reach the live link with its latency slot's flow, so the daemon stamps the
+    /// A key's bytes reach the live link with its latency slot's flow, so the daemon stamps the
     /// key's stages; other bytes go without one.
     @MainActor @Test func aKeysBytesCarryItsFlowToTheLiveLink() async {
         let log = RouteLog()

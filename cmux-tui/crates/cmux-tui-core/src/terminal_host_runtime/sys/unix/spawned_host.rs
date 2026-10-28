@@ -106,7 +106,7 @@ mod tests {
         waited < 0 && std::io::Error::last_os_error().raw_os_error() == Some(libc::ECHILD)
     }
 
-    /// p02-threads-237: a committed host is reaped by the mux's one child
+    /// A committed host is reaped by the mux's one child
     /// reaper once it exits, with no `terminal-host-reaper` thread.
     #[test]
     fn a_committed_host_is_reaped_by_the_mux_reaper_with_no_thread_of_its_own() {

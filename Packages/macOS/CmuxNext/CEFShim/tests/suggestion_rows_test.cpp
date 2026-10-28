@@ -1,6 +1,6 @@
 // Cases of the SUGGESTIONS event's JSON (CEFShim/src/suggestion_rows.h):
 // scripts/cmux-next/test-shim-suggestion-rows-cpp.sh. The rows the fork shows
-// (task p01-process-172) reach cmux's list (task 061) whole and escaped; a
+// reach cmux's list (task 061) whole and escaped; a
 // struct older than API 31 or rows without data send nothing.
 #include "../src/suggestion_rows.h"
 

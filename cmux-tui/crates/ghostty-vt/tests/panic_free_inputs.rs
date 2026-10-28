@@ -1,8 +1,8 @@
 //! Outside bytes reach these decoders (snapshot records from a peer, PTY
 //! output, replay sidecars, key events from an outer terminal). Each case
 //! feeds cut, forged or boundary input and checks the result is a value or a
-//! typed error with the same meaning as before the panic-free rewrite
-//! (p10-stability-139), never a panic.
+//! typed error with the same meaning as before the panic-free rewrite,
+//! never a panic.
 
 use ghostty_vt::{
     Callbacks, Error, KeyAction, KeyEncoder, KeyInput, KittyReplayState, Mods,

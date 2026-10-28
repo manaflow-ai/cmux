@@ -97,7 +97,7 @@ public final class MainDeadlineScheduler {
     var now: UInt64 { wakeups.now }
 
     #if DEBUG || CMUX_BENCH_HOOKS
-    /// The queue's ledger's arm census, which each deadline tells of its launch arms (p08-startup-085).
+    /// The queue's ledger's arm census, which each deadline tells of its launch arms.
     var armCensus: ArmCensus { wakeups.ledger.armCensus }
     #endif
 

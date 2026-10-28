@@ -47,7 +47,7 @@ public final class RemoteLocalhostService {
 
     /// Whether every tab of `daemon` routes to `.thisMac`, whatever the service's state: a tab of
     /// this Mac with no debug socket. Asked before the service is made, so this Mac's pages make
-    /// none (p08-startup-021).
+    /// none.
     public static func routesToThisMac(_ daemon: DaemonService,
                                        environment: [String: String] = ProcessInfo.processInfo.environment) -> Bool {
         daemon.isLocal && debugSocketPath(in: environment) == nil

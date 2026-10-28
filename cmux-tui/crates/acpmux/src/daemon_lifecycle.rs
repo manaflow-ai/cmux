@@ -1,4 +1,4 @@
-//! A leftover daemon exits (p07-memory-063, behind the default-off
+//! A leftover daemon exits (behind the default-off
 //! `leftoverDaemonIdleExit` feature in `schemas/features/features.d`).
 //!
 //! Every cmux app, tagged dev build and CLI start leaves an acpmux daemon

@@ -20,7 +20,7 @@ public final class ChromiumHostAgentRelay {
     }
 }
 
-/// A ``ChromiumHostSupervising`` whose hosts take the browser host's relay link (task p01-process-233): the
+/// A ``ChromiumHostSupervising`` whose hosts take the browser host's relay link: the
 /// host start observes ``agentRelay``. A supervisor without it relays every agent tab through cmux.
 public protocol ChromiumHostAgentRelaying: ChromiumHostSupervising {
     var agentRelay: ChromiumHostAgentRelay { get }

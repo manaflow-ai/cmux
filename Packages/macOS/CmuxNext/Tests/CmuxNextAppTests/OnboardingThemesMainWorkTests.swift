@@ -9,7 +9,7 @@ import Foundation
 import Observation
 import Testing
 
-/// p06-scheduler-315, the FG sweep of CmuxNextApp/Onboarding and Themes (rule 9): the theme files are read on
+/// The FG sweep of CmuxNextApp/Onboarding and Themes (rule 9): the theme files are read on
 /// the files lane and land as one posted task each (Chrome's PostTaskAndReply, base/task/thread_pool.h), in the
 /// caller's class; the terminal setting follows the settings as a ServiceObservation (a person's change applies in
 /// the input-response pass, a script's yields to input, and its side effects run with no view on screen), hears the

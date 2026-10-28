@@ -216,7 +216,7 @@ await requireBrowserLane("static-status-loops.test.ts", async () => {
     expect(running).toEqual([]);
   });
 
-  // p14-energy-063: Energy Saver (`data-cmux-energy`) and animations off (`data-cmux-motion`) hold
+  // Energy Saver (`data-cmux-energy`) and animations off (`data-cmux-motion`) hold
   // every loop still, as Chrome's battery saver stops frames nobody interacts with.
   test("Energy Saver and animations off stop every loop, the diff viewer's too", async () => {
     for (const payload of [{ energy: "saver" }, { motion: "off" }] as Record<string, string>[]) {

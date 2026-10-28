@@ -877,7 +877,7 @@ mod tests {
         assert_eq!(mode(), BlockingMode::Record);
     }
 
-    /// Sync primitives disallowed (a work item, task p02-threads-119): the
+    /// Sync primitives disallowed (a work item): the
     /// waits for other work are denied, any other blocking is allowed, a
     /// Shutdown allowance permits them, and disallowing keeps the sync bit.
     #[test]

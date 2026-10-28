@@ -1,4 +1,4 @@
-//! Who may open a relay link (p01-process-233; p01-process.md risk 6: the
+//! Who may open a relay link (p01-process.md risk 6: the
 //! provider credential is a new local attack surface, so the peer's audit
 //! token and code signature are checked as well as the credential).
 //!

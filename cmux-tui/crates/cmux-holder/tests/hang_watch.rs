@@ -1,4 +1,4 @@
-//! The holder's loop is hang-watched (p09-observability-074): it registers with the process's
+//! The holder's loop is hang-watched: it registers with the process's
 //! hang watch while it serves, its `poll` wait is never blamed, and a turn whose work outlasts the
 //! turn deadline is one hang record naming the loop.
 //!

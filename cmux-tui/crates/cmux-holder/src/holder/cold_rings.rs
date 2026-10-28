@@ -1,5 +1,5 @@
 //! Rings sized from the memory budget, and the pages of cold ones given
-//! back (p07-memory-094).
+//! back.
 //!
 //! Each terminal's ring is `DaemonBudget::holder_ring_bytes` (1 MiB from
 //! 16 GB), but never less than [`MIN_RING_BYTES`] (768 KiB, so on an 8 GB

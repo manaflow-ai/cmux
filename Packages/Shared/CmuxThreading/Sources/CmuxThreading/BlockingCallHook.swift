@@ -38,7 +38,7 @@ public protocol BlockingCallHook: Sendable {
 public final class BlockingCallHookSlot: Sendable {
     /// The process's slot, which ``blockingCall(_:fileID:line:_:)`` and ``Mutex`` read.
     // singleton-allow: blockingCall is a free function every shared package calls on any thread, inside locks and before any composition root exists, so it has no instance to take its hook through; Chrome's ScopedBlockingCall reads the process-wide blocking observer.
-    // lint:allow singleton: the shared blocking-call hook exception in plans/cmux-next/arch-ratchet.json (2026-10-26, p02-threads-130).
+    // lint:allow singleton: the shared blocking-call hook exception in plans/cmux-next/arch-ratchet.json (2026-10-26).
     public static let process = BlockingCallHookSlot()
 
     /// The installed hook. CmuxSafeConcurrency's mutex, not this module's ``Mutex``: a contended wait for this lock

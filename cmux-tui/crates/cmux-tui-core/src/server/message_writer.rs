@@ -12,8 +12,8 @@
 //!
 //! On an idle local connection a send writes its message on the calling
 //! thread with a send that never waits, and the connection's writer thread
-//! sees only what the socket did not take (p05-ipc-140,
-//! server/inline_write.rs).
+//! sees only what the socket did not take
+//! (server/inline_write.rs).
 
 use super::AttachWireShape;
 use super::BudgetedText;
@@ -55,7 +55,7 @@ pub(super) struct OutboundStream {
     /// The outbound lane of a stream outside the control sequence; read and
     /// changed only under the connection's outbound lock (`set-stream-priority`).
     lane: Arc<LaneCell>,
-    /// The client's `set-stream-priority` for this stream (p05-ipc-142).
+    /// The client's `set-stream-priority` for this stream.
     pub(super) visibility: Arc<StreamVisibility>,
     pub(super) terminal_enqueued: Arc<AtomicBool>,
     pub(super) overflow_text: Arc<Mutex<Arc<BudgetedText>>>,
@@ -65,7 +65,7 @@ pub(super) struct OutboundStream {
     /// item carries it as `"stream"` and the terminal is `stream-end`.
     pub(super) client_stream: Option<ClientStreamId>,
     /// Run when the writer takes an item of this stream while it held its
-    /// backpressure cap: the producer's drain task (p05-ipc-079), which
+    /// backpressure cap: the producer's drain task, which
     /// stopped at the cap instead of waiting for room.
     pub(super) space_hook: Arc<crate::stream_interrupt::ReadyHook>,
 }
@@ -541,7 +541,7 @@ impl MessageWriter {
     }
 
     /// [`Self::encode`] of an attach frame in `shape`; an output frame that
-    /// echoes a key press carries that press's `key_stages` (p04-input-094).
+    /// echoes a key press carries that press's `key_stages`.
     pub(super) fn encode_attach_frame(
         &self,
         surface: SurfaceId,
@@ -615,7 +615,7 @@ impl MessageWriter {
 
     /// An attach frame on `stream` for a producer that checked
     /// [`MessageSink::stream_has_room`] first: it never waits. An output
-    /// frame that echoes a key press carries its `key_stages` (p04-input-094).
+    /// frame that echoes a key press carries its `key_stages`.
     pub(super) fn send_attach_frame(
         &self,
         surface: SurfaceId,

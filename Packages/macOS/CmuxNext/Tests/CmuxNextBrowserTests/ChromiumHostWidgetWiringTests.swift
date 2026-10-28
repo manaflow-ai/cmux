@@ -2,7 +2,7 @@ import AppKit
 @testable import CmuxNextBrowser
 import Testing
 
-/// How host mode turns the hosted widgets on and off (p01-process-066): the source's feature choice
+/// How host mode turns the hosted widgets on and off: the source's feature choice
 /// reaches the runtime's host start, the start builds the widget host only when the host's shim
 /// has every widget op, the shim's ops carry geometry, dismiss and input, and the host's end takes
 /// every widget down.

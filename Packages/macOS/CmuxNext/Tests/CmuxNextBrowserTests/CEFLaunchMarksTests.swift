@@ -4,7 +4,7 @@ import CmuxNextInput
 import Foundation
 import Testing
 
-/// p08-startup-044: Chromium's start as launch marks (`CEFLaunchMarks`), each sent once per process to
+/// Chromium's start as launch marks (`CEFLaunchMarks`), each sent once per process to
 /// the receiver the App gives the engine (`CEFLaunchMarkHooks`), with the startup page's first paint
 /// followed by the trigger of the start. Against runtimes that never run Chromium.
 @MainActor @Suite(.serialized) struct CEFLaunchMarksTests {

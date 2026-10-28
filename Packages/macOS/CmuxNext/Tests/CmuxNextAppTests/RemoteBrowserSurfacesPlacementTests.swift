@@ -5,7 +5,7 @@ import CmuxNextWakeups
 import Testing
 
 #if DEBUG
-/// p06-scheduler-221, p14-energy-054: a remote page's popup panels re-placed themselves on every
+/// A remote page's popup panels re-placed themselves on every
 /// `NSWindow.didUpdateNotification`, once per event of the window (each key typed), to catch a page
 /// that moved inside its window; then a run-loop observer read the page's rect on every turn. Now the
 /// page's rect is read after each layout pass of its window (its `WindowLayoutPasses`, where an

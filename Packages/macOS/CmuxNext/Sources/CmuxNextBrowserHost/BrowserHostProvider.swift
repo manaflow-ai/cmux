@@ -18,8 +18,8 @@ import os
 /// Everything runs on the main actor in frame order: a `lease` frame marks
 /// its tab agent-driven before the next frame is handled. Each frame is one
 /// task of the automation class, posted as it is read
-/// (``MainWorkScheduler/post(_:owner:file:line:_:)``, owner `browser-host.<tag>`;
-/// p06-scheduler-036): an agent never competes with the person, so a frame
+/// (``MainWorkScheduler/post(_:owner:file:line:_:)``, owner `browser-host.<tag>`):
+/// an agent never competes with the person, so a frame
 /// read while a key is pending runs after that key. Tasks of one class run in
 /// post order. The post runs on the next main run loop turn, also while frames
 /// run, not on a display frame: an agent's CDP and driver traffic is
@@ -68,7 +68,7 @@ public final class BrowserHostProvider {
     @ObservationIgnored weak var opener: (any ProviderTabOpening)?
     /// The tab nodes an agent's capture votes on (``ProviderCaptureVoting``); nil takes no votes.
     @ObservationIgnored weak var capture: (any ProviderCaptureVoting)?
-    /// The app's Chromium Host, which relays agent CDP to the browser host by itself (task p01-process-233);
+    /// The app's Chromium Host, which relays agent CDP to the browser host by itself;
     /// nil (the default, and with feature `chromiumHostAgentRelay` off) relays every tab through the app.
     @ObservationIgnored public weak var relayLinking: (any ProviderRelayLinking)?
     /// The id this app gives its Chromium Host's relay link, once per launch: the browser host relays a tab on

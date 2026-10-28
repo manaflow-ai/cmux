@@ -3,7 +3,7 @@ import Foundation
 import CmuxNextInputCore
 import Testing
 
-/// A Chromium host's presentation feedback (p04-input-066): a report by the input's event time closes that input's
+/// A Chromium host's presentation feedback: a report by the input's event time closes that input's
 /// page slot with the reported time and source hostFeedback; a report that matches no open page slot changes nothing
 /// and is counted.
 @MainActor

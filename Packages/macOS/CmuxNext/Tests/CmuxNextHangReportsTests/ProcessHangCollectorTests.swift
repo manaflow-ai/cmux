@@ -2,7 +2,7 @@
 import Foundation
 import Testing
 
-/// A Rust process's hang line (p09-observability-075) is a hang-report entry like a watched app thread's: a
+/// A Rust process's hang line is a hang-report entry like a watched app thread's: a
 /// `hangwatch` sample that names the thread, its frames classified by the foreign resolver, kept only while
 /// reports are on, the schema carries thread hangs and the line has a stack.
 struct ProcessHangCollectorTests {

@@ -1,4 +1,4 @@
-//! The clock thread's power follow (p14-energy-137) with a fake notify
+//! The clock thread's power follow with a fake notify
 //! source: its descriptor's readability wakes the loop, which reads the
 //! source and passes each changed reading on, with no timed wait.
 

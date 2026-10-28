@@ -3,7 +3,7 @@ public import CmuxNextBrowser
 public import CmuxNextDaemon
 public import CmuxNextOracle
 
-/// The oracle's `crashes` facet (p15-oracle-188, schemas/oracle/snapshot-v1.schema.json `crashes`): the child
+/// The oracle's `crashes` facet (schemas/oracle/snapshot-v1.schema.json `crashes`): the child
 /// process exits of this app and its daemon, by kind, as totals the runner diffs between checkpoints. Invariant I17
 /// fails a case on an exit no `allow_crashes` entry of the case covers.
 ///

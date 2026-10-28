@@ -2,7 +2,7 @@
 import Foundation
 import Testing
 
-/// The helper monitor's kqueue state lives behind one `Mutex` on its own queue (p10-stability-058):
+/// The helper monitor's kqueue state lives behind one `Mutex` on its own queue:
 /// a child it watches reports its end with its helper identity and wait status. Run under TSan too.
 @Suite struct CEFChildProcessMonitorTests {
     @Test(.timeLimit(.minutes(1)))

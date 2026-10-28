@@ -1,6 +1,6 @@
 // The text typed in each conversation's composer and not sent yet, kept for the page's whole mount:
 // a reconnect makes a new store (main.tsx) and a discard a new document, and neither loses it
-// (p13-webui-082, the page state's unsent inputs). View state only: nothing reaches the daemon.
+// (the page state's unsent inputs). View state only: nothing reaches the daemon.
 
 /** The page name its saved state carries (pageState.ts). */
 export const HOME_CHANNELS_PAGE = "home-channels";

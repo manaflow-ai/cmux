@@ -3,7 +3,7 @@ import CoreFoundation
 import CmuxNextSignposts
 import Testing
 
-/// InputCommitObserver (p04-input-004): the tracker's commit boundary fires once per arm, after the commit pass that
+/// InputCommitObserver: the tracker's commit boundary fires once per arm, after the commit pass that
 /// began after the arm, as ``CommitBoundary`` does, with no new observer per turn.
 @MainActor
 @Suite(.serialized) struct InputCommitObserverTests {

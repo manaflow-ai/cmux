@@ -65,20 +65,19 @@ final class CEFHostStart {
     /// ``attached()`` (task 019 of plans/cmux-next/chrome-parity/p01-process.md).
     var mapsClientIDs = false
     /// The attached host acks each trackpad wheel of a page (``CEFAttachedHost/acksWheels``): the swipe
-    /// navigation decides from those acks and probes no page (task p01-process-234).
+    /// navigation decides from those acks and probes no page.
     private(set) var acksWheels = false
-    /// The attached host opens its own provider link and relays agent CDP (``CEFAttachedHost/relaysAgents``,
-    /// task p01-process-233).
+    /// The attached host opens its own provider link and relays agent CDP (``CEFAttachedHost/relaysAgents``).
     private(set) var relaysAgents = false
     /// The browser host's relay link for every host of the session (``ChromiumHostRelayLink``); nil: none.
     private(set) var agentRelayLink: ChromiumHostRelayLink?
     /// The attached host ended (``hostEnded()``) and no new one is attached yet.
     private(set) var hostGone = false
     /// The attached host's pid (``CEFAttachedHost/hostPID``), whose children are the Chromium helpers; nil while
-    /// none is attached (task p01-process-225).
+    /// none is attached.
     private(set) var hostPID: pid_t?
     /// The host's UI-thread watch: the busy banner and its hang reports (feature `chromiumHostHangBanner`,
-    /// `CEFRuntime.watchHostHangs(reports:)`, task p01-process-084); nil without it. One for every host:
+    /// `CEFRuntime.watchHostHangs(reports:)`); nil without it. One for every host:
     /// each attached host that acks its input dispatch reports to it.
     var hangMonitor: ChromiumHostHangMonitor?
     /// The attached host reports to ``hangMonitor``: it acks its dispatch and the remote shim has the host watch.
@@ -117,7 +116,7 @@ final class CEFHostStart {
         replies = CEFHostReplies(clock: clock)
         supervisor.observeHostEnds { [weak self] in self?.ended() }
         replies.onWireEnded = { [weak self] in self?.ended() }
-        // The supervisor hands each host the browser host's relay link (task p01-process-233).
+        // The supervisor hands each host the browser host's relay link.
         (supervisor as? any ChromiumHostAgentRelaying)?.agentRelay.observe { [weak self] link in self?.setAgentRelayLink(link) }
     }
 
@@ -312,7 +311,7 @@ nonisolated struct CEFAttachedHost: Sendable {
     /// ``wheelAcksHelloName``: its fork reports Chromium's gesture acks; HOST/src/host_wheel_ack.h).
     var acksWheels = false
     /// The host opens its own provider link to the browser host and relays agent CDP for the pages it is
-    /// told to (its HELLO lists ``providerLinkHelloName``; HOST/src/host_provider_link.h, task p01-process-233).
+    /// told to (its HELLO lists ``providerLinkHelloName``; HOST/src/host_provider_link.h).
     var relaysAgents = false
     /// The host acks the input its UI thread dispatched and reports its UI hangs (its HELLO lists
     /// ``hangWatchHelloName``; HOST/src/host_hang_watcher.h): the busy banner counts on it.

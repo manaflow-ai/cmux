@@ -122,7 +122,7 @@ fn a_stream_request_on_the_line_path_is_refused() {
 }
 
 /// Each op decodes through the one `cmd`-tagged enum spec/sdk-schema.json
-/// types (p05-ipc-019): a missing or mistyped param is `params.invalid`,
+/// types: a missing or mistyped param is `params.invalid`,
 /// and a field no op reads is ignored, as before.
 #[test]
 fn each_op_decodes_its_params_by_its_cmd() {
@@ -414,7 +414,7 @@ fn remote_frame(mux: &Arc<Mux>, client: u64, line: &str) -> (Value, u64) {
     (answer, stats.snapshot().parses.lines.json_parses)
 }
 
-/// p05-ipc-069: the fs ops are found by their decoded `cmd`, never a
+/// The fs ops are found by their decoded `cmd`, never a
 /// substring of the line, on the local route and on the remote relay alike.
 /// An escaped op name answers as its plain spelling (the remote entry's
 /// [`FsGate`] already admits it), an op takes two parses (the head and the

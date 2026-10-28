@@ -35,7 +35,7 @@ impl ProviderSecret {
         a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
     }
 
-    /// The credential of the Chromium Host's relay link (p01-process-233):
+    /// The credential of the Chromium Host's relay link:
     /// HMAC-SHA256 of [`RELAY_CREDENTIAL_CONTEXT`] keyed by this secret's
     /// UTF-8 bytes, as 64 lowercase hex digits. The app derives it from the
     /// daemon-minted secret and hands only it to its Chromium Host, so the
@@ -234,7 +234,7 @@ pub enum Frame {
         extensions: Vec<String>,
     },
     /// Makes a CEF tab agent-ready without relaying it through the app
-    /// (host -> app; p01-process-233): the app marks and prepares the page as
+    /// (host -> app): the app marks and prepares the page as
     /// for `cdp.attach`, then answers with the event `tab.relay.direct`
     /// (`targetId`, `browser`, `link`: the link id it gave its Chromium Host)
     /// or `tab.relay.failed` (`targetId`, `reason`). Sent only while a

@@ -9,8 +9,8 @@ public import CmuxNextDesignTokens
 ///
 /// The owner calls ``refresh(newDocument:)`` after every theme push (with `newDocument` once a new
 /// document loaded). A change of the art pushes again on the next display frame. A change of the
-/// view's place in the window pushes when the place is final, never per frame of a motion
-/// (chrome-parity p03-rendering-037): at a render-server spring's start, whose frame is at rest
+/// view's place in the window pushes when the place is final, never per frame of a motion:
+/// at a render-server spring's start, whose frame is at rest
 /// from then (``layoutWillRest()``), at a spring's landing (``landed()``), when a move of the pane
 /// in the window ended (a strip or canvas camera, a pan, ``placementSettled()``), when the backdrop's
 /// art takes a new size at rest or at a live window resize's end (``WindowMaterialView``), and for a

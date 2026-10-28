@@ -1,5 +1,5 @@
 // WHEEL_ACK: Chromium's answer to each trackpad wheel cmux's page view sent
-// (plans/cmux-next/chrome-parity/p01-process.md, task p01-process-234), so
+// (plans/cmux-next/chrome-parity/p01-process.md), so
 // cmux's swipe navigation decides from it, with no page probe on the control
 // channel.
 //

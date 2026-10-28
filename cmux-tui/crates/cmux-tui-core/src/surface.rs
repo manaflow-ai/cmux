@@ -306,7 +306,7 @@ pub enum AttachFrame {
     /// PTY output; all viewers of one read share its buffer (attach_tap.rs).
     Output(bytes::Bytes),
     /// [`Self::Output`] of the PTY owner's first read after a `send` with
-    /// key press `flow` (never 0) reached the PTY: its echo (p09-observability-018).
+    /// key press `flow` (never 0) reached the PTY: its echo.
     FlowOutput {
         output: bytes::Bytes,
         flow: u64,

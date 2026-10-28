@@ -2,8 +2,8 @@ import AppKit
 import Testing
 @testable import MessagesLabSidebar
 
-/// The list's row and tile bitmaps take their size from the host and give bytes back on request
-/// (p07-memory-081): `setBitmapBudget(bytes:)` caps them, `trimBitmaps(toFraction:)` frees the least
+/// The list's row and tile bitmaps take their size from the host and give bytes back on request:
+/// `setBitmapBudget(bytes:)` caps them, `trimBitmaps(toFraction:)` frees the least
 /// recently used first, and a budget of 0 keeps nothing.
 @MainActor
 @Suite(.serialized)

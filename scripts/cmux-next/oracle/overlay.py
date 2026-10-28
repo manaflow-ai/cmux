@@ -158,7 +158,7 @@ def v0_not_comparable(product: str) -> List[Dict[str, str]]:
     """Facets and facet fields a v0 run cannot give on `product`: facets_v0.py's schema against v1."""
     if str(HERE) not in sys.path:
         sys.path.insert(0, str(HERE))
-    import facets_v0  # sibling (p15-oracle-006); imported here so native and overlay plans need no schema
+    import facets_v0  # sibling; imported here so native and overlay plans need no schema
 
     # The VM products are cmux-tui sessions: their state facet is the daemon's.
     state = "daemon" if SCOPES.get(product) == VM_SCOPE else product

@@ -1,4 +1,4 @@
-/// Which page windows host (p03-rendering-050, 056). A hosted page draws through a `CALayerHost` in the cmux
+/// Which page windows host. A hosted page draws through a `CALayerHost` in the cmux
 /// window's layer tree, as Chrome's browser window shows GPU output (`ui/accelerated_widget_mac/display_ca_layer_tree.h`).
 extension CEFLayerHosting {
     /// The Track A calls (p03-rendering R3) the app makes for a fork's pages.
@@ -9,10 +9,10 @@ extension CEFLayerHosting {
     nonisolated struct TrackA: OptionSet, Sendable {
         let rawValue: UInt8
         /// Each resize of the page joins its transaction's fence
-        /// (`cmux_shim_browser_set_resize_fence`, p03-rendering-043).
+        /// (`cmux_shim_browser_set_resize_fence`).
         static let resizeFence = TrackA(rawValue: 1 << 0)
         /// The app gives the page window its visibility
-        /// (`cmux_browser_set_embedder_visibility`, p03-rendering-058).
+        /// (`cmux_browser_set_embedder_visibility`).
         static let embedderVisibility = TrackA(rawValue: 1 << 1)
         static let required: TrackA = [.resizeFence, .embedderVisibility]
     }

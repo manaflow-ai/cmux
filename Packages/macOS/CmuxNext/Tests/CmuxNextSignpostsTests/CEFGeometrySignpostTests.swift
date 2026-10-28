@@ -3,7 +3,7 @@ import CmuxNextCompat
 @testable import CmuxNextTrace
 import Testing
 
-/// The `cef.geometry` slice and instants and the `cef.host_input` instant (p09-observability-038, perf-hot
+/// The `cef.geometry` slice and instants and the `cef.host_input` instant (perf-hot
 /// `cef-geometry` and `cef-host-input`): a geometry slice is one B/E pair with its source in the B and the catcher
 /// panels shown and moved in the E, a page view's post is one instant inside it, and an input frame sent to the
 /// Chromium host is one instant with its wire kind, which the keystroke-timing gate drops for key and edit frames.

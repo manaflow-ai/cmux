@@ -42,7 +42,7 @@ fn serve(limits: Limits) -> i32 {
     use std::os::fd::FromRawFd;
     use std::os::unix::net::UnixStream;
 
-    // The black box first (p09-observability-095), and its file mapped before
+    // The black box first, and its file mapped before
     // the sandbox, which refuses opening files and starting threads; the
     // mapping stays writable after it. A host whose file failed keeps the
     // heap ring.

@@ -67,7 +67,7 @@ final class MobilePairingPageService: InternalPageProvider {
 
     func tabClosed(_ key: String) { close(key) }
 
-    // MARK: Discard (`memoryDiscardInternalPages`, p07-memory-028)
+    // MARK: Discard (`memoryDiscardInternalPages`)
 
     /// Ten minutes hidden, as a browser tab (Chrome's proactive_discarding_policy.cc). A hidden
     /// page's code cannot be scanned, and the page reads the status and mints a code when it is

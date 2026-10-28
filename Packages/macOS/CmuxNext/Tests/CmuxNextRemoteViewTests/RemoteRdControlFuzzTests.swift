@@ -7,7 +7,7 @@ import Testing
 /// reach ``RemoteRdControl/parse(_:)``, then the setup reducer
 /// (``RemoteRdHandshake``) and, for service bodies, the popup-stream changes
 /// (``RemoteRdSurfaceStreamChange``). Seeded property tests on CmuxFuzzSupport
-/// (p10-stability-024; long mode: CMUX_FUZZ_SECONDS):
+/// (long mode: CMUX_FUZZ_SECONDS):
 ///
 /// - every control the viewer can meet parses back from its JSON as itself;
 /// - mutated JSON parses or throws, never traps, and what parses encodes to JSON
@@ -27,7 +27,7 @@ import Testing
     static let dictionary: [Data] = jsonTokens.map { Data($0.utf8) }
     static let kinds: [RemoteRdStreamKind] = [.video, .audio, .tiles, .popup, .upAudio, .upVideo, .unknown]
 
-    /// One input of a property, its choices read from `data` (the libFuzzer entry, p10-stability-182).
+    /// One input of a property, its choices read from `data` (the libFuzzer entry).
     static func oneInput(_ data: Data) throws {
         var rng = FuzzRNG(replaying: data)
         switch rng.below(3) {

@@ -1,4 +1,4 @@
-/// The crash record line of the keys (p10-stability-207): what the crash path writes into `run.crashkeys` and
+/// The crash record line of the keys: what the crash path writes into `run.crashkeys` and
 /// `CrashKeys(record:)` in CmuxNextCrashReporting reads back.
 extension CrashKeySlots {
     /// Writes the crash record line of the block at `address` into `buffer`, loading each word straight from

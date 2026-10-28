@@ -531,7 +531,7 @@ def product_capabilities() -> Dict[str, frozenset]:
     """oracle.py's PRODUCTS (capabilities per product), read without importing its CLI."""
     if str(HERE) not in sys.path:
         sys.path.insert(0, str(HERE))
-    import oracle  # noqa: E402 - sibling (p15-oracle-017)
+    import oracle  # noqa: E402 - sibling
 
     return dict(oracle.PRODUCTS)
 

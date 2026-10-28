@@ -1,5 +1,5 @@
 // The Cloud page keeps its open machine, an unsent create sheet and the scroll of its list across a
-// discard (p13-webui-082). The storefront view is the route's, which the page state puts back.
+// discard. The storefront view is the route's, which the page state puts back.
 import { describe, expect, test } from "bun:test";
 import { pageRoundTrip, scrollOf, withRestore } from "../shared/pageStateTesting";
 import { MockCloudProvider } from "./mockProvider";

@@ -5,7 +5,7 @@ import CmuxNextInputCore
 import Darwin
 import Testing
 
-/// The app's one input tap (p04-input-011): a subscription hears only its classes and its window,
+/// The app's one input tap: a subscription hears only its classes and its window,
 /// intercepts run in their declared order, a consuming intercept stops later intercepts but not
 /// observers, cancelled and released subscriptions stop at once, the tap keeps the last dispatched
 /// and last pointer records, and a dispatch allocates nothing.

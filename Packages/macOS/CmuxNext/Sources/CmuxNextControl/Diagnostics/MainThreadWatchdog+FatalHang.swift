@@ -1,5 +1,5 @@
 extension MainThreadWatchdog {
-    /// Where a main-thread hang that may end the app goes (p09-observability-110): every hang episode, not
+    /// Where a main-thread hang that may end the app goes: every hang episode, not
     /// rate-limited as ``onHang`` is, so the one the person ends with Force Quit or the system ends with SIGKILL
     /// is on disk when the process dies. The app writes it as the run's fatal-hang record and the next launch
     /// reports it, as Sentry's fatal app hangs do (`SentryANRTrackingIntegration`): Chrome's HangWatcher dumps

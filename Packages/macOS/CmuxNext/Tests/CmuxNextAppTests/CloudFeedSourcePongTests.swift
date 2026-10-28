@@ -4,7 +4,7 @@ import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
-/// The feed socket's liveness probe is a DemandTimer on the injected clock (p14-energy-019c): no
+/// The feed socket's liveness probe is a DemandTimer on the injected clock: no
 /// pong within ``CloudFeedSource/pongLimit`` closes the socket, a pong first drops the deadline.
 @MainActor
 @Suite struct CloudFeedSourcePongTests {

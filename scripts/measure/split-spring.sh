@@ -30,12 +30,12 @@
 #   --vdisplay-size=WxH  the virtual display's pixels (default 1920x1200: under the Dock a 1920x1080 display left
 #                   about 965 pt, and AppKit clamped the 1600 x 1000 STRESS window, 2026-10-24). The helper's ready
 #                   line reports the visible frame (visible=WxH), which the report's display.line keeps.
-#   --suite=input-latency  measure with scripts/cmux-next/input-latency-bench.py (p04-input-070: input to presented
+#   --suite=input-latency  measure with scripts/cmux-next/input-latency-bench.py (input to presented
 #                   frame per surface with real HID input, storms, stalls and 1000 Hz drags; DC1, DC2, DC5) instead of
 #                   split-spring-terminal.py's suites; the other options go to it (--sessions=light,stress,
 #                   --storm=cli=10hz,sidebar-churn=400, --drag=divider,tab --rate=1000). Real input needs the
 #                   step's GUI session to hold the Accessibility grant; the report says input_reached false otherwise.
-#   --suite=scroll-jank  measure with scripts/cmux-next/scroll-jank-bench.py (p04-input-072: Chrome's scroll jank,
+#   --suite=scroll-jank  measure with scripts/cmux-next/scroll-jank-bench.py (Chrome's scroll jank,
 #                   Event.ScrollJank.*, per scroll target with real trackpad gestures at the display rate; DC4); the
 #                   other options go to it (--sessions=light,stress, --stall=none,50ms/100ms, --targets=sidebar,strip).
 #                   Real input needs the Accessibility grant as above.
@@ -43,7 +43,7 @@
 #                   (scripts/cmux-next/first-5s-typing.py through split-spring-terminal.py; --apps-sha256=A,B measures
 #                   fleet builds; its sender reports its own lateness, `--self-check` checks it with no app).
 #   --suite=bench-idle  idle wakeups and CPU (scripts/cmux-next/bench_idle.py; its options follow, e.g. --scenarios=...).
-#   --suite=responsive-scroll  run scripts/cmux-next/responsive-scroll-live.py (p03-rendering-110: a 50 ms main stall
+#   --suite=responsive-scroll  run scripts/cmux-next/responsive-scroll-live.py (a 50 ms main stall
 #                   during momentum still scrolls the sidebar and the palette results, feature responsiveScrolling on
 #                   and off); it exits 1 when the check fails. Real input needs the Accessibility grant as above.
 # On exit, TERM, INT or HUP (a cancelled step) the script stops the bench, ends the tag's app and daemons

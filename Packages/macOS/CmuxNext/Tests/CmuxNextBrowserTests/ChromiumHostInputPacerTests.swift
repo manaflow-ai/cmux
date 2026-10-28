@@ -4,7 +4,7 @@ import AppKit
 @testable import CmuxNextBrowser
 import Testing
 
-/// Ack-based pacing of a hosted page's input (p01-process-042): the first move or wheel tick
+/// Ack-based pacing of a hosted page's input: the first move or wheel tick
 /// leaves at once, later ones wait coalesced (latest move, wheel deltas summed per phase) and
 /// leave on the host's ack, at most one of each in flight; keys and clicks never wait, and what
 /// waited leaves ahead of them in arrival order.

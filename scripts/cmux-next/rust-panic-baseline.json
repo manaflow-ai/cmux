@@ -26,7 +26,7 @@
  ],
  "crates": {
   "acpmux": {
-   "unwrap_used": 134,
+   "unwrap_used": 98,
    "expect_used": 4,
    "panic": 1,
    "unreachable": 1,

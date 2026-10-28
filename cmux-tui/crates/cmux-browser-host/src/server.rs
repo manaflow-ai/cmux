@@ -223,7 +223,7 @@ fn accept_provider(
     stream.set_read_timeout(None)?;
     let info = match opening {
         Opening::Provider(info) => info,
-        // The connected app's Chromium Host (p01-process-233): its relay link
+        // The connected app's Chromium Host: its relay link
         // serves that app's CEF tabs. With no app connected it has nothing to
         // relay and goes.
         Opening::RelayLink { link } => {

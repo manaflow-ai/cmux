@@ -20,7 +20,7 @@ extension TerminalAttachment {
         /// The key press this output echoes (`send` carried it and the PTY read stamped it); absent
         /// from a daemon without exact flows or when no press was open.
         var flow: UInt64?
-        /// That press's daemon stages (p04-input-094); absent from a daemon before them, or one whose clock is
+        /// That press's daemon stages; absent from a daemon before them, or one whose clock is
         /// not this Mac's.
         var keyStages: KeyStages?
 
@@ -71,7 +71,7 @@ extension TerminalAttachment {
     }
 
     /// Attach lines whose decode is bulk: a snapshot (its history chunks inflate) and a byte replay. They always
-    /// decode on the connection's decode lane, never on its reader (p05-ipc-144).
+    /// decode on the connection's decode lane, never on its reader.
     static let bulkEvents: Set<String> = ["snapshot", "vt-state", "resized"]
 
     /// The reader's weighing of one attach line (``EventDispatch/weigh``), from its name and size only: bulk

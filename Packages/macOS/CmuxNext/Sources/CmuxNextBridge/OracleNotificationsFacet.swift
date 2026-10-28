@@ -2,7 +2,7 @@
 public import CmuxNextDaemon
 public import CmuxNextOracle
 
-/// The oracle's `notifications` facet (p15-oracle-042, schemas/oracle/snapshot-v1.schema.json `notifications`): the
+/// The oracle's `notifications` facet (schemas/oracle/snapshot-v1.schema.json `notifications`): the
 /// unread count the Dock badge shows, and per workspace its unread count and its Needs you. Counts only: a
 /// notification's title and body never go in. Chromium's app badge is one number the badge manager keeps per app from
 /// the model, never read back from the Dock (chrome/browser/badging/badge_manager.cc); this facet reads the daemon

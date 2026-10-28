@@ -1,4 +1,4 @@
-/// The daemon's times for one terminal key press on its way to its echo (p04-input-094): when it received the
+/// The daemon's times for one terminal key press on its way to its echo: when it received the
 /// `send`, when the bytes reached the PTY, when the read that echoes them came back and when it sent that echo, on
 /// `CLOCK_UPTIME_RAW` (the clock of `NSEvent.timestamp`), 0 for a stage it did not see. A hosted terminal's write and
 /// read are its host's. The echo's `output` event carries them in `key_stages`; a daemon from before this field sends

@@ -6,7 +6,7 @@ import Observation
 @testable import CmuxNextSidebar
 import Testing
 
-/// p06-scheduler-045: the document store tells its observers directly (`SidebarDocStore.observe`) that a change was
+/// The document store tells its observers directly (`SidebarDocStore.observe`) that a change was
 /// refused, that a change settled with no echo, or that favicons changed. The app-wide notifications
 /// `cmux.sidebar.docRefused`, `cmux.sidebar.docSettled` and `cmux.sidebar.itemFaviconsChanged` are gone; a list holding
 /// a drop's look lets it go on its store's event. Each list is given its store (`SidebarListView.docStore`); no test
@@ -136,7 +136,7 @@ import Testing
     }
 
     /// The App's favicon follow tells the store's observers on each favicon revision. It is a ServiceObservation
-    /// (p06-scheduler-339, R-obs): the first pass tells in the caller's turn, a revision in the follow's visible task.
+    /// (R-obs): the first pass tells in the caller's turn, a revision in the follow's visible task.
     @Test func aFaviconRevisionTellsTheStoresObservers() async {
         let store = SidebarDocStore(remote: nil, mirror: nil)
         let revision = Revision()

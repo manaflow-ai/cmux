@@ -225,7 +225,7 @@ final class CaptureSceneRegistry {
 
     static let energySaverScene = "energy-saver"
 
-    /// `energy-saver` (p14-energy-026): Low Power Mode laid over the Mac's inputs through the app's one
+    /// `energy-saver`: Low Power Mode laid over the Mac's inputs through the app's one
     /// energy monitor (`debug.energy.simulate`), so the policy driver turns the saver on as it would on
     /// a real Mac; then the active sidebar's leaf card opens and the scene waits until both show.
     private func showEnergySaver() async -> JSONValue {
@@ -258,7 +258,7 @@ final class CaptureSceneRegistry {
 
     static let settingsEnergyScene = "settings-energy"
 
-    /// `settings-energy` (p14-energy-129): Settings opened on General > Energy Saver, with the choices
+    /// `settings-energy`: Settings opened on General > Energy Saver, with the choices
     /// this Mac offers ("On Battery" only with a battery). Waits until the Settings page has painted
     /// (its paint is held until its reads finish) and its `energy.saver` row is in the page, then for
     /// the frames after it. The report says what the page leaves out; an error names what never showed.
@@ -322,7 +322,7 @@ final class CaptureSceneRegistry {
 
     static let highEnergyTabScene = "high-energy-tab"
 
-    /// `high-energy-tab` (p14-energy-125): a browser tab opens in the focused pane as a person opens one and hides behind
+    /// `high-energy-tab`: a browser tab opens in the focused pane as a person opens one and hides behind
     /// the tab the pane showed; fixture renderer readings (``HighEnergySceneReadings``) give it 8 % of a core over a
     /// whole window; then the pointer rests on it until its card shows "Using high energy" with Discard. The fixtures
     /// and the card's pointer stay until the next scene. An error names the step that never happened.

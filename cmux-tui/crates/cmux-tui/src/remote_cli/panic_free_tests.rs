@@ -1,4 +1,4 @@
-//! Outside input to the remote CLI returns an error, never a panic (p10-stability-129).
+//! Outside input to the remote CLI returns an error, never a panic.
 
 use super::*;
 

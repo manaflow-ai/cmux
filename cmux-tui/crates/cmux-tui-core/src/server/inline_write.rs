@@ -147,7 +147,7 @@ impl BoundedOutbound {
 
     /// The writer thread's next turn: waits for a rest or an item, then
     /// takes the rest and a batch of the ready items behind it into `batch`
-    /// (`BoundedOutboundState::take_batch`, p05-ipc-088). `None` once the
+    /// (`BoundedOutboundState::take_batch`). `None` once the
     /// queue closed with nothing left. No producer writes inline until the
     /// turn drops. The wait is an idle wait, so a writer that disallows
     /// blocking may take it (p02-threads 308).

@@ -101,10 +101,10 @@ REPO = HERE.parents[2]
 if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 
-import diff  # noqa: E402  (host_mismatch: the same-host keys, p15-oracle-008)
+import diff  # noqa: E402  (host_mismatch: the same-host keys)
 import oracle  # noqa: E402  (the sibling CLI: merge_runs, write_merged, DEFAULT_RETRY_LIMIT, new_run_id)
-import overlay  # noqa: E402  (the base build of a base/head diff, p15-oracle-202)
-import patch_mutants  # noqa: E402  (the app mutants' header checks, p15-oracle-026)
+import overlay  # noqa: E402  (the base build of a base/head diff)
+import patch_mutants  # noqa: E402  (the app mutants' header checks)
 
 SCRIPT = "scripts/measure/oracle.sh"
 # ci_step.go: measureClass and measureLabel. Every scripts/measure/ step runs alone on a worker that has a console.
@@ -787,7 +787,7 @@ def cmd_diff(args: argparse.Namespace) -> int:
     builds.write_text(json.dumps({"base": first.build_record(selection), "head": second.build_record(selection)},
                                  indent=1, sort_keys=True) + "\n", encoding="utf-8")
     argv = ["diff", "--product", "app", "--out", str(out / "compare"), "--builds", str(builds)]
-    # A switch's arm runs get oracle.py's switch verdict: readback, hits and the arm pointers (p15-oracle-111).
+    # A switch's arm runs get oracle.py's switch verdict: readback, hits and the arm pointers.
     argv += ["--switch", args.switch] if args.switch else []
     for side, flag in ((first, "--base-run"), (second, "--head-run")):
         for s in side.shards:
