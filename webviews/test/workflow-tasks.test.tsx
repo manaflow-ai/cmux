@@ -8,7 +8,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { JSDOM } from "jsdom";
-import { WorkflowTasks } from "../src/agent-session/acpmux/inspector/WorkflowTasks";
+import { WorkflowAgentRow, WorkflowTasks } from "../src/agent-session/acpmux/inspector/WorkflowTasks";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { finishedTrayItems, trayItems, withSubagentLines } from "../src/agent-session/acpmux/subagents/runningTray";
 import { SUBAGENTS } from "../src/agent-session/acpmux/subagents/subagentFold";
@@ -67,6 +67,54 @@ test("a running workflow shows its counts, tokens, description, phases, the open
   expect(html).toContain('aria-label="Stop demo-name-tournament"');
 });
 
+test("workflow agent rows never send a workflow agent id to the ordinary subagent opener", async () => {
+  dom = new JSDOM("<!doctype html><main id=root></main>", { url: "http://localhost/" });
+  for (const [key, value] of Object.entries({
+    window: dom.window,
+    document: dom.window.document,
+    HTMLElement: dom.window.HTMLElement,
+    IS_REACT_ACT_ENVIRONMENT: true,
+  })) {
+    saved.set(key, scope[key]);
+    scope[key] = value;
+  }
+  const agent = summaries("running")[0]!.agents[0]!;
+  const container = dom.window.document.getElementById("root")!;
+  root = createRoot(container);
+  let legacyOpened = false;
+  await act(async () =>
+    root!.render(<WorkflowAgentRow agent={agent} now={NOW} onOpenSubagent={() => (legacyOpened = true)} />),
+  );
+  const button = container.querySelector("button") as HTMLButtonElement;
+  expect(button.disabled).toBe(true);
+  await act(async () => button.click());
+  expect(legacyOpened).toBe(false);
+});
+
+test("a workflow agent row sends the full agent to the workflow opener", async () => {
+  dom = new JSDOM("<!doctype html><main id=root></main>", { url: "http://localhost/" });
+  for (const [key, value] of Object.entries({
+    window: dom.window,
+    document: dom.window.document,
+    HTMLElement: dom.window.HTMLElement,
+    IS_REACT_ACT_ENVIRONMENT: true,
+  })) {
+    saved.set(key, scope[key]);
+    scope[key] = value;
+  }
+  const agent = summaries("running")[0]!.agents[0]!;
+  const container = dom.window.document.getElementById("root")!;
+  root = createRoot(container);
+  let opened: typeof agent | undefined;
+  await act(async () =>
+    root!.render(<WorkflowAgentRow agent={agent} now={NOW} onOpenWorkflowAgent={(value) => (opened = value)} />),
+  );
+  const button = container.querySelector("button") as HTMLButtonElement;
+  expect(button.disabled).toBe(false);
+  await act(async () => button.click());
+  expect(opened).toBe(agent);
+});
+
 let dom: JSDOM | undefined;
 let root: Root | undefined;
 const scope = globalThis as Record<string, unknown>;
@@ -101,6 +149,37 @@ test("a finished workflow reads as finished with its size, and a phase opens int
   const judge = [...container.querySelectorAll("button")].find((button) => button.textContent?.startsWith("Judge"))!;
   await act(async () => judge.click());
   expect(shown()).toContain("Judge 1/1 Model: Opus 5.5 judge 41s");
+});
+
+test("a running workflow keeps its elapsed clock live before agent records arrive", async () => {
+  dom = new JSDOM("<!doctype html><main id=root></main>", { url: "http://localhost/" });
+  Object.defineProperty(dom.window.document, "visibilityState", { configurable: true, value: "visible" });
+  for (const [key, value] of Object.entries({
+    window: dom.window,
+    document: dom.window.document,
+    HTMLElement: dom.window.HTMLElement,
+    IS_REACT_ACT_ENVIRONMENT: true,
+  })) {
+    saved.set(key, scope[key]);
+    scope[key] = value;
+  }
+  const realSetInterval = globalThis.setInterval;
+  const timers: number[] = [];
+  globalThis.setInterval = ((callback: TimerHandler, delay?: number) => {
+    timers.push(Number(delay));
+    return timers.length as unknown as ReturnType<typeof setInterval>;
+  }) as typeof setInterval;
+  try {
+    const workflow = summaries("running")[0]!;
+    const container = dom.window.document.getElementById("root")!;
+    root = createRoot(container);
+    await act(async () =>
+      root!.render(<WorkflowTasks workflows={[{ ...workflow, agents: [], phases: [] }]} />),
+    );
+    expect(timers).toContain(1000);
+  } finally {
+    globalThis.setInterval = realSetInterval;
+  }
 });
 
 test("with running and finished workflows, each group says how many it holds", () => {

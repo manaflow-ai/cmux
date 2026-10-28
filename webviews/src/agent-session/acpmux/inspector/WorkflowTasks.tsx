@@ -46,7 +46,9 @@ export function WorkflowTasks({
   const t = useT();
   const running = workflows.filter(isRunning);
   const finished = workflows.filter((workflow) => !isRunning(workflow));
-  const now = useNow(running.some((workflow) => workflow.agents.some(agentIsRunning)));
+  // A running workflow's own elapsed time keeps moving even before its first agent event arrives
+  // (or while all of its agents are queued). Finished workflows do not need a timer.
+  const now = useNow(running.length > 0);
   return (
     <div className="acpmux-workflow-tasks">
       {/* A group's count only when both groups show: the section's own head already counts what runs. */}
@@ -226,12 +228,11 @@ function WorkflowPhaseRow({
   );
 }
 
-/// A live workflow agent's state, model, elapsed time and latest action/message. Rows with a Claude
-/// `agentId` open that agent through the existing native subagent pane path.
+/// A live workflow agent's state, model, elapsed time and latest action/message. Rows open through
+/// the workflow bridge when one is supplied; without it they remain inert.
 export function WorkflowAgentRow({
   agent,
   now,
-  onOpenSubagent,
   onOpenWorkflowAgent,
   variant = "detail",
 }: {
@@ -254,7 +255,10 @@ export function WorkflowAgentRow({
   const state = agentStateWord(t, agent.state);
   const model = agent.model ? modelName(agent.model) : undefined;
   const modelEffort = [model, agent.effort].filter((value): value is string => Boolean(value)).join(" · ");
-  const openable = Boolean(onOpenWorkflowAgent || (agent.agentId && onOpenSubagent));
+  // Workflow agent ids name Claude's workflow transcript, not a folded subagent node. Until the
+  // workflow bridge is supplied, keep this row inert rather than sending the wrong id to the
+  // ordinary subagent opener.
+  const openable = Boolean(onOpenWorkflowAgent);
   const row = (
     <button
       type="button"
@@ -263,7 +267,6 @@ export function WorkflowAgentRow({
       aria-label={`${agent.name}: ${state}`}
       onClick={() => {
         if (onOpenWorkflowAgent) onOpenWorkflowAgent(agent);
-        else if (agent.agentId) onOpenSubagent?.(agent.agentId);
       }}
     >
       <span className="acpmux-workflow-agent__icon" aria-hidden="true">
@@ -280,7 +283,9 @@ export function WorkflowAgentRow({
       <span className="acpmux-workflow-agent__text">
         <span className="acpmux-workflow-agent__line">
           <span className="acpmux-workflow-agent__name">{agent.name}</span>
-          {modelEffort && <span className="acpmux-workflow-agent__model">{modelEffort}</span>}
+          {modelEffort && (
+            <span className="acpmux-workflow-agent__model">{t("workflow.model", { model: modelEffort })}</span>
+          )}
         </span>
         {(agent.lastMessage ?? agent.doing) && (
           <span className="acpmux-workflow-agent__doing" title={agent.lastMessage ?? agent.doing}>
