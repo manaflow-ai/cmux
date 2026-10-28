@@ -1,9 +1,21 @@
+/** A provider call's failure: only the step, the status and a provider code, never a body or a key. */
+export class DriverError extends Error {
+  constructor(
+    readonly code: string,
+    message: string,
+    /** True when retrying cannot help (configuration, authorization, a deleted VM). */
+    readonly final: boolean
+  ) {
+    super(message)
+  }
+}
+
 /**
- * The provider contract behind CloudDO (state-placement.md 5.2, 5.3): every machine provider (the
- * Freestyle REST provider, the VM API transport, the test fake, and later GCP) implements
- * CloudProvider, and nothing outside providers/ names a provider. GuardedCloudDriver (cloud-driver.ts)
+ * The provider contract behind CloudDO (state-placement.md 5.2, 5.3): every machine provider (each
+ * folder under providers/, wired in providers/index.ts; the VM API transport; the test fake)
+ * implements CloudProvider, and nothing outside providers/ names a provider. GuardedCloudDriver (cloud-driver.ts)
  * wraps one: it owns names, tags and idempotency, so a provider only answers raw calls by name or id.
- * Errors are DriverError (team-vm-driver.ts) and carry only the step, the status and a provider code.
+ * Errors are DriverError (below).
  */
 export interface VmTag {
   readonly team: string

@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 718,
-    "mcp": 636
+    "verbs": 731,
+    "mcp": 649
   },
   "nouns": [
     {
@@ -3497,6 +3497,13 @@
           "mcpTool": "app_sidebar_hide_app"
         },
         {
+          "command": "cmux sidebar hide-controls-until-hover",
+          "title": "Show Sidebar Controls Only on Hover",
+          "id": "sidebar.controlsOnHover.on",
+          "mcp": true,
+          "mcpTool": "app_sidebar_hide_controls_until_hover"
+        },
+        {
           "command": "cmux sidebar mark-checklist-item-in-progress",
           "title": "Mark Checklist Item In Progress",
           "id": "checklistMarkInProgress",
@@ -3642,6 +3649,13 @@
           "id": "sidebar.section.setMaxRows",
           "mcp": true,
           "mcpTool": "app_sidebar_set_section_height"
+        },
+        {
+          "command": "cmux sidebar show-controls-always",
+          "title": "Always Show Sidebar Controls",
+          "id": "sidebar.controlsOnHover.off",
+          "mcp": true,
+          "mcpTool": "app_sidebar_show_controls_always"
         },
         {
           "command": "cmux sidebar toggle-item-archive",
@@ -4489,6 +4503,41 @@
           "id": "window.stash",
           "mcp": true,
           "mcpTool": "app_window_stash"
+        },
+        {
+          "command": "cmux window toggle-dock-bottom",
+          "title": "Toggle Bottom Dock",
+          "id": "window.toggleDockBottom",
+          "mcp": true,
+          "mcpTool": "app_window_toggle_dock_bottom"
+        },
+        {
+          "command": "cmux window toggle-dock-left",
+          "title": "Toggle Left Dock",
+          "id": "window.toggleDockLeft",
+          "mcp": true,
+          "mcpTool": "app_window_toggle_dock_left"
+        },
+        {
+          "command": "cmux window toggle-dock-orientation",
+          "title": "Toggle Dock Corners",
+          "id": "window.toggleDockOrientation",
+          "mcp": true,
+          "mcpTool": "app_window_toggle_dock_orientation"
+        },
+        {
+          "command": "cmux window toggle-dock-right",
+          "title": "Toggle Right Dock",
+          "id": "window.toggleDockRight",
+          "mcp": true,
+          "mcpTool": "app_window_toggle_dock_right"
+        },
+        {
+          "command": "cmux window toggle-dock-top",
+          "title": "Toggle Top Dock",
+          "id": "window.toggleDockTop",
+          "mcp": true,
+          "mcpTool": "app_window_toggle_dock_top"
         }
       ]
     },
@@ -4599,6 +4648,34 @@
           "id": "disconnectWorkspace",
           "mcp": true,
           "mcpTool": "app_workspace_disconnect"
+        },
+        {
+          "command": "cmux workspace dock-bottom",
+          "title": "Dock Workspace Bottom",
+          "id": "workspace.dockBottom",
+          "mcp": true,
+          "mcpTool": "app_workspace_dock_bottom"
+        },
+        {
+          "command": "cmux workspace dock-left",
+          "title": "Dock Workspace Left",
+          "id": "workspace.dockLeft",
+          "mcp": true,
+          "mcpTool": "app_workspace_dock_left"
+        },
+        {
+          "command": "cmux workspace dock-right",
+          "title": "Dock Workspace Right",
+          "id": "workspace.dockRight",
+          "mcp": true,
+          "mcpTool": "app_workspace_dock_right"
+        },
+        {
+          "command": "cmux workspace dock-top",
+          "title": "Dock Workspace Top",
+          "id": "workspace.dockTop",
+          "mcp": true,
+          "mcpTool": "app_workspace_dock_top"
         },
         {
           "command": "cmux workspace duplicate",
@@ -4965,6 +5042,13 @@
           "mcpTool": "app_workspace_toggle_checklist_item_complete"
         },
         {
+          "command": "cmux workspace toggle-dock-floating",
+          "title": "Float Docked Workspace",
+          "id": "workspace.toggleDockFloating",
+          "mcp": true,
+          "mcpTool": "app_workspace_toggle_dock_floating"
+        },
+        {
           "command": "cmux workspace toggle-keep-awake",
           "title": "Keep Workspace Awake",
           "id": "workspace.toggleKeepAwake",
@@ -4977,6 +5061,13 @@
           "id": "workspace.toggleTop",
           "mcp": true,
           "mcpTool": "app_workspace_toggle_top"
+        },
+        {
+          "command": "cmux workspace undock",
+          "title": "Undock Workspace",
+          "id": "workspace.undock",
+          "mcp": true,
+          "mcpTool": "app_workspace_undock"
         }
       ]
     },

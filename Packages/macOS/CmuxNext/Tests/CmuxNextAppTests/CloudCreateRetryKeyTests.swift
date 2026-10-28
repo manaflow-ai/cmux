@@ -38,7 +38,7 @@ import Testing
     func flow(_ backend: Backend) -> CloudMachineCreateFlow {
         CloudMachineCreateFlow(run: { _, _, key, _ in try await MainActor.run { try backend.call(key) } },
                                confirm: { _ in true },
-                               approve: { _, _ in },
+                               approve: { _, _, _ in },
                                pause: { _ in })
     }
 
@@ -94,7 +94,7 @@ import Testing
         CloudMachineCreateFlow(run: CloudService.pinnedRun(team: "team_a", currentTeam: { await MainActor.run { backend.team } },
                                                            sent: { sends.count += 1 },
                                                            ops: { _, _, key, _ in try await MainActor.run { try backend.call(key) } }),
-                               confirm: { _ in true }, approve: { _, _ in }, pause: { _ in })
+                               confirm: { _ in true }, approve: { _, _, _ in }, pause: { _ in })
     }
 
     @MainActor final class Sends { var count = 0 }
@@ -115,7 +115,7 @@ import Testing
         let flow = CloudMachineCreateFlow(run: CloudService.pinnedRun(team: "team_a", currentTeam: { await MainActor.run { backend.team } },
                                                                       sent: { sends.count += 1 },
                                                                       ops: { _, _, key, _ in try await MainActor.run { try backend.call(key) } }),
-                                          confirm: { _ in true }, approve: { _, _ in },
+                                          confirm: { _ in true }, approve: { _, _, _ in },
                                           // The install switches teams during the first retry's backoff.
                                           pause: { _ in await MainActor.run { backend.team = "team_b" } })
         await #expect(throws: ActionFailure(message: CloudStrings.createRetryOtherTeam)) {

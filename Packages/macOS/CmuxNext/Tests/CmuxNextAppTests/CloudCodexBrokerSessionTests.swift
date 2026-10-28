@@ -74,8 +74,10 @@ struct CloudCodexBrokerSessionTests {
             async let second: Void = session.shutdown()
             _ = await (first, second)
             #expect(started.duration(to: clock.now) < .seconds(8))
-            #expect(kill(pid, 0) == -1)
-            #expect(errno == ESRCH)
+            let killResult = kill(pid, 0)
+            let killErrno = errno
+            #expect(killResult == -1)
+            #expect(killErrno == ESRCH)
         }
     }
 
