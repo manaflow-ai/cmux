@@ -17,6 +17,14 @@ Each try here:
   `shallow.lock`, `index.lock` and `*.lock` ref locks older than the try.
 Then it waits BACKOFF_SECONDS[n] and tries again, up to `--tries` times.
 
+Before each try of a `submodule update`, a submodule checkout whose `.git` file
+names a git dir that is gone (or has no HEAD) is removed, with that half-made
+git dir, so the update clones it again. A reused workspace can lose
+`.git/modules` while its submodule checkouts stay: on 2026-10-28 the warm
+nightly-next builder failed three tries in a row with `fatal: could not get a
+repository handle for submodule 'ghostty'`, then `fatal: not a git repository:
+ghostty/../.git/modules/ghostty`.
+
     git_fetch_retry.py [--tries 3] [--timeout S] [--repo DIR] -- git ARGS...
 
 Exits with the last try's status (124 for a timeout).
@@ -190,6 +198,56 @@ def clean_new_modules(repo: Path, before: set[Path], log: Callable[[str], None] 
     return removed
 
 
+def gitfile_target(worktree: Path) -> Path | None:
+    """The git dir a submodule checkout's `.git` file names, or None when `.git` is not such a file."""
+    marker = worktree / ".git"
+    if marker.is_symlink() or not marker.is_file():
+        return None
+    try:
+        text = marker.read_text(errors="replace").strip()
+    except OSError:
+        return None
+    if not text.startswith("gitdir:"):
+        return None
+    target = Path(text.removeprefix("gitdir:").strip())
+    return Path(os.path.normpath(target if target.is_absolute() else worktree / target))
+
+
+def drop_dangling_submodules(repo: Path, log: Callable[[str], None] = print) -> list[Path]:
+    """Remove submodule checkouts whose `.git` file names a git dir that is gone or has no HEAD.
+
+    `submodule update --init --force` cannot repair such a checkout ("could not get a repository
+    handle", "not a git repository"); with the checkout gone it clones the submodule again. A
+    half-made git dir it named is removed too when it is under this repository's .git/modules.
+    Checkouts are visited top-down, so a nested one under a removed checkout is not visited.
+    """
+    removed: list[Path] = []
+    modules = (repo / ".git" / "modules").resolve()
+    for worktree in submodule_worktrees(repo):
+        if any(parent in removed for parent in worktree.parents):
+            continue
+        target = gitfile_target(worktree)
+        if target is None or (target / "HEAD").is_file():
+            continue
+        try:
+            remove_tree(worktree)
+            worktree.mkdir(parents=True, exist_ok=True)  # as a fresh checkout leaves an uninitialized submodule
+            removed.append(worktree)
+            resolved = target.resolve()
+            if resolved.is_dir() and modules in resolved.parents:
+                remove_tree(resolved)
+        except OSError as error:
+            log(f"git_fetch_retry: could not remove {worktree}: {error}")
+            continue
+        log(f"git_fetch_retry: removed {worktree}: its .git names {target}, which is gone (the update clones it)")
+    return removed
+
+
+def is_submodule_update(command: Sequence[str]) -> bool:
+    words = [word for word in command if not word.startswith("-")]
+    return any(a == "submodule" and b == "update" for a, b in zip(words, words[1:]))
+
+
 def run_once(command: Sequence[str], timeout: float) -> int:
     """Run `command` in its own process group; kill the group after `timeout` seconds."""
     process = subprocess.Popen(list(command), start_new_session=True)
@@ -238,6 +296,8 @@ def run(command: Sequence[str], *, tries: int, timeout: float, repo: Path,
     status = 1
     for attempt in range(1, tries + 1):
         started = clock()
+        if is_submodule_update(command):
+            drop_dangling_submodules(repo, log)
         modules_before = module_dirs(repo)
         status = runner(command, timeout)
         if status == 0:

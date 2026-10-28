@@ -40,6 +40,23 @@ elif (($# > 0)); then
 fi
 [[ -f "$repo/.gitmodules" ]] || exit 0
 
+# A reused workspace can lose .git/modules while its submodule checkouts stay
+# (2026-10-28, the warm nightly-next builder: `fatal: not a git repository:
+# ghostty/../.git/modules/ghostty`). Every git submodule command below fails on
+# such a checkout, so drop it first, as a fresh checkout leaves it: an empty,
+# uninitialized directory. The consuming step clones it again.
+while read -r _ path; do
+  marker="$repo/$path/.git"
+  [[ -f "$marker" && ! -L "$marker" ]] || continue
+  gitdir="$(sed -n 's/^gitdir: *//p' "$marker" | head -n 1)"
+  [[ -n "$gitdir" ]] || continue
+  [[ "$gitdir" == /* ]] || gitdir="$repo/$path/$gitdir"
+  [[ -f "$gitdir/HEAD" ]] && continue
+  echo "reset-stale-submodules: dropping $path: its .git names $gitdir, which is gone"
+  rm -rf "${repo:?}/$path"
+  mkdir -p "$repo/$path"
+done < <(git -C "$repo" config -f .gitmodules --get-regexp '^submodule\..*\.path$' || true)
+
 if [[ "$mode" == reuse ]]; then
   for path in "${paths[@]}"; do
     # Refuse typos instead of silently skipping a path that was meant to be

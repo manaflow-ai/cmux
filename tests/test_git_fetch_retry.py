@@ -8,6 +8,7 @@ with "early EOF / fetch-pack: invalid index-pack output", killing the nightly.
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -171,6 +172,74 @@ class Run(unittest.TestCase):
     def test_only_git_commands(self) -> None:
         with self.assertRaises(ValueError):
             retry.low_speed_command(["curl", "x"])
+
+
+class DanglingSubmodules(unittest.TestCase):
+    """A reused workspace that lost .git/modules keeps submodule checkouts whose .git file names nothing.
+    `submodule update --init --force` cannot repair them (the warm nightly-next builder, 2026-10-28:
+    "could not get a repository handle for submodule 'ghostty'", then "not a git repository:
+    ghostty/../.git/modules/ghostty"); before each try of an update they are removed so it clones again."""
+
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        root = Path(self.temp.name)
+        self.env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
+                    "GIT_COMMITTER_EMAIL": "t@t", "GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "protocol.file.allow",
+                    "GIT_CONFIG_VALUE_0": "always"}
+        self.sub = root / "ghostty-src"
+        self.git("init", "-q", "-b", "main", str(self.sub))
+        (self.sub / "f").write_text("ghostty\n")
+        self.git("-C", str(self.sub), "add", "f")
+        self.git("-C", str(self.sub), "commit", "-qm", "g")
+        self.repo = root / "ws"
+        self.git("init", "-q", "-b", "main", str(self.repo))
+        self.git("-C", str(self.repo), "submodule", "add", "-q", str(self.sub), "ghostty")
+        self.git("-C", str(self.repo), "commit", "-qm", "superproject")
+        self.logs: list[str] = []
+
+    def git(self, *args: str) -> subprocess.CompletedProcess:
+        return subprocess.run(["git", *args], check=True, capture_output=True, text=True, env=self.env)
+
+    def update(self, runner=None) -> int:
+        command = ["git", "-C", str(self.repo), "submodule", "update", "--init", "--force", "--recursive"]
+        real = lambda cmd, timeout: subprocess.run(cmd, env=self.env, capture_output=True).returncode  # noqa: E731
+        return retry.run(command, tries=1, timeout=60, repo=self.repo, runner=runner or real,
+                         sleep=lambda _s: None, log=self.logs.append)
+
+    def test_a_checkout_whose_git_dir_is_gone_is_cloned_again(self) -> None:
+        shutil.rmtree(self.repo / ".git" / "modules")
+        bare = subprocess.run(["git", "-C", str(self.repo), "submodule", "update", "--init", "--force"],
+                              env=self.env, capture_output=True, text=True)
+        self.assertNotEqual(bare.returncode, 0)  # what the nightly hit, without the helper
+        self.assertEqual(self.update(), 0)
+        self.assertEqual((self.repo / "ghostty" / "f").read_text(), "ghostty\n")
+        self.assertTrue((self.repo / ".git" / "modules" / "ghostty" / "HEAD").is_file())
+        self.assertTrue(any("which is gone" in line for line in self.logs))
+
+    def test_a_half_made_git_dir_is_removed_with_its_checkout(self) -> None:
+        modules = self.repo / ".git" / "modules" / "ghostty"
+        shutil.rmtree(modules)
+        (modules / "objects").mkdir(parents=True)  # no HEAD
+        self.assertEqual(retry.drop_dangling_submodules(self.repo, self.logs.append), [self.repo / "ghostty"])
+        self.assertFalse(modules.exists())
+        self.assertTrue((self.repo / "ghostty").is_dir())
+        self.assertEqual(list((self.repo / "ghostty").iterdir()), [])
+
+    def test_a_healthy_checkout_and_its_untracked_files_stay(self) -> None:
+        (self.repo / "ghostty" / "build-cache").write_text("warm\n")
+        self.assertEqual(retry.drop_dangling_submodules(self.repo, self.logs.append), [])
+        self.assertEqual(self.update(), 0)
+        self.assertEqual((self.repo / "ghostty" / "build-cache").read_text(), "warm\n")
+
+    def test_only_a_submodule_update_drops_checkouts(self) -> None:
+        shutil.rmtree(self.repo / ".git" / "modules")
+        retry.run(["git", "fetch", "origin", "abc"], tries=1, timeout=60, repo=self.repo, runner=lambda c, t: 0,
+                  sleep=lambda _s: None, log=self.logs.append)
+        self.assertTrue((self.repo / "ghostty" / ".git").is_file())
+        self.assertTrue(retry.is_submodule_update(retry.low_speed_command(
+            ["git", "-c", "protocol.version=2", "submodule", "update", "--init"])))
+        self.assertFalse(retry.is_submodule_update(["git", "submodule", "sync"]))
 
 
 class RunOnce(unittest.TestCase):
