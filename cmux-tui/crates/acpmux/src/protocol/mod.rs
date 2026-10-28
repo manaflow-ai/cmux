@@ -13,7 +13,6 @@ pub mod auth;
 pub mod events;
 pub mod inventory;
 pub mod mailbox;
-pub mod peer_state;
 pub mod permission;
 pub mod presence;
 pub mod process;
@@ -369,7 +368,6 @@ pub fn registry() -> Vec<MethodDecl> {
         notification::<SessionChanged>(method::MUX_SESSION_CHANGED),
         notification::<PermissionPending>(method::MUX_PERMISSION_PENDING),
         notification::<presence::PresenceNote>(method::MUX_PRESENCE),
-        notification::<peer_state::PeerStateChanged>(method::MUX_PEER_STATE_CHANGED),
         untyped(method::MUX_HARNESSES_CHANGED, Notification),
         untyped(method::MUX_HARNESS_INVENTORY, Notification),
         untyped(method::MUX_START_MODE_CHANGED, Notification),

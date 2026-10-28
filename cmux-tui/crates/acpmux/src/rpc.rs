@@ -525,9 +525,6 @@ pub mod method {
     /// To local watchers when a new chat's start mode may have changed (a
     /// mode pick, a config reload): ask `_acpmux/start_mode` again. `{}`.
     pub const MUX_START_MODE_CHANGED: &str = "_acpmux/start_mode_changed";
-    /// To watchers on each change of a peer link's state: `{peer, state, lastSeen, error, at}`
-    /// (`protocol/peer_state.rs`).
-    pub const MUX_PEER_STATE_CHANGED: &str = "_acpmux/peer_state_changed";
     /// Sent to the prompting connection as soon as a `session/prompt` is
     /// recorded, before the turn ends: `{sessionId, promptId, turnId, queued}`.
     pub const MUX_PROMPT_ACCEPTED: &str = "_acpmux/prompt_accepted";
