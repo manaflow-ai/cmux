@@ -5,6 +5,7 @@ public struct CrashWorkspaceSignature: Sendable {
     let stableID: UUID?
     let workspaceID: UUID?
     let checkpointIDs: Set<String>
+    let nonAgentPanelIDs: Set<UUID>
     let title: String?
     let description: String?
     let groupID: UUID?
@@ -24,14 +25,16 @@ public struct CrashWorkspaceSignature: Sendable {
     ///   - directory: Standardized workspace path; empty paths cannot identify a workspace.
     ///   - dock: Dock identity, or nil when no dock was persisted.
     ///   - fidelityScore: Restore metadata score used when checkpoint sets are equal.
+    ///   - nonAgentPanelIDs: Persisted panels without agent checkpoint identity.
     public nonisolated init(
         stableID: UUID?, workspaceID: UUID?, checkpointIDs: Set<String>,
         title: String?, description: String?, groupID: UUID?, directory: String,
-        dock: CrashDockSignature?, fidelityScore: Int
+        dock: CrashDockSignature?, fidelityScore: Int, nonAgentPanelIDs: Set<UUID> = []
     ) {
         self.stableID = stableID
         self.workspaceID = workspaceID
         self.checkpointIDs = checkpointIDs
+        self.nonAgentPanelIDs = nonAgentPanelIDs
         self.title = title
         self.description = description
         self.groupID = groupID

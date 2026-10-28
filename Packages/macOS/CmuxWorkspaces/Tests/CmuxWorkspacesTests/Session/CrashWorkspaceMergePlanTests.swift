@@ -6,12 +6,13 @@ import Testing
 struct CrashWorkspaceMergePlanTests {
     private func workspace(
         id: UUID? = nil, agents: Set<String> = [], title: String? = nil,
-        group: UUID? = nil, dock: CrashDockSignature? = nil, score: Int = 0
+        group: UUID? = nil, dock: CrashDockSignature? = nil, score: Int = 0,
+        nonAgents: Set<UUID> = []
     ) -> CrashWorkspaceSignature {
         CrashWorkspaceSignature(
             stableID: nil, workspaceID: id, checkpointIDs: agents,
             title: title, description: nil, groupID: group, directory: "/work",
-            dock: dock, fidelityScore: score
+            dock: dock, fidelityScore: score, nonAgentPanelIDs: nonAgents
         )
     }
 
@@ -31,6 +32,28 @@ struct CrashWorkspaceMergePlanTests {
         let plan = CrashWorkspaceMergePlan(
             preferred: [workspace(agents: ["a"], score: 100)],
             supplemental: [workspace(agents: ["a", "b"])]
+        )
+        #expect(plan.selections == [.supplemental(0)])
+        #expect(plan.matches == [0: 0])
+    }
+
+    @Test("Agent evidence cannot discard unique plain terminals or browsers")
+    func uniqueNonAgentPanelsSurvive() {
+        let id = UUID()
+        let plan = CrashWorkspaceMergePlan(
+            preferred: [workspace(id: id, agents: ["a", "b"], score: 100)],
+            supplemental: [workspace(id: id, agents: ["a"], nonAgents: [UUID()])]
+        )
+        #expect(plan.selections == [.preferred(0), .supplemental(0)])
+        #expect(plan.matches.isEmpty)
+    }
+
+    @Test("The copy covering all agent and non-agent panels wins before metadata score")
+    func nonAgentSupersetWins() {
+        let id = UUID(), shared = UUID(), extra = UUID()
+        let plan = CrashWorkspaceMergePlan(
+            preferred: [workspace(id: id, agents: ["a"], score: 100, nonAgents: [shared])],
+            supplemental: [workspace(id: id, agents: ["a"], nonAgents: [shared, extra])]
         )
         #expect(plan.selections == [.supplemental(0)])
         #expect(plan.matches == [0: 0])
