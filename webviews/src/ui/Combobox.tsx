@@ -111,6 +111,7 @@ export function Combobox({
     shell: "parent",
   });
   const [value, setValue] = useState(defaultValue);
+  const [pinnedActive, setPinnedActive] = useState<number | null>(null);
   // Only Return and Tab read the highlighted row, so it is a ref, not state: a highlight change
   // (every row the pointer crosses) must not re-render the whole list. Base UI marks the row
   // itself (data-highlighted).
@@ -170,6 +171,34 @@ export function Combobox({
     if (event.defaultPrevented) return;
     if (event.metaKey || event.ctrlKey || event.altKey) return;
     const typed = event.currentTarget.value;
+    if (
+      hasPinned &&
+      !typed.trim() &&
+      pinnedSuggestions!.length > 0 &&
+      ["ArrowDown", "ArrowUp", "Enter"].includes(event.key)
+    ) {
+      event.preventDefault();
+      event.preventBaseUIHandler?.();
+      if (event.key === "Enter") {
+        if (pinnedActive !== null) {
+          onSubmit(pinnedSuggestions![pinnedActive]!);
+          setPinnedActive(null);
+        }
+        return;
+      }
+      const direction = event.key === "ArrowDown" ? 1 : -1;
+      const next =
+        pinnedActive === null
+          ? direction > 0
+            ? 0
+            : pinnedSuggestions!.length - 1
+          : (pinnedActive + direction + pinnedSuggestions!.length) % pinnedSuggestions!.length;
+      setPinnedActive(next);
+      highlightedRef.current = pinnedSuggestions![next];
+      onHighlight?.(pinnedSuggestions![next], "keyboard");
+      return;
+    }
+    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") setPinnedActive(null);
     if (event.key === "Enter") {
       event.preventDefault();
       event.preventBaseUIHandler?.();
@@ -210,7 +239,11 @@ export function Combobox({
       value={item}
       aria-label={itemLabel?.(item)}
       aria-current={isItemCurrent?.(item) ? true : undefined}
-      className={cx("ui-combobox-item", itemClassName)}
+      className={cx(
+        "ui-combobox-item",
+        itemClassName,
+        pinnedSuggestions?.indexOf(item) === pinnedActive ? "data-[highlighted]:bg-hover" : undefined,
+      )}
       render={hasPinned ? <div /> : <li />}
       onPointerDownCapture={() => {
         // A new gesture cannot inherit a press whose click was cancelled outside.

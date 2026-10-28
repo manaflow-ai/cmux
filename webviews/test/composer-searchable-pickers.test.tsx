@@ -454,6 +454,7 @@ test("pinned picker actions precede scrolling suggestions and remain keyboard se
   await key(field, "ArrowDown");
   await key(field, "Enter");
   await key(field, "ArrowUp");
+  await key(field, "ArrowUp");
   await key(field, "Enter");
   expect(calls).toEqual(["No project", "Add project", "No project"]);
   await type(field, "Atlas");
