@@ -133,6 +133,7 @@ import {
   type DroppedKind,
   recordingAttachment,
   recordingLeftOutNotice,
+  remoteRecordingAttachment,
 } from "./attachments";
 import type { KeptAttachments } from "./composer/keptAttachments";
 import { ComposerPickers, PICKER_LABELS, type ComposerPermissionAccess } from "./ComposerPickers";
@@ -6575,9 +6576,20 @@ function AcpmuxPane() {
   const dictation = useDictation(dictationTarget, callNative, {
     accepts: snapshot.summary?.promptCapabilities?.audio === true,
     attach: (audio) => {
-      const recording = recordingAttachment(audio, translate("dictation.recording"), chatIsLocal.current);
+      const name = translate("dictation.recording");
+      const recording = recordingAttachment(audio, name, chatIsLocal.current);
       if (recording) composerHandle.current?.attach(recording);
-      else directClient.current?.notice(translate(recordingLeftOutNotice(audio.path ? "elsewhere" : "tooLarge")));
+      else if (!audio.path) directClient.current?.notice(translate(recordingLeftOutNotice("tooLarge")));
+      else {
+        // A chat on another computer: the host sends its file there. A chip that comes back after
+        // the pane moved to another chat names a file on that chat's machine, not this one's.
+        const chat = sessionIdRef.current;
+        void remoteRecordingAttachment(audio, name, callNative).then((sent) => {
+          if (chat !== sessionIdRef.current) return;
+          if (sent) composerHandle.current?.attach(sent);
+          else directClient.current?.notice(translate(recordingLeftOutNotice("elsewhere")));
+        });
+      }
     },
     omitted: (reason) => directClient.current?.notice(translate(recordingLeftOutNotice(reason))),
   });

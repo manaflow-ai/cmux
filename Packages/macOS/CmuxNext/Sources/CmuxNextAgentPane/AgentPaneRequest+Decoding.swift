@@ -455,6 +455,12 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
+        case "dictation.recording.upload":
+            if let path = params?["path"] as? String, path.hasPrefix("/"), path.utf8.count <= 4096 {
+                self = .dictationRecordingUpload(path: path)
+            } else {
+                self = .unsupported(method)
+            }
         case "dictation.openSettings":
             if let raw = params?["permission"] as? String, let permission = DictationPermission(rawValue: raw) {
                 self = .dictation(.openSettings(permission))

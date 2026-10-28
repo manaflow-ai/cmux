@@ -59,7 +59,11 @@ final class AgentPaneDictation {
     var recordingFolder: () -> URL? = { nil }
     /// The chat the pane shows (``AgentPaneModel/sessionId``), kept with each long recording.
     var chatSession: () -> String? = { nil }
-    /// How many recordings the pane keeps for the page to take back.
+    /// The long recordings this pane's sessions wrote and handed the page, newest last, each with
+    /// the chat it was made in: the only files ``takeRecording(_:session:)`` gives out, so the page
+    /// can never have the host send any other file.
+    private var issued: [(file: URL, session: String?)] = []
+    /// How many recordings ``issued`` keeps: the page asks for one as its session ends.
     static let issuedRecordingLimit = 8
     /// Opens a URL (System Settings).
     var open: (URL) -> Void = { NSWorkspace.shared.openInBackground($0) }
@@ -230,12 +234,17 @@ final class AgentPaneDictation {
     }
 
     /// Long recording `path`, when this pane's dictation wrote it in chat `session` and handed it to
-    /// the page. Red stub: nothing is ever taken.
+    /// the page; taken once (`dictation.recording.upload`, ``AgentPaneDictationUpload``).
     func takeRecording(_ path: String, session: String) -> URL? {
-        nil
+        guard let index = issued.firstIndex(where: { $0.file.path == path && $0.session == session }) else { return nil }
+        return issued.remove(at: index).file
     }
 
     func deliver(_ update: DictationUpdate) {
+        if let file = update.audio?.file {
+            issued.append((file, chatSession()))
+            if issued.count > Self.issuedRecordingLimit { issued.removeFirst(issued.count - Self.issuedRecordingLimit) }
+        }
         if update.phase.isStartable {
             endHold()
             endSleepWatch()

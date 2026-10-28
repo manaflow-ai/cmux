@@ -450,7 +450,7 @@ public final class AgentPaneModel {
             guard let onDictation else { return AgentPaneReply.failure(code: "unsupported", message: "Dictation is unavailable") }
             onDictation(command)
             return AgentPaneReply.success()
-        case .dictationRecordingUpload: return Self.unsupported("dictation.recording.upload")
+        case .dictationRecordingUpload(let path): return await AgentPaneDictationUpload.respond(path, in: self)
         case .openFile(let path, let target): return await openFile(path, target: target)
         case .quickDismiss, .quickSetOnTop, .quickSetCollapsed, .quickFloatingState, .quickContext, .quickOpenInWindow, .quickStartInBackground:
             return await quick?.respond(to: request, in: self) ?? Self.unsupported(String(describing: request))
