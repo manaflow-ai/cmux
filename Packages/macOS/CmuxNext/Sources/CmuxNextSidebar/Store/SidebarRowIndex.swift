@@ -116,12 +116,17 @@ extension SidebarListView {
         for ws in patched {
             // The hover cards show no "Now:" step: a working agent's new step (many a second) rebuilds no card.
             let cardChanged = workspaces[ws.id].map { var old = $0; old.agentStep = ws.agentStep; return old != ws } ?? true
+            let oldFocus = workspaces[ws.id]?.focusedTab
             workspaces[ws.id] = ws
-            // A tab switch changes the workspace row, not its tabs: only a tab whose own content changed is drawn again.
+            // A tab switch changes the workspace row, not its tabs: only a tab whose own content changed is drawn again,
+            // and the tabs that lost and took the focus mark (`SidebarTabRowView`).
             var changedTabs: [TabID] = []
             for tab in ws.tabs where tabs[tab.id] != tab {
                 tabs[tab.id] = tab
                 changedTabs.append(tab.id)
+            }
+            if oldFocus != ws.focusedTab {
+                for id in [oldFocus, ws.focusedTab].compactMap({ $0 }) where !changedTabs.contains(id) { changedTabs.append(id) }
             }
             for path in model.rowIndex?.paths(of: ws.id) ?? [] {
                 let section = model.sections[path.section]

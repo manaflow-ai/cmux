@@ -190,7 +190,8 @@ class NightlyOffBlacksmithTests(unittest.TestCase):
         A feat-cmux-next push asks main to promote nightly-next from
         cmux-next.yml and cmux-tui-artifacts.yml (`request-nightly-next`). On
         Blacksmith those requests queued behind its pool like the nightly's own
-        jobs, so no nightly started. They must run on GitHub-hosted Linux.
+        jobs, so no nightly started. They take LINUX_RUNNER, which the overflow
+        switch moves off a stalled Blacksmith label, never a single host.
         """
         for name in ("cmux-next.yml", "cmux-tui-artifacts.yml"):
             text = (WORKFLOWS / name).read_text(encoding="utf-8")

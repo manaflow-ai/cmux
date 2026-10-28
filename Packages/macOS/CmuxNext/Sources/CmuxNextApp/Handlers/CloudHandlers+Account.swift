@@ -346,6 +346,24 @@ extension CloudHandlers {
                     windows.claim(workspaceID: id, in: state, select: false)
                 }
             },
+            // The person asked for a machine cmux Pro would allow: one offer; Upgrade opens the
+            // refusal's checkout, else pricing. The CLI or Chief gets the plan instead (`startedByPerson`).
+            planRequired: { refusal in
+                // The dialog sells Pro only; a refusal that needs Max shows as the creation's failure,
+                // and a CLI or Chief caller gets its plan (`cloud.plan.required`) to offer a checkout.
+                guard refusal.plan == "pro", !refusal.offered else { return }
+                // One offer at a time: a repeated create (Retry, the CLI, Chief) adds no second one.
+                guard !cloud.proOfferOpen else { return }
+                let shown = CloudPresenter.offerPro(refusal.message, in: windows.active?.window) { upgraded in
+                    cloud.proOfferOpen = false
+                    guard upgraded else { return }
+                    do { try context.open(refusal.upgradeURL ?? UpgradeToPro.pricingURL) } catch {
+                        cloud.logger.error("cmux Pro upgrade did not open: \(String(describing: error), privacy: .public)")
+                    }
+                }
+                if shown { cloud.proOfferOpen = true }
+            },
+            startedByPerson: startedByPerson,
             // The bootstrap and the machine config go with the machine, so a Retry starts each too while it
             // has not started.
             bootstrap: { creation, session in
