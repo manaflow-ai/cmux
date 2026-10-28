@@ -28,6 +28,12 @@ public final class AppWebPaneView: NSView, WKNavigationDelegate {
     private(set) var hotReloads = 0
     /// Called for each navigation the pane refused (tests wait on it).
     var onRefusedNavigation: (() -> Void)?
+    /// The offline rule list is in place; nothing loads before it (``installOfflineRules()``).
+    private(set) var offline = false
+    /// Crash reloads since the page last loaded for another reason; a page that keeps
+    /// crashing its process stays down after ``maxCrashReloads``.
+    private var crashReloads = 0
+    static let maxCrashReloads = 3
 
     public convenience init(pane: AppWebPane, client: AppsClient) {
         self.init(pane: pane, calls: client)
@@ -42,15 +48,12 @@ public final class AppWebPaneView: NSView, WKNavigationDelegate {
         configuration.setURLSchemeHandler(AppWebPaneSchemeHandler(pane: pane), forURLScheme: AppWebPane.scheme)
         configuration.preferences.javaScriptCanOpenWindowsAutomatically = false
         configuration.preferences.isElementFullscreenEnabled = false
-        // No network the content policy cannot see: WebRTC (ICE reaches any STUN or TURN host)
-        // and DNS prefetch (a lookup carries data in the name). WebKit has no public switch for
-        // either; skip a key this WebKit does not answer rather than raise.
-        for (key, setter) in [("peerConnectionEnabled", "_setPeerConnectionEnabled:"),
-                              ("DNSPrefetchingEnabled", "_setDNSPrefetchingEnabled:")]
-            // crash-allow: a fixed private setter name, only checked with responds(to:); no message is sent.
-            where configuration.preferences.responds(to: NSSelectorFromString(setter)) {
+        // No WebRTC: ICE reaches any STUN or TURN host, which the content policy never sees.
+        // WebKit has no public switch; skip the key if this WebKit does not answer its setter.
+        // crash-allow: a fixed private setter name, only checked with responds(to:); no message is sent.
+        if configuration.preferences.responds(to: NSSelectorFromString("_setPeerConnectionEnabled:")) {
             // crash-allow: guarded by responds(to:) on the private setter this KVC key resolves to; absent on older WebKit, skipped.
-            configuration.preferences.setValue(false, forKey: key)
+            configuration.preferences.setValue(false, forKey: "peerConnectionEnabled")
         }
         let content = configuration.userContentController
         content.addUserScript(AppWebPaneBridge.noPeerConnections)
@@ -69,7 +72,7 @@ public final class AppWebPaneView: NSView, WKNavigationDelegate {
             webView.topAnchor.constraint(equalTo: topAnchor),
             webView.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
-        webView.load(URLRequest(url: pane.entryURL))
+        installOfflineRules()
     }
 
     @available(*, unavailable)
@@ -106,8 +109,48 @@ public final class AppWebPaneView: NSView, WKNavigationDelegate {
     /// The app's files changed: load the page again from disk.
     func filesChanged() {
         hotReloads += 1
+        crashReloads = 0
+        load()
+    }
+
+    /// Loads the entry page, once the offline rule list is in place.
+    private func load() {
+        guard offline else { return }
         webView.load(URLRequest(url: pane.entryURL))
     }
+
+    /// Blocks every request outside the pane's own scheme (and the local `about:`, `data:` and
+    /// `blob:`) before the first load. The content policy does not govern `<link rel=preconnect>`
+    /// or `rel=dns-prefetch`, which reach any host (a lookup carries data in the name); WebKit
+    /// checks content rule lists on those paths too. If the list does not compile, the pane
+    /// stays blank: it never loads without it.
+    private func installOfflineRules() {
+        // task-owner: this view, weakly; one compile, then the first load. Fails closed.
+        Task { [weak self] in
+            let rules: WKContentRuleList?
+            do {
+                rules = try await WKContentRuleListStore.default()
+                    .compileContentRuleList(forIdentifier: Self.offlineRulesID, encodedContentRuleList: Self.offlineRules)
+            } catch {
+                rules = nil
+            }
+            guard let self, let rules else { return }
+            webView.configuration.userContentController.add(rules)
+            offline = true
+            load()
+        }
+    }
+
+    static let offlineRulesID = "cmux-app-pane-offline-1"
+    static let offlineRules = """
+    [
+      {"trigger": {"url-filter": ".*"}, "action": {"type": "block"}},
+      {"trigger": {"url-filter": "^\(AppWebPane.scheme):"}, "action": {"type": "ignore-previous-rules"}},
+      {"trigger": {"url-filter": "^about:"}, "action": {"type": "ignore-previous-rules"}},
+      {"trigger": {"url-filter": "^data:"}, "action": {"type": "ignore-previous-rules"}},
+      {"trigger": {"url-filter": "^blob:"}, "action": {"type": "ignore-previous-rules"}}
+    ]
+    """
 
     // MARK: WKNavigationDelegate
 
@@ -130,7 +173,9 @@ public final class AppWebPaneView: NSView, WKNavigationDelegate {
     }
 
     public func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
-        webView.load(URLRequest(url: pane.entryURL))
+        guard crashReloads < Self.maxCrashReloads else { return }
+        crashReloads += 1
+        load()
     }
 }
 

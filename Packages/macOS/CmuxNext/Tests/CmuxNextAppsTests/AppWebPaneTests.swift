@@ -81,6 +81,8 @@ struct AppWebPaneTests {
               await reach("../cmux-app.json"),
             ].join(",");
             """, arguments: [:], in: nil, contentWorld: .page) as? String
+        // The page loaded only after the offline rule list (no preconnect or DNS prefetch out).
+        #expect(view.offline)
         // Inline script and every other origin are refused; its own file loads. `../` resolves
         // to the web root here (URL parsing), where there is no manifest; escaping paths are
         // refused by ``AppWebPane/file(for:)`` (thePaneReadsOnlyItsWebRoot).
@@ -208,7 +210,7 @@ private final class FakeCalls: AppWebPaneCalls {
     var answer: Result<AppJSON, AppsClientError> = .success(.object([:]))
     private(set) var calls: [(app: String, op: String, params: AppJSON)] = []
     private(set) var logs: [(app: String, level: String, message: String)] = []
-    private var waiting: (text: String, continuation: CheckedContinuation<Void, Never>)?
+    private let (lines, line) = AsyncStream.makeStream(of: String.self)
 
     func webCall(app: String, op: String, params: AppJSON) async throws(AppsClientError) -> AppJSON {
         calls.append((app, op, params))
@@ -217,15 +219,16 @@ private final class FakeCalls: AppWebPaneCalls {
 
     func webLog(app: String, level: String, message: String) {
         logs.append((app, level, message))
-        if let waiting, message == waiting.text {
-            self.waiting = nil
-            waiting.continuation.resume()
-        }
+        line.yield(message)
     }
 
-    /// Returns once a console line equal to `text` has arrived.
+    /// Returns once a console line equal to `text` has arrived, or when the test is cancelled
+    /// (its time limit), so a page that never logs fails the test instead of hanging the run.
     func waitForLog(_ text: String) async {
         if logs.contains(where: { $0.message == text }) { return }
-        await withCheckedContinuation { waiting = (text, $0) }
+        var arriving = lines.makeAsyncIterator()
+        while let message = await arriving.next() {
+            if message == text { return }
+        }
     }
 }
