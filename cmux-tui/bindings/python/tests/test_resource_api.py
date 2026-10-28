@@ -278,6 +278,33 @@ class ResourceApiTests(unittest.TestCase):
             ["ordinary", "bounded"],
         )
 
+    def test_dispatch_keeps_deadline_after_platform_wait_slice(self) -> None:
+        def handler(connection, _index):
+            for request in frames(connection):
+                send_frame(connection, request)
+
+        with UnixJsonServer(handler) as server:
+            with JsonLineConnection(server.path, timeout=1) as connection:
+                import select
+
+                select_socket = select.select
+                first_wait = True
+
+                def readiness(readers, writers, exceptional, timeout):
+                    nonlocal first_wait
+                    if writers and first_wait:
+                        first_wait = False
+                        return [], [], []
+                    return select_socket(readers, writers, exceptional, timeout)
+
+                with patch("cmux.transport._SELECT_TIMEOUT_MAX", 0.001), patch(
+                    "cmux.transport.select.select", side_effect=readiness
+                ):
+                    connection.send({"value": "still within deadline"}, timeout=1)
+                self.assertEqual(
+                    connection.recv(), {"value": "still within deadline"}
+                )
+
     def test_public_models_export_journal_append_result(self) -> None:
         self.assertIn("JournalAppendResult", cmux.__all__)
 
