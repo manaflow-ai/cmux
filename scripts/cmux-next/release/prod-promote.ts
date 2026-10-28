@@ -70,7 +70,7 @@ export const SPACING_HOURS = 6
 export const STALE_HOURS = 24
 export const STALE_COMMITS = 20
 /** G7: production vars whose change spends money or sends messages; each new value needs an approval. */
-export const GUARDED_VAR = /^(INFERENCE_|AUTOMATION_CAP_|HOME_INVITES_SEND$|HOME_INVITES_TEXT$|CHIEF_BRAIN_|CHIEF_CREDITS_|CHIEF_RUN_TOKEN_CAP_USD$)/
+export const GUARDED_VAR = /^(INFERENCE_|AUTOMATION_CAP_|HOME_INVITES_SEND$|HOME_INVITES_TEXT$|CHIEF_BRAIN_|CHIEF_CREDITS_|CHIEF_RUN_TOKEN_CAP_USD$|CLOUD_PLAN_ENTITLEMENTS$)/
 
 export interface Approvals {
   /** Secrets production must have before any deploy (names). */
@@ -126,6 +126,8 @@ export const guardedVarGate = (prod: ProdEnv, cand: ProdEnv, approvals: Approval
 export const missingSecrets = (env: ProdEnv, approvals: Approvals, have: ReadonlySet<string>): Array<string> => {
   const need = new Set(approvals.required_secrets)
   if (env.vars.HOME_INVITES_SEND === "on") need.add("HOME_INVITE_FROM")
+  // Paid Cloud entitlements sell machines: the provider key of the configured transport must exist (cloud-driver.ts cloudConfig).
+  if (env.vars.CLOUD_PLAN_ENTITLEMENTS === "on") need.add(env.vars.CLOUD_VM_TRANSPORT === "vm-api" ? "CLOUD_VM_API_SERVICE_KEY" : "CLOUD_FREESTYLE_API_KEY")
   return [...need].map((n) => (env.vars[n] !== undefined ? `${n} (a plain var shadows the secret)` : !have.has(n) ? n : "")).filter(Boolean).sort()
 }
 
