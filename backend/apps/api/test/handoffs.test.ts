@@ -173,6 +173,46 @@ describe("hand-offs", { timeout: 60_000 }, () => {
     expect((await call("GET", `/v1/handoffs/${id}/wait?after=0&timeoutMs=0`, as(t))).body.handoff).toMatchObject({ turn: 2, status: "needs-you" })
   })
 
+  it("a cancel or close racing a same-turn report: one wins whole, the other sees it, and the turn is never both", async () => {
+    const t = await sessionToken("handoff-race")
+    for (const end of ["cancel", "close"] as const) {
+      const { body } = await handOff(t)
+      const id = body.handoff.id as string
+      const machine = { "x-cmux-handoff-token": body.machineToken as string }
+      await report(id, machine, "running")
+      const [owner, reported] = await Promise.all([call("POST", `/v1/handoffs/${id}/${end}`, as(t)), report(id, machine, "done", "raced")])
+      const final = (await call("GET", `/v1/handoffs/${id}`, as(t))).body.handoff
+      if (reported.status === 200) {
+        // The report landed first: the turn is done with its summary; the owner's call ended nothing more of it.
+        expect(final).toMatchObject({ status: "done", summary: "raced" })
+        expect(owner.body.handoff.status).toBe("done")
+      } else {
+        // The owner landed first: the report is refused with what won, and its summary never lands.
+        expect(reported.body.error.code).toBe(end === "cancel" ? "handoff.turn_finished" : "handoff.closed")
+        expect(final).toMatchObject({ status: "cancelled", summary: null })
+      }
+      expect(final.state).toBe(end === "close" ? "closed" : "open")
+    }
+  })
+
+  it("an exact repeat of a turn's final report answers 200 and changes nothing, so a watcher is not woken to notify twice", async () => {
+    const t = await sessionToken("handoff-repeat")
+    const { body } = await handOff(t)
+    const id = body.handoff.id as string
+    const machine = { "x-cmux-handoff-token": body.machineToken as string }
+    const done = await report(id, machine, "done", "once")
+    const waiting = call("GET", `/v1/handoffs/${id}/wait?after=${done.body.handoff.version}&timeoutMs=1500`, as(t))
+    await new Promise((r) => setTimeout(r, 100))
+    const repeat = await report(id, machine, "done", "once")
+    expect(repeat.status).toBe(200)
+    expect(repeat.body.handoff).toEqual(done.body.handoff)
+    const started = Date.now()
+    const woke = await waiting
+    // The wait ran to its deadline: no version moved, so the app has nothing new to notify about.
+    expect(woke.body.handoff.version).toBe(done.body.handoff.version)
+    expect(Date.now() - started).toBeGreaterThanOrEqual(1_000)
+  })
+
   it("close is the one end: it cancels a turn still going, refuses turns and reports after, and ends a wait at once", async () => {
     const t = await sessionToken("handoff-close")
     const { body } = await handOff(t)
