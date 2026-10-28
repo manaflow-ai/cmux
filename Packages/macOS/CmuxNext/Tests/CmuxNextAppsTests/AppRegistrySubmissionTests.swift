@@ -32,7 +32,7 @@ struct AppRegistrySubmissionTests {
 
     @Test func reservedPublishersAndOtherAppsAreRefused() throws {
         let app = try LocalApp(repository: "https://github.com/cmux/board")
-        for publisher in ["cmux", "local", "Octo", "-x", ""] {
+        for publisher in ["cmux", "local", "Octo", "-x", "", String(repeating: "a", count: 40)] {
             #expect(throws: AppRegistrySubmission.Failure.self, "\(publisher)") {
                 try AppRegistrySubmission(bundle: app.root, localID: "local/board", publisher: publisher)
             }
@@ -43,6 +43,11 @@ struct AppRegistrySubmissionTests {
         #expect(throws: AppRegistrySubmission.Failure.self, "only a local app") {
             try AppRegistrySubmission(bundle: app.root, localID: "octo/board", publisher: "octo")
         }
+    }
+
+    @Test func aPublisherMayStartWithADigit() throws {
+        let app = try LocalApp(repository: "https://github.com/0x/board")
+        #expect(try AppRegistrySubmission(bundle: app.root, localID: "local/board", publisher: "0x").app == "0x/board")
     }
 
     @Test func theRepositoryOwnerIsReadFromAGitHubURLOnly() {

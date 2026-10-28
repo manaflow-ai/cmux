@@ -24,10 +24,14 @@ final class AppWebPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
     static let handlerName = "cmuxApp"
     /// Console lines kept per page load; the rest are dropped with one note.
     static let logLinesPerLoad = 200
+    /// Console lines kept over the pane's life, so a page that reloads itself in a loop
+    /// cannot flood the app's log either.
+    static let logLinesPerPane = 2_000
 
     let pane: AppWebPane
     weak var calls: (any AppWebPaneCalls)?
     private(set) var loggedThisLoad = 0
+    private(set) var loggedThisPane = 0
 
     init(pane: AppWebPane, calls: any AppWebPaneCalls) {
         self.pane = pane
@@ -75,8 +79,13 @@ final class AppWebPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
     }
 
     private func log(level: String, message: String) {
-        guard loggedThisLoad <= Self.logLinesPerLoad else { return }
+        guard loggedThisLoad <= Self.logLinesPerLoad, loggedThisPane <= Self.logLinesPerPane else { return }
         loggedThisLoad += 1
+        loggedThisPane += 1
+        if loggedThisPane > Self.logLinesPerPane {
+            calls?.webLog(app: pane.appID, level: "warn", message: "more console lines from this pane were dropped")
+            return
+        }
         if loggedThisLoad > Self.logLinesPerLoad {
             calls?.webLog(app: pane.appID, level: "warn", message: "more console lines this load were dropped")
             return

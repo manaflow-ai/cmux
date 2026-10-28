@@ -13,7 +13,8 @@ public import Foundation
 public nonisolated struct AppRegistrySubmission: Sendable {
     public static let maxFiles = 200
     public static let maxBytes = 2 * 1024 * 1024
-    static let manifestFiles = ["cmux-app.v2.json", "cmux-app.json"]
+    /// In the daemon catalog's order (`catalog::manifest_file`): `cmux-app.json` wins when both exist.
+    static let manifestFiles = ["cmux-app.json", "cmux-app.v2.json"]
 
     /// The manifest as submitted, with its new id.
     public let manifest: AppJSON
@@ -26,7 +27,7 @@ public nonisolated struct AppRegistrySubmission: Sendable {
     /// Packs the package at `bundle` of the local app `localID` under `publisher`.
     public init(bundle: URL, localID: String, publisher: String) throws(Failure) {
         guard localID.hasPrefix("local/") else { throw Failure("only a local app can be submitted") }
-        guard publisher.range(of: #"^[a-z][a-z0-9-]{0,63}$"#, options: .regularExpression) != nil,
+        guard publisher.range(of: #"^[a-z0-9][a-z0-9-]{0,38}$"#, options: .regularExpression) != nil,
               !["cmux", "manaflow-ai", "local"].contains(publisher)
         else { throw Failure("\(publisher) is not a publisher name you can use") }
         let root = bundle.standardizedFileURL.resolvingSymlinksInPath()

@@ -8,6 +8,40 @@ use serde_json::Value;
 /// Publishers reserved for first-party apps.
 const FIRST_PARTY: &[&str] = &["cmux", "manaflow-ai"];
 
+/// Directives a manifest's `runtime.web.csp` may use. The pane sends it as a
+/// second policy beside the host's, so these can only narrow what the page
+/// loads; anything else (`report-uri`, `report-to`, `navigate-to`, ...) could
+/// name a URL the browser sends to, which is a way out of the sandbox.
+const CSP_DIRECTIVES: &[&str] = &[
+    "default-src",
+    "script-src",
+    "script-src-elem",
+    "script-src-attr",
+    "style-src",
+    "style-src-elem",
+    "style-src-attr",
+    "img-src",
+    "font-src",
+    "connect-src",
+    "media-src",
+    "object-src",
+    "frame-src",
+    "child-src",
+    "worker-src",
+    "manifest-src",
+    "base-uri",
+    "form-action",
+    "sandbox",
+];
+
+/// The first directive of `csp` (`;` and `,` separated) that is not allowed.
+pub(crate) fn csp_refused_directive(csp: &str) -> Option<String> {
+    csp.split([';', ',']).find_map(|directive| {
+        let name = directive.split_ascii_whitespace().next()?.to_ascii_lowercase();
+        (!CSP_DIRECTIVES.contains(&name.as_str())).then_some(name)
+    })
+}
+
 /// Whether `publisher` is reserved for first-party apps.
 pub(crate) fn is_first_party(publisher: &str) -> bool {
     FIRST_PARTY.contains(&publisher)
@@ -46,6 +80,16 @@ pub(crate) fn check(m: &Value) -> Vec<Issue> {
                 ));
             }
         }
+    }
+
+    if let Some(csp) = m["runtime"]["web"]["csp"].as_str()
+        && let Some(directive) = csp_refused_directive(csp)
+    {
+        out.push(Issue::error(
+            "/runtime/web/csp",
+            "csp.directive",
+            format!("{directive} is not allowed in runtime.web.csp; use fetch directives only"),
+        ));
     }
 
     if let Some(implements) = m["implements"].as_object() {

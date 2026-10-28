@@ -16,6 +16,27 @@ export const SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-
 /** The package's manifest file: the v2 name first, else the v1 name (app-platform.md). */
 export const MANIFEST_FILES = ["cmux-app.v2.json", "cmux-app.json"] as const
 
+/**
+ * Directives a manifest's `runtime.web.csp` may use, the daemon's list (cmux-app-manifest
+ * rules.rs `CSP_DIRECTIVES`): it is sent beside the host's policy, so fetch directives only
+ * narrow it, while `report-uri`, `report-to` or `navigate-to` could name a URL the page's data
+ * is sent to.
+ */
+const CSP_DIRECTIVES = new Set([
+  "default-src", "script-src", "script-src-elem", "script-src-attr", "style-src", "style-src-elem", "style-src-attr",
+  "img-src", "font-src", "connect-src", "media-src", "object-src", "frame-src", "child-src", "worker-src",
+  "manifest-src", "base-uri", "form-action", "sandbox",
+])
+
+/** The first directive of `csp` that is not allowed, or null. */
+export const cspRefusedDirective = (csp: string): string | null => {
+  for (const directive of csp.split(/[;,]/)) {
+    const name = directive.trim().split(/\s+/)[0]?.toLowerCase() ?? ""
+    if (name && !CSP_DIRECTIVES.has(name)) return name
+  }
+  return null
+}
+
 const utf8 = new TextEncoder()
 
 const compareBytes = (a: Uint8Array, b: Uint8Array): number => {
@@ -153,6 +174,9 @@ export const checkSubmission = async (body: unknown): Promise<{ ok: true; value:
   const repository = typeof m.repository === "string" ? m.repository : ""
   const owner = repository.startsWith("https://github.com/") ? (repository.split("/")[3] ?? "").toLowerCase() : ""
   if (owner !== publisher) return refuse(400, "registry.repository", `repository must be https://github.com/${publisher}/<repo>`)
+  const web = (m.runtime as { web?: { csp?: unknown } } | undefined)?.web
+  const refused = typeof web?.csp === "string" ? cspRefusedDirective(web.csp) : null
+  if (refused) return refuse(400, "registry.csp", `${refused} is not allowed in runtime.web.csp; use fetch directives only`)
   if (notes !== undefined && notes !== null && (typeof notes !== "string" || notes.length > MAX_NOTES)) return refuse(400, "registry.notes", `notes must be a string of at most ${MAX_NOTES} characters`)
   if (!files || typeof files !== "object" || Array.isArray(files)) return refuse(400, "registry.files", "files must be an object {path: base64}")
   const entries = Object.entries(files as Record<string, unknown>)
@@ -177,6 +201,9 @@ export const checkSubmission = async (body: unknown): Promise<{ ok: true; value:
   if (total > MAX_DECODED_BYTES) return refuse(413, "registry.too_large", `a bundle is at most ${MAX_DECODED_BYTES} bytes decoded`)
   // A path that is also a directory of another path cannot be written.
   for (const f of decoded) if (decoded.some((g) => g.path.toLowerCase().startsWith(`${f.path.toLowerCase()}/`))) return refuse(400, "registry.path", `${f.path} is both a file and a directory`)
+  // The daemon's catalog reads cmux-app.json when both exist: one manifest file, so the
+  // reviewer approves the manifest that installs.
+  if (MANIFEST_FILES.every((p) => decoded.some((f) => f.path === p))) return refuse(400, "registry.manifest_file", "a bundle has one manifest file")
   const manifestFile = MANIFEST_FILES.map((p) => decoded.find((f) => f.path === p)).find(Boolean)
   if (!manifestFile) return refuse(400, "registry.manifest_file", `the bundle must contain ${MANIFEST_FILES.join(" or ")}`)
   let parsed: unknown

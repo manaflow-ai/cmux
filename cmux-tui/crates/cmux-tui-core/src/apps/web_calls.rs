@@ -25,6 +25,10 @@ use super::supervisor::{ApiError, HostKey, Inner, Responder, Supervisor};
 /// The longest console line kept (a page can log anything; the ring is shared).
 const MAX_LOG_CHARS: usize = 2_000;
 
+/// Calls one app's web panes may have in flight, as an app host (`calls.rs`):
+/// each runs on its own worker thread, and a page is as untrusted as the VM.
+const MAX_WEB_INFLIGHT: usize = 64;
+
 /// What a web pane may log at.
 const LOG_LEVELS: [&str; 4] = ["error", "warn", "info", "debug"];
 
@@ -46,6 +50,25 @@ struct Admitted {
     params: Value,
     idempotency_key: Option<String>,
     grant: Grant,
+}
+
+/// One in-flight web call of `app` (`Supervisor::web_slot`).
+struct WebSlot {
+    supervisor: std::sync::Weak<Supervisor>,
+    app: String,
+}
+
+impl Drop for WebSlot {
+    fn drop(&mut self) {
+        let Some(supervisor) = self.supervisor.upgrade() else { return };
+        let mut inflight = supervisor.web_inflight.lock().unwrap();
+        if let Some(count) = inflight.get_mut(&self.app) {
+            *count = count.saturating_sub(1);
+            if *count == 0 {
+                inflight.remove(&self.app);
+            }
+        }
+    }
 }
 
 impl Supervisor {
@@ -76,17 +99,29 @@ impl Supervisor {
                 format!("{} is not available to web panes yet", admitted.op),
             )));
         }
+        let Some(slot_guard) = self.web_slot(&admitted.app) else {
+            let mut error = api("app.limit", "too many calls in flight");
+            error.retryable = true;
+            return respond(Err(error));
+        };
         let me = self.me.clone();
         // Shared with the worker so a failed spawn can still answer the caller.
         let slot = std::sync::Arc::new(std::sync::Mutex::new(Some(respond)));
         let worker_slot = slot.clone();
-        let spawned = std::thread::Builder::new().name("cmux-app-web-call".into()).spawn(move || {
-            let Some(respond) = worker_slot.lock().ok().and_then(|mut r| r.take()) else { return };
-            let Some(me) = me.upgrade() else {
-                return respond(Err(api("operation.failed", "the daemon is shutting down")));
-            };
-            respond(me.execute_web(admitted).map_err(|body| ApiError::from_body(&body, "operation.failed")));
-        });
+        let spawned =
+            std::thread::Builder::new().name("cmux-app-web-call".into()).spawn(move || {
+                let _slot = slot_guard;
+                let Some(respond) = worker_slot.lock().ok().and_then(|mut r| r.take()) else {
+                    return;
+                };
+                let Some(me) = me.upgrade() else {
+                    return respond(Err(api("operation.failed", "the daemon is shutting down")));
+                };
+                respond(
+                    me.execute_web(admitted)
+                        .map_err(|body| ApiError::from_body(&body, "operation.failed")),
+                );
+            });
         if let Err(e) = spawned
             && let Some(respond) = slot.lock().ok().and_then(|mut r| r.take())
         {
@@ -94,6 +129,19 @@ impl Supervisor {
             error.retryable = true;
             respond(Err(error));
         }
+    }
+
+    /// Takes one of `app`'s in-flight web call slots, or None at the cap. The
+    /// slot is given back when the guard drops (the call answered, or the
+    /// worker never started).
+    fn web_slot(&self, app: &str) -> Option<WebSlot> {
+        let mut inflight = self.web_inflight.lock().unwrap();
+        let count = inflight.entry(app.to_string()).or_default();
+        if *count >= MAX_WEB_INFLIGHT {
+            return None;
+        }
+        *count += 1;
+        Some(WebSlot { supervisor: self.me.clone(), app: app.to_string() })
     }
 
     /// The per-call decision (see the module docs). Pure over `inner`.
@@ -133,7 +181,10 @@ impl Supervisor {
         if op == "action.run" {
             match actions::decide(params.get("id").and_then(Value::as_str)) {
                 ActionDecision::Unknown => {
-                    return Err(api("operation.unsupported", "no such action in this cmux version"));
+                    return Err(api(
+                        "operation.unsupported",
+                        "no such action in this cmux version",
+                    ));
                 }
                 ActionDecision::Refused(reason) => {
                     return Err(api("scope.missing", format!("apps cannot run {reason} actions")));
@@ -161,9 +212,7 @@ impl Supervisor {
 
     fn execute_web(&self, call: Admitted) -> Result<Value, Value> {
         let Admitted { app, op, params, idempotency_key, grant } = call;
-        let error = |code: &str, message: &str| {
-            json!({ "code": code, "message": message, "retryable": false })
-        };
+        let error = |code: &str, message: &str| json!({ "code": code, "message": message, "retryable": false });
         if op.starts_with("app.storage.") {
             // Under the supervisor lock: an uninstall (which drops the table
             // under the same lock) cannot interleave with this write.
@@ -172,8 +221,9 @@ impl Supervisor {
                 return Err(error("scope.missing", "the app is not installed"));
             }
             let storage = self.storage();
-            let storage =
-                storage.as_ref().ok_or_else(|| error("operation.failed", "app storage is unavailable"))?;
+            let storage = storage
+                .as_ref()
+                .ok_or_else(|| error("operation.failed", "app storage is unavailable"))?;
             return storage
                 .call(&app, &op, &params)
                 .map(|value| json!({ "value": value }))

@@ -1,6 +1,6 @@
 public import AppKit
 import CmuxNextCompat
-import WebKit
+public import WebKit
 
 /// An app's custom pane: its own web page in a sandboxed web view
 /// (custom-panes-DESIGN.md section 2).
@@ -20,9 +20,12 @@ public final class AppWebPaneView: NSView, WKNavigationDelegate {
     let webView: WKWebView
     let bridge: AppWebPaneBridge
     private weak var client: AppsClient?
-    private var reloads: Task<Void, Never>?
+    /// The hot reload watch; dropping it (the view gone, or out of its window) ends it.
+    private var reloads: ReloadWatch?
     /// Times the page reloaded for a file change (tests read it).
     private(set) var hotReloads = 0
+    /// Called for each navigation the pane refused (tests wait on it).
+    var onRefusedNavigation: (() -> Void)?
 
     public convenience init(pane: AppWebPane, client: AppsClient) {
         self.init(pane: pane, calls: client)
@@ -62,7 +65,6 @@ public final class AppWebPaneView: NSView, WKNavigationDelegate {
     override public func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         if window == nil {
-            reloads?.cancel()
             reloads = nil
         } else if reloads == nil {
             watchFiles()
@@ -74,15 +76,16 @@ public final class AppWebPaneView: NSView, WKNavigationDelegate {
         guard let client else { return }
         let app = pane.appID
         let (first, later) = ObservationStream.current { [weak client] in client?.fileRevisions[app] ?? 0 }
-        // task-owner: this view; cancelled when it leaves its window
-        reloads = Task { [weak self] in
+        // task-owner: this view, through ReloadWatch; cancelled when the view leaves its window or goes
+        reloads = ReloadWatch(task: Task { [weak self] in
             var seen = first
             for await revision in later {
+                guard let self else { return }
                 guard revision != seen else { continue }
                 seen = revision
-                self?.filesChanged()
+                filesChanged()
             }
-        }
+        })
     }
 
     /// The app's files changed: load the page again from disk.
@@ -96,7 +99,11 @@ public final class AppWebPaneView: NSView, WKNavigationDelegate {
     public func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction) async -> WKNavigationActionPolicy {
         // Frames are refused by the content policy; the page stays on its own origin, and
         // with no UI delegate a new-window request opens nothing.
-        pane.isOwn(action.request.url) ? .allow : .cancel
+        guard pane.isOwn(action.request.url) else {
+            onRefusedNavigation?()
+            return .cancel
+        }
+        return .allow
     }
 
     public func webView(_ webView: WKWebView, decidePolicyFor response: WKNavigationResponse) async -> WKNavigationResponsePolicy {
@@ -109,5 +116,18 @@ public final class AppWebPaneView: NSView, WKNavigationDelegate {
 
     public func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
         webView.load(URLRequest(url: pane.entryURL))
+    }
+}
+
+/// Owns the hot reload task and cancels it when released, so it never outlives its view.
+private nonisolated final class ReloadWatch: Sendable {
+    let task: Task<Void, Never>
+
+    init(task: Task<Void, Never>) {
+        self.task = task
+    }
+
+    deinit {
+        task.cancel()
     }
 }

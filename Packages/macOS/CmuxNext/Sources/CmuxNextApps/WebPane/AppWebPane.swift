@@ -38,13 +38,38 @@ public nonisolated struct AppWebPane: Sendable, Hashable {
               !rootPath.isEmpty, pagePath.starts(with: rootPath), pagePath.count > rootPath.count
         else { return nil }
         let base = bundle.standardizedFileURL.resolvingSymlinksInPath()
+        let trimmedCSP = manifest.webCSP?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let webCSP: String? = trimmedCSP.isEmpty ? nil : trimmedCSP
+        // The root itself may be a symlink: the folder it resolves to must stay in the package.
+        let resolvedRoot = rootPath.reduce(base) { $0.appendingPathComponent($1, isDirectory: true) }
+            .standardizedFileURL.resolvingSymlinksInPath()
+        guard resolvedRoot.path.hasPrefix(base.path + "/"), webCSP.map(Self.cspAllowed) ?? true else { return nil }
         appID = manifest.id
         // app-platform.md 18's one id mapping (cmux-app-manifest `app_namespace`).
         let id = manifest.id.lowercased().replacingOccurrences(of: "-", with: "_")
         host = id.firstIndex(of: "/").map { id.replacingCharacters(in: $0...$0, with: ".") } ?? id
-        root = rootPath.reduce(base) { $0.appendingPathComponent($1, isDirectory: true) }
+        root = resolvedRoot
         entry = pagePath.dropFirst(rootPath.count).joined(separator: "/")
-        csp = manifest.webCSP?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        csp = webCSP
+    }
+
+    /// Directives a manifest policy may use, the daemon's list (cmux-app-manifest
+    /// rules.rs `CSP_DIRECTIVES`): sent beside ``hostCSP``, fetch directives only
+    /// narrow it, while `report-uri`, `report-to` or `navigate-to` could name a URL
+    /// the page's data is sent to.
+    static let cspDirectives: Set<String> = [
+        "default-src", "script-src", "script-src-elem", "script-src-attr", "style-src",
+        "style-src-elem", "style-src-attr", "img-src", "font-src", "connect-src", "media-src",
+        "object-src", "frame-src", "child-src", "worker-src", "manifest-src", "base-uri",
+        "form-action", "sandbox",
+    ]
+
+    /// Whether every directive of `csp` (`;` and `,` separated) is in ``cspDirectives``.
+    static func cspAllowed(_ csp: String) -> Bool {
+        csp.split(whereSeparator: { $0 == ";" || $0 == "," }).allSatisfy { directive in
+            guard let name = directive.split(whereSeparator: \.isWhitespace).first else { return true }
+            return cspDirectives.contains(name.lowercased())
+        }
     }
 
     /// The page to load: `cmux-app://<host>/<entry>`.
@@ -110,8 +135,4 @@ public nonisolated struct AppWebPane: Sendable, Hashable {
         guard !parts.contains(where: { $0 == ".." || $0 == "." }) else { return nil }
         return parts
     }
-}
-
-private extension String {
-    var nilIfEmpty: String? { isEmpty ? nil : self }
 }

@@ -563,7 +563,11 @@ mod tests {
         for (kind, agent) in [(Some("cli"), false), (Some("app"), false), (None, false)] {
             let (client, out) = connection(&mux, kind, agent);
             for request in [call.clone(), log.clone()] {
-                assert_eq!(error_code(&mux, client, &out, request).as_deref(), WEB_FORBIDDEN, "{kind:?}");
+                assert_eq!(
+                    error_code(&mux, client, &out, request).as_deref(),
+                    WEB_FORBIDDEN,
+                    "{kind:?}"
+                );
             }
         }
         let (agent_app, agent_out) = connection(&mux, Some("app"), true);

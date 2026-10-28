@@ -96,16 +96,28 @@ public final class AppRegistryPageProvider: PageProvider {
         guard let app = params["app"]?.stringValue, let version = params["version"]?.stringValue else {
             throw PageError.invalidParams("app and version are required")
         }
-        let parts = app.split(separator: "/", omittingEmptySubsequences: false)
-        guard parts.count == 2, parts.allSatisfy({ $0.range(of: #"^[a-z][a-z0-9-]{0,63}$"#, options: .regularExpression) != nil }),
+        let parts = app.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
+        guard parts.count == 2, Self.isAppID(publisher: parts[0], name: parts[1]),
               version.range(of: #"^[0-9A-Za-z.+-]{1,64}$"#, options: .regularExpression) != nil
         else { throw PageError.invalidParams("not an App Store app or version") }
+        // The hash comes from the listing, the files from the bundle: the supervisor checks
+        // one against the other before anything is written.
+        let listing = try await api.request("GET", "apps/\(parts[0])/\(parts[1])", signed: false)
+        let listed = listing["versions"]?.arrayValue?.first { $0["version"]?.stringValue == version }
         let bundle = try await api.request("GET", "apps/\(parts[0])/\(parts[1])/versions/\(version)/bundle", signed: false)
-        guard bundle["app"]?.stringValue == app, bundle["version"]?.stringValue == version,
-              let sha256 = bundle["sha256"]?.stringValue, let files = bundle["files"]?.objectValue
+        guard let sha256 = listed?["sha256"]?.stringValue,
+              bundle["app"]?.stringValue == app, bundle["version"]?.stringValue == version,
+              let files = bundle["files"]?.objectValue
         else { throw PageError(code: "registry.failed", message: "the App Store sent another bundle") }
         try await put(app, version, sha256, files.compactMapValues(\.stringValue))
         return ["app": .string(app), "version": .string(version)]
+    }
+
+    /// The manifest schema's App Store id: a publisher of 1 to 39 and a name of 1 to 64
+    /// lowercase letters, digits and `-`, each starting with a letter or digit.
+    public nonisolated static func isAppID(publisher: String, name: String) -> Bool {
+        publisher.range(of: #"^[a-z0-9][a-z0-9-]{0,38}$"#, options: .regularExpression) != nil
+            && name.range(of: #"^[a-z0-9][a-z0-9-]{0,63}$"#, options: .regularExpression) != nil
     }
 
     private static func submissionID(_ params: JSONValue) throws(PageError) -> String {

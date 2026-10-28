@@ -41,10 +41,30 @@ const person = async (request: Request, env: Env): Promise<Person | Response> =>
 
 const readJson = async (request: Request, max: number): Promise<unknown | Response> => {
   if (Number(request.headers.get("content-length") ?? "0") > max) return err(413, "registry.too_large", "body too large")
-  const raw = await request.text()
-  if (raw.length > max) return err(413, "registry.too_large", "body too large")
+  // Without a content-length the body is read in chunks and dropped once it passes max.
+  const chunks: Array<Uint8Array> = []
+  let size = 0
+  if (request.body) {
+    const reader = request.body.getReader()
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      size += value.byteLength
+      if (size > max) {
+        await reader.cancel()
+        return err(413, "registry.too_large", "body too large")
+      }
+      chunks.push(value)
+    }
+  }
+  const bytes = new Uint8Array(size)
+  let at = 0
+  for (const chunk of chunks) {
+    bytes.set(chunk, at)
+    at += chunk.byteLength
+  }
   try {
-    return JSON.parse(raw) as unknown
+    return JSON.parse(new TextDecoder().decode(bytes)) as unknown
   } catch {
     return err(400, "registry.invalid", "a JSON body is required")
   }

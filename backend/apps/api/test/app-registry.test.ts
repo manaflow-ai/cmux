@@ -142,6 +142,13 @@ describe("app registry submit", () => {
     expect((await submit("app_dev_gina", { ...b, files: rest })).body.error.code).toBe("registry.manifest_file")
     const mismatch = { ...b, files: { ...b.files, "cmux-app.v2.json": b64(JSON.stringify(manifestOf("gina/pane", "1.0.1"))) } }
     expect((await submit("app_dev_gina", mismatch)).body.error.code).toBe("registry.manifest_mismatch")
+    // Both names: the daemon would install the other one.
+    const both = { ...b, files: { ...b.files, "cmux-app.json": b64(JSON.stringify(b.manifest)) } }
+    expect((await submit("app_dev_gina", both)).body.error.code).toBe("registry.manifest_file")
+    // A pane policy that could name a URL to send to is refused.
+    const leaky = { ...manifestOf("gina/pane", "1.0.0"), runtime: { web: { root: "web", csp: "img-src 'self'; report-uri https://evil.example/r" } } }
+    const leakyBody = { ...b, manifest: leaky, files: { ...b.files, "cmux-app.v2.json": b64(JSON.stringify(leaky)) } }
+    expect((await submit("app_dev_gina", leakyBody)).body.error.code).toBe("registry.csp")
     // The v1 file name also counts when it is the only manifest file.
     expect((await submit("app_dev_gina", { ...b, files: { ...rest, "cmux-app.json": b64(JSON.stringify(b.manifest)) } })).status).toBe(201)
   })

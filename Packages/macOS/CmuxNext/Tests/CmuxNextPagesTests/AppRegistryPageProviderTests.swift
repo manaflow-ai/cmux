@@ -61,16 +61,22 @@ struct AppRegistryPageProviderTests {
 
     @Test func getHandsTheApprovedBundleToTheSupervisor() async throws {
         RegistryStub.reset { request in
-            request.path.hasSuffix("/octo/board/versions/1.0.0/bundle")
-                ? (200, #"{"app":"octo/board","version":"1.0.0","sha256":"ab","files":{"cmux-app.json":"e30="}}"#)
-                : (200, #"{"app":"octo/other","version":"1.0.0","sha256":"ab","files":{}}"#)
+            switch request.path {
+            case "/v1/apps/registry/apps/octo/board":
+                (200, #"{"app":"octo/board","latest":"1.0.0","versions":[{"version":"1.0.0","sha256":"listed"}]}"#)
+            case let path where path.hasSuffix("/octo/board/versions/1.0.0/bundle"):
+                (200, #"{"app":"octo/board","version":"1.0.0","sha256":"sent","files":{"cmux-app.json":"e30="}}"#)
+            default:
+                (200, #"{"app":"octo/other","version":"1.0.0","sha256":"ab","files":{}}"#)
+            }
         }
         var puts: [(String, String, String, [String: String])] = []
         let provider = makeProvider(put: { app, version, sha, files in puts.append((app, version, sha, files)) })
         let got = try await provider.call("cmux.registry.get", params: ["app": "octo/board", "version": "1.0.0"], context: page())
         #expect(got == ["app": "octo/board", "version": "1.0.0"])
-        #expect(puts.count == 1 && puts[0].0 == "octo/board" && puts[0].2 == "ab" && puts[0].3 == ["cmux-app.json": "e30="])
-        #expect(RegistryStub.seen.first?.authorization == nil, "an approved bundle is public")
+        #expect(puts.count == 1 && puts[0].0 == "octo/board" && puts[0].2 == "listed" && puts[0].3 == ["cmux-app.json": "e30="])
+        #expect(puts.first?.2 == "listed", "the hash the supervisor checks is the listing's, not the bundle's own")
+        #expect(RegistryStub.seen.allSatisfy { $0.authorization == nil }, "an approved bundle is public")
 
         await #expect(throws: PageError.self) {
             try await provider.call("cmux.registry.get", params: ["app": "octo/board", "version": "2.0.0"], context: page())
@@ -79,6 +85,8 @@ struct AppRegistryPageProviderTests {
             try await provider.call("cmux.registry.get", params: ["app": "../x", "version": "1.0.0"], context: page())
         }
         #expect(puts.count == 1, "another bundle or a bad id is never handed over")
+        #expect(AppRegistryPageProvider.isAppID(publisher: "0x", name: "2048"), "the manifest schema's ids")
+        #expect(!AppRegistryPageProvider.isAppID(publisher: String(repeating: "a", count: 40), name: "x"))
     }
 
     @Test func aReviewersDecisionNeedsTheSheetAndRefusalsKeepTheirCodes() async throws {

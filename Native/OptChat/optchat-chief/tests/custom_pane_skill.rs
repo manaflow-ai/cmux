@@ -11,12 +11,22 @@ fn the_custom_pane_skill_ships_with_the_flow_it_needs() {
     let dir = tempfile::tempdir().unwrap();
     let shared = skills::shared_dir(&dir.path().join("default"));
     let written = skills::install_builtin(&shared).unwrap();
-    assert!(written.contains(&"cmux-custom-pane".to_owned()), "{written:?}");
+    assert!(
+        written.contains(&"cmux-custom-pane".to_owned()),
+        "{written:?}"
+    );
 
     let loaded = skills::load(&shared, &skills::chief_dir(&dir.path().join("default")));
-    let skill = loaded.iter().find(|s| s.name == "cmux-custom-pane").expect("cmux-custom-pane loads");
+    let skill = loaded
+        .iter()
+        .find(|s| s.name == "cmux-custom-pane")
+        .expect("cmux-custom-pane loads");
     for word in ["pane", "dashboard", "cmux.call", "App Store"] {
-        assert!(skill.description.contains(word), "{word}: {}", skill.description);
+        assert!(
+            skill.description.contains(word),
+            "{word}: {}",
+            skill.description
+        );
     }
     let text = std::fs::read_to_string(&skill.path).unwrap();
     for needed in [
@@ -45,6 +55,9 @@ fn the_chief_prompt_says_when_to_read_the_custom_pane_skill() {
         ("cli", chief_system_text(None, &cli, true, true)),
     ] {
         let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
-        assert!(flat.contains("`cmux-custom-pane` skill"), "{name}: no pointer");
+        assert!(
+            flat.contains("`cmux-custom-pane` skill"),
+            "{name}: no pointer"
+        );
     }
 }

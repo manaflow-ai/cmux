@@ -237,6 +237,10 @@ pub struct Supervisor {
     transactions: AtomicU64,
     /// `apps-link-changed` coalescing: (one runs, another came meanwhile).
     pub(super) link_changed: Mutex<(bool, bool)>,
+    /// Web pane calls in flight per app (`web_calls.rs`), capped like a host's.
+    pub(super) web_inflight: Mutex<HashMap<String, usize>>,
+    /// One `apps.registry.put` at a time, so two swaps of a folder never interleave.
+    pub(super) registry_puts: Mutex<()>,
 }
 
 pub(super) fn now_ms() -> u64 {
@@ -317,6 +321,8 @@ impl Supervisor {
             terminals: Default::default(),
             transactions: AtomicU64::new(1),
             link_changed: Mutex::new((false, false)),
+            web_inflight: Mutex::new(HashMap::new()),
+            registry_puts: Mutex::new(()),
         });
         if seeded {
             let _ = supervisor.persist(&supervisor.inner.lock().unwrap().mirror);

@@ -18,6 +18,7 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 use super::catalog;
+use super::mirror::Source;
 use super::supervisor::{ApiError, Out, Supervisor};
 
 /// Bundle limits, the same as the registry's (section 6.3).
@@ -65,16 +66,18 @@ fn safe_path(path: &str) -> bool {
         && Path::new(path).components().all(|c| matches!(c, Component::Normal(_)))
 }
 
-/// `<publisher>/<name>` of a third-party app.
-fn registry_app(app: &str) -> bool {
+/// `<publisher>/<name>` of a third-party app, with the manifest schema's id
+/// pattern: a publisher of 1 to 39 and a name of 1 to 64 lowercase letters,
+/// digits and `-`, each starting with a letter or digit.
+pub(super) fn registry_app(app: &str) -> bool {
     let Some((publisher, name)) = app.split_once('/') else { return false };
-    let part = |s: &str| {
+    let part = |s: &str, max: usize| {
         !s.is_empty()
-            && s.len() <= 64
-            && s.starts_with(|c: char| c.is_ascii_lowercase())
+            && s.len() <= max
+            && s.starts_with(|c: char| c.is_ascii_lowercase() || c.is_ascii_digit())
             && s.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
     };
-    part(publisher) && part(name) && !RESERVED.contains(&publisher)
+    part(publisher, 39) && part(name, 64) && !RESERVED.contains(&publisher)
 }
 
 /// The decoded files of `p`, checked against every limit and the hash.
@@ -100,6 +103,12 @@ fn decoded(p: &PutParams) -> Result<BTreeMap<String, Vec<u8>>, ApiError> {
         }
         files.insert(path.clone(), bytes);
     }
+    // The registry reads `cmux-app.v2.json` first and the catalog
+    // `cmux-app.json`: with both, a reviewer could approve one manifest and
+    // the Mac install the other.
+    if [catalog::V2_MANIFEST, "cmux-app.json"].iter().all(|name| files.contains_key(*name)) {
+        return Err(bad("apps.registry.manifest", "a bundle has one manifest file"));
+    }
     if bundle_sha256(&files) != p.sha256.to_ascii_lowercase() {
         return Err(bad("apps.registry.hash", "the bundle does not match the listing's hash"));
     }
@@ -123,13 +132,12 @@ impl Supervisor {
     /// `apps.registry.put` (see the module docs). Answers `{app, version,
     /// sha256}` once the app is in the catalog.
     pub(super) fn registry_put(&self, p: PutParams) -> Result<Value, ApiError> {
-        let root = self
-            .config
-            .sources
-            .registry
-            .clone()
-            .ok_or_else(|| bad("apps.registry.unavailable", "this daemon has no state folder"))?;
+        let root =
+            self.config.sources.registry.clone().ok_or_else(|| {
+                bad("apps.registry.unavailable", "this daemon has no state folder")
+            })?;
         let files = decoded(&p)?;
+        let _one_put = self.registry_puts.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let namespace = cmux_app_manifest::app_namespace(&p.app);
         // Staged beside the registry folder (same volume, so the rename below
         // is atomic) and never inside it, where a catalog read would see it.
@@ -144,9 +152,12 @@ impl Supervisor {
             let manifest = report.manifest.as_ref().filter(|_| report.is_valid());
             match manifest {
                 None => Err(bad("apps.registry.invalid", "the bundle is not a valid cmux app")),
-                Some(m) if m["id"] != p.app.as_str() || m["version"] != p.version.as_str() => Err(
-                    bad("apps.registry.mismatch", "the bundle's manifest names another app or version"),
-                ),
+                Some(m) if m["id"] != p.app.as_str() || m["version"] != p.version.as_str() => {
+                    Err(bad(
+                        "apps.registry.mismatch",
+                        "the bundle's manifest names another app or version",
+                    ))
+                }
                 Some(_) => Ok(()),
             }
         });
@@ -173,9 +184,15 @@ impl Supervisor {
             let _ = std::fs::remove_dir_all(&old);
         }
         self.reload_catalog_for(&p.app, "registry-put");
-        let listed = self.inner.lock().unwrap().catalog.packages.contains_key(&p.app);
-        if !listed {
-            return Err(bad("apps.registry.invalid", "the app did not load"));
+        // First source wins in the catalog: a bundled or extra folder with the
+        // same id would shadow the copy just written.
+        let source = self.inner.lock().unwrap().catalog.packages.get(&p.app).map(|p| p.source);
+        match source {
+            Some(Source::Registry) => {}
+            Some(_) => {
+                return Err(bad("apps.registry.shadowed", "another copy of this app is installed"));
+            }
+            None => return Err(bad("apps.registry.invalid", "the app did not load")),
         }
         Ok(json!({ "app": p.app, "version": p.version, "sha256": p.sha256.to_ascii_lowercase() }))
     }

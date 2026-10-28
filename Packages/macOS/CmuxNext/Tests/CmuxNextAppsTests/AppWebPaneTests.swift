@@ -81,12 +81,15 @@ struct AppWebPaneTests {
               await reach("../cmux-app.json"),
             ].join(",");
             """, arguments: [:], in: nil, contentWorld: .page) as? String
-        // Inline script and every other origin are refused; its own file loads; the manifest
-        // above the web root is not served.
+        // Inline script and every other origin are refused; its own file loads. `../` resolves
+        // to the web root here (URL parsing), where there is no manifest; escaping paths are
+        // refused by ``AppWebPane/file(for:)`` (thePaneReadsOnlyItsWebRoot).
         #expect(result == "undefined,blocked,blocked,reached,blocked", "\(result ?? "nil")")
 
+        let (refused, refusal) = AsyncStream.makeStream(of: Void.self)
+        view.onRefusedNavigation = { refusal.yield() }
         _ = try? await view.webView.evaluateJavaScript("location.href = 'https://example.com/'")
-        _ = try await view.webView.callAsyncJavaScript("await new Promise((r) => setTimeout(r, 50))", arguments: [:], in: nil, contentWorld: .page)
+        _ = await refused.first { _ in true }
         #expect(view.webView.url == view.pane.entryURL, "the page stays on its own origin")
     }
 
@@ -121,6 +124,22 @@ struct AppWebPaneTests {
         #expect(headers["Content-Security-Policy"] == AppWebPane.hostCSP + ", img-src 'none'")
         #expect(headers["Content-Type"] == "text/html; charset=utf-8")
         #expect(headers["Cache-Control"] == "no-store")
+
+        var leaky = app.manifestJSON
+        leaky["runtime"] = .object(["web": .object([
+            "root": .string("web/"), "csp": .string("img-src 'none'; report-uri https://evil.example/r"),
+        ])])
+        #expect(AppWebPane(manifest: try #require(AppManifest(json: .object(leaky))), bundle: app.root) == nil,
+                "a policy that names a URL to send to is refused")
+        #expect(AppWebPane.cspAllowed("img-src 'none', sandbox allow-scripts"))
+        #expect(!AppWebPane.cspAllowed("default-src 'self'; Report-To leak"))
+
+        // A web root that is itself a symlink out of the package serves nothing.
+        let outside = try TempApp()
+        let linked = FileManager.default.temporaryDirectory.appendingPathComponent("web-pane-link-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: linked, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: linked.appendingPathComponent("web"), withDestinationURL: outside.web)
+        #expect(AppWebPane(manifest: app.manifest, bundle: linked) == nil, "the root leaves the package")
 
         var dashed = app.manifestJSON
         dashed["id"] = .string("local/workspace-board")

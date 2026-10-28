@@ -39,7 +39,10 @@ already holds every field (`schema/v2/cmux-app.schema.json`, `implementation.web
 - `id` is `local/<name>` while it is developed. Publishing maps it to
   `<publisher>/<name>` (section 6).
 - The entry and every file it loads live under `runtime.web.root`.
-- `runtime.web.csp` is optional and can only narrow the host policy (section 2).
+- `runtime.web.csp` is optional and can only narrow the host policy (section 2). It may
+  use fetch directives, `base-uri`, `form-action` and `sandbox` only; `report-uri`,
+  `report-to`, `navigate-to` or any other directive that could name a URL to send to is
+  refused by the daemon's manifest rules, the registry and the pane host.
 - Permissions are the ordinary scopes. The pane asks for nothing else.
 
 ## 2. Sandbox (the web pane host, macOS)
@@ -186,9 +189,13 @@ mismatch.
   becomes `<publisher>/<name>`, every package file except hidden files, symlinks and
   `node_modules` is sent, and the publisher, repository owner and limits are checked
   before anything is sent.
-- Get: the Mac downloads the approved bundle and hands it to the daemon:
-  `apps-store {op: "apps.registry.put", args: {app, version, sha256, files}}` (the
-  verified app only). The supervisor checks the hash, validates the package, writes it
+- Get: the Mac reads the version's hash from the app's listing
+  (`GET apps/<publisher>/<name>`), downloads the approved bundle and hands both to the
+  daemon: `apps-store {op: "apps.registry.put", args: {app, version, sha256, files}}` (the
+  verified app only). A bundle holds one manifest file (`cmux-app.json` or
+  `cmux-app.v2.json`), so the reviewer approves the manifest that installs. Puts run one
+  at a time, and a put fails when another copy of the app id shadows the registry copy.
+  The supervisor checks the files against the listing's hash, validates the package, writes it
   atomically to `<state>/apps/registry/<namespace>/` (`octo.board`) and reloads its
   catalog.
   The page then calls `cmux.apps.install`, which shows the existing native scopes sheet.
