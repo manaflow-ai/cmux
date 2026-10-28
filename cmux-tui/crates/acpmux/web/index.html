@@ -399,7 +399,9 @@
   // ready; the session is created on the first message.
   let draft = null;
   // Files dropped onto the composer stay attached until the next prompt is
-  // sent. They are encoded once and sent as ACP image content blocks.
+  // sent. The original bytes are encoded once and sent as ACP image content
+  // blocks; `url` is a bounded display preview so a large original never has
+  // to be decoded into the composer or transcript layout.
   let promptImages = [];
 
   function renderAttachments() {
@@ -415,16 +417,37 @@
     });
   }
 
+  async function previewImage(file, originalURL) {
+    // Small images are already cheap to display. Larger images get a bounded
+    // preview while their original `data` remains the attachment sent below.
+    if (file.size <= 2 * 1024 * 1024) return originalURL;
+    try {
+      const bitmap = await createImageBitmap(file);
+      const max = 1_024;
+      const scale = Math.min(1, max / Math.max(bitmap.width, bitmap.height));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+      canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+      canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+      bitmap.close();
+      return canvas.toDataURL('image/jpeg', 0.82);
+    } catch (_) {
+      // A browser that cannot decode the preview still sends the original.
+      return originalURL;
+    }
+  }
+
   function readImage(file) {
     if (!file || !file.type || !file.type.startsWith('image/')) return Promise.resolve(null);
-    if (file.size > 8 * 1024 * 1024) { toast('Image is larger than 8 MB'); return Promise.resolve(null); }
     return new Promise((resolve) => {
       const reader = new FileReader();
       reader.onerror = () => resolve(null);
-      reader.onload = () => {
+      reader.onload = async () => {
         const url = String(reader.result || '');
         const comma = url.indexOf(',');
-        resolve(comma < 0 ? null : { name: file.name || 'image', mimeType: file.type, data: url.slice(comma + 1), url });
+        if (comma < 0) return resolve(null);
+        const preview = await previewImage(file, url);
+        resolve({ name: file.name || 'image', mimeType: file.type, data: url.slice(comma + 1), url: preview });
       };
       reader.readAsDataURL(file);
     });
