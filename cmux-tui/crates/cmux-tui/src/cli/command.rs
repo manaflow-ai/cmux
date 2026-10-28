@@ -238,8 +238,8 @@ fn check_action_flags(action: &actions::ActionSpec, flags: &Flags) -> Result<(),
     let missing = action
         .all_options()
         .into_iter()
-        .filter(|option| option.required && !flags.values.contains_key(option.name))
-        .map(|option| format!("--{}", option.name))
+        .filter(|option| option.required && !flags.values.contains_key(option.name()))
+        .map(|option| format!("--{}", option.name()))
         .collect::<Vec<_>>();
     let message = match missing.as_slice() {
         [] => return Ok(()),

@@ -24,22 +24,24 @@ pub(in crate::cli) struct ActionSpec {
 
 #[derive(Clone, Copy)]
 pub(in crate::cli) struct OptionSpec {
-    pub name: &'static str,
+    /// Flag name without dashes, except a compatibility flag whose bare
+    /// name is outside the public vocabulary (`--surface`), as `take_dashed`.
+    spelling: &'static str,
     pub value: Option<&'static str>,
     pub required: bool,
     pub about: &'static str,
 }
 
 const fn req(name: &'static str, value: &'static str, about: &'static str) -> OptionSpec {
-    OptionSpec { name, value: Some(value), required: true, about }
+    OptionSpec { spelling: name, value: Some(value), required: true, about }
 }
 
 const fn opt(name: &'static str, value: &'static str, about: &'static str) -> OptionSpec {
-    OptionSpec { name, value: Some(value), required: false, about }
+    OptionSpec { spelling: name, value: Some(value), required: false, about }
 }
 
 const fn switch(name: &'static str, about: &'static str) -> OptionSpec {
-    OptionSpec { name, value: None, required: false, about }
+    OptionSpec { spelling: name, value: None, required: false, about }
 }
 
 const fn action(
@@ -809,7 +811,7 @@ pub(in crate::cli) const ACTIONS: &[ActionSpec] = &[
             opt("title", "<value>", "Title (default: Notification)"),
             opt("subtitle", "<value>", "Subtitle"),
             opt("body", "<value>", "Body"),
-            opt("surface", "<term_id|current>", "Terminal to notify about"),
+            opt("--surface", "<term_id|current>", "Terminal to notify about"),
             opt("workspace", "<ws_id|current>", "Make a session-level notification"),
             switch("clear", "Clear notifications instead"),
             switch("reply", "Not available on a machine"),
@@ -995,6 +997,12 @@ pub(in crate::cli) const ACTIONS: &[ActionSpec] = &[
     ),
 ];
 
+impl OptionSpec {
+    pub(in crate::cli) fn name(&self) -> &'static str {
+        self.spelling.trim_start_matches('-')
+    }
+}
+
 impl ActionSpec {
     fn pattern(&self) -> impl Iterator<Item = &'static str> {
         self.path.split(" -- ").next().unwrap_or_default().split_whitespace()
@@ -1037,7 +1045,7 @@ impl ActionSpec {
     pub(in crate::cli) fn all_options(&self) -> Vec<OptionSpec> {
         let mut options = self.options.to_vec();
         for option in self.request_options() {
-            if !options.iter().any(|known| known.name == option.name) {
+            if !options.iter().any(|known| known.name() == option.name()) {
                 options.push(option);
             }
         }
@@ -1047,7 +1055,8 @@ impl ActionSpec {
     pub(in crate::cli) fn accepts(&self, name: &str) -> bool {
         // `finalize_request` reads --idempotency-key for every operation and
         // gives its own error for a non-mutation.
-        name == IDEMPOTENCY_KEY.name || self.all_options().iter().any(|option| option.name == name)
+        name == IDEMPOTENCY_KEY.name()
+            || self.all_options().iter().any(|option| option.name() == name)
     }
 
     /// One usage line: the path, its required flags, and `[OPTIONS]` when it
@@ -1061,7 +1070,7 @@ impl ActionSpec {
         let mut line = format!("{program} {path}");
         let options = self.all_options();
         for option in options.iter().filter(|option| option.required) {
-            line.push_str(&format!(" --{}", option.name));
+            line.push_str(&format!(" --{}", option.name()));
             if let Some(value) = option.value {
                 line.push(' ');
                 line.push_str(value);
@@ -1084,8 +1093,8 @@ impl ActionSpec {
             let labels = options
                 .iter()
                 .map(|option| match option.value {
-                    Some(value) => format!("--{} {value}", option.name),
-                    None => format!("--{}", option.name),
+                    Some(value) => format!("--{} {value}", option.name()),
+                    None => format!("--{}", option.name()),
                 })
                 .collect::<Vec<_>>();
             let width = labels.iter().map(String::len).max().unwrap_or(0);
@@ -1127,12 +1136,12 @@ pub(in crate::cli) fn arity(name: &str) -> Option<Arity> {
     ACTIONS
         .iter()
         .flat_map(ActionSpec::all_options)
-        .find(|option| option.name == name)
+        .find(|option| option.name() == name)
         .map(|option| if option.value.is_some() { Arity::Value } else { Arity::Switch })
 }
 
 pub(in crate::cli) fn known_flag_names() -> BTreeSet<&'static str> {
-    ACTIONS.iter().flat_map(ActionSpec::all_options).map(|option| option.name).collect()
+    ACTIONS.iter().flat_map(ActionSpec::all_options).map(|option| option.name()).collect()
 }
 
 #[cfg(test)]
@@ -1197,7 +1206,7 @@ mod tests {
             let arities = ACTIONS
                 .iter()
                 .flat_map(ActionSpec::all_options)
-                .filter(|option| option.name == name)
+                .filter(|option| option.name() == name)
                 .map(|option| option.value.is_some())
                 .collect::<BTreeSet<_>>();
             assert_eq!(
@@ -1212,7 +1221,7 @@ mod tests {
     fn no_action_lists_a_flag_twice() {
         for action in ACTIONS {
             let options = action.all_options();
-            let names = options.iter().map(|option| option.name).collect::<BTreeSet<_>>();
+            let names = options.iter().map(|option| option.name()).collect::<BTreeSet<_>>();
             assert_eq!(names.len(), options.len(), "{} lists a flag twice", action.path);
         }
     }
@@ -1228,15 +1237,15 @@ mod tests {
             // Without one of these the action reads stdin.
             match action.path {
                 "terminal <selector> write" | "sidebar view input" => {
-                    options.retain(|option| option.name == "text" || option.required);
+                    options.retain(|option| option.name() == "text" || option.required);
                 }
                 "agent hook emit" => {
-                    options.retain(|option| option.name == "payload-json" || option.required);
+                    options.retain(|option| option.name() == "payload-json" || option.required);
                 }
                 _ => options.retain(|option| option.required),
             }
             for option in options {
-                args.push(format!("--{}", option.name));
+                args.push(format!("--{}", option.name()));
                 if let Some(value) = option.value {
                     args.push(sample_value(value));
                 }
