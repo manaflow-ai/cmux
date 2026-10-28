@@ -706,8 +706,8 @@ class StuckRunTests(unittest.TestCase):
                 raise self._jobs
             return self._jobs
 
-    def guard(self, jobs, workflow="nightly.yml"):
-        run = {"id": 9, "status": "in_progress", "created_at": at(0.5), "head_sha": self.TIP,
+    def guard(self, jobs, workflow="nightly.yml", status="in_progress"):
+        run = {"id": 9, "status": status, "created_at": at(0.5), "head_sha": self.TIP,
                "html_url": "https://github.com/o/r/actions/runs/9"}
         gh = self.Gh(self, [run], jobs)
         result = watch.starvation_dispatch(
@@ -736,6 +736,15 @@ class StuckRunTests(unittest.TestCase):
                 result, dispatched = self.guard(jobs)
                 self.assertEqual(result, "running https://github.com/o/r/actions/runs/9")
                 self.assertEqual(dispatched, [])
+
+    def test_a_gated_run_holds_whatever_its_jobs_show(self):
+        # A run waiting on an environment or a concurrency group shows queued jobs with no runner;
+        # the run's own state says it is gated, not stuck, so no second build is dispatched.
+        stuck = queued_job("decide", 34, ["blacksmith-4vcpu-ubuntu-2404"])
+        for status in ("waiting", "pending", "requested"):
+            with self.subTest(status=status):
+                self.assertFalse(watch.stuck_without_runner(NOW, [stuck], run={"status": status}))
+        self.assertTrue(watch.stuck_without_runner(NOW, [stuck], run={"status": "queued"}))
 
     def test_only_nightly_runs_are_judged(self):
         # The tick's own run is never read: a tick waiting on a dead label is replaced by the next one.

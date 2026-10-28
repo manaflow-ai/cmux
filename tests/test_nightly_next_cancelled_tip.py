@@ -55,13 +55,20 @@ PICKER = {"id": 901, "name": "pick-nightly-build-runner", "status": "completed",
           "runner_name": "gh", "labels": ["ubuntu-latest"], "started_at": "2026-10-27T10:00:30Z"}
 
 
+# A runs-on that takes the picker's label, as nightly.yml's build jobs do.
+PICKED = "${{ needs.pick-nightly-build-runner.outputs.blacksmith || 'blacksmith-6vcpu-macos-26' }}"
+
+
 def workflow(overwrite: bool = True) -> str:
     upload = {"uses": "actions/upload-artifact@v7", "with": {"name": "cmux-next-source-archive",
                                                             **({"overwrite": True} if overwrite else {})}}
     return json.dumps({"jobs": {
         "pick-nightly-build-runner": {"runs-on": "ubuntu-latest", "steps": [{"run": "true"}]},
-        "build-nightly-app": {"needs": "pick-nightly-build-runner", "runs-on": "x", "steps": [{"run": "true"}]},
-        "build-nightly-ghostty-cli-helper": {"needs": "pick-nightly-build-runner", "runs-on": "x", "steps": [upload]},
+        "build-nightly-app": {"needs": "pick-nightly-build-runner", "runs-on": PICKED, "steps": [{"run": "true"}]},
+        "build-nightly-ghostty-cli-helper": {"needs": "pick-nightly-build-runner", "runs-on": PICKED, "steps": [upload]},
+        "decide": {"runs-on": "${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}", "steps": [{"run": "true"}]},
+        "publish-nightly": {"needs": "build-nightly-app", "runs-on": "${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}",
+                            "steps": [{"run": "true"}]},
     }})
 
 
@@ -146,13 +153,12 @@ class CancelledTip(unittest.TestCase):
         self.assertEqual(calls[-2:], ["run rerun 40340830337 --failed -R o/r", "attempts=1"])
         self.assertIn("could not read", result.stdout)
 
-    def test_the_jobs_filter_keeps_only_unserved_picked_macos_jobs(self):
-        # A served job, a Linux one, and a successful one are skipped: those re-run their failed jobs.
+    def test_the_jobs_filter_keeps_only_unserved_jobs(self):
+        # A served job and a successful one are skipped: those re-run their failed jobs.
         served = {**unserved("helper"), "runner_name": "bs-1"}
-        linux = {**unserved("linux", label="blacksmith-4vcpu-ubuntu-2404"), "runner_name": ""}
         sign = {**unserved("sign", label="glaeda-side-std-xcode-26.6", conclusion="success"), "runner_name": ""}
         result, calls = self.run_script("40340830337 completed cancelled 1\n",
-                                        JOBS=page(PICKER, served, linux, sign), WORKFLOW=workflow())
+                                        JOBS=page(PICKER, served, sign), WORKFLOW=workflow())
         self.assertEqual(calls[-2:], ["run rerun 40340830337 --failed -R o/r", "attempts=1"])
         self.assertFalse(any("contents/" in call for call in calls), calls)
         verify = unserved("verify", label="glaeda-side-std-xcode-26.6", conclusion="failure")
@@ -160,6 +166,30 @@ class CancelledTip(unittest.TestCase):
                                     JOBS=page(PICKER, served, verify), WORKFLOW=workflow())
         # Unserved, but nightly.yml has no verify job under the picker: its failed jobs are re-run.
         self.assertIn("verify was never served on glaeda-side-std-xcode-26.6", result.stdout)
+
+    def test_a_linux_job_that_takes_the_pick_re_runs_the_picker(self):
+        # A label that stopped serving is a dead label whatever its OS: a Linux job under the picker
+        # that takes the pick's label is picked fresh too.
+        linux = unserved("build-nightly-app", label="blacksmith-16vcpu-ubuntu-2404")
+        result, calls = self.run_script("40340830337 completed cancelled 1\n", JOBS=page(PICKER, linux),
+                                        WORKFLOW=workflow())
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(calls[-2:], ["api -X POST repos/o/r/actions/jobs/901/rerun", "attempts=1"])
+        self.assertIn("never served on blacksmith-16vcpu-ubuntu-2404", result.stdout)
+
+    def test_a_job_whose_runner_is_not_the_picks_re_runs_its_failed_jobs(self):
+        # decide and publish-nightly take their runner from the runner variables, not the pick: a
+        # fresh pick would rebuild the app and still leave them where they were, so their failed
+        # jobs are re-run, which evaluates their runs-on again.
+        build = {**unserved("build-nightly-app"), "id": 8, "conclusion": "success", "runner_name": "bs"}
+        for jobs in (page(PICKER, unserved("decide", label="blacksmith-4vcpu-ubuntu-2404")),
+                     page(PICKER, build, unserved("publish-nightly", label="blacksmith-4vcpu-ubuntu-2404"))):
+            with self.subTest(jobs=jobs):
+                result, calls = self.run_script("40340830337 completed cancelled 1\n", JOBS=jobs, WORKFLOW=workflow())
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(calls[-2:], ["run rerun 40340830337 --failed -R o/r", "attempts=1"])
+                self.assertFalse(any("-X POST" in call for call in calls), calls)
+                self.assertIn("takes its runner from pick-nightly-build-runner", result.stdout)
 
     def test_a_building_tip_is_left_alone(self):
         result, calls = self.run_script("41 in_progress - 2\n40340830337 completed cancelled 1\n")
@@ -188,6 +218,7 @@ class CancelledTip(unittest.TestCase):
         tooling = next(step for step in steps if step.get("with", {}).get("path") == ".tick-tooling")
         sparse = tooling["with"]["sparse-checkout"].split()
         self.assertIn("scripts/ci/nightly_next_cancelled_tip.sh", sparse)
+        self.assertIn("scripts/ci/nightly_next_rerun.sh", sparse)
         # nightly_repick.py and every scripts/ci module it imports.
         for name in ("nightly_repick.py", "owned_pool_rescue.py", "owned_pool_sources.py", "pr_runner_pool.py",
                      "simple_pool_picker.py", "ui_tests_dispatch.py"):

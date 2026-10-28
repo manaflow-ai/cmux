@@ -79,6 +79,7 @@ jobs:
           sparse-checkout: |
             scripts/ci/gh_budget_wait.sh
             scripts/ci/nightly_next_cancelled_tip.sh
+            scripts/ci/nightly_next_rerun.sh
             scripts/ci/nightly_next_stuck_run.sh
             scripts/ci/nightly_repick.py
             scripts/ci/owned_pool_rescue.py

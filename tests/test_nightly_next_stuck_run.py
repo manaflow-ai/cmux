@@ -6,6 +6,7 @@ import datetime as dt
 import json
 import stat
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -17,29 +18,90 @@ SCRIPT = ROOT / "scripts" / "ci" / "nightly_next_stuck_run.sh"
 TICK = ROOT / ".github" / "workflows" / "nightly-next-tick.yml"
 TIP = "1f0f687b2f32a9f506e19e7f683e8362fd3da6b2"
 
-# git ls-remote prints the tip. gh api answers the nightly-next run list ($NEXT_RUNS), main's
-# dispatch list ($MAIN_RUNS) and a run's jobs ($JOBS, {"run id": [jobs]}) through the script's real
-# --jq filter, and a run's status with $STATUS (default completed). Writes are logged.
+# git ls-remote prints the tip (GIT_FAIL: it fails; GIT_TIP: another line).
 FAKE_GIT = f"""#!/bin/bash
-[ "$1" = ls-remote ] && printf '%s\\trefs/heads/nightly-next\\n' "{TIP}"
+[ -n "${{GIT_FAIL:-}}" ] && exit 128
+[ "$1" = ls-remote ] && printf '%s\\trefs/heads/nightly-next\\n' "${{GIT_TIP:-{TIP}}}"
 """
-FAKE_GH = """#!/bin/bash
-echo "$*" >> "$LOG"
-jq_arg=""
-args=("$@")
-for ((i = 0; i < ${#args[@]}; i++)); do [ "${args[i]}" = --jq ] && jq_arg="${args[i+1]}"; done
-case "$1" in
-  api) case "$*" in
-         *"-X POST"*) ;;
-         *branch=nightly-next*) printf '%s' "${NEXT_RUNS:-{\\"workflow_runs\\":[]\\}}" | jq -r "$jq_arg" ;;
-         *branch=main*) printf '%s' "${MAIN_RUNS:-{\\"workflow_runs\\":[]\\}}" | jq -r "$jq_arg" ;;
-         */jobs*) all="$*"; id="${all#*actions/runs/}"; id="${id%%/*}"
-                  printf '%s' "$JOBS" | jq -c --arg id "$id" '{jobs: (.[$id] // [])}' | jq -c "$jq_arg" ;;
-         */actions/runs/[0-9]*) printf '%s' "${STATUS:-completed}" ;;
-       esac ;;
-  run) exit 0 ;;
-esac
-"""
+
+# A stateful GitHub. Every call is logged. State (env, JSON):
+#   NEXT_RUNS / MAIN_RUNS  the workflow runs of nightly-next and main; the listing honours
+#                          `status=` and serves them PAGE (default 2) a page, as --paginate reads them;
+#   JOBS                   {run id: [jobs]}; JOBS_LATER {run id: [jobs]} answers every read after the first;
+#   PENDING                {run id: [deployments]};
+#   STATE_LATER            {run id: status} the run's status from its second read on (before a cancel);
+#   AFTER_CANCEL           the status a run reads after a cancel (default completed);
+#   FAIL                   a substring: any read whose path contains it fails;
+#   UNREADABLE_AFTER_CANCEL  a run's read fails once it has been cancelled.
+FAKE_GH = r'''#!PYTHON
+import json, os, subprocess, sys, urllib.parse
+from pathlib import Path
+
+args = sys.argv[1:]
+with open(os.environ["LOG"], "a") as log:
+    log.write(" ".join(args) + "\n")
+state = Path(os.environ["STATE_DIR"])
+env = lambda name, default: json.loads(os.environ.get(name) or default)
+jq = args[args.index("--jq") + 1] if "--jq" in args else "."
+
+
+def out(value):
+    result = subprocess.run(["jq", "-r", jq], input=json.dumps(value), capture_output=True, text=True)
+    sys.stdout.write(result.stdout)
+    sys.exit(result.returncode)
+
+
+if args[:2] == ["workflow", "run"]:
+    sys.exit(1 if os.environ.get("DISPATCH_FAIL") else 0)
+if args[:1] == ["run"]:
+    sys.exit(0)
+path = next(arg for arg in args if arg.startswith("repos/"))
+if "-X" in args:  # POST: cancel, force-cancel, a job re-run
+    if path.endswith("cancel"):
+        (state / path.split("/")[5]).write_text("cancelled")
+    sys.exit(0)
+if os.environ.get("FAIL") and os.environ["FAIL"] in path:
+    sys.exit(1)
+runs = env("NEXT_RUNS", "[]") + env("MAIN_RUNS", "[]")
+if "/workflows/nightly.yml/runs?" in path:
+    query = dict(urllib.parse.parse_qsl(path.split("?", 1)[1]))
+    source = env("NEXT_RUNS" if query.get("branch") == "nightly-next" else "MAIN_RUNS", "[]")
+    chosen = [run for run in source if run["status"] == query.get("status", run["status"])
+              and run["event"] == query.get("event", run["event"])]
+    size = int(os.environ.get("PAGE", "2"))
+    for start in range(0, max(len(chosen), 1), size):  # --paginate: --jq applies to each page
+        page = {"workflow_runs": chosen[start:start + size]}
+        result = subprocess.run(["jq", "-r", jq], input=json.dumps(page), capture_output=True, text=True)
+        sys.stdout.write(result.stdout)
+    sys.exit(0)
+parts = path.split("?")[0].split("/")
+run_id = parts[5]
+rest = parts[6:]
+if rest == ["pending_deployments"]:
+    out(env("PENDING", "{}").get(run_id, []))
+if rest == ["jobs"]:
+    counter = state / f"jobs-{run_id}"
+    reads = int(counter.read_text()) if counter.exists() else 0
+    counter.write_text(str(reads + 1))
+    later = env("JOBS_LATER", "{}")
+    jobs = later[run_id] if reads >= 1 and run_id in later else env("JOBS", "{}").get(run_id, [])
+    out({"jobs": jobs})
+if rest[:1] == ["attempts"]:
+    out({"jobs": []})
+if not rest:
+    run = next((dict(r) for r in runs if str(r["id"]) == run_id), {"id": run_id, "status": "completed", "run_attempt": 1})
+    counter = state / f"run-{run_id}"
+    reads = int(counter.read_text()) if counter.exists() else 0
+    counter.write_text(str(reads + 1))
+    if (state / run_id).exists():
+        if os.environ.get("UNREADABLE_AFTER_CANCEL"):
+            sys.exit(1)
+        run.update(status=os.environ.get("AFTER_CANCEL", "completed"), conclusion="cancelled")
+    elif reads >= 1 and run_id in env("STATE_LATER", "{}"):
+        run["status"] = env("STATE_LATER", "{}")[run_id]
+    out(run)
+sys.exit(3)
+'''
 
 
 def ago(minutes: float) -> str:
@@ -51,40 +113,48 @@ def job(name: str, minutes: float, label: str = "blacksmith-4vcpu-ubuntu-2404", 
     return {"name": name, "status": status, "runner_name": runner, "labels": [label], "created_at": ago(minutes)}
 
 
-def runs(*items: tuple) -> str:
-    return json.dumps({"workflow_runs": [
-        {"id": run_id, "status": status, "event": event, "head_sha": sha, "run_attempt": attempt,
-         "display_title": title} for run_id, status, event, sha, attempt, title in items]})
+def run(run_id: int, status: str = "queued", event: str = "push", sha: str = TIP, attempt: int = 1,
+        title: str = "") -> dict:
+    return {"id": run_id, "status": status, "event": event, "head_sha": sha, "run_attempt": attempt,
+            "display_title": title}
 
 
 STUCK_DECIDE = job("decide", 34)
 
 
 class StuckRun(unittest.TestCase):
-    def run_script(self, jobs: dict, **env: str) -> tuple[subprocess.CompletedProcess[str], list[str]]:
+    def run_script(self, jobs: dict, next_runs=(), main_runs=(), **env) -> tuple[subprocess.CompletedProcess[str], list[str]]:
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         bin_dir = Path(tmp.name) / "bin"
         bin_dir.mkdir()
-        for name, body in (("git", FAKE_GIT), ("gh", FAKE_GH)):
+        state = Path(tmp.name) / "state"
+        state.mkdir()
+        for name, body in (("git", FAKE_GIT), ("gh", FAKE_GH.replace("#!PYTHON", f"#!{sys.executable}")),
+                           ("python3", f'#!/bin/bash\nexec "{sys.executable}" "$@"\n')):
             path = bin_dir / name
             path.write_text(body)
             path.chmod(path.stat().st_mode | stat.S_IEXEC)
         log = Path(tmp.name) / "log"
-        result = subprocess.run(["bash", str(SCRIPT), "o/r"], capture_output=True, text=True, timeout=30,
-                                env={"PATH": f"{bin_dir}:/usr/bin:/bin", "LOG": str(log), "SETTLE_SECONDS": "0",
-                                     "JOBS": json.dumps({str(k): v for k, v in jobs.items()}), **env})
+        encoded = {key: value if isinstance(value, str) else json.dumps(
+            {str(k): v for k, v in value.items()} if isinstance(value, dict) else value) for key, value in env.items()}
+        result = subprocess.run(
+            ["bash", str(SCRIPT), "o/r"], capture_output=True, text=True, timeout=60,
+            env={"PATH": f"{bin_dir}:/usr/bin:/bin", "LOG": str(log), "STATE_DIR": str(state), "SETTLE_SECONDS": "0",
+                 "JOBS": json.dumps({str(k): v for k, v in jobs.items()}), "NEXT_RUNS": json.dumps(list(next_runs)),
+                 "MAIN_RUNS": json.dumps(list(main_runs)), **encoded})
         calls = log.read_text().splitlines() if log.exists() else []
         return result, calls
 
     def writes(self, calls: list[str]) -> list[str]:
-        return [call for call in calls if "-X POST" in call or call.startswith("run rerun")]
+        return [call for call in calls
+                if "-X POST" in call or call.startswith("run rerun") or call.startswith("workflow run")]
 
     def test_the_tips_run_stuck_on_a_dead_label_is_cancelled_for_the_next_step_to_re_run(self):
         # Run 40771197361: decide waited 34 min on blacksmith-4vcpu-ubuntu-2404, two jobs queued beside it.
         jobs = {40771197361: [STUCK_DECIDE, job("signer-build", 34, "blacksmith-8vcpu-ubuntu-2404"),
                               job("probe", 34, status="completed")]}
-        result, calls = self.run_script(jobs, NEXT_RUNS=runs((40771197361, "queued", "push", TIP, 1, "")))
+        result, calls = self.run_script(jobs, next_runs=[run(40771197361)])
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.writes(calls), ["api -X POST repos/o/r/actions/runs/40771197361/cancel"])
         self.assertIn("decide has waited 34 min with no runner on blacksmith-4vcpu-ubuntu-2404", result.stdout)
@@ -95,19 +165,71 @@ class StuckRun(unittest.TestCase):
             "briefly queued": [job("decide", 19)],
             "another job running": [STUCK_DECIDE, job("build", 5, status="in_progress", runner="r")],
             "a gate waits": [STUCK_DECIDE, job("sign", 40, status="waiting")],
+            "a job pending on a concurrency group": [STUCK_DECIDE, job("publish", 40, status="pending")],
             "an owned label": [job("build-nightly-app", 40, "glaeda-trusted-next-nightly")],
             "taken by a runner": [job("decide", 40, runner="bs-1")],
         }
         for case, jobs in cases.items():
             with self.subTest(case):
-                result, calls = self.run_script({7: jobs}, NEXT_RUNS=runs((7, "in_progress", "push", TIP, 1, "")))
+                result, calls = self.run_script({7: jobs}, next_runs=[run(7, "in_progress")])
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(self.writes(calls), [])
                 self.assertIn("no job stuck", result.stdout)
 
+    def test_a_run_waiting_on_a_gate_is_never_cancelled_whatever_its_jobs_show(self):
+        # The run's own state and its deployments decide first: a run that is waiting on an
+        # environment or a concurrency group shows queued jobs with no runner, and is not stuck.
+        cases = {
+            "the run is waiting (an environment gate)": dict(STATE_LATER={7: "waiting"}),
+            "the run is pending (a concurrency group)": dict(STATE_LATER={7: "pending"}),
+            "a deployment waits for approval": dict(PENDING={7: [{"environment": {"name": "release"}}]}),
+        }
+        for case, env in cases.items():
+            with self.subTest(case):
+                # The listing saw it queued; its own read says otherwise.
+                result, calls = self.run_script({7: [STUCK_DECIDE]}, next_runs=[run(7)], **env)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(self.writes(calls), [], case)
+        # A run listed as waiting is never even read.
+        result, calls = self.run_script({7: [STUCK_DECIDE]}, next_runs=[run(7, "waiting"), run(8, "pending")])
+        self.assertEqual(self.writes(calls), [])
+        self.assertFalse(any("runs/7" in call or "runs/8" in call for call in calls), calls)
+
+    def test_a_run_that_changes_between_the_reads_and_the_cancel_is_left_alone(self):
+        # The last read right before the cancel sees a runner take decide, or the run enter a gate.
+        for case, env in {
+            "a runner took the job": dict(JOBS_LATER={7: [job("decide", 34, runner="bs-1")]}),
+            "a gate job appeared": dict(JOBS_LATER={7: [STUCK_DECIDE, job("sign", 1, status="waiting")]}),
+        }.items():
+            with self.subTest(case):
+                result, calls = self.run_script({7: [STUCK_DECIDE]}, next_runs=[run(7)], **env)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(self.writes(calls), [])
+                self.assertIn("changed since it was read", result.stdout)
+        # The second read is the one right before the cancel.
+        result, calls = self.run_script({7: [STUCK_DECIDE]}, next_runs=[run(7)])
+        reads = [i for i, call in enumerate(calls) if call.startswith("api --paginate repos/o/r/actions/runs/7/jobs")]
+        cancel = calls.index("api -X POST repos/o/r/actions/runs/7/cancel")
+        self.assertEqual(len(reads), 2)
+        self.assertEqual(reads[-1], cancel - 1, calls)
+
+    def test_a_failed_read_cancels_nothing(self):
+        for case, env in {
+            "the tip": dict(GIT_FAIL="1"),
+            "an unreadable tip line": dict(GIT_TIP="error: not a sha"),
+            "the run list": dict(FAIL="workflows/nightly.yml/runs"),
+            "the run": dict(FAIL="actions/runs/7"),
+            "the deployments": dict(FAIL="pending_deployments"),
+            "the jobs": dict(FAIL="/jobs"),
+        }.items():
+            with self.subTest(case):
+                result, calls = self.run_script({7: [STUCK_DECIDE]}, next_runs=[run(7)], **env)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(self.writes(calls), [], case)
+
     def test_a_cancel_that_does_not_settle_is_force_cancelled(self):
-        result, calls = self.run_script({7: [STUCK_DECIDE]}, STATUS="in_progress", FORCE_AFTER="2",
-                                        NEXT_RUNS=runs((7, "queued", "push", TIP, 1, "")))
+        result, calls = self.run_script({7: [STUCK_DECIDE]}, next_runs=[run(7)], AFTER_CANCEL="in_progress",
+                                        FORCE_AFTER="2")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.writes(calls), ["api -X POST repos/o/r/actions/runs/7/cancel",
                                               "api -X POST repos/o/r/actions/runs/7/force-cancel"])
@@ -115,37 +237,76 @@ class StuckRun(unittest.TestCase):
         self.assertEqual(sum(call == "api repos/o/r/actions/runs/7 --jq .status" for call in calls), 6)
         self.assertIn("the next tick checks again", result.stdout)
 
+    def test_an_unreadable_status_after_the_cancel_never_force_cancels(self):
+        # settled() fails closed: a read error is neither "finished" nor "still running", so a run
+        # that cannot be read after the cancel is never force-cancelled, and nothing is re-run.
+        result, calls = self.run_script({7: [STUCK_DECIDE]}, next_runs=[run(7, attempt=3)], AFTER_CANCEL="in_progress",
+                                        FORCE_AFTER="1", UNREADABLE_AFTER_CANCEL="1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.writes(calls), ["api -X POST repos/o/r/actions/runs/7/cancel"])
+        self.assertEqual(sum(call == "api repos/o/r/actions/runs/7 --jq .status" for call in calls), 1)
+        self.assertNotIn("api -X POST repos/o/r/actions/runs/7/force-cancel", self.writes(calls))
+        self.assertIn("has not been seen finished", result.stdout)
+
     def test_a_dispatch_is_re_run_and_older_commits_and_promotions_are_not(self):
-        # Run 3 is a dispatch on its last attempt: left queued.
-        jobs = {1: [STUCK_DECIDE], 2: [STUCK_DECIDE], 3: [STUCK_DECIDE], 4: [STUCK_DECIDE], 5: [STUCK_DECIDE]}
+        jobs = {1: [STUCK_DECIDE], 2: [STUCK_DECIDE], 4: [STUCK_DECIDE], 5: [STUCK_DECIDE]}
         result, calls = self.run_script(
             jobs,
-            NEXT_RUNS=runs((1, "queued", "workflow_dispatch", TIP, 1, ""), (2, "queued", "push", "0" * 40, 1, ""),
-                           (3, "queued", "workflow_dispatch", TIP, 3, ""), (6, "completed", "push", TIP, 1, "")),
-            MAIN_RUNS=runs((4, "queued", "workflow_dispatch", "a" * 40, 1, f"Promote nightly-next to tick:{TIP}"),
-                           (5, "queued", "workflow_dispatch", "a" * 40, 1, "Nightly")))
+            next_runs=[run(1, event="workflow_dispatch"), run(2, sha="0" * 40), run(6, "completed")],
+            main_runs=[run(4, event="workflow_dispatch", sha="a" * 40, title=f"Promote nightly-next to tick:{TIP}"),
+                       run(5, event="workflow_dispatch", sha="a" * 40, title="Nightly")])
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.writes(calls), [
             "api -X POST repos/o/r/actions/runs/1/cancel", "run rerun 1 --failed -R o/r",
             "api -X POST repos/o/r/actions/runs/2/cancel", "api -X POST repos/o/r/actions/runs/4/cancel"])
-        self.assertFalse(any("runs/5/" in call or "runs/6/" in call for call in calls), calls)
+        self.assertFalse(any("runs/5" in call or "runs/6" in call for call in calls), calls)
 
-    def test_a_run_the_tick_has_re_run_enough_stays_queued(self):
-        result, calls = self.run_script({7: [STUCK_DECIDE]}, NEXT_RUNS=runs((7, "queued", "push", TIP, 3, "")))
+    def test_a_tip_run_out_of_attempts_gets_a_fresh_run_instead_of_staying_stranded(self):
+        for event in ("push", "workflow_dispatch"):
+            with self.subTest(event=event):
+                result, calls = self.run_script({7: [STUCK_DECIDE]}, next_runs=[run(7, event=event, attempt=3)])
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(self.writes(calls), ["api -X POST repos/o/r/actions/runs/7/cancel",
+                                                      "workflow run nightly.yml -R o/r --ref nightly-next"])
+                self.assertIn("dispatched a fresh nightly.yml run of the tip", result.stdout)
+        # Another unfinished run of the tip carries it: no second build.
+        result, calls = self.run_script({7: [STUCK_DECIDE], 8: [job("build", 3, status="in_progress", runner="r")]},
+                                        next_runs=[run(7, attempt=3), run(8, "in_progress", "workflow_dispatch")])
+        self.assertEqual(self.writes(calls), ["api -X POST repos/o/r/actions/runs/7/cancel"])
+        self.assertIn("run 8 still carries the tip", result.stdout)
+        # An older commit's dispatch out of attempts is cancelled and not re-run: the tip builds.
+        result, calls = self.run_script({7: [STUCK_DECIDE]},
+                                        next_runs=[run(7, event="workflow_dispatch", sha="0" * 40, attempt=3)])
+        self.assertEqual(self.writes(calls), ["api -X POST repos/o/r/actions/runs/7/cancel"])
+
+    def test_every_page_of_unfinished_runs_is_read(self):
+        # Thirty and more newer runs never hide a stuck one: the listing asks only for unfinished
+        # runs and reads every page.
+        runs = [run(100 + i, "in_progress", sha="0" * 40) for i in range(40)] + [run(7)]
+        jobs = {100 + i: [job("build", 1, status="in_progress", runner="r")] for i in range(40)}
+        jobs[7] = [STUCK_DECIDE]
+        result, calls = self.run_script(jobs, next_runs=runs, PAGE="7")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(self.writes(calls), [])
-        self.assertIn("left queued", result.stdout)
+        self.assertIn("api -X POST repos/o/r/actions/runs/7/cancel", self.writes(calls))
+        listings = [call for call in calls if "/workflows/nightly.yml/runs?" in call]
+        self.assertTrue(listings)
+        for call in listings:
+            self.assertIn("--paginate", call)
+            self.assertIn("per_page=100", call)
+            self.assertRegex(call, r"status=(queued|in_progress)")
 
     def test_no_unfinished_run_reads_no_jobs(self):
         result, calls = self.run_script({})
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(len(calls), 2)
+        self.assertFalse(any("/jobs" in call for call in calls), calls)
         self.assertIn("no unfinished", result.stdout)
 
     def test_the_tick_cancels_before_it_re_runs_a_cancelled_tip(self):
         steps = yaml.safe_load(TICK.read_text())["jobs"]["request"]["steps"]
         tooling = next(step for step in steps if step.get("with", {}).get("path") == ".tick-tooling")
-        self.assertIn("scripts/ci/nightly_next_stuck_run.sh", tooling["with"]["sparse-checkout"].split())
+        sparse = tooling["with"]["sparse-checkout"].split()
+        for name in ("nightly_next_stuck_run.sh", "nightly_next_rerun.sh"):
+            self.assertIn(f"scripts/ci/{name}", sparse)
         names = [step.get("name") for step in steps]
         check = steps[names.index("Cancel a nightly-next run stuck without a runner")]
         self.assertTrue(check["continue-on-error"])

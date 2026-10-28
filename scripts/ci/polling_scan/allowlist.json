@@ -36,6 +36,11 @@
       "reason": "The publisher is dispatched by the cmux-tui-release run it must validate, before that run concludes; it waits at most 120 s (24 x 5 s) for it. That run now dispatches with return_run_details and does nothing after, so it concludes within seconds. glaeda-gh does not exist in CI."
     },
     {
+      "path": "scripts/ci/nightly_next_stuck_run.sh",
+      "match": "for ((i = 0; i <= force_after; i++)); do",
+      "reason": "Read-after-write check of one cancel the nightly-next tick sent: at most FORCE_AFTER + 1 reads of that run (default 7, 15 s apart), then a force-cancel and the same bound again, then the next tick. A read error stops it at once. Runs in CI, where glaeda-gh does not exist, and GitHub sends no event to another workflow when a run finishes cancelling."
+    },
+    {
       "path": "scripts/install-cmux-tui-client.sh",
       "match": "while :; do",
       "reason": "Not a wait: retries gh attestation verify only when GitHub answers with a rate limit, with doubling backoff (4 retries from 1 minute by default, CMUX_TUI_ATTEST_RATE_LIMIT_RETRIES and CMUX_TUI_ATTEST_RETRY_DELAY_SECONDS change them); any other answer is final. Runs on user machines and nightly legs without glaeda-gh."

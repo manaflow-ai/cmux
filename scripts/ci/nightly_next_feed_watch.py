@@ -166,13 +166,18 @@ def queued_gates(now: dt.datetime, runs_by_workflow: list[tuple[str, list[dict]]
     return "; ".join(out)
 
 
-def stuck_without_runner(now: dt.datetime, jobs: list[dict], minutes: float = STUCK_RUNNER_MINUTES) -> bool:
+def stuck_without_runner(now: dt.datetime, jobs: list[dict], minutes: float = STUCK_RUNNER_MINUTES,
+                         run: dict | None = None) -> bool:
     """Whether a run's latest jobs are stuck on a label that stopped serving (run 40771197361).
 
-    A job has waited `minutes` queued with no runner on a label that is not owned (glaeda-* jobs
-    are the owned-pool rescue's), and every other job has finished or also waits with no runner.
-    A job that is running, or waiting on a gate, means the run is not stuck.
+    The run itself is `queued` or `in_progress` (a run that is `waiting` on an environment,
+    `pending` on a concurrency group or `requested` is gated, not stuck), a job has waited
+    `minutes` queued with no runner on a label that is not owned (glaeda-* jobs are the
+    owned-pool rescue's), and every other job has finished or also waits with no runner. A job
+    that is running, or waiting on a gate, means the run is not stuck.
     """
+    if run is not None and run.get("status") not in ("queued", "in_progress"):
+        return False
     def unserved(job: dict) -> bool:
         return job.get("status") == "queued" and not job.get("runner_name")
 
@@ -408,7 +413,7 @@ def stuck_run(gh: GitHub, run: dict, now: dt.datetime) -> bool:
     guard dispatches cancels it and re-runs the tip (scripts/ci/nightly_next_stuck_run.sh).
     An unreadable job list keeps the run, so a failed read never doubles a build."""
     try:
-        return stuck_without_runner(now, gh.jobs(run))
+        return stuck_without_runner(now, gh.jobs(run), run=run)
     except Exception:  # noqa: BLE001 - fail closed: the run may be carrying the tip
         return False
 
