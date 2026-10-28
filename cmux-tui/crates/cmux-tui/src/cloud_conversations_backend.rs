@@ -455,7 +455,7 @@ mod tests {
     #[test]
     fn a_slow_upload_or_a_slow_reply_is_not_a_stall() {
         // 64 KiB at 1 KB/s is about 64 s between reads: inside the window.
-        assert!(UPLOAD_CHUNK_BYTES <= 64 * 1024, "one read is {UPLOAD_CHUNK_BYTES} bytes");
+        const { assert!(UPLOAD_CHUNK_BYTES <= 64 * 1024, "one read is at most 64 KiB") };
         let read_gap = Duration::from_secs((UPLOAD_CHUNK_BYTES / 1024) as u64);
         assert!(!stall_left(read_gap, false).is_zero());
         // The whole body went three minutes ago and the slot is still committing it.
