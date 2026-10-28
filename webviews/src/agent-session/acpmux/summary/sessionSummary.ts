@@ -165,7 +165,8 @@ function sources(rows: readonly AcpmuxRow[], pullRequests: readonly SummaryPullR
         const canonical = `https://github.com/${owner}/${repo}/${path}/${number}`;
         const identity = `${owner}/${repo}`.toLowerCase() + `#${number}`;
         const known =
-          knownPullRequests.get(canonical) ?? knownPullRequests.get(`https://github.com/${owner}/${repo}/pull/${number}`);
+          knownPullRequests.get(canonical) ??
+          knownPullRequests.get(`https://github.com/${owner}/${repo}/pull/${number}`);
         if (known?.changed || known?.opened || (path === "issues" && changedIdentities.has(identity))) continue;
         const pr = path === "pull" || known?.kind === "pullRequest";
         add(

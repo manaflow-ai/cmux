@@ -159,7 +159,7 @@ const executedShellText = (command: string): string => {
           /\b(?:;|\n)?\s*elif\s+(true|false)\s*(?:;|\n)\s*then\s+([\s\S]*?)(?=\s*(?:;|\n)\s*(?:elif|else)\b|$)/g,
         ),
       ];
-    const chosen = clauses.find((clause) => clause[1] === "true")?.[2];
+      const chosen = clauses.find((clause) => clause[1] === "true")?.[2];
       if (chosen) return chosen;
       return /\belse\s+/.test(rest) ? rest.replace(/^([\s\S]*?)\belse\s+/, "") : "";
     },
