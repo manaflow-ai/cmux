@@ -12,7 +12,7 @@ const cases = [
   [
     "cleanup helper restart",
     "useEffect(() => { let id = setInterval(tick, 1000); function restart() { clearInterval(id); id = setInterval(tick, 1000); } return () => restart(); }, []);",
-    1,
+    2,
   ],
   [
     "rest destructured handle overwrite",
