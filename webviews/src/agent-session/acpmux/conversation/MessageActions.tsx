@@ -14,7 +14,7 @@ import { AlertCircle, Check, DoubleCheck, Pin, Retry, Speaker, Spinner, TurnFork
 import { canReadAloud, readAloud, useReadingAloud } from "./readAloud";
 import { exactTime, relativeTime } from "./relativeTime";
 import { CopyButton } from "./CopyButton";
-import { hasMessageMenuHost, openMessageMenu } from "./messageMenu";
+import { hasMessageMenuHost, openMessageMenu, openForkMenu } from "./messageMenu";
 import { RetryModelMenu } from "./RetryModelMenu";
 import { TurnActionsContext } from "./turnActions";
 
@@ -74,7 +74,7 @@ export function forkWithFeedback(throughSeq: number, fallback: () => unknown): u
 /// Fork from here, with Claude's tooltip: the title, then that this chat stays as it is. The host
 /// operation can take long enough to look inert, so press feedback starts before the promise is
 /// dispatched and a ref closes the same-frame duplicate-click window.
-export function ForkButton({ onFork }: { onFork(): unknown }) {
+export function ForkButton({ onFork, throughSeq }: { onFork(): unknown; throughSeq?: number }) {
   const t = useT();
   const inFlight = useRef(false);
   const [state, setState] = useState<"idle" | "pending" | "done" | "failed">("idle");
@@ -124,7 +124,10 @@ export function ForkButton({ onFork }: { onFork(): unknown }) {
       data-fork-state={state}
       disabled={state === "pending"}
       data-tooltip-detail={t("turn.forkDetail")}
-      onClick={fork}
+      onClick={(event) => {
+        if (event.altKey && throughSeq !== undefined && openForkMenu(throughSeq, event.currentTarget)) return;
+        fork();
+      }}
     >
       {state === "pending" ? (
         <Spinner size={ROW_ICON} loading />

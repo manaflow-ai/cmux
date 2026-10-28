@@ -49,8 +49,19 @@ enum AgentHandlers {
             try resetAgentPaneZoom(context)
             return .done
         })
+        registry.bindEffect("palette.forkAgentConversationTo", effect: { invocation in
+            guard let (pane, id) = context.scope(invocation).tab, let tab = pane.tab(id),
+                  let view = context.services.agentTabs.existingView(tab.id) else {
+                throw ActionFailure(message: MiscHandlerStrings.noForkTarget)
+            }
+            view.chooseForkDestination()
+            return .done
+        })
         for (id, destination) in forkActions {
-            registry.bind(id, run: { try fork(destination, invocation: $0, context: context) })
+            registry.bindEffect(id, effect: { invocation in
+                try fork(destination, offerDestinations: id == "palette.forkAgentConversation", invocation: invocation, context: context)
+                return .done
+            })
         }
         registry.bind("agentActivity.open", run: { _ in context.services.agentActivityPage.open() })
         context.services.pages.register(context.services.macScreenTabs)
@@ -302,6 +313,7 @@ enum AgentHandlers {
 
     /// Fork Conversation's actions, in the palette step's order (the default destination first).
     static let forkActions: [(ActionID, AgentForkDestination)] = [
+        ("palette.forkAgentConversation", .default),
         ("palette.forkAgentConversationRight", .right), ("palette.forkAgentConversationLeft", .left),
         ("palette.forkAgentConversationTop", .up), ("palette.forkAgentConversationBottom", .down),
         ("palette.forkAgentConversationNewTab", .tab), ("palette.forkAgentConversationNewWorkspace", .workspace),
@@ -323,7 +335,7 @@ enum AgentHandlers {
         return nil
     }
 
-    private static func fork(_ destination: AgentForkDestination, invocation: ActionInvocation, context: AppActionContext) throws {
+    private static func fork(_ destination: AgentForkDestination, offerDestinations: Bool, invocation: ActionInvocation, context: AppActionContext) throws {
         guard let (pane, id) = context.scope(invocation).tab, let tab = pane.tab(id) else {
             throw ActionFailure(message: MiscHandlerStrings.noForkTarget)
         }
@@ -331,7 +343,7 @@ enum AgentHandlers {
         // through acpmux and the app opens the fork at the destination.
         if let view = context.services.agentTabs.existingView(tab.id) {
             guard !context.services.agentTabs.isNewTabPage(tab.id) else { throw ActionFailure(message: MiscHandlerStrings.noForkTarget) }
-            view.forkConversation(to: destination)
+            view.forkConversation(to: destination, offerDestinations: offerDestinations)
             return
         }
         guard tab.kind == .pty else { throw ActionFailure(message: MiscHandlerStrings.noForkTarget) }

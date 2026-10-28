@@ -46,9 +46,11 @@ const menuRows = (): ChatMenuItem[] => [
   "separator",
   { key: "sideChat", label: "New side chat", icon: "agent.chat.new", onSelect: () => undefined },
   { key: "fork", label: "Fork", icon: "agent.fork", onSelect: () => undefined },
+  { key: "forkTo", label: "Fork to…", icon: "agent.fork", onSelect: () => undefined },
+  "separator",
   {
     key: "continue",
-    label: "Continue in",
+    label: "Hand off to…",
     icon: "agent.handoff",
     children: [
       { key: "codex", label: "Codex", onSelect: () => undefined },
@@ -306,7 +308,7 @@ const keyboardMenu: Play = async (ctx) => {
 
 const keyboardSubmenu: Play = async (ctx) => {
   await openMenu(ctx);
-  await ctx.focus({ role: "menuitem", name: "Continue in" });
+  await ctx.focus({ role: "menuitem", name: "Hand off to…" });
   await ctx.press("ArrowRight");
   await ctx.waitFor(() => ctx.document.querySelectorAll('[role="menu"]').length === 2);
   await ctx.press("Escape");
@@ -367,12 +369,12 @@ export default componentEntry<HeaderToolsProps>({
     ),
   // The pane's own stylesheets, as the app ships them (build-agent-pane-web.sh): its theme variables,
   // the shared popup surface, then the header's rules. With header.css alone every popup was
-  // see-through in the gallery and the "Continue in" submenu bug did not show as it does in the app.
+  // see-through in the gallery and the "Hand off to…" submenu bug did not show as it does in the app.
   styles: () => Promise.all([import("../styles.css"), import("../../../ui/popupSurface.css"), import("./header.css")]),
   checks: {
     popupLayer: {
       value: true,
-      reason: "The chat menu and its Continue in submenu must each be the top, unclipped, opaque layer.",
+      reason: "The chat menu and its Hand off to… submenu must each be the top, unclipped, opaque layer.",
     },
     anchorMovePx: {
       value: 0,
@@ -581,7 +583,7 @@ export default componentEntry<HeaderToolsProps>({
       play: keyboardMenu,
     },
     "keyboard-submenu": {
-      note: "Continue in opens with ArrowRight; Escape closes the submenu and then the parent menu.",
+      note: "Hand off to… opens with ArrowRight; Escape closes the submenu and then the parent menu.",
       props: base,
       play: keyboardSubmenu,
     },

@@ -105,7 +105,7 @@ nonisolated extension ActionSurfaceCatalog {
         "notifications.previewSound", "notifications.importSound",
         "notifications.dismissal.focus", "notifications.dismissal.click", "notifications.dismissal.explicit",
         "notifications.dismissal.timeout", "notifications.dismissal.never", "palette.newAgentChat", "palette.quickAgentChat",
-        "palette.launchClaudeTeams", "palette.launchCodexTeams", "palette.forkAgentConversationRight",
+        "palette.launchClaudeTeams", "palette.launchCodexTeams", "palette.forkAgentConversation", "palette.forkAgentConversationRight",
         "palette.forkAgentConversationLeft", "palette.forkAgentConversationTop", "palette.forkAgentConversationBottom",
         "palette.forkAgentConversationNewTab", "palette.forkAgentConversationNewWorkspace", "palette.forkAgentConversationNewWindow", "computerUseStop",
         "newCloudWorkspace", "newCloudMachine", "palette.cloud.fork", "palette.cloud.snapshot",

@@ -163,7 +163,10 @@ export function UserBubble({
             {/* Not while it is still on its way: a second send would duplicate it. */}
             {!row.pending && row.delivery?.state !== "sending" && <PromptRetry rowId={row.id} prompt={resend} />}
             {forkThrough !== undefined && (
-              <ForkButton onFork={() => forkWithFeedback(forkThrough, () => fork!(forkThrough))} />
+              <ForkButton
+                throughSeq={forkThrough}
+                onFork={() => forkWithFeedback(forkThrough, () => fork!(forkThrough))}
+              />
             )}
           </UserFooter>
         )}

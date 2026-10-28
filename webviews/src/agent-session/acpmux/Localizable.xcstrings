@@ -1,6 +1,7 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "chatMenu.forkTo": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Fork to…"}},"ar":{"stringUnit":{"state":"translated","value":"إنشاء فرع في…"}},"de":{"stringUnit":{"state":"translated","value":"Verzweigen nach…"}},"fr":{"stringUnit":{"state":"translated","value":"Créer une branche dans…"}},"es":{"stringUnit":{"state":"translated","value":"Crear rama en…"}},"ja":{"stringUnit":{"state":"translated","value":"分岐先…"}},"ko":{"stringUnit":{"state":"translated","value":"다음 위치로 분기…"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"分支到…"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"分支至…"}},"bs":{"stringUnit":{"state":"translated","value":"Napravi granu u…"}},"da":{"stringUnit":{"state":"translated","value":"Forgren til…"}},"it":{"stringUnit":{"state":"translated","value":"Crea un ramo in…"}},"km":{"stringUnit":{"state":"translated","value":"បំបែកសាខាទៅ…"}},"nb":{"stringUnit":{"state":"translated","value":"Forgren til…"}},"pl":{"stringUnit":{"state":"translated","value":"Utwórz odgałęzienie w…"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Criar ramificação em…"}},"ru":{"stringUnit":{"state":"translated","value":"Создать ветку в…"}},"th":{"stringUnit":{"state":"translated","value":"แยกสาขาไปยัง…"}},"tr":{"stringUnit":{"state":"translated","value":"Şuraya dallandır…"}},"uk":{"stringUnit":{"state":"translated","value":"Створити гілку в…"}},"vi":{"stringUnit":{"state":"translated","value":"Tạo nhánh tại…"}}}},
     "composer.connectPhone": {"comment":"Agent pane: the environment picker's row under New environment that opens the Mobile Pairing page, so cmux on iPhone reaches this Mac (EnvironmentPicker.tsx)","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Connect Phone…"}},"ar":{"stringUnit":{"state":"translated","value":"ربط الهاتف…"}},"bs":{"stringUnit":{"state":"translated","value":"Poveži telefon…"}},"da":{"stringUnit":{"state":"translated","value":"Forbind telefon…"}},"de":{"stringUnit":{"state":"translated","value":"Telefon verbinden…"}},"es":{"stringUnit":{"state":"translated","value":"Conectar teléfono…"}},"fr":{"stringUnit":{"state":"translated","value":"Connecter un téléphone…"}},"it":{"stringUnit":{"state":"translated","value":"Collega telefono…"}},"ja":{"stringUnit":{"state":"translated","value":"電話を接続…"}},"km":{"stringUnit":{"state":"translated","value":"ភ្ជាប់ទូរសព្ទ…"}},"ko":{"stringUnit":{"state":"translated","value":"휴대폰 연결…"}},"nb":{"stringUnit":{"state":"translated","value":"Koble til telefon…"}},"pl":{"stringUnit":{"state":"translated","value":"Połącz telefon…"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Conectar celular…"}},"ru":{"stringUnit":{"state":"translated","value":"Подключить телефон…"}},"th":{"stringUnit":{"state":"translated","value":"เชื่อมต่อโทรศัพท์…"}},"tr":{"stringUnit":{"state":"translated","value":"Telefon Bağla…"}},"uk":{"stringUnit":{"state":"translated","value":"Підключити телефон…"}},"vi":{"stringUnit":{"state":"translated","value":"Kết nối điện thoại…"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"连接手机…"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"連接手機…"}}}},
     "retry.running": {"comment":"Agent pane: short note after a failed subagent's or sub-session's line when acpmux refused a retry because it already runs again (subagents/SubagentDoneLine.tsx)","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Already running again"}},"ar":{"stringUnit":{"state":"needs_review","value":"يعمل مرة أخرى بالفعل"}},"bs":{"stringUnit":{"state":"needs_review","value":"Već ponovo radi"}},"da":{"stringUnit":{"state":"needs_review","value":"Kører allerede igen"}},"de":{"stringUnit":{"state":"needs_review","value":"Läuft bereits wieder"}},"es":{"stringUnit":{"state":"needs_review","value":"Ya se está ejecutando de nuevo"}},"fr":{"stringUnit":{"state":"needs_review","value":"Déjà relancé"}},"it":{"stringUnit":{"state":"needs_review","value":"Già di nuovo in esecuzione"}},"ja":{"stringUnit":{"state":"needs_review","value":"すでに再実行中です"}},"km":{"stringUnit":{"state":"needs_review","value":"កំពុងដំណើរការម្តងទៀតរួចហើយ"}},"ko":{"stringUnit":{"state":"needs_review","value":"이미 다시 실행 중"}},"nb":{"stringUnit":{"state":"needs_review","value":"Kjører allerede igjen"}},"pl":{"stringUnit":{"state":"needs_review","value":"Już działa ponownie"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Já está em execução novamente"}},"ru":{"stringUnit":{"state":"needs_review","value":"Уже снова выполняется"}},"th":{"stringUnit":{"state":"needs_review","value":"กำลังทำงานอีกครั้งแล้ว"}},"tr":{"stringUnit":{"state":"needs_review","value":"Zaten yeniden çalışıyor"}},"uk":{"stringUnit":{"state":"needs_review","value":"Уже знову виконується"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đã chạy lại rồi"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"已在重新运行"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"已在重新執行"}}}},
     "retry.gone": {"comment":"Agent pane: short note after a failed subagent's or sub-session's line when acpmux can no longer retry it (the chat closed or stopped, or the subagent resumed, was replaced, ended or is unknown) (subagents/SubagentDoneLine.tsx)","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Can no longer be retried"}},"ar":{"stringUnit":{"state":"needs_review","value":"لم يعد من الممكن إعادة المحاولة"}},"bs":{"stringUnit":{"state":"needs_review","value":"Više se ne može ponoviti"}},"da":{"stringUnit":{"state":"needs_review","value":"Kan ikke længere prøves igen"}},"de":{"stringUnit":{"state":"needs_review","value":"Kann nicht mehr wiederholt werden"}},"es":{"stringUnit":{"state":"needs_review","value":"Ya no se puede reintentar"}},"fr":{"stringUnit":{"state":"needs_review","value":"Ne peut plus être réessayé"}},"it":{"stringUnit":{"state":"needs_review","value":"Non è più possibile riprovare"}},"ja":{"stringUnit":{"state":"needs_review","value":"再試行できなくなりました"}},"km":{"stringUnit":{"state":"needs_review","value":"មិនអាចព្យាយាមម្តងទៀតបានទៀតទេ"}},"ko":{"stringUnit":{"state":"needs_review","value":"더 이상 재시도할 수 없음"}},"nb":{"stringUnit":{"state":"needs_review","value":"Kan ikke lenger prøves igjen"}},"pl":{"stringUnit":{"state":"needs_review","value":"Nie można już ponowić"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Não é mais possível tentar novamente"}},"ru":{"stringUnit":{"state":"needs_review","value":"Повторить больше нельзя"}},"th":{"stringUnit":{"state":"needs_review","value":"ลองใหม่ไม่ได้อีกแล้ว"}},"tr":{"stringUnit":{"state":"needs_review","value":"Artık yeniden denenemez"}},"uk":{"stringUnit":{"state":"needs_review","value":"Більше не можна повторити"}},"vi":{"stringUnit":{"state":"needs_review","value":"Không thể thử lại nữa"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"已无法重试"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"已無法重試"}}}},
@@ -93498,138 +93499,7 @@
         }
       }
     },
-    "handoff.continueIn": {
-      "comment": "Agent pane",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "المتابعة في…"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nastavi u…"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Fortsæt i…"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Weiter in…"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Continue In…"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Continuar en…"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Continuer dans…"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Continua in…"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "…で続行"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "បន្តក្នុង…"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "다음에서 계속…"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Fortsett i…"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kontynuuj w…"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Continuar em…"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Продолжить в…"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ดำเนินการต่อใน…"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Şurada devam et…"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Продовжити в…"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tiếp tục trong…"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "继续使用…"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "繼續使用…"
-          }
-        }
-      }
-    },
+    "handoff.continueIn": {"comment":"Agent pane","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"تسليم إلى…"}},"bs":{"stringUnit":{"state":"translated","value":"Predaj…"}},"da":{"stringUnit":{"state":"translated","value":"Overdrag til…"}},"de":{"stringUnit":{"state":"translated","value":"Übergeben an…"}},"en":{"stringUnit":{"state":"translated","value":"Hand off to…"}},"es":{"stringUnit":{"state":"translated","value":"Transferir a…"}},"fr":{"stringUnit":{"state":"translated","value":"Transférer à…"}},"it":{"stringUnit":{"state":"translated","value":"Passa a…"}},"ja":{"stringUnit":{"state":"translated","value":"引き継ぎ先…"}},"km":{"stringUnit":{"state":"translated","value":"ប្រគល់ទៅ…"}},"ko":{"stringUnit":{"state":"translated","value":"다음으로 인계…"}},"nb":{"stringUnit":{"state":"translated","value":"Overfør til…"}},"pl":{"stringUnit":{"state":"translated","value":"Przekaż do…"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Transferir para…"}},"ru":{"stringUnit":{"state":"translated","value":"Передать…"}},"th":{"stringUnit":{"state":"translated","value":"ส่งต่องานให้…"}},"tr":{"stringUnit":{"state":"translated","value":"Şuraya devret…"}},"uk":{"stringUnit":{"state":"translated","value":"Передати…"}},"vi":{"stringUnit":{"state":"translated","value":"Bàn giao cho…"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"移交给…"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"移交給…"}}}},
     "handoff.continueTarget": {
       "comment": "Agent pane",
       "extractionState": "manual",
