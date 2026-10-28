@@ -73,20 +73,10 @@ impl Drop for CustomDaemon {
     }
 }
 
-fn start_custom_daemon(dir: &Path) -> CustomDaemon {
+fn start_custom_daemon(dir: &Path, extra: &[&str]) -> CustomDaemon {
     let mut child = daemon_env::acpmux(dir)
-        .args([
-            "daemon",
-            "run",
-            "--listen",
-            "127.0.0.1:0",
-            "--token",
-            "restart+a=",
-            "--ready-fd",
-            "1",
-            "--log",
-            "warn",
-        ])
+        .args(["daemon", "run", "--listen", "127.0.0.1:0", "--ready-fd", "1", "--log", "warn"])
+        .args(extra)
         .env("ACPMUX_HOME", dir)
         .env("ACPMUX_LOGIN_ENV", "0")
         .current_dir(dir.join("p"))
@@ -95,10 +85,10 @@ fn start_custom_daemon(dir: &Path) -> CustomDaemon {
         .stderr(Stdio::null())
         .spawn()
         .unwrap();
-    let ready = BufReader::new(child.stdout.take().unwrap())
-        .lines()
-        .map_while(Result::ok)
-        .any(|line| serde_json::from_str::<serde_json::Value>(&line).is_ok_and(|v| v["ready"] == true));
+    let ready =
+        BufReader::new(child.stdout.take().unwrap()).lines().map_while(Result::ok).any(|line| {
+            serde_json::from_str::<serde_json::Value>(&line).is_ok_and(|v| v["ready"] == true)
+        });
     assert!(ready, "custom daemon did not become ready");
     CustomDaemon(child)
 }
@@ -218,20 +208,42 @@ fn cli_daemon_restart_reattaches_an_active_turn() {
 }
 
 #[test]
-fn cli_daemon_restart_preserves_custom_listener_and_token() {
+fn cli_daemon_restart_refuses_unsaved_token_before_stopping() {
     let dir = scratch("cli-restart-custom");
-    let _daemon = start_custom_daemon(&dir);
+    let _daemon = start_custom_daemon(&dir, &["--token", "restart+a=&b#c"]);
     let _shutdown = Shutdown(&dir);
-    let before: serde_json::Value = serde_json::from_slice(&cli(&dir, &["--json", "daemon", "status"]).stdout)
-        .expect("custom daemon status");
+    let before: serde_json::Value =
+        serde_json::from_slice(&cli(&dir, &["--json", "daemon", "status"]).stdout)
+            .expect("custom daemon status");
     let listen = before["listen"].as_str().expect("custom listen").to_owned();
     assert!(!listen.ends_with(":0"), "daemon did not report bound listener: {listen}");
-    assert!(before["webUrl"].as_str().unwrap().contains("token=restart+a="));
+    assert!(before["webUrl"].as_str().unwrap().contains("token=restart+a=&b#c"));
 
+    let saved = fs::read(dir.join("config.json")).unwrap();
+    let restarted = cli(&dir, &["--json", "daemon", "restart"]);
+    assert!(!restarted.status.success(), "restart unexpectedly succeeded");
+    assert!(!text(&restarted).contains("restart+a="), "token leaked");
+    assert_eq!(fs::read(dir.join("config.json")).unwrap(), saved);
+    let after: serde_json::Value =
+        serde_json::from_slice(&cli(&dir, &["--json", "daemon", "status"]).stdout)
+            .expect("restarted daemon status");
+    assert_eq!(after["pid"], before["pid"]);
+    assert_eq!(after["listen"], listen);
+    assert!(after["webUrl"].as_str().unwrap().contains("token=restart+a=&b#c"));
+}
+
+#[test]
+fn cli_daemon_restart_preserves_bound_listener_with_saved_token() {
+    let dir = scratch("cli-listener");
+    let _daemon = start_custom_daemon(&dir, &[]);
+    let _shutdown = Shutdown(&dir);
+    let before: serde_json::Value =
+        serde_json::from_slice(&cli(&dir, &["--json", "daemon", "status"]).stdout).unwrap();
     let restarted = cli(&dir, &["--json", "daemon", "restart"]);
     assert!(restarted.status.success(), "restart: {}", text(&restarted));
-    let after: serde_json::Value = serde_json::from_slice(&cli(&dir, &["--json", "daemon", "status"]).stdout)
-        .expect("restarted daemon status");
-    assert_eq!(after["listen"], listen);
-    assert!(after["webUrl"].as_str().unwrap().contains("token=restart+a="));
+    let after: serde_json::Value =
+        serde_json::from_slice(&cli(&dir, &["--json", "daemon", "status"]).stdout).unwrap();
+    assert_ne!(after["pid"], before["pid"]);
+    assert_eq!(after["listen"], before["listen"]);
+    assert_eq!(after["webUrl"], before["webUrl"]);
 }

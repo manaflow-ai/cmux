@@ -837,7 +837,7 @@ fn narrow_to_owner(path: &std::path::Path) {
 use crate::owner_only::narrow as narrow_to_owner;
 
 /// The rotation `websocket.tokenRotated` records (see `rotate_saved_token_once`).
-const TOKEN_ROTATION: u32 = 1;
+pub(crate) const TOKEN_ROTATION: u32 = 1;
 
 /// Builds before this one sent the saved WebSocket token to remote-origin
 /// connections (`_acpmux/status` `webUrl`), so a token saved by one may be
@@ -1223,7 +1223,7 @@ fn hand_key(mut link: std::os::unix::net::UnixStream, key: &str) {
 /// tagged dev build's, `ACPMUX_HOME`) listens on a free port and never saves the fixed one,
 /// so it can never take the release daemon's port; a home that saved it before is moved off.
 /// Returns the address to save: the saved one when it is fine, else the default.
-fn first_run_listen(shared_home: bool, saved: Option<&str>) -> &str {
+pub(crate) fn first_run_listen(shared_home: bool, saved: Option<&str>) -> &str {
     const SHARED: &str = "127.0.0.1:47811";
     const ANY: &str = "127.0.0.1:0";
     match saved {
