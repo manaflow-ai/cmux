@@ -32,7 +32,7 @@ struct DebugWebUITests {
     private func makeHost(_ hosting: FakeChromiumHosting?) -> WebUIHost {
         WebUIHost(chromium: hosting, openPanel: nil,
                   memory: QuietMemoryRegistry(),
-                  clock: PageTestClock.never)
+                  deadlines: LifecycleDeadlineRig.never)
     }
 
     private func makeWindow() -> NSWindow {
@@ -127,7 +127,7 @@ struct DebugWebUITests {
         let view = try #require(host.open(PageOpenRequest(descriptor: descriptor, root: root, routes: [])))
         defer { host.close(view) }
         let window = makeWindow()
-        let parking = PageHostParking()
+        let parking = PagePreloadParkingView(frame: .zero)
         window.contentView?.addSubview(parking)
         parking.addSubview(view)
 
@@ -139,7 +139,7 @@ struct DebugWebUITests {
         let row = try #require(census(host).report(helpers: [])["pages"]?.arrayValue?.first)
         #expect(row["state"]?.stringValue == "hidden")
         #expect(row["engine_visible"] == .bool(true))
-        #expect(row["spare"]?.stringValue == "page_host_pool")
+        #expect(row["spare"]?.stringValue == "page_preload")
         #expect(row["hidden_for_s"] != .null)
         #expect(!keepReasons(row).contains("visible"))
         #expect(row["pushes_while_hidden"]?.doubleValue == 1)

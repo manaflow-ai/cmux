@@ -83,7 +83,7 @@ final class VaultHostView: NSView, VisibilityGatedContent {
     // R-appear: the colors feed the SwiftUI list, so a hidden vault resolves them on show.
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
-        visibilityNode.deferUntilVisible(key: "VaultHostView.appearance") { [weak self] in self?.resolveColors() }
+        visibilityNode.deferAppearance(owner: "VaultHostView") { [weak self] in self?.resolveColors() }
     }
 
     private func resolveColors() {

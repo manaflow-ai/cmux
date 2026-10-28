@@ -14,9 +14,20 @@ use cmux_threads::work::{Lane, Priority, Shutdown};
 /// under until this drops (`debug-daemon-locks`): the verified app is the
 /// frontend, every other connection automation. The origin gate keeps the
 /// class on the writer, so this reads an atomic and takes no lock.
-/// Scheduling telemetry only: no permission reads it.
+/// Scheduling only (lock telemetry, the frontend's reserved worker permits):
+/// no permission reads it.
 pub(super) fn lock_caller_scope(writer: &MessageWriter) -> LockCallerScope {
     LockCallerScope::enter(writer.lock_caller.get())
+}
+
+/// The caller class of a `transport` connection whose writer is `writer`: a
+/// remote entry is automation whatever its origin, a local connection the
+/// class the origin gate keeps on its writer.
+pub(super) fn connection_caller(transport: ClientTransport, writer: &MessageWriter) -> LockCaller {
+    match transport {
+        ClientTransport::Remote => LockCaller::Automation,
+        ClientTransport::Unix | ClientTransport::WebSocket => writer.lock_caller.get(),
+    }
 }
 
 /// [`handle_connection_frame_at`] for a line that arrives now (tests).
@@ -29,7 +40,18 @@ pub(super) fn handle_connection_frame(
     writer: &MessageWriter,
     scheduler: &Arc<ConnectionSurfaceScheduler>,
 ) -> bool {
-    handle_connection_frame_at(mux, client, transport, message, writer, scheduler, Instant::now())
+    let keep_open = handle_connection_frame_at(
+        mux,
+        client,
+        transport,
+        message,
+        writer,
+        scheduler,
+        Instant::now(),
+    );
+    // A line that runs on the request sequence has answered once it is idle.
+    scheduler.wait_requests_idle();
+    keep_open && !crate::panic_free::RecoverPoison::recover_poison(scheduler.state.lock()).closed
 }
 
 /// One frame of a connection, read at `arrived` (the reader stamps it as
@@ -46,15 +68,13 @@ pub(super) fn handle_connection_frame_at(
     scheduler: &Arc<ConnectionSurfaceScheduler>,
     arrived: Instant,
 ) -> bool {
-    // Every handler this frame reaches runs on the reader's request path
-    // (`crate::request_path`): its blocking work is counted at its caller.
-    let _request_path = crate::request_path::RequestPathScope::enter(mux.request_path_stats());
+    // The release hang watch: one scope per frame, at the deadline of the
+    // request it reaches from then (server/request_hang_watch.rs). A line
+    // handed to the request sequence opens its own scope there.
+    let _hang = request_hang_watch::RequestHang::frame();
     // The lock acquisitions this frame's handlers make count under its
     // connection's caller class (`debug-daemon-locks`).
-    let _lock_caller = match transport {
-        ClientTransport::Remote => LockCallerScope::enter(LockCaller::Automation),
-        ClientTransport::Unix | ClientTransport::WebSocket => lock_caller_scope(writer),
-    };
+    let _lock_caller = LockCallerScope::enter(connection_caller(transport, writer));
     // Every frame is watched on this thread until its handler returns: past
     // 250 ms it lands in server-stats `slow_requests` (request_watchdog.rs),
     // named by the handler it is in. A `Command` handed to the scheduler is
@@ -70,10 +90,17 @@ pub(super) fn handle_connection_frame_at(
     // Every event this frame sets off, here or on a thread it hands work
     // to, carries the connection's cause (crate::event_cause).
     let (remote, cause) = mux.frame_client(client);
-    // The frame runs at its cause's class (crate::request_qos).
+    // The frame runs at its cause's class (crate::request_qos), here or on
+    // the request sequence, which enters it there.
     let request_qos = mux.request_qos();
-    let _cause = request_qos.enter(cause);
+    let enter_cause = || request_qos.enter(cause);
+    // Every handler this frame reaches runs on a request path
+    // (`crate::request_path`): its blocking work is counted at its caller.
+    // A line handed to the request sequence enters its scope there.
+    let request_path = || crate::request_path::RequestPathScope::enter(mux.request_path_stats());
     if matches!(transport, ClientTransport::Remote) || remote {
+        let _cause = enter_cause();
+        let _request_path = request_path();
         return remote_relay::handle_watched_frame(
             mux,
             client,
@@ -90,11 +117,27 @@ pub(super) fn handle_connection_frame_at(
     // arrives meanwhile (a subscriber's snapshot refresh) is refused
     // without being executed and the connection stays open.
     if mux.daemon_handoff_in_progress() {
+        let _cause = enter_cause();
         return pending_handoff::reject_message_during_pending_handoff(message, writer);
     }
     // An older client's line, upgraded to this daemon's API revision before
-    // any parse (server/api_revision_wire.rs); borrowed unchanged otherwise.
-    let upgraded = writer.api_revision.upgrade_request(message);
+    // any parse (server/api_revision_wire.rs); borrowed unchanged otherwise,
+    // and always for a frame (frames exist only at this revision).
+    let upgraded = writer.upgrade_request(message);
+    let parses = crate::line_parses::LineParses::enter();
+    let head = RequestHead::parse(&upgraded);
+    // A `cmux.protocol/2` line or a feature route runs its handler, which
+    // may read and commit SQLite or files, so it runs on the connection's
+    // request sequence, not on this reader (blocking disallowed). A
+    // `Command` line only queues for the dispatcher here.
+    if !head.is_command() {
+        let head = head.into_owned();
+        drop(watched);
+        post_line(mux, client, cause, upgraded.into_owned(), head, writer, scheduler, arrived);
+        return true;
+    }
+    let _cause = enter_cause();
+    let _request_path = request_path();
     let line = LineFrame {
         mux,
         client,
@@ -104,10 +147,117 @@ pub(super) fn handle_connection_frame_at(
         arrived,
         watched: watched.as_ref(),
     };
-    let parses = crate::line_parses::LineParses::enter();
-    let keep_open = dispatch_line(&line);
+    let keep_open = dispatch_line(&line, head);
     cmux_trace::trace_instant!(daemon, "daemon.frame.json_parses", u64::from(parses.count()));
     keep_open
+}
+
+/// Runs one line [`dispatch_line`] answers on the connection's request
+/// sequence (`Mux::post_connection_request`), in the order the reader read
+/// it, with the request context the reader set for it: its cause, its
+/// request path, its lock caller class, a watchdog scope and the parse
+/// count of its request (the head was parsed on the reader). A handler that
+/// closes the connection, panics, or is dropped unrun at shutdown closes
+/// the connection, as the reader's own end would.
+#[allow(clippy::too_many_arguments)]
+fn post_line(
+    mux: &Arc<Mux>,
+    client: u64,
+    cause: EventCause,
+    message: String,
+    head: RequestHead<'static>,
+    writer: &MessageWriter,
+    scheduler: &Arc<ConnectionSurfaceScheduler>,
+    arrived: Instant,
+) {
+    // The request the reader's parse scope counts: this line's handler
+    // parse counts toward it too.
+    let parse_scope = crate::diagnostics::JsonParseScope::handoff();
+    let mut job = LineJob { scheduler: scheduler.clone(), writer: writer.clone(), done: false };
+    let item_mux = mux.clone();
+    // A test reads the classes its request entered on its own thread.
+    #[cfg(test)]
+    let qos_recorder = crate::request_qos::tests::recorder();
+    let _ = mux.post_connection_request(&scheduler.requests, cause.work_priority(), move || {
+        let run = move || {
+            let keep_open = run_posted_line(
+                &item_mux,
+                client,
+                &message,
+                head,
+                &job,
+                arrived,
+                cause,
+                parse_scope,
+            );
+            job.finish(keep_open);
+        };
+        #[cfg(test)]
+        crate::request_qos::tests::follow_recorder(qos_recorder, run);
+        #[cfg(not(test))]
+        run();
+    });
+}
+
+/// The posted half of [`post_line`], on the request sequence.
+#[allow(clippy::too_many_arguments)]
+fn run_posted_line(
+    mux: &Arc<Mux>,
+    client: u64,
+    message: &str,
+    head: RequestHead<'_>,
+    job: &LineJob,
+    arrived: Instant,
+    cause: EventCause,
+    parse_scope: crate::diagnostics::JsonParseHandoff,
+) -> bool {
+    let writer = &job.writer;
+    let _parses = crate::diagnostics::JsonParseScope::resume(parse_scope);
+    // This thread's hang-watch scope for the line, as the reader's frame.
+    let _hang = request_hang_watch::RequestHang::frame();
+    let _request_path = crate::request_path::RequestPathScope::enter(mux.request_path_stats());
+    let _lock_caller = lock_caller_scope(writer);
+    let _cause = mux.request_qos().enter(cause);
+    let watched = mux.request_watchdog.begin(client, WatchedMethod::frame(FrameStage::Route));
+    let line = LineFrame {
+        mux,
+        client,
+        message,
+        writer,
+        scheduler: &job.scheduler,
+        arrived,
+        watched: watched.as_ref(),
+    };
+    let parses = crate::line_parses::LineParses::enter();
+    let keep_open = dispatch_line(&line, head);
+    // The head's parse on the reader, then this thread's.
+    let count = u64::from(parses.count()) + 1;
+    cmux_trace::trace_instant!(daemon, "daemon.frame.json_parses", count);
+    keep_open
+}
+
+/// One line on the request sequence; see [`post_line`]. Takes only locks
+/// that recover from poison, so it is safe while unwinding.
+struct LineJob {
+    scheduler: Arc<ConnectionSurfaceScheduler>,
+    writer: MessageWriter,
+    /// The handler ran and keeps the connection open.
+    done: bool,
+}
+
+impl LineJob {
+    fn finish(&mut self, keep_open: bool) {
+        self.done = keep_open;
+    }
+}
+
+impl Drop for LineJob {
+    fn drop(&mut self) {
+        if !self.done {
+            self.scheduler.close();
+            self.writer.close();
+        }
+    }
 }
 
 /// A local connection's request line on its way to its one handler.
@@ -139,9 +289,8 @@ impl LineFrame<'_> {
 /// feature route's `cmd` to its route (server/routes.rs), anything else to
 /// the `Command` parse. The handler a request reaches parses the line once
 /// more; an error reply may parse it again for its `id`.
-pub(super) fn dispatch_line(line: &LineFrame<'_>) -> bool {
+pub(super) fn dispatch_line(line: &LineFrame<'_>, head: RequestHead<'_>) -> bool {
     let LineFrame { mux, client, message, writer, scheduler, arrived, watched } = *line;
-    let head = RequestHead::parse(message);
     if head.is_resource()
         && let Some(keep_open) = resource_line(line, &head)
     {
@@ -155,7 +304,7 @@ pub(super) fn dispatch_line(line: &LineFrame<'_>) -> bool {
     if let Some(route) = head.cmd().and_then(routes::find) {
         line.stage(route.stage);
         let route_line = routes::RouteLine { mux, client, message, writer, head: &head };
-        if let Some(keep_open) = (route.entry)(&route_line) {
+        if let Some(keep_open) = request_hang_watch::route(&head, || (route.entry)(&route_line)) {
             return match routed.as_mut() {
                 Some(span) => span.answered(keep_open),
                 None => keep_open,
@@ -212,16 +361,23 @@ fn resource_line(line: &LineFrame<'_>, head: &RequestHead<'_>) -> Option<bool> {
         line.stage(route.stage);
         let mut span = head.open(stats, RequestArrival::parsed_now(arrived));
         let route_line = routes::RouteLine { mux, client, message, writer, head };
-        if let Some(keep_open) = (route.entry)(&route_line) {
+        if let Some(keep_open) = request_hang_watch::route(head, || (route.entry)(&route_line)) {
             return Some(span.answered(keep_open));
         }
         page_span = Some(span);
     }
     let request = crate::resource_router::parse_resource_line(message)?;
-    match &request {
-        Ok(envelope) => line.watch(WatchedMethod::resource(envelope.operation)),
-        Err(_) => line.stage(FrameStage::PageRouter),
-    }
+    let _hang = match &request {
+        Ok(envelope) => {
+            line.watch(WatchedMethod::resource(envelope.operation));
+            let class = RequestMethod::of_resource(envelope.operation).class;
+            request_hang_watch::RequestHang::enter(class)
+        }
+        Err(_) => {
+            line.stage(FrameStage::PageRouter);
+            None
+        }
+    };
     // An envelope's `origin` claim may only narrow the cause, as it
     // only narrows the origin; the origin gate still checks the claim.
     // Its `priority` narrows the cause the same way and is never checked:
@@ -291,11 +447,17 @@ pub(super) fn handle_request_with_cancellation(
     cancellation: Option<&ConnectionCancellation>,
 ) -> bool {
     let Request { id, cmd } = request;
-    // A panic in the handler names its command (cmux-panic-log crash keys, this thread's own).
+    // Watched at its class deadline wherever it runs (a frame's scope, or
+    // its own on a dispatcher or worker).
+    let _hang = request_hang_watch::RequestHang::enter_command(&cmd);
+    // A panic in the handler names its command (cmux-panic-log crash keys, this thread's own),
+    // and so does a crash or abort: the process's crash-key page holds it until the handler returns.
+    let method_key = cmux_panic_log::crash_keys::stable_key(cmd.wire_name());
     let _crash_key = cmux_panic_log::crash_keys::scoped_thread(
         cmux_panic_log::crash_keys::Key::ActionId,
-        cmux_panic_log::crash_keys::stable_key(cmd.wire_name()),
+        method_key,
     );
+    let _crash_page_key = cmux_trace::crash_keys::request(method_key);
     let mut span = RequestSpan::open(mux.request_stats(), &cmd, id.as_ref(), arrival);
     if let Command::UrlOpen(terminal_io_wire::UrlOpenParams { terminal_id, url }) = cmd {
         return url_open::start(mux, client, id, terminal_id, url, span.start_async(), writer);

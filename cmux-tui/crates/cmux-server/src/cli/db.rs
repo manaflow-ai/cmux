@@ -30,7 +30,7 @@ fn app_id(text: &str) -> Result<(AppId, Option<String>)> {
 pub fn create(ctx: &Context<'_>, args: &Args) -> Result<Output> {
     let layout = mutating_layout(ctx, false)?;
     let mut cfg = config(&layout)?;
-    let (id, manifest_id) = app_id(&args.positionals[0])?;
+    let (id, manifest_id) = app_id(args.positional(0, "app")?)?;
     let mode = match args.value("mode") {
         None => DbMode::Database,
         Some(m) => crate::pg::parse_mode(m)
@@ -49,7 +49,7 @@ pub fn create(ctx: &Context<'_>, args: &Args) -> Result<Output> {
 pub fn url(ctx: &Context<'_>, args: &Args) -> Result<Output> {
     let layout = layout(ctx, false)?;
     let cfg = config(&layout)?;
-    let (id, _) = app_id(&args.positionals[0])?;
+    let (id, _) = app_id(args.positional(0, "app")?)?;
     let pg = Postgres::open_existing(&layout, ctx.runner, &cfg, &pg_options(args))?;
     let url = pg.url(&pg.find_app(&id)?);
     Ok(Output::new(json!({"url": url}), format!("{url}\n")))
@@ -63,7 +63,7 @@ pub fn archive_wal(ctx: &Context<'_>, args: &Args) -> Result<Output> {
         Some(dir) if !dir.is_empty() => PathBuf::from(dir),
         _ => fsx::local(&layout(ctx, false)?.wal_archive()),
     };
-    let (src, name) = (Path::new(&args.positionals[0]), &args.positionals[1]);
+    let (src, name) = (Path::new(args.positional(0, "path")?), args.positional(1, "file")?);
     let outcome = archive(&wal_dir, src, name)?;
     let stored = matches!(outcome, crate::pg::Archived::Stored);
     Ok(Output::new(json!({"archived": name, "stored": stored}), String::new()))

@@ -580,10 +580,12 @@ Dropped or merged draft items: 022 and 045 (replaced by 026 and 191); 025 merged
 | 245 | The holder exits at shutdown end_terminals | S | 20-28 | 065 | |
 | 246 | Facet: a terminal's view scroll offset | S | 20-28 | 065 | |
 | 247 | Driver: a call that ends the daemon, expect.result references | S | 20-36 | 023 | MQ-daemon-ops |
+| 248 | Case daemon with installed first-party apps | S | 20-30 | 023, 200, 064 | MQ-daemon-ops |
 | 270 | Action cases: sidebar, item and group targets | M | 20-36 | 047, 071, 075 | MQ-actions |
 | 271 | Facet: a workspace group's color, icon and archived mark | S | 20-28 | 036, 075 | |
 | 272 | Facet: the top band's items | S | 20-28 | 036, 075 | |
 | 273 | Pin Chat with no target refuses | S | 20-28 | 075, 270 | |
+| 274 | Gap fixtures: a chat in the sweep's acpmux, the Priority view per sample | M | 20-36 | 046, 086 | MQ-action-gaps |
 | 290 | Open Conversation refuses an unknown id | S | 20-28 | 076 | |
 | 291 | Select Conversation 1-9 is a focus action | S | 20-28 | 076 | |
 | 292 | No picker or ask for a socket run without an argument | S | 20-28 | 076 | |
@@ -595,6 +597,18 @@ Dropped or merged draft items: 022 and 045 (replaced by 026 and 191); 025 merged
 | 332 | Screen creates answer with the screen | S | 20-28 | 077 | |
 | 333 | No silent no-op for column and workspace moves | S | 20-28 | 077 | |
 | 334 | Reopen Saved Screen Group refuses an unknown id | S | 18-24 | 077 | |
+| 350 | Live: pointer step and menu rows | M | 20-36 | 047, 012, 225 | MQ-live |
+| 351 | Live: app restart step | M | 20-36 | 047, 189, 225 | MQ-live |
+| 352 | Live: https, basic auth and PDF in the web fixture | S | 18-28 | 222, 225 | MQ-live |
+| 353 | Live: stand-ins or retirements for scripts outside reach | S | 18-28 | 225 | |
+| 354 | Live: the app's Chief over mock_chief.py | M | 20-36 | 047, 200, 240, 225 | MQ-live |
+| 355 | Live: per-case launch environment and config | M | 20-36 | 047, 200, 225 | MQ-live |
+| 356 | Live: facets for the scripts' debug.* reads | L | 24-48 | 030, 225 | MQ-live |
+| 357 | Live: chrome:// and cmux:// pages are local | S | 18-24 | 012, 225 | MQ-live |
+| 360 | Loopback TLS page | S | 18-28 | 222, 225, 072, 352 | MQ-action-gaps |
+| 361 | Oracle test extension in the hermetic profile | M | 20-36 | 047, 072 | MQ-action-gaps |
+| 248 | Loopback permission-asking page | S | 18-24 | 222, 225, 072 | MQ-action-gaps |
+| 249 | Loopback Web Store stand-in | S | 18-28 | 222, 225, 072 | MQ-action-gaps |
 | 206 | I10 idempotent retry steps | S | 20-28 | 060, 110 | |
 | 204 | Streams suite + I8 | L | 18-36 | 023, 110 | |
 | 205 | restore_preview + I9 | M | 18-30 | 021, 201 | |
@@ -905,14 +919,14 @@ of these three follow-ups; gen_daemon_ops.py refuses a gap that names no WORK.ts
 dependencies (done before the family task, so they close nothing).
 
 **237 Driver user connection.** Files: `driver_daemon.py`, `hermetic_env.py`, `case-v1.schema.json`, `gen_daemon_ops.py`,
-`misc/_tuning.json`. The case daemon gets a per-case DEV install key on `--owner-install-key-fd` (`cmuxik1 <install_id>
+`misc/_tuning.json`, `workspace/_tuning.json`. The case daemon gets a per-case DEV install key on `--owner-install-key-fd` (`cmuxik1 <install_id>
 <hex key>`, never argv or env; `local_owner/install_key.rs`). A step with `connection: user` runs on a second connection that
 sends `client-hello {role: main, install_id}` and answers the nonce with the install-key proof (step 2,
 `server/client_hello.rs` prove), so it derives origin user; the default connection stays agent. The success cases of
 credential.rotate, history.backups.purge, history.trail.record, history.visit.import (a History.sqlite visit log under
 `$CASE_ROOT` first), history.visit.record, history.visit.title and history.restore (record a visit, remove it, restore the
-removal's restore_id) lose their gaps. Acceptance: the 7 cases pass; a wrong proof leaves the connection agent (selftest).
-Test: VM, the 7 cases green twice; `gen_daemon_ops.py --check`.
+removal's restore_id) lose their gaps, and so does workspace.agent_folder.set's (064, a user-only operation). Acceptance:
+the 8 cases pass; a wrong proof leaves the connection agent (selftest). Test: VM, the 8 cases green twice; `gen_daemon_ops.py --check`.
 
 **238 Driver loopback pairing.** Files: `driver_daemon.py`, `hermetic_env.py`, `case-v1.schema.json`, `misc/_tuning.json`.
 The case daemon's WebSocket listener binds 127.0.0.1:0 (still offline); a `pairing.open` step connects as an unpaired peer
@@ -969,6 +983,34 @@ success cannot run. Give a case with a generated repository a checkout outside t
 hermetic environment owns and removes), and project.add's success loses its gap. Test: VM, project.add green twice; no
 folder left after the run.
 
+The browser, browserProfile and devtools action cases (072) open their fixture page from 222's loopback server
+(openBrowser and `cmux browser navigate` refuse data: URLs), which driver_app.py starts for a case with `fixture.web`
+(225's fixer; 072 had planned it as a follow-up). Their success paths that need a fixture no planned task made name
+these four follow-ups.
+
+**360 Loopback TLS page.** Files: `webfixture.py`, `tests/oracle/fixtures/web/`, `browser/_tuning.json`. An https
+listener on 127.0.0.1 with a per-run self-signed certificate the engines do not trust (352's https origin, which the
+live cases share), so a load shows the engine's certificate warning (Chromium's `net/test/embedded_test_server`
+`CERT_EXPIRED` server). The success cases of browser.certificateWarning.goBack, browser.pageInfo.certificate (a real
+chain) and browser.pageInfo.reenableCertificateWarnings (after a person-path proceed) lose their gap_success. Test:
+fleet, the three cases green twice on both engines.
+
+**361 Oracle test extension.** Files: `driver_app.py`, `tests/oracle/fixtures/extensions/oracle/`, `browser/_tuning.json`.
+loadUnpacked is person-only, so before launch the driver installs an unpacked MV3 extension named oracle (an action, a
+command, an options page) into the tag's hermetic Chromium profile the way the profile's extension store reads it
+(BrowserExtensionStore), as Chromium's browser tests load one with `--load-extension`. The success cases of the ten
+browser.extension.* actions lose their gap_success. Test: fleet, the ten cases green twice on chromium.
+
+**248 Loopback permission-asking page.** Files: `tests/oracle/fixtures/web/`, `browser/_tuning.json`. A page on 222's
+origin that asks for the notifications permission on load, so a prompt is pending; browser.prompt.allow and
+browser.prompt.block run their success path on it. Test: fleet, both cases green twice on both engines.
+
+**249 Loopback Web Store stand-in.** Files: `BrowserExtensionInfo.swift`, `driver_app.py`, `tests/oracle/fixtures/web/`,
+`browser/_tuning.json`. browser.extensions.webStore opens the remote Chrome Web Store, which no oracle case may load. A
+DEBUG and bench-hooks launch value replaces `URL.browserExtensionWebStore` for the run (injected at launch, never read
+in a Release build); driver_app.py sets it to `$WEB/webstore.html`. The action loses its gap. Test: fleet, the case
+green twice; a Release build still opens chromewebstore.google.com.
+
 **245 The holder exits at shutdown end_terminals.** Files: `cmux-holder/src/holder.rs`, `holder_runtime.rs`,
 `mux/terminal_reap.rs`, `terminal/_tuning.json`. On the holder arm (CMUX_TUI_TERMINAL_HOST_MODEL=holder),
 `shutdown-daemon end_terminals` ends every terminal but leaves the holder running until its idle exit (IDLE_EXIT, 30 s):
@@ -1002,6 +1044,15 @@ driver_daemon_test.py (ExpectTests, without_pointers; live: a call that ends the
 and one outside allow_crashes is a Crash at the call); case_checks.py --selftest (ends and resultExcept vectors);
 VM, the 22 session cases green twice.
 
+**248 Case daemon with installed first-party apps.** Files: `hermetic_env.py`, `driver_daemon.py`,
+`workspace/_tuning.json`. The case daemon finds first-party packages in the app bundle, else in `apps/first-party` beside
+its binary (first_party_dir.rs resolve), and the oracle build has neither, so no app is installed and
+workspace.ensure_app's success cannot run. Stage each `first-party-apps/<name>` package (its manifest, `dist/`, `assets/`
+and `catalog/`, as sync-app-runtime.sh copies them) under the case root and start the daemon with
+`CMUX_APPS_FIRST_PARTY_DIR` naming that folder (the oracle profile has debug assertions, so a standalone daemon takes it);
+the default set then installs cmux/notes and workspace.ensure_app's success loses its gap. Test: VM, the two
+workspace.ensure_app cases green twice; no staged folder left after the run.
+
 The sidebar and workspaceGroup action cases (075, `tests/oracle/corpus/actions/sidebar/_tuning.json`) make a group of
 the shown workspace before each group action, since no case can name a group, section or item. Two follow-ups close
 what the cases cannot check yet.
@@ -1014,7 +1065,7 @@ the three kinds (a fixed id, or a `$step:` value such as make-group's created gr
 `driver_app.action_target` to `workspace-group:`, `sidebar-section:` and `sidebar-item:`, and add `target` to the
 generator's tuning keys. The 13 section and 3 item cases that now expect the noSuchSection or noSuchItem
 refusal, and the 5 toggles blocked below, run their success path on `sec_top` and `itm_home`
-(sidebar.chat.togglePin also needs a history chat, 086), and workspaceGroup.collapseOthers folds a second group.
+(sidebar.chat.togglePin also needs a history chat, 274), and workspaceGroup.collapseOthers folds a second group.
 workspaceGroup.moveToWindow (blocked `live-value`) takes its window from a newWindow setup step's created window as a
 `$step:` value. build_case adds a restore that runs a
 TOGGLES action again, also after an action step that expects an error, so a refused toggle would fail at restore-1.
@@ -1051,6 +1102,29 @@ command it did not run, chrome/browser/ui/browser_command_controller.cc). The ca
 chat-pin-silent-no-target) turns to `error: control.unavailable`; it is a toggle, so it needs 270's rule of no restore
 after an error step. Test: SidebarChatPinBindingTests (no target: the run is refused, no pin changes); fleet, the
 case green twice.
+
+**274 Gap fixtures: a chat in the sweep's acpmux, the Priority view per sample.** Files: `every-action-sweep.py`,
+`oracle/action_fixtures/__init__.py`, `oracle/action_fixtures/session_states.py`, `session_states_test.py`,
+`tests/oracle/gap-closures/session.json`. 086 leaves sidebar.priority.markRead, snooze and togglePin open (session.json
+`reasoned`, `follow_up`), and 270's sidebar.chat.togglePin case has no history chat. Both need a chat in the app's own
+acpmux: a Priority row is a lane of AgentLaneStore.shared or .chief (AgentPriorityChats, filled by AgentTurnStateFeed's
+`_acpmux/watch`), a history chat an entry of that daemon's chat index (SidebarChatHistoryFeed). The sweep launches
+with `ACPMUX_AGENT_LAUNCH=deny`, so session/new refuses, and the mock agent's seeded chats live in the page's
+in-memory daemon (`webviews/src/agent-session/acpmux/mock.ts`), which no app store reads. Launch the sweep's acpmux
+with the perf corpus's replay agent as the only harness it may start (`agent_replay.py install` and `launch_env`:
+`ACPMUX_AGENT_LAUNCH=only:replay`, its own `CMUX_NEXT_ACPMUX_ROOT` and `XDG_CONFIG_HOME`), and have an ArgumentFixture
+for (sidebar.priority.*, `chat`) make one chat there per launch (session/new on `replay` in the sweep's scratch
+folder, one replayed turn so the row is not idle) and name it `agent-chat:<session id>` once the Priority entries
+list it; 270's history chat is that chat after its tab closes. The Priority row actions are unavailable while
+`sidebar.priorityView.enabled` is off, its default, and each restore's restore_settings turns it off again; a family
+has no per-sample settings step (PREPARE runs actions, an ArgumentFixture runs once per row). Add a family `SETTINGS`
+table, {action id: {setting path: value}}, that the sweep sets through `settings.set` in ready() before describe and
+that restore_settings takes back like any other change (load_families refuses an id two tables set). Chrome
+reference: chrome/browser/ui/browser_commands_unittest.cc and chrome/test/base/testing_profile.cc make the profile
+state a command needs inside the test (prefs through the test's PrefService) and drop it after. Test:
+session_states_test.py (the fixture names the made chat, SETTINGS is set before each sample and back after it, the
+plan runs the 3 ids); every-action-sweep.py --plan-only; fleet, `every-action-sweep.py --only` the 3 ids and
+sidebar.chat.togglePin green twice.
 
 The workspace, home and space action cases (076, `tests/oracle/corpus/actions/workspace/_tuning.json`) found four
 divergences. Each case records today's answer and its note names the task below; the task changes the case's tuning
@@ -1292,6 +1366,54 @@ size, title, cwd equal after restart; old arm expects the documented host-loss r
 **091 Tours** (23, waits become waitFor/settle). **092-097 e2e** (66 scripts in 6 batches of 11; each converted case fails on its cited
 bug's parent). **225 live** (106 scripts, `scripts/cmux-next/oracle/live-map.json`, 8 batches of 13).
 
+**Follow-ups of 225.** Every live script that 225 excludes names one of these tasks (or the suite's task that covers
+it) in `gen_live.py` EXCLUSIONS, and `gen_live.py --check` refuses an exclusion without a WORK.tsv task (rule 6).
+Each task moves its scripts from EXCLUSIONS to CONVERSIONS, regenerates `live-map.json`, and runs each new case
+twice on the fleet (`driver_app.py run-case --repeat 2`).
+
+**350 Pointer step.** Files: `case-v1.schema.json`, `driver_app.py`, `gen_live.py`. A `pointer` step (move, click,
+right-click, double-click, drag with its points in a window's or a facet row's coordinates) sent through
+`debug.mouse`, as Kombucha's MoveMouseTo, ClickMouse and DragMouseTo verbs (ui/views/interaction/
+interactive_views_test.h); an open context menu's rows in the overlays facet. Converts agent-pane-menu,
+cef-native-ui, chromium-popups, clickthrough, devtools-resize, group-editor, hovercard-delay, omnibar-pointer,
+sidebar-v2-drag, terminal-cmd-click, titlebar-double-click and the pointer halves of other cases.
+
+**351 App restart step.** Files: `driver_app.py`, `gen_live.py`. case-v1 already has `restart` with `process: app`;
+driver_app.py quits the app (TagTeardown keeps the state root), relaunches it on the same root and records the exit
+status for I17, as Chrome's PRE_ browser tests restart on the same user-data dir (content/public/test/test_launcher.cc).
+Converts browser-post-replay, browser-restore, downloads-relaunch, quit-hidden-chromium, update-card-close,
+updated-card-close and the relaunch halves of reopen-closed-history and sidebar-group-menu.
+
+**352 Web fixture: https, basic auth, PDF.** Files: `webfixture.py`, `tests/oracle/fixtures/web/`. A second loopback
+origin over TLS with a certificate made per run (net::EmbeddedTestServer's TYPE_HTTPS with CERT_EXPIRED and
+CERT_MISMATCHED_NAME), an `/auth-basic` route (default_handlers.cc HandleAuthBasic) and an inline PDF route.
+Converts browser-challenges and pdf, and the certificate interstitial check of error-pages.
+
+**353 Scripts outside reach.** Files: `gen_live.py`, `live-map.json`. The network, host and evidence scripts (real
+services such as the Chrome Web Store, the staging Cloud API and Google Chrome over CDP; macOS services; captures)
+each get a loopback stand-in case where one can hold its check, or a written retirement agreed with the script's
+owner (OWNERS.md) that keeps it a manual live check outside the oracle.
+
+**354 Chief over mock_chief.py.** Files: `driver_app.py`, `mock_chief.py`, `gen_live.py`. `fixture.agent: chief`
+starts the app's Chief owner, Home and the ACP agent pane over mock_chief.py and the fake ACP agent (scripted
+replies, no model, no login), as 240 does for the daemon. Converts the chief-*, home-* and html-file-menu scripts
+that need a brain but not a real model.
+
+**355 Per-case launch.** Files: `case-v1.schema.json`, `hermetic_env.py`, `driver_app.py`, `gen_live.py`.
+`fixture.launch` names a launch variant from a closed list (the recording build env for external opens, extra CEF
+switches, a browser-import home, a tunables file, a seeded state root, a copied bundle); hermetic_env.py builds it and
+the bench launch applies it, as Chrome's browser tests set their command line in SetUpCommandLine. Converts the
+launch scripts.
+
+**356 Facets for debug.* reads.** Files: `snapshot-v1.schema.json`, the CmuxNextOracle and App/Oracle providers.
+Each read the no-facet scripts make through a debug.* method (downloads, permission prompts, omnibar suggestion rows,
+hover cards, toolbar and pane chrome buttons, OSC 7501 program status, the agent cursor, window layers) becomes a
+model value of a facet, with no view frames (rule 7). Converts the no-facet scripts.
+
+**357 Local schemes.** Files: `case-v1.schema.json`, `case-v1-mutations.json`, `gen_live.py`. noRemoteUrl takes
+`chrome://` internal pages and `cmux://` pages as local, as it already takes Chromium's debug URLs. Converts
+chrome-internal-pages and page-swap-visible.
+
 **098 Walks + ddmin, 099 at scale (100,000 seeds per daemon switch, both arms).** **207 Crash walks** (`crash_walks.py`): SIGKILL at
 random steps, restart on the same root, state equals last acknowledged sequence. **208 Upgrades** (`gen_upgrades.py`,
 `tests/oracle/fixtures/state-roots/` generated tarballs): last 5 tags, open with head; head-written root opened by the previous tag refuses
@@ -1319,7 +1441,7 @@ counts; failures to the perf owner queue. **236 I16** panic log and lock rank (o
 
 **111 diff --switch**, **112 diff --base/--head**, **202 overlay** (`overlay.py`: additive oracle file set applied with `git apply --3way`;
 else v0 facets; missing facets `not-comparable`), **183 launch-config + bisect-switches**, **184 confirm** (`confirm.py`), **009 select + bisect**
-(`select.py`, `bisect.py`, `tests/oracle/suite-map.json`), **113 engine parity**, **114 platform parity**, **235 Windows parity (stretch)**.
+(`select_suites.py`, `bisect_case.py`: not `select.py`/`bisect.py`, which shadow stdlib modules; `tests/oracle/suite-map.json`), **113 engine parity**, **114 platform parity**, **235 Windows parity (stretch)**.
 
 **115 selftest --mutants** over the 026 patches; fails below 19/20. **191 cargo-mutants** (`mutants.sh`, `cmux-tui/.cargo/mutants.toml`):
 test command `oracle.py run --product daemon --suite daemon-ops,walks --jobs 200`; JSON survivors queue. **190 coverage** (`coverage.py`):

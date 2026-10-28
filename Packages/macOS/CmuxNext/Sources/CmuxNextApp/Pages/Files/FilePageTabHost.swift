@@ -42,7 +42,10 @@ extension FilePageService {
     // MARK: Host services for the tabs
 
     /// Every terminal folder of every window (diff-host.md: the workspace roots).
-    var roots: FileWorkspaceRoots { Self.userChosenRoots(services) }
+    var roots: FileWorkspaceRoots {
+        guard let services else { return FileWorkspaceRoots(folders: []) }
+        return Self.userChosenRoots(services)
+    }
 
     /// Folders the user chose as roots (the `files.roots` setting); never home, `/` or a folder the
     /// host infers (a terminal's working directory).
@@ -57,10 +60,12 @@ extension FilePageService {
     }
 
     fileprivate func recents() -> JSONValue {
-        JSONValue(foundation: services.viewers.recents.hostOpValue(kind.recents)) ?? ["items": []]
+        guard let services else { return ["items": []] }
+        return JSONValue(foundation: services.viewers.recents.hostOpValue(kind.recents)) ?? ["items": []]
     }
 
     fileprivate func chooseFile(start: URL?, for key: String) async -> URL? {
+        guard let services else { return nil }
         var start = start
         if start == nil, let newest = services.viewers.recents.paths(kind.recents).first {
             start = URL(fileURLWithPath: newest).deletingLastPathComponent()
@@ -71,7 +76,8 @@ extension FilePageService {
     }
 
     fileprivate func openAppLink(_ url: URL) -> Bool {
-        CmuxAppLinks.open(url, services: services)
+        guard let services else { return false }
+        return CmuxAppLinks.open(url, services: services)
     }
 }
 
@@ -114,6 +120,7 @@ final class FilePageTabHost: FilePageHosting {
 
 extension FilePageService {
     fileprivate func servicesRecord(_ url: URL) {
+        guard let services else { return }
         services.viewers.recents.record(url, as: kind.recents)
     }
 }

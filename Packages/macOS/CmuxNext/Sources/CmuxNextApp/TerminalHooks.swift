@@ -1,3 +1,4 @@
+import CmuxNextFeatures
 import CmuxNextTerminal
 
 /// Connects the terminal module's process-wide hooks to the app's services
@@ -9,13 +10,17 @@ struct TerminalHooks {
 
     func install() {
         GhosttyRuntime.shared.appActionHandler = { [weak services] in services?.terminalDelegate.performAppAction($0) ?? false }
+        // A resized or shown terminal's drawn frame goes into the commit that carries its size (p03-rendering-084).
+        let preCommitPresent = services?.features.isEnabled(.terminalPreCommitPresent) ?? false
+        GhosttyRuntime.shared.hostFramePresenter = preCommitPresent ? TerminalHostFramePresenter.makeIfPresentNeverWaits() : nil
         TerminalKeyEquivalent.menuMayClaim = { [weak services] in services?.keyRouter.menuMayClaim($0) ?? true }
         // A TUI's Command chord (Cmd-C with nothing selected, Cmd-Z, Cmd-A): the tab's daemon
         // encodes it with the program's keyboard modes. A refused key falls back; one that may have
         // arrived (a timeout) does not, so it never reaches the program twice.
         TerminalKeyEquivalent.sendToProgram = { [weak services] session, chord, fallback in
-            guard let services, let key = services.cache.tabKey(for: session),
-                  let (tab, pane) = services.locateTab(key), tab.kind == .pty else { return false }
+            // view-observation-allow: no observation; locateTab is the MachineTabIndex's one lookup (p06-scheduler-051)
+            guard let services, let key = services.cache.tabKey(for: session), let (tab, pane) = services.locateTab(key),
+                  tab.kind == .pty else { return false }
             let surface = tab.surface
             services.daemon(for: pane).send("send-key", onFailure: { failure in if !failure.mayHaveApplied { fallback() } }) { try await $0.sendKeys(surface, [chord]) }
             return true

@@ -17,8 +17,19 @@ public protocol ChromiumHostSupervising: AnyObject {
     /// Runs `ended` on the main thread each time a host this supervisor started ends (a crash, a
     /// kill, a quit), before a restarted host attaches: what cmux showed of that host (its widgets)
     /// goes with it, as Chrome's browser drops a dead GPU process's state when
-    /// `GpuProcessHost::OnProcessCrashed` runs (content/browser/gpu/gpu_process_host.cc).
+    /// `GpuProcessHost::OnProcessCrashed` runs (content/browser/gpu/gpu_process_host.cc). Their order
+    /// with ``ChromiumHostExitReporting/onHostEnded`` is not part of this contract (task 091).
     func observeHostEnds(_ ended: @escaping @MainActor () -> Void)
+}
+
+/// A ``ChromiumHostSupervising`` that can end its running host at once, so the next start gets a new
+/// one: the busy banner's Reload Chromium (task p01-process-084), as Chrome's hung page dialog ends
+/// the renderer that stopped answering (`RenderProcessHost::Shutdown`). A hung UI thread reads no
+/// quit, so this is a kill; the host's end then reaches the runtime as any crash does.
+/// `ChromiumHostSupervisor` conforms (task 080).
+public protocol ChromiumHostReloading: ChromiumHostSupervising {
+    /// Ends the running host (none running: nothing).
+    func reloadHost()
 }
 
 /// One host's wire, as the supervisor hands it to the runtime.
