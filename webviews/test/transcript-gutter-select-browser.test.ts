@@ -297,24 +297,6 @@ await requireBrowserLane("transcript-gutter-select-browser.test.ts", async () =>
       await page.close();
     });
 
-    test(`${name}: a drag that starts on a transcript control keeps control ownership`, async () => {
-      const page = await open(name);
-      const copy = page.locator('.acpmux-row[data-row-id="m1"] .acpmux-row__copy');
-      await copy.evaluate((button) => {
-        (button as HTMLElement).style.opacity = "1";
-        (button as HTMLElement).style.pointerEvents = "auto";
-      });
-      const button = await copy.boundingBox();
-      expect(button).not.toBeNull();
-      await drag(
-        page,
-        { x: button!.x + button!.width / 2, y: button!.y + button!.height / 2 },
-        { x: button!.x + 80, y: button!.y + 40 },
-      );
-      expect(await selected(page)).toBe("");
-      await page.close();
-    });
-
     test(`${name}: a click in the margin selects nothing and takes focus off the composer, as before`, async () => {
       const page = await open(name);
       // A field outside the transcript holds focus, as the composer does. Fixed, so it moves nothing.

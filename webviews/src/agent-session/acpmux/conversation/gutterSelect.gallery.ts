@@ -5,6 +5,7 @@
 import { agentPaneEntry } from "../../../gallery/format";
 import type { PlayContext } from "../../../gallery/play";
 import { assistant, chat, summary, user } from "../../../gallery/fixtures/acpmux";
+import { GAP_KINDS, gapPair } from "./selectionGaps.fixture";
 
 const rows = [
   user("How does the keeper start the night?", 30),
@@ -59,7 +60,8 @@ async function drag(ctx: PlayContext, from: { x: number; y: number }, to: { x: n
     pointerId: 1,
     pointerType: "mouse",
   });
-  scroller.dispatchEvent(new PointerEvent("pointerdown", init(from.x, from.y, 1)));
+  const target = doc.elementFromPoint(from.x, from.y) ?? scroller;
+  target.dispatchEvent(new PointerEvent("pointerdown", init(from.x, from.y, 1)));
   for (let step = 1; step <= 6; step += 1) {
     const at = (a: number, b: number) => a + ((b - a) * step) / 6;
     view.dispatchEvent(new PointerEvent("pointermove", init(at(from.x, to.x), at(from.y, to.y), 1)));
@@ -68,6 +70,44 @@ async function drag(ctx: PlayContext, from: { x: number; y: number }, to: { x: n
   view.dispatchEvent(new PointerEvent("pointerup", init(to.x, to.y, 0)));
   await ctx.waitFor(() => !(view.getSelection()?.isCollapsed ?? true), { capMs: 1500 }).catch(() => undefined);
 }
+
+const gapVariants = Object.fromEntries(
+  GAP_KINDS.flatMap((above) =>
+    GAP_KINDS.map((below) => [
+      `${above}-to-${below}-gap`,
+      {
+        note: `Drag from the gap between ${above} and ${below} rows; the nearest visible text caret starts a new native selection.`,
+        snapshot: chat(gapPair(above, below), { title: "Select through transcript gaps" }),
+        play: async (ctx: PlayContext) => {
+          for (const id of ["upper", "lower"]) {
+            const selector = `[data-row-id="${id}"] .cv-tool.is-toggle`;
+            if (ctx.document.querySelector(selector)) await ctx.click({ selector });
+          }
+          const rects = (id: string) => {
+            const walker = ctx.document.createTreeWalker(ctx.document.querySelector(`[data-row-id="${id}"]`)!, 4);
+            for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+              if (!node.textContent?.startsWith(`${id} keeper`)) continue;
+              const range = ctx.document.createRange();
+              range.selectNodeContents(node);
+              const boxes = Array.from(range.getClientRects());
+              if (boxes.length) return boxes;
+            }
+            throw new Error(`No visible ${id} text`);
+          };
+          const upper = rects("upper").at(-1)!;
+          const lower = rects("lower")[0]!;
+          const column = ctx.document.querySelector('[data-row-id="upper"]')!.getBoundingClientRect();
+          await drag(
+            ctx,
+            { x: (column.left + column.right) / 2, y: (upper.bottom + lower.top) / 2 },
+            { x: lower.left + 180, y: lower.top + lower.height / 2 },
+          );
+          if (ctx.document.getSelection()?.isCollapsed) throw new Error("Gap drag selected no text");
+        },
+      },
+    ]),
+  ),
+);
 
 export default agentPaneEntry({
   id: "agent-pane.gutter-select",
@@ -78,6 +118,11 @@ export default agentPaneEntry({
   anchors: [{ selector: ".acpmux-scroll" }],
   covers: ["agent-session/acpmux/App.tsx#VirtualTranscript"],
   variants: {
+    ...gapVariants,
+    "gaps-ready": {
+      note: "Public tool, prompt, and agent message fixtures for the same before/after gap-selection capture.",
+      snapshot: chat(gapPair("tool", "prompt"), { title: "Select through transcript gaps" }),
+    },
     "from-left-margin": {
       note: "Pressed in the left margin beside the first answer and dragged down into the third: the selection runs from the start of the line beside the press through all three answers, as a document's margin selects.",
       snapshot: chat(rows, { title: "Drag-select from the margin" }),

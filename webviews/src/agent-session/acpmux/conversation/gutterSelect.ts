@@ -80,7 +80,7 @@ type CaretDocument = Document & {
 };
 
 const INTERACTIVE_TARGETS =
-  'button, a[href], input, textarea, select, label, summary, [contenteditable="true"], [role="button"], [role="link"], [role="menuitem"], [role="option"], [role="textbox"], [role="combobox"], [role="listbox"], [role="menu"], [role="dialog"], .cv-worked, .cv-activity, .cv-tool, .cv-iconbtn, .acpmux-row__copy';
+  'button, a[href], input, textarea, select, label, summary, [contenteditable="true"], [draggable="true"], [role="button"], [role="link"], [role="menuitem"], [role="option"], [role="textbox"], [role="combobox"], [role="listbox"], [role="menu"], [role="dialog"], .cv-worked, .cv-activity, .cv-tool, .cv-iconbtn, .acpmux-row__copy';
 
 /// The caret at a client point: the standard caretPositionFromPoint, else WebKit's and older
 /// Chromium's caretRangeFromPoint.
@@ -103,29 +103,47 @@ type CaretHit = { caret: Caret; row: HTMLElement };
 /// virtualization; this check is only used during the one pointerdown that resolves a gap anchor.
 function selectableTextNode(node: Node): boolean {
   const element = node.parentElement;
-  if (!element || element.closest(INTERACTIVE_TARGETS)) return false;
+  if (!element || !node.textContent?.trim()) return false;
   const style = getComputedStyle(element);
-  return style.userSelect !== "none" && style.getPropertyValue("-webkit-user-select") !== "none";
+  return (
+    style.visibility !== "hidden" &&
+    style.userSelect !== "none" &&
+    style.getPropertyValue("-webkit-user-select") !== "none"
+  );
+}
+
+/// Native selection already owns a press on rendered selectable text. An element's padding can
+/// have the same event target as its text, so use the actual text rectangles to distinguish it.
+function hitsText(doc: Document, thread: HTMLElement, x: number, y: number): boolean {
+  const caret = caretAt(doc, x, y);
+  if (!caret || caret.node.nodeType !== 3 || !thread.contains(caret.node) || !selectableTextNode(caret.node))
+    return false;
+  const range = doc.createRange();
+  range.selectNodeContents(caret.node);
+  return Array.from(range.getClientRects()).some(
+    (rect) => x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom,
+  );
 }
 
 /// Finds the closest visible text line around a gap. A line above contributes its end caret, a line
 /// below its start caret; a side gutter uses the line edge nearest that gutter. It walks only the
 /// mounted thread subtree, once at pointerdown, and never runs in the drag's animation-frame path.
-function nearestCaretAtPoint(doc: Document, thread: HTMLElement, x: number, y: number): CaretHit | undefined {
+function nearestCaretAtPoint(
+  doc: Document,
+  thread: HTMLElement,
+  x: number,
+  y: number,
+  view: GutterGeometry["view"],
+): CaretHit | undefined {
   const walker = doc.createTreeWalker(thread, 4);
-  let best: { distance: number; above: boolean; hit: CaretHit } | undefined;
+  let best: { distance: number; above: boolean; edge: number; x: number; y: number } | undefined;
   for (let node = walker.nextNode(); node; node = walker.nextNode()) {
     if (!selectableTextNode(node)) continue;
-    const row = rowOf(node);
-    if (!row) continue;
+    if (!rowOf(node)) continue;
     const range = doc.createRange();
-    try {
-      range.selectNodeContents(node);
-    } catch {
-      continue;
-    }
+    range.selectNodeContents(node);
     for (const rect of Array.from(range.getClientRects())) {
-      if (rect.width <= 0 || rect.height <= 0) continue;
+      if (rect.width <= 0 || rect.height <= 0 || rect.bottom <= view.top || rect.top >= view.bottom) continue;
       const above = y >= rect.bottom;
       const below = y <= rect.top;
       const distance = above ? y - rect.bottom : below ? rect.top - y : 0;
@@ -134,19 +152,29 @@ function nearestCaretAtPoint(doc: Document, thread: HTMLElement, x: number, y: n
         : below
           ? rect.left + 0.5
           : Math.min(Math.max(x, rect.left + 0.5), rect.right - 0.5);
-      const caret = caretAt(doc, lineX, rect.top + rect.height / 2);
-      if (!caret || !thread.contains(caret.node)) continue;
-      const hitRow = rowOf(caret.node);
-      if (!hitRow) continue;
-      const hit = { caret, row: hitRow };
+      const horizontal = Math.max(rect.left - x, x - rect.right, 0);
+      const edge = above ? -rect.right : below ? rect.left : horizontal;
       // Prefer the nearest line. An exact midpoint picks the line above so its end is the stable
       // document-style anchor; moving toward the next row then extends in the expected direction.
-      if (!best || distance < best.distance || (distance === best.distance && above && !best.above)) {
-        best = { distance, above, hit };
+      if (
+        !best ||
+        distance < best.distance - 0.01 ||
+        (Math.abs(distance - best.distance) <= 0.01 &&
+          ((above && !best.above) || (above === best.above && edge < best.edge)))
+      ) {
+        best = {
+          distance,
+          above,
+          edge,
+          x: lineX,
+          y: Math.min(Math.max(rect.top + rect.height / 2, view.top + 1), view.bottom - 1),
+        };
       }
     }
   }
-  return best?.hit;
+  const caret = best ? caretAt(doc, best.x, best.y) : undefined;
+  const row = caret && thread.contains(caret.node) ? rowOf(caret.node) : undefined;
+  return caret && row ? { caret, row } : undefined;
 }
 
 /// The gutter geometry now: the column from a mounted row (rows sit --cv-inset in, the column's
@@ -347,6 +375,7 @@ export function installGutterSelect(
   const onDown = (event: PointerEvent) => {
     if (
       event.button !== 0 ||
+      event.pointerType === "touch" ||
       event.isPrimary === false ||
       event.metaKey ||
       event.ctrlKey ||
@@ -364,10 +393,7 @@ export function installGutterSelect(
     const targetElement = target instanceof Element ? target : undefined;
     const targetRow = targetElement?.closest<HTMLElement>(".acpmux-row");
     const rowGapPress = Boolean(
-      targetRow &&
-      thread.contains(targetRow) &&
-      !targetElement?.closest(INTERACTIVE_TARGETS) &&
-      (targetElement === targetRow || !targetElement?.textContent?.trim()),
+      targetRow && thread.contains(targetRow) && !targetElement?.closest(INTERACTIVE_TARGETS),
     );
     const strip = targetElement?.closest<HTMLElement>(".acpmux-composer-strip");
     const stripPress = Boolean(strip && eventSurface.contains(strip) && !targetElement?.closest(INTERACTIVE_TARGETS));
@@ -385,14 +411,16 @@ export function installGutterSelect(
     const transcriptGap =
       rowGapPress || inBottomBand || stripPress || (directTranscriptTarget && inColumn && !sideGutter);
     if (!sideGutter && !transcriptGap) return;
+    if (rowGapPress && hitsText(doc, thread, event.clientX, event.clientY)) return;
     const point = clampIntoColumn(event.clientX, event.clientY, geometry);
-    const resolved = transcriptGap
-      ? nearestCaretAtPoint(doc, thread, point.x, point.y)
-      : (() => {
-          const caret = caretAt(doc, point.x, point.y);
-          const row = inThread(caret) ? rowOf(caret.node) : undefined;
-          return caret && row ? { caret, row } : nearestCaretAtPoint(doc, thread, point.x, point.y);
-        })();
+    const resolved =
+      transcriptGap || !hitsText(doc, thread, point.x, point.y)
+        ? nearestCaretAtPoint(doc, thread, point.x, point.y, geometry.view)
+        : (() => {
+            const caret = caretAt(doc, point.x, point.y);
+            const row = inThread(caret) ? rowOf(caret.node) : undefined;
+            return caret && row ? { caret, row } : nearestCaretAtPoint(doc, thread, point.x, point.y, geometry.view);
+          })();
     // A plain click in a gap with no mounted text clears an existing transcript selection, while
     // leaving the browser's normal background focus behavior untouched.
     if (!resolved) {
