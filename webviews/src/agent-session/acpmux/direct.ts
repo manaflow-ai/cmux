@@ -2759,10 +2759,22 @@ export class AcpmuxDirectClient {
   }
 
   /// Asks the local daemon to retry the configured peer and wait for its doctor result.
-  /// The daemon returns the refreshed peer list on success and a `peer_unreachable` doctor error
-  /// when the peer remains refused.
-  reconnectPeer(peer: string): Promise<unknown> {
-    return this.request("_acpmux/peer_reconnect", { name: peer, wait: true }, 20_000);
+  /// The daemon returns the refreshed peer list; a settled state other than `connected` is a
+  /// doctor refusal, which the offline banner renders as its failure detail.
+  async reconnectPeer(peer: string): Promise<unknown> {
+    const result = await this.request("_acpmux/peer_reconnect", { name: peer, wait: true }, 35_000);
+    this.readPeers(result);
+    const row = Array.isArray(result?.peers) ? result.peers.find((candidate: any) => candidate?.name === peer) : undefined;
+    if (row?.state !== "connected") {
+      const detail =
+        typeof row?.error === "string"
+          ? row.error
+          : typeof row?.error?.message === "string"
+            ? row.error.message
+            : `peer ${peer} is ${typeof row?.state === "string" ? row.state : "unreachable"}`;
+      throw new Error(detail);
+    }
+    return result;
   }
 
   /// Stops one of the selected session's running subagents (a Claude agent or workflow); acpmux

@@ -30,6 +30,8 @@ nonisolated extension AcpmuxPaneMethods {
         // The pane names the listed chat (its id or `HOST/id`) and takes acpmux's default bounds:
         // no `host`, `limit` or `maxBytes`.
         "_acpmux/peer_snapshot": (["sessionId"], []),
+        // The peer machine to retry; `wait` asks the daemon to include the settled doctor result.
+        "_acpmux/peer_reconnect": (["name", "wait"], []),
         // runRetry sends `{sessionId, subagentId}` for a subagent, `{sessionId}` for a sub-session
         // (its own id) or the chat's own turn.
         "_acpmux/retry": (["sessionId", "subagentId"], []),

@@ -70,6 +70,7 @@ enum Strings {
         case .failed: statusFailed
         case .paused: statusPaused
         case .pausedIdle: statusPausedIdle
+        case .connecting: statusConnecting
         case .connected, .offline, .updateAvailable, .installing: nil
         }
     }
