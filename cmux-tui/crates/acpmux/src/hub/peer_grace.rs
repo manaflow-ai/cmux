@@ -28,10 +28,16 @@ impl Hub {
 
     pub(super) async fn peer_notice_loop(self: Arc<Self>) {
         let Some(mut rx) = self.peer_notices_rx.lock().await.take() else { return };
+        // A dedicated persistent signal: hub.shutdown's stored Notify permit
+        // belongs to the main daemon, including before its waiter registers.
+        let mut stop = self.peer_notices_stop.subscribe();
         // At most one deadline per peer instance. Retries never extend it. A
         // list/ready notice cancels it; removal/replacement invalidates its generation.
         let mut drops: HashMap<(String, u64), Instant> = HashMap::new();
         loop {
+            if *stop.borrow() {
+                break;
+            }
             let deadline = drops.values().copied().min();
             let wait = async {
                 match deadline {
@@ -53,7 +59,7 @@ impl Hub {
                     continue;
                 }
                 // No timer task outlives this loop or daemon shutdown.
-                () = self.shutdown.notified() => break,
+                _ = stop.changed() => break,
             };
             let Some((peer, generation, notice)) = incoming else { break };
             let Some(current) = self.peer(&peer).filter(|p| p.generation == generation) else {
