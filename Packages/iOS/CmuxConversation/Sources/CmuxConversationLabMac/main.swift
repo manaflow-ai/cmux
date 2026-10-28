@@ -40,32 +40,13 @@ do {
 }
 
 if arguments.count > 3 {
-    let fifo = arguments[3]
-    // The reader thread only reads lines and hands them over as Sendable
-    // strings; every command runs on the main actor, one at a time and in
-    // the order written, in the task below, so the compiler checks what the
-    // commands touch.
-    let commands = AsyncStream<String> { continuation in
-        Thread.detachNewThread {
-            // Opened read-write so the pipe never reports EOF between writers;
-            // reading to EOF and reopening dropped lines from back-to-back writes.
-            guard let handle = FileHandle(forUpdatingAtPath: fifo) else { return continuation.finish() }
-            var pending = Data()
-            while true {
-                let chunk = handle.availableData
-                if chunk.isEmpty { continue }
-                pending.append(chunk)
-                guard let lastNewline = pending.lastIndex(of: UInt8(ascii: "\n")) else { continue }
-                let complete = pending[pending.startIndex...lastNewline]
-                pending = Data(pending[pending.index(after: lastNewline)...])
-                for line in String(decoding: complete, as: UTF8.self).split(separator: "\n") {
-                    continuation.yield(String(line))
-                }
-            }
-        }
-    }
+    // Every command runs on the main actor, one at a time and in the order
+    // written; the compiler checks what it touches. The reader reads the
+    // next line only when this loop asks for it, so the pipe is the only
+    // buffer and a writer ahead of the lab waits in the kernel.
+    let commands = LabCommandReader(path: arguments[3])
     Task { @MainActor in
-        for await line in commands {
+        while let line = await commands.nextLine() {
             let reply: String
             if line.hasPrefix("resize ") {
                 let size = line.dropFirst(7).split(separator: "x").compactMap { Double($0) }
@@ -153,6 +134,48 @@ if arguments.count > 3 {
         }
     }
 }
+
+/// Reads the control FIFO a line at a time. Its blocking reads run on its own
+/// serial queue (its executor), never on main or a cooperative pool thread,
+/// and it reads only when the main actor asks for the next line.
+actor LabCommandReader {
+    private nonisolated let queue = DispatchSerialQueue(label: "com.cmuxterm.conversationLab.fifo", qos: .userInitiated)
+    /// Runs the actor on ``queue``.
+    nonisolated var unownedExecutor: UnownedSerialExecutor { queue.asUnownedSerialExecutor() }
+
+    private let path: String
+    private var handle: FileHandle?
+    private var opened = false
+    /// Bytes read after the last whole line.
+    private var pending = Data()
+
+    init(path: String) {
+        self.path = path
+    }
+
+    /// The next non-empty line, or nil when the FIFO can't be opened.
+    func nextLine() -> String? {
+        if !opened {
+            opened = true
+            // Opened read-write so the pipe never reports EOF between writers;
+            // reading to EOF and reopening dropped lines from back-to-back writes.
+            handle = FileHandle(forUpdatingAtPath: path)
+        }
+        guard let handle else { return nil }
+        while true {
+            if let newline = pending.firstIndex(of: UInt8(ascii: "\n")) {
+                let line = String(decoding: pending[pending.startIndex..<newline], as: UTF8.self)
+                pending = Data(pending[pending.index(after: newline)...])
+                if line.isEmpty { continue }
+                return line
+            }
+            let chunk = handle.availableData
+            if chunk.isEmpty { continue }
+            pending.append(chunk)
+        }
+    }
+}
+
 @MainActor
 func labSnapshot(path: String) -> String {
     guard let window = NSApp.windows.first(where: { $0.identifier?.rawValue == "cmux.conversationLab" }),
