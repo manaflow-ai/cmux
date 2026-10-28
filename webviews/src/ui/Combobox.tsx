@@ -155,7 +155,9 @@ export function Combobox({
   }, [keep]);
   const held = keep && tallest > 0;
   const hasPinned = Boolean(pinnedSuggestions?.length);
-  const enabledSuggestions = suggestions.filter((item) => !isItemDisabled?.(item));
+  const enabledSuggestions = suggestions.filter(
+    (item) => !isItemDisabled?.(item) && (!pinnedSuggestions?.includes(item) || !value.trim()),
+  );
   const disabledSuggestions = suggestions.filter(
     (item) => isItemDisabled?.(item) && !pinnedSuggestions?.includes(item),
   );
