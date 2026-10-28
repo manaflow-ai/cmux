@@ -202,6 +202,7 @@ export function projectRows<T extends { cwd: string; label: string; repo?: Proje
     id: project.cwd,
     label: project.label,
     ...(project.repo ? { repo: project.repo } : {}),
+    ...(isScratchFolder(project.cwd) ? { scratch: true } : {}),
     project,
   }));
   // Scratch folders stay available to the searchable project menu, but do not become
