@@ -4486,7 +4486,7 @@ jobs:
   request-nightly-next-fast:
     needs: [release-compile-fast, release-compile-fast-admission]
     if: github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.release-compile-fast.result == 'success' && needs.release-compile-fast.outputs.verdict == 'pass' && needs.release-compile-fast-admission.result == 'success'
-    runs-on: ubuntu-latest # github-hosted-required: nightly path never waits on Blacksmith
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions:
       actions: write
@@ -4497,6 +4497,8 @@ jobs:
           persist-credentials: false
           ref: ${{ github.sha }}
           fetch-depth: 1
+      - name: Drop stale submodule checkouts (self-hosted reused workspace)
+        run: scripts/ci/reset-stale-submodules.sh
       - name: Request nightly-next promotion from the fast-check gate
         env:
           GH_TOKEN: ${{ github.token }}
@@ -4506,7 +4508,7 @@ jobs:
   request-nightly-next:
     needs: release-compile
     if: github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.release-compile.result == 'success'
-    runs-on: ubuntu-latest # github-hosted-required: nightly path never waits on Blacksmith
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions:
       actions: write
