@@ -405,11 +405,7 @@ const Mark = memo(function Mark({
   const label =
     prompt === undefined
       ? ""
-      : t(bookmarked ? "minimap.tickBookmarked" : "minimap.tick", {
-          index: mark.turn + 1,
-          count,
-          prompt,
-        });
+      : t(bookmarked ? "minimap.tickBookmarked" : "minimap.tick", { index: mark.turn + 1, count, prompt });
   const bar = <span className="acpmux-minimap__bar" style={{ transform: `scaleX(${length / TICK_BOX})` }} />;
   if (mark.kind === "agent")
     return (
