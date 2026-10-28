@@ -4,6 +4,7 @@ public import CmuxNextAccounts
 import CmuxNextCloud
 import CmuxNextCodeRouter
 import CmuxNextSettings
+import struct CmuxNextDaemon.LoginEnvironment
 import Foundation
 import os
 import CmuxNextCompat
@@ -195,7 +196,7 @@ extension GitHubConnections {
             }
             var headers: [String: String] = [:]
             if let team = backendTeam(project: auth.configuration.stackProjectID, stackTeam: bound.team) { headers["x-cmux-team"] = team }
-            let response = try await transport.post(mutationKey != nil ? "v1/ops" : "v1/read", json: JSONEncoder().encode(JSONValue.object(body)), bearer: access, headers: headers)
+            let response = try await transport.post(mutationKey != nil ? "v1/ops" : "v1/read", json: Data(JSONValue.object(body).compactText.utf8), bearer: access, headers: headers)
             guard current() == bound else { throw GitHubFailure.changedAccount }
             let reply = try JSONValue.parse(response.body)
             guard (200..<300).contains(response.status), (reply["error"] == nil || reply["error"] == .null), reply["ok"] != .bool(false), let value = reply["value"] else { throw GitHubFailure.refused }
