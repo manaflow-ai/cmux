@@ -23,19 +23,18 @@ final class HomeFirstRunIntro: NSView {
         label.isSelectable = false
         label.setAccessibilityRole(.staticText)
         addSubview(label)
-        setAccessibilityElement(true)
-        setAccessibilityRole(.group)
+        // The text is the element VoiceOver reads; the bubble itself adds nothing (as the hero does).
+        setAccessibilityElement(false)
     }
 
     required init?(coder: NSCoder) { nil }
 
     nonisolated override var isFlipped: Bool { true }
 
-    /// Sets the intro text; the bubble reads it aloud as one group.
+    /// Sets the intro text.
     func setText(_ text: String) {
         guard label.stringValue != text else { return }
         label.stringValue = text
-        setAccessibilityLabel(text)
         needsLayout = true
     }
 
