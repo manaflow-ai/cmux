@@ -403,6 +403,10 @@ impl Controller {
             inner.closed = true;
         }
         let _lifecycle = self.lifecycle.lock().await;
+        self.shutdown_locked().await
+    }
+
+    async fn shutdown_locked(&self) -> Result<(), String> {
         {
             let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
             inner.generation = inner.generation.wrapping_add(1);
