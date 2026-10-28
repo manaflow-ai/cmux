@@ -46,14 +46,14 @@ on:
 permissions: {}
 
 # One probe at a time: a second waits instead of racing the first one's writes.
-# The group is keyed by the watch's runner label. On 2026-10-28 every
-# Blacksmith Linux size stopped starting jobs from about 20:00Z; run
-# 40758329180's watch sat queued on 16 vCPU Linux and held a single group, so
-# each later scheduled run was replaced while pending and nothing decided.
-# A watch stuck on one label now never blocks a watch on another, so moving
-# the watch (CI_CONTROL_RUNNER) frees the next run at once.
+# The group is fixed on purpose: the switch's variable writes and record delete
+# are separate calls, so two watches must never run at once. A run whose probe
+# never starts cannot hold it for long: the watch runs on a pool the probe does
+# not test (below), decides within CI_CLOUD_PROBE_MINUTES, and force-cancels its
+# own run. On 2026-10-28 the watch sat queued on Blacksmith Linux beside its
+# probe instead, so the group stayed held for an hour.
 concurrency:
-  group: ci-cloud-overflow-probe-${{ vars.CI_CONTROL_RUNNER || 'blacksmith-6vcpu-macos-26' }}
+  group: ci-cloud-overflow-probe
   cancel-in-progress: false
 
 jobs:
@@ -84,7 +84,7 @@ jobs:
     # on 16 vCPU beside its probe. Blacksmith macOS is a separate pool, so the
     # watch can always decide (and put overflow back) whatever Linux does.
     # CI_CONTROL_RUNNER, when set, moves it (an owned Mac label, for one).
-    runs-on: ${{ vars.CI_CONTROL_RUNNER || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_CONTROL_RUNNER || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 25
     permissions:
       actions: write

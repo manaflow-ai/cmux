@@ -170,6 +170,29 @@ class NightlyPooledRoutingTests(unittest.TestCase):
         self.assertIn("scripts/cmux-next/request-nightly-next.sh --tree-ready", text)
         self.assertIn("cancel-in-progress: false", text)
 
+    def test_control_jobs_can_leave_blacksmith_linux_with_one_variable(self) -> None:
+        """CI_CONTROL_RUNNER moves the tick and the feed watch off Blacksmith Linux.
+
+        2026-10-28: every Blacksmith Linux size stopped starting jobs for over an
+        hour while Blacksmith macOS served; these light jobs had nowhere else to go.
+        Unset, they keep their Blacksmith Linux default.
+        """
+        for name, job in (("nightly-next-tick.yml", "request"), ("nightly-next-feed-watch.yml", "watch")):
+            text = (WORKFLOWS / name).read_text(encoding="utf-8")
+            body = text[text.index(f"\n  {job}:\n"):]
+            runs_on = re.search(r"^    runs-on: (.+)$", body, re.MULTILINE).group(1)
+            with self.subTest(workflow=name):
+                self.assertEqual(runs_on, "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
+                                          "vars.CI_CONTROL_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }}")
+
+    def test_the_tick_hashes_without_gnu_coreutils(self) -> None:
+        """The tick may run on macOS (CI_CONTROL_RUNNER), where sha256sum is not guaranteed."""
+        text = (WORKFLOWS / "nightly-next-tick.yml").read_text(encoding="utf-8")
+        for line in text.splitlines():
+            if "sha256sum" in line and not line.lstrip().startswith("#"):
+                with self.subTest(line=line.strip()):
+                    self.assertIn("shasum -a 256", line)
+
     def test_no_workflow_reads_the_retired_decide_runner_variable(self) -> None:
         """CI_NIGHTLY_DECIDE_RUNNER named a Blacksmith pool and is deleted."""
         for path in sorted(WORKFLOWS.glob("*.yml")):

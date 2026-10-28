@@ -458,7 +458,8 @@ class WorkflowTests(unittest.TestCase):
         # Never Blacksmith Linux: the probe only asks for Blacksmith Linux, and on 2026-10-28 every Linux
         # size stopped at once while the watch queued on 16 vCPU beside its probe. Blacksmith macOS, or
         # CI_CONTROL_RUNNER when set, so the watch can decide and put overflow back whatever Linux does.
-        self.assertEqual(runs_on, "${{ vars.CI_CONTROL_RUNNER || 'blacksmith-6vcpu-macos-26' }}")
+        self.assertEqual(runs_on, "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || "
+                                  "vars.CI_CONTROL_RUNNER || 'blacksmith-6vcpu-macos-26' }}")
         self.assertNotIn("ubuntu", runs_on)
         self.assertTrue(switch.LINUX_FAILOVER.startswith("blacksmith-16vcpu-"))
         self.assertNotEqual(switch.LINUX_FAILOVER, switch.DEFAULT_PROBE_LABEL)
@@ -470,11 +471,11 @@ class WorkflowTests(unittest.TestCase):
             self.assertTrue(passed, name)
         self.assertIn("force-cancel", self.text)
 
-    def test_a_watch_stuck_on_one_label_never_holds_another_labels_group(self) -> None:
-        # 2026-10-28: run 40758329180's watch sat queued on Blacksmith Linux and held the one group,
-        # so every later scheduled run was replaced while pending and nothing decided.
+    def test_one_fixed_group_so_two_watches_never_write_at_once(self) -> None:
+        # The switch's variable writes and record delete are separate calls; a group keyed by anything a
+        # run can change (a variable, an input) would let two watches interleave them.
         group = re.search(r"(?m)^concurrency:\n  group: (.*)$", self.text).group(1)
-        self.assertEqual(group, "ci-cloud-overflow-probe-${{ vars.CI_CONTROL_RUNNER || 'blacksmith-6vcpu-macos-26' }}")
+        self.assertEqual(group, "ci-cloud-overflow-probe")
         self.assertIn("  cancel-in-progress: false\n", self.text)
 
     def test_watch_uses_existing_route_app_credentials(self) -> None:

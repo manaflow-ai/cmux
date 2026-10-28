@@ -992,19 +992,23 @@ on hosted Ubuntu queued 94 minutes behind the switch's own failover; on
 2026-10-28 (about 20:00Z to 21:15Z) every Blacksmith Linux size stopped at
 once and the watch queued on 16 vCPU Linux beside its probe. Both times the
 stuck run held the workflow's concurrency group and every later run was
-replaced with nothing decided. The group is now keyed by the watch's label,
-so a run stuck on one label never holds a run on another.
+replaced with nothing decided. The group stays one fixed group (two watches
+must never interleave the switch's writes); a watch that starts decides within
+`CI_CLOUD_PROBE_MINUTES` and force-cancels its own run, so it never holds the
+group for long.
 
 `CI_CONTROL_RUNNER` (unset by default) also moves the light nightly control
-jobs off Blacksmith Linux: `nightly-next-tick.yml` (request),
-`nightly-next-feed-watch.yml` (watch) and `nightly.yml`
-(promote-nightly-next). Set it to a label that starts while Blacksmith Linux
-does not, for example `blacksmith-6vcpu-macos-26`; delete it to put them back
-on `blacksmith-2vcpu-ubuntu-2404`. The watch has run on that macOS label; the
-other three are plain bash, Python and gh but had not run on macOS when this
-was added, so read the first run after setting it. This moves only control
-jobs: a nightly's Linux cross-builds still wait for Blacksmith Linux (or the
-break-glass `LINUX_RUNNER` change below).
+jobs off Blacksmith Linux: `nightly-next-tick.yml` (request) and
+`nightly-next-feed-watch.yml` (watch). Set it to a label that starts while
+Blacksmith Linux does not, for example `blacksmith-6vcpu-macos-26`; delete it
+to put them back on `blacksmith-2vcpu-ubuntu-2404`. The overflow watch has
+run on that macOS label; the tick and feed watch are plain bash, Python and gh
+(the tick hashes with `shasum` where `sha256sum` is missing) but had not run
+on macOS when this was added, so read the first run after setting it.
+`promote-nightly-next` stays on its literal Blacksmith Linux label: it holds
+the release App credentials, which only a literal ephemeral label may carry.
+This moves only control jobs: a nightly's Linux cross-builds still wait for
+Blacksmith Linux (or the break-glass `LINUX_RUNNER` change below).
 
 - **The probe waits `CI_CLOUD_PROBE_MINUTES` (default 5, 2 to 20) with no
   runner.** Overflow goes off. The switch first writes the

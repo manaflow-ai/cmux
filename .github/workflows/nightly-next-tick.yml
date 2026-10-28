@@ -171,7 +171,7 @@ jobs:
           if [[ "${1:-}" == api ]]; then
             case "${!#}" in
               repos/*/actions/workflows/cmux-next.yml/runs\?*|repos/*/actions/runs/*/jobs\?*)
-                file="$GH_TICK_CACHE/$(printf '%s\n' "$*" | sha256sum | cut -c1-40)"
+                file="$GH_TICK_CACHE/$(printf '%s\n' "$*" | { command -v sha256sum >/dev/null && sha256sum || shasum -a 256; } | cut -c1-40)"
                 [[ -s "$file" ]] && { cat "$file"; exit 0; }
                 "$GH_REAL" "$@" > "$file.$$" || { rc=$?; cat "$file.$$"; rm -f "$file.$$"; exit "$rc"; }
                 mv "$file.$$" "$file" && cat "$file"
