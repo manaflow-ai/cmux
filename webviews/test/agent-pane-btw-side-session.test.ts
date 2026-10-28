@@ -63,6 +63,7 @@ await requireBrowserLane("agent-pane-btw-side-session.test.ts", async () => {
     },
   ];
   let seq = opening.length;
+  let capabilities: string[] = ["btw-inline-v1"];
   const btws: Record<string, unknown>[] = [];
   const prompts: Record<string, unknown>[] = [];
   const cancels: Record<string, unknown>[] = [];
@@ -106,7 +107,7 @@ await requireBrowserLane("agent-pane-btw-side-session.test.ts", async () => {
         return {
           result: {
             protocolVersion: 1,
-            _meta: { acpmux: { origin: "local", extensions: [], capabilities: ["btw-inline-v1"] } },
+            _meta: { acpmux: { origin: "local", extensions: [], capabilities } },
           },
         };
       case "_acpmux/watch":
@@ -209,11 +210,15 @@ await requireBrowserLane("agent-pane-btw-side-session.test.ts", async () => {
   /// Opens `session` with an optional explicit Side sessions (/btw) value (the `sideSessions` of
   /// the header state the app answers `pane.tabState` with), recording what the page asks the app to open
   /// (`chat.sideChat`) on top of the dev host. Omitting it exercises the shipped default.
-  async function openChat(session: string, gate?: boolean): Promise<Page> {
+  async function openChat(session: string, gate?: boolean, inline = true): Promise<Page> {
+    capabilities = inline ? ["btw-inline-v1"] : [];
     btws.length = 0;
     prompts.length = 0;
     cancels.length = 0;
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
+    await page.exposeFunction("btwNative", (params: Record<string, unknown>) =>
+      answer("_acpmux/btw", { ...params, inline: true }),
+    );
     await page.addInitScript((gate: boolean | undefined) => {
       const sideChats: unknown[] = [];
       const handlers: Record<string, unknown> = {};
@@ -231,6 +236,18 @@ await requireBrowserLane("agent-pane-btw-side-session.test.ts", async () => {
                   id: message.id,
                   value: { ...(gate === undefined ? {} : { sideSessions: gate }), version: 1 },
                 });
+              if (message?.t === "call" && message.op === "cmux.agent.chat.btw.inline") {
+                const native = window as unknown as {
+                  btwNative(params: unknown): Promise<{ result?: unknown; error?: { message: string } }>;
+                };
+                return native
+                  .btwNative(message.params)
+                  .then((reply) =>
+                    reply.error
+                      ? { t: "err", id: message.id, code: "btw_failed", message: reply.error.message }
+                      : { t: "ok", id: message.id, value: reply.result },
+                  );
+              }
               if (message?.t === "call" && message.op === "cmux.agent.chat.sideChat") {
                 sideChats.push(message.params);
                 // A test sets `refuseSideChat`: the app does not open the side session.
@@ -290,6 +307,16 @@ await requireBrowserLane("agent-pane-btw-side-session.test.ts", async () => {
       await page.getByText("The main turn is still running.", { exact: false }).waitFor();
       expect(await aside.count()).toBe(0);
       expect(cancels).toEqual([]);
+      await page.close();
+    });
+
+    test("an older daemon gets the legacy request and opens the side chat", async () => {
+      const page = await openChat(MAIN, true, false);
+      await type(page, `/btw ${QUESTION}`);
+      await page.locator(".acpmux-btw-note").getByText("Opened a side session for this question.").waitFor();
+      expect(btws).toEqual([{ sessionId: MAIN, question: QUESTION }]);
+      expect(await sideChats(page)).toEqual([{ sessionId: SIDE }]);
+      expect(prompts).toEqual([]);
       await page.close();
     });
 

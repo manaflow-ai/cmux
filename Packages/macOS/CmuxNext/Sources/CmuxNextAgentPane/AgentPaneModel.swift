@@ -438,7 +438,7 @@ public final class AgentPaneModel {
             released = true
             return AgentPaneReply.success(["transferred": true, "promptId": request.retryPromptID, "ticket": ticket])
         case .btwInline(let question, let sessionId):
-            guard userGesture, transport.gestures.consume() else { return Self.transportFailure(.gestureRequired) }
+            guard transport.gestures.consume() else { return Self.transportFailure(.gestureRequired) }
             guard !remoteChat, self.sessionId == sessionId, let socketPath = transport.socketPath else { return Self.unsupported("chat.btw.inline") }
             do {
                 let result = try await AcpmuxStatusClient.call(socketPath: socketPath, method: "_acpmux/btw",

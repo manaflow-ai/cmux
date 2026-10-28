@@ -456,7 +456,7 @@ import { sessionReplay } from "./replay/replay.experiment";
 import { useSideSessions } from "./aside/sideSessions";
 import { BtwNotes, type BtwRow as InlineBtwRow } from "./aside/btwNotes";
 import { BtwAside } from "./aside/BtwAside";
-import { supportsBtwInline } from "./btwCapability";
+import { askBtwQuestion } from "./btwCapability";
 import { ReceivedResult, SuggestedTasks, type OfferActions } from "./offer/SuggestedTasks";
 import { OFFER_RESULT, setSuggestedTasks } from "./offer/offersShown";
 import { offerWorktree } from "./offer/offerWorktree";
@@ -6795,7 +6795,7 @@ function AcpmuxPane() {
         ...startingRows.map((row) => ({ id: row.id, prompt: row.text, sending: true })),
       ];
     return withDraftFolder(withCommands, projectDraft);
-  }, [snapshot, projectDraft, continueAvailable, forkable, forkSeq, isSideSession, startingRows]);
+  }, [snapshot, projectDraft, continueAvailable, forkable, forkSeq, isSideSession, quick, startingRows]);
   useEffect(() => {
     if (snapshot.sessionId) setProjectDraft(undefined);
   }, [snapshot.sessionId]);
@@ -7815,8 +7815,6 @@ function AcpmuxPane() {
           },
           // `/btw <question>`: acpmux starts the side session; the composer then opens it.
           "chat.btw": ({ question }) => client.btw(String(question ?? "")),
-          "chat.btw.inline": ({ question, sessionId }) =>
-            client.askBtw(String(question ?? ""), String(sessionId ?? "")),
           "chat.side": async ({ throughSeq }) => {
             // The chat it is beside, read before the fork (the reader may open another chat meanwhile).
             const chat = client.selectedSession;
@@ -9372,16 +9370,16 @@ function AcpmuxPane() {
                   [...turnRowsShown]
                     .reverse()
                     .find((row) => ![WORKING, THINKING, ACTIVITY_LINE, DATE].includes(row.kind)),
-                  async (question, sessionId) => {
-                    // Older daemons ignore `inline` and would leave a real side session running.
-                    // Gate the new reply shape on the daemon capability; legacy /btw remains safe.
-                    if (!supportsBtwInline(client.capabilities)) {
-                      const side = await client.btw(question, sessionId);
-                      await postNative("chat.sideChat", { sessionId: side });
-                      return translate("sideQuestion.opened");
-                    }
-                    return callNative<string>("chat.btw.inline", { question, sessionId });
-                  },
+                  (question, sessionId) =>
+                    askBtwQuestion(client, question, sessionId, {
+                      inline: (question, sessionId) =>
+                        postNative<{ text: string }>("chat.btw.inline", { question, sessionId }).then(
+                          (reply) => reply.text,
+                        ),
+                      openSide: (sessionId) => postNative("chat.sideChat", { sessionId }),
+                      openedMessage: () => translate("sideQuestion.opened"),
+                      staleMessage: () => translate("error.notOpen"),
+                    }),
                 );
                 // The pending aside keeps the whole question; typing and the main turn continue.
                 return true;
