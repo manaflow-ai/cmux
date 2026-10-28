@@ -35,7 +35,7 @@ extension WorkspaceTabsSource {
     public func tabs(of pane: WorkspaceLayout.Pane) -> [WorkspaceTab] { pane.tabIDs.compactMap(workspaceTab) }
 
     /// Runs one pane action on the Mac; a refusal shows in the toast ("Couldn't zoom Pane 2.").
-    private func onMac(_ verb: String, _ title: String, _ body: (any WorkspacePaneBackend, Workspace) async throws -> Void) async {
+    private func onMac(_ verb: String, _ title: String, _ body: @MainActor (any WorkspacePaneBackend, Workspace) async throws -> Void) async {
         guard let workspace, let paneBackend else { return show("Connect to \(macName) first.") }
         do {
             try await body(paneBackend, workspace)
@@ -55,7 +55,7 @@ extension WorkspaceTabsSource {
     }
 
     private func openInNewPane(_ pane: WorkspaceLayout.Pane, verb: String,
-                               _ open: (any WorkspacePaneBackend, Workspace) async throws -> WorkspaceTab) async {
+                               _ open: @MainActor (any WorkspacePaneBackend, Workspace) async throws -> WorkspaceTab) async {
         guard pendingTabTitle == nil else { return }
         pendingTabTitle = "New Terminal"
         defer { pendingTabTitle = nil }
