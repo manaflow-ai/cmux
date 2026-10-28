@@ -1579,45 +1579,6 @@ def test_automatic_lane_stays_on_cmux_internal_identity() -> None:
     assert "needs.upload.outputs.assign_internal_group == '1'" in assignment
 
 
-if __name__ == "__main__":
-    test_literal_block_accepts_whitespace_only_lines()
-    test_scheduled_uploads_filter_for_ios_affecting_main_changes()
-    test_internal_schedule_polls_every_twenty_minutes()
-    test_schedule_decision_executes_ios_path_filter()
-    test_phone_push_dependency_change_schedules_ios_upload()
-    test_truncated_schedule_comparison_fails_open()
-    test_schedule_comparison_failure_fails_open()
-    test_unchanged_scheduled_head_skips_without_comparing()
-    test_schedule_decision_routes_demo_cron_to_demo_history()
-    test_schedule_decision_routes_internal_cron_to_internal_history()
-    test_decision_rejects_unknown_schedule_and_dispatch_variant()
-    test_demo_history_skips_newer_internal_artifact()
-    test_history_lookup_ignores_long_idle_workflow_run_history()
-    test_history_lookup_paginates_artifacts_and_selects_newest()
-    test_scheduled_run_skips_when_upload_history_is_unavailable()
-    test_manual_run_builds_when_upload_history_is_unavailable()
-    test_manual_demo_dispatch_builds_even_when_head_already_uploaded()
-    test_manual_override_artifact_is_excluded_from_canonical_history()
-    test_manual_run_waits_for_an_earlier_upload()
-    test_manual_run_waits_before_upload_job_exists()
-    test_ordering_retries_transient_api_failures()
-    test_ordering_ignores_later_active_runs()
-    test_ordering_skips_defunct_queued_prior_run()
-    test_manual_run_waits_behind_a_scheduled_upload()
-    test_internal_poll_skips_instead_of_queueing_behind_an_upload()
-    test_internal_poll_skips_when_ordering_cannot_be_checked()
-    test_demo_schedule_still_waits_for_an_earlier_upload()
-    test_demo_schedule_retries_ordering_api_errors()
-    test_internal_poll_skips_inputs_that_already_failed_to_upload()
-    test_internal_poll_retries_failed_inputs_after_an_ios_change()
-    test_failed_upload_skip_ignores_other_failures()
-    test_mapping_keys_normalizes_quoted_yaml_keys()
-    test_testflight_notes_use_the_same_ios_path_contract()
-    test_scheduled_and_manual_runs_use_independent_concurrency_groups()
-    test_automatic_lane_stays_on_cmux_internal_identity()
-    print("all iOS TestFlight scheduling tests passed")
-
-
 def test_upload_ordering_never_sleeps_or_holds_a_runner() -> None:
     # The decide job once slept 60 s up to 300 times (maxWaits=300), holding a
     # Linux runner for up to five hours and listing every earlier run's jobs on
@@ -1662,3 +1623,12 @@ def test_queued_run_saves_its_marker_and_the_upload_hands_the_queue_on() -> None
         "&& github.ref == 'refs/heads/main' }}"
     ) in handoff
     assert "queue.reconcile(" in handoff
+
+
+if __name__ == "__main__":
+    # Every test in this file, so a new or renamed test can never be skipped
+    # by the CI guard that runs this file directly.
+    for name, test in list(globals().items()):
+        if name.startswith("test_") and callable(test):
+            test()
+    print("all iOS TestFlight scheduling tests passed")
