@@ -26,6 +26,12 @@ extension HomeNativeTranscriptView {
         firstRun.setMemoryOffer(title)
     }
 
+    /// Shows the Chief's first-open message above the first-run panel's hero. The host calls it once
+    /// per install (``ChiefIntroStore``); the bubble rises in the first time it shows.
+    public func showFirstRunIntro() {
+        firstRun.setIntro(HomeStrings.firstRunIntro)
+    }
+
     /// The Chief's avatar as the host resolved it (its picture, else its text: the profile's, or
     /// 🫡 for a Chief with none, `HomeChiefAvatar.headerText`), on the header and the first-run hero.
     public func setChiefAvatar(picture: NSImage?, text: String?) {

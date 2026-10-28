@@ -1203,6 +1203,30 @@ class SameTreeIsAnEvent(unittest.TestCase):
         self.assertEqual(route["permissions"].get("actions"), "read")
         self.assertEqual(route["permissions"].get("contents"), "read")
 
+    def test_path_route_probes_fail_open_inside_the_job_limit(self):
+        # A slow probe (2026-10-27: one fetch per active artifacts run during a
+        # lane-branch push burst) once held path routing past its job limit; the
+        # cancelled job skipped every Release compile and swift test. Each probe
+        # stops at its own limit and fails open, so routing still succeeds.
+        route = self.jobs()["path_route"]
+        probes = [step for step in route["steps"] if "pin-cmux-tui.sh probe" in step.get("run", "")]
+        self.assertEqual(len(probes), 2)
+        for step in probes:
+            with self.subTest(step=step["name"]):
+                self.assertIs(step.get("continue-on-error"), True)
+                self.assertLessEqual(int(step["timeout-minutes"]), 2)
+                budget = int(step["env"]["CMUX_TUI_TREE_RUN_FETCH_SECONDS"])
+                self.assertLess(budget, 60 * int(step["timeout-minutes"]))
+        self.assertGreater(int(route["timeout-minutes"]), sum(int(step["timeout-minutes"]) for step in probes) + 2)
+        report = next(step for step in route["steps"] if step.get("name") == "Report a probe that failed open")
+        self.assertIn("steps.tree.outcome == 'failure'", report["if"])
+        self.assertIn("steps.tree-final.outcome == 'failure'", report["if"])
+        # The routed tiers come from the step before the probes, never from a probe.
+        for name, value in route["outputs"].items():
+            if not name.startswith("tree_"):
+                with self.subTest(output=name):
+                    self.assertTrue(value.strip().startswith("${{ steps.route.outputs."), value)
+
     def test_untrusted_routing_jobs_have_no_write_token_or_dispatch_switch(self):
         jobs = self.jobs()
         route = jobs["path_route"]
