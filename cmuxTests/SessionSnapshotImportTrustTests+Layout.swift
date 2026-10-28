@@ -156,7 +156,7 @@ extension SessionSnapshotImportTrustTests {
         var original = Self.finish(workspace: &workspace, workspaceHasRemote: false)
         original.windows[0].tabManager.workspaces = Array(
             repeating: Self.workspace(panels: [panel], layout: nil),
-            count: SessionPersistencePolicy.maxPanelsPerSnapshot + 2
+            count: SessionPersistencePolicy.maxWorkspacesPerWindow + 2
         )
 
         let (restored, report) = SessionSnapshotImportTrust.snapshotForRestore(
@@ -164,7 +164,7 @@ extension SessionSnapshotImportTrustTests {
             source: Self.channelImport
         )
 
-        #expect(restored.windows.first?.tabManager.workspaces.count == SessionPersistencePolicy.maxPanelsPerSnapshot)
+        #expect(restored.windows.first?.tabManager.workspaces.count == SessionPersistencePolicy.maxWorkspacesPerWindow)
         #expect(report.droppedWorkspaceCount == 2)
     }
 

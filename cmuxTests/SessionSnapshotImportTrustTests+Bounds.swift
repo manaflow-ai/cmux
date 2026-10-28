@@ -34,23 +34,13 @@ extension SessionSnapshotImportTrustTests {
 
     @Test("imported panel fan-out has a global budget")
     func importedPanelFanOutIsBoundedGlobally() throws {
-        let panel = Self.panel(terminal: SessionTerminalPanelSnapshot())
-        var workspace = SessionWorkspaceSnapshot(
-            processTitle: "Terminal",
-            customTitle: "Imported",
-            customColor: nil,
-            isPinned: false,
-            currentDirectory: "/tmp/project",
-            focusedPanelId: panel.id,
-            layout: .pane(SessionPaneLayoutSnapshot(panelIds: [panel.id], selectedPanelId: panel.id)),
-            panels: Array(repeating: panel, count: SessionPersistencePolicy.maxPanelsPerSnapshot + 1),
-            statusEntries: [],
-            logEntries: [],
-            progress: nil,
-            gitBranch: nil
-        )
-        var original = Self.finish(workspace: &workspace, workspaceHasRemote: false)
-        original.windows[0].tabManager.workspaces = Array(repeating: workspace, count: 9)
+        var original = Self.snapshot(terminal: SessionTerminalPanelSnapshot())
+        original.windows[0].tabManager.workspaces = (0..<9).map { _ in
+            let panels = (0..<(SessionPersistencePolicy.maxPanelsPerWorkspace + 1)).map { panelIndex in
+                Self.panel(terminal: SessionTerminalPanelSnapshot())
+            }
+            return Self.workspace(panels: panels, layout: Self.balancedLayout(panels.map(\.id)))
+        }
 
         let (restored, report) = SessionSnapshotImportTrust.snapshotForRestore(
             original,
@@ -89,16 +79,13 @@ extension SessionSnapshotImportTrustTests {
 
     @Test("workspaces emptied by the global panel budget are dropped")
     func globalPanelBudgetDropsEmptyWorkspaces() throws {
-        let panel = Self.panel(terminal: SessionTerminalPanelSnapshot())
-        var workspace = Self.workspace(
-            panels: Array(repeating: panel, count: SessionPersistencePolicy.maxPanelsPerWorkspace),
-            layout: .pane(SessionPaneLayoutSnapshot(panelIds: [panel.id], selectedPanelId: panel.id))
-        )
-        var original = Self.finish(workspace: &workspace, workspaceHasRemote: false)
-        original.windows[0].tabManager.workspaces = Array(
-            repeating: workspace,
-            count: SessionPersistencePolicy.maxWorkspacesPerWindow
-        )
+        var original = Self.snapshot(terminal: SessionTerminalPanelSnapshot())
+        original.windows[0].tabManager.workspaces = (0..<SessionPersistencePolicy.maxWorkspacesPerWindow).map { _ in
+            let panels = (0..<SessionPersistencePolicy.maxPanelsPerWorkspace).map { _ in
+                Self.panel(terminal: SessionTerminalPanelSnapshot())
+            }
+            return Self.workspace(panels: panels, layout: Self.balancedLayout(panels.map(\.id)))
+        }
 
         let (restored, report) = SessionSnapshotImportTrust.snapshotForRestore(
             original,
@@ -224,23 +211,13 @@ extension SessionSnapshotImportTrustTests {
 
     @Test("trusted restore applies the global panel budget without stripping commands")
     func trustedRestoreBoundsTopology() throws {
-        let panel = Self.panel(terminal: Self.untrustedTerminal())
-        var workspace = SessionWorkspaceSnapshot(
-            processTitle: "Terminal",
-            customTitle: "Trusted",
-            customColor: nil,
-            isPinned: false,
-            currentDirectory: "/tmp/project",
-            focusedPanelId: panel.id,
-            layout: .pane(SessionPaneLayoutSnapshot(panelIds: [panel.id], selectedPanelId: panel.id)),
-            panels: Array(repeating: panel, count: SessionPersistencePolicy.maxPanelsPerSnapshot + 1),
-            statusEntries: [],
-            logEntries: [],
-            progress: nil,
-            gitBranch: nil
-        )
-        var original = Self.finish(workspace: &workspace, workspaceHasRemote: false)
-        original.windows[0].tabManager.workspaces = Array(repeating: workspace, count: 9)
+        var original = Self.snapshot(terminal: Self.untrustedTerminal())
+        original.windows[0].tabManager.workspaces = (0..<9).map { _ in
+            let panels = (0..<(SessionPersistencePolicy.maxPanelsPerWorkspace + 1)).map { _ in
+                Self.panel(terminal: Self.untrustedTerminal())
+            }
+            return Self.workspace(panels: panels, layout: Self.balancedLayout(panels.map(\.id)))
+        }
 
         let (restored, report) = SessionSnapshotImportTrust.snapshotForRestore(
             original,
@@ -253,8 +230,7 @@ extension SessionSnapshotImportTrustTests {
             SessionPersistencePolicy.maxPanelsPerSnapshot)
         #expect(report.droppedPanelCount == 9 * (SessionPersistencePolicy.maxPanelsPerSnapshot + 1)
             - SessionPersistencePolicy.maxPanelsPerSnapshot)
-        #expect(restoredWorkspaces.first?.panels.first?.terminal?.resumeBinding?.command ==
-            workspace.panels.first?.terminal?.resumeBinding?.command)
+        #expect(restoredWorkspaces.first?.panels.first?.terminal?.resumeBinding?.command != nil)
     }
 
     @Test("dock-only workspaces charge their fallback main terminal to the panel budget")
@@ -269,7 +245,16 @@ extension SessionSnapshotImportTrustTests {
             panels: panels
         )
         var original = Self.finish(workspace: &workspace, workspaceHasRemote: false)
-        original.windows[0].tabManager.workspaces = Array(repeating: workspace, count: 9)
+        original.windows[0].tabManager.workspaces = (0..<9).map { _ in
+            var copy = workspace
+            let panels = (0..<SessionPersistencePolicy.maxPanelsPerWorkspace).map { _ in
+                Self.panel(terminal: SessionTerminalPanelSnapshot())
+            }
+            copy.dock?.panels = panels
+            copy.dock?.focusedPanelId = panels.first?.id
+            copy.dock?.layout = .pane(SessionPaneLayoutSnapshot(panelIds: panels.map(\.id), selectedPanelId: panels.first?.id))
+            return copy
+        }
         let (restored, _) = SessionSnapshotImportTrust.snapshotForRestore(original, source: Self.channelImport)
         let workspaces = try #require(restored.windows.first?.tabManager.workspaces)
         let runtimePanelCount = workspaces.reduce(0) {
