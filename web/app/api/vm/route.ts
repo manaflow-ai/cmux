@@ -515,7 +515,7 @@ export async function POST(request: Request): Promise<Response> {
         // resize shape are separate contracts even when they currently match.
         ...createResourceFields(created.resourceReservation),
         ...(attach ? { attach } : {}),
-        ...sizePickFields(memory.pick, imageSelection.size),
+        ...sizePickFields(memory.pick, imageSelection.size, created.resourceReservation),
       });
     },
   );
@@ -580,9 +580,17 @@ async function resolveCreateSize(
   return memory.ok ? { ...memory, pick: autosize.pick } : memory;
 }
 
-/** The auto-size pick in the hand-off's size fields; only when the machine boots at the picked shape's snapshot. */
-function sizePickFields(pick: AutosizePick | null, booted: { readonly name: string } | null | undefined) {
-  if (!pick || booted?.name !== pick.pick) return {};
+/**
+ * The auto-size pick in the hand-off's size fields; only when the machine
+ * boots at the picked shape's snapshot and the machine answered has that
+ * shape (an idempotent retry answers the machine the first request made).
+ */
+function sizePickFields(
+  pick: AutosizePick | null,
+  booted: { readonly name: string } | null | undefined,
+  machine: { readonly vcpus: number; readonly memoryMb: number } | null | undefined,
+) {
+  if (!pick || booted?.name !== pick.pick || machine?.vcpus !== pick.size.cpu || machine.memoryMb !== pick.size.memoryMb) return {};
   return { sizePick: { vcpus: pick.vcpus, memoryGb: pick.memoryGb, pick: pick.pick, reason: pick.reason } };
 }
 
