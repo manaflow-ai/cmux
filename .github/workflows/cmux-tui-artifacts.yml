@@ -3012,6 +3012,10 @@ jobs:
   # Main's promote guard and request-nightly-next.sh require one, so main never
   # needs the tree key; reading it is a CDN GET, no API call. Write-once. A
   # dispatch on feat-cmux-next (request-nightly-next.sh's backfill) runs it too.
+  # It also walks the last 40 from the branch tip as it is now: newer commits
+  # that share a tree this run published late (a takeover after the owner's
+  # publish failed) ran this job before the tree existed, so only this run can
+  # mark them without a backfill (2026-10-28: a P0 fix's promote waited on it).
   mark-tree-commits:
     environment: artifacts
     name: mark the commits whose tree is ready
@@ -3033,7 +3037,9 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
           AWS_DEFAULT_REGION: auto
           R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
-        run: scripts/cmux-next/tree-commit-marker.sh write --window 40
+        # --tip-branch: the script fetches the tip (the public repository needs
+        # no credentials) after listing this commit's window.
+        run: scripts/cmux-next/tree-commit-marker.sh write --window 40 --tip-branch feat-cmux-next
 
   # nightly-next is promoted only to a commit whose cmux-tui tree is published
   # and whose cmux-next Release compile passed, so the nightly builds its tip
