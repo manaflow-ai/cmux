@@ -7,15 +7,6 @@ public import Foundation
 public struct SessionLayoutRestoreNormalizer {
     private let maximumDepth: Int
     private var remainingNodes: Int
-    private struct BoundedLayoutResult {
-        let layout: SessionWorkspaceLayoutSnapshot
-        let isEmpty: Bool
-    }
-    private enum WorkItem {
-        case visit(SessionWorkspaceLayoutSnapshot, depth: Int)
-        case assemble(SessionSplitLayoutSnapshot)
-    }
-
     /// Creates a traversal budget shared by every subsequent normalization.
     /// - Parameters:
     ///   - maximumNodes: Maximum input nodes visited across all containers.
@@ -52,7 +43,7 @@ public struct SessionLayoutRestoreNormalizer {
         depth: Int,
         remainingNodes: inout Int,
         usedPanelIDs: inout Set<UUID>
-    ) -> BoundedLayoutResult {
+    ) -> SessionLayoutRestoreResult {
         func unusedFallbackPanelIDs() -> [UUID] {
             var result: [UUID] = []
             result.reserveCapacity(fallbackPanelIDs.count)
@@ -62,8 +53,8 @@ public struct SessionLayoutRestoreNormalizer {
             }
             return result
         }
-        func fallbackLayout() -> BoundedLayoutResult {
-            BoundedLayoutResult(
+        func fallbackLayout() -> SessionLayoutRestoreResult {
+            SessionLayoutRestoreResult(
                 layout: .pane(SessionPaneLayoutSnapshot(
                     panelIds: [],
                     selectedPanelId: nil
@@ -75,8 +66,8 @@ public struct SessionLayoutRestoreNormalizer {
         // Walk the input graph with an explicit work stack. A depth check in
         // recursive code is insufficient: a hostile or corrupt snapshot can
         // consume the native stack before reaching that check.
-        var work: [WorkItem] = [.visit(layout, depth: depth)]
-        var results: [BoundedLayoutResult] = []
+        var work: [SessionLayoutRestoreWorkItem] = [.visit(layout, depth: depth)]
+        var results: [SessionLayoutRestoreResult] = []
         results.reserveCapacity(min(remainingNodes, maximumDepth) + 1)
 
         while let item = work.popLast() {
@@ -96,7 +87,7 @@ public struct SessionLayoutRestoreNormalizer {
                     let selected = pane.selectedPanelId.flatMap {
                         panelIDs.contains($0) ? $0 : nil
                     } ?? panelIDs.first
-                    results.append(BoundedLayoutResult(
+                    results.append(SessionLayoutRestoreResult(
                         layout: .pane(SessionPaneLayoutSnapshot(
                             panelIds: panelIDs,
                             selectedPanelId: selected,
@@ -121,7 +112,7 @@ public struct SessionLayoutRestoreNormalizer {
                 case (true, false): results.append(second)
                 case (false, true): results.append(first)
                 case (false, false):
-                    results.append(BoundedLayoutResult(
+                    results.append(SessionLayoutRestoreResult(
                         layout: .split(SessionSplitLayoutSnapshot(
                             orientation: split.orientation,
                             dividerPosition: split.dividerPosition,
@@ -136,7 +127,7 @@ public struct SessionLayoutRestoreNormalizer {
         let result = results.last ?? fallbackLayout()
         guard result.isEmpty else { return result }
         let fallback = unusedFallbackPanelIDs()
-        return BoundedLayoutResult(
+        return SessionLayoutRestoreResult(
             layout: .pane(SessionPaneLayoutSnapshot(
                 panelIds: fallback,
                 selectedPanelId: fallback.first

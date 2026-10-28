@@ -17,19 +17,12 @@ struct SessionSnapshotImportReader {
         }
     }
 
-    private enum BoundedFileRead {
-        case data(Data)
-        case notRegular
-        case tooLarge
-        case unreadable
-    }
-
     /// Reads a regular file of at most `maximumBytes`. A FIFO or device node
     /// would block the reader forever and an unbounded file would be read
     /// whole into memory, so the file is opened non-blocking and its type
     /// and size are checked on the same descriptor that is read (no window
     /// for a symlink to be re-pointed between the check and the read).
-    private func readRegularFile(atPath path: String, maximumBytes: Int64) -> BoundedFileRead {
+    private func readRegularFile(atPath path: String, maximumBytes: Int64) -> SessionSnapshotFileRead {
         let descriptor = open(path, O_RDONLY | O_NONBLOCK | O_CLOEXEC)
         guard descriptor >= 0 else { return .unreadable }
         let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)

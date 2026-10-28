@@ -2,20 +2,18 @@ import Foundation
 
 extension SessionPersistencePolicy {
     static func truncatedScrollback(_ text: String?) -> String? {
-        guard var text, !text.isEmpty else { return nil }
-        // Bound scalars first. Counting them walks the string without
-        // allocating; keeping the newest ones stops a run of combining marks
-        // (one Character, any number of scalars) from slipping past the
-        // character bound below. The cut needs no escape-sequence repair: it
-        // only happens when scalars far outnumber characters, and without its
-        // ESC a cut-off sequence is plain text, not a control.
-        if text.unicodeScalars.count > maxScrollbackScalarsPerTerminal {
-            text = String(String.UnicodeScalarView(text.unicodeScalars.suffix(maxScrollbackScalarsPerTerminal)))
-        }
-        if text.count <= maxScrollbackCharactersPerTerminal {
-            return text
-        }
-        let initialStart = text.index(text.endIndex, offsetBy: -maxScrollbackCharactersPerTerminal)
+        guard let text, !text.isEmpty else { return nil }
+        let scalars = text.unicodeScalars
+        let scalarStart = scalars.index(
+            scalars.endIndex, offsetBy: -maxScrollbackScalarsPerTerminal,
+            limitedBy: scalars.startIndex
+        ) ?? scalars.startIndex
+        let boundedSuffix = text[scalarStart...]
+        let initialStart = boundedSuffix.count > maxScrollbackCharactersPerTerminal
+            ? boundedSuffix.index(boundedSuffix.endIndex, offsetBy: -maxScrollbackCharactersPerTerminal)
+            : scalarStart
+        // Both budgets choose a boundary in the original string. Its prefix
+        // still contains any OSC/DCS introducer needed to skip a cut payload.
         let safeStart = ansiSafeTruncationStart(in: text, initialStart: initialStart)
         return String(text[safeStart...])
     }
