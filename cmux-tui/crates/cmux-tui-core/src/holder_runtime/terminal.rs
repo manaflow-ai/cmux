@@ -66,6 +66,20 @@ pub(super) const ADOPT_PROLOGUE_MAX_BYTES: usize = 768 * 1024;
 pub(super) const SNAPSHOT_MAX_BYTES: usize = 128 * 1024;
 
 impl HolderTerminal {
+    /// Size of the ring segment the daemon keeps a copy of (`memory-report`),
+    /// `None` when it keeps none or the segment cannot be read.
+    pub(crate) fn ring_bytes(&self) -> Option<u64> {
+        let ring = self.ring.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let fd = ring.as_ref()?.as_raw_fd();
+        // SAFETY: `stat` is plain old data; all-zero is valid.
+        let mut stat: libc::stat = unsafe { std::mem::zeroed() };
+        // SAFETY: `fd` stays open while `ring` is locked; `stat` is writable.
+        if unsafe { libc::fstat(fd, &raw mut stat) } != 0 {
+            return None;
+        }
+        u64::try_from(stat.st_size).ok()
+    }
+
     /// The daemon exits and leaves the shell to the holder: the reader and
     /// the wait end without recording an end, and the holder hears DETACH
     /// (the link's end is no strike against the terminal's stream).
