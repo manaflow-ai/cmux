@@ -16,6 +16,7 @@ use serde_json::{Value, json};
 
 use super::children::{ended_replies, report_of};
 use super::{Brain, Queued, Source};
+use crate::daemon::OpError;
 use crate::fold::TurnFold;
 use crate::state::{PendingReport, SpawnRecord, SpawnRef, SubRecord, SubStatus};
 use crate::subagents::{PROMPT_PREFIX, SpawnPlan};
@@ -1599,7 +1600,7 @@ impl Brain {
         let reports: Vec<_> = record
             .subs
             .iter()
-            .filter(|sub| sub.status == SubStatus::Done)
+            .filter(|sub| sub.status == SubStatus::Done && !sub.stopped)
             .filter_map(|sub| {
                 let (conversation, turn) = match &sub.report_run {
                     Some((conversation, turn)) => (conversation.clone(), Some(turn.clone())),
@@ -1669,6 +1670,12 @@ impl Brain {
             let mut complete = true;
             for chunk in crate::run::chunks(steps) {
                 if let Err(e) = daemon.run_append(&conversation, run.clone(), chunk) {
+                    if matches!(&e, OpError::Rejected(reason) if reason == "runs_unsupported") {
+                        // This port cannot store display-only runs. Delivery to
+                        // Chief still proceeds; reconnecting cannot fix it.
+                        (self.log)("agent report display unavailable: runs unsupported");
+                        break;
+                    }
                     complete = false;
                     (self.log)(&format!(
                         "appending an agent report failed; retaining it for reconnect: {e}"
@@ -1699,6 +1706,10 @@ impl Brain {
             let mut complete = true;
             for chunk in crate::run::chunks(report.steps.clone()) {
                 if let Err(e) = daemon.run_append(&report.conversation, report.run.clone(), chunk) {
+                    if matches!(&e, OpError::Rejected(reason) if reason == "runs_unsupported") {
+                        (self.log)("agent report display unavailable: runs unsupported");
+                        break;
+                    }
                     complete = false;
                     (self.log)(&format!(
                         "replaying an agent report failed; retaining it: {e}"
