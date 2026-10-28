@@ -188,9 +188,18 @@ public nonisolated struct WindowOcclusionRule: Sendable {
             if !window.inLiveResize, window.parent == nil { self?.schedule() }
         }
         on(NSWindow.willCloseNotification) { [weak self] in self?.windowWillClose($0) }
+        // A child window's own occlusion or main change starts no pass while every tracked window is on screen:
+        // a child is never judged and moves with its parent, and a new tab or split orders overlay panels, divider
+        // catchers and page windows as children, each pass waiting on the window server for the order (Chrome:
+        // `-windowCanTriggerOcclusionUpdates:`, components/remote_cocoa/app_shim/window_occlusion_checker_mac.mm).
+        // While one is off screen a child's change may uncover it (an opaque page child of a glass window), and a
+        // tracked window that became a child must be reported back on screen (crbug.com/1337390): then it passes.
         for name in [NSWindow.didChangeOcclusionStateNotification, NSWindow.didBecomeMainNotification,
                      NSWindow.didResignMainNotification] {
-            on(name) { [weak self] _ in self?.schedule() }
+            on(name) { [weak self] window in
+                guard let self, window.parent == nil || !offScreen.isEmpty else { return }
+                schedule()
+            }
         }
         for name in [NSWindow.willEnterFullScreenNotification, NSWindow.willExitFullScreenNotification] {
             on(name) { [weak self] window in self?.fullscreenTransition = window }

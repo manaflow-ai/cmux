@@ -1,6 +1,5 @@
 import AppKit
 @testable import CmuxNextDesign
-import CmuxNextWakeups
 import Testing
 
 /// A child window's own notices start no occlusion pass (first-5s typing bench, 2026-10-28): a new tab or split
@@ -14,6 +13,8 @@ import Testing
         let parent = Rig.window(NSRect(x: 100, y: 100, width: 600, height: 400))
         let child = Rig.window(NSRect(x: 120, y: 120, width: 200, height: 100))
         let center = NotificationCenter()
+        /// AppKit's answer for the parent (false: minimized, another Space, covered by another app).
+        var parentSystemVisible = true
         private(set) var orderReads = 0
         var checker: WindowOcclusionChecker!
 
@@ -31,9 +32,13 @@ import Testing
                     self?.orderReads += 1
                     return [parent]
                 },
-                facts: { window in WindowOcclusionFacts(id: ObjectIdentifier(window), frame: window.frame, isActive: true) },
+                facts: { [weak self] window in
+                    WindowOcclusionFacts(id: ObjectIdentifier(window), frame: window.frame,
+                                         systemVisible: window.parent != nil || self?.parentSystemVisible ?? true, isActive: true,
+                                         ancestors: window.parent.map { [ObjectIdentifier($0)] } ?? [])
+                },
                 isAppHidden: { false }, drawsWhenOccluded: false, center: center,
-                workspaceEvents: AppEvents(center: NotificationCenter()), mainWork: MainWorkScheduler(budget: MainFrameBudget()))
+                workspaceCenter: NotificationCenter())
         }
 
         func until(_ what: String, _ condition: () -> Bool) async throws {
@@ -80,5 +85,17 @@ import Testing
         try await rig.until("the parent's notice ran a pass") { rig.checker.passes == 2 }
         rig.center.post(name: NSWindow.didResignMainNotification, object: rig.parent)
         try await rig.until("the parent's main change ran a pass") { rig.checker.passes == 3 }
+    }
+
+    /// While a tracked window is off screen a child's change may be what uncovers it, so it still starts a pass.
+    @Test func aChildWindowsNoticeStillStartsAPassWhileAWindowIsOffScreen() async throws {
+        let rig = Rig()
+        defer { rig.close() }
+        rig.parentSystemVisible = false
+        rig.checker.start()
+        try await rig.until("the first pass ran") { rig.checker.passes == 1 }
+        #expect(rig.checker.isOffScreen(rig.parent))
+        rig.center.post(name: NSWindow.didChangeOcclusionStateNotification, object: rig.child)
+        try await rig.until("the child's notice ran a pass") { rig.checker.passes == 2 }
     }
 }
