@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use cmux_tailnet::{BackendState, Node, NodeConfig, Notify};
 use serde_json::{Value, json};
-use tokio::sync::{Notify, broadcast};
+use tokio::sync::{Notify as TokioNotify, broadcast};
 
 /// A snapshot reported by the embedded node's IPN bus.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -168,7 +168,7 @@ pub struct Controller {
     /// lifecycle lock. The service uses this fence to avoid starting a new
     /// listener while the failed node is still being retired.
     pending_retirement: Arc<AtomicBool>,
-    retirement_finished: Arc<Notify>,
+    retirement_finished: Arc<TokioNotify>,
     stopping: Arc<AtomicBool>,
 }
 
@@ -189,7 +189,7 @@ impl Controller {
             retirement_gate: Arc::new(tokio::sync::Mutex::new(())),
             lifecycle: Arc::new(tokio::sync::Mutex::new(())),
             pending_retirement: Arc::new(AtomicBool::new(false)),
-            retirement_finished: Arc::new(Notify::new()),
+            retirement_finished: Arc::new(TokioNotify::new()),
             stopping: Arc::new(AtomicBool::new(false)),
         })
     }
@@ -533,7 +533,7 @@ impl Controller {
         self.retire_node(expected, state)
     }
 
-    fn retirement_pending(&self) -> bool {
+    pub(super) fn retirement_pending(&self) -> bool {
         self.pending_retirement.load(Ordering::Acquire)
     }
 
