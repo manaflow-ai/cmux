@@ -236,7 +236,7 @@ std::string Arg(const std::vector<std::string>& args, const std::string& name) {
 // is not sent there, as WebMouseWheelEventBuilder's note on zero-tick wheels
 // asks. UI thread.
 void SendWheel(cmux_host::HostContext& host, cmux_host::WheelPixelCarry& carry, const cmux_host::Header& frame) {
-  const int browser_id = host.Browser(cmux_host::BrowserOf(frame));
+  const int browser_id = host.Browser(cmux_host::input_ring::BrowserOf(frame));
   const cmux_host::Wheel wheel = cmux_host::WheelOf(frame);
   if (cmux_shim_browser_send_wheel(browser_id, wheel.x, wheel.y, wheel.dx, wheel.dy, wheel.precise ? 1 : 0,
                                    wheel.phase, wheel.momentum_phase, wheel.modifiers)) {
