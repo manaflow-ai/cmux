@@ -18,20 +18,22 @@ use crate::panic_free::RecoverPoison;
 
 const RENDER_FRAME_CADENCE: Duration = Duration::from_millis(8);
 
+/// The bit of `Slot::requested` that asks for the output event.
+const ANNOUNCE: u64 = 1 << 63;
+
 /// One terminal's place on the producer. Requests touch only its atomics;
 /// the first request after a frame puts it on the producer's ready queue
 /// (H3: no global lock per output chunk, no scan of every terminal).
 #[derive(Default)]
 struct Slot {
-    /// The highest generation asked for since the last frame; 0: none.
+    /// The highest generation asked for since the last frame (0: none), and
+    /// [`ANNOUNCE`]: a request since then asked the producer to announce the
+    /// output after the frame (its caller could not: it may hold
+    /// `Mux::state`). One word, so the producer takes both at once.
     requested: AtomicU64,
     /// On the ready queue or the deadline heap, or being built: a request
     /// then only raises `requested`.
     queued: AtomicBool,
-    /// A request since the last frame asked the producer to announce the
-    /// output after the frame (its caller could not: it may hold
-    /// `Mux::state`).
-    announce: AtomicBool,
     /// Nanoseconds since [`epoch`] of this terminal's last frame; 0: never.
     last_frame: AtomicU64,
     surface: Mutex<Weak<Surface>>,
@@ -56,11 +58,15 @@ impl FrameRequests {
     /// publishes the output event after the frame. Lock-free unless this is
     /// the first request since the terminal's last frame.
     pub(super) fn request(&self, generation: u64, announce: bool) {
-        if announce {
-            self.slot.announce.store(true, Ordering::Release);
-        }
-        self.slot.requested.fetch_max(generation.max(1), Ordering::AcqRel);
-        if self.slot.queued.swap(true, Ordering::AcqRel) {
+        let generation = generation.clamp(1, ANNOUNCE - 1);
+        let flag = if announce { ANNOUNCE } else { 0 };
+        // SeqCst with the producer's clear of `queued` and take of
+        // `requested`: either the producer takes this generation, or this
+        // request sees `queued` cleared and queues the slot again.
+        let _ = self.slot.requested.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |old| {
+            Some(((old & !ANNOUNCE).max(generation)) | (old & ANNOUNCE) | flag)
+        });
+        if self.slot.queued.swap(true, Ordering::SeqCst) {
             return;
         }
         let scheduler = scheduler();
@@ -175,10 +181,13 @@ fn run() {
             let Some(Reverse(Deadline(_, _, slot))) = waiting.pop() else { break };
             let Some(slot) = slot.upgrade() else { continue };
             // Cleared before the generation is taken: a request after this
-            // queues the terminal again, so none is lost.
-            slot.queued.store(false, Ordering::Release);
-            let announce = slot.announce.swap(false, Ordering::AcqRel);
-            let requested = slot.requested.swap(0, Ordering::AcqRel);
+            // queues the terminal again, so none is lost. The generation and
+            // the announce bit come in one swap: no request between them.
+            slot.queued.store(false, Ordering::SeqCst);
+            #[cfg(test)]
+            run_after_clear_hook(&slot);
+            let taken = slot.requested.swap(0, Ordering::SeqCst);
+            let (requested, announce) = (taken & !ANNOUNCE, taken & ANNOUNCE != 0);
             if requested == 0 {
                 continue;
             }
@@ -187,6 +196,30 @@ fn run() {
                 slot.last_frame.store(nanos_since_epoch(Instant::now()), Ordering::Release);
             }
         }
+    }
+}
+
+/// Tests: runs right after the producer cleared a slot's `queued`, before
+/// it takes the generation (the window a request can land in).
+#[cfg(test)]
+type AfterClearHook = Arc<dyn Fn(usize) + Send + Sync>;
+
+#[cfg(test)]
+static AFTER_CLEAR_HOOK: Mutex<Option<AfterClearHook>> = Mutex::new(None);
+
+#[cfg(test)]
+fn run_after_clear_hook(slot: &Arc<Slot>) {
+    let hook = AFTER_CLEAR_HOOK.lock().recover_poison().clone();
+    if let Some(hook) = hook {
+        hook(Arc::as_ptr(slot) as usize);
+    }
+}
+
+#[cfg(test)]
+impl FrameRequests {
+    /// The slot's identity, as [`AFTER_CLEAR_HOOK`] sees it.
+    pub(super) fn slot_id_for_test(&self) -> usize {
+        Arc::as_ptr(&self.slot) as usize
     }
 }
 

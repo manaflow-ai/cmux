@@ -63,3 +63,43 @@ fn frame_producer_bench_one_busy_terminal_among_many_idle() {
     );
     drop(idle);
 }
+
+/// A producer-announced request (`request_frame`, a caller that may hold
+/// `Mux::state`) landing between the producer's clear of `queued` and its
+/// take of the generation still gets its output event (review of H3: the
+/// announce flag was read before the generation, and the next round skipped
+/// a slot with the flag but no generation).
+#[test]
+fn an_announced_request_inside_the_take_window_is_announced() {
+    let mux = Mux::new_for_test("frame-announce-window", SurfaceOptions::default());
+    let surface =
+        Surface::spawn_for_test(9_950, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+    spawn_frame_producer(&surface).unwrap();
+    let pty = surface.as_pty().unwrap();
+    let slot = pty.frame_requests.slot_id_for_test();
+    let fired = Arc::new(AtomicBool::new(false));
+    // The hook asks again for this terminal, producer-announced, while the
+    // producer is between the clear and the take.
+    {
+        let fired = fired.clone();
+        let surface = surface.clone();
+        *AFTER_CLEAR_HOOK.lock().unwrap() = Some(Arc::new(move |seen| {
+            if seen == slot && !fired.swap(true, Ordering::SeqCst) {
+                surface.as_pty().unwrap().frame_requests.request(2, true);
+            }
+        }));
+    }
+    pty.dirty.store(false, Ordering::SeqCst);
+    // A reader's request: announced by the reader, so the producer must not.
+    pty.frame_requests.request(1, false);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !pty.dirty.load(Ordering::SeqCst) {
+        assert!(
+            Instant::now() < deadline,
+            "the request made inside the take window never got its output event"
+        );
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(fired.load(Ordering::SeqCst), "the window was never entered");
+    *AFTER_CLEAR_HOOK.lock().unwrap() = None;
+}
