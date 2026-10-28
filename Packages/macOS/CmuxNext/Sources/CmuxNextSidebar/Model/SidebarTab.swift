@@ -56,12 +56,14 @@ public nonisolated struct SidebarTab: Identifiable, Hashable, Sendable {
     public var workspaceName: String?
 
     public init(id: TabID, title: String, kind: SidebarTabKind = .terminal, isUnread: Bool = false, brand: String? = nil,
-                favicon: SidebarFavicon? = nil) {
+                favicon: SidebarFavicon? = nil, folder: String? = nil, state: StatusIndicatorState = .idle) {
         self.id = id
         self.title = title
         self.kind = kind
         self.isUnread = isUnread
         self.brand = brand
         self.favicon = favicon
+        self.folder = folder
+        self.state = state
     }
 }

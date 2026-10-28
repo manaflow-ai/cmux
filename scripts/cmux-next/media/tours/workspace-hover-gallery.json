@@ -1,0 +1,9 @@
+{
+  "title": "Workspace hover gallery",
+  "settings": {"appearance": {"theme": "Soft Blue"}},
+  "steps": [
+    {"title": "Launch", "wait": 3},
+    {"title": "Inner-tab hover cards, dark", "rpc": {"method": "debug.hover_cards", "params": {"gallery": "sidebar"}}, "wait": 2},
+    {"title": "Inner-tab hover cards, light", "cmux": ["settings", "set", "appearance.theme", "Soft Blue Light"], "wait": 2}
+  ]
+}

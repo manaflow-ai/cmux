@@ -140961,6 +140961,124 @@
         }
       }
     },
+    "settings.sidebar.hoverCards.richDetails": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Rich Workspace Details"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースの詳細を表示"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ausführliche Arbeitsbereichsdetails anzeigen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher les détails de l’espace de travail"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إظهار تفاصيل مساحة العمل الموسّعة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar detalles ampliados del espacio de trabajo"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示工作區詳細資訊"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示工作区详细信息"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업 공간의 상세 정보 표시"
+          }
+        }
+      }
+    },
+    "settings.sidebar.hoverCards.richDetails.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show prompts, needs-input state and workspace facts instead of the inner tabs when hovering a workspace."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースにポインタを合わせたとき、内部タブの代わりにプロンプト、入力待ちの状態、ワークスペースの情報を表示します。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beim Bewegen des Zeigers über einen Arbeitsbereich Prompts, den Eingabebedarf und Arbeitsbereichsinformationen statt der enthaltenen Tabs anzeigen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Au survol d’un espace de travail, afficher les instructions, l’état d’attente de saisie et les informations de l’espace plutôt que ses onglets."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عند تمرير المؤشر فوق مساحة عمل، أظهر المطالبات وحالة انتظار الإدخال ومعلومات مساحة العمل بدلاً من علامات التبويب الداخلية."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Al pasar el cursor sobre un espacio de trabajo, mostrar las instrucciones, el estado de espera de entrada y la información del espacio en lugar de sus pestañas."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將指標移至工作區時，顯示提示詞、需要輸入的狀態和工作區資訊，而非內部標籤頁。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将指针移到工作区时，显示提示词、需要输入的状态和工作区信息，而非内部标签页。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업 공간에 포인터를 올리면 내부 탭 대신 프롬프트, 입력 대기 상태 및 작업 공간 정보를 표시합니다。"
+          }
+        }
+      }
+    },
     "settings.sidebar.hoverCards.layout": {
       "extractionState": "manual",
       "localizations": {

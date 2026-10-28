@@ -48,7 +48,8 @@ struct SidebarHoverCardRetargetBenchTests {
                 id: WorkspaceID("rt-\(i)"), title: "Workspace \(i) with a longer agent title",
                 directory: "~/fun/cmux-worktrees/feature-\(i)", branch: "feat-\(i)", status: status,
                 lastActivity: now.addingTimeInterval(-ago), kind: .harness, activity: activity,
-                agentBrand: "claude", agentName: "Claude Code")
+                agentBrand: "claude", agentName: "Claude Code",
+                tabs: [SidebarTab(id: TabID("tab-\(i)"), title: "Claude Code")])
             workspaces.append(workspace)
         }
         let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)

@@ -12,6 +12,23 @@ public struct WorkspaceHoverCardGallery {
     /// Each state's name and its card on the overlay glass, configured; resources sampled a few
     /// times so the CPU bars show.
     @MainActor public static func cards(now: Date = Date()) -> [(name: String, view: NSView)] {
+        let mixedTabs = [
+                SidebarTab(id: TabID("terminal"), title: "app", kind: .terminal, folder: "~", state: .success),
+                SidebarTab(id: TabID("claude"), title: "Claude Code", kind: .agentChat, folder: "~/Projects/cmux", state: .working),
+                SidebarTab(id: TabID("review"), title: "Review changes", kind: .conversation, folder: "~/Projects/cmux", state: .waiting),
+        ]
+        let tabCards: [(name: String, view: NSView)] = [
+            ("Inner tabs · dense", tabCard(title: "app", tabs: mixedTabs, rowHeight: 36)),
+            ("Inner tabs · selected", tabCard(title: "app", tabs: mixedTabs)),
+            ("Inner tabs · spacious", tabCard(title: "app", tabs: mixedTabs, rowHeight: 48)),
+            ("Inner tabs · error", tabCard(title: "cmux", tabs: [
+                SidebarTab(id: TabID("api"), title: "api-server-with-a-long-title", kind: .terminal, folder: "~/Projects/api-server", state: .error),
+                SidebarTab(id: TabID("docs"), title: "Documentation", kind: .browser, folder: "~/Projects/docs", state: .success),
+            ])),
+            ("Inner tabs · one tab", tabCard(title: "scratch", tabs: [
+                SidebarTab(id: TabID("shell"), title: "shell", kind: .terminal, folder: "~", state: .idle),
+            ])),
+        ]
         typealias Fact = WorkspaceHoverCardContent.Fact
         let agent = Fact(icon: .agentChat, text: "Codex · gpt-6.1-sol", kind: "agent")
         let folder = Fact(icon: .folder, text: "docs", kind: "folder")
@@ -51,7 +68,7 @@ public struct WorkspaceHoverCardGallery {
                 title: "Overlays are themed Liquid Glass", icon: .agentChat, age: "4w",
                 facts: [branch, pr("Merged", .merged, adds: 69, dels: 32)]), []),
         ]
-        return states.map { name, content, cpu in
+        let richCards = states.map { name, content, cpu in
             let card = WorkspaceHoverCardView()
             card.configure(content, now: now)
             for value in cpu {
@@ -59,6 +76,13 @@ public struct WorkspaceHoverCardGallery {
             }
             return (name, HoverCardGalleryHost(body: card) { [weak card] in card?.applyColors() })
         }
+        return tabCards + richCards
+    }
+
+    private static func tabCard(title: String, tabs: [SidebarTab], rowHeight: CGFloat = 42) -> NSView {
+        let card = WorkspaceTabHoverCardView(rowHeight: rowHeight)
+        card.configure(title: title, tabs: tabs)
+        return HoverCardGalleryHost(body: card) { [weak card] in card?.applyColors() }
     }
 }
 #endif
