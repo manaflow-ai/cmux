@@ -25,7 +25,9 @@
 #             hang watchdog. Filters come as comma lists, separate arguments,
 #             or both. A failing suite does not stop the ones after it; the
 #             summary lists every suite and the step fails when any failed. A
-#             filter that runs no test fails. The watchdog limits apply to
+#             filter that runs no test fails, and so does one whose tests all
+#             skipped or that skipped any for a missing same-tree cmux-tui
+#             ("no result", never excused as a base red). The watchdog limits apply to
 #             each suite (CMUX_SWIFT_PACKAGE_TEST_TIMEOUT_SECONDS, 900 s), so N
 #             suites can take N times that; cmux-ci's --timeout covers the step.
 #             Lanes: cmux-ci run --class light --script
@@ -732,8 +734,14 @@ run_suite() {
   # counts skipped tests, so a headless worker printed "passed" for suites
   # that never ran (aws-m4pro-6, 2026-10-26). CMUX_TEST_REQUIRE_GUI=1 (a job
   # that asked for a GUI session) fails on any skip.
-  local log filter status started result failed=0 skipped_suites=0 first_failure_status=0 rows=()
-  local ran skipped reason
+  # A suite the lane named that ran none of its tests is no result, and a test
+  # skipped because this tree's cmux-tui is missing ("needs the same-tree
+  # cmux-tui", the live-daemon suites' trait) is no result too: either fails the
+  # step, never "passed" or a green "skipped". The line says "required tests did
+  # not run", which the per-test classifier (test_reds) reads as a run that is not whole, so
+  # the base-red excuse never excuses it.
+  local log filter status started result failed=0 first_failure_status=0 rows=()
+  local ran skipped reason daemon_skips display_skips hint
   for filter in "${suite_filters[@]}"; do
     echo "::group::swift test --filter $filter"
     log="$(mktemp -t swift-suite-test.XXXXXX)"
@@ -750,12 +758,21 @@ run_suite() {
       python3 scripts/ci/require_swift_test_execution.py --log "$log" --skip-report "$log.skips" || status=$?
     fi
     echo "::endgroup::"
-    ran=0 skipped=0
+    ran=0 skipped=0 display_skips=0 hint=""
+    # Read from the log itself, whatever the exit status or CMUX_TEST_REQUIRE_GUI: a failing test or a GUI
+    # skip beside a missing-cmux-tui skip must not hide the no-result line.
+    daemon_skips="$(grep -cE '(Test|Suite) .+ skipped: "needs the same-tree cmux-tui' "$log" || true)"
+    if [ "$daemon_skips" -gt 0 ]; then
+      echo "::error title=Swift suite no result::$filter in $suite_package: required tests did not run: tests skipped because this tree's cmux-tui is missing (CMUX_NEXT_TUI_TREE_PATH=${CMUX_NEXT_TUI_TREE_PATH:-unset}); no result, never a pass or a base red"
+    fi
     if [ "$status" -eq 0 ]; then
       read -r ran skipped < "$log.skips"
       if [ "$skipped" -gt 0 ]; then
         while IFS= read -r reason; do
           echo "$filter: skipped $reason"
+          # The suites' own display traits: "the drag tests need a display", "needs an awake display ...",
+          # "run on a GUI host", "no GUI login session".
+          if printf '%s' "$reason" | grep -qiE 'display|screen|GUI'; then display_skips=$((display_skips + 1)); fi
         done < <(tail -n +2 "$log.skips")
       fi
       if [ "$skipped" -gt 0 ] && [ "${CMUX_TEST_REQUIRE_GUI:-}" = 1 ]; then
@@ -763,10 +780,17 @@ run_suite() {
       fi
     fi
     rm -f "$log.skips"
-    if [ "$status" -eq 0 ] && [ "$ran" -eq 0 ]; then
-      result=skipped
-      skipped_suites=$((skipped_suites + 1))
-      echo "::warning title=Swift suite skipped::$filter in $suite_package: none of its $skipped tests ran (skipped)"
+    if [ "$status" -eq 0 ] && { [ "$ran" -eq 0 ] || [ "$daemon_skips" -gt 0 ]; }; then
+      failed=$((failed + 1))
+      status=1
+      [ "$first_failure_status" -ne 0 ] || first_failure_status="$status"
+      if [ "$daemon_skips" -gt 0 ]; then
+        result="no result (no cmux-tui)"
+      else
+        result="no result (0 ran)"
+        [ "$display_skips" -eq 0 ] || hint="; this suite needs a display; rerun with CMUX_TEST_REQUIRE_GUI=1"
+        echo "::error title=Swift suite no result::$filter in $suite_package: required tests did not run: none of its $skipped tests ran (all skipped)$hint; no result, never a pass or a base red"
+      fi
     elif [ "$status" -eq 0 ] && [ "$skipped" -gt 0 ]; then
       result="passed, $skipped skipped"
     elif [ "$status" -eq 0 ]; then
@@ -791,12 +815,8 @@ run_suite() {
     printf '### Swift suites (%s)\n\n```\n%s\n```\n' "$suite_package" "$table" >> "$GITHUB_STEP_SUMMARY"
   fi
   if [ "$failed" -ne 0 ]; then
-    echo "$failed of ${#suite_filters[@]} suites failed."
+    echo "$failed of ${#suite_filters[@]} suites failed or gave no result."
     exit "$first_failure_status"
-  fi
-  if [ "$skipped_suites" -ne 0 ]; then
-    echo "$((${#suite_filters[@]} - skipped_suites)) of ${#suite_filters[@]} suites passed; $skipped_suites skipped (none of their tests ran)."
-    return 0
   fi
   echo "All ${#suite_filters[@]} suites passed."
 }

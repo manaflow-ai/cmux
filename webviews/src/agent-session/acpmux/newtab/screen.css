@@ -925,6 +925,8 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
   flex-direction: column;
   align-items: center;
   --nt-headline-gap: 6px;
+  /* The question's line: Hero's is a new chat's hero line (28px); Quiet's is the heading step. */
+  --nt-headline-line: calc(28px * var(--cmux-interface-scale, 1));
   gap: 6px;
   margin: 0 0 10px;
   text-align: center;
@@ -933,7 +935,7 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
    project is selected, so replacing the chooser with the inline project button never moves the
    headline or the composer (the gallery measures this transition at CLS 0). */
 .nt-headline {
-  min-height: calc(var(--text-heading--line-height) + var(--text-body--line-height) + var(--nt-headline-gap));
+  min-height: calc(var(--nt-headline-line) + var(--text-body--line-height) + var(--nt-headline-gap));
 }
 .nt-headline-text {
   margin: 0;
@@ -946,18 +948,19 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
   /* A new chat's hero question (.acpmux-empty-title, styles.css: 20px on a 28px line): the
      heading step is that 20px. */
   font-size: var(--text-heading);
-  line-height: calc(28px * var(--cmux-interface-scale, 1));
+  line-height: var(--nt-headline-line);
   font-weight: 400;
   color: var(--agent-text);
   overflow-wrap: anywhere;
   letter-spacing: var(--text-heading--letter-spacing);
 }
 .nt-headline[data-look="quiet"] {
+  --nt-headline-line: var(--text-heading--line-height);
   margin-bottom: 6px;
 }
 .nt-headline[data-look="quiet"] .nt-headline-text {
   font-size: var(--text-heading);
-  line-height: var(--text-heading--line-height);
+  line-height: var(--nt-headline-line);
   font-weight: 500;
   color: var(--acpmux-composer-dim, color-mix(in srgb, var(--agent-text) 55%, transparent));
   letter-spacing: var(--text-heading--letter-spacing);
