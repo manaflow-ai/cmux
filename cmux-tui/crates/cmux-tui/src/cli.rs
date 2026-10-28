@@ -328,15 +328,35 @@ pub(crate) const OWN_HELP_SCOPES: &[&str] = &[
 ];
 
 /// Rewrites `cmux help <scope>` to `cmux <scope> --help` for a scope in
-/// [`OWN_HELP_SCOPES`] the parser's help does not take. No-op elsewhere.
-pub(crate) fn rewrite_help_word(args: &mut Vec<String>) {
-    if let [help, scope] = args.as_slice()
-        && help == "help"
-        && OWN_HELP_SCOPES.contains(&scope.as_str())
-        && !Surface::current().accepts(scope)
-    {
-        *args = vec![scope.clone(), "--help".to_string()];
+/// [`OWN_HELP_SCOPES`] the parser's help does not take, keeping global
+/// options where they stand (`cmux --session s help agents --json`). No-op
+/// elsewhere.
+pub(crate) fn rewrite_help_word(args: &mut [String]) {
+    rewrite_help_word_on(args, Surface::current());
+}
+
+fn rewrite_help_word_on(args: &mut [String], surface: Surface) {
+    let Ok((_, command_args)) = parse_globals(args) else {
+        return;
+    };
+    let [help, scope] = command_args.as_slice() else {
+        return;
+    };
+    if help != "help" || !OWN_HELP_SCOPES.contains(&scope.as_str()) || surface.accepts(scope) {
+        return;
     }
+    if let Some(index) = args.windows(2).position(|pair| pair[0] == "help" && pair[1] == *scope) {
+        args[index] = scope.clone();
+        args[index + 1] = "--help".to_string();
+    }
+}
+
+/// The acpmux argv of `cmux acp …` (the words after `acp`) and of its
+/// `harness`/`chats` aliases (the whole command line, alias first).
+#[cfg_attr(not(unix), allow(dead_code))]
+pub(crate) fn acp_scope_args(raw_args: &[String]) -> Vec<std::ffi::OsString> {
+    let skip = usize::from(raw_args.first().is_some_and(|head| head == "acp"));
+    raw_args.iter().skip(skip).map(std::ffi::OsString::from).collect()
 }
 
 /// The agent-caller refusal of a plan that writes a Chief by the raw or

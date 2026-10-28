@@ -1809,7 +1809,7 @@ fn run_main() {
         discard_provider_secret_environment();
         // From raw_args, not args_os: `cmux help chats` became `chats --help` there, and
         // std::env::args() above already refused argv that is not UTF-8.
-        let args = raw_args.iter().skip(usize::from(head == "acp")).map(OsString::from).collect();
+        let args = cli::acp_scope_args(&raw_args);
         client_log::exit(acp::run_scope(head, args));
     }
     // `cmux host enable|serve|dial|…`: remote hosting, on every platform

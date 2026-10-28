@@ -1061,14 +1061,32 @@ fn root_help_lists_every_scope_and_help_word_reaches_own_help_scopes() {
             );
         }
     }
-    let mut args = strings(&["help", "agents"]);
-    super::rewrite_help_word(&mut args);
-    assert_eq!(args, strings(&["agents", "--help"]));
-    for unchanged in
-        [vec!["help", "workspace"], vec!["help", "agents", "chat"], vec!["agents", "help"]]
-    {
-        let mut args = strings(&unchanged);
-        super::rewrite_help_word(&mut args);
-        assert_eq!(args, strings(&unchanged));
+    let rewritten = |words: &[&str]| {
+        let mut args = strings(words);
+        super::rewrite_help_word_on(&mut args, Surface::Cmux);
+        args
+    };
+    for &scope in super::OWN_HELP_SCOPES {
+        assert_eq!(rewritten(&["help", scope]), strings(&[scope, "--help"]), "{scope}");
     }
+    assert_eq!(
+        rewritten(&["--session", "s", "help", "agents", "--json"]),
+        strings(&["--session", "s", "agents", "--help", "--json"])
+    );
+    assert_eq!(
+        rewritten(&["--session", "help", "help", "chats"]),
+        strings(&["--session", "help", "chats", "--help"])
+    );
+    for unchanged in [
+        vec!["help", "workspace"],
+        vec!["help", "agents", "chat"],
+        vec!["agents", "help"],
+        vec!["--session", "help", "agents"],
+    ] {
+        assert_eq!(rewritten(&unchanged), strings(&unchanged), "{unchanged:?}");
+    }
+    let os = |words: &[&str]| words.iter().map(std::ffi::OsString::from).collect::<Vec<_>>();
+    assert_eq!(super::acp_scope_args(&strings(&["acp", "ls", "--json"])), os(&["ls", "--json"]));
+    assert_eq!(super::acp_scope_args(&rewritten(&["help", "harness"])), os(&["harness", "--help"]));
+    assert_eq!(super::acp_scope_args(&rewritten(&["help", "chats"])), os(&["chats", "--help"]));
 }
