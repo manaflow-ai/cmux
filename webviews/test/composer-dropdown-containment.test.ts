@@ -60,8 +60,6 @@ await requireBrowserLane("composer-dropdown-containment.test.ts", async () => {
         const popupBounds = (await popup.boundingBox())!;
         if (height >= 560) {
           expect(popupBounds.y).toBeGreaterThanOrEqual(triggerBounds.y + triggerBounds.height - 1);
-        } else {
-          expect(popupBounds.y + popupBounds.height).toBeLessThanOrEqual(triggerBounds.y + 1);
         }
         const projects = popup.locator('[role="option"]:has(.acpmux-location-row)');
         expect(await projects.count()).toBe(3);
@@ -83,14 +81,43 @@ await requireBrowserLane("composer-dropdown-containment.test.ts", async () => {
         const popupBounds = (await popup.boundingBox())!;
         if (height >= 560) {
           expect(popupBounds.y).toBeGreaterThanOrEqual(triggerBounds.y + triggerBounds.height - 1);
-        } else {
-          expect(popupBounds.y + popupBounds.height).toBeLessThanOrEqual(triggerBounds.y + 1);
         }
         const gpu = popup.locator('[role="option"]').filter({ hasText: "gpu-box" });
         expect(await gpu.count()).toBe(1);
         expect(await gpu.locator('[data-connected="true"]').count()).toBe(1);
         expect(await gpu.locator("kbd").innerText()).toBe("⌥⌘2");
         await reachable(gpu, popup.locator(".acpmux-location-folders"));
+        await contained(page, popup);
+      } finally {
+        await page.close();
+      }
+    });
+  }
+
+  for (const [variant, triggerName, popupSelector] of [
+    ["folder-menu", "Folder", ".acpmux-folder-popover"],
+    ["environment-picker", /^Environment/, ".acpmux-env-popover"],
+  ] as const) {
+    test(`${variant} flips above when the trigger is at the bottom edge`, async () => {
+      const page = await open("agent-pane.composer-context", variant, 560);
+      try {
+        await page.keyboard.press("Escape");
+        const context = page.locator(".acpmux-composer-context");
+        await context.evaluate((node) => {
+          const element = node as HTMLElement;
+          element.style.position = "fixed";
+          element.style.left = "8px";
+          element.style.bottom = "8px";
+        });
+        const trigger = typeof triggerName === "string"
+          ? page.getByRole("button", { name: triggerName, exact: true })
+          : page.getByRole("button", { name: triggerName });
+        await trigger.click();
+        const popup = page.locator(popupSelector);
+        await popup.waitFor();
+        const triggerBounds = (await trigger.boundingBox())!;
+        const popupBounds = (await popup.boundingBox())!;
+        expect(popupBounds.y + popupBounds.height).toBeLessThanOrEqual(triggerBounds.y + 1);
         await contained(page, popup);
       } finally {
         await page.close();
