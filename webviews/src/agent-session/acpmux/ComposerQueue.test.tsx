@@ -124,8 +124,8 @@ function menuItem(label: string) {
 /** Return on a row edits it in place, as the ⋯ menu's Edit message does. */
 async function startEdit(container: HTMLElement, id: string) {
   const row = container.querySelector<HTMLElement>(`[data-prompt-id="${id}"]`)!;
-  row.focus();
   await act(async () => {
+    row.focus();
     row.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
   });
 }
@@ -903,34 +903,22 @@ test("a refused native save retries once per swap or quit and keeps the newest e
   expect(webSwapHold()).toBeNull();
 });
 
-test("Escape after a refused newer save cannot revive the older durable edit", async () => {
-  const container = await render();
-  const kept = draftHost(undefined, 1, "discard the unsaved revision");
-  await startEdit(container, "p-1");
-  const field = await typeQueueEdit(container, "discard the unsaved revision");
-  expect([...kept.values()][0]?.text).toBe("first");
-  await act(async () =>
-    field.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true })),
-  );
-  await settleQueuedEditWrites();
-  expect(kept.size).toBe(0);
-  await relaunchQueue(container, queue);
-  expect(container.querySelector("textarea")).toBeNull();
-});
-
-test("Escape behind an in-flight older save clears the discarded revision before remount", async () => {
-  const container = await render();
-  const kept = draftHost();
-  const handler = dom!.window.webkit!.messageHandlers!.agentSession!;
-  const post = handler.postMessage.bind(handler);
+test.each(["normal", "refused", "in-flight"])("Escape never revives a %s saved edit", async (mode) => {
+  const container = await render(),
+    kept = draftHost(undefined, mode === "refused" ? 1 : 0, "discard this revision");
   let release: () => void = () => {};
-  const waiting = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  handler.postMessage = (message: any) =>
-    message.method === "chat.queuedEditDrafts.set" ? waiting.then(() => post(message)) : post(message);
+  if (mode === "in-flight") {
+    const host = dom!.window.webkit!.messageHandlers!.agentSession!,
+      post = host.postMessage.bind(host);
+    const waiting = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    host.postMessage = (message: any) =>
+      message.method === "chat.queuedEditDrafts.set" ? waiting.then(() => post(message)) : post(message);
+  }
   await startEdit(container, "p-1");
-  const field = await typeQueueEdit(container, "discard behind the older request");
+  const field = await typeQueueEdit(container, "discard this revision");
+  if (mode === "refused") expect([...kept.values()][0]?.text).toBe("first");
   await act(async () =>
     field.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true })),
   );
@@ -981,20 +969,6 @@ test("a removed, steered or newer daemon prompt never revives or resends a saved
   await relaunchQueue(container, [queue[1]!]);
   expect(container.querySelector("textarea")).toBeNull();
   expect(kept.size).toBe(0);
-});
-
-test("Escape explicitly discards the persisted queue edit", async () => {
-  const container = await render();
-  const kept = draftHost();
-  await startEdit(container, "p-1");
-  const field = await typeQueueEdit(container, "discard me");
-  expect(kept.size).toBe(1);
-  await act(async () =>
-    field.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true })),
-  );
-  expect(kept.size).toBe(0);
-  await relaunchQueue(container, queue);
-  expect(container.querySelector("textarea")).toBeNull();
 });
 
 test.each(["typing", "discard"])("an older queue_edit acknowledgement cannot erase newer %s", async (mode) => {

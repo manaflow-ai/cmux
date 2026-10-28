@@ -25,22 +25,20 @@ holdWebSwap(() => {
 });
 
 function enqueue(write: Write): void {
-  // Browser galleries have no native store and must never hold a web update for one.
   if (!pageHostClient() && !globalThis.window?.webkit?.messageHandlers?.agentSession) return;
   const key = JSON.stringify([write.sessionId, write.promptId]);
   const queued = pending.get(key);
   // An old RPC's acknowledgement cannot replace a newer keystroke waiting for the host.
+  if (!("draft" in write) && queued && ("draft" in queued ? queued.draft.revision : queued.revision) !== write.revision)
+    return;
   if (!("draft" in write) && queued && "draft" in queued) {
-    if (queued.draft.revision !== write.revision) return;
-    // A discarded revision may not have reached disk. Keep its set before the conditional clear,
-    // otherwise an older persisted revision would survive a successful no-op clear and revive.
+    // Keep set→clear ordering so an older saved revision cannot survive a discarded pending set.
     pending.set(key, { ...queued, clear: true });
   } else pending.set(key, write);
   void settleQueuedEditWrites();
 }
 
-/** Native requests are ordered, coalescing keystrokes while an earlier write is in flight. Failed
- * writes stay pending for the quit/web-swap flush, and never let a web update silently lose them. */
+/** Ordered writes coalesce keystrokes; refused writes remain pending for quit or web-swap retry. */
 export function settleQueuedEditWrites(): Promise<void> {
   if (drain) return drain;
   drain = Promise.resolve().then(async () => {

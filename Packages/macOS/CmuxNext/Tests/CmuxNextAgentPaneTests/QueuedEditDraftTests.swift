@@ -38,11 +38,8 @@ struct QueuedEditDraftTests {
         let ownership = directory.appending(path: ".adopted-v1-\(AgentPaneQueuedEdits.fileName)")
         let legacyFile = legacy.appending(path: AgentPaneQueuedEdits.fileName)
         try FileManager.default.createDirectory(at: legacy, withIntermediateDirectories: true)
-        let old = ["session-a": ["queue-a": [
-            "revision": "legacy", "originalPrompt": "queued original", "originalImages": ["image-a", "image-b"],
-            "text": "stale legacy edit", "droppedImages": ["image-a"],
-        ]]] as [String: Any]
-        try JSONSerialization.data(withJSONObject: old).write(to: legacyFile)
+        let old = JSONValue.object(["session-a": .object(["queue-a": draft("legacy", text: "stale legacy edit")])])
+        try Data(old.compactText.utf8).write(to: legacyFile)
         DraftStateMigration.adopt(from: [legacy], to: directory, renameItem: { _, _, _ in -1 }) {
             try FileManager.checked.copyItem(at: $0, to: $1)
         }

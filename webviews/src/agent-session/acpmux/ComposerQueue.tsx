@@ -302,6 +302,11 @@ export function ComposerQueue({
       const kept = [...current].filter((id) => queue.some((entry) => entry.id === id));
       return kept.length === current.size ? current : new Set(kept);
     });
+    if (ready)
+      for (const [id, value] of savedEdits.current) {
+        if (id !== editing && !queue.some((entry) => entry.id === id && queuedEditMatches(value, entry)))
+          forget(id, value);
+      }
     // The edited prompt left, or turned out to be a teammate's (its authored record came in while
     // the editor was open): the editor closes, and what was typed goes back to the composer.
     if (
@@ -317,7 +322,7 @@ export function ComposerQueue({
       setDropped(new Set());
       setEditingId(undefined);
     }
-  }, [queue, editing, onLost, forget]);
+  }, [queue, ready, editing, onLost, forget]);
   // Whole rows only: the list's height, after every draw, when its width changes, and when a row's
   // height does (a prompt opened to its whole text, its images read).
   const watched = useRef<{ list: HTMLElement; observer: ResizeObserver; rows: ResizeObserver }>(undefined);
