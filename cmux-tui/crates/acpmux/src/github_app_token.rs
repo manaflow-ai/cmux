@@ -85,7 +85,10 @@ impl AppLease {
                 return json!({"lent": held.lent.is_some(), "stale": true, "seq": held.seq});
             }
             held.seq = seq;
-            held.lent = lent;
+            // One that expired on its way here moves `seq` on and is not kept (the lock is held,
+            // so this is the time it lands).
+            let now = crate::store::now_ms();
+            held.lent = lent.filter(|l| l.expires_at_ms > now);
             json!({"lent": held.lent.is_some()})
         };
         if params.get("clear") == Some(&Value::Bool(true)) {
@@ -266,5 +269,18 @@ mod tests {
             0
         };
         assert!(lease.still(6, under_lock).is_some());
+    }
+
+    /// Review of the lease at 0bb52d0: a lend that had expired on its way in was kept and
+    /// answered `lent: true`.
+    #[test]
+    fn a_lend_that_expired_on_its_way_moves_seq_on_and_is_not_kept() {
+        let lease = AppLease::default();
+        let expired = json!({"seq": 7, "origin": "https://cloud-api.cmux.dev", "bearer": "b",
+            "team": "team_0", "expiresAtMs": 1});
+        assert_eq!(lease.set(&expired).unwrap(), json!({"lent": false}));
+        assert!(lease.lock().lent.is_none());
+        let older = json!({"seq": 6, "clear": true});
+        assert_eq!(lease.set(&older).unwrap()["stale"], true, "its seq still counts");
     }
 }
