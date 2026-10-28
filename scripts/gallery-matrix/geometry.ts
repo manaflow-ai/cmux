@@ -297,8 +297,8 @@ async function writeCrop(artifactFile: string, finding: GeometryFinding, artifac
   if (right <= left || bottom <= top) return;
   const crop = new PNG({ width: right - left, height: bottom - top });
   PNG.bitblt(png, crop, left, top, right - left, bottom - top, 0, 0);
-  const relativeScreenshot = relative(reportDir, screenshot).replaceAll("/", "_").replaceAll("\\", "_");
-  const path = join(reportDir, "crops", `${finding.id.replaceAll(/[^A-Za-z0-9_.-]/g, "_")}-${relativeScreenshot}.png`);
+  const name = createHash("sha256").update(finding.id).digest("hex").slice(0, 24);
+  const path = join(reportDir, "crops", `${name}.png`);
   await mkdir(dirname(path), { recursive: true });
   await writeFile(path, PNG.sync.write(crop));
   finding.crop = relative(reportDir, path);
