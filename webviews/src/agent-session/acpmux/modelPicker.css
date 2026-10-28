@@ -210,9 +210,9 @@
 .acpmux-quick-disclosure .ui-submenu-chevron,
 .acpmux-quick-disclosure .ui-submenu-chevron:dir(rtl) { transform: translateY(-2px) rotate(135deg); }
 .acpmux-quick-disclosure[aria-expanded="true"] .ui-submenu-chevron { transform: translateY(1px) rotate(-45deg); }
-/* The shown models scroll in about six rows, so the rows after them (Effort, Account, Fast mode)
-   stay in view. */
-.acpmux-quick-more-list { min-inline-size: 0; margin: 0; border: 0; padding: 0; max-height: calc(6.5 * var(--ui-row-height)); overflow-y: auto; overscroll-behavior: contain; }
+/* Expanded models share the menu body's scroll. Available anchor room, not a row cap, bounds
+   the list, so a tall window shows more models without a nested scroll region. */
+.acpmux-quick-more-list { min-inline-size: 0; margin: 0; border: 0; padding: 0; }
 /* The optional Effort slider keeps the submenu's glass surface compact while the native range
    input remains the full hit target. Its custom thumb is endpoint-inclusive (composerControls.css). */
 .acpmux-quick-effort-slider {
@@ -308,7 +308,7 @@
   min-height: 0;
   overflow: hidden;
 }
-.acpmux-quick-newtab { max-height: min(480px, var(--available-height, 100vh)); }
+.acpmux-quick-newtab { max-height: var(--available-height, calc(100vh - 24px)); }
 .acpmux-quick-rail {
   flex: 0 0 38%;
   contain: size;
@@ -374,7 +374,7 @@
 .acpmux-quick-spacer { grid-area: 1 / 1; min-width: 0; }
 .acpmux-quick-list { display: flex; flex-direction: column; min-height: 0; }
 .acpmux-quick-list > * { flex: none; }
-.acpmux-quick-list > .acpmux-quick-more-list { flex: 0 1 auto; min-height: var(--ui-row-height); contain: inline-size; }
+.acpmux-quick-list > .acpmux-quick-more-list { contain: inline-size; }
 .acpmux-quick-spacer { visibility: hidden; pointer-events: none; }
 .acpmux-quick-probe { height: 0; overflow: hidden; }
 /* A filtered row names its harness in secondary text. */

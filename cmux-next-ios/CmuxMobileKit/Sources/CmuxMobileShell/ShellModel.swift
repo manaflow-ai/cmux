@@ -296,6 +296,12 @@ final class ShellModel {
         continueRestore()
     }
 
+    /// A link opened: the launch restore is dropped.
+    func cancelRestore() {
+        restoreAttempted = true
+        pendingRestore = nil
+    }
+
     /// The workspaces (or a Mac's data phase) changed while a restore waits.
     func continueRestore() {
         if let macID = restoreLinkMac, let live,
