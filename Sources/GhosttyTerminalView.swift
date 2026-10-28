@@ -6684,6 +6684,27 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return performBindingAction("esc:\(chord.letter)")
     }
 
+    /// Replays Cmd+Z at a shell prompt as the line editor's undo key.
+    ///
+    /// - Returns: `true` when the keystroke became line-editor undo and must
+    ///   not reach the terminal as the original keystroke.
+    private func handleLineEditorUndoIfNeeded(_ event: NSEvent, surface: ghostty_surface_t) -> Bool {
+        let flags = event.modifierFlags
+            .intersection(.deviceIndependentFlagsMask)
+            .subtracting([.numericPad, .function, .capsLock])
+        let isUndoChord = flags == [.command] && event.cmuxIsUndoRedoCommandEquivalent
+        guard TerminalLineEditorUndo.shouldReplay(
+            isUndoChord: isUndoChord,
+            // A pending sequence or key table also owns the next keystroke.
+            hasGhosttyBinding: isUndoChord && (!keySequence.isEmpty || !keyTables.isEmpty
+                || ghosttyBindingFlags(for: event, surface: surface) != nil),
+            isComposing: hasMarkedText(),
+            keyboardCopyModeActive: keyboardCopyModeActive,
+            isAlternateScreenActive: { terminalSurface?.isAlternateScreenActive() == true }
+        ) else { return false }
+        return performBindingAction(TerminalLineEditorUndo.bindingAction)
+    }
+
     private func handleKeyboardCopyModeIfNeeded(_ event: NSEvent, surface: ghostty_surface_t) -> Bool {
         guard keyboardCopyModeActive else { return false }
         reconcileKeyboardCopyModeViewport(surface: surface)
@@ -7421,6 +7442,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #endif
             terminalSurface?.didAcceptExplicitInput()
             keyboardCopyModeConsumedKeyUps.insert(event.keyCode)
+            return
+        }
+        if handleLineEditorUndoIfNeeded(event, surface: surface) {
+            terminalSurface?.didAcceptExplicitInput()
             return
         }
         if handleTextEditingGestureIfNeeded(event, surface: surface) {

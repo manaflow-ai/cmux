@@ -8,7 +8,10 @@ extension GhosttyApp {
             "super+n", "super+t", "super+q", "super+,", "super+enter",
             "super+shift+p", "super+shift+[", "super+shift+]",
             "ctrl+tab", "ctrl+shift+tab", "super+alt+w", "super+shift+w",
-            "super+alt+shift+w"
+            "super+alt+shift+w",
+            // cmux has no Ghostty-style undo; Cmd+Z becomes line-editor undo
+            // in the terminal key path unless the user binds it themselves.
+            "super+z"
         ]
         loadInlineGhosttyConfig(
             triggers.map { "keybind = \($0)=unbind" }.joined(separator: "\n")
