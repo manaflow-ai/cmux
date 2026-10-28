@@ -301,9 +301,13 @@ class Stress:
             # pane (the Command-pan bench over Chromium measured a terminal, 2026-10-24). A chat may still
             # open late; the pane's mix check names it.
             raise RuntimeError(f"{kind} tab did not appear in {pane_id} in 20 s (refusals: {self.refusals[-3:]})")
-        # The id to record is the daemon's: a provisional id is replaced when the daemon has the tab.
+        # Only the daemon's id is recorded: a provisional id is replaced when the daemon has the tab, and a tab
+        # the daemon never got is no STRESS tab. A terminal or page without it fails here; a chat without it is
+        # recorded as missing (None), and the pane's mix check names it.
         confirmed = wait(lambda: [t for t in fresh() or [] if not provisional(t)] or None, 20, step=0.1) if appeared else None
-        new = [t.get("id") for t in confirmed or appeared or []]
+        if appeared and not confirmed and kind in ("terminal", "chromium", "webkit"):
+            raise RuntimeError(f"{kind} tab in {pane_id} stayed provisional for 20 s (the daemon never had it)")
+        new = [t.get("id") for t in confirmed or []]
         self.made.setdefault(pane_id, []).append((kind, new[0] if len(new) == 1 else None, fallback))
 
     def send(self, tab_id, text):

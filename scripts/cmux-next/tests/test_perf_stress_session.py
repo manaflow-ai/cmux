@@ -49,13 +49,14 @@ class FakeApp:
 
     def __init__(self, takes_focus=True, cef=None, window_frame=None, visible=None, screen=None, legacy=False, chat="opens",
                  other_window_active=False,
-                 clamps=False):
+                 clamps=False, provisional_for=5):
         """`visible`/`screen`: the main screen's frames (VISIBLE, SCREEN); `legacy`: an app before the screen
         fields (debug.window_frame and debug.layers give no visible or screen frame); `chat`: `opens`, `late`
         (the chat tab shows 9 s after the action's reply), `refused` (a typed refusal), `transport` (the
         socket times out, no typed refusal), `provisional` (the chat tab shows at once under a `pending_tab_`
-        id, which no action target matches, and takes the daemon's id 5 s later) or `vanishes` (that
-        provisional tab goes away after 5 s, as a chat whose start failed)."""
+        id, which no action target matches, and takes the daemon's id `provisional_for` s later) or `vanishes`
+        (that provisional tab goes away after `provisional_for` s, as a chat whose start failed)."""
+        self.provisional_for = provisional_for
         self.takes_focus = takes_focus
         self.visible, self.screen, self.legacy, self.chat = visible or VISIBLE, screen or SCREEN, legacy, chat
         self.clock = None  # the builder's FakeClock (builder())
@@ -247,7 +248,7 @@ class FakeApp:
             elif self.chat in ("provisional", "vanishes"):
                 tab = {"id": stress.PROVISIONAL_TAB + self.ident("chat"), "kind": "conversation"}
                 self.add(pane, tab)
-                self.provisional.append((self.clock.now + 5, pane, tab, self.chat == "provisional"))
+                self.provisional.append((self.clock.now + self.provisional_for, pane, tab, self.chat == "provisional"))
             else:
                 self.add(pane, self.tab("conversation"))
         elif action == "newTab.page":
@@ -522,6 +523,15 @@ class ChatTests(Case):
         for pane in session.panes(session.workspace(session.measured)):
             self.assertEqual(sorted(t["kind"] for t in pane["tabs"]),
                              ["browser", "browser", "browser", "conversation", "terminal", "terminal"])
+
+    def test_a_chat_the_daemon_never_has_in_time_is_a_pane_problem_not_a_provisional_id(self):
+        app = FakeApp(chat="provisional", provisional_for=50)  # longer than the settle and confirm waits
+        session = builder(app)
+        session.build_measured()
+        made = [tab for tabs in session.made.values() for _, tab, _ in tabs]
+        self.assertFalse(any(str(tab).startswith(stress.PROVISIONAL_TAB) for tab in made), "a provisional id was recorded")
+        self.assertTrue(any("chat tab None" in problem for problem in session.summary()["pane_problems"]),
+                        "a chat the daemon never had passed the mix check")
 
     def test_a_terminal_is_found_when_the_provisional_chat_before_it_goes_away(self):
         app = FakeApp(chat="vanishes")
