@@ -145,16 +145,23 @@ extension SessionPersistencePolicy {
         }
         var preferredReplacements: [UUID: UUID] = [:]
         var supplementalReplacements: [UUID: UUID] = [:]
+        var preferredIndices: [Int: Int] = [:]
+        var supplementalIndices: [Int: Int] = [:]
         for (index, selection) in plan.selections.enumerated() {
-            guard let keptID = mergedWorkspaces[index].workspaceId else { continue }
             switch selection {
             case .preferred(let source):
+                preferredIndices[source] = index
+                guard let keptID = mergedWorkspaces[index].workspaceId else { continue }
                 if let oldID = preferredWorkspaces[source].workspaceId { preferredReplacements[oldID] = keptID }
             case .supplemental(let source):
+                supplementalIndices[source] = index
+                guard let keptID = mergedWorkspaces[index].workspaceId else { continue }
                 if let oldID = supplementalWorkspaces[source].workspaceId { supplementalReplacements[oldID] = keptID }
             }
         }
         for (preferredIndex, supplementalIndex) in plan.matches {
+            preferredIndices[preferredIndex] = preferredIndex
+            supplementalIndices[supplementalIndex] = preferredIndex
             guard let keptID = mergedWorkspaces[preferredIndex].workspaceId else { continue }
             if let oldID = preferredWorkspaces[preferredIndex].workspaceId { preferredReplacements[oldID] = keptID }
             if let oldID = supplementalWorkspaces[supplementalIndex].workspaceId { supplementalReplacements[oldID] = keptID }
@@ -176,10 +183,12 @@ extension SessionPersistencePolicy {
         // then translate replaced workspace identities before pruning its members.
         let groups = (pruningWorkspaceGroups(
             preferredGroups, originalWorkspaces: preferredWorkspaces,
-            keptWorkspaces: mergedWorkspaces, identityReplacements: preferredReplacements
+            keptWorkspaces: mergedWorkspaces, identityReplacements: preferredReplacements,
+            keptIndicesByOriginalIndex: preferredIndices
         ) ?? []) + (pruningWorkspaceGroups(
             supplementalGroups, originalWorkspaces: supplementalWorkspaces,
-            keptWorkspaces: mergedWorkspaces, identityReplacements: supplementalReplacements
+            keptWorkspaces: mergedWorkspaces, identityReplacements: supplementalReplacements,
+            keptIndicesByOriginalIndex: supplementalIndices
         ) ?? [])
         var merged = preferred
         merged.dock = remappingCrashDockOwnership(preferred.dock, replacements: preferredReplacements)

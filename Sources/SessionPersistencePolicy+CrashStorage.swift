@@ -161,7 +161,8 @@ extension SessionPersistencePolicy {
         tabManager.workspaceGroups = pruningWorkspaceGroups(
             window.tabManager.workspaceGroups,
             originalWorkspaces: originalWorkspaces,
-            keptWorkspaces: keptWorkspaces
+            keptWorkspaces: keptWorkspaces,
+            keptIndicesByOriginalIndex: Dictionary(uniqueKeysWithValues: keptOriginalIndices.enumerated().map { ($0.element, $0.offset) })
         )
         prunedWindow.tabManager = tabManager
         return (prunedWindow, true)
@@ -284,11 +285,12 @@ extension SessionPersistencePolicy {
         _ groups: [SessionWorkspaceGroupSnapshot]?,
         originalWorkspaces: [SessionWorkspaceSnapshot],
         keptWorkspaces: [SessionWorkspaceSnapshot],
-        identityReplacements: [UUID: UUID] = [:]
+        identityReplacements: [UUID: UUID] = [:],
+        keptIndicesByOriginalIndex: [Int: Int] = [:]
     ) -> [SessionWorkspaceGroupSnapshot]? {
         guard let groups else { return nil }
-        let originalMembersByGroupId = Dictionary(grouping: originalWorkspaces, by: \.groupId)
-        let keptMembersByGroupId = Dictionary(grouping: keptWorkspaces, by: \.groupId)
+        let originalMembersByGroupId = Dictionary(grouping: originalWorkspaces.indices, by: { originalWorkspaces[$0].groupId })
+        let keptMembersByGroupId = Dictionary(grouping: keptWorkspaces.indices, by: { keptWorkspaces[$0].groupId })
         let occupiedGroupIds = Set(keptMembersByGroupId.keys.compactMap { $0 })
         let pruned = groups.compactMap { group -> SessionWorkspaceGroupSnapshot? in
             let keepsEmptyPinnedGroup = group.isPinned == true && group.anchorIsEmpty == true
@@ -301,14 +303,20 @@ extension SessionPersistencePolicy {
             }
 
             var copy = group
-            let originalAnchorWorkspaceId = group.anchorWorkspaceId ?? group.anchorMemberIndex.flatMap { index in
-                originalMembers.indices.contains(index) ? originalMembers[index].workspaceId : nil
+            let originalAnchorIndex = group.anchorMemberIndex.flatMap { index in
+                originalMembers.indices.contains(index) ? originalMembers[index] : nil
             }
+            let originalAnchorWorkspaceId = group.anchorWorkspaceId
+                ?? originalAnchorIndex.flatMap { originalWorkspaces[$0].workspaceId }
+            // Legacy snapshots can have only an anchor index. Carry the exact
+            // source-to-output correspondence instead of assuming member order.
+            let indexedAnchor = originalAnchorIndex.flatMap { keptIndicesByOriginalIndex[$0] }
+                .flatMap { keptMembers.firstIndex(of: $0) }
             let newAnchorIndex = originalAnchorWorkspaceId.flatMap { anchorId in
-                keptMembers.firstIndex { $0.workspaceId == (identityReplacements[anchorId] ?? anchorId) }
-            } ?? 0
+                keptMembers.firstIndex { keptWorkspaces[$0].workspaceId == (identityReplacements[anchorId] ?? anchorId) }
+            } ?? indexedAnchor ?? 0
             copy.anchorMemberIndex = newAnchorIndex
-            copy.anchorWorkspaceId = keptMembers[newAnchorIndex].workspaceId
+            copy.anchorWorkspaceId = keptWorkspaces[keptMembers[newAnchorIndex]].workspaceId
             copy.anchorIsEmpty = nil
             return copy
         }

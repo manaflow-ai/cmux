@@ -8,6 +8,26 @@ import Testing
 #endif
 
 extension CrashDiagnosticSessionPolicyTests {
+    @Test("Legacy anchors follow retained source members through reordering and removal", arguments: [
+        ([0, 1, 2], 1), ([2, 0, 1], 2), ([0, 2], 0)
+    ])
+    func crashGroupLegacyAnchorTracksSource(testCase: ([Int], Int)) throws {
+        let (order, expectedAnchor) = testCase
+        let group = UUID()
+        let original = ["api", "docs", "infra"].map { title in
+            var workspace = crashTestWorkspace(title, agents: [title])
+            workspace.workspaceId = nil
+            workspace.groupId = group
+            return workspace
+        }
+        let groups = SessionPersistencePolicy.pruningWorkspaceGroups(
+            [SessionWorkspaceGroupSnapshot(id: group, name: "work", isCollapsed: false, anchorMemberIndex: 1)],
+            originalWorkspaces: original, keptWorkspaces: order.map { original[$0] },
+            keptIndicesByOriginalIndex: Dictionary(uniqueKeysWithValues: order.enumerated().map { ($0.element, $0.offset) })
+        )
+        #expect(try #require(groups?.first).anchorMemberIndex == expectedAnchor)
+    }
+
     @Test("Legacy group anchors survive a merge when workspace IDs are absent")
     func crashMergeKeepsLegacyIndexOnlyAnchor() throws {
         let group = UUID()
