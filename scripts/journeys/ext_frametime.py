@@ -13,6 +13,10 @@ Steps (`do`):
   frame_watch {as, pane?, interval_ms?, seconds?}
                                  starts sampling the journey's pane (or the named pane) every INTERVAL ms
                                  (default 4) for SECONDS (default 8); the samples are kept as AS
+An app that records the show itself (`debug.surfaces` surface.show {unpaused_ns, first_frame_ns,
+unpause_to_frame_ms}, Debug and bench builds since cp/terminal-show-timing) is judged by that record: exact,
+written off the main thread's queue. The 4 ms samples are the fallback for an app without it.
+
 Conditions (inside `expect.all`; evidence kind app):
   shown_draws_within {watch, since, frame_ms?}
                                  after the mark SINCE: the first sample with no pause (the window seen again), then
@@ -79,10 +83,42 @@ def _ms(a, b):
     return round((a - b) * 1000, 1)
 
 
+def _uptime_minus_monotonic():
+    """CLOCK_UPTIME_RAW minus time.monotonic(), in seconds (0 where the uptime clock does not exist)."""
+    raw = getattr(time, "CLOCK_UPTIME_RAW", None)
+    if raw is None:
+        return 0.0
+    return time.clock_gettime(raw) - time.monotonic()
+
+
+def _app_show(j, pane):
+    """The app's own record of the pane's last unpause and first frame after it (`debug.surfaces`
+    surface.show, cp/terminal-show-timing); None when this app has none."""
+    try:
+        row = _row(j.app.rpc("debug.surfaces", {}), pane)
+    except (D.StepError, OSError, ValueError):
+        return None
+    show = ((row or {}).get("surface") or {}).get("show")
+    return show if isinstance(show, dict) else None
+
+
 def cond_shown_draws_within(j, want, cache):
     watch = j.frame_watches[want["watch"]]
-    mark = j.marks[want["since"]]
     budget = float(want.get("frame_ms", 16.7))
+    show = _app_show(j, watch["pane"])
+    if show is not None:
+        # The app's record: exact, off the main thread's queue. Its unpause must be after the mark. The app's
+        # times are CLOCK_UPTIME_RAW; the driver's marks are time.monotonic() (mach_absolute_time in CPython on
+        # macOS, the same clock today): the mark moves by the two clocks' offset read now, in case they differ.
+        mark_ns = (j.marks[want["since"]] + _uptime_minus_monotonic()) * 1e9
+        detail = {"pane": watch["pane"], "source": "app", "show": show, "frame_ms": budget}
+        if show.get("unpaused_ns") is None or show["unpaused_ns"] < mark_ns - 1e6:
+            return False, dict(detail, waiting="no unpause after the mark yet")
+        if show.get("unpause_to_frame_ms") is None:
+            return False, dict(detail, waiting="no frame since the unpause")
+        detail["key_to_unpause_ms"] = round((show["unpaused_ns"] - mark_ns) / 1e6, 2)
+        return show["unpause_to_frame_ms"] <= budget, detail
+    mark = j.marks[want["since"]]
     samples = list(watch["samples"])
     reads = [s["t1"] - s["t0"] for s in samples]
     detail = {"pane": watch["pane"], "samples": len(samples),

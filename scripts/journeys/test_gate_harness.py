@@ -192,13 +192,35 @@ class FixturePage(unittest.TestCase):
 
 
 class ShownDrawsWithin(unittest.TestCase):
-    """window-uncover-draws times the first frame after the unpause from 4 ms samples, as bounds."""
+    """window-uncover-draws times the first frame after the unpause: from the app's own show record when the
+    app has one, else from 4 ms samples, as bounds."""
 
-    def journey(self, samples, mark=10.0):
+    def journey(self, samples, mark=10.0, show=None):
         j = D.Journey.__new__(D.Journey)
         j.marks = {"uncover": mark}
         j.frame_watches = {"w": {"pane": "pane_1", "samples": samples, "interval_ms": 4}}
+        surface = {"show": show} if show is not None else {}
+
+        class App:
+            def rpc(self, method, params=None):
+                return {"windows": [{"panes": [{"pane": "pane_1", "surface": surface}]}]}
+        j.app = App()
         return j
+
+    def test_the_apps_show_record_judges_when_present(self):
+        show = {"unpaused_ns": 10.020e9, "first_frame_ns": 10.026e9, "unpause_to_frame_ms": 6.0}
+        ok, detail = FT.cond_shown_draws_within(self.journey([], show=show), {"watch": "w", "since": "uncover"}, {})
+        self.assertTrue(ok, detail)
+        self.assertEqual((detail["source"], detail["key_to_unpause_ms"]), ("app", 20.0))
+        late = dict(show, unpause_to_frame_ms=40.0)
+        ok, _ = FT.cond_shown_draws_within(self.journey([], show=late), {"watch": "w", "since": "uncover"}, {})
+        self.assertFalse(ok)
+
+    def test_an_unpause_from_before_the_mark_is_not_this_show(self):
+        show = {"unpaused_ns": 9.0e9, "first_frame_ns": 9.001e9, "unpause_to_frame_ms": 1.0}
+        ok, detail = FT.cond_shown_draws_within(self.journey([], show=show), {"watch": "w", "since": "uncover"}, {})
+        self.assertFalse(ok)
+        self.assertIn("waiting", detail)
 
     @staticmethod
     def s(t, paused, frames):
