@@ -11,13 +11,22 @@ interface StoredMeta {
   readonly etag: string
   readonly size: number
   readonly contentType?: string
+  readonly customMetadata?: Record<string, string>
   readonly uploaded: number
 }
 
 interface MultipartMeta {
   readonly key: string
   readonly contentType?: string
+  readonly customMetadata?: Record<string, string>
 }
+
+type ObjectOptions = { httpMetadata?: { contentType?: string }; customMetadata?: Record<string, string> }
+/** The metadata an object or upload keeps from its options (R2: `httpMetadata.contentType` and `customMetadata`). */
+const metadataOf = (options: ObjectOptions) => ({
+  ...(options.httpMetadata?.contentType ? { contentType: options.httpMetadata.contentType } : {}),
+  ...(options.customMetadata && Object.keys(options.customMetadata).length ? { customMetadata: { ...options.customMetadata } } : {})
+})
 
 /** A stored object as R2 returns it, with a body when it was a `get`. */
 export interface FsObject {
@@ -27,6 +36,7 @@ export interface FsObject {
   readonly httpEtag: string
   readonly uploaded: Date
   readonly httpMetadata: { contentType?: string }
+  readonly customMetadata: Record<string, string>
   readonly range?: { offset: number; length: number }
   readonly body?: ReadableStream<Uint8Array>
   writeHttpMetadata(headers: Headers): void
@@ -346,6 +356,7 @@ export class FsBucket {
       httpEtag: `"${meta.etag}"`,
       uploaded: new Date(meta.uploaded),
       httpMetadata: meta.contentType ? { contentType: meta.contentType } : {},
+      customMetadata: { ...meta.customMetadata },
       ...(range ? { range } : {}),
       ...(body ? { body } : {}),
       writeHttpMetadata: (h) => {
@@ -393,7 +404,7 @@ export class FsBucket {
     return meta
   }
 
-  async put(key: string, value: unknown, options: { httpMetadata?: { contentType?: string }; onlyIf?: { etagDoesNotMatch?: string } } = {}): Promise<FsObject | null> {
+  async put(key: string, value: unknown, options: ObjectOptions & { onlyIf?: { etagDoesNotMatch?: string } } = {}): Promise<FsObject | null> {
     const file = this.path(key, true)!
     if (options.onlyIf?.etagDoesNotMatch === "*" && lstatOrNull(file)) return null
     const tmp = tempName(file)
@@ -402,7 +413,7 @@ export class FsBucket {
       rmSync(tmp, { force: true })
       throw error
     }
-    const meta: StoredMeta = { ...stored, ...(options.httpMetadata?.contentType ? { contentType: options.httpMetadata.contentType } : {}), uploaded: Date.now() }
+    const meta: StoredMeta = { ...stored, ...metadataOf(options), uploaded: Date.now() }
     try {
       this.rename(tmp, file, "key")
     } catch (error) {
@@ -413,11 +424,11 @@ export class FsBucket {
     return this.object(key, meta)
   }
 
-  async createMultipartUpload(key: string, options: { httpMetadata?: { contentType?: string } } = {}): Promise<FsMultipartUpload> {
+  async createMultipartUpload(key: string, options: ObjectOptions = {}): Promise<FsMultipartUpload> {
     this.path(key)
     const uploadId = Array.from(randomBytes(16), (byte) => byte.toString(16).padStart(2, "0")).join("")
     ensureDir(this.multipartDir)
-    await this.writeFile(this.multipartMetaPath(uploadId), JSON.stringify({ key, ...(options.httpMetadata?.contentType ? { contentType: options.httpMetadata.contentType } : {}) } satisfies MultipartMeta), "upload")
+    await this.writeFile(this.multipartMetaPath(uploadId), JSON.stringify({ key, ...metadataOf(options) } satisfies MultipartMeta), "upload")
     return new FsMultipartUpload(this, uploadId, key)
   }
 
@@ -471,7 +482,8 @@ export class FsBucket {
       throw error
     }
     const etag = hash.digest("hex")
-    const stored: StoredMeta = { etag, size, ...(meta.contentType ? { contentType: meta.contentType } : {}), uploaded: Date.now() }
+    // The object keeps the upload's metadata, as R2 does (a caller recognises its own completed upload by it).
+    const stored: StoredMeta = { etag, size, ...(meta.contentType ? { contentType: meta.contentType } : {}), ...(meta.customMetadata ? { customMetadata: meta.customMetadata } : {}), uploaded: Date.now() }
     await this.writeFile(`${output}.meta.json`, JSON.stringify(stored), "key")
     await this.abortMultipart(key, uploadId)
     return this.object(meta.key, stored)
