@@ -37,6 +37,24 @@ extension CMUXCLI {
               cmux ssh dev@my-host --transport mosh
             """
         )
+        let etHelp = String(
+            localized: "cli.help.ssh.et",
+            defaultValue: """
+            Eternal Terminal transport:
+              --transport et              Carry the interactive terminal over Eternal Terminal (et)
+              --et-port <n>               etserver port (default: 2022)
+              --et-terminal-path <path>   Remote etterminal path when it is not on the remote PATH
+              --et-tunnel <spec>          ET --tunnel forward (repeatable)
+              --et-reversetunnel <spec>   ET --reversetunnel forward (repeatable)
+
+            SSH continues to handle remote features; ET carries only the interactive terminal
+            and forwards the SSH agent when agent forwarding is on. If et, etterminal, or a
+            reachable etserver is missing, cmux reports it and uses SSH.
+
+            Example:
+              cmux ssh dev@my-host --transport et --et-port 2022
+            """
+        )
         let initialCommandHelp = String(
             localized: "cli.help.ssh.initialCommand",
             defaultValue: """
@@ -47,7 +65,7 @@ extension CMUXCLI {
               cmux ssh dev@my-host --command 'omp "investigate auth"'
             """
         )
-        return "\(help)\n\n\(initialCommandHelp)\n\n\(moshHelp)\n\n\(openFocusFlagsHelp)"
+        return "\(help)\n\n\(initialCommandHelp)\n\n\(moshHelp)\n\n\(etHelp)\n\n\(openFocusFlagsHelp)"
     }
 
     static var moshCommandUsage: String {
