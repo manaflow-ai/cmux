@@ -354,23 +354,22 @@ fn an_expiry_any_path_notices_ends_the_guests_connection_and_stream() {
     let first = redeem(&mut owner, &share, "Ann", "a1");
     let second = redeem(&mut owner, &share, "Bob", "a2");
     let (mut ann, _) = bind(&mux, &share, &first, "share-noticed-ann");
-    let (mut bob, _) = bind(&mux, &share, &second, "share-noticed-bob");
-    for client in [&mut ann, &mut bob] {
-        let attach = client.request(json!({"cmd":"agent-session-attach", "surface":surface}));
-        assert_eq!(attach["ok"], true, "{attach}");
-    }
+    let (_bob, bound) = bind(&mux, &share, &second, "share-noticed-bob");
+    assert_eq!(bound["ok"], true);
+    // Ann watches (the fake acpmux pushes to the first link only); Bob is bound, not attached.
+    let attach = ann.request(json!({"cmd":"agent-session-attach", "surface":surface}));
+    assert_eq!(attach["ok"], true, "{attach}");
     let shares = &mux.control_clients.agent_sessions.link_shares;
     shares.advance(Duration::from_secs(61));
-    // No verb yet: the next record reaches neither guest, whose streams end.
+    // No verb yet: the next record does not reach Ann, whose stream ends.
     fake.notify(
         "_acpmux/event",
         json!({"sessionId": SESSION, "seq": 9, "at": 1, "dir": "mux", "kind": "user_message"}),
     );
-    for client in [&mut ann, &mut bob] {
-        let closed = client.named_event("agent-session-closed", WAIT).expect("the stream ends");
-        assert_eq!(closed["reason"], "share_ended");
-        assert!(client.named_event("agent-session-record", Duration::from_millis(200)).is_none());
-    }
+    let closed = ann.named_event("agent-session-closed", WAIT).expect("the stream ends");
+    assert_eq!(closed["reason"], "share_ended");
+    assert!(ann.named_event("agent-session-record", Duration::from_millis(200)).is_none());
+    assert_eq!(mux.control_clients.agent_sessions.proxy_authors.lock().unwrap().len(), 2);
     // The owner's list notices the expiry first: both connections close, the timer is gone.
     assert_eq!(list(&mut owner)[0]["state"], "expired");
     wait_unbound(&mux, 0);
