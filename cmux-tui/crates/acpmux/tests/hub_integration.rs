@@ -75,14 +75,14 @@ mod silent_turn;
 mod stalled_turn;
 #[path = "hub_integration/status_indicator.rs"]
 mod status_indicator;
-#[path = "hub_integration/stuck_liveness.rs"]
-mod stuck_liveness;
 #[path = "hub_integration/steer_now.rs"]
 mod steer_now;
 #[path = "hub_integration/steer_only.rs"]
 mod steer_only;
 #[path = "hub_integration/stop.rs"]
 mod stop;
+#[path = "hub_integration/stuck_liveness.rs"]
+mod stuck_liveness;
 #[path = "hub_integration/subagent_retry.rs"]
 mod subagent_retry;
 #[path = "hub_integration/surfaces.rs"]
