@@ -106,18 +106,28 @@ def copy_app(source: Path, root: Path) -> Path:
 def copy_app_from_dmg(dmg: Path, root: Path) -> Path:
     mount = root / "mnt"
     mount.mkdir()
-    subprocess.run(["hdiutil", "attach", str(dmg), "-nobrowse", "-readonly", "-mountpoint", str(mount)],
-                   check=True, stdout=subprocess.DEVNULL, timeout=300)
     try:
+        subprocess.run(["hdiutil", "attach", str(dmg), "-nobrowse", "-readonly", "-mountpoint", str(mount)],
+                       check=True, stdout=subprocess.DEVNULL, timeout=300)
         apps = sorted(mount.glob("*.app"))
         if not apps:
             raise CannotRun(f"no app in {dmg}")
         return copy_app(apps[0], root)
     finally:
-        if subprocess.run(["hdiutil", "detach", str(mount)], stdout=subprocess.DEVNULL,
-                          stderr=subprocess.DEVNULL, timeout=120).returncode != 0:
-            subprocess.run(["hdiutil", "detach", "-force", str(mount)], stdout=subprocess.DEVNULL,
-                           stderr=subprocess.DEVNULL, timeout=120)
+        detach(mount)
+
+
+def detach(mount: Path) -> None:
+    """Detach the image if it is attached (a timed-out attach may still finish), forcing it if needed; never raises."""
+    if not os.path.ismount(mount):
+        return
+    for args in (["hdiutil", "detach", str(mount)], ["hdiutil", "detach", "-force", str(mount)]):
+        try:
+            if subprocess.run(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=120).returncode == 0:
+                return
+        except (OSError, subprocess.SubprocessError):
+            pass
+    log(f"warning: could not detach {mount}")
 
 
 def fresh_env(root: Path, socket_path: Path, marks_fd: int) -> dict[str, str]:
@@ -144,20 +154,37 @@ def fresh_env(root: Path, socket_path: Path, marks_fd: int) -> dict[str, str]:
 
 
 class DefaultsAside:
-    """The bundle's defaults domain, set aside for the run under a per-bundle lock and put back after it."""
+    """The bundle's defaults domain, set aside for the run under a per-bundle lock and put back after it.
+
+    The set-aside copy lives beside the lock, outside the run's temp root, so a harness that is killed
+    mid-run (a step timeout) leaves it for the next run to put back before it sets anything aside. A
+    domain that did not exist is recorded too, so the next run deletes what the app wrote. A delete or
+    import that fails is CannotRun: the gate fails closed and the copy stays for the next run."""
 
     def __init__(self, bundle_id: str, root: Path):
         self.bundle_id = bundle_id
         self.tool = os.environ.get("CMUX_FRESH_SMOKE_DEFAULTS_TOOL") or shutil.which("defaults")
-        self.backup = root / "defaults-backup.plist"
-        self.saved = False
         lock_dir = os.environ.get("CMUX_FRESH_SMOKE_LOCK_DIR") or "/tmp"
-        self.lock_path = os.path.join(lock_dir, f"cmux-fresh-smoke-{bundle_id}.lock")
+        stem = os.path.join(lock_dir, f"cmux-fresh-smoke-{bundle_id}")
+        self.lock_path = stem + ".lock"
+        self.backup = Path(stem + ".aside.plist")
+        self.absent = Path(stem + ".aside-absent")
         self.lock = None
 
     def defaults(self, *args: str) -> int:
         return subprocess.run([self.tool, *args], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                               timeout=60).returncode
+
+    def put_back(self) -> None:
+        """Restore whatever is set aside (this run's, or one a killed run left), then forget it."""
+        if self.backup.exists():
+            self.defaults("delete", self.bundle_id)
+            if self.defaults("import", self.bundle_id, str(self.backup)) != 0:
+                raise CannotRun(f"could not put back the {self.bundle_id} defaults; they stay set aside in {self.backup}")
+            self.backup.unlink()
+        if self.absent.exists():
+            self.defaults("delete", self.bundle_id)  # nonzero when the app wrote nothing: nothing to remove
+            self.absent.unlink()
 
     def __enter__(self):
         if not self.tool:
@@ -172,22 +199,41 @@ class DefaultsAside:
                 break
             except BlockingIOError:
                 if time.monotonic() >= deadline:
+                    self.lock.close()
                     raise CannotRun(f"another fresh-home smoke of {self.bundle_id} held {self.lock_path} for {wait:.0f}s")
                 time.sleep(1)
-        if self.defaults("export", self.bundle_id, str(self.backup)) == 0 and self.backup.exists():
-            self.saved = True
-        self.defaults("delete", self.bundle_id)
+        try:
+            if self.backup.exists() or self.absent.exists():
+                log(f"note: putting back the {self.bundle_id} defaults an earlier smoke left set aside")
+                self.put_back()
+            partial = self.backup.with_name(self.backup.name + ".partial")
+            partial.unlink(missing_ok=True)
+            if self.defaults("export", self.bundle_id, str(partial)) == 0 and partial.exists():
+                os.replace(partial, self.backup)
+                if self.defaults("delete", self.bundle_id) != 0:
+                    self.backup.unlink()
+                    raise CannotRun(f"could not set the {self.bundle_id} defaults aside (defaults delete failed)")
+            else:
+                partial.unlink(missing_ok=True)
+                self.absent.touch()
+        except BaseException:
+            self.release()
+            raise
         return self
+
+    def release(self) -> None:
+        if self.lock is not None:
+            fcntl.flock(self.lock, fcntl.LOCK_UN)
+            self.lock.close()
+            self.lock = None
 
     def __exit__(self, *_exc):
         if not self.tool:
             return False
-        self.defaults("delete", self.bundle_id)
-        if self.saved and self.defaults("import", self.bundle_id, str(self.backup)) != 0:
-            log(f"warning: could not put back the {self.bundle_id} defaults from {self.backup}")
-        if self.lock is not None:
-            fcntl.flock(self.lock, fcntl.LOCK_UN)
-            self.lock.close()
+        try:
+            self.put_back()
+        finally:
+            self.release()
         return False
 
 
