@@ -138,7 +138,8 @@ public protocol ControlSessionPriorityContext: AnyObject {
     ///   - difficultyRaw: `easy`, `normal` or `hard` to set, else `nil`.
     ///   - clearDifficulty: Whether to clear the user override (`difficulty: auto`).
     ///   - manual: The manual flag to set, if any.
-    ///   - source: `user` (override and manual) or `auto` (the auto value only).
+    ///   - source: `user` (override and manual) or `auto` (the auto value only;
+    ///     not called for `auto` while the probe reports session priority off).
     func controlSetSessionPriority(
         routing: ControlRoutingSelectors,
         workspaceID: UUID?,

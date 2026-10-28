@@ -89,7 +89,8 @@ extension ControlCommandCoordinator {
     }
 
     /// `session_priority.set` — set the difficulty override / manual flag,
-    /// record the auto difficulty (`source: auto`), or `probe`.
+    /// record the auto difficulty (`source: auto`, dropped while session
+    /// priority is off), or `probe`.
     func sessionPrioritySet(_ params: [String: JSONValue]) -> ControlCallResult {
         let routing = routingSelectors(params)
         let workspaceID = uuid(params, "workspace_id")
@@ -138,6 +139,15 @@ extension ControlCommandCoordinator {
             }
             guard manual == nil else {
                 return .err(code: "invalid_params", message: "source auto does not accept manual", data: nil)
+            }
+            // A rating that arrives after session priority went off changes
+            // nothing, so turning it back on does not bring a stale value back.
+            if let probe = context?.controlProbeSessionPriority(routing: routing, workspaceID: workspaceID),
+               !probe.enabled {
+                return sessionPriorityResult(
+                    context?.controlSessionPriority(routing: routing, workspaceID: workspaceID)
+                        ?? .tabManagerUnavailable
+                )
             }
         }
         let clear = difficulty == "auto"
