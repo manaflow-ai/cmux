@@ -6442,6 +6442,8 @@ extension SessionPersistenceTests {
         ))
         var legacyCodex = hookBinding
         legacyCodex.kind = nil
+        legacyCodex.name = "Codex"
+        legacyCodex.command = "codex resume pi-session"
         XCTAssertEqual(
             SurfaceResumeRunPromptBatch.agentRestoreIdentity(
                 restorableAgent: nil, agentMayAutoResume: false,
