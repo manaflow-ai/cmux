@@ -26,12 +26,11 @@ import Testing
         return (window, start)
     }
 
-    /// Runs the main run loop until `done` or 30 s (the resize animation lands on the run loop). The
-    /// test checks where the window lands, not how fast: a loaded runner may take far longer than
-    /// the animation's own length, so the bound is only a hang guard.
-    private func runUntil(_ what: String, _ window: NSWindow, _ done: () -> Bool) {
+    /// Runs the main run loop until `done` or `seconds` (the resize animation lands on the run loop),
+    /// and prints how it ended.
+    private func runUntil(_ what: String, _ window: NSWindow, seconds: TimeInterval, _ done: () -> Bool) {
         let begin = Date()
-        let end = Date(timeIntervalSinceNow: 30)
+        let end = Date(timeIntervalSinceNow: seconds)
         while !done(), Date() < end {
             _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01))
         }
@@ -39,12 +38,7 @@ import Testing
             + "isZoomed \(window.isZoomed), inLiveResize \(window.inLiveResize), visible \(window.screen?.visibleFrame ?? .zero)")
     }
 
-    /// The resize animation lands only on a display that advances frames: on a runner whose virtual display
-    /// shows but draws no frames the window stays in live resize and the wait below would only time out
-    /// (`GUIAnimationTestSupport`).
-    @Test(.enabled(if: NSScreen.main != nil, "zooming needs a screen: run on a GUI host"),
-          .enabled("the resize animation lands only on a display that advances frames") { await GUIAnimationTestSupport.animatesHere() })
-    func aZoomReturnsBeforeTheWindowResizesAndLandsOnTheRunLoop() throws {
+    @Test(.enabled(if: NSScreen.main != nil, "zooming needs a screen: run on a GUI host")) func aZoomReturnsBeforeTheWindowResizesAndLandsOnTheRunLoop() throws {
         let (window, start) = try shownWindow()
         defer { window.close() }
         try #require(!window.isZoomed)
@@ -62,10 +56,15 @@ import Testing
         window.zoom(nil)
         #expect(window.frame == start, "zoom resized the window inside its own call (\(window.frame)): the animation held the main thread")
         #expect(window.isZoomed, "a zoom on its way to the standard frame counts as zoomed")
-        runUntil("zoom in", window) { window.frame != start && !window.inLiveResize && window.isZoomed && window.frame.width > start.width + 1 }
+        // The test checks where the window lands, not how fast: a loaded runner may take far longer than
+        // the animation's own length, so the wait for the frame is a 30 s hang guard. Then up to 3 s (the
+        // test's old wait) for the animation to leave live resize; on some CI runners AppKit keeps the
+        // window in live resize after the frame landed, and the second zoom then snaps, which is fine.
+        runUntil("zoom in", window, seconds: 30) { window.isZoomed && window.frame.width > start.width + 1 }
+        runUntil("zoom in settles", window, seconds: 3) { !window.inLiveResize }
         #expect(window.frame.width > start.width, "the window reached its zoomed frame on the run loop")
         window.zoom(nil)
-        runUntil("zoom back", window) { abs(window.frame.width - start.width) <= 1 && abs(window.frame.height - start.height) <= 1 }
+        runUntil("zoom back", window, seconds: 30) { abs(window.frame.width - start.width) <= 1 && abs(window.frame.height - start.height) <= 1 }
         #expect(abs(window.frame.width - start.width) <= 1 && abs(window.frame.minY - start.minY) <= 1,
                 "the second zoom went back to \(start), the window is at \(window.frame)")
     }
