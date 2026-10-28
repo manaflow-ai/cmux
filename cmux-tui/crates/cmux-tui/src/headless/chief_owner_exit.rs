@@ -109,7 +109,7 @@ pub(crate) fn next_owner(
     file: Option<&Path>,
     alive: &dyn Fn(OwnerApp) -> bool,
 ) -> Option<OwnerApp> {
-    let text = std::fs::read_to_string(file?).ok()?;
+    let text = cmux_blocking::fs::read_to_string(file?).ok()?;
     let next = OwnerApp::parse(Some(&text));
     (next.is_named() && next != gone && alive(next)).then_some(next)
 }
@@ -120,7 +120,7 @@ pub(crate) fn next_owner(
 pub(crate) fn watch_owner(owner: OwnerApp, file: Option<PathBuf>, watch: &Arc<OrphanWatch>) {
     let watch = Arc::downgrade(watch);
     let spawned =
-        std::thread::Builder::new().name("chief-owner-app-exit".into()).spawn(move || {
+        cmux_threads::spawn("chief-owner-app-exit", cmux_threads::ThreadQos::Utility, move || {
             let mut owner = owner;
             loop {
                 if !owner.wait_for_exit() {

@@ -8,6 +8,9 @@
 //! [`MuxEvent`]s and read surface state; they never own terminal state
 //! themselves, which is what makes the backend attachable.
 
+// Threads start through cmux_threads (named, registered, at a declared QoS):
+// plans/cmux-next/chrome-parity/p02-threads.md, tasks 213-218.
+#![cfg_attr(not(test), deny(clippy::disallowed_methods))]
 mod agent_hook_question;
 mod agent_hooks;
 pub mod agent_launch;
@@ -149,6 +152,8 @@ pub mod terminal_host;
 pub mod terminal_host_protocol;
 pub mod terminal_host_runtime;
 pub mod thread_qos;
+/// VT worker shard choice by trust class (p01-process task 142).
+pub mod vt_trust_shards;
 #[cfg(unix)]
 pub use cmux_tui_platform::unix_process_scope;
 pub use cmux_tui_util::user_settings;

@@ -1,10 +1,11 @@
 //! Frontend journal delivery: the coalescing queue of pending frontend journal
 //! events and the worker thread that writes them to the session.
 
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
+use cmux_threads::sync::Condvar;
 use cmux_tui_core::FrontendJournalEvent;
 
 use crate::session::Session;
@@ -144,9 +145,11 @@ impl FrontendJournalWorker {
         let queue = Arc::new(FrontendJournalQueue::default());
         let worker_queue = queue.clone();
         // supervise-allow: owned by FrontendJournalWorker and joined at its drop; a panic ends journal writes only.
-        let worker = std::thread::Builder::new()
-            .name("frontend-session-journal".into())
-            .spawn(move || run_frontend_journal_worker(&worker_queue))?;
+        let worker = cmux_threads::spawn(
+            "frontend-session-journal",
+            cmux_threads::ThreadQos::Utility,
+            move || run_frontend_journal_worker(&worker_queue),
+        )?;
         Ok(Self { queue: Some(queue), worker: Some(worker) })
     }
 
@@ -166,7 +169,7 @@ impl FrontendJournalWorker {
             queue.stop();
         }
         if let Some(worker) = self.worker.take() {
-            let _ = worker.join();
+            let _ = crate::blocking::thread::join(worker);
         }
     }
 }

@@ -67,7 +67,9 @@ fn run(queue: &Arc<SharedQueue>, on_failure: &Arc<dyn Fn(PtyOperationFailure) + 
                 if state.workers_done {
                     return;
                 }
-                state = queue.session_mutation_ready.wait(state).unwrap();
+                // The thread's own next event: an idle wait, never a
+                // blocking call.
+                state = queue.session_mutation_ready.idle().wait(state).unwrap();
             }
         };
         process_event(queue.clone(), on_failure.clone(), event);

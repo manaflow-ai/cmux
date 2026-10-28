@@ -12,6 +12,7 @@ use tokio::sync::{Mutex, OwnedSemaphorePermit, Semaphore, mpsc, watch};
 
 use crate::connection::{ClientConnection, ConnectionError};
 use crate::daemon::{DaemonError, ServerConnection};
+use crate::per_lane::PerLane;
 use crate::session::ReceivedFrame;
 
 const MAX_OPEN_STREAMS: usize = 256;
@@ -136,7 +137,7 @@ pub struct ServiceMultiplexer {
 struct ClosedStreams {
     ids: HashSet<u64>,
     lanes: HashMap<u64, u8>,
-    order: [VecDeque<u64>; 4],
+    order: PerLane<VecDeque<u64>>,
 }
 
 impl Default for ClosedStreams {
@@ -144,7 +145,7 @@ impl Default for ClosedStreams {
         Self {
             ids: HashSet::new(),
             lanes: HashMap::new(),
-            order: std::array::from_fn(|_| VecDeque::new()),
+            order: PerLane::from_fn(|_| VecDeque::new()),
         }
     }
 }
@@ -175,7 +176,7 @@ impl ClosedStreams {
             if new_lanes & bit == 0 {
                 continue;
             }
-            let queue = &mut self.order[lane as usize];
+            let queue = self.order.get_mut(lane);
             queue.push_back(stream);
             while queue.len() > TOMBSTONES_PER_LANE {
                 let Some(expired) = queue.pop_front() else { break };
@@ -651,11 +652,11 @@ pub struct ServiceStream {
     failure: watch::Sender<Option<StreamFailure>>,
     state: Arc<AtomicU8>,
     terminal: Arc<LaneTerminalState>,
-    outbound: [Mutex<()>; 4],
+    outbound: PerLane<Mutex<()>>,
 }
 
-fn outbound_lane_locks() -> [Mutex<()>; 4] {
-    std::array::from_fn(|_| Mutex::new(()))
+fn outbound_lane_locks() -> PerLane<Mutex<()>> {
+    PerLane::from_fn(|_| Mutex::new(()))
 }
 
 struct StreamReceiver {
@@ -689,7 +690,7 @@ impl ServiceStream {
 
     pub async fn send_on(&self, lane: Lane, payload: Bytes) -> Result<(), ServiceError> {
         let lane = if self.service == Service::TcpTunnel { Lane::Tunnel } else { lane };
-        let _outbound = self.outbound[lane as usize].lock().await;
+        let _outbound = self.outbound.get(lane).lock().await;
         self.require_active()?;
         if self.terminal.closing.load(Ordering::Acquire) {
             return Err(ServiceError::Closed);
@@ -804,7 +805,7 @@ impl ServiceStream {
         let lane = if self.service == Service::TcpTunnel { Lane::Tunnel } else { lane };
         let lanes = close_lanes(self.service, &lane);
         for lane in lanes {
-            let _outbound = self.outbound[*lane as usize].lock().await;
+            let _outbound = self.outbound.get(*lane).lock().await;
             let bit = lane_bit(*lane);
             if self.terminal.local.load(Ordering::Acquire) & bit != 0 {
                 continue;

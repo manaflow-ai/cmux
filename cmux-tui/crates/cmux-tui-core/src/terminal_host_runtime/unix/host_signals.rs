@@ -298,25 +298,31 @@ pub(crate) fn install() -> anyhow::Result<()> {
     }
     let (reader, writer) = cloexec_pipe()?;
     WAKE_WRITER.store(writer, Ordering::Release);
-    supervised::spawn("terminal-host-signals", Fatal, ShutdownBehavior::Continue, move || {
-        let mut buffer = [0u8; 64];
-        loop {
-            // SAFETY: reader is owned by this thread for the process lifetime.
-            let count = unsafe { libc::read(reader, buffer.as_mut_ptr().cast(), buffer.len()) };
-            if count == 0 {
-                return;
+    supervised::spawn_at(
+        "terminal-host-signals",
+        cmux_threads::ThreadQos::Utility,
+        Fatal,
+        ShutdownBehavior::Continue,
+        move || {
+            let mut buffer = [0u8; 64];
+            loop {
+                // SAFETY: reader is owned by this thread for the process lifetime.
+                let count = unsafe { libc::read(reader, buffer.as_mut_ptr().cast(), buffer.len()) };
+                if count == 0 {
+                    return;
+                }
+                if count < 0
+                    && std::io::Error::last_os_error().kind() != std::io::ErrorKind::Interrupted
+                {
+                    return;
+                }
+                // A service-manager stop first: naming senders reads /proc.
+                act_on_service_manager_stop();
+                act_on_orphan_term();
+                flush();
             }
-            if count < 0
-                && std::io::Error::last_os_error().kind() != std::io::ErrorKind::Interrupted
-            {
-                return;
-            }
-            // A service-manager stop first: naming senders reads /proc.
-            act_on_service_manager_stop();
-            act_on_orphan_term();
-            flush();
-        }
-    })?;
+        },
+    )?;
     // SAFETY: a zeroed sigaction with a valid SA_SIGINFO handler and an
     // empty mask; the signals are platform constants.
     unsafe {

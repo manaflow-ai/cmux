@@ -117,12 +117,17 @@ impl MachineActionWorker {
         let cancellation = EventCancellation::new();
         let worker_cancellation = cancellation.clone();
         // supervise-allow: owned by its worker struct and joined at stop_and_join; a panic drops its channel ends, so the app sees the machine stream end.
-        let worker =
-            std::thread::Builder::new().name("machine-actions".into()).spawn(move || {
+        let worker = cmux_threads::spawn(
+            "machine-actions",
+            cmux_threads::ThreadQos::UserInitiated,
+            move || {
                 let mut next_action_id = 1_u64;
                 let mut pending_replacement: Option<(u64, bool)> = None;
                 while !worker_stop.load(Ordering::Acquire) {
-                    let command = match receiver.recv_timeout(Duration::from_millis(50)) {
+                    let command = match crate::blocking::sync::recv_timeout(
+                        &receiver,
+                        Duration::from_millis(50),
+                    ) {
                         Ok(command) => command,
                         Err(RecvTimeoutError::Timeout) => continue,
                         Err(RecvTimeoutError::Disconnected) => break,
@@ -284,7 +289,8 @@ impl MachineActionWorker {
                     controller.abort_replacement();
                 }
                 controller.close();
-            })?;
+            },
+        )?;
         Ok(Self { sender: Some(sender), stop, cancellation, worker: Some(worker) })
     }
 
@@ -380,7 +386,7 @@ impl MachineActionWorker {
         if self.worker.as_ref().is_some_and(JoinHandle::is_finished)
             && let Some(worker) = self.worker.take()
         {
-            let _ = worker.join();
+            let _ = crate::blocking::thread::join(worker);
         }
         // A provider action has a bounded transport deadline but may still be
         // in progress. Dropping the handle detaches that bounded cleanup so
@@ -457,11 +463,13 @@ impl MachineUpdatePump {
         let cancellation = EventCancellation::new();
         let forwarder_cancellation = cancellation.clone();
         // supervise-allow: owned by its worker struct and joined at stop_and_join; a panic drops its channel ends, so the app sees the machine stream end.
-        let forwarder = match std::thread::Builder::new()
-            .name("machine-provider-events".into())
-            .spawn(move || {
+        let forwarder = match cmux_threads::spawn(
+            "machine-provider-events",
+            cmux_threads::ThreadQos::UserInitiated,
+            move || {
                 while !forwarder_stop.load(Ordering::Acquire) {
-                    match updates.recv_timeout(Duration::from_millis(250)) {
+                    match crate::blocking::sync::recv_timeout(&updates, Duration::from_millis(250))
+                    {
                         Ok(update) => {
                             if send_bounded_cancelable(
                                 &app_events,
@@ -480,11 +488,12 @@ impl MachineUpdatePump {
                         Err(RecvTimeoutError::Disconnected) => break,
                     }
                 }
-            }) {
+            },
+        ) {
             Ok(forwarder) => forwarder,
             Err(error) => {
                 stop.store(true, Ordering::Release);
-                let _ = provider.join();
+                let _ = crate::blocking::thread::join(provider);
                 return Err(error.into());
             }
         };
@@ -495,10 +504,10 @@ impl MachineUpdatePump {
         self.stop.store(true, Ordering::Release);
         self.cancellation.cancel();
         if let Some(forwarder) = self.forwarder.take() {
-            let _ = forwarder.join();
+            let _ = crate::blocking::thread::join(forwarder);
         }
         if let Some(provider) = self.provider.take() {
-            let _ = provider.join();
+            let _ = crate::blocking::thread::join(provider);
         }
     }
 }

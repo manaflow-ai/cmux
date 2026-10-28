@@ -110,11 +110,11 @@ fn parse(args: &[String]) -> anyhow::Result<InstallArgs> {
 }
 
 fn open_authority(path: &Path) -> anyhow::Result<File> {
-    let file = OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
-        .open(path)
-        .map_err(|error| anyhow::anyhow!("cannot open provider authority file: {error}"))?;
+    let file = crate::blocking::fs::open_with(
+        OpenOptions::new().read(true).custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW),
+        path,
+    )
+    .map_err(|error| anyhow::anyhow!("cannot open provider authority file: {error}"))?;
     let metadata = file.metadata()?;
     if !metadata.is_file()
         || metadata.uid() != 0
