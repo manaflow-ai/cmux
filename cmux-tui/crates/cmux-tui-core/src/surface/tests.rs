@@ -14,6 +14,8 @@ mod colors;
 mod directory_publication;
 #[cfg(unix)]
 mod echo_flow;
+#[cfg(unix)]
+mod holder_input;
 mod hosted;
 #[cfg(unix)]
 mod hosted_input_outage;

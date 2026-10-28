@@ -184,7 +184,8 @@ impl ChatClient {
     /// Uploads the file at `path` into `conversation`; the `attachment` part
     /// that names it.
     pub(super) fn upload(&mut self, conversation: &str, path: &Path) -> Result<Value, String> {
-        let meta = std::fs::metadata(path).map_err(|e| format!("{}: {e}", path.display()))?;
+        let meta =
+            cmux_blocking::fs::metadata(path).map_err(|e| format!("{}: {e}", path.display()))?;
         if !meta.is_file() {
             return Err(format!("{} is not a file", path.display()));
         }
@@ -192,7 +193,7 @@ impl ChatClient {
             return Err(format!("{} is larger than 100 MB", path.display()));
         }
         let mut bytes = Vec::with_capacity(meta.len() as usize);
-        std::fs::File::open(path)
+        cmux_blocking::fs::open(path)
             .and_then(|mut file| file.read_to_end(&mut bytes))
             .map_err(|e| format!("{}: {e}", path.display()))?;
         let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("file").to_owned();

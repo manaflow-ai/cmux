@@ -1,8 +1,9 @@
 //! Per-stream send credit shared by a stream's local reader thread and the
 //! generation worker, and the payload bounds both rely on.
 
-use std::sync::{Condvar, Mutex};
+use std::sync::Mutex;
 
+use cmux_threads::sync::Condvar;
 use cmux_tui_machine_agent_protocol::{self as protocol, DataPayload};
 
 use super::error_code::AgentErrorCode;

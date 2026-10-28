@@ -53,7 +53,7 @@ impl Drop for MachineUpdateStream {
             // Drop the receiver before joining so a worker blocked on a full
             // bounded channel observes cancellation instead of deadlocking.
             drop(receiver);
-            let _ = worker.join();
+            let _ = crate::blocking::thread::join(worker);
         }
     }
 }
