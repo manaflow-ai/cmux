@@ -113,6 +113,7 @@ mod shell_integration;
 use cmux_tui_util::short_id;
 mod sidebar_resource;
 pub mod sizing_policy;
+pub mod startup_marks;
 mod state;
 pub mod store_schemas;
 /// Every thread this crate starts runs under the process supervisor (p10-stability-112).

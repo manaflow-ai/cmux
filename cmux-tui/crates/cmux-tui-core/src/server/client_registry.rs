@@ -467,6 +467,7 @@ impl ClientRegistry {
                 origin: Default::default(),
                 person: false,
                 connection_class: Arc::new(ConnectionClassCell::of_client(client)),
+                frontend_visibility: Default::default(),
                 #[cfg(unix)]
                 machine_catalog: None,
                 #[cfg(test)]

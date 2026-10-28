@@ -1,6 +1,7 @@
 //! Owns the remaining daemon, session maintenance, peer, and output commands.
 
 use super::*;
+use crate::no_panic::JsonExt;
 
 pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> Result<()> {
     match cmd {
@@ -38,9 +39,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 print_json(&v);
             } else if let Some(error) = v.pointer("/errors/0/error").and_then(Value::as_str) {
                 return Err(anyhow!("the agent did not start again: {error}"));
-            } else if v["restarted"].as_u64().unwrap_or(0) > 0 {
+            } else if v.field("restarted").as_u64().unwrap_or(0) > 0 {
                 println!("restarted");
-            } else if v["after_turn"].as_u64().unwrap_or(0) > 0 {
+            } else if v.field("after_turn").as_u64().unwrap_or(0) > 0 {
                 println!("restarts when its turn ends");
             } else {
                 println!("not running: it starts with a new token at its next prompt");
@@ -56,7 +57,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             let id = resolve_id(&client, &session).await?;
             let info = client.request(method::MUX_INFO, json!({"sessionId": id})).await?;
             // `_acpmux/queue_edit` `resume` names the queue by any of its prompts: a held one.
-            let held = info["queue"]
+            let held = info
+                .field("queue")
                 .as_array()
                 .into_iter()
                 .flatten()
@@ -71,7 +73,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                             json!({"sessionId": id, "promptId": prompt_id, "op": "resume"}),
                         )
                         .await?;
-                    v["ok"] == true
+                    *v.field("ok") == true
                 }
                 None => false,
             };
@@ -102,10 +104,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             let id = resolve_id(&client, &session).await?;
             let mut p = json!({"sessionId": id, "mcpServers": [], "_meta": {"acpmux": {}}});
             if let Some(c) = cwd {
-                p["cwd"] = json!(c);
+                p.set("cwd", json!(c));
             }
             if let Some(n) = name {
-                p["_meta"]["acpmux"]["name"] = json!(n);
+                p.set_path(&["_meta", "acpmux", "name"], json!(n));
             }
             let v = client.request(method::SESSION_FORK, p).await?;
             if json_out {
@@ -175,7 +177,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             let dest = dest.map(|d| std::path::absolute(&d)).transpose()?;
             let mut p = json!({"sessionId": id});
             if let Some(d) = dest.as_ref().filter(|_| !remote) {
-                p["dest"] = json!(d);
+                p.set("dest", json!(d));
             }
             let v = client.request(method::MUX_EXPORT, p).await?;
             // A bundle made on an ssh peer is fetched here with scp.
@@ -215,8 +217,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                     )?;
                     let status = tokio::process::Command::new("scp").args(argv).status().await?;
                     if status.success() {
-                        out["remotePath"] = json!(remote_path);
-                        out["path"] = json!(local);
+                        out.set("remotePath", json!(remote_path));
+                        out.set("path", json!(local));
                     } else {
                         eprintln!("acpmux: bundle stays on {peer} at {remote_path} (scp failed)");
                     }
@@ -236,7 +238,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             let client = connect(true).await?;
             let mut p = json!({"path": std::path::absolute(path)?});
             if let Some(n) = name {
-                p["name"] = json!(n);
+                p.set("name", json!(n));
             }
             let v = client.request(method::MUX_IMPORT, p).await?;
             if json_out {
@@ -345,10 +347,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                         "web:      {}",
                         v.get("webUrl").and_then(Value::as_str).unwrap_or("-")
                     );
-                    if let Some(line) = host_pressure_line(&v["host_pressure"]) {
+                    if let Some(line) = host_pressure_line(v.field("host_pressure")) {
                         println!("host:     {line}");
                     }
-                    for line in crate::daemon_status::memory_lines(&v["memory"]) {
+                    for line in crate::daemon_status::memory_lines(v.field("memory")) {
                         println!("memory:   {line}");
                     }
                     for p in v.get("peers").and_then(Value::as_array).cloned().unwrap_or_default() {
@@ -434,11 +436,11 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                     let url = url.unwrap_or_else(|| format!("ssh://{name}"));
                     let mut p = json!({"name": name, "url": url});
                     if let Some(t) = token {
-                        p["token"] = json!(t);
+                        p.set("token", json!(t));
                     }
                     // `wait`: the daemon answers after the first connect attempt
                     // settled, so the listing shows the real state.
-                    p["wait"] = json!(true);
+                    p.set("wait", json!(true));
                     client.request("_acpmux/peer_add", p).await?
                 }
                 PeerCmd::Ls => client.request("_acpmux/peers", json!({})).await?,
@@ -556,17 +558,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
-        Command::Router(_)
-        | Command::DaemonRun { .. }
-        | Command::Stdio { .. }
-        | Command::CliAgent { .. }
-        | Command::UniichatAgent { .. }
-        | Command::Session(_)
-        | Command::Daemon(_)
-        | Command::Harness(_)
-        | Command::Host(_) => {
-            unreachable!()
-        }
+        // Router, DaemonRun, Stdio, CliAgent, UniichatAgent, Session, Daemon, Harness and Host
+        // dispatch before this family; reaching here is a routing error, not a panic.
         _ => Err(anyhow!("command routed to the wrong dispatch family")),
     }
 }

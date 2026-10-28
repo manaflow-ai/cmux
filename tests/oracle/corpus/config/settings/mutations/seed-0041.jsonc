@@ -1,4 +1,0 @@
-{"terminal":{"linkOpener":{/* {"k": 1} */ "rules":[1]},},// note
-"appearance":{"statusIndicator":{"style":"dot",}},"sidebar":{/* {"k": 1} */ "workspaceRow":{"terminal":{"ports":1,},},"hoverCards":{"groups":{"sections":{// "quoted"
-"members":true,},},}},"updates":{"meteredNetwork":"defer-expensive"},// note
-"layout":{"paneSeparation":1,},/* // inside */ "oracleUnknown":{"nested":{"key":1,}}}

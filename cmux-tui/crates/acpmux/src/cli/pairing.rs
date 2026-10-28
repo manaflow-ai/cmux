@@ -16,6 +16,7 @@ use crate::cli::command::TicketCmd;
 use crate::cli::errors::AppError;
 use crate::cli::output::print_json;
 use crate::client::Client;
+use crate::no_panic::JsonExt;
 use crate::pairing::{Role, Ticket};
 use crate::rpc::{Message, method};
 
@@ -38,21 +39,21 @@ pub(crate) async fn ticket(client: Arc<Client>, cmd: TicketCmd, json_out: bool) 
             let ttl = parse_ttl(&ttl)?;
             let mut params = json!({"role": role.as_str(), "ttlSeconds": ttl});
             if let Some(url) = url {
-                params["url"] = json!(url);
+                params.set("url", json!(url));
             }
             if let Some(label) = label {
-                params["label"] = json!(label);
+                params.set("label", json!(label));
             }
             let mut v = client.request(method::MUX_PAIR_TICKET_NEW, params).await?;
-            let ticket = v["ticket"].as_str().unwrap_or_default().to_owned();
+            let ticket = v.field("ticket").as_str().unwrap_or_default().to_owned();
             // A daemon-role join also names the address this machine dials
             // the new one at; the placeholder fails until it is filled in.
             let advertise = match role {
                 Role::Daemon => format!(" --advertise '{ADVERTISE_PLACEHOLDER}'"),
                 Role::Client | Role::ReadOnly | Role::Phone => String::new(),
             };
-            v["install_command"] = json!(format!("{}{advertise}", install_command(&ticket)));
-            v["join_command"] = json!(format!("cmux host join '{ticket}'{advertise}"));
+            v.set("install_command", json!(format!("{}{advertise}", install_command(&ticket))));
+            v.set("join_command", json!(format!("cmux host join '{ticket}'{advertise}")));
             if !json_out {
                 print_minted(&v);
                 return Ok(());
@@ -70,12 +71,12 @@ pub(crate) async fn ticket(client: Arc<Client>, cmd: TicketCmd, json_out: bool) 
         TicketCmd::FullAccess { id, state } => {
             let v = full_access(&client, &id, state == "on").await?;
             if !json_out {
-                let name = v["device"]["name"].as_str().unwrap_or(&id);
-                match v["allows"].as_str() {
+                let name = v.field("device").field("name").as_str().unwrap_or(&id);
+                match v.field("allows").as_str() {
                     Some(allows) => println!("Full access on: {allows}"),
                     None => println!(
                         "Full access off for {name}{}",
-                        match v["held_again"].as_u64() {
+                        match v.field("held_again").as_u64() {
                             Some(n) if n > 0 =>
                                 format!("; {n} chat(s) back in their policy's mode"),
                             _ => String::new(),
@@ -89,7 +90,7 @@ pub(crate) async fn ticket(client: Arc<Client>, cmd: TicketCmd, json_out: bool) 
         TicketCmd::Revoke { id } => {
             let v = client.request(method::MUX_PAIR_REVOKE, json!({"id": id})).await?;
             if !json_out {
-                let r = &v["revoked"];
+                let r = v.field("revoked");
                 if let Some(device) = r["used_by"].as_str() {
                     println!(
                         "That ticket was already used; the machine it paired stays paired. Revoke it: cmux host ticket revoke {device}"
@@ -100,7 +101,7 @@ pub(crate) async fn ticket(client: Arc<Client>, cmd: TicketCmd, json_out: bool) 
                     r["kind"].as_str().unwrap_or("-"),
                     r["name"].as_str().or(r["id"].as_str()).unwrap_or("-"),
                     if r["already"] == true { " (it already was)" } else { "" },
-                    match v["closed_connections"].as_u64() {
+                    match v.field("closed_connections").as_u64() {
                         Some(n) if n > 0 => format!("; closed {n} open connection(s)"),
                         _ => String::new(),
                     }
@@ -267,13 +268,13 @@ pub(crate) async fn join(client: Arc<Client>, args: JoinArgs, json_out: bool) ->
             let issued = client
                 .request(method::MUX_PAIR_ISSUE, json!({"name": peer_name, "role": "client"}))
                 .await?;
-            params["advertiseUrl"] = json!(url);
-            params["advertiseToken"] = issued["token"].clone();
-            issued_here = issued["deviceId"].as_str().map(str::to_owned);
+            params.set("advertiseUrl", json!(url));
+            params.set("advertiseToken", issued.field("token").clone());
+            issued_here = issued.field("deviceId").as_str().map(str::to_owned);
         }
         Role::Client | Role::ReadOnly | Role::Phone => {
             let peers = client.request("_acpmux/peers", json!({})).await?;
-            let taken = peers["peers"].as_array().is_some_and(|ps| {
+            let taken = peers.field("peers").as_array().is_some_and(|ps| {
                 ps.iter().any(|p| p["name"].as_str() == Some(peer_name.as_str()))
             });
             if taken {
@@ -300,19 +301,20 @@ pub(crate) async fn join(client: Arc<Client>, args: JoinArgs, json_out: bool) ->
             return Err(e);
         }
     };
-    let role = reply["role"].as_str().and_then(Role::parse).unwrap_or(ticket.role);
+    let role = reply.field("role").as_str().and_then(Role::parse).unwrap_or(ticket.role);
     let mut out = json!({
         "joined": true,
         "role": role.as_str(),
-        "device_id": reply["deviceId"],
-        "name": reply["name"],
-        "minter": reply["minter"],
+        "device_id": reply.field("deviceId"),
+        "name": reply.field("name"),
+        "minter": reply.field("minter"),
         "url": ticket.url,
     });
     if role == Role::Daemon {
-        out["peer"] = reply["peer"].clone();
+        out.set("peer", reply.field("peer").clone());
     } else {
-        let token = reply["token"]
+        let token = reply
+            .field("token")
             .as_str()
             .ok_or_else(|| anyhow!("the other machine sent no credential"))?;
         client
@@ -324,10 +326,10 @@ pub(crate) async fn join(client: Arc<Client>, args: JoinArgs, json_out: bool) ->
             .with_context(|| {
                 format!(
                     "paired, but adding the peer here failed; revoke {} on the other machine and join again",
-                    reply["deviceId"].as_str().unwrap_or("the device")
+                    reply.field("deviceId").as_str().unwrap_or("the device")
                 )
             })?;
-        out["peer"] = json!({"name": peer_name, "url": ticket.url});
+        out.set("peer", json!({"name": peer_name, "url": ticket.url}));
     }
     if json_out {
         print_json(&out);

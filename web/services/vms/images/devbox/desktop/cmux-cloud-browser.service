@@ -3,7 +3,7 @@
 # enabled: an operator or the VM service turns it on with
 #   systemctl set-environment CMUX_CLOUD_BROWSER=1 && systemctl start cmux-cloud-browser
 # It draws on the desktop's display, so it needs cmux-desktop.
-Description=cmux cloud browser (Chrome streamed by cmux-rd, CDP on loopback)
+Description=cmux cloud browser (Chrome streamed by cmux-rd, CDP on an owner-only socket)
 After=cmux-desktop.service
 Requires=cmux-desktop.service
 

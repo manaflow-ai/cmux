@@ -1,5 +1,0 @@
-{"browser":{// url: https://localhost/x
-"openLinksInCmuxBrowser":true},"app":{/* // inside */ "uiScale":2.5,/* block */ "warnBeforeClosingTab":true},"labs":{// a { brace
-"classicHome":false},"layout":{// "quoted"
-"scrollModifier":"__not_a_choice__"},"editor":{"scrollBeyondLastLine":null,/* * */ "renderLineHighlight":"__not_a_choice__"},// note
-"appearance":{/* // inside */ "surfaces":{/* {"k": 1} */ "settings":{/* block */ "opacity":"1"}},"metrics":{"tabMaxWidth":-80},"colorTransition":{"springResponse":0.05}},"sidebar":{"workspaceRow":{/* block */ "icon":true}}}

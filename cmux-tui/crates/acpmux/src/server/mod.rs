@@ -451,12 +451,12 @@ pub async fn bind_unix(path: &std::path::Path) -> Result<UnixListener> {
         }
         tokio::fs::remove_file(path).await?;
     }
-    let listener = UnixListener::bind(path).with_context(|| format!("bind {}", path.display()))?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        tokio::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)).await?;
-    }
+    // Bound 0600 in a private staging directory and renamed into place, so
+    // the socket is never reachable with the umask's mode (cmux-unix-socket).
+    let std_listener =
+        cmux_unix_socket::bind_private(path).with_context(|| format!("bind {}", path.display()))?;
+    std_listener.set_nonblocking(true)?;
+    let listener = UnixListener::from_std(std_listener)?;
     tracing::info!("listening on {}", path.display());
     Ok(listener)
 }

@@ -1,6 +1,0 @@
-{"notifications":{"attention":{"agentChats":"none",}},// note
-"browser":{// note
-"omnibar":{"maxRows":8},"toolbar":{"home":1,},"links":{"middleClick":"backgroundTab",},},"editor":{"importFrom": null,"importFrom":"zed",// "quoted"
-"letterSpacing":-5,},// note
-"appearance":{"metrics": null,"metrics":{"tabPinnedWidth": "shadowed",/* block */ "tabPinnedWidth":120},},// "quoted"
-"phone":{/* // inside */ "startSessions":false},"sidebar":{"workspaceRow": 0,/* block */ "workspaceRow":{"browser": "shadowed","browser":{"pullRequest":null},}},}

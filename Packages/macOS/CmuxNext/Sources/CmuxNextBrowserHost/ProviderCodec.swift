@@ -59,8 +59,13 @@ public nonisolated struct ProviderCodec {
         case .event(let name, let payload):
             o["name"] = name
             o["payload"] = payload.foundationValue
-        case .cdpAttach(let target), .cdpDetach(let target), .userInput(let target):
+        case .cdpAttach(let target), .cdpDetach(let target), .userInput(let target), .cdpPrepare(let target):
             o["targetId"] = target
+        case .cdpCapture(let target, let capture, let active, let id):
+            o["targetId"] = target
+            o["capture"] = capture
+            o["active"] = active
+            if let id { o["id"] = NSNumber(value: id) }
         case .cdp(let target, let message):
             o["targetId"] = target
             o["message"] = message
@@ -103,6 +108,11 @@ public nonisolated struct ProviderCodec {
         case "cdp.attach": return .cdpAttach(targetID: try f.string("targetId"))
         case "cdp.detach": return .cdpDetach(targetID: try f.string("targetId"))
         case "cdp": return .cdp(targetID: try f.string("targetId"), message: try f.string("message"))
+        case "cdp.prepare": return .cdpPrepare(targetID: try f.string("targetId"))
+        case "cdp.capture":
+            var id: UInt64?
+            if f.object["id"] != nil { id = try f.uint("id") }
+            return .cdpCapture(targetID: try f.string("targetId"), capture: try f.string("capture"), active: try f.bool("active"), id: id)
         case "user.input": return .userInput(targetID: try f.string("targetId"))
         case "input":
             guard let event = f.json("event"), case .object = event else { throw .missing(field: "event", in: "input") }

@@ -25,7 +25,7 @@ async fn drain<R: tokio::io::AsyncRead + Unpin>(mut r: R) -> (String, bool) {
             Ok(0) | Err(_) => break,
             Ok(n) => {
                 let room = MAX_OUTPUT.saturating_sub(buf.len());
-                buf.extend_from_slice(&chunk[..n.min(room)]);
+                buf.extend_from_slice(chunk.get(..n.min(room)).unwrap_or_default());
                 cut |= n > room;
             }
         }

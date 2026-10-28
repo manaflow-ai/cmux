@@ -4,7 +4,7 @@ import CmuxNextBrowserImport
 import CmuxNextDesign
 import CmuxNextImportCards
 import CmuxNextWakeups
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 import Foundation
 
 /// The browser-data import offer (Lawrence 2026-10-09: no onboarding window
