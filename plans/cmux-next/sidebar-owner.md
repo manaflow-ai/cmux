@@ -519,3 +519,8 @@ existing colors, glass, row geometry and drag behavior.
 ## Home, pinned and list rows share one leading inset and text column (2026-10-28)
 
 - Lawrence 2026-10-28 ("home and pinned are not aligned", screenshot). Before: Home's glyph drew centered in its 20 pt box (ink about 3 pt right of the inset), a pin's ink at the inset, and band labels at box end + 8 pt while pinned titles sat at pin end + 4 pt and workspace titles after an icon at `titleTextX`. Now a bare band glyph starts its ink at the inset (as the pin does), and Home's label, pinned titles and pinned group names use `SidebarStyle.leadingTextX`, the column workspace rows with an icon already used. Wells, tiles, chips and rail buttons are unchanged. Test: `HomePinnedRowAlignmentTests` (every density, Minimal Mode, 200 and 260 pt).
+
+## Workspace preview touches its row (S2, 2026-10-28)
+
+Leo: "I mean the gap between the hover preview and the, you know, the workspace sidebar element thingy."
+Workspace previews anchor on the drawn row fill, including pinned workspace pills, instead of the sidebar column beyond the resize/drag thumb. Sidebar row-card placement leaves no gap, snapping toward the target by less than one device pixel. Top alignment, contents, dwell, the row-to-thumb gutter and non-sidebar hover cards keep their existing behavior. `SidebarHoverCardEscapeTests` exercises the real panel against the row rather than the column; `PinnedRowHoverCardTests` covers the pinned fill and geometry tests cover fractional edges at 1x, 2x and 3x.

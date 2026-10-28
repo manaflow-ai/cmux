@@ -24,7 +24,7 @@ final class WorkspaceHoverCardController: HoverCardSource {
     /// leaving the row and the card fades it out at once, as a tab card does. A gap or header
     /// between rows (`hoverCardBridges`) holds it for the reshow window, so the next row slides
     /// it over instead of hiding and reshowing it. Leo 2026-10-21: the card's top lines up with
-    /// its row's top, one device pixel off the sidebar's edge (`HoverCardPlacement.besideRow`).
+    /// its row's top, touching the row's fill (`HoverCardPlacement.besideRow`).
     var leave: HoverCardLeave { .hides(reshow: HoverCardTiming.reshowWindow) }
     weak var list: SidebarListView?
     /// The app's one coordinator; the App injects it.
@@ -115,7 +115,7 @@ final class WorkspaceHoverCardController: HoverCardSource {
     }
 
     func hoverCardAnchor(for id: HoverTargetID) -> CGRect? {
-        // The row's band across the sidebar: the card's top on the row's, one pixel off the edge.
+        // The row's band across the sidebar: the card's top on the row's, touching the edge.
         if let group = groupID(id) { return list?.hoverCardBand(forGroup: group) }
         return workspaceID(id).flatMap { list?.hoverCardBand(for: $0) }
     }
@@ -162,7 +162,7 @@ final class WorkspaceHoverCardController: HoverCardSource {
         body.configure(Self.groupSummary(item, workspaces: list.subtreeWorkspaces(of: group),
                                          options: DesignSettings.shared.groupHoverCard, now: Date()))
         bodyID = id
-        // One rule for sidebar cards: beside the sidebar, its top on the header's, one pixel off the edge.
+        // One rule for sidebar cards: beside the sidebar, its top on the header's, touching the edge.
         return HoverCardBody(view: body, placement: .besideRow, themeAnchor: list) { [weak body] in body?.applyColors() }
     }
 
