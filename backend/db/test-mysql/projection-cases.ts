@@ -96,3 +96,19 @@ export const cases: ReadonlyArray<Case> = [
   }
 ]
 
+/**
+ * Stack teams for the junk rule: a junk mirror (its one member has no users row) with an audit event,
+ * an empty Stack team, a Stack team a cmux user (user_p1) is in, and a Stack team no user is in but
+ * that was used (a host). Only the first two are junk.
+ */
+export const junkFixture: ReadonlyArray<[string, Record<string, unknown>]> = [
+  ["team.upsert", { id: "team_junk", kind: "stack", display_name: "Personal Team" }],
+  ["membership.upsert", { team: "team_junk", user: "user_anon", role: "owner" }],
+  ["audit.append", { team: "team_junk", n: 1, op: "team.member.provision", actor: "system:team", on_behalf_of: null, tx: "tj", at: T0, summary: "joined", detail: {}, prev_hash: "p", hash: "hj" }],
+  ["team.upsert", { id: "team_junk_empty", kind: "stack", display_name: "Personal Team" }],
+  ["team.upsert", { id: "team_stack_real", kind: "stack", display_name: "Acme" }],
+  ["membership.upsert", { team: "team_stack_real", user: "user_p1", role: "owner" }],
+  ["membership.upsert", { team: "team_stack_real", user: "user_anon2", role: "member" }],
+  ["team.upsert", { id: "team_stack_used", kind: "stack", display_name: "Used" }],
+  ["host.upsert", { id: "host_used", team: "team_stack_used", owner_user: "user_x", enrolled_by: "user_x", name: "h", platform: "linux", enrolled_at: T0 }]
+]

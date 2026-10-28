@@ -2,7 +2,13 @@
  * Copy the Postgres `cmux-next` projection into PlanetScale MySQL `cmux-next-vitess`, then verify
  * (state-placement.md 4.5). One environment at a time: development, then staging, then main.
  *
- *   bun copy-pg-to-mysql.ts --branch development|staging|main [--verify-only]
+ *   bun copy-pg-to-mysql.ts --branch development|staging|main [--exclude-junk-teams] [--verify-only]
+ *
+ * --exclude-junk-teams skips the junk teams (projection-compare.ts JUNK_TEAMS_SQL: Stack team mirrors
+ * no cmux-next user belongs to and that were never used) and their team-scoped rows, read from
+ * Postgres at the start of the run, and verify then compares only the kept set. It prints the number
+ * of junk teams and of rows left out per table (counts only), so the operator checks the set before
+ * cutover. Nothing is deleted on either side.
  *
  * Reads Postgres with ~/.secrets/cmux-next-planetscale-<branch>.env (variable DATABASE_URL or the
  * first *_URL in that file) in a session forced read-only (default_transaction_read_only), because
@@ -19,21 +25,28 @@ import { homedir } from "node:os"
 import { join } from "node:path"
 import mysql from "mysql2/promise"
 import pg from "pg"
-import { PROJECTION_TABLES, guardedUpsertMysql, sharedColumns, toMysqlValue, verifyTables, type MyLike, type PgLike } from "./projection-compare.ts"
+import { PROJECTION_TABLES, TEAM_COLUMN, guardedUpsertMysql, junkTeams, sharedColumns, toMysqlValue, verifyTables, type MyLike, type PgLike } from "./projection-compare.ts"
 
-export { verifyTables }
+export { junkTeams, verifyTables }
 
-export const copyTables = async (pgc: PgLike, my: MyLike, batch = 500): Promise<{ rows: number; perTable: Record<string, number> }> => {
+/** Copies every projected table, without the rows of the `excludeTeams` teams (TEAM_COLUMN). */
+export const copyTables = async (pgc: PgLike, my: MyLike, options: { readonly batch?: number; readonly excludeTeams?: ReadonlyArray<string> } = {}): Promise<{ rows: number; perTable: Record<string, number> }> => {
+  const batch = options.batch ?? 500
+  const exclude = options.excludeTeams ?? []
   const perTable: Record<string, number> = {}
   let total = 0
   for (const [table, spec] of Object.entries(PROJECTION_TABLES)) {
     const columns = await sharedColumns(pgc, my, table)
     const list = columns.map((c) => `"${c}"`).join(", ")
     const order = spec.key.map((k) => `"${k}"`).join(", ")
+    const col = TEAM_COLUMN[table]
+    const scoped = col !== undefined && exclude.length > 0
+    const where = scoped ? ` WHERE ("${col}" IS NULL OR NOT ("${col}" = ANY($1::text[])))` : ""
+    const values = scoped ? [[...exclude]] : []
     let offset = 0
     perTable[table] = 0
     for (;;) {
-      const rows = (await pgc.query(`SELECT ${list} FROM ${table} ORDER BY ${order} LIMIT ${batch} OFFSET ${offset}`)).rows
+      const rows = (await pgc.query(`SELECT ${list} FROM ${table}${where} ORDER BY ${order} LIMIT ${batch} OFFSET ${offset}`, values)).rows
       if (rows.length === 0) break
       await my.query(guardedUpsertMysql(table, columns, rows.length), rows.flatMap((r) => columns.map((c) => toMysqlValue(r[c]))))
       perTable[table] += rows.length
@@ -42,6 +55,15 @@ export const copyTables = async (pgc: PgLike, my: MyLike, batch = 500): Promise<
     }
   }
   return { rows: total, perTable }
+}
+
+/** Rows per team-scoped table that belong to the `teams` (what --exclude-junk-teams leaves out). */
+export const teamRowCounts = async (pgc: PgLike, teams: ReadonlyArray<string>): Promise<Record<string, number>> => {
+  const out: Record<string, number> = {}
+  for (const [table, col] of Object.entries(TEAM_COLUMN)) {
+    out[table] = teams.length === 0 ? 0 : Number((await pgc.query(`SELECT count(*) AS n FROM ${table} WHERE "${col}" = ANY($1::text[])`, [[...teams]])).rows[0]?.n ?? 0)
+  }
+  return out
 }
 
 /** KEY=value lines of a ~/.secrets env file (values never printed). */
@@ -57,7 +79,7 @@ const readEnvFile = (path: string): Record<string, string> =>
 if (import.meta.main) {
   const branch = process.argv[process.argv.indexOf("--branch") + 1]
   if (!["development", "staging", "main"].includes(branch ?? "")) {
-    console.error("usage: bun copy-pg-to-mysql.ts --branch development|staging|main [--verify-only]")
+    console.error("usage: bun copy-pg-to-mysql.ts --branch development|staging|main [--exclude-junk-teams] [--verify-only]")
     process.exit(2)
   }
   // The Postgres branch is named production where the Vitess one is main.
@@ -73,8 +95,10 @@ if (import.meta.main) {
   const my = await mysql.createConnection({ host: myEnv.DATABASE_HOST, user: myEnv.DATABASE_USERNAME, password: myEnv.DATABASE_PASSWORD, database: myEnv.DATABASE_NAME, ssl: { rejectUnauthorized: true }, timezone: "Z", dateStrings: true })
   await my.query("SET time_zone = '+00:00'")
   try {
-    if (!process.argv.includes("--verify-only")) console.log(JSON.stringify({ step: "copy", branch, ...(await copyTables(pgc, my)) }))
-    const report = await verifyTables(pgc, my)
+    const excludeTeams = process.argv.includes("--exclude-junk-teams") ? await junkTeams(pgc) : []
+    if (process.argv.includes("--exclude-junk-teams")) console.log(JSON.stringify({ step: "junk", branch, teams: excludeTeams.length, rows_left_out: await teamRowCounts(pgc, excludeTeams) }))
+    if (!process.argv.includes("--verify-only")) console.log(JSON.stringify({ step: "copy", branch, ...(await copyTables(pgc, my, { excludeTeams })) }))
+    const report = await verifyTables(pgc, my, { excludeTeams })
     for (const r of report) console.log(JSON.stringify(r))
     const bad = report.filter((r) => !r.equal)
     console.log(bad.length === 0 ? `verify ok: ${report.length} tables equal` : `verify FAILED: ${bad.map((r) => r.table).join(", ")}`)
