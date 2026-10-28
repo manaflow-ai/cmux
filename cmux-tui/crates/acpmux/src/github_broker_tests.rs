@@ -132,3 +132,30 @@ fn the_mac_starts_nothing_the_machine_stopped_waiting_for() {
     let far = Some(deadline_from(sent + 2 * LINK_SLACK.as_millis() as u64 + 1));
     assert_eq!(check_deadline(far, sent).unwrap_err().code, -32602);
 }
+
+/// Review of #26784 at 0a57249: with the Mac's clock 30 s behind, a request that reached it
+/// 60 s after it was sent still ran, and ended after the machine stopped waiting (95 s).
+#[test]
+fn an_action_the_mac_starts_ends_before_the_machine_stops_waiting_whichever_clock_is_ahead() {
+    let sent: u64 = 10_000_000;
+    let deadline = Some(deadline_from(sent));
+    let slack = LINK_SLACK.as_millis() as i64;
+    let waits_until = sent + LANE_WAIT.as_millis() as u64;
+    for skew in [-slack, -slack / 2, 0, slack / 2, slack] {
+        let mac_clock = |lane: u64| lane.checked_add_signed(skew).unwrap();
+        assert!(
+            check_deadline(deadline, mac_clock(sent)).is_ok(),
+            "a prompt request runs ({skew} ms)"
+        );
+        for late in (0..=200_000u64).step_by(500) {
+            let arrived = sent + late;
+            if check_deadline(deadline, mac_clock(arrived)).is_ok() {
+                let ends = arrived + GH_TIMEOUT.as_millis() as u64;
+                assert!(
+                    ends <= waits_until,
+                    "Mac clock {skew} ms off, {late} ms late: ends after the wait"
+                );
+            }
+        }
+    }
+}

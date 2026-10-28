@@ -60,8 +60,12 @@ impl Conn {
         }
         let mut ended = self.ended.subscribe();
         let gone = || RpcError::internal("the connection that would answer ended");
-        let reply = if self.is_open() {
-            self.send(&Message::request(Value::String(id.clone()), method, params));
+        let request = Message::request(Value::String(id.clone()), method, params);
+        let reply = if !self.is_open() {
+            Err(gone())
+        } else if let Err(e) = self.send_request_in_order(&request) {
+            Err(e)
+        } else {
             tokio::select! {
                 reply = rx => reply.unwrap_or_else(|_| Err(gone())),
                 _ = ended.wait_for(|ended| *ended) => Err(gone()),
@@ -69,8 +73,6 @@ impl Conn {
                     "no answer within {}s", budget.as_secs()
                 ))),
             }
-        } else {
-            Err(gone())
         };
         self.client_requests.waiting().remove(&id);
         reply

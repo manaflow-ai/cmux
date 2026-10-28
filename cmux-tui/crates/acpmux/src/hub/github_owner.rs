@@ -5,8 +5,9 @@
 //! proved this machine's peer token (`peer_auth.rs`: read over ssh); a Web, app or paired-device
 //! connection saying it counts for nothing (`server/requests.rs`). The link counts once this
 //! machine's answer to its `_acpmux/watch` is queued (`server/mod.rs`): the Mac opens its side
-//! when it reads that answer, and every action goes out after it, so none reaches a Mac that
-//! would still refuse it. The newest such link still open is the one
+//! when it reads that answer, and every action goes out after it (`Conn::send_request_in_order`
+//! refuses one while that answer still waits for room), so none reaches a Mac that would still
+//! refuse it. The newest such link still open is the one
 //! asked.
 
 use super::{Hub, Session};

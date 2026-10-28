@@ -31,9 +31,17 @@ const OUTPUT_MAX: usize = 64 * 1024;
 const STREAM_READ_MAX: u64 = 2 * OUTPUT_MAX as u64;
 /// A brokered `gh` is one bounded API call; it never waits for a person.
 pub const GH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
-/// How late after the machine sent it a request may still reach the Mac and run, clock
-/// differences included. Past that the machine stopped waiting, so it never runs.
+/// How late after the machine sent it a request may still reach the Mac and run, by the Mac's
+/// clock: the link's delay plus how far the Mac's clock runs ahead. The two clocks are taken to
+/// differ by at most this much (both keep network time); past that, a Mac ahead refuses the
+/// machine's requests as late, and one behind refuses a prompt one as too far ahead, so a clock
+/// that is off shows as refusals. Past it the machine stopped waiting, so the action never runs.
 pub const LINK_SLACK: std::time::Duration = std::time::Duration::from_secs(30);
+/// How long the machine waits for the Mac's answer: an action the Mac starts runs at most
+/// `GH_TIMEOUT` from a start at most `LINK_SLACK` after it was sent by the Mac's clock, which is
+/// at most `LINK_SLACK` behind, so it ends before this, with a few seconds for the answer.
+pub const LANE_WAIT: std::time::Duration =
+    std::time::Duration::from_secs(GH_TIMEOUT.as_secs() + 2 * LINK_SLACK.as_secs() + 5);
 /// How many actions one peer (by name, across reconnects) may have running on the Mac at once.
 pub const OWNER_SLOTS: usize = 4;
 
@@ -428,7 +436,7 @@ pub async fn handle(
     let mut wire = request.clone();
     wire.deadline_ms = Some(deadline_from(crate::store::now_ms()));
     let wire = serde_json::to_value(&wire).map_err(|e| RpcError::internal(e.to_string()))?;
-    let budget = GH_TIMEOUT + LINK_SLACK + std::time::Duration::from_secs(5);
+    let budget = LANE_WAIT;
     let reply = owner.request_client(crate::rpc::method::MUX_GITHUB_ACTION, wire, budget).await;
     match &reply {
         Ok(_) => record("allowed", None),
