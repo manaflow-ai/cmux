@@ -2,13 +2,16 @@ use std::io::{Read, Write};
 use std::sync::{Arc, Mutex};
 
 use super::*;
+
+type HeaderPairs = Vec<(String, String)>;
+type PartReceipt = (u64, u64, HeaderPairs);
 use crate::{CloudBackend, CloudWire, ConnectError, HttpReply, ServiceOptions, TransportError};
 
 const CONV: &str = "conv_0123456789ABCDEFGHJKMNPQRS";
 
 #[derive(Default)]
 struct Backend {
-    parts: Mutex<Vec<(u64, u64, Vec<(String, String)>)>>,
+    parts: Mutex<Vec<PartReceipt>>,
     posts: Mutex<Vec<(String, String, Value)>>,
     fail_part: Option<usize>,
 }
