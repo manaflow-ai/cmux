@@ -83,6 +83,14 @@ def _ms(a, b):
     return round((a - b) * 1000, 1)
 
 
+def _uptime_minus_monotonic():
+    """CLOCK_UPTIME_RAW minus time.monotonic(), in seconds (0 where the uptime clock does not exist)."""
+    raw = getattr(time, "CLOCK_UPTIME_RAW", None)
+    if raw is None:
+        return 0.0
+    return time.clock_gettime(raw) - time.monotonic()
+
+
 def _app_show(j, pane):
     """The app's own record of the pane's last unpause and first frame after it (`debug.surfaces`
     surface.show, cp/terminal-show-timing); None when this app has none."""
@@ -99,8 +107,10 @@ def cond_shown_draws_within(j, want, cache):
     budget = float(want.get("frame_ms", 16.7))
     show = _app_show(j, watch["pane"])
     if show is not None:
-        # The app's record: exact, off the main thread's queue. Its unpause must be after the mark.
-        mark_ns = j.marks[want["since"]] * 1e9
+        # The app's record: exact, off the main thread's queue. Its unpause must be after the mark. The app's
+        # times are CLOCK_UPTIME_RAW; the driver's marks are time.monotonic() (CLOCK_MONOTONIC, which on macOS
+        # also counts sleep): the mark moves to the app's clock by the two clocks' offset read now.
+        mark_ns = (j.marks[want["since"]] + _uptime_minus_monotonic()) * 1e9
         detail = {"pane": watch["pane"], "source": "app", "show": show, "frame_ms": budget}
         if show.get("unpaused_ns") is None or show["unpaused_ns"] < mark_ns - 1e6:
             return False, dict(detail, waiting="no unpause after the mark yet")
