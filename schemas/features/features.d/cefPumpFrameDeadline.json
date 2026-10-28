@@ -1,0 +1,14 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "cefPumpFrameDeadline",
+  "owner": "PL-cef-layer",
+  "description": "Each in-process Chromium message pump pass runs only until the frame's commit (at most the 2 ms static slice), waits for the next frame when less than 1 ms is left, and starts none in a person's input turn or before a layout change commits. Older forks keep the static slice.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "perfPath",
+  "expires": "2026-12-20",
+  "process": "app",
+  "params": [],
+  "stories": ["typing-stress", "motion", "pane-stress"],
+  "sticky": false,
+  "runtimeMutable": false
+}

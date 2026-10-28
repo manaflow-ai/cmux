@@ -11,7 +11,9 @@ import Foundation
 /// the main thread). Work no first frame reads waits for the launch order
 /// instead (p08-startup-034): the login shell's environment
 /// (`DaemonLauncher.captureLoginEnvironment(after:)`) and the palette's
-/// string tables (`LaunchFirstOpenWarmups`).
+/// string tables (`LaunchFirstOpenWarmups`). The terminal's Metal device and fonts warm on their own thread once
+/// the launch's features resolve (`TerminalLaunchPrefetch`, p08-startup-091), not behind this one: the catalog
+/// would hold them back 50-70 ms.
 ///
 /// The action catalog is built here first (`ActionCatalogLaunch.build`), so
 /// the registry's read on the main thread before the first window finds it
