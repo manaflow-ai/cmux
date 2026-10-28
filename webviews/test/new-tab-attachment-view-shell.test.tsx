@@ -187,7 +187,8 @@ test("the strip view shows a draft's attachments once, in the strip; its × take
   // The strip view: the strip alone shows it, once.
   expect(stripChips()).toBe(1);
   expect(inlineChips(field)).toBe(0);
-  expect(host.querySelectorAll('[title="/Users/you/Downloads/build.zip"]').length).toBeLessThanOrEqual(1);
+  // Drawn once on the whole page: one strip chip, no chip in the text.
+  expect(host.querySelectorAll(".acpmux-attachment, .acpmux-md-inline-chip").length).toBe(1);
 
   const remove = host.querySelector<HTMLButtonElement>(".acpmux-attachments .acpmux-attachment-remove");
   expect(remove).not.toBeNull();

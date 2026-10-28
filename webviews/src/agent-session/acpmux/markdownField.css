@@ -12,7 +12,8 @@
   /* A long draft scrolls in this box alone (Leo 2026-10-20: reaching the top or the bottom must
      not shift anything): no chaining into the transcript, no bounce. */
   overscroll-behavior: contain;
-  padding: calc(15px * var(--cmux-interface-scale, 1)) calc(16px * var(--cmux-interface-scale, 1)) calc(8px * var(--cmux-interface-scale, 1));
+  padding: calc(15px * var(--cmux-interface-scale, 1)) calc(16px * var(--cmux-interface-scale, 1))
+    calc(8px * var(--cmux-interface-scale, 1));
   font-size: var(--text-content);
   line-height: var(--text-content--line-height);
   color: var(--agent-text);
@@ -308,9 +309,11 @@
   color: var(--agent-muted);
   overflow: hidden;
 }
-/* Settings' strip view (ComposerBox attachmentView): the strip alone shows the attachments; each keeps
-   its place in the text, so the inline view shows it there again and the prompt goes the same. */
-.acpmux-composer-box[data-attachment-view="strip"] .acpmux-md .acpmux-md-inline {
+/* Settings' strip view (ComposerBox attachmentView, the New Tab page's composer too): the strip alone
+   shows the attachments; each keeps its place in the text, so the inline view shows it there again
+   and the prompt goes the same. */
+.acpmux-composer-box[data-attachment-view="strip"] .acpmux-md .acpmux-md-inline,
+.nt-composer[data-attachment-view="strip"] .acpmux-md .acpmux-md-inline {
   display: none;
 }
 /* A file placed in the text: its name on the chip, as the strip's link chip has it. */

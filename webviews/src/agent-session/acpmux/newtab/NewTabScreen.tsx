@@ -23,7 +23,6 @@ import {
   useAttachmentIntake,
   useSendWhenAttached,
 } from "../composer/attachmentIntake";
-import { reordered } from "../composer/stripReorder";
 import { DropOverlay } from "../composer/DropOverlay";
 import { AllChatsList, type LoadChatsPage } from "./AllChatsList";
 import { ChatCards } from "./ChatCards";
@@ -401,7 +400,10 @@ export function NewTabScreen(props: Props) {
     cancel,
     retry,
     expand: (id) => field.current?.removeInline(id),
-    placing: () => attachmentView === "inline",
+    // Shell mode's command takes no attachment: a drop (whose intake never asks pasteTarget) waits in
+    // the strip for the next prompt, as the chat composer's shell field keeps it, and goes into the
+    // text once shell mode ends (inlineAttachments.tsx `placing`).
+    placing: () => attachmentView === "inline" && !shell,
   });
   inlinePlace.current = (chips) => inline.place(chips, "paste");
   // Unlike a chat's composer, the new tab waits for uploads too (#25191): the page goes when the
@@ -1309,7 +1311,12 @@ export function NewTabScreen(props: Props) {
           bar with the agent's model chip, the mic and Send. The location strip with the project the
           chat starts in heads it, as text over the card (ComposerContext, the composer's own; hq#1957
           composer location strip; newtab/screen.css). */}
-      <div ref={setComposer} className="nt-composer" data-composer-look={look === "codex" ? "codex" : undefined}>
+      <div
+        ref={setComposer}
+        className="nt-composer"
+        data-composer-look={look === "codex" ? "codex" : undefined}
+        data-attachment-view={attachmentView}
+      >
         {worktreeError && <WorktreeFailure error={worktreeError} onDismiss={() => setWorktreeError(undefined)} />}
         {sandboxRefusal && props.runMode?.mode === "sandboxed" && (
           <output className="acpmux-switch-notice">
@@ -1390,7 +1397,7 @@ export function NewTabScreen(props: Props) {
               />
               {/* The attachments placed in the text draw inside the field at their place, as Messages
                 shows them, each with its remove, cancel and retry (the strip below leaves them out). */}
-              {!shell && inline.chips}
+              {!shell && attachmentView === "inline" && inline.chips}
             </div>
             {/* Claude Code's split: the mode, model and effort went to the quiet row under the box, so
               the mic and Send end the field's row and the empty box is one line tall, as the chat
@@ -1416,16 +1423,18 @@ export function NewTabScreen(props: Props) {
             }
             {...(attachError ? { error: attachError } : {})}
             codex={harness === "codex"}
+            // A strip chip's × takes its node out of the text too (the strip view shows placed ones
+            // here), so the inline view brings back none and the prompt sends none.
             onRemove={(id) => {
-              setAttachments((current) => current.filter((item) => item.id !== id));
+              inline.remove(id);
               field.current?.focus();
             }}
             onCancel={(id) => {
-              cancel(id);
+              inline.cancel(id);
               field.current?.focus();
             }}
             onRetry={retry}
-            onReorder={(id, index) => setAttachments((current) => reordered(current, id, index))}
+            onReorder={inline.reorder}
           />
           {!pill && !split && pickers}
         </div>
