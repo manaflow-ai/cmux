@@ -1,5 +1,6 @@
 public import Foundation
 import SQLite3
+import CmuxNextCompat
 
 /// A read-only SQLite database opened from a private copy of the file (and
 /// its `-wal`), so a browser that is running and holds the database locked
@@ -27,21 +28,21 @@ public final class SQLiteSnapshot {
         directory = manager.temporaryDirectory.appending(path: "cmux-import-\(UUID().uuidString)", directoryHint: .isDirectory)
         let copy = directory.appending(path: "db.sqlite")
         do {
-            try manager.createDirectory(at: directory, withIntermediateDirectories: true)
-            try manager.copyItem(at: source, to: copy)
+            try FileManager.checked.createDirectory(at: directory, withIntermediateDirectories: true)
+            try FileManager.checked.copyItem(at: source, to: copy)
             for suffix in ["-wal", "-journal"] {
                 let side = URL(fileURLWithPath: source.path + suffix)
-                if manager.fileExists(atPath: side.path) { try? manager.copyItem(at: side, to: URL(fileURLWithPath: copy.path + suffix)) }
+                if FileManager.checked.fileExists(atPath: side.path) { try? FileManager.checked.copyItem(at: side, to: URL(fileURLWithPath: copy.path + suffix)) }
             }
         } catch {
-            try? manager.removeItem(at: directory)
+            try? FileManager.checked.removeItem(at: directory)
             throw Failure.copy(error.localizedDescription)
         }
         var opened: OpaquePointer?
         // Read-write on the private copy so SQLite can replay the WAL.
         // SAFETY: the path is a NUL-terminated copy Swift keeps alive for the call; SQLite writes one
         // connection (or NULL) into the local `opened` and keeps no pointer to either.
-        let status = unsafe sqlite3_open_v2(copy.path, &opened, SQLITE_OPEN_READWRITE, nil)
+        let status = unsafe blockingSQLiteOpen(copy.path, &opened, SQLITE_OPEN_READWRITE, nil)
         guard status == SQLITE_OK, let connection = unsafe opened else {
             var message = "open failed"
             if let failed = unsafe opened {
@@ -51,8 +52,8 @@ public final class SQLiteSnapshot {
             }
             // SAFETY: closes the connection open returned (or NULL, which does nothing) once; nothing
             // uses it after.
-            unsafe sqlite3_close(opened)
-            try? manager.removeItem(at: directory)
+            unsafe blockingSQLiteClose(opened)
+            try? FileManager.checked.removeItem(at: directory)
             throw Failure.open(message)
         }
         // SAFETY: stores the owned connection; deinit closes it.
@@ -62,7 +63,7 @@ public final class SQLiteSnapshot {
     deinit {
         // SAFETY: closes the connection init opened, exactly once; every statement on it was finalized
         // by the query that prepared it.
-        unsafe sqlite3_close(handle)
+        unsafe blockingSQLiteClose(handle)
         try? FileManager.default.removeItem(at: directory)
     }
 
@@ -79,7 +80,7 @@ public final class SQLiteSnapshot {
         var prepared: OpaquePointer?
         // SAFETY: handle is live (see the type); `sql` is a NUL-terminated copy Swift keeps alive for the
         // call (length -1 reads to the NUL), and SQLite writes one statement (or NULL) into `prepared`.
-        guard unsafe sqlite3_prepare_v2(handle, sql, -1, &prepared, nil) == SQLITE_OK else {
+        guard unsafe blockingSQLitePrepare(handle, sql, -1, &prepared, nil) == SQLITE_OK else {
             throw Failure.query(lastError)
         }
         // SQL with no statement in it (only a comment) prepares NULL; stepping it would be a misuse.
@@ -92,7 +93,7 @@ public final class SQLiteSnapshot {
         var count = 0
         while true { // wakeup-allow: bounded by the result set; ends at SQLITE_DONE
             // SAFETY: steps the live statement prepared above on the live connection.
-            let step = unsafe sqlite3_step(statement)
+            let step = unsafe blockingSQLiteStep(statement)
             if step == SQLITE_DONE { return }
             guard step == SQLITE_ROW else { throw Failure.query(lastError) }
             count += 1

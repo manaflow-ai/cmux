@@ -674,7 +674,11 @@ QoS with them, and ThreadsControlTests fails when a label or QoS here and there 
   `cmux.files.fsevents` (utility: a watcher; FolderWatchStream still asks user-initiated, which `debug.threads`
   reports as a mismatch), `cmux.files.tree-fsevents` (utility),
   `com.cmuxterm.home.cache` (user-initiated; the `HomeCache` actor's executor: its file writes block this queue,
-  never a pool thread, so the forced quit's last draft write runs with the pool full; CmuxHomeCore, shared with iOS)
+  never a pool thread, so the forced quit's last draft write runs with the pool full; CmuxHomeCore, shared with iOS),
+  `com.cmuxterm.next.files.table-widths` (user-initiated; the `MarkdownTableWidthRepository` actor's executor),
+  `com.cmuxterm.next.onboarding.classic-migration` (user-initiated; the `ClassicMigrationRepository` actor's
+  executor), `com.cmuxterm.next.agent-pane.saved-environments` (user-initiated; the `SavedEnvironments` actor's
+  executor); each actor's file calls block its own queue, never a pool thread (p02-threads-141..144)
 - Energy: `com.cmuxterm.next.energy.power-source` (utility; PowerSourceMonitor in CmuxNextEnergy: the notify
   power-source and charge notifications and one IOKit snapshot each; it hops to main only on a new edge)
 - Remote and mobile: `com.cmuxterm.next.remote-localhost` (user-initiated),
@@ -947,3 +951,42 @@ the only way past `disallow_blocking`.
 |---|---|---|
 | `Shutdown` | Every kind except ipc-reply, while the daemon flushes state and joins workers on a thread that no longer serves input (Chrome's `PermanentThreadAllowance::AllowBlocking`) | No call site yet (shutdown paths adopt it with tasks 211 and 213-218) |
 | `OwnDescriptor` | Only fd-read and fd-write on the descriptor the thread registered (`register_own_descriptor`); call-scoped, never thread-wide; made only by `own_fd_read`, `own_fd_write` and `own_fd_write_all` | Echo threads that own a terminal-host socket (`echo_thread::spawn_host_stream_reader`, `with_own_host_stream`); PTY and control-socket descriptors by task 210b |
+
+## Inventory results (p02-threads 306)
+
+The done checks of plans/cmux-next/chrome-parity/p02-threads.md section 5, measured from source on Linux
+(ripgrep, `threading-inventory.py` of the head for both columns, `arch_counts.py`; no build). Before:
+a7373a1d0e5, the perf/chrome-parity fork point. After: perf/chrome-parity 27253d4cc9f (2026-10-27). Test
+phases 300-305 and 307 are on their own branches or merged; RUN-11 and RUN-13 need a fleet Mac, so they are
+not measured here. Rerun this table when the open rows change; INV-1 at any revision is
+`threading-inventory.py --count --rev REV`.
+
+| Check | Target | Before (a7373a1d0e5) | After (27253d4cc9f) | Met |
+|---|---|---|---|---|
+| INV-1 raw-blocking | 0 | 1097 | 890 | no |
+| INV-1 raw-blocking-ext | 0 | 652 | 612 | no |
+| INV-1 main-blocking | 0 | 135 | 65 | no |
+| INV-1 pool-blocking | 0 | 241 | 211 | no |
+| INV-1 maybe-main-blocking | 0 | 26 | 12 | no |
+| INV-1 task-priority | 0 | 243 | 172 | no |
+| INV-1 thread-doc | 0 | 6 | 0 | yes |
+| INV-1 cpu-intensive | 0 | 91 | 1 | no |
+| INV-1 sync-inversion | 0 | 5 | 0 | yes |
+| INV-1 once-blocking | 0 | 17 | 0 | yes |
+| INV-1 awaited-low-priority | 0 | 20 | 0 | yes |
+| INV-1 linked Shared and iOS packages | 0 on every rule | main 4, raw 183, pool 58, raw-ext 134, maybe-main 12, task-priority 31, thread-doc 20, once 1, others 0 | main 5, raw 184, pool 58, raw-ext 130, maybe-main 12, task-priority 30, thread-doc 19, others 0 | no |
+| INV-2 Apple synchronous APIs, all lines | 0 | 132 | 48 | no |
+| INV-2 by family | 0 | Security 53, NSWorkspace 51, CGWindowList 11, AX 8, SMAppService 6, getaddrinfo 2, LSCopy 1 | Security only: SecItem 30, SecCodeCopy 10, SecStaticCodeCheckValidity 6, SecTrustEvaluate 2 (21 files; the keychain stores, code-signature checkers and peer checks) | no |
+| INV-3 process launch and wait | 0 | 36: `try x.run()` 21, posix_spawn 7, waitpid(..., 0) 5, readDataToEndOfFile 2, waitUntilExit 1 | 0 | yes |
+| INV-4 Swift allowances | 3 or fewer, each with a row | 1 reason (`terminate`), 2 call sites, 0 `blocking-allow:` lines | 2 reasons with rows (`terminate`, `surfaceTeardown`); 3 call sites (QuitDeadline, RunMarkerFile, TerminalOutputLane); 6 `// blocking-allow:` lines in Sources with no row (WireGen 2, AppRunMarker 2, LaunchClock 1, CrashKeys 1), 6 more in Shared test fixtures | no |
+| INV-4 arch-ratchet blocking_allow_escapes | 3 or fewer | 0 | 9 (3 allowBlocking calls, 6 escape comments) | no |
+| INV-4 Rust AllowReason | 3 or fewer variants, sites listed | 2 variants, 0 sites outside cmux-threads | 2 variants (rows above); outside cmux-threads: cmux-blocking/src/tests.rs (a `Shutdown` test) and a doc comment in cmux-tui-core echo_thread.rs | yes |
+| INV-5 global queues, nil delegate queues, runModal, raw locks | 0 except audio-tap `lock-allow` lines | 41: OSAllocatedUnfairLock 20, DispatchQueue.global 6, delegateQueue nil 6, runModal 6, NSLock 3 | 7 lines, 4 of them audio-tap `lock-allow`; 3 over: PoolContextControl.swift:125 `DispatchQueue.global` (the RUN-10 pool case, `qos-allow:`) and SpeechAnalyzerAudioInput.swift:73 and :76 (AnalyzerBufferFeed, `lock-allow: converter input block`, not the audio-tap reason) | no |
+| RUN-11 Release | 0 detector symbols; check-release-compile.sh passes | not run | not run: needs a fleet Mac (`cmux-ci run --class exclusive --script scripts/measure/blocking-checks.sh --ref SHA`) | not measured |
+| RUN-13 debug.work STRESS | userBlocking queue-wait p99 <= 2 ms per lane; launch cold 300 / warm 150 ms | not run | not run: needs a fleet Mac and a STRESS session | not measured |
+| RUN-2 Chromium open number | 0 main-thread blocking in app_chromium | not measured | not measured: task 301's probe is not on the controller's measurement list at its branch | open |
+
+Open work from this table: INV-1 queues MQ-1 to MQ-5, MQ-16, MQ-17 and MQ-18; INV-2 the Security family
+(MQ-7, keychain and code-signature seams); INV-4 the six Sources escape comments (each moves off the
+main thread or gets a reviewed `BlockingAllowance` row, total 3 or fewer); INV-5 the pool-case queue
+and the converter lock.

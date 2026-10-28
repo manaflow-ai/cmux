@@ -39,6 +39,7 @@ use crate::server::attach_lifecycle::attach_pump::{
 };
 use crate::server::attach_lifecycle::{AttachCommit, commit_client_attach_and_start_pump};
 use crate::server::sequenced_pool::{PostError, Sequence, SequencePriority};
+use crate::server::stream_priority::follow_visibility;
 use crate::server::{MessageWriter, OutboundStream, handle_attach_send_error};
 use crate::surface::snapshot_attach::{
     LocalReadySnapshot, SNAPSHOT_DIGEST_IDLE, SnapshotRequestGate,
@@ -352,6 +353,7 @@ pub(super) fn start(worker: SnapshotWorker, commit: AttachCommit) -> anyhow::Res
         true,
     );
     worker.receiver.on_ready(pump.hook());
+    follow_visibility(&stream, &pump, Some(worker.receiver.visibility_handle()));
     let wake: Arc<dyn Fn() + Send + Sync> = Arc::new(pump.hook());
     let bulk = BulkLane::new(mux.sequenced_pool.sequence(SequencePriority::Utility), wake);
     let source = SnapshotSource { worker, wake_at: None, bulk, held: None };
@@ -429,7 +431,19 @@ impl ViewSource for SnapshotSource {
 
     /// Each item is a hand-off: a frame, a digest, or the text a bulk job
     /// encoded. A queued event goes before the next chunk.
-    fn next(&mut self, _out: &mut ViewOut, timer: &PumpTimer<'_>) -> Step {
+    fn next(&mut self, out: &mut ViewOut, timer: &PumpTimer<'_>) -> Step {
+        // Hidden (`set-stream-priority`): no output, chunk or digest until
+        // it shows; its viewer queue holds nothing meanwhile, and a bulk job
+        // that comes back waits for it. Its surface closing still ends it
+        // (`detached`, then `stream-end`): the tap's drop wakes every
+        // viewer, hidden or not.
+        if out.stream.visibility.is_hidden() {
+            if !self.worker.receiver.is_disconnected() {
+                return Step::Empty;
+            }
+            self.worker.disconnected();
+            return Step::End;
+        }
         if let Some(done) = self.bulk.take_done() {
             return step(self.worker.apply(done));
         }

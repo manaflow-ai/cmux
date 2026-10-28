@@ -365,17 +365,17 @@ public final class ComputerUseHelperDaemon {
     /// directory owned by this user, set to 0700. Only `path` itself is
     /// changed, never a parent.
     nonisolated static func makePrivateDirectory(_ path: String) -> Bool {
-        if mkdir(path, 0o700) != 0 {
+        if blockingMkdir(path, 0o700) != 0 {
             switch errno {
             case EEXIST: break
             case ENOENT:
                 let parent = (path as NSString).deletingLastPathComponent
                 guard (try? FileManager.default.createDirectory(atPath: parent, withIntermediateDirectories: true)) != nil,
-                      mkdir(path, 0o700) == 0 || errno == EEXIST else { return false }
+                      blockingMkdir(path, 0o700) == 0 || errno == EEXIST else { return false }
             default: return false
             }
         }
-        let descriptor = open(path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+        let descriptor = blockingOpen(path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
         guard descriptor >= 0 else { return false }
         defer { close(descriptor) }
         var info = stat()

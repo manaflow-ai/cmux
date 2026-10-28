@@ -1,4 +1,5 @@
 public import Foundation
+import CmuxNextCompat
 
 /// Files synced from `cmux-tui/crates/cmux-app-host`, `first-party-apps` and
 /// `samples/apps` by `scripts/cmux-next/sync-app-runtime.sh` (never edit the
@@ -35,8 +36,7 @@ public nonisolated enum AppPlatformResources {
     public static func firstPartyManifests() -> [(manifest: AppManifest, directory: URL)] { manifests(in: firstParty) }
 
     static func manifests(in folder: URL) -> [(manifest: AppManifest, directory: URL)] {
-        let fm = FileManager.default
-        guard let entries = try? fm.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) else { return [] }
+        guard let entries = try? FileManager.checked.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) else { return [] }
         return entries.sorted { $0.lastPathComponent < $1.lastPathComponent }.compactMap { directory in
             let manifest = ["cmux-app.v2.json", "cmux-app.json"].lazy
                 .compactMap { (try? Data(contentsOf: directory.appending(path: $0))).flatMap(AppManifest.decode) }.first

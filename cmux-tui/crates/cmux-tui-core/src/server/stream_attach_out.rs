@@ -26,6 +26,7 @@ use crate::server::attach_lifecycle::attach_pump::{
 use crate::server::attach_lifecycle::{AttachCommit, commit_client_attach_and_start_pump};
 use crate::server::browser_state_message;
 use crate::server::render_messages::browser_frame_json;
+use crate::server::stream_priority::follow_visibility;
 use crate::surface::AttachStream;
 
 /// Where a view's drain runs and what it starts with.
@@ -62,6 +63,7 @@ impl StreamView<'_> {
             notifications,
         );
         on_ready(&source, Box::new(pump.hook()));
+        follow_visibility(self.stream, &pump, None);
         pump.install(Box::new(ViewDrain::new(out, source)));
         commit_client_attach_and_start_pump(
             self.mux,
