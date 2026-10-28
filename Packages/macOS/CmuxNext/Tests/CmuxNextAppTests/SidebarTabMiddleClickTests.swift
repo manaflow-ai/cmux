@@ -77,8 +77,13 @@ struct SidebarTabMiddleClickTests {
         // The same ✕ as a workspace row's (both from `SidebarIconButton.rowClose`).
         let workspace = try #require(list.rowViews[.workspace(Fixture.shown)] as? WorkspaceRowView)
         #expect(workspace.closeButton.icon == row.closeButton.icon)
-        row.closeButton.onPress?()
+        // A middle-click on the ✕ itself is the row's: it reaches the list and closes the tab.
+        let onClose = row.convert(center, to: list)
+        row.closeButton.otherMouseDown(with: try Gallery.middle(.otherMouseDown, at: onClose, in: list))
+        row.closeButton.otherMouseUp(with: try Gallery.middle(.otherMouseUp, at: onClose, in: list))
         #expect(sent() == [.closeTab(workspace: Fixture.shown, tab: Fixture.first)])
+        row.closeButton.onPress?()
+        #expect(sent() == [.closeTab(workspace: Fixture.shown, tab: Fixture.first), .closeTab(workspace: Fixture.shown, tab: Fixture.first)])
         row.isHovered = false
         row.layoutSubtreeIfNeeded()
         #expect(row.closeButton.isHidden, "the ✕ stayed after the hover ended")
