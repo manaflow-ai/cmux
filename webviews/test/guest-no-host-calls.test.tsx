@@ -78,7 +78,8 @@ Object.assign(scope, {
 });
 /** Runs every timer due now once (an interval stays for the next advance). */
 function advanceTimers() {
-  for (const [id, timer] of [...timers]) {
+  // A snapshot: timers set while these run wait for the next advance.
+  for (const [id, timer] of Array.from(timers)) {
     if (!timer.repeat) timers.delete(id);
     timer.run();
   }
