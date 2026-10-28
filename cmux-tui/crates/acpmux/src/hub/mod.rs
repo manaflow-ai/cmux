@@ -47,6 +47,7 @@ pub mod lineage;
 pub(crate) mod list_guard;
 mod live_models;
 mod locate;
+mod mesh_rows;
 pub mod media_handles;
 pub mod media_read;
 pub(crate) mod subagent_transcript;
