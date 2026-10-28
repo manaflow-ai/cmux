@@ -274,11 +274,42 @@ import Testing
         #expect(ended.count == 1 && (ended.first ?? 0.5) > 0.5, "the divider took the press and its drag: \(ended)")
         #expect(layout.tap.deliverIntercepts(layout.event(.leftMouseDragged, at: point, on: page)) == .pass,
                 "a drag after the release is the page's")
-        #expect(layout.tap.deliverIntercepts(layout.event(.leftMouseDown, at: point, on: page)) == .consume,
-                "a press queued on the page before its panel came still goes to the divider")
+        // The divider moved with the drag: press where it is now.
+        layer.evaluate()
+        let now = try #require(layer.dividerAreas.first(where: { $0.id == area.id }), "the divider is still there")
+        let there = CGPoint(x: now.rect.midX, y: now.rect.midY)
+        #expect(layout.tap.deliverIntercepts(layout.event(.leftMouseDown, at: there, on: page)) == .consume,
+                "a press queued on the page over a divider whose panel is made still goes to the divider")
+        #expect(layout.tap.deliverIntercepts(layout.event(.leftMouseUp, at: there, on: page)) == .consume)
+    }
+
+    /// Another button clicked while a press sent on is held (a chord) leaves that press held: its drag and its
+    /// release still go to the divider, which ends its drag once, and the other button's click stays the page's.
+    @Test func aChordKeepsTheForwardedPress() throws {
+        let layout = Layout()
+        defer { layout.close() }
+        let layer = layout.layer
+        let area = try #require(layer.dividerAreas.first, "the split has a divider area")
+        let page = NSWindow(contentRect: .zero, styleMask: [.borderless], backing: .buffered, defer: false)
+        layout.addChild(page, over: CGRect(x: 0, y: 0, width: 1200, height: 800))
+        defer { layout.removeChild(page) }
+        var ended: [Double] = []
+        layout.model.intentHandler = { intent in
+            if case .setSplitRatio(_, let ratio, _, let phase) = intent, phase == .ended { ended.append(ratio) }
+        }
+        let point = CGPoint(x: area.rect.midX, y: area.rect.midY)
+        let moved = CGPoint(x: point.x + 150, y: point.y)
+
+        #expect(layout.tap.deliverIntercepts(layout.event(.leftMouseDown, at: point, on: page)) == .consume)
+        #expect(layout.tap.deliverIntercepts(layout.event(.rightMouseDown, at: point, on: page)) == .pass,
+                "the other button's press is not the divider's")
         #expect(layout.tap.deliverIntercepts(layout.event(.rightMouseUp, at: point, on: page)) == .pass,
-                "another button's release leaves the press held")
-        #expect(layout.tap.deliverIntercepts(layout.event(.leftMouseUp, at: point, on: page)) == .consume)
+                "the other button's release is not the divider's")
+        #expect(layout.tap.deliverIntercepts(layout.event(.leftMouseDragged, at: moved, on: page)) == .consume,
+                "the held press's drag still goes to the divider")
+        #expect(layout.tap.deliverIntercepts(layout.event(.leftMouseUp, at: moved, on: page)) == .consume,
+                "the held press's release still goes to the divider")
+        #expect(ended.count == 1 && (ended.first ?? 0.5) > 0.5, "the divider ended its drag once: \(ended)")
     }
 
     /// A press sent on whose release never came (a menu or a modal took it) is over at the next press: that press,
