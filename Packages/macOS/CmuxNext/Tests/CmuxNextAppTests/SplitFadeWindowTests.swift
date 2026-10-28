@@ -65,7 +65,8 @@ struct SplitFadeWindowTests {
             split.root.context.reduceMotionOverride = nil
             split.root.context.splitArrival = { .fade }
             split.split()
-            #expect(keyPaths(try split.host("b").layer).isEmpty)
+            let added = try split.host("b")
+            #expect(keyPaths(added.layer).isEmpty)
             #expect(!split.screen.hasMotion)
         }
     }

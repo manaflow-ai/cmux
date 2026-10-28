@@ -406,8 +406,8 @@ struct PaneMotionPlanTests {
     @Test func aResizedPaneCarriesItsChromeSublayerRestFrames() throws {
         let before = Self.splits(.leaf("p1")), after = Self.splits(Self.side(.leaf("p1"), .leaf("p2")))
         let shape = PaneMotionPlan.ChromeShape(padding: 6, cornerRadius: 10, ringCornerRadius: 12)
-        let plan = PaneMotionPlan.build(from: before, to: after, shape: shape,
-                                        bands: ["p1": PaneMotionPlan.ChromeBands(header: 28, footer: 0)], arrival: .grow)
+        let plan = PaneMotionPlan.build(from: before, to: after, arrival: .grow, shape: shape,
+                                        bands: ["p1": PaneMotionPlan.ChromeBands(header: 28, footer: 0)])
         let chrome = try #require(plan.panes["p1"]?.chrome)
         let fromSize = try #require(before.panes["p1"]).size, toSize = try #require(after.panes["p1"]).size
         for (frames, size) in [(chrome.from, fromSize), (chrome.to, toSize)] {

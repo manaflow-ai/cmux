@@ -102,6 +102,7 @@ import Testing
         design.animationSpeed = .off
         defer { design.animationSpeed = oldSpeed }
         let (view, _) = pane()
-        #expect(Motion.panes.fadeIn(.fadeIn, layers: [try #require(view.layer)], in: view, waitingUpTo: 1) == nil)
+        let layer = try #require(view.layer)
+        #expect(Motion.panes.fadeIn(.fadeIn, layers: [layer], in: view, waitingUpTo: 1) == nil)
     }
 }
