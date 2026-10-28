@@ -1,6 +1,4 @@
 #!/usr/bin/env python3
-# Vendored from manaflow-ai/cmuxterm-hq tools/agent-guards/test_polling_scan.py; keep the two copies in sync.
-# Change the judge there first, then copy it here unchanged below this header.
 """Tests for polling_scan.py: a polling loop checked into a script or a workflow fails CI."""
 
 import json
@@ -260,6 +258,28 @@ class PollingScanTests(unittest.TestCase):
         doc = py("import time\nfor i in range(3):\n    def f():\n        \"\"\"api.github.com\"\"\"\n"
                  "    \"\"\"see api.github.com\"\"\"\n    time.sleep(1)\n")
         rc, out = Repo({"d.sh": doc}).scan()
+        self.assertEqual(rc, 0, out)
+
+    def test_python_helpers_and_gh_options(self):
+        def py(code):
+            return "#!/bin/bash\npython3 - <<'PY'\n" + code + "PY\n"
+        polls = {
+            "h.sh": py("import subprocess, time\ndef fetch():\n    subprocess.run(\"gh api rate_limit\", shell=True)\n"
+                       "while True:\n    fetch()\n    time.sleep(5)\n"),
+            "o.sh": py("import subprocess, time\nwhile True:\n    subprocess.run(\"gh -R o/r api x\", shell=True)\n"
+                       "    time.sleep(5)\n"),
+            "q.sh": py("import subprocess, time\nwhile True:\n    subprocess.run(\"gh --repo=o/r run view 1\", shell=True)\n"
+                       "    time.sleep(5)\n"),
+        }
+        rc, out = Repo(polls).scan()
+        self.assertEqual(rc, 1, out)
+        self.assertIn("3 violations", out)
+
+    def test_a_method_call_is_not_a_same_named_local_function(self):
+        code = ("#!/bin/bash\npython3 - <<'PY'\nimport subprocess, time\ndef run():\n"
+                "    subprocess.run([\"gh\", \"api\", \"rate_limit\"])\nrun()\n"
+                "while subprocess.run([\"test\", \"-e\", \"/tmp/ready\"]).returncode:\n    time.sleep(1)\nPY\n")
+        rc, out = Repo({"m.sh": code}).scan()
         self.assertEqual(rc, 0, out)
 
     def test_a_one_line_wrapper_with_a_trailing_comment_counts(self):
