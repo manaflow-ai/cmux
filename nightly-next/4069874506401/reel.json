@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "build": "4069874506401",
+  "notes": "notes/4069874506401.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 26816,
+      "title": "ci: a no-verdict compile is never a base red; shas are masked in compared error lines",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26765,
+      "title": "cmux NEXT tests: zoom and Sleepy scene tests follow the host's motion setting",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26766,
+      "title": "cmux NEXT tests: the open-panel warm-up test waits out a loaded main actor",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26789,
+      "title": "cmux-next tests: bound the huge-group scroll so oneGroup10k stays under the stall watchdog",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26622,
+      "title": "cmux NEXT sidebar: hover hides the trailing spinner; inner tab dots on the trailing column",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26852,
+      "title": "fix(ui): constrain popup height before first placement",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26840,
+      "title": "fix(settings): declare sidebar hover controls agent policy",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
