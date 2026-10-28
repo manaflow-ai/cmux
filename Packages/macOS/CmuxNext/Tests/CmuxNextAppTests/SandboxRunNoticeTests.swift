@@ -37,8 +37,8 @@ struct SandboxRunNoticeTests {
         try #require(UserDefaults(suiteName: "SandboxRunNoticeTests.\(UUID().uuidString)"))
     }
 
-    private func follower(_ server: Server, defaults: UserDefaults) -> (SandboxRunFollower, Ends) {
-        let follower = SandboxRunFollower(wait: { id, _ in try await server.wait(id) }, defaults: defaults, clock: ImmediateRunClock())
+    private func follower(_ server: Server, defaults: UserDefaults, now: @escaping @MainActor () -> Date = { Date() }) -> (SandboxRunFollower, Ends) {
+        let follower = SandboxRunFollower(wait: { id, _ in try await server.wait(id) }, defaults: defaults, now: now, clock: ImmediateRunClock())
         let ends = Ends()
         follower.onEnd = { ends.add($0) }
         return (follower, ends)
@@ -164,6 +164,45 @@ struct SandboxRunNoticeTests {
         #expect(((value?["reply"] as? [String: Any])?["value"] as? [String: Any])?["receipt"] != nil)
     }
 
+    @Test func anEndSavedButNotToldIsToldAtTheNextLaunchOnce() async throws {
+        let server = Server()
+        await server.script("r1", [.success(Self.succeeded)])
+        let defaults = try defaults()
+        let first = SandboxRunFollower(wait: { id, _ in try await server.wait(id) }, defaults: defaults, clock: ImmediateRunClock())
+        // The app dies inside the banner's post: its end is saved, not yet told.
+        @MainActor final class Crash { var saved: Data? }
+        let crash = Crash()
+        first.onEnd = { _ in crash.saved = defaults.data(forKey: SandboxRunFollower.defaultsKey) }
+        _ = try await first.follow(record())
+        defaults.set(try #require(crash.saved), forKey: SandboxRunFollower.defaultsKey)
+        let (relaunched, ends) = follower(server, defaults: defaults)
+        relaunched.account("u1")
+        #expect(ends.all.map(\.outcome) == [.succeeded])
+        #expect(ends.all.first?.record.task == "Fix the flaky test\nthen push")
+        // Told: a later launch tells nothing again.
+        let (again, againEnds) = follower(server, defaults: defaults)
+        again.account("u1")
+        #expect(againEnds.all.isEmpty)
+    }
+
+    @Test func manyRunsInFlightAreAllFollowedAndOldCardsTakeTheirBanners() async throws {
+        let server = Server()
+        let defaults = try defaults()
+        let (follower, ends) = follower(server, defaults: defaults)
+        for index in 0..<40 { await server.script("r\(index)", [.success(Self.succeeded)]) }
+        for index in 0..<40 { _ = try await follower.follow(record("r\(index)")) }
+        #expect(ends.all.count == 40)
+        #expect(follower.endedRun("r0") != nil)
+        @MainActor final class Forgot { var ids: [String] = [] }
+        let forgot = Forgot()
+        let later = Date().addingTimeInterval(SandboxRunFollower.keptEnded + 60)
+        let (relaunched, _) = self.follower(server, defaults: defaults, now: { later })
+        relaunched.onForget = { forgot.ids += $0 }
+        relaunched.account("u1")
+        #expect(forgot.ids.count == 40)
+        #expect(relaunched.endedRun("r0") == nil)
+    }
+
     @Test func aBodyThatIsNoRunSnapshotIsNeverAnEnd() {
         func read(_ body: String) -> String {
             switch SandboxRunFollower.read(Data(body.utf8)) {
@@ -193,7 +232,8 @@ struct SandboxRunNoticeTests {
         _ = try await first.follow(record())
         let (relaunched, _) = follower(server, defaults: defaults)
         let ended = try #require(relaunched.endedRun("r1"))
-        #expect(ended.key == "key-r1" && ended.task == "Fix the flaky test\nthen push")
+        #expect(ended.record.key == "key-r1" && ended.record.task == "Fix the flaky test\nthen push")
+        #expect(ended.outcome == .succeeded && ended.told)
         let card = try #require(ended.card.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] })
         #expect((card["receipt"] as? [String: Any])?["status"] as? String == "succeeded")
         #expect(card["run"] == nil)

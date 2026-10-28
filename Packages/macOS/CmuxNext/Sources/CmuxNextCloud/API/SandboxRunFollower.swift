@@ -19,10 +19,16 @@ public final class SandboxRunFollower {
 
     /// Where the Runs in flight are kept between launches.
     public static let defaultsKey = "cmux.next.sandboxRuns.following"
-    /// At most this many Runs are followed; the oldest goes first.
-    public static let limit = 32
-    /// A Run not terminal after this long is given up (the server caps a task at 12 minutes).
+    /// A Run not terminal after this long is given up (the server caps a task at 12 minutes), so the
+    /// Runs in flight need no count limit.
     public static let maximumAge: TimeInterval = 6 * 3_600
+    /// How long an ended Run's card is kept for its banner (its banner is withdrawn with it).
+    public static let keptEnded: TimeInterval = 7 * 86_400
+    /// The cancels this app sent that are kept for Runs still in flight.
+    public static let cancelLimit = 256
+
+    /// Ended Runs whose card was dropped after ``keptEnded``: their banners go too.
+    public var onForget: (@MainActor ([String]) -> Void)?
 
     /// A followed Run ended (not one this app cancelled): once per Run.
     public var onEnd: (@MainActor (SandboxRunEnd) -> Void)?
@@ -31,7 +37,7 @@ public final class SandboxRunFollower {
     private let now: @MainActor () -> Date
     private let clock: any Clock<Duration>
     private var records: [String: SandboxRunRecord] = [:]
-    /// Runs that ended here, newest last (bounded): a late ``follow(_:)`` of one never tells it again.
+    /// Runs that ended here, newest last, for ``keptEnded``: a late ``follow(_:)`` of one never tells it again.
     private var ended: [SandboxRunEnded] = []
     private var polls: [String: Task<Void, Never>] = [:]
     private var waiters: [String: [UUID: CheckedContinuation<Data, any Error>]] = [:]
@@ -57,7 +63,7 @@ public final class SandboxRunFollower {
     public var following: [SandboxRunRecord] { records.values.sorted { $0.started < $1.started } }
 
     /// The Run `id` that ended here, if it is still kept.
-    public func endedRun(_ id: String) -> SandboxRunEnded? { ended.last { $0.id == id } }
+    public func endedRun(_ id: String) -> SandboxRunEnded? { ended.last { $0.record.id == id } }
 
     /// Whether a poll runs for `id` (tests).
     public func isPolling(_ id: String) -> Bool { polls[id] != nil }
@@ -72,7 +78,9 @@ public final class SandboxRunFollower {
         for record in records.values where signedOut || (user != nil && record.user != user) {
             drop(record.id, error: CloudAPIError.notSignedIn)
         }
-        guard user != nil else { return }
+        guard let user else { return }
+        prune()
+        tellUntold(of: user)
         for record in following { start(record) }
     }
 
@@ -84,7 +92,6 @@ public final class SandboxRunFollower {
         if let user, record.user != user { throw CloudAPIError.timedOut("/api/runs/\(record.id)") }
         if records[record.id] == nil, endedRun(record.id) == nil {
             records[record.id] = record
-            trim()
             save()
         }
         start(record)
@@ -108,7 +115,7 @@ public final class SandboxRunFollower {
     public func noteCancel(_ id: String) {
         guard !cancelledHere.contains(id) else { return }
         cancelledHere.append(id)
-        if cancelledHere.count > Self.limit { cancelledHere.removeFirst(cancelledHere.count - Self.limit) }
+        if cancelledHere.count > Self.cancelLimit { cancelledHere.removeFirst(cancelledHere.count - Self.cancelLimit) }
         save()
     }
 
@@ -160,15 +167,40 @@ public final class SandboxRunFollower {
 
     private func end(_ id: String, outcome: SandboxRunEnd.Outcome, snapshot: Data) {
         guard let record = records.removeValue(forKey: id) else { return }
-        ended.append(SandboxRunEnded(id: id, task: record.task, key: record.key, card: Self.card(snapshot)))
-        if ended.count > Self.limit { ended.removeFirst(ended.count - Self.limit) }
+        let silent = cancelledHere.contains(id) && outcome == .cancelled
+        cancelledHere.removeAll { $0 == id }
+        // Saved untold first: a crash before the banner leaves it to the next launch, never lost;
+        // marked told once ``onEnd`` ran, so it is never told twice.
+        ended.append(SandboxRunEnded(record: record, outcome: outcome, card: Self.card(snapshot), at: now(), told: silent))
+        prune()
         save()
         polls.removeValue(forKey: id)
         answerAll(id, .success(snapshot))
-        let cancelled = cancelledHere.contains(id)
-        cancelledHere.removeAll { $0 == id }
-        let silent = cancelled && outcome == .cancelled
-        if !silent { onEnd?(SandboxRunEnd(record: record, outcome: outcome, snapshot: snapshot)) }
+        if !silent { tell(id, SandboxRunEnd(record: record, outcome: outcome, snapshot: snapshot)) }
+    }
+
+    /// Runs ``onEnd`` for ended Run `id`, then marks it told.
+    private func tell(_ id: String, _ end: SandboxRunEnd) {
+        onEnd?(end)
+        guard let index = ended.lastIndex(where: { $0.record.id == id }) else { return }
+        ended[index].told = true
+        save()
+    }
+
+    /// Tells the ends of `user`'s Runs that were saved but not told (the app quit or crashed between the two).
+    private func tellUntold(of user: String) {
+        for run in ended where !run.told && run.record.user == user {
+            tell(run.record.id, SandboxRunEnd(record: run.record, outcome: run.outcome, snapshot: run.card ?? Data()))
+        }
+    }
+
+    /// Drops the ended Runs older than ``keptEnded`` and tells ``onForget``.
+    private func prune() {
+        let cutoff = now().addingTimeInterval(-Self.keptEnded)
+        let old = ended.filter { $0.at < cutoff }.map(\.record.id)
+        guard !old.isEmpty else { return }
+        ended.removeAll { $0.at < cutoff }
+        onForget?(old)
     }
 
     /// Stops following `id` without telling it.
@@ -190,10 +222,6 @@ public final class SandboxRunFollower {
 
     private func answer(_ id: String, token: UUID, _ result: Result<Data, any Error>) {
         waiters[id]?.removeValue(forKey: token)?.resume(with: result)
-    }
-
-    private func trim() {
-        for record in following.dropLast(Self.limit) { drop(record.id, error: CloudAPIError.timedOut("/api/runs/\(record.id)")) }
     }
 
     private func save() {

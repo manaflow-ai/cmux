@@ -29,6 +29,8 @@ final class SandboxRunNotices {
             try await api.pinningTeam(team).waitRun(id, timeoutMs: 10_000)
         })
         self.follower.onEnd = { [weak self] end in self?.ended(end) }
+        // A card dropped after its week takes its banner with it: no banner is left that opens nothing.
+        self.follower.onForget = { [weak services] ids in services?.notifications.desktop.withdraw(ids.map { Self.bannerPrefix + $0 }) }
     }
 
     /// Follows the signed-in account: its Runs resume, a sign-out stops them.
@@ -58,7 +60,7 @@ final class SandboxRunNotices {
         let views = services.map { Array($0.agentTabs.views.values) } ?? []
         for view in views where view.model.sandboxRuns.settle(key: end.record.key, snapshot: snapshot) {
             settled.append(end.record.key)
-            if settled.count > SandboxRunFollower.limit { settled.removeFirst() }
+            if settled.count > SandboxRunFollower.cancelLimit { settled.removeFirst() }
         }
         post(end)
     }
@@ -111,13 +113,13 @@ final class SandboxRunNotices {
         // The follower keeps the ended Runs (bounded) across a relaunch, so a banner left in
         // Notification Center still opens its card.
         guard let services, let run = follower.endedRun(String(banner.dropFirst(Self.bannerPrefix.count))) else { return true }
-        if !settled.contains(run.key), let key = tab(holding: run.key), let tab = NotificationCenterService.tab(id: key, in: services.daemon.store) {
+        if !settled.contains(run.record.key), let key = tab(holding: run.record.key), let tab = NotificationCenterService.tab(id: key, in: services.daemon.store) {
             services.notifications.open(surface: tab.surface)
             return true
         }
         let card = run.card.flatMap { (try? JSONSerialization.jsonObject(with: $0)) as? [String: Any] } ?? [:]
         let seed = AgentPaneSeedSource(AgentPaneSeed())
-        seed.sandboxResult = (run.task, run.key, card)
+        seed.sandboxResult = (run.record.task, run.record.key, card)
         services.windows.active?.focusedPane?.newTabPage(seed: seed)
         return true
     }

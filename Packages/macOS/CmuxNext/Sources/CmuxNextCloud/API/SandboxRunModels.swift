@@ -18,19 +18,22 @@ public nonisolated struct SandboxRunRecord: Codable, Hashable, Sendable {
     }
 }
 
-/// A Run that ended here, kept (bounded) across a relaunch: a late ``SandboxRunFollower/follow(_:)``
-/// never tells it again, and its banner's click still finds its card.
+/// A Run that ended here, kept across a relaunch for ``SandboxRunFollower/keptEnded``: a late
+/// ``SandboxRunFollower/follow(_:)`` never tells it again, and its banner's click still finds its card.
 public nonisolated struct SandboxRunEnded: Codable, Hashable, Sendable {
-    public var id: String
-    public var task: String
-    public var key: String
+    public var record: SandboxRunRecord
+    public var outcome: SandboxRunEnd.Outcome
     /// The final snapshot's receipt alone (`{"receipt": …}`), what the Run's card shows; nil when it had none.
     public var card: Data?
+    public var at: Date
+    /// Its end was told (``SandboxRunFollower/onEnd`` ran), or is never to be told (this app cancelled
+    /// it). An end saved but not yet told is told at the next launch.
+    public var told: Bool
 }
 
 /// How a followed Run ended.
 public nonisolated struct SandboxRunEnd: Sendable {
-    public enum Outcome: String, Sendable { case succeeded, failed, timedOut, cancelled }
+    public enum Outcome: String, Codable, Sendable { case succeeded, failed, timedOut, cancelled }
     public var record: SandboxRunRecord
     public var outcome: Outcome
     /// The terminal snapshot (`{run, attempts, artifacts, receipt}`) as the server sent it.
