@@ -43,7 +43,8 @@ public final class MainJobCensus {
     public nonisolated static let jobCapacity = 8_192
     /// ``environmentKey``'s value that arms the input window.
     public nonisolated static let inputWindowValue = "input"
-    /// The input window's ring: the main jobs queued and not run yet that it tracks (about 3 MB).
+    /// The input window's ring: the main jobs queued and not run yet that it tracks (about 3 MB; the window's own
+    /// preallocated storage is about 16 MB more).
     public nonisolated static let inputJobCapacity = 16_384
 
     /// One StartupScheduler task that ran on the main thread.
@@ -83,7 +84,7 @@ public final class MainJobCensus {
     private var observers: [MainRunLoopObserver] = []
 
     /// The census `environment` asks for, its ring installed and its observers on the main run loop; nil when
-    /// ``environmentKey`` is not `1`. Call first thing in `main`, while the process has one thread.
+    /// ``environmentKey`` is neither `1` nor ``inputWindowValue``. Call first thing in `main`, while the process has one thread.
     public static func armed(environment: [String: String], processStartNanos: UInt64) -> MainJobCensus? {
         if environment[environmentKey] == inputWindowValue {
             let ring = MainJobRing(capacity: inputJobCapacity, continuous: true)

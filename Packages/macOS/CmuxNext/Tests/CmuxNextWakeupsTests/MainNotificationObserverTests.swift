@@ -65,20 +65,28 @@ import Testing
         withExtendedLifetime(observer) {}
     }
 
-    /// `post(class:)`: input and frame work runs on the next turn, and input counts as pending input
-    /// until then; a visible post goes to its class queue and keeps its order.
-    @Test func classedPostsRunInTheirClassAndKeepTheirOrder() {
+    /// `post(class:)` of visible work goes to its class queue, never inline, and keeps one FIFO with plain posts.
+    @Test func classedVisiblePostsKeepTheirOrderWithPlainPosts() {
         let rig = ClassedRig()
         var ran: [String] = []
         rig.work.post(class: .visible, owner: "a") { ran.append("a") }
+        rig.work.post(.visible, owner: "b") { ran.append("b") }
+        rig.work.post(class: .visible, owner: "c") { ran.append("c") }
+        #expect(ran.isEmpty, "a post never runs inline")
+        rig.turns.runAll()
+        #expect(ran == ["a", "b", "c"])
+    }
+
+    /// `post(class:)` of input and frame work runs on the next turn, and input counts as pending input until then.
+    @Test func inputAndFramePostsRunOnTheNextTurn() {
+        let rig = ClassedRig()
+        var ran: [String] = []
         rig.work.post(class: .input, owner: "key") { ran.append("key") }
         rig.work.post(class: .frame, owner: "spring") { ran.append("spring") }
-        rig.work.post(.visible, owner: "b") { ran.append("b") }
         #expect(ran.isEmpty, "a post never runs inline")
         #expect(rig.work.board.pendingInputCount == 1)
         rig.turns.runAll()
-        #expect(ran.filter { $0 == "a" || $0 == "b" } == ["a", "b"], "one FIFO per class, classed or not")
-        #expect(Set(ran) == ["key", "spring", "a", "b"])
+        #expect(ran == ["key", "spring"])
         #expect(rig.work.board.pendingInputCount == 0)
     }
 
@@ -110,21 +118,18 @@ import Testing
         withExtendedLifetime(observer) {}
     }
 
-    /// On the real main run loop: a classed run-loop block and posts from any thread run in their
-    /// arrival turns, an input post among them.
+    /// On the real main run loop with no input pending: a classed run-loop block runs in its callout and posts from
+    /// any thread run in their arrival turns, each class in its FIFO order.
     @Test func runLoopBlocksAndAnyThreadPostsRunOnTheMainRunLoop() {
         let rig = ClassedRig()
         let log = ClassedLog()
         MainRunLoopBlock.perform(class: rig.work.callbackClass(.visible, owner: "block")) { log.entries.append("block") }
         let owner = rig.work.board.owner("any-thread")
         rig.work.postFromAnyThread(class: .automation, owner: owner) { log.entries.append("automation") }
-        rig.work.postFromAnyThread(class: .input, owner: owner) { log.entries.append("input") }
         rig.work.postFromAnyThread(.automation, owner: owner) { log.entries.append("plain") }
-        spinMainRunLoop { log.entries.count == 4 }
+        spinMainRunLoop { log.entries.count == 3 }
         rig.turns.runAll()
-        #expect(Set(log.entries) == ["block", "automation", "input", "plain"])
-        let automation = log.entries.firstIndex(of: "automation") ?? .max, plain = log.entries.firstIndex(of: "plain") ?? -1
-        #expect(automation < plain, "the automation class keeps its FIFO")
+        #expect(log.entries == ["block", "automation", "plain"])
     }
 
     private func spinMainRunLoop(until done: () -> Bool) {

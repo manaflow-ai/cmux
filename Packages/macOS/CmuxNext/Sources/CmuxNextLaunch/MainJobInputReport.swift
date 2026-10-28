@@ -1,5 +1,5 @@
 #if DEBUG || CMUX_BENCH_HOOKS
-import CmuxNextCompat
+public import CmuxNextCompat
 import Foundation
 
 /// `debug.main_jobs.input`'s payload, built from a ``MainJobRing/InputWindow`` off the main thread

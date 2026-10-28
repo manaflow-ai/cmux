@@ -9,16 +9,23 @@ import Testing
 @MainActor struct MainJobInputWindowTests {
     private static let ms: UInt64 = 1_000_000
 
-    /// A clock the test moves.
-    private final class Clock: @unchecked Sendable { // crash-allow: the tests read and move it on the main actor only
-        var now: UInt64 = 0
+    /// A clock the test moves. Nonisolated: the ring reads its clock from a `@Sendable` closure.
+    nonisolated final class Clock: Sendable {
+        let value = Atomic<UInt64>(0)
+        var now: UInt64 {
+            get { value.load(ordering: .relaxed) }
+            set { value.store(newValue, ordering: .relaxed) }
+        }
     }
 
     /// Records and runs one job of `kind` that runs from `start` for `run` milliseconds.
     private static func ranJob(_ ring: MainJobRing, _ clock: Clock, _ kind: MainJobRing.Kind = .mainActor,
                                label: String? = nil, start: UInt64, run: UInt64) {
         clock.now = start * ms
-        guard let slot = ring.recordEnqueue(kind, priority: 0x19, label: label) else { return Issue.record("no slot") }
+        guard let slot = ring.recordEnqueue(kind, priority: 0x19, label: label) else {
+            Issue.record("no slot")
+            return
+        }
         ring.run(slot: slot) { clock.now = (start + run) * ms }
     }
 
@@ -99,7 +106,7 @@ import Testing
         #expect(Set(object.keys) == ["main_job_input", "sites"])
     }
 
-    @Test func theInputValueArmsTheWindowAndStartupFreezeLeavesItOn() {
+    @Test func aContinuousRingIsTheInputWindow() {
         #expect(MainJobCensus.inputWindowValue == "input")
         let ring = MainJobRing(capacity: 4, continuous: true) { 0 }
         let census = MainJobCensus(ring: ring, hook: .installed, processStartNanos: 0)

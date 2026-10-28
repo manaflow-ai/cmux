@@ -24,8 +24,8 @@ import Dispatch
 /// sequence-manager-DESIGN.md 2.7): slots are reused. A claim takes slot `claim % capacity` only when that slot is free
 /// (an atomic exchange; a busy one sends the job the runtime's way and counts it in ``busyDrops``), and the main
 /// thread frees it after the job ran, once its record is copied into a main-thread ring of the ``recentLimit`` newest
-/// runs. ``noteInputDispatch(eventNanos:dispatchNanos:)`` copies the runs that started between an event's arrival and
-/// its dispatch into the input window, which ``readInputWindow()`` returns.
+/// runs. ``noteInputDispatch(eventNanos:dispatchNanos:)`` copies the runs that overlap the wait between an event's
+/// arrival and its dispatch into the input window, which ``readInputWindow()`` returns.
 ///
 /// This file is the one owner of `swift_task_enqueueMainExecutor_hook` (guardrail `executor-hook`): the hook only
 /// records and forwards each job to the main queue in its order; nothing in the app reorders main-actor jobs.
