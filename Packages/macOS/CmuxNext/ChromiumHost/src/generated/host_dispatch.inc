@@ -216,9 +216,9 @@ inline constexpr uint16_t kOpReply = 0x8002;  // host -> cmux: an async op's res
 inline constexpr uint16_t kOpMirror = 0x8003;  // host -> cmux: a mirror value
 inline constexpr uint16_t kOpAck = 0x8004;  // host -> cmux: a token's op ran
 inline constexpr int kEventKindCount = 66;
-inline constexpr char kShimAbiID[] = "e841e1ec7addc7bb10c60f4a38e6234e01447bce859845cbbbb96609dc9526b1";
+inline constexpr char kShimAbiID[] = "cc6e4712a826cc14605acd74383572a10c4608ce95a18e29726dbc1113a8e32e";
 // Both sides' HELLO carries it: the op ids, classes and wire types of this generation.
-inline constexpr char kWireID[] = "074b3739a4865608539190bc26f18de6feda64bfa175c2d2570ead154b7f6d5f";
+inline constexpr char kWireID[] = "c59fc1643e8570f296068531923aded654f43e88fbcf4f74a1c0eee16d4beccf";
 inline constexpr int32_t kMaxRecords = 65536;
 inline constexpr int32_t kMaxOutCapacity = 65536;
 
