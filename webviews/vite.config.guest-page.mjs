@@ -23,7 +23,12 @@ export default {
     strictPort: true,
     fs: { allow: [webviewsRoot, path.join(webviewsRoot, "..")] },
   },
-  plugins: [...(base.plugins ?? []), galleryModules()],
+  // Only the stylesheet module: the gallery's emitted chart library (`__lib/vega.js`) is not served
+  // to guests, so a chart in a reply draws as its source there.
+  plugins: [
+    ...(base.plugins ?? []),
+    { ...galleryModules(), name: "cmux-guest-page-pane-css", generateBundle: undefined },
+  ],
   build: {
     outDir: process.env.CMUX_GUEST_PAGE_OUT_DIR ?? path.join(webviewsRoot, "dist/guest-page"),
     emptyOutDir: true,
