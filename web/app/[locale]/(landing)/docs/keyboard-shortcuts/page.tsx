@@ -66,6 +66,16 @@ export default function KeyboardShortcutsPage() {
       <p>{t("presetsApply")}</p>
       <Callout type="info">{t("presetsPreserve")}</Callout>
 
+      <DocsHeading level={2} id="holding-shortcuts" className="scroll-mt-24">{t("holdTitle")}</DocsHeading>
+      <p>{t("holdIntro")}</p>
+      <ul>
+        <li>{t("holdRuleRepeat")}</li>
+        <li>{t("holdRulePresses")}</li>
+        <li>{t("holdRuleClose")}</li>
+        <li>{t("holdRuleConfirm")}</li>
+        <li>{t("holdRuleReopen")}</li>
+      </ul>
+
       <KeyboardShortcuts />
     </>
   );

@@ -11,6 +11,16 @@ Turn a user's workflow preferences into cmux shortcut bindings in `~/.config/cmu
 
 Every new cmux-owned keyboard shortcut is the `defaultShortcut` of its `ActionDescriptor` in `Packages/macOS/CmuxNext/Sources/CmuxNextActions/ActionCatalog+*.swift`, visible and editable in the Settings shortcut editor, supported as `shortcuts.bindings.<actionId>` in `~/.config/cmux/cmux.json`, and documented in `web/app/[locale]/(landing)/docs/keyboard-shortcuts/page.tsx` and the configuration docs. All four, not a subset.
 
+## Contributor rule: held and repeated shortcuts
+
+Every cmux shortcut follows the held-key rules (Lawrence 2026-10-28; documented under "Holding and repeating
+shortcuts" in the keyboard shortcuts docs, en and ja): a held shortcut runs once per key repeat while the key is
+down and never after the key-up (`KeyRepeatGate` in `CmuxNextInput`, asked by `KeyRouter.dispatch`); separate
+presses all count; key repeat never crosses a boundary (a held Cmd-W stops before the pane's last tab); a
+confirmation stops the repeat and key presses never answer it. Distinguish a repeat from a press with
+`NSEvent.isARepeat` at the event. A new shortcut gets a `scripts/journeys/journeys/p0/spam-*.json` journey
+(held and hammered, `ext_spam.py`).
+
 ## Prerequisites
 
 - Work from a cmux checkout or worktree root when possible.

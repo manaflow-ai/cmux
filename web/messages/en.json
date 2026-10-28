@@ -3716,7 +3716,14 @@
       "noResults": "No shortcuts found",
       "noResultsHint": "Try a different search term",
       "paneResizeDescription": "Resize the focused pane with Ctrl+Cmd+H/J/K/L (left/down/up/right). Hold a key to keep resizing. Change the bindings and Pane Resize Step in Settings → Keyboard Shortcuts. The step is also configurable with app.paneResizeStepPixels in cmux.json (1–200, default 20).",
-      "fileEditorWordWrap": "Toggle File Editor Word Wrap (Option+Z)."
+      "fileEditorWordWrap": "Toggle File Editor Word Wrap (Option+Z).",
+      "holdTitle": "Holding and repeating shortcuts",
+      "holdIntro": "cmux treats a held shortcut as the key repeat your Mac sends, at the rate set in System Settings > Keyboard.",
+      "holdRuleRepeat": "A held shortcut runs once for each key repeat while the key is down. When you release the key, nothing more happens: repeats that waited while cmux was busy are dropped.",
+      "holdRulePresses": "Separate presses always count. Ten quick presses of Cmd-T open ten tabs, however fast you press.",
+      "holdRuleClose": "A held Cmd-W closes tabs in the current pane and stops before the pane's last tab. To close that tab and its pane, press Cmd-W again.",
+      "holdRuleConfirm": "When a tab runs a program, Cmd-W asks once before it closes the tab. Presses and key repeats while the question is open do not answer it.",
+      "holdRuleReopen": "A held Cmd-Shift-T reopens closed tabs one per key repeat, the most recent first."
     },
     "api": {
       "title": "CLI Reference",
