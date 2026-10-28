@@ -28,9 +28,12 @@ public struct EternalTerminalOptions: Codable, Equatable, Sendable {
     /// Creates validated ET client settings.
     ///
     /// Returns `nil` for a port outside 1-65535, for a terminal path that is
-    /// not absolute (a remote `~` cannot be expanded locally), or for any
-    /// value that is empty or contains control characters, because each value
-    /// becomes one argument of a terminal startup command.
+    /// not absolute (a remote `~` cannot be expanded locally), for any value
+    /// that is empty or contains control characters (each value becomes one
+    /// argument of a terminal startup command), or for repeated tunnels that
+    /// are not all in ET's `port:port` / `start-end:start-end` form. ET joins
+    /// repeated tunnels with commas and parses each comma part only in that
+    /// form, so a mixed list would make `et` exit after the SSH fallback.
     ///
     /// - Parameters:
     ///   - serverPort: Remote `etserver` port.
@@ -51,7 +54,9 @@ public struct EternalTerminalOptions: Codable, Equatable, Sendable {
         }
         let normalizedTunnels = tunnels.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
         let normalizedReverseTunnels = reverseTunnels.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-        guard (normalizedTunnels + normalizedReverseTunnels).allSatisfy(\.isValidEternalTerminalArgument) else {
+        guard (normalizedTunnels + normalizedReverseTunnels).allSatisfy(\.isValidEternalTerminalArgument),
+              Self.canJoinTunnels(normalizedTunnels),
+              Self.canJoinTunnels(normalizedReverseTunnels) else {
             return nil
         }
         self.init(
@@ -60,6 +65,17 @@ public struct EternalTerminalOptions: Codable, Equatable, Sendable {
             tunnels: normalizedTunnels,
             reverseTunnels: normalizedReverseTunnels
         )
+    }
+
+    private static func canJoinTunnels(_ tunnels: [String]) -> Bool {
+        tunnels.count < 2 || tunnels.allSatisfy { tunnel in
+            let sides = tunnel.split(separator: ":", omittingEmptySubsequences: false)
+            return sides.count == 2 && sides.allSatisfy { side in
+                let bounds = side.split(separator: "-", omittingEmptySubsequences: false)
+                return (1...2).contains(bounds.count)
+                    && bounds.allSatisfy { !$0.isEmpty && $0.allSatisfy(\.isASCIIDigit) }
+            }
+        }
     }
 
     /// The effective `etserver` port.
@@ -132,6 +148,10 @@ public struct EternalTerminalOptions: Codable, Equatable, Sendable {
         self.tunnels = tunnels
         self.reverseTunnels = reverseTunnels
     }
+}
+
+private extension Character {
+    var isASCIIDigit: Bool { isASCII && isNumber }
 }
 
 private extension String {
