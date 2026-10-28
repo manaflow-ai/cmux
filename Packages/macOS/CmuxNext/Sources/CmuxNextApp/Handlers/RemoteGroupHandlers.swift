@@ -14,7 +14,7 @@ enum RemoteGroupHandlers {
     /// A focus request makes an automated run interactive for this action even
     /// while the registry is capturing its refusal output.
     static func shouldOfferInteractiveFlow(_ invocation: ActionInvocation, capturingRefusal: Bool) -> Bool {
-        !capturingRefusal
+        invocation.allowsViewChange
     }
 
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
