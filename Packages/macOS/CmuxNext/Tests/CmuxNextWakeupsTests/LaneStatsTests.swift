@@ -170,7 +170,9 @@ import Testing
     /// a p99 between 2 and 4 ms, and a resetting read takes it back to 0.
     @Test func aSlowUserBlockingWaitShowsInTheP99() async throws {
         let clock = ManualNanos()
-        let work = BackgroundWork(cpuWidth: 1, label: "test.lane-stats.p99", uptimeNanos: { clock.read() })
+        // One user-blocking files slot: the app's lane has 4, and then the second item would not wait.
+        let work = BackgroundWork(cpuWidth: 1, filesWidths: .serial, label: "test.lane-stats.p99",
+                                  uptimeNanos: { clock.read() })
         let gate = DispatchSemaphore(value: 0)
         // The first holds the files lane's user-blocking slot until the second is queued behind it.
         work.post(.userBlocking, mayBlock: .files) {
