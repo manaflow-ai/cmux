@@ -83,9 +83,9 @@ async fn run(hub: Arc<Hub>, mut stopping: watch::Receiver<bool>) {
     let mut changes = controller.subscribe();
     let resume_controller = controller.clone();
     let resume = tokio::spawn(async move {
-        if resume_controller.resume().await.is_err() {
-            resume_controller.note_listener_error();
-        }
+        // Resume publishes its own errors while holding the lifecycle gates.
+        // A callback here could overwrite a newer explicit start's snapshot.
+        let _ = resume_controller.resume().await;
     });
     let mut active: Option<Active> = None;
     loop {
