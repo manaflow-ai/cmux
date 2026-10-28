@@ -84,6 +84,8 @@ final class AgentHibernationController {
     var backgroundWorkDrainTimer: DispatchSourceTimer?
     var backgroundWorkDrainCheckInFlight = false
     var backgroundWorkDrainRejections: [AgentHibernationPanelKey: ClaudeBackgroundWorkDrain.Evidence] = [:]
+    /// The lifecycle change each journaled drain answered, keyed by pane.
+    var backgroundWorkDrainsJournaled: [AgentHibernationPanelKey: TimeInterval?] = [:]
     private init() {}
 
     func start() {

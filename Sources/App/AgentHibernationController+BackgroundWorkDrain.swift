@@ -46,6 +46,7 @@ extension AgentHibernationController {
         let cachedCandidates = backgroundWorkDrainCandidates(appDelegate: appDelegate, index: cachedIndex, now: now)
         guard !cachedCandidates.isEmpty else {
             backgroundWorkDrainRejections.removeAll()
+            backgroundWorkDrainsJournaled.removeAll()
             return
         }
         backgroundWorkDrainCheckInFlight = true
@@ -59,10 +60,18 @@ extension AgentHibernationController {
               let index = await SharedLiveAgentIndex.shared.indexRefreshingNow(),
               AgentHibernationTrackingGate.isEnabled() else { return }
         let checkedAt = Date()
+        // One drain per pending episode: if the journal did not admit it, a
+        // second one would not be admitted either.
         let candidates = backgroundWorkDrainCandidates(appDelegate: appDelegate, index: index, now: checkedAt)
-            .filter { settleableSessions.contains($0.agent.sessionId) }
+            .filter { candidate in
+                settleableSessions.contains(candidate.agent.sessionId)
+                    && backgroundWorkDrainsJournaled[candidate.key] != .some(candidate.lifecycleChangedAt)
+            }
         let candidateKeys = Set(candidates.map(\.key))
         backgroundWorkDrainRejections = backgroundWorkDrainRejections.filter { candidateKeys.contains($0.key) }
+        backgroundWorkDrainsJournaled = backgroundWorkDrainsJournaled.filter { key, changedAt in
+            lifecycleChangeByPanel[key] == changedAt
+        }
         for candidate in candidates {
             let unchangedSince = backgroundWorkDrainRejections[candidate.key]
             let verdict = await Task.detached(priority: .utility) {
@@ -96,6 +105,7 @@ extension AgentHibernationController {
                     == .backgroundWorkPending else {
                 continue
             }
+            backgroundWorkDrainsJournaled[candidate.key] = .some(candidate.lifecycleChangedAt)
             AgentJournalLifecycleCenter.shared.observe(ClaudeBackgroundWorkDrain.drainedDraft(
                 sessionId: candidate.agent.sessionId,
                 workspaceId: candidate.key.workspaceId,
