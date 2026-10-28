@@ -585,7 +585,7 @@ fn blocking_wait_cannot_overtake_input_queued_behind_a_clear_barrier() {
             }),
         ),
     ] {
-        state.requests.push_back(PendingSurfaceRequest {
+        state.requests.push_back(SequencedItem::Request(PendingSurfaceRequest {
             request: Request { id: Some(json!(id)), cmd },
             arrival: RequestArrival::now(),
             cause: crate::event_cause::EventCause::Program,
@@ -593,7 +593,7 @@ fn blocking_wait_cannot_overtake_input_queued_behind_a_clear_barrier() {
             retained_bytes: 0,
             _bytes_permit: admission.try_reserve_bytes(0).unwrap(),
             stream_barrier: None,
-        });
+        }));
     }
 
     assert_eq!(
@@ -627,7 +627,7 @@ fn guarded_browser_pointer_input_overtakes_an_unrelated_clear_barrier() {
         let admission = Arc::new(ServerSurfaceOperationAdmission::default());
         let mut state = ConnectionSurfaceState::default();
         state.active_clear_surfaces.insert(1);
-        state.requests.push_back(PendingSurfaceRequest {
+        state.requests.push_back(SequencedItem::Request(PendingSurfaceRequest {
             request: Request { id: Some(json!(1)), cmd },
             arrival: RequestArrival::now(),
             cause: crate::event_cause::EventCause::Program,
@@ -635,7 +635,7 @@ fn guarded_browser_pointer_input_overtakes_an_unrelated_clear_barrier() {
             retained_bytes: 0,
             _bytes_permit: admission.try_reserve_bytes(0).unwrap(),
             stream_barrier: None,
-        });
+        }));
 
         assert_eq!(
             ConnectionSurfaceScheduler::next_runnable_index(&state),
@@ -779,10 +779,10 @@ fn independent_muxes_do_not_share_surface_operation_admission() {
     let first = ConnectionSurfaceScheduler::new(first_mux.surface_operation_admission.clone());
     let second = ConnectionSurfaceScheduler::new(second_mux.surface_operation_admission.clone());
     let permits = (0..SERVER_SURFACE_WORKER_CAPACITY)
-        .map(|_| first.admission.try_reserve_worker().unwrap())
+        .map(|_| first.admission.try_reserve_worker(WorkerClass::Automation).unwrap())
         .collect::<Vec<_>>();
 
-    let isolated = second.admission.try_reserve_worker();
+    let isolated = second.admission.try_reserve_worker(WorkerClass::Automation);
     drop(permits);
 
     assert!(

@@ -60,7 +60,15 @@ extension ThreadRegistry {
         ThreadDeclaration("cmux.remote-view.mock-host", qos: .userInitiated),
         ThreadDeclaration("cmux.next.mobile.unix-lane", qos: .userInitiated),
         ThreadDeclaration("com.cmuxterm.next.phone-process.stdin", policy: .perItem),
-        ThreadDeclaration("cmux.screen.capture", qos: .userInteractive),
+        // Shared packages the app links (p02-threads-146): Mac Screen sharing, the VNC link and demo server, Home's
+        // attachment thumbnails, and the iOS shell's attachment and dictation queues (shared with the app's packages).
+        ThreadDeclaration("cmux.screen.capture", qos: .userInitiated),
+        ThreadDeclaration("cmux.vnc.peer-close", qos: .userInitiated),
+        ThreadDeclaration("cmux.vnc.demo-server", qos: .utility),
+        ThreadDeclaration("cmux.screen.perf-log", qos: .utility),
+        ThreadDeclaration("cmux.home.media-decode", qos: .userInitiated),
+        ThreadDeclaration("cmux.mobile.image-attachment", qos: .userInitiated),
+        ThreadDeclaration("com.cmux.composer.dictation-audio", qos: .userInitiated),
         // Browser.
         ThreadDeclaration("com.cmuxterm.next.browser-host.provider.write", qos: .userInitiated),
         ThreadDeclaration("cmux browser-host provider reader", qos: .userInitiated),
@@ -70,6 +78,7 @@ extension ThreadRegistry {
         ThreadDeclaration("com.cmuxterm.chromium-host.exit", qos: .userInitiated),
         ThreadDeclaration("com.cmuxterm.chromium-host.supervisor", qos: .utility),
         ThreadDeclaration("com.cmuxterm.chromium-host.input", qos: .userInteractive),
+        ThreadDeclaration("com.cmuxterm.chromium-host.hang-watcher", qos: .utility),
         ThreadDeclaration("com.cmuxterm.app.next.cef-children", qos: .userInitiated),
         ThreadDeclaration("com.cmuxterm.import-history-sync", qos: .utility),
         ThreadDeclaration("com.cmuxterm.chromium-runtime.download", match: .operationQueue, qos: .utility),
@@ -99,6 +108,7 @@ extension ThreadRegistry {
         ThreadDeclaration("com.cmuxterm.app.next.crash-forwarder", qos: .utility),
         ThreadDeclaration("com.cmuxterm.app.next.owner-panic-forwarder", qos: .utility),
         ThreadDeclaration("com.cmuxterm.app.next.invariant-sink", qos: .utility),
+        ThreadDeclaration("com.cmuxterm.app.next.renderer-stability", qos: .utility),
         ThreadDeclaration("com.cmuxterm.app.next.sentry-recorder", qos: .utility),
         ThreadDeclaration("com.cmuxterm.next.typing-probe", qos: .utility),
         ThreadDeclaration("com.cmuxterm.app.next.blocking-drain", qos: .utility),
@@ -110,6 +120,7 @@ extension ThreadRegistry {
         // before the first frame (LaunchWarmup).
         ThreadDeclaration("cmux-next resource bundle warm-up", qos: .userInitiated),
         ThreadDeclaration("cmux-next launch warm-up", qos: .userInteractive),
+        ThreadDeclaration("cmux-next icon warm-up", qos: .userInitiated),
         ThreadDeclaration("cmux.updates.network", qos: .utility),
         ThreadDeclaration("com.cmuxterm.next.energy.wake-path", qos: .utility),
         ThreadDeclaration("cmux.home.fixture.video", qos: .utility),

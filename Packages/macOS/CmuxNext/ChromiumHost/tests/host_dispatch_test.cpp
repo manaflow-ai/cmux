@@ -6,7 +6,8 @@
 // cmux_shim_initialize and everything else after it, in cmux's order; a
 // MIRROR goes out before the EVENT that refreshes it, and both before the
 // ack of the op that caused them; client-minted ids map to Chromium's both
-// ways; Chromium focuses a page only inside cmux's set_focus; a page's
+// ways; Chromium focuses a page only inside cmux's set_focus; window requests
+// go to cmux's pushed policy in Chromium's ids, never to a handler; a page's
 // accessibility token comes back in its REPLY; a page window whose layers
 // are hosted is detached; a page view moves only when its geometry changed
 // (task 053); the host holds its App Nap activity while a page shows (task
@@ -66,6 +67,10 @@ struct Shim {
   cmux_host::LockFn lock_fn = nullptr;
   void* lock_context = nullptr;
   int lock_answer = 1;  // set_lock_handler's return (0: the fork refused it)
+  cmux_shim_password_reveal_fn reveal_done = nullptr;  // the latest started reveal's
+  void* reveal_ctx = nullptr;
+  int reveals_started = 0;
+  bool reveal_refuses = false;  // password_reveal returns 0
 } shim;
 
 void Emit(int kind, int browser, int request, const char* s1 = "") {
@@ -165,7 +170,33 @@ char* cmux_shim_tab_navigation_state(int browser_id) {
   return strdup(("state of " + std::to_string(browser_id)).c_str());
 }
 void cmux_shim_free(char* s) { std::free(s); }
+int cmux_shim_password_reveal(const char* path, const char* id, cmux_shim_password_reveal_fn done, void* ctx) {
+  shim.calls.push_back(std::string("reveal ") + (path ? path : "<null>") + " " + (id ? id : "<null>"));
+  if (shim.reveal_refuses) return 0;
+  shim.reveal_done = done;
+  shim.reveal_ctx = ctx;
+  ++shim.reveals_started;
+  return 1;
+}
 int cmux_shim_live_browser_count(void) { return shim.live; }
+void cmux_shim_set_window_request_policy(const cmux_shim_window_policy_window* windows, int window_count,
+                                         const cmux_shim_window_policy_click* clicks, int click_count,
+                                         const char* profile_root, int cmd_click, int cmd_shift_click,
+                                         int shift_click, int option_click, int middle_click) {
+  std::string text = "policy";
+  for (int i = 0; i < window_count; ++i) {
+    text += " " + std::to_string(windows[i].anchor_browser_id) + ":" + std::to_string(windows[i].opener_browser_id) +
+            ":" + std::to_string(windows[i].flags) + ":" + std::string(windows[i].store, windows[i].store_length);
+  }
+  for (int i = 0; i < click_count; ++i) {
+    text += " click " + std::to_string(clicks[i].browser_id) + ":" + std::to_string(clicks[i].gesture) + ":" +
+            std::to_string(clicks[i].uptime_ms);
+  }
+  text += std::string(" root ") + (profile_root ? profile_root : "(null)") + " actions " + std::to_string(cmd_click) +
+          "," + std::to_string(cmd_shift_click) + "," + std::to_string(shift_click) + "," +
+          std::to_string(option_click) + "," + std::to_string(middle_click);
+  shim.calls.push_back(text);
+}
 }
 
 namespace {
@@ -405,8 +436,9 @@ void PreinitBeforeInitialize() {
   Expect(f.Sent(), {"ack 11", Key("mirror", kOpForeignBrowserCount), Key("mirror", kOpLiveBrowserCount),
                     Key("mirror", kOpWindowCount), Key("mirror", kOpTabNavigationState, "5"), "ack 12", "ack 13"},
          "initialize acked, then the counts that refresh on attach too, then the rest");
-  Check(shim.focus_handler_sets > 0 && shim.focus == nullptr && shim.window != nullptr,
-        "after initialize the host's window policy is installed and no focus handler (task p01-process-032)");
+  Check(shim.focus_handler_sets > 0 && shim.focus == nullptr && shim.window == nullptr,
+        "after initialize no focus handler (task p01-process-032) and no window request handler: the shim "
+        "decides by cmux's pushed policy (task 031)");
 }
 
 // What AFTER_CREATED (`verb` "mirror") or BEFORE_CLOSE ("forget") sends for
@@ -588,9 +620,90 @@ void FocusIsTheShimsEmbedderActiveRule() {
   f.host.OnMessages({Op(kOpBrowserSetEmbedderActive, 51, active)});
   Expect(shim.calls, {"embedder_active 3 1"}, "embedder-active reaches the shim, which owns the focus rule");
   Check(shim.focus_answer == -1, "no host handler is asked inside it");
-  Check(shim.window && shim.window(&f.host, 2, 0, 3, 0, 0, 0, 0, 0, 1, "https://p/", "") == 3,
-        "a popup opens as a tab in the opener's window");
-  Check(shim.window(&f.host, 3, 0, 3, 0, 0, 0, 0, 0, 1, "https://p/", "") == 0, "an incognito window opens nothing");
+}
+
+// The pushed window request policy (task 031): the records' browser ids reach
+// the shim as Chromium's (a minted tab with no browser yet keeps its id, which
+// names no Chromium window, so the shim never picks it), and the
+// decision's anchor comes back in cmux's id. cmux's own handler never
+// reaches the shim, whatever cmux sends.
+void WindowRequestPolicy() {
+  Fixture f;
+  f.Start();
+  Writer add;
+  add.I32(kMinted + 1);
+  add.I32(3);
+  add.Str("https://d/");
+  add.I32(-1);
+  add.I32(1);
+  f.host.OnMessages({Op(kOpTabAdd, 30, add)});  // Chromium's 4
+  f.Sent();
+  shim.calls.clear();
+  Writer policy;
+  policy.I32(2);
+  policy.I64(kMinted + 1);
+  policy.I64(0);
+  policy.I64(CMUX_SHIM_WINDOW_CANDIDATE | CMUX_SHIM_WINDOW_LAST_SHOWN);
+  policy.Bytes("/p/Profile-A", 12);
+  policy.I64(kMinted + 9);  // minted, no browser yet
+  policy.I64(kMinted + 1);
+  policy.I64(0);
+  policy.Bytes("/p/Profile-A", 12);
+  policy.I32(1);
+  policy.I64(kMinted + 1);
+  policy.I64(CMUX_SHIM_GESTURE_CMD_SHIFT);
+  policy.I64(1234);
+  policy.Str("/p");
+  for (int action : {3, 2, 4, 5, 1}) policy.I32(action);
+  f.host.OnMessages({Op(kOpSetWindowRequestPolicy, 31, policy)});
+  Expect(shim.calls, {"policy 4:0:3:/p/Profile-A " + std::to_string(kMinted + 9) + ":4:0:/p/Profile-A click 4:2:1234 root /p actions 3,2,4,5,1"},
+         "the policy reaches the shim in Chromium's ids");
+  Expect(f.Sent(), {"ack 31"}, "the policy is a post");
+
+  HostContext::OnShimEvent(&f.host, CMUX_SHIM_WINDOW_REQUEST_RESULT, 4, 77, 4, CMUX_SHIM_WINDOW_INSERT,
+                           "https://p/", ";/p/Profile-A");
+  Check(f.sent.size() == 1, "one result event");
+  int32_t tab = 0;
+  if (f.sent.size() == 1) {
+    Reader r(f.sent[0].fields);
+    const int kind = r.I32(), browser = r.I32(), request = r.I32();
+    const int64_t anchor = r.I64(), b = r.I64();
+    tab = static_cast<int32_t>(static_cast<uint64_t>(b) >> 32);
+    Check(kind == CMUX_SHIM_WINDOW_REQUEST_RESULT && browser == kMinted + 1 && request == 77 && anchor == kMinted + 1,
+          "the result names the source and the anchor by cmux's ids and keeps Chromium's window id");
+    Check(tab == (1 << 30) && (b & 0xffffffff) == CMUX_SHIM_WINDOW_INSERT,
+          "an INSERT's result carries the id the host minted for its tab, from the host's range");
+  }
+  f.Sent();
+
+  // The tab Chromium opens in the anchor's window (77), opened by Chromium's 4: cmux's ids both.
+  HostContext::OnShimEvent(&f.host, CMUX_SHIM_AFTER_CREATED, 12, 0, 77, (int64_t{4} << 32) | 3, "", "");
+  bool created = false;
+  for (const Message& message : f.sent) {
+    if (message.op != kOpEvent) continue;
+    Reader r(message.fields);
+    const int kind = r.I32(), browser = r.I32(), request = r.I32();
+    const int64_t window = r.I64(), b = r.I64();
+    if (kind != CMUX_SHIM_AFTER_CREATED) continue;
+    created = true;
+    Check(browser == tab && request == 0 && window == 77, "the tab's AFTER_CREATED names it by the minted id");
+    Check(static_cast<int32_t>(static_cast<uint64_t>(b) >> 32) == kMinted + 1 && (b & 0xffffffff) == 3,
+          "its opener by cmux's id");
+  }
+  Check(created, "the tab's AFTER_CREATED reaches cmux");
+  f.Sent();
+  shim.calls.clear();
+  Writer load;
+  load.I32(tab);
+  load.Str("https://q/");
+  f.host.OnMessages({Op(kOpLoadUrl, 33, load)});
+  Expect(shim.calls, {"load 12 https://q/", "nav_state 12"}, "an op on the minted id reaches Chromium's tab");
+  f.Sent();
+
+  Writer install;
+  install.I32(1);
+  f.host.OnMessages({Op(kOpSetWindowRequestHandler, 32, install)});
+  Check(shim.window == nullptr, "cmux's window request handler never reaches the host's shim");
 }
 
 void Shutdown() {
@@ -1276,6 +1389,90 @@ void GeometryStatsReply() {
   Expect(f.delegate.calls, {"initialize /root", "bad a malformed geometry stats request"}, "fields are bad");
 }
 
+// cmux_shim_password_reveal (task p01-process-025): the shim's done answers
+// the op's token with one bytes field, or none when it found no password.
+Message RevealRequest(uint32_t token, const char* id) {
+  Writer w;
+  w.Str("/profile");
+  w.Str(id);
+  return Op(kOpPasswordReveal, token, w);
+}
+
+bool Answers(const std::vector<Message>& sent, uint32_t token, const char* password) {
+  if (sent.size() != 1 || sent[0].op != kOpReply || !sent[0].reply || sent[0].token != token) return false;
+  if (password == nullptr) return sent[0].fields.empty();
+  return sent[0].fields.size() == 1 && sent[0].fields[0].type == control::Type::kBytes &&
+         sent[0].fields[0].tag == control::kTagValue && sent[0].fields[0].bytes == password;
+}
+
+void PasswordReveal() {
+  {
+    Fixture f;
+    f.Start();
+    f.host.OnMessages({RevealRequest(9, "id1")});
+    Check(!shim.calls.empty() && shim.calls.back() == "reveal /profile id1", "the reveal reaches the shim");
+    Check(f.sent.empty(), "nothing is sent before the shim's done");
+    shim.reveal_done(shim.reveal_ctx, "s3cretXX", 6);
+    Check(Answers(f.sent, 9, "s3cret"), "done answers the token with the password's bytes");
+    f.sent.clear();
+    f.host.OnMessages({RevealRequest(10, "id2")});
+    shim.reveal_done(shim.reveal_ctx, nullptr, 0);
+    Check(Answers(f.sent, 10, nullptr), "not found: a REPLY with no field");
+    f.sent.clear();
+    shim.reveal_refuses = true;
+    f.host.OnMessages({RevealRequest(11, "id3")});
+    Check(Answers(f.sent, 11, nullptr), "a reveal the shim did not start is answered at once as not found");
+    f.sent.clear();
+    f.host.OnMessages({RevealRequest(0, "id4")});
+    Check(f.delegate.calls.back() == "bad a malformed password reveal", "a reveal with no token is bad");
+  }
+  {
+    Fixture f;
+    f.host.Attach();
+    f.host.OnMessages({Hello()});
+    f.Sent();
+    f.host.OnMessages({RevealRequest(12, "id5")});
+    Check(Answers(f.sent, 12, nullptr), "before initialize nothing is started: not found");
+    Check(shim.calls.empty(), "before initialize the shim is not asked");
+  }
+  // A done after the host context is gone sends nothing (ASan: no use after free).
+  cmux_shim_password_reveal_fn done = nullptr;
+  void* ctx = nullptr;
+  {
+    Fixture f;
+    f.Start();
+    f.host.OnMessages({RevealRequest(13, "id6")});
+    done = shim.reveal_done;
+    ctx = shim.reveal_ctx;
+  }
+  Check(done != nullptr, "the late reveal started");
+  if (done) done(ctx, "late", 4);
+  // Past 64 waiting reveals one is answered as not found; the host stays up.
+  {
+    Fixture f;
+    f.Start();
+    std::vector<std::pair<cmux_shim_password_reveal_fn, void*>> waiting;
+    for (uint32_t token = 100; token < 164; ++token) {
+      f.host.OnMessages({RevealRequest(token, "id")});
+      waiting.emplace_back(shim.reveal_done, shim.reveal_ctx);
+    }
+    Check(f.sent.empty() && shim.reveals_started == 64, "64 reveals wait for the shim");
+    f.host.OnMessages({RevealRequest(164, "id")});
+    Check(Answers(f.sent, 164, nullptr), "the 65th is answered as not found at once");
+    Check(shim.reveals_started == 64, "the 65th never reaches the shim");
+    bool bad = false;
+    for (const std::string& call : f.delegate.calls) bad = bad || call.rfind("bad ", 0) == 0;
+    Check(!bad, "too many reveals is not a bad message");
+    f.sent.clear();
+    for (const auto& [reveal_done, reveal_ctx] : waiting) reveal_done(reveal_ctx, "pw", 2);
+    Check(f.sent.size() == 64, "each waiting reveal is answered by its done");
+    f.sent.clear();
+    f.host.OnMessages({RevealRequest(165, "id")});
+    Check(shim.reveals_started == 65 && f.sent.empty(), "answered reveals free their places");
+    shim.reveal_done(shim.reveal_ctx, nullptr, 0);
+  }
+}
+
 void WipeZeroes() {
   std::vector<std::string> secrets = {"hunter2", ""};
   cmux_host::Wipe(secrets);
@@ -1523,6 +1720,17 @@ void HostSwitchesFitTheHostsLoop() {
   Expect(cmux_host::HostSwitches({}), {"enable-features=TimerSlackMac"}, "TimerSlackMac with no app switches");
 }
 
+// The log the host's Chromium writes: the spawn's --log-file when INITIALIZE
+// names none, as cmux's runtime does in host mode, so the supervisor finds a
+// crashed host's last lines there (host_switches.h, p01-process-085).
+void HostLogFileIsTheSpawnsUnlessInitializeNamesOne() {
+  const std::string spawn = "/root/ChromiumHost/chromium-host.log";
+  Check(cmux_host::HostLogFile(std::nullopt, spawn) == spawn, "no log in INITIALIZE: the spawn's");
+  Check(cmux_host::HostLogFile(std::string(), spawn) == spawn, "an empty log in INITIALIZE: the spawn's");
+  Check(cmux_host::HostLogFile(std::string("/a/cef.log"), spawn) == "/a/cef.log", "INITIALIZE's log wins");
+  Check(cmux_host::HostLogFile(std::nullopt, "").empty(), "no log anywhere: none");
+}
+
 }  // namespace
 
 int main() {
@@ -1535,6 +1743,7 @@ int main() {
   DevTools();
   DevToolsPlacementView();
   FocusIsTheShimsEmbedderActiveRule();
+  WindowRequestPolicy();
   Shutdown();
   BadMessages();
   PopupBoundsByWindow();
@@ -1549,10 +1758,12 @@ int main() {
   ActivityFollowsCmuxActiveAndHidden();
   GeometryOnlyOnChange();
   GeometryStatsReply();
+  PasswordReveal();
   WipeZeroes();
   EnergySaverReachesTheFork();
   LocksReachCmux();
   HostSwitchesFitTheHostsLoop();
+  HostLogFileIsTheSpawnsUnlessInitializeNamesOne();
   if (failures) return EXIT_FAILURE;
   std::puts("chromium-host-dispatch tests: ok");
   return EXIT_SUCCESS;

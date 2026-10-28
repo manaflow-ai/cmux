@@ -64,7 +64,9 @@ import Darwin
 public final class MainFrameBudget {
     /// The board the stall watchdog reads.
     public let board: MainTaskBoard
+    /// Each class's share of a frame.
     public let budgets: Budgets
+    /// What the budget ran, held and measured since it was made (`debug.main_budget`, tests).
     public private(set) var stats = Stats()
     /// The main run loop's turns: each task this budget runs is a scheduled span in the turn
     /// (``MainTurnMeter``). The composition root makes it observe the main run loop.
@@ -116,6 +118,9 @@ public final class MainFrameBudget {
     /// When this window's scheduled work stops at the latest (``uptimeNanos`` time); nil: no
     /// deadline, the fixed limit alone.
     private var deadline: UInt64?
+    /// Counts the frame windows opened: a continuation posted in one runs only once a later one opened
+    /// (``MainWorkScheduler/postContinuation(_:owner:file:line:_:)``).
+    public private(set) var frameSerial: UInt64 = 0
     private var sequence: UInt32 = 0
     /// The tasks that started and have not returned, the innermost last.
     var open: [OpenTask] = []
@@ -249,6 +254,7 @@ public final class MainFrameBudget {
 
     private func roll(at now: UInt64, offTick: Bool = false) {
         stats.frames += 1
+        frameSerial &+= 1
         windowStart = now
         windowOpenedOffTick = offTick
         for index in spent.indices {
@@ -356,7 +362,7 @@ public final class MainFrameBudget {
     /// Whether the frame's scheduled work may go on at `now`: under the fixed limit (what the
     /// window already spent counts, a window a task opened before the tick included) and before the
     /// frame's deadline, when it has one.
-    private func underFrameLimit(_ now: UInt64) -> Bool {
+    func underFrameLimit(_ now: UInt64) -> Bool {
         if let deadline, now >= deadline { return false }
         return frameSpentNow(now) < scheduledLimitNanos
     }
@@ -546,7 +552,7 @@ public final class MainFrameBudget {
     }
 
     /// What `workClass` spent this frame, its open tasks' time so far included.
-    private func spentNow(_ index: Int, workClass: MainWorkClass, now: UInt64) -> UInt64 {
+    func spentNow(_ index: Int, workClass: MainWorkClass, now: UInt64) -> UInt64 {
         var total = spent[index]
         for task in open where task.workClass == workClass { total &+= task.ownNanos(at: now) }
         return total
@@ -567,7 +573,7 @@ public final class MainFrameBudget {
         starvation?.resetStats()
     }
 
-    private func inputPending(_ now: UInt64) -> Bool {
+    func inputPending(_ now: UInt64) -> Bool {
         if board.pendingInputCount > 0 { return true }
         if now &- inputAnswer.at < 250_000 { return inputAnswer.pending }
         let pending = input.hasPendingInput(uptime: TimeInterval(now) / 1_000_000_000)

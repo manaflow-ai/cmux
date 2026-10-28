@@ -30,7 +30,11 @@ import CmuxNextCompat
 /// leeway is the injected ``EnergyPolicySource``'s wake alignment (32 ms under
 /// Energy Saver), read at each schedule; an owner with no source gets 8 ms. A
 /// caller's explicit tolerance replaces the leeway, never the policy.
+///
+/// In Debug and bench builds each timer also tells its ledger's ``ArmCensus`` (startup-queue.py arms, p08-startup-085)
+/// when it is armed during the launch and when it first fires, under the owner and the line that made it.
 public final class DemandTimer: Sendable {
+    /// Who the deadline is for: each fire is one ledger record under it.
     public let owner: String
     /// How strictly each deadline is honored; `.flexibleNoSooner` by default.
     public let policy: DelayPolicy
@@ -43,6 +47,10 @@ public final class DemandTimer: Sendable {
     /// What the queue records for a fire of this timer's entries (``MainWakeUpQueue/LedgerReason``).
     private let queueLedgerReason: MainWakeUpQueue.LedgerReason
     private let state = Mutex<State>(State())
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// The line that made the timer, for the arm census.
+    private let site: ArmCensus.Site
+    #endif
 
     /// The one pending deadline: a task asleep on the clock, or an entry in the main queue.
     private enum Pending {
@@ -56,6 +64,9 @@ public final class DemandTimer: Sendable {
     private struct State {
         var generation: UInt64 = 0
         var pending: Pending?
+        #if DEBUG || CMUX_BENCH_HOOKS
+        var census = ArmCensusEntry()
+        #endif
 
         /// Starts a new generation, so a fire of the old deadline is a no-op, and takes the old
         /// deadline out for ``DemandTimer/drop(_:)``.
@@ -81,9 +92,12 @@ public final class DemandTimer: Sendable {
     ///   - queueLedgerReason: What a fire of a queue entry records for `owner`: `deadline` (the default), or
     ///     `deadline` only for a wake that ran no other entry (``MainWakeUpQueue/LedgerReason/deadlineWhenAlone``).
     ///     A sleep always records `deadline`: it wakes a pool thread of its own.
+    ///   - file: The line that made the timer, named by the arm census in Debug and bench builds (leave the default).
+    ///   - line: See `file`.
     public init(owner: String, policy: DelayPolicy = .flexibleNoSooner, clock: any Clock<Duration> = ContinuousClock(),
                 ledger: WakeupLedger = .shared, energy: EnergyPolicySource? = nil, wakeUps: MainWakeUpQueue? = nil,
-                queueLedgerReason: MainWakeUpQueue.LedgerReason = .deadline) {
+                queueLedgerReason: MainWakeUpQueue.LedgerReason = .deadline,
+                file: StaticString = #fileID, line: UInt = #line) {
         self.owner = owner
         self.policy = policy
         self.clock = clock
@@ -91,6 +105,9 @@ public final class DemandTimer: Sendable {
         self.energy = energy
         self.wakeUps = wakeUps
         self.queueLedgerReason = queueLedgerReason
+        #if DEBUG || CMUX_BENCH_HOOKS
+        site = ArmCensus.Site(file: file, line: line)
+        #endif
     }
 
     /// A timer on the app's scheduler: its Energy Saver policy and its main-thread deadline queue. Its
@@ -98,8 +115,9 @@ public final class DemandTimer: Sendable {
     /// `clock`, since a `ManualClock` would time only the second kind. A test that needs both seams
     /// passes `clock:` and `wakeUps:` to the designated init.
     public convenience init(owner: String, policy: DelayPolicy = .flexibleNoSooner, ledger: WakeupLedger = .shared,
-                            mainWork: MainWorkScheduler) {
-        self.init(owner: owner, policy: policy, ledger: ledger, energy: mainWork.energy, wakeUps: mainWork.wakeUps)
+                            mainWork: MainWorkScheduler, file: StaticString = #fileID, line: UInt = #line) {
+        self.init(owner: owner, policy: policy, ledger: ledger, energy: mainWork.energy, wakeUps: mainWork.wakeUps,
+                  file: file, line: line)
     }
 
     deinit {
@@ -157,6 +175,7 @@ public final class DemandTimer: Sendable {
         scheduleOnMain(after: delay, tolerance: tolerance, action)
     }
 
+    /// Drops the pending deadline, if any; its action never runs.
     public func cancel() {
         drop(state.withLock { $0.supersede() })
     }
@@ -168,6 +187,7 @@ public final class DemandTimer: Sendable {
         let request = sleepRequest(for: delay, tolerance: tolerance)
         let dropped = state.withLock { state -> Pending? in
             let old = state.supersede()
+            noteArm(&state)
             let generation = state.generation
             state.pending = .sleeping(Task { @concurrent [weak self] in
                 // timer-class-allow: DemandTimer's own sleep, the off-main deadline recipe R-timer keeps; main-actor actions go through the wake-up queue when the timer has one
@@ -192,6 +212,7 @@ public final class DemandTimer: Sendable {
         let owner = owner, reason = queueLedgerReason
         let dropped = state.withLock { state -> Pending? in
             let old = state.supersede()
+            noteArm(&state)
             let generation = state.generation
             let token = queue.insert(owner: owner, at: deadline, window: window, ledgerReason: reason) { [weak self] in
                 guard let self, self.take(generation) else { return }
@@ -258,7 +279,19 @@ public final class DemandTimer: Sendable {
         state.withLock { state in
             guard state.generation == generation, !Task.isCancelled else { return false }
             state.pending = nil
+            #if DEBUG || CMUX_BENCH_HOOKS
+            state.census.fired(in: ledger.armCensus)
+            #endif
             return true
         }
+    }
+
+    /// Tells the arm census about a new deadline (Debug and bench builds; nothing in Release). Called under the
+    /// timer's lock: the census's lock is a leaf.
+    @inline(__always)
+    private func noteArm(_ state: inout State) {
+        #if DEBUG || CMUX_BENCH_HOOKS
+        state.census.armed(in: ledger.armCensus, .timer, owner: owner, site: site)
+        #endif
     }
 }

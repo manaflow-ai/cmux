@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR a3123bd1cd791dbf86246f8219930f9f9b7ba2465c27fed447605ef6ae3739d8. */
+/* cmux-tui mux protocol 12, IR 974986b7d253aacd825bed6d8efd6c978efd265af55140e73b402e8a32e4e3bc. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -952,6 +952,7 @@ export type IdentifyResult = {
   "cli_path"?: (string) | null;
   "crate_version"?: (string) | null;
   "daemon_handoff": 1;
+  "framed_methods"?: (Array<number>) | null;
   "generation": string;
   "ghostty_commit"?: (string) | null;
   "install"?: (string) | null;
@@ -965,6 +966,7 @@ export type IdentifyResult = {
   "pid": number;
   "protocol": number;
   "registry_id": string;
+  "sdk_schema_digest"?: (string) | null;
   "session": string;
   "session_id"?: string;
   "terminal_revision": bigint;

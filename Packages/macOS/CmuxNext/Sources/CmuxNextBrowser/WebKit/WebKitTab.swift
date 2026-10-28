@@ -68,6 +68,8 @@ public final class WebKitTab: NSObject, BrowserTab {
     @ObservationIgnored var formResubmission = WebKitFormResubmission()
     /// Chrome's automatic-downloads rule for this page (WebKitTab+AutomaticDownloads).
     @ObservationIgnored public private(set) lazy var automaticDownloads = makeAutomaticDownloadGate()
+    /// The WebContent process the main frame last committed in; nil before then and once it ended (WebKitTab+Processes).
+    @ObservationIgnored var committedContentProcess: Int32?
     /// The site of the page that started the current main-frame navigation.
     @ObservationIgnored var navigationSourceSite: String?
     /// The video the main frame's newest navigation asks for, when it may become the player
@@ -118,6 +120,7 @@ public final class WebKitTab: NSObject, BrowserTab {
         container = WebKitPageContainer(page: webView, visibility: WebKitPageVisibility(followsContent: engine.hidesHiddenTabs))
         super.init()
         inspectorWatch.attach(webView: webView, container: container, events: engine.appEvents)
+        container.needsPageBackdrop = { [weak self] in self?.samplePageBackdrop() }
 
         webView.owner = self
         webView.navigationDelegate = self

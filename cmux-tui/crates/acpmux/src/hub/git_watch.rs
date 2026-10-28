@@ -111,8 +111,14 @@ impl Hub {
             }
         });
         *self.git_watch.task.lock().unwrap_or_else(|p| p.into_inner()) = Some(task);
-        let thread =
-            std::thread::Builder::new().name(THREAD.into()).spawn(move || run(&rx, &signal));
+        // It feeds the hub: a panic in it is fatal. It ends with its channel, when the hub
+        // drops the watcher, so shutdown does not wait for it.
+        let thread = self.supervisor.supervise_thread(
+            THREAD,
+            Fatal,
+            ShutdownBehavior::Continue,
+            move |_stop| run(&rx, &signal),
+        );
         if let Err(e) = thread {
             tracing::warn!("git watch thread cannot start: {e}");
         }
@@ -246,7 +252,7 @@ fn run(
         Ok(event) => event.need_rescan() || event.paths.iter().any(|p| is_head(p)),
     };
     let watched = SyncThread::register(THREAD, BLOCKING_ITEM);
-    while let Ok(first) = rx.recv() {
+    while let Ok(first) = cmux_blocking::sync::recv(rx) {
         let started = Instant::now();
         let mut changed = matters(first);
         let mut closed = false;
@@ -255,7 +261,13 @@ fn run(
             if left.is_zero() {
                 break;
             }
-            match rx.recv_timeout(QUIET.min(left)) {
+            #[allow(clippy::disallowed_methods, reason = "inside scoped_blocking_call")]
+            let next = cmux_blocking::scoped_blocking_call(
+                "sync::recv_timeout",
+                cmux_blocking::BlockingKind::Recv,
+                || rx.recv_timeout(QUIET.min(left)),
+            );
+            match next {
                 Ok(event) => changed |= matters(event),
                 Err(RecvTimeoutError::Timeout) => break,
                 Err(RecvTimeoutError::Disconnected) => {

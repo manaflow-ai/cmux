@@ -381,7 +381,8 @@ import Testing
         let recorder = Recorder()
         let system = SystemCrashForwarder(directory: dir.appending(path: "DiagnosticReports", directoryHint: .isDirectory),
                                           stateFile: dir.appending(path: "system-state.json"), bundlePath: dir.path,
-                                          mainExecutable: nil, capture: { _ in })
+                                          mainExecutable: nil, hostExeRoot: nil, ownRustBinaries: [], artifacts: nil,
+                                          capture: { _, _ in })
         let owner = Self.forwarder([Self.hangLog(dir)], dir: dir, recorder: recorder, attached: false)
         let forwarders = CrashForwarders(system: system, ownerPanics: owner) {
             OwnerPanicForwarder(logs: acpmuxLogs, stateFile: acpmuxState, sends: true, capture: { recorder.capture($0) })

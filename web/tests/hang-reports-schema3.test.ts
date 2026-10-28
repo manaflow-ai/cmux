@@ -7,6 +7,7 @@ import {
   bucketCount,
   bucketRange,
   histogramCatalog,
+  histogramDefinition,
   isWellFormedHistogramName,
   logLinearIndex,
 } from "../services/hangReports/histogramCatalog";
@@ -293,6 +294,13 @@ describe("POST /api/hang-reports schema 3", () => {
     expect(payload.features).toEqual(report.features);
   });
 
+  test("accepts the person's interactions (cmux's INP)", async () => {
+    const report = fixture();
+    report.interaction_latency = { count: 120, worst_ms: 300, high_pct_ms: 40.26, kind_of_worst: "key" };
+    const payload = await expectStored(report);
+    expect(payload.interaction_latency).toEqual(report.interaction_latency);
+  });
+
   test("accepts the main thread's blocking site counts by hashed site id", async () => {
     const report = fixture();
     report.blocking_sites = [{ site: "9f86d081884c7d65", kind: "file-io", count: 12, total_ms: 34 }];
@@ -346,6 +354,11 @@ describe("POST /api/hang-reports schema 3", () => {
       (report) => { report.launch_sections.push({ ...report.launch_sections[0]! }); },
       (report) => { report.sections = []; },
       (report) => { report.catalog_version = 0; },
+      (report) => { report.interaction_latency = { count: 0, worst_ms: 9, high_pct_ms: 9, kind_of_worst: "key" }; },
+      (report) => { report.interaction_latency = { count: 3, worst_ms: 9, high_pct_ms: 9, kind_of_worst: "/Users/alice" }; },
+      (report) => { report.interaction_latency = { count: 3, worst_ms: 9, high_pct_ms: 12, kind_of_worst: "tap" }; },
+      (report) => { report.interaction_latency = { count: 3, worst_ms: -1, high_pct_ms: 0, kind_of_worst: "drag" }; },
+      (report) => { report.interaction_latency = { count: 3, worst_ms: 9, high_pct_ms: 9, kind_of_worst: "key", target_of_worst: "terminal" }; },
       (report) => { report.features_hash = "363B2A8F1F789985"; },
       (report) => { report.features_hash = "363b2a8f"; },
       (report) => { report.features = [{ name: "/Users/alice", state: "on", source: "env" }]; },
@@ -415,6 +428,7 @@ describe("POST /api/hang-reports schema 3", () => {
       (report) => { report.intervals[0]!.category = "main"; },
       (report) => { report.features_hash = "363b2a8f1f789985"; },
       (report) => { report.features = [{ name: "vsyncHub", state: "on", source: "env" }]; },
+      (report) => { report.interaction_latency = { count: 1, worst_ms: 9, high_pct_ms: 9, kind_of_worst: "key" }; },
     ];
     for (const [index, mutate] of mutations.entries()) {
       const report = { ...JSON.parse(schema2), reportId: crypto.randomUUID() };
@@ -446,6 +460,7 @@ describe("histogram catalog", () => {
     expect(names).toContain("key.frame.view");
     expect(names).toContain("daemon.request.terminal_io");
     expect(names).toContain("webview.inp.home");
+    expect(histogramDefinition("stability.renderer.content_end.webkit")?.layout).toEqual({ kind: "enumeration", valueCount: 3 });
     expect(names).toContain("chromium.EventLatency.KeyPressed.TotalLatency");
   });
 

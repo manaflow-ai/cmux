@@ -1,4 +1,5 @@
 import CmuxNextBrowser
+import CmuxNextCrashReporting
 import Foundation
 import os
 
@@ -42,6 +43,35 @@ nonisolated struct CrashReportWriter: Sendable {
         if let tab = record.tab { object["tab"] = tab.rawValue }
         return object
     }
+
+    /// The JSON object of a Chromium Crashpad dump (p01-process task 226, ``ChromiumMinidumpReport/jsonObject``).
+    func report(for dump: ChromiumMinidumpReport) -> [String: Any] {
+        dump.jsonObject.merging(["kind": "chromium_dump", "bundle_id": bundleID, "version": version]) { _, ours in ours }
+    }
+
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// The JSON object of an end of the Chromium Host (p01-process-085): its signal or exit code, what it ran and its
+    /// log's last lines, URLs replaced (``ChromiumHostCrashRecord``). `debug.crashes` lists the same object.
+    func report(for record: ChromiumHostCrashRecord) -> [String: Any] {
+        var object: [String: Any] = [
+            "kind": "chromium-host",
+            "date": Self.iso(record.date),
+            "pid": Int(record.pid),
+            "reason": record.reason.rawValue,
+            "said_hello": record.saidHello,
+            "log_tail": record.logTail,
+            "bundle_id": bundleID,
+            "version": version,
+        ]
+        if let signal = record.signal { object["signal"] = Int(signal) }
+        if let name = record.signalName { object["signal_name"] = name }
+        if let code = record.exitCode { object["exit_code"] = Int(code) }
+        if let failure = record.startFailure { object["start_failure"] = failure }
+        if let cefVersion = record.cefVersion { object["cef_version"] = cefVersion }
+        if let forkAPI = record.forkAPI { object["fork_api"] = Int(forkAPI) }
+        return object
+    }
+    #endif
 
     /// A report object as JSON bytes (Sendable, for the write off main).
     static func encode(_ object: [String: Any]) -> Data {

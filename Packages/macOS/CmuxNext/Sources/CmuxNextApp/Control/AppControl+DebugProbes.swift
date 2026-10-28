@@ -61,6 +61,8 @@ extension AppControl {
             },
             // The startup trace (CMUX_TRACE_STARTUP): write what it holds now, its file and counts.
             DebugTimings.startupTraceMethod,
+            // This launch's milestones, temperature, startup tasks and first frame (bench-startup.py, startup-queue.py).
+            .mainActor("debug.startup") { [startupReport] _ in .value(try JSONValue(foundation: startupReport.report.foundationObject()) ?? .null) },
             // The launch's main jobs and main turns until startup completed (startup-queue.py mainjobs, p08-startup-080):
             // copied on main, symbolized off it.
             .mainActor("debug.startup.main_jobs") { [weak services] _ in
@@ -86,6 +88,9 @@ extension AppControl {
                     return try JSONValue(foundation: report.foundationObject()) ?? .null
                 }
             },
+            // The timers, deadlines and folder watches armed until startup completed, with their first fires
+            // (startup-queue.py arms, p08-startup-085): copied and encoded off main.
+            .async("debug.startup.arms") { _ in JSONValue(foundation: WakeupLedger.shared.armCensus.snapshot().foundationObject) ?? .null },
             // Each tab switch's own time: intent to shown, and to the next frame (perf-gate.py).
             .mainActor("debug.tab_switch") { call in .value(DebugTabSwitch.timer.handle(call.params, key: "switches")) },
             // Each pane focus move's own time: intent to settled, and to the next frame (perf-gate.py pane_focus).
@@ -97,8 +102,8 @@ extension AppControl {
             // Work per layout change: pane snapshots, applies, topology sends (bench_pane_scale.py).
             .mainActor("debug.layout_counters") { [weak services] call in
                 let roots = services?.windows.controllers.flatMap { $0.mountedContents.map(\.layoutView) } ?? []
-                return .value(DebugLayoutCounters.handle(call.params, roots: roots,
-                                                         hiddenWork: services?.hiddenLayoutWork))
+                return .value(DebugLayoutCounters.handle(call.params, roots: roots, hiddenWork: services?.hiddenLayoutWork,
+                                                         visibilityWork: services?.visibilityWorkCounts))
             },
             // A full-screen or Space transition: notifications, resizes, layout passes (fullscreen-transition.py).
             .mainActor("debug.window_transition") { [events = services.workspaceEvents] call in
