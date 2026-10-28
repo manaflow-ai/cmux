@@ -11,10 +11,13 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
 
 TMP_DIR="$(mktemp -d)"
 TAG="bench-config-probe-$$"
-LOCK_FILE="$(python3 -c 'import os, sys, tempfile; print(os.path.join(tempfile.gettempdir(), "cmux-reload-tags-%d" % os.getuid(), sys.argv[1] + ".lock"))' "$TAG")"
+DOGFOOD_TAG="chrome-parity-probe-$$"
+lock_file() { python3 -c 'import os, sys, tempfile; print(os.path.join(tempfile.gettempdir(), "cmux-reload-tags-%d" % os.getuid(), sys.argv[1] + ".lock"))' "$1"; }
+LOCK_FILE="$(lock_file "$TAG")"
+DOGFOOD_LOCK_FILE="$(lock_file "$DOGFOOD_TAG")"
 cleanup() {
   rm -rf "$TMP_DIR"
-  rm -f "/tmp/cmux-reload-${TAG}.log" "$LOCK_FILE"
+  rm -f "/tmp/cmux-reload-${TAG}.log" "$LOCK_FILE" "/tmp/cmux-reload-${DOGFOOD_TAG}.log" "$DOGFOOD_LOCK_FILE"
 }
 trap cleanup EXIT
 
@@ -58,6 +61,7 @@ run_reload --tag "$TAG" --build-only --derived-data "$TMP_DIR/dd" --config bench
 [[ "$(swift_flags)" == *-DCMUX_BENCH_HOOKS* ]] || fail "--config bench lost -DCMUX_BENCH_HOOKS: $(swift_flags)"
 [[ "$(swift_flags)" != *-DCMUX_BLOCKING_CHECKS* ]] || fail "--config bench still compiles the blocking detector: $(swift_flags)"
 [[ "$(swift_flags)" != *-DDEBUG* ]] || fail "--config bench defines DEBUG: $(swift_flags)"
+grep -qx 'CMUX_BENCH_HOOKS_RELOAD=1' "$ARGS" || fail "--config bench does not tell the embed phases it is a bench build"
 echo "PASS: bench is Release + CMUX_BENCH_HOOKS without CMUX_BLOCKING_CHECKS"
 
 run_reload --tag "$TAG" --build-only --derived-data "$TMP_DIR/dd" --config=bench-checks
@@ -72,6 +76,7 @@ for config in release debug; do
   [[ -f "$ARGS" ]] || fail "--config $config never reached xcodebuild: $OUTPUT"
   [[ "$(swift_flags)" != *-DCMUX_BENCH_HOOKS* && "$(swift_flags)" != *-DCMUX_BLOCKING_CHECKS* ]] \
     || fail "--config $config compiles bench flags: $(swift_flags)"
+  ! grep -q 'CMUX_BENCH_HOOKS_RELOAD' "$ARGS" || fail "--config $config marks itself a bench build"
 done
 echo "PASS: release and debug carry neither bench flag"
 
@@ -81,6 +86,18 @@ run_reload --tag "$TAG" --build-only --derived-data "$TMP_DIR/dd" --config bench
 [[ "$(swift_flags)" != *-DCMUX_BENCH_HOOKS* && "$(swift_flags)" != *-DCMUX_BLOCKING_CHECKS* ]] \
   || fail "--release after --config bench-checks kept bench flags: $(swift_flags)"
 echo "PASS: a later --release clears the bench flags"
+
+# A dogfood tag (Resources/build/cmux-next.dogfood.conf release_bench_tags) builds bench on --release, the one
+# configuration flag the fleet recipe passes; `--config release` stays plain Release (first-seconds-lag.md step 4).
+run_reload --tag "$DOGFOOD_TAG" --build-only --derived-data "$TMP_DIR/dd" --release
+[[ -f "$ARGS" ]] || fail "--release of a dogfood tag never reached xcodebuild: $OUTPUT"
+[[ "$(arg_after -configuration)" == Release ]] || fail "--release of a dogfood tag built '$(arg_after -configuration)', not Release"
+[[ "$(swift_flags)" == *-DCMUX_BENCH_HOOKS* ]] || fail "--release of a dogfood tag has no -DCMUX_BENCH_HOOKS: $(swift_flags)"
+[[ "$(swift_flags)" != *-DCMUX_BLOCKING_CHECKS* && "$(swift_flags)" != *-DDEBUG* ]] \
+  || fail "--release of a dogfood tag compiles the blocking detector or DEBUG: $(swift_flags)"
+run_reload --tag "$DOGFOOD_TAG" --build-only --derived-data "$TMP_DIR/dd" --config release
+[[ -f "$ARGS" && "$(swift_flags)" != *-DCMUX_BENCH_HOOKS* ]] || fail "--config release of a dogfood tag compiles bench flags: $(swift_flags)"
+echo "PASS: --release of a dogfood tag is bench; --config release stays Release"
 
 run_reload --tag "$TAG" --build-only --derived-data "$TMP_DIR/dd" --config bench-check
 [[ "$STATUS" -ne 0 && "$OUTPUT" == *"debug, release, bench, bench-checks, profile, asan, tsan or ubsan"* ]] \

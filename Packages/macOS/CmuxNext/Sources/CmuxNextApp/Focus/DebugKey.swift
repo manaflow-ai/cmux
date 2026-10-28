@@ -129,16 +129,12 @@ enum DebugKey {
             } else if isChord, NSApp.mainMenu?.performKeyEquivalent(with: event) == true {
                 return ("menu", NSApp.mainMenu.flatMap { menuItem(matching: event, in: $0) }.map { .string($0.title) } ?? .null)
             }
-            // As a real key: through the app and its local monitors when the window is key, else
-            // the panes' gesture monitors and then the window (DebugNativeInput).
+            // As a real key, through the app's sendEvent (its tap, typing probe and input latency slot): to AppKit
+            // when the window is key, else delivered to the window, which AppKit would not do (DebugNativeInput).
             if DebugNativeInput.usesAppKitPath(window) {
                 DebugNativeInput.sendThroughApp([event])
             } else {
-                // Off the app's sendEvent (a window that is not key), the typing probe opens its sample here.
-                let probed = TypingLatencyProbe.shared.keyDown(eventTimestamp: event.timestamp)
-                DebugNativeInput.runPaneMonitors(event, in: window, services: services)
-                window.sendEvent(event)
-                if probed { TypingLatencyProbe.shared.mark(.dispatchEnd) }
+                DebugNativeInput.sendThroughApp([event], to: window)
             }
             // `probe: "commit"`: the key went to a text view (Home's composer, the omnibar), so the
             // typing probe writes its row at the frame that commits the edit, not at a terminal echo.
