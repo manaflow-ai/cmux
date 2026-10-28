@@ -21,8 +21,9 @@ public import QuartzCore
 ///
 /// A display link stops firing while the displays sleep and when its screen goes away, yet clients
 /// such as the daemon mirror must keep moving. So while a display has subscribers one stall deadline
-/// runs for it: when no frame came in time its subscribers tick anyway, and after repeated stalls the
-/// link is rebuilt. Frames do not touch the deadline (a new timer task per frame cost two
+/// runs for it: when no frame came in time its subscribers tick anyway, and after repeated stalls of an
+/// awake display the link is rebuilt (a sleeping display's link is left alone: a new one could not
+/// fire either). Frames do not touch the deadline (a new timer task per frame cost two
 /// cooperative-pool wakes a frame): when it fires after a frame came, it is armed again for the rest
 /// of the timeout from that frame. A window dragged to another screen moves at once (its
 /// ``WindowScreenFamily``). Each time the deadline fires, every subscriber of the display also
@@ -522,6 +523,16 @@ public final class DisplayClock {
                 link.isPaused = false
                 display.lastFrame = mediaTime()
             }
+            arm(display)
+            return
+        }
+        if isAsleep(display.id) {
+            // The display sleeps: its link cannot fire, and a new one could not either. Its subscribers tick on the
+            // deadline (the daemon drains keep moving) with no stall counted and no link made; once it wakes, a link
+            // that still stalls is rebuilt as before.
+            display.stalls = 0
+            deliver(display, timestamp: nil, refreshInterval: nil, hiddenUntil: nil)
+            guard !display.subscribers.isEmpty else { return idle(display) }
             arm(display)
             return
         }
