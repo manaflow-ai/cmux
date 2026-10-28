@@ -1,0 +1,51 @@
+import CmuxNextDaemon
+import Foundation
+import Testing
+
+/// #26681: the launch's read of the saved window records (`SavedWindowsRead`). A daemon still
+/// starting answered it after the 2 s control-plane deadline, and the failure read as "nothing
+/// saved", so the relaunch lost every window but one. The read waits past that deadline, tries
+/// again after a timeout, and reports an unanswered read as unread, never as empty.
+@MainActor @Suite
+struct SavedWindowsReadTests {
+    static let twoWindows = WindowStateDocument(windows: [
+        WindowRecord(id: "front", workspaceKey: WorkspaceKey(rawValue: "ws-a"), workspaceKeys: [WorkspaceKey(rawValue: "ws-a")]),
+        WindowRecord(id: "second", workspaceKey: WorkspaceKey(rawValue: "ws-b"), workspaceKeys: [WorkspaceKey(rawValue: "ws-b")]),
+    ])
+
+    final class Attempts {
+        var deadlines: [Duration] = []
+    }
+
+    @Test func aReadThatTimesOutOnceStillRestoresEveryWindow() async throws {
+        let attempts = Attempts()
+        let outcome = await SavedWindowsRead().run { deadline in
+            attempts.deadlines.append(deadline)
+            if attempts.deadlines.count == 1 { throw DaemonError.timedOut("frontend_projection.get") }
+            return Self.twoWindows
+        }
+        guard case .loaded(let document) = outcome else { Issue.record("the read gave up: \(outcome)"); return }
+        #expect(document.windows.map(\.id) == ["front", "second"])
+        #expect(attempts.deadlines == [.seconds(10), .seconds(10)], "each attempt waits past the 2 s control-plane deadline")
+    }
+
+    @Test func aReadThatNeverAnswersIsUnreadNotEmpty() async {
+        let attempts = Attempts()
+        let outcome = await SavedWindowsRead().run { deadline in
+            attempts.deadlines.append(deadline)
+            throw DaemonError.timedOut("frontend_projection.get")
+        }
+        guard case .unread = outcome else { Issue.record("an unanswered read must not read as nothing saved"); return }
+        #expect(attempts.deadlines.count == 3)
+    }
+
+    @Test func aFailureAnotherAttemptCannotFixIsNotRetried() async {
+        let attempts = Attempts()
+        let outcome = await SavedWindowsRead().run { deadline in
+            attempts.deadlines.append(deadline)
+            throw DaemonError.command(cmd: "frontend_projection.get", message: "unknown command", code: nil)
+        }
+        guard case .unread = outcome else { Issue.record("expected unread"); return }
+        #expect(attempts.deadlines.count == 1)
+    }
+}

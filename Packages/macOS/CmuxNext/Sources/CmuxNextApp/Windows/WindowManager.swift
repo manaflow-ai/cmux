@@ -73,6 +73,9 @@ final class WindowManager {
     var closedDuringRestore: Set<String> = []
     /// True while `restore` runs.
     private(set) var restoring = false
+    /// The launch could not read the saved window records (`SavedWindowsRead`): they may hold
+    /// windows this launch does not show, so it never writes them (#26681).
+    var savedWindowsUnread = false
     /// The launch window the person closed before `restore` finished: the restore registers the
     /// workspaces it would have shown under this id, which is in `closedDuringRestore`, so they
     /// stay in a closed window. Nil once it finished.
@@ -212,7 +215,13 @@ final class WindowManager {
         DebugTimings.markLaunch("daemon_snapshot_loaded")
         var document = WindowStateDocument()
         if let windowState = services.daemon.windowState {
-            document = (try? await windowState.load()) ?? WindowStateDocument()
+            switch await SavedWindowsRead().run({ try await windowState.load(timeout: $0) }) {
+            case .loaded(let saved):
+                document = saved
+            case .unread(let error):
+                savedWindowsUnread = true
+                services.daemon.logger.error("saved windows unread, kept unwritten: \(String(describing: error), privacy: .public)")
+            }
         }
         // Incognito workspaces a crashed run left on a daemon without state
         // resources: the app's ledger owns them, so they close, never shown.
