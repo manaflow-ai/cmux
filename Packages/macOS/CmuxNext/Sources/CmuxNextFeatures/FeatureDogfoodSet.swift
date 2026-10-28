@@ -4,7 +4,8 @@
 /// every other input, so `CMUX_ENABLE_FEATURES` and `CMUX_DISABLE_FEATURES` still override one launch. Every other
 /// build (DEV, NIGHTLY and Release) keeps its channel defaults. Bench-only switches are never in a set: perfLabCanary
 /// delays every key press by 2 ms and perfLabKillProbe kills processes on purpose; nor are switches whose own description
-/// says to turn them on later (cefLayerHostingEveryPage, hangReportsSchema3).
+/// says to turn them on later (cefLayerHostingEveryPage, hangReportsSchema3), nor chromiumAdBlockerAtFirstTab until a
+/// pinned fork has the first-tab load (fork API 41): on a fork without it the feature runs no built-in ad blocker.
 public nonisolated struct FeatureDogfoodSet: Sendable, Equatable {
     /// The chrome-parity dogfood builds (`chrome-parity-v2-1`, ...): every switch the chrome-parity work added that is
     /// off by default in DEV, less the ones above. Names this build's registry does not declare are ignored, as
@@ -22,7 +23,6 @@ public nonisolated struct FeatureDogfoodSet: Sendable, Equatable {
         "cefPrefetchBehindFence",
         "cefPumpInputPolicy",
         "cefTimerSlack",
-        "chromiumAdBlockerAtFirstTab",
         "chromiumHostDragIn",
         "chromiumHostFileDialogs",
         "chromiumHostIdleExit",
