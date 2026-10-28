@@ -64,8 +64,9 @@ fn uploadable(path: &Path) -> Result<(PathBuf, String), Failure> {
     let refused = |why: &str| {
         Failure::new("upload_refused", format!("{} cannot be uploaded: {why}", path.display()))
     };
-    let canonical = std::fs::canonicalize(path).map_err(|_| refused("it does not exist"))?;
-    let meta = std::fs::metadata(&canonical).map_err(|_| refused("it does not exist"))?;
+    let canonical =
+        cmux_blocking::fs::canonicalize(path).map_err(|_| refused("it does not exist"))?;
+    let meta = cmux_blocking::fs::metadata(&canonical).map_err(|_| refused("it does not exist"))?;
     if !meta.is_file() {
         return Err(refused("only files can be uploaded"));
     }
@@ -93,7 +94,7 @@ fn uploadable(path: &Path) -> Result<(PathBuf, String), Failure> {
 /// Whether `canonical` is in the app's paste folder of this Mac's
 /// temporary folder (not in a dot or credential folder there).
 fn pasted(canonical: &Path) -> bool {
-    let Ok(tmp) = std::fs::canonicalize(std::env::temp_dir()) else { return false };
+    let Ok(tmp) = cmux_blocking::fs::canonicalize(std::env::temp_dir()) else { return false };
     // A temporary folder that holds the home folder, or is in it, would
     // open what the home folder's rules keep.
     let homes = grants::homes();

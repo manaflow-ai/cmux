@@ -201,7 +201,7 @@ impl App {
         for handle in
             self.status_command_workers.drain(..).chain(self.retiring_status_workers.drain(..))
         {
-            let _ = handle.join();
+            let _ = crate::blocking::thread::join(handle);
         }
         self.frontend_journal.stop_and_join();
         if let Some(mut updates) = self.machine_update_pump.take() {

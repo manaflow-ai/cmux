@@ -2,10 +2,11 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, SyncSender, TrySendError};
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
+use cmux_threads::sync::Condvar;
 use cmux_tui_machine_agent_protocol as protocol;
 use protocol::{
     AgentVersion, DataPayload, DrainComplete, Envelope, ErrorCode, GenerationReady,
@@ -103,7 +104,7 @@ impl WaitStrategy for SystemWait {
             if remaining.is_zero() {
                 return true;
             }
-            thread::sleep(remaining.min(Duration::from_millis(100)));
+            cmux_blocking::thread::sleep(remaining.min(Duration::from_millis(100)));
         }
         false
     }
@@ -201,7 +202,7 @@ impl MachineAgent {
                 }
             }
 
-            match events_rx.recv_timeout(Duration::from_millis(100)) {
+            match crate::blocking::sync::recv_timeout(&events_rx, Duration::from_millis(100)) {
                 Ok(CoordinatorEvent::MigrationRequested { worker_id, generation, request }) => {
                     let replayed = recent_migrations.iter().any(|seen: &SeenMigration| {
                         seen.generation == request.generation || seen.token == request.token
@@ -447,13 +448,13 @@ impl WorkerHandle {
         let _ = self.commands.try_send(WorkerInput::Command(WorkerCommand::Stop));
         self.control.close();
         if let Some(join) = self.join.take() {
-            let _ = join.join();
+            let _ = crate::blocking::thread::join(join);
         }
     }
 
     fn finish(mut self) {
         if let Some(join) = self.join.take() {
-            let _ = join.join();
+            let _ = crate::blocking::thread::join(join);
         }
     }
 }
@@ -485,7 +486,7 @@ fn commit_migration_replacement(
         workers,
         worker_id,
         WorkerCommand::CommitMigration { generation, acknowledgment },
-    ) && matches!(result.recv_timeout(HANDSHAKE_TIMEOUT), Ok(true))
+    ) && matches!(crate::blocking::sync::recv_timeout(&result, HANDSHAKE_TIMEOUT), Ok(true))
     {
         return Some(replacement);
     }
@@ -563,7 +564,7 @@ impl ReadDeadline {
         // supervise-allow: one generation's or stream's worker; it ends with its connection, and a panic drops its channel ends, so the coordinator sees that connection close.
         thread::Builder::new().name("machine-agent-handshake-deadline".into()).spawn(
             move || {
-                if receiver.recv_timeout(timeout).is_err() {
+                if crate::blocking::sync::recv_timeout(&receiver, timeout).is_err() {
                     control.close();
                 }
             },
@@ -600,8 +601,8 @@ impl WriteDeadline {
         let (commands, receiver) = mpsc::sync_channel(1);
         // supervise-allow: one generation's or stream's worker; it ends with its connection, and a panic drops its channel ends, so the coordinator sees that connection close.
         thread::Builder::new().name("mx-write-watch".into()).spawn(move || {
-            while let Ok(WriteDeadlineCommand::Arm) = receiver.recv() {
-                match receiver.recv_timeout(timeout) {
+            while let Ok(WriteDeadlineCommand::Arm) = cmux_blocking::sync::recv(&receiver) {
+                match crate::blocking::sync::recv_timeout(&receiver, timeout) {
                     Ok(WriteDeadlineCommand::Disarm) => {}
                     Ok(WriteDeadlineCommand::Arm) | Err(RecvTimeoutError::Timeout) => {
                         control.close();
@@ -796,7 +797,7 @@ fn spawn_local_connectors(
         // supervise-allow: one generation's or stream's worker; it ends with its connection, and a panic drops its channel ends, so the coordinator sees that connection close.
         thread::Builder::new().name(format!("mx-local-open-{index}")).spawn(move || {
             loop {
-                let request = receiver.lock().unwrap().recv();
+                let request = cmux_blocking::sync::recv(&receiver.lock().unwrap());
                 let Ok(request) = request else { break };
                 let connection = local.open();
                 if let Err(error) = request.sender.send(WorkerInput::LocalOpenCompleted {
@@ -842,7 +843,7 @@ impl GenerationState {
     ) -> anyhow::Result<()> {
         loop {
             let timeout = self.heartbeat.min(Duration::from_millis(100));
-            match receiver.recv_timeout(timeout) {
+            match crate::blocking::sync::recv_timeout(&receiver, timeout) {
                 Ok(WorkerInput::Cloud(frame)) => {
                     self.last_received = Instant::now();
                     self.handle_cloud(worker_id, coordinator, frame?)?;
@@ -1372,7 +1373,7 @@ fn spawn_local_writer(
     // supervise-allow: one generation's or stream's worker; it ends with its connection, and a panic drops its channel ends, so the coordinator sees that connection close.
     thread::Builder::new().name(format!("machine-agent-local-writer-{stream_id}")).spawn(
         move || {
-            while let Ok(payload) = receiver.recv() {
+            while let Ok(payload) = cmux_blocking::sync::recv(&receiver) {
                 let mut bytes = payload.into_bytes();
                 let length = u32::try_from(bytes.len()).expect("protocol payload length fits u32");
                 let result = writer.write_all(&bytes).and_then(|()| writer.flush());
