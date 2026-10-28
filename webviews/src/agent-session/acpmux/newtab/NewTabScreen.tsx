@@ -385,12 +385,17 @@ export function NewTabScreen(props: Props) {
     ...(props.upload ? { upload: props.upload } : {}),
     ...(props.localPaths ? { localPaths: props.localPaths } : {}),
   });
-  const command = useNewTabCommand(text, setText, props, {
-    attachments,
-    setAttachments,
-    pending: reading,
-    cancel,
-  });
+  const command = useNewTabCommand(
+    text,
+    setText,
+    { ...props, importSandboxed: props.importSandboxed || props.runMode?.mode === "sandboxed" },
+    {
+      attachments,
+      setAttachments,
+      pending: reading,
+      cancel,
+    },
+  );
   // Unlike a chat's composer, the new tab waits for uploads too (#25191): the page goes when the
   // chat starts, so a file still streaming has no next prompt to go with. A video's read is waited
   // for a few seconds at most (composer/videoAttachments.ts).

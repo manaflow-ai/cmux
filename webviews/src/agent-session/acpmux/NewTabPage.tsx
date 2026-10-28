@@ -343,6 +343,7 @@ export function NewTabPage({
   onCmuxCommand,
   onImportFile,
   importError,
+  importSandboxed,
   onJump,
   onOpenSession,
   onShowAll,
@@ -430,7 +431,7 @@ export function NewTabPage({
   const command = useNewTabCommand(
     text,
     setText,
-    { onCmuxCommand, onImportFile, importError },
+    { onCmuxCommand, onImportFile, importError, ...(importSandboxed ? { importSandboxed } : {}) },
     {
       attachments,
       setAttachments,

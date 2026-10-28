@@ -7532,6 +7532,137 @@
         }
       }
     },
+    "composer.cmuxImportSandbox": {
+      "comment": "Agent pane: importing a transcript would create a persistent chat instead of the selected sandbox run.",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استيراد نص المحادثة غير متاح في وضع العزل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uvoz transkripta nije dostupan u izoliranom režimu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import af transskription er ikke tilgængelig i sandkassetilstand"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Transkriptimport ist im Sandbox-Modus nicht verfügbar"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transcript import is unavailable in Sandboxed mode"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La importación de transcripciones no está disponible en el modo aislado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’importation de transcriptions n’est pas disponible en mode bac à sable"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’importazione delle trascrizioni non è disponibile in modalità sandbox"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サンドボックスモードではトランスクリプトをインポートできません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការនាំចូលប្រតិចារឹកមិនអាចប្រើបានក្នុងរបៀប Sandbox"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "샌드박스 모드에서는 대화 기록을 가져올 수 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import av transkripsjoner er ikke tilgjengelig i sandkassemodus"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import transkrypcji jest niedostępny w trybie piaskownicy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A importação de transcrições não está disponível no modo sandbox"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Импорт расшифровки недоступен в режиме песочницы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่สามารถนำเข้าบันทึกการสนทนาในโหมดแซนด์บ็อกซ์ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Korumalı alan modunda konuşma dökümü içe aktarılamaz"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Імпорт розшифровки недоступний у режимі пісочниці"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không thể nhập bản ghi cuộc trò chuyện trong chế độ hộp cát"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沙盒模式下无法导入聊天记录"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沙盒模式下無法匯入聊天記錄"
+          }
+        }
+      }
+    },
     "composer.cmuxForkArgs": {
       "comment": "Agent pane: inline refusal for a cmux-owned slash command",
       "extractionState": "manual",

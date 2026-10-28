@@ -237,7 +237,12 @@ test("classic New Tab intercepts /import before its omnibar can treat it as a pa
 
 type Template = "screen" | "classic";
 
-async function commandPage(template: Template, onImportFile?: (file: File) => Promise<void>, importError?: string) {
+async function commandPage(
+  template: Template,
+  onImportFile?: (file: File) => Promise<void>,
+  importError?: string,
+  sandboxed = false,
+) {
   const { createRoot } = await import("react-dom/client");
   const { NewTabPage } = await import("../src/agent-session/acpmux/NewTabPage");
   const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
@@ -248,12 +253,15 @@ async function commandPage(template: Template, onImportFile?: (file: File) => Pr
     cwd: "/Users/you/src/app",
     ...(onImportFile ? { onImportFile } : {}),
     ...(importError ? { importError } : {}),
+    ...(template === "screen"
+      ? { runMode: { mode: sandboxed ? ("sandboxed" as const) : ("persistent" as const), onMode: noop } }
+      : { importSandboxed: sandboxed }),
     onOpenSession: noop,
     onShowAll: noop,
     onCmuxCommand: () => "Fork is unavailable for this chat right now",
   };
   root = createRoot(host);
-  await act(async () =>
+  const renderPage = () =>
     root!.render(
       template === "screen" ? (
         <NewTabScreen
@@ -274,8 +282,13 @@ async function commandPage(template: Template, onImportFile?: (file: File) => Pr
           }}
         />
       ),
-    ),
-  );
+    );
+  await act(async () => renderPage());
+  const setSandboxed = async (value: boolean) => {
+    if (common.runMode) common.runMode.mode = value ? "sandboxed" : "persistent";
+    else common.importSandboxed = value;
+    await act(async () => renderPage());
+  };
   const field = host.querySelector<HTMLInputElement | HTMLTextAreaElement>(
     template === "screen" ? ".nt-field" : ".acpmux-newtab-field",
   )!;
@@ -310,7 +323,7 @@ async function commandPage(template: Template, onImportFile?: (file: File) => Pr
       ),
     ).not.toBeNull();
   };
-  return { field, edit, send, paste, prompts };
+  return { field, edit, send, paste, prompts, setSandboxed };
 }
 
 for (const template of ["screen", "classic"] as const) {
@@ -370,6 +383,60 @@ for (const template of ["screen", "classic"] as const) {
     });
     expect(page.prompts).toHaveLength(1);
     expect(page.prompts[0]!.attachments.map((attachment) => attachment.name)).toEqual(["pending.png"]);
+  });
+
+  test(`${template}: sandboxed /import refuses before the picker and preserves draft and attachments`, async () => {
+    const imported: File[] = [];
+    const page = await commandPage(
+      template,
+      async (file) => {
+        imported.push(file);
+      },
+      undefined,
+      true,
+    );
+    await page.paste();
+    await page.edit("/import");
+    const input = host.querySelector<HTMLInputElement>('input[aria-label="/import"]')!;
+    let opened = false;
+    input.click = () => {
+      opened = true;
+    };
+    await page.send();
+    expect(opened).toBe(false);
+    expect(page.field.value).toBe("/import");
+    expect(host.querySelector(".acpmux-attachment")).not.toBeNull();
+    expect(host.querySelector(".acpmux-attachment-note")?.textContent).toContain(
+      "Transcript import is unavailable in Sandboxed mode",
+    );
+    // A late picker result must obey the current mode too.
+    Object.defineProperty(input, "files", { configurable: true, value: [new File(["{}"], "transcript.json")] });
+    await act(async () => input.dispatchEvent(new window.Event("change", { bubbles: true })));
+    expect(imported).toEqual([]);
+    expect(page.prompts).toEqual([]);
+  });
+
+  test(`${template}: switching to sandboxed while the picker is open blocks the selected file`, async () => {
+    const imported: File[] = [];
+    const page = await commandPage(template, async (file) => {
+      imported.push(file);
+    });
+    await page.edit("/import");
+    const input = host.querySelector<HTMLInputElement>('input[aria-label="/import"]')!;
+    let opened = false;
+    input.click = () => {
+      opened = true;
+    };
+    await page.send();
+    expect(opened).toBe(true);
+    await page.setSandboxed(true);
+    Object.defineProperty(input, "files", { configurable: true, value: [new File(["{}"], "transcript.json")] });
+    await act(async () => input.dispatchEvent(new window.Event("change", { bubbles: true })));
+    expect(imported).toEqual([]);
+    expect(page.prompts).toEqual([]);
+    expect(host.querySelector(".acpmux-attachment-note")?.textContent).toContain(
+      "Transcript import is unavailable in Sandboxed mode",
+    );
   });
 
   test(`${template}: a rejected import is visible on New Tab`, async () => {

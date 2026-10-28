@@ -5,6 +5,7 @@ import type { ComposerAttachment } from "../attachments";
 
 export type NewTabCommandActions = {
   importError?: string | undefined;
+  importSandboxed?: boolean;
   onCmuxCommand?(command: CmuxCommand, args?: string): CmuxCommandResult;
   onImportFile?(file: File): void | Promise<void>;
 };
@@ -44,7 +45,8 @@ export function useNewTabCommand(
       setRefusal(undefined);
     };
     if (command.command.action === "import") {
-      if (!actions.onImportFile) refuse(t("composer.cmuxUnavailable"));
+      if (actions.importSandboxed) refuse(t("composer.cmuxImportSandbox"));
+      else if (!actions.onImportFile) refuse(t("composer.cmuxUnavailable"));
       else {
         setFileError(undefined);
         importInput.current?.click();
@@ -85,6 +87,11 @@ export function useNewTabCommand(
         const file = event.currentTarget.files?.[0];
         event.currentTarget.value = "";
         if (!file) return;
+        // The selected mode can change while the native picker is open.
+        if (actions.importSandboxed) {
+          setFileError(t("composer.cmuxImportSandbox"));
+          return;
+        }
         setFileError(undefined);
         try {
           await actions.onImportFile?.(file);
