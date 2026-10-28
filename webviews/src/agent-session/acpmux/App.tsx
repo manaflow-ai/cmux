@@ -382,7 +382,8 @@ import { TranscriptDisclosureProvider } from "./conversation/transcriptDisclosur
 import { type HarnessHealth, HarnessHealthNotice, type UpdateOffer, UpdateOfferContext } from "./HarnessHealthNotice";
 import { Notice, NoticeSlot } from "./NoticeSlot";
 import { type ForumRule, forumRules, RulesNotice } from "./RulesNotice";
-import { type SignIn, SignInContext, signedOutHarnesses, useSignIn } from "./signIn";
+import { type SignIn, SignInContext, harnessAuthStates, useSignIn } from "./signIn";
+import { authBlockReason, authPreflight } from "./authPreflight";
 import { type ChatAccounts, ChatAccountsContext, ownRouteOf, readChatAccounts } from "./chatAccounts";
 import { HostError } from "./HostError";
 import { AcpmuxRestartGate, hostIsReconnecting, offersAcpmuxRestart } from "./hostRetry";
@@ -4739,12 +4740,21 @@ function AcpmuxPane() {
   // Every harness this Mac's acpmux last found signed out, for the model picker's rail (cx-ae9eb):
   // read once the pane's direct client connects (a restored pane connects after its first render),
   // and again when a Log In comes back.
-  const [signedOut, setSignedOut] = useState<Record<string, string>>({});
+  const [authStates, setAuthStates] = useState<Record<string, import("./authPreflight").HarnessAuth>>({});
+  const signedOut = useMemo(
+    () =>
+      Object.fromEntries(
+        Object.entries(authStates)
+          .filter(([, value]) => value.state === "signedOut")
+          .map(([id, value]) => [id, value.login ?? ""]),
+      ),
+    [authStates],
+  );
   const signedOutRechecked = useRef(0);
   useEffect(() => {
     const client = directClient.current;
     if (!connected || !client || !healthLocal) {
-      setSignedOut({});
+      setAuthStates({});
       return;
     }
     let live = true;
@@ -4753,7 +4763,7 @@ function AcpmuxPane() {
     signedOutRechecked.current = healthRecheck;
     void Promise.resolve()
       .then(() => client.harnessHealthRows(refresh ? { refresh: true } : {}))
-      .then((rows) => live && setSignedOut(signedOutHarnesses(rows)))
+      .then((rows) => live && setAuthStates(harnessAuthStates(rows)))
       .catch(() => undefined);
     return () => {
       live = false;
@@ -4785,6 +4795,7 @@ function AcpmuxPane() {
   const signIn = useMemo<SignIn>(
     () => ({
       signedOut,
+      auth: authStates,
       logIn: (_harness, login) => {
         healthStale.current = true;
         void callNative("tab.open", {
@@ -4795,7 +4806,7 @@ function AcpmuxPane() {
         }).catch(() => undefined);
       },
     }),
-    [signedOut, snapshot.summary?.cwd],
+    [authStates, signedOut, snapshot.summary?.cwd],
   );
   // The composer's Account menu: this Mac's acpmux routes for the chat (acpmux refuses them to Web
   // and peer connections), read when the menu opens.
@@ -5108,6 +5119,26 @@ function AcpmuxPane() {
   trustNow.current = trustAsk.trust;
   const canTrustFolder = answersTrust && !trustAsk.trusted && trustAsk.ask?.state !== "remote";
   const trustBlock = trustAsk.holdsAsks ? trustAsk.blocked?.reason : undefined;
+  const authSendBlock = useMemo(() => {
+    const result = authPreflight({
+      harness: snapshot.summary?.harness,
+      summary: snapshot.summary,
+      origin: snapshot.origin,
+      auth: signIn?.auth,
+      peerStates: snapshot.peerStates,
+      peerConnected: snapshot.peerConnected,
+      peerOffline: snapshot.peerCopy?.offline,
+    });
+    return authBlockReason(result);
+  }, [
+    signIn?.auth,
+    snapshot.origin,
+    snapshot.peerConnected,
+    snapshot.peerCopy?.offline,
+    snapshot.peerStates,
+    snapshot.summary,
+  ]);
+
   const failedSends = useMemo<FailedSends>(
     () => ({
       runs,
@@ -9496,7 +9527,7 @@ function AcpmuxPane() {
             handle={composerRef}
             // No prompt goes while a picked folder waits for the user's answer, or while the chat only
             // shows a session another app runs (WatchBanner).
-            blocked={pendingFolder ? {} : trustAsk.blocked}
+            blocked={pendingFolder ? {} : (authSendBlock ?? trustAsk.blocked)}
             accessory={<DictationMic dictation={dictation} />}
             dictating={isWaitingForWords(dictation.state)}
             onImportFile={importFile}

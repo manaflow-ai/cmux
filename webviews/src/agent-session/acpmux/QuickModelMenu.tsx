@@ -40,7 +40,11 @@ export type QuickMenu = {
     sliderStyle?: ReasoningSliderStyle;
   };
   /// The chat's accounts (acpmux routes); absent for a chat with no session yet or off this Mac.
-  account?: { sessionId: string; accounts: ChatAccounts };
+  account?: {
+    sessionId: string;
+    accounts: ChatAccounts;
+    onLogIn?: (routeId: string, login: string) => void;
+  };
   /// Fast mode: the menu's last checkbox row, its one place. Absent where the running model has
   /// none; the model button owns it for every harness.
   fast?: { checked: boolean; onChange(on: boolean): void };
@@ -861,11 +865,13 @@ function AccountRows({
   failed,
   switchFailed,
   onPick,
+  onLogIn,
 }: {
   list?: ChatAccountList;
   failed: boolean;
   switchFailed: boolean;
   onPick(routeId: string | null): void;
+  onLogIn?: (routeId: string, login: string) => void;
 }) {
   const t = useT();
   const refused = switchFailed && (
@@ -900,11 +906,25 @@ function AccountRows({
         >
           <span className="acpmux-menu-label">{t("picker.harnessLogin")}</span>
         </MenuRadioItem>
-        {choices.map((choice) => (
-          <MenuRadioItem key={choice.id} value={choice.id} closeOnClick className="acpmux-quick-item">
-            <span className="acpmux-menu-label">{choice.name}</span>
-          </MenuRadioItem>
-        ))}
+        {choices.map((choice) => {
+          const blocked = choice.auth !== undefined && choice.auth !== "signedIn" && choice.auth !== "unknown";
+          return (
+            <Fragment key={choice.id}>
+              <MenuRadioItem value={choice.id} closeOnClick={!blocked} disabled={blocked} className="acpmux-quick-item">
+                <span className="acpmux-menu-label">{choice.name}</span>
+                {blocked && <span className="acpmux-quick-value">{t("harness.logIn")}</span>}
+              </MenuRadioItem>
+              {blocked && choice.login && onLogIn && (
+                <MenuItem
+                  className="acpmux-quick-item acpmux-quick-note"
+                  onSelect={() => onLogIn(choice.id, choice.login!)}
+                >
+                  {t("harness.logIn")}
+                </MenuItem>
+              )}
+            </Fragment>
+          );
+        })}
       </MenuRadioGroup>
       {choices.length === 0 && (
         <MenuItem disabled className="acpmux-quick-item acpmux-quick-note">

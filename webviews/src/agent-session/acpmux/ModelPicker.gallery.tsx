@@ -572,6 +572,30 @@ export default componentEntry<GalleryProps>({
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-mp-login") !== null);
       },
     },
+    // The selected harness remains visible but cannot send until an expired session is re-authenticated.
+    "auth-expired": {
+      props: {
+        ...base,
+        auth: { claude: { state: "expired", login: "claude login", source: "harness" } },
+        onLogIn: () => undefined,
+      },
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: "Model" });
+        await ctx.waitFor(() => ctx.document.querySelector("[data-auth-state=expired]") !== null);
+      },
+    },
+    // Credential-store loss is explicit and source-specific, rather than a generic transport error.
+    "auth-migration": {
+      props: {
+        ...base,
+        auth: { claude: { state: "missing", source: "migration", error: "credential store unavailable" } },
+        onLogIn: () => undefined,
+      },
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: "Model" });
+        await ctx.waitFor(() => ctx.document.querySelector("[data-auth-source=migration]") !== null);
+      },
+    },
     // A folder profile is a machine choice, not a harness: it remains the selected model source,
     // while the rail contains only Claude/Codex harnesses.
     "profile-without-mark": {

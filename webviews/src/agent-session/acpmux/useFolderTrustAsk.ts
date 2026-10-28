@@ -33,7 +33,7 @@ export function answerFolder(ask: { cwd: string; repo?: TrustRepo }, scope: "rep
 
 /// Why Send is off; no `reason` while the folder's trust is still being read. `shownAbove`: the
 /// question over the card already says it, so the card draws no caption (Send's tooltip keeps it).
-export type SendBlock = { reason?: StringKey; shownAbove?: boolean };
+export type SendBlock = { reason?: StringKey; shownAbove?: boolean; text?: string };
 
 /// The last answer read for each folder, kept for the next chat there (another tab, workspace, or
 /// a new page from the pool): a switch draws the folder's known trust from its first render, and

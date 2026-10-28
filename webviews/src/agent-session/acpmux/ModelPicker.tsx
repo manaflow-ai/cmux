@@ -17,6 +17,7 @@ import { CheckIcon, ChevronIcon, PICKER_LABELS, SearchIcon } from "./ComposerPic
 import { Icon } from "./icons/Icon";
 import { usePromptFocus } from "./promptFocus";
 import { currentLanguage, useT } from "./i18n";
+import type { HarnessAuth } from "./authPreflight";
 import { useUpdateOffer } from "./HarnessHealthNotice";
 import { CHAT_COLUMN, MODEL_PICKER_MIN_HEIGHT, pickerHeightBounds, type ModelPickerProps } from "./modelPickerLayout";
 import { curatedSections, modelSections } from "./modelSections";
@@ -403,6 +404,7 @@ export function ModelPicker(props: ModelPickerProps) {
     speed,
     catalogRefresh,
     signedOut,
+    auth,
     onLogIn,
     usage,
     quick,
@@ -411,7 +413,31 @@ export function ModelPicker(props: ModelPickerProps) {
     fork,
   } = props;
   /// A signed-out harness's login command ("" when acpmux names none); undefined when it can start.
-  const loginFor = useCallback((entry: HarnessChoice) => signedOut?.[entry.acpmuxHarness ?? entry.id], [signedOut]);
+  const authFor = useCallback(
+    (entry: HarnessChoice): HarnessAuth | undefined => {
+      const id = entry.acpmuxHarness ?? entry.id;
+      const known = auth?.[id];
+      if (known) return known;
+      const login = signedOut?.[id];
+      return login !== undefined ? { state: "signedOut", login, source: "harness" } : undefined;
+    },
+    [auth, signedOut],
+  );
+  const blockedAuth = useCallback(
+    (entry: HarnessChoice) => {
+      const state = authFor(entry)?.state;
+      return state !== undefined && state !== "signedIn" && state !== "unknown";
+    },
+    [authFor],
+  );
+  const blockedAuthId = useCallback(
+    (id: string) => {
+      const state = auth?.[id]?.state ?? (signedOut?.[id] !== undefined ? "signedOut" : undefined);
+      return state !== undefined && state !== "signedIn" && state !== "unknown";
+    },
+    [auth, signedOut],
+  );
+  const loginFor = useCallback((entry: HarnessChoice) => authFor(entry)?.login, [authFor]);
   const t = useT();
   const newTab = useContext(OnNewTab);
   /// The chat's agent CLI has an update (hq#2569 #12): a row in the menu and the picker and a line
@@ -502,21 +528,19 @@ export function ModelPicker(props: ModelPickerProps) {
   const owners = useMemo(() => {
     const owner = new Map<ModelChoice, HarnessChoice>();
     if (searching) {
-      const searchable = harnesses.filter(
-        (entry) => entry.pickable && !blockedProfile(entry) && loginFor(entry) === undefined,
-      );
+      const searchable = harnesses.filter((entry) => entry.pickable && !blockedProfile(entry) && !blockedAuth(entry));
       for (const { model, entry } of searchModels(searchable, parsed)) owner.set(model, entry);
     } else if (starredView) {
       for (const entry of harnesses)
-        if (!entry.folder && loginFor(entry) === undefined)
+        if (!entry.folder && !blockedAuth(entry))
           for (const model of choicesFor(entry)) if (favorites.has(model.id)) owner.set(model, entry);
-    } else if (selected && loginFor(selected) === undefined) {
+    } else if (selected && !blockedAuth(selected)) {
       // Every model past the top ones folds under More models until it opens (cx-jqkx, cx-espus).
       const { latest, older } = shownSections(selected, runsHere);
       for (const model of olderOpen ? [...latest, ...older] : latest) owner.set(model, selected);
     }
     return owner;
-  }, [favorites, harnesses, olderOpen, parsed, searching, selected, starredView, runsHere, loginFor]);
+  }, [favorites, harnesses, olderOpen, parsed, searching, selected, starredView, runsHere, blockedAuth]);
   const visible = useMemo(() => [...owners.keys()], [owners]);
   // Add harness… is the list's last row, after the models: arrows reach it like a model row.
   const addRow = onAddAgent ? visible.length : -1;
@@ -524,7 +548,7 @@ export function ModelPicker(props: ModelPickerProps) {
   const addRowId = `${menuId}-add-harness`;
   const onAddRow = active === addRow && (visible.length > 0 || addChosen);
   const olderCount =
-    searching || starredView || (selected && loginFor(selected) !== undefined)
+    searching || starredView || (selected && blockedAuth(selected))
       ? 0
       : shownSections(selected, runsHere).older.length;
   const refreshStatus = localRefreshStatus ?? catalogRefresh?.status ?? "idle";
@@ -708,7 +732,7 @@ export function ModelPicker(props: ModelPickerProps) {
 
   const selectModel = (model: ModelChoice) => {
     const owner = owners.get(model);
-    if (model.unavailable || !owner?.pickable || loginFor(owner) !== undefined) return;
+    if (model.unavailable || !owner?.pickable || blockedAuth(owner)) return;
     toPrompt.current = true;
     // A typed effort or fast mode, or a model of another harness, lands as one combo.
     const effort = searching ? modelEffort(model, parsed.effort) : undefined;
@@ -735,10 +759,7 @@ export function ModelPicker(props: ModelPickerProps) {
     // The chat's own harness once it has started, else every one the rail offers.
     const searchable = (harnessFixed ? ownHarness : harnesses).filter(
       (entry) =>
-        entry.pickable &&
-        !blockedProfile(entry) &&
-        entry.folder?.state !== "needs-enable" &&
-        loginFor(entry) === undefined,
+        entry.pickable && !blockedProfile(entry) && entry.folder?.state !== "needs-enable" && !blockedAuth(entry),
     );
     const found = searchModels(searchable, typed);
     // A model several providers serve is one match, in the place of its best-ranked provider's row.
@@ -787,7 +808,7 @@ export function ModelPicker(props: ModelPickerProps) {
     );
     const list: QuickFamily[] = [];
     const starred = startable
-      .filter((entry) => loginFor(entry) === undefined)
+      .filter((entry) => !blockedAuth(entry))
       .flatMap((entry) =>
         groupChoices(
           choicesFor(entry).filter((model) => favorites.has(model.id)),
@@ -796,7 +817,7 @@ export function ModelPicker(props: ModelPickerProps) {
       );
     if (starred.length) list.push({ id: STARRED, name: starredText, starred: true, models: starred, more: [] });
     for (const entry of startable) {
-      const signedOutHere = loginFor(entry) !== undefined;
+      const signedOutHere = blockedAuth(entry);
       const { shown, more } = signedOutHere
         ? { shown: [], more: [] }
         : quickSections(entry, entry.ids.includes(harness ?? "") ? props.model : undefined);
@@ -812,7 +833,7 @@ export function ModelPicker(props: ModelPickerProps) {
           : {}),
       });
     }
-    const rail = railByHarness(list, harness ?? current?.id, props.profiles, (id) => signedOut?.[id] !== undefined);
+    const rail = railByHarness(list, harness ?? current?.id, props.profiles, (id) => blockedAuthId(id));
     if (!harnessFixed) return rail;
     // A started chat (Leo 2026-10-22: "can expose as fork"): another harness's tab is Fork to it,
     // Starred keeps the chat's own models, and another launch profile of any harness forks there.
@@ -835,6 +856,7 @@ export function ModelPicker(props: ModelPickerProps) {
     current?.id,
     current?.folder,
     loginFor,
+    blockedAuth,
     favorites,
     starredText,
     harness,
@@ -842,13 +864,13 @@ export function ModelPicker(props: ModelPickerProps) {
     t,
     onLogIn,
     props.profiles,
-    signedOut,
+    blockedAuthId,
   ]);
   /// A compact-menu pick: this harness's model lands in place; another harness's starts a chat there.
   /// A searched row with an effort or fast mode lands as one combo, as the full picker's does.
   const pickQuick = (model: QuickModel) => {
     const owner = harnesses.find((entry) => entry.id === model.family);
-    if (!owner || model.disabled || !owner.pickable || loginFor(owner) !== undefined) return;
+    if (!owner || model.disabled || !owner.pickable || blockedAuth(owner)) return;
     const harnessId = owner.acpmuxHarness ?? owner.id;
     const here = owner.ids.includes(harness ?? "");
     if (onCombo && (model.effort || model.fast || !here)) {
@@ -869,9 +891,9 @@ export function ModelPicker(props: ModelPickerProps) {
   /// An Account pick: the harness's other profile starts a chat there, or forks a started chat there.
   /// `id` is an acpmux profile: one a tab folded (pickerProfiles.ts) is no harness entry of its own.
   const pickProfile = (id: string) => {
-    if (id === harness || signedOut?.[id] !== undefined) return;
+    if (id === harness || blockedAuthId(id)) return;
     const owner = allHarnesses.find((entry) => entry.id === id);
-    if (owner && loginFor(owner) !== undefined) return;
+    if (owner && blockedAuth(owner)) return;
     const target = owner?.acpmuxHarness ?? id;
     if (harnessFixed) {
       if (fork?.ready) fork.to(target);
@@ -1019,6 +1041,22 @@ export function ModelPicker(props: ModelPickerProps) {
   const chipShort = rowChip?.short && rowChip.short !== chipName ? rowChip.short : undefined;
   const chipFamily = rowChip?.family && rowChip.family !== (chipShort ?? chipName) ? rowChip.family : undefined;
   const chipTitle = rowChip?.title ?? chipLabel;
+  const selectedAuth = current ? authFor(current) : undefined;
+  const selectedAuthBlocked =
+    selectedAuth && selectedAuth.state !== "signedIn" && selectedAuth.state !== "unknown" ? selectedAuth : undefined;
+  const selectedAuthLabel =
+    selectedAuthBlocked?.state === "expired"
+      ? (selectedAuthBlocked.source === "account" ? "Account" : "Session") + " expired · Re-authenticate"
+      : selectedAuthBlocked?.state === "needsLogin"
+        ? (selectedAuthBlocked.source === "account" ? "Account" : "Harness") + " sign in required"
+        : selectedAuthBlocked?.state === "missing"
+          ? selectedAuthBlocked.source === "migration"
+            ? "Credentials lost during migration · Sign in again"
+            : "Credentials unavailable · Sign in again"
+          : selectedAuthBlocked
+            ? t("harnesses.signedOut")
+            : undefined;
+
   const enableProfile = (entry: HarnessChoice) => {
     if (entry.folder?.state !== "needs-enable" || entry.ids.includes(harness ?? "")) return false;
     onHarnessEnable?.(entry.folder.folder, entry.id);
@@ -1045,12 +1083,23 @@ export function ModelPicker(props: ModelPickerProps) {
   const railTitle = (entry: HarnessChoice) => {
     const mark = entry.mark ?? agentBrand(entry.id) ?? entry.id;
     const shared = (markCounts.get(mark) ?? 0) > 1 && entry.name !== entry.id;
-    const signIn = loginFor(entry) !== undefined ? t("harnesses.signedOut") : undefined;
+    const signIn = blockedAuth(entry) ? t("harnesses.signedOut") : undefined;
     return [shared ? `${entry.name} (${entry.id})` : entry.name, folderNote(entry), signIn].filter(Boolean).join(" · ");
   };
   const chipFace = (
     <>
       <AgentMark agent={chipHarness} size={15} />
+      {selectedAuthLabel && (
+        <span
+          className="acpmux-model-auth-state"
+          data-auth-state={selectedAuthBlocked?.state}
+          data-auth-source={selectedAuthBlocked?.source}
+          aria-label={selectedAuthLabel}
+          title={selectedAuthLabel}
+        >
+          !
+        </span>
+      )}
       <span
         className="acpmux-model-name"
         {...(chipShort
@@ -1082,6 +1131,7 @@ export function ModelPicker(props: ModelPickerProps) {
     <span
       ref={root}
       className="acpmux-picker acpmux-model"
+      data-auth-state={selectedAuthBlocked?.state}
       style={{ position: "relative" }}
       // The controls row's harness mark alone names the model in a tooltip (composerRowFit.ts).
       {...(rowChip ? { "data-fit-title": chipTitle, "data-fit-title-unit": "model" } : {})}
@@ -1104,14 +1154,14 @@ export function ModelPicker(props: ModelPickerProps) {
               "data-menu": modelText,
               label: modelText,
               /* tooltip-allow: the chip drops the vendor its mark draws; the title keeps the full name */
-              title: [chipLabel, usage, updateText].filter(Boolean).join(" · "),
+              title: [chipLabel, usage, updateText, selectedAuthLabel].filter(Boolean).join(" · "),
             }}
             menu={{
               ...quick,
               ...(update && updateText ? { update: { text: updateText, run: update.update } } : {}),
               // This harness's top models, the running one among them; a signed-out harness lists none.
               models:
-                current && loginFor(current) === undefined
+                current && !blockedAuth(current)
                   ? quickSections(current, props.model, (model) => !model.unavailable).shown.map((model) =>
                       quickRow("", model),
                     )
@@ -1170,7 +1220,7 @@ export function ModelPicker(props: ModelPickerProps) {
             data-menu={modelText}
             aria-label={modelText}
             /* tooltip-allow: the chip drops the vendor its mark draws; the title keeps the full name */
-            title={[chipLabel, usage, updateText].filter(Boolean).join(" · ")}
+            title={[chipLabel, usage, updateText, selectedAuthLabel].filter(Boolean).join(" · ")}
             aria-haspopup="dialog"
             aria-expanded={open}
             aria-controls={open ? menuId : undefined}
@@ -1247,8 +1297,8 @@ export function ModelPicker(props: ModelPickerProps) {
                     type="button"
                     key={entry.folder ? `folder:${entry.id}` : entry.name}
                     aria-selected={entry.ids.includes(selectedHarness ?? "")}
-                    aria-disabled={blockedProfile(entry) || loginFor(entry) !== undefined || undefined}
-                    data-signed-out={loginFor(entry) !== undefined || undefined}
+                    aria-disabled={blockedProfile(entry) || blockedAuth(entry) || undefined}
+                    data-signed-out={blockedAuth(entry) || undefined}
                     disabled={!entry.pickable}
                     data-harness-index={index}
                     className={`acpmux-mp-harness ${railTab}`}
@@ -1357,9 +1407,11 @@ export function ModelPicker(props: ModelPickerProps) {
                     ))}
                   </div>
                 )}
-                {selected && !searching && !starredView && loginFor(selected) !== undefined ? (
+                {selected && !searching && !starredView && blockedAuth(selected) ? (
                   <>
-                    <div className={emptyNote}>{t("harness.signedOut", { agent: selected.name })}</div>
+                    <div className={emptyNote}>
+                      {selectedAuthLabel ?? t("harness.signedOut", { agent: selected.name })}
+                    </div>
                     {loginFor(selected) && onLogIn && (
                       <button
                         type="button"

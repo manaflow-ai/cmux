@@ -438,3 +438,23 @@
 .ui-menu-item.acpmux-quick-offer {
   padding-inline-start: calc(var(--ui-row-padding-inline) + 12px);
 }
+
+
+/* Auth state stays visible on the selected model button without changing its layout. */
+.acpmux-model-auth-state {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  inline-size: 1em;
+  block-size: 1em;
+  margin-inline-end: 0.15em;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  color: var(--agent-warning, var(--agent-text));
+  font-size: var(--text-detail);
+  font-weight: 600;
+  line-height: 1;
+}
+.acpmux-model[data-auth-state="unreachable"] .acpmux-model-auth-state {
+  color: var(--agent-muted);
+}

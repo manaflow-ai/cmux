@@ -1680,7 +1680,7 @@ export function Composer({
       )}
       {!remote.note && blocked?.reason && !blocked.shownAbove && (
         <p className="acpmux-composer-remote-note acpmux-composer-trust-note" role="note">
-          {t(blocked.reason)}
+          {blocked.text ?? blocked.text ?? t(blocked.reason)}
         </p>
       )}
       {findingFiles &&
@@ -1995,7 +1995,7 @@ export function Composer({
                 shell
                   ? t("composer.shellRun")
                   : blocked?.reason
-                    ? t(blocked.reason)
+                    ? (blocked.text ?? t(blocked.reason))
                     : t(
                         !snapshot.isWorking
                           ? "composer.sendTooltip"

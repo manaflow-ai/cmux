@@ -632,6 +632,8 @@ export type AcpmuxSnapshot = {
     /// Harness-reported metadata used by `/status`; values must be labels, never credentials.
     agentInfo?: Record<string, unknown>;
     authSource?: string;
+    /// Harness auth preflight from the agent health/session detail, when reported.
+    authState?: "signedIn" | "signedOut" | "expired" | "needsLogin" | "missing" | "unknown";
     baseUrl?: string;
     route?: string;
     settingsSources?: unknown;

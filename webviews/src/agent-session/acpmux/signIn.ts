@@ -1,4 +1,5 @@
 import { createContext, useContext } from "react";
+import { authState, type HarnessAuth } from "./authPreflight";
 
 /// The harnesses this Mac's acpmux last found signed out (`_acpmux/harness/health`, cx-ae9eb),
 /// by acpmux harness id, each with its login command ("" when acpmux names none). The model
@@ -6,6 +7,7 @@ import { createContext, useContext } from "react";
 /// chat that fails on its first turn.
 export type SignIn = {
   signedOut: Readonly<Record<string, string>>;
+  auth?: Readonly<Record<string, HarnessAuth>>;
   /// Runs `login` for `harness` in a terminal tab; the pane checks again when it is back.
   logIn(harness: string, login: string): void;
 };
@@ -21,6 +23,24 @@ export function signedOutHarnesses(rows: readonly unknown[]): Record<string, str
     const health = row as { id?: unknown; auth?: unknown; login?: unknown } | null;
     if (typeof health?.id !== "string" || health.auth !== "signedOut") continue;
     out[health.id] = typeof health.login === "string" ? health.login : "";
+  }
+  return out;
+}
+
+/// All auth states from the harness health probe. Unknown stays explicit so the picker never
+/// turns a missing health reply into a generic transport failure.
+export function harnessAuthStates(rows: readonly unknown[]): Record<string, HarnessAuth> {
+  const out: Record<string, HarnessAuth> = {};
+  for (const row of rows) {
+    const health = row as { id?: unknown; auth?: unknown; login?: unknown; source?: unknown; error?: unknown } | null;
+    if (typeof health?.id !== "string") continue;
+    const state = authState(health.auth);
+    out[health.id] = {
+      state,
+      ...(typeof health.login === "string" && health.login ? { login: health.login } : {}),
+      ...(health.source === "migration" ? { source: "migration" as const } : { source: "harness" as const }),
+      ...(typeof health.error === "string" && health.error ? { error: health.error } : {}),
+    };
   }
   return out;
 }

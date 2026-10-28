@@ -4,6 +4,7 @@ import type { Choice, Combo } from "./ComposerPickers";
 import type { QuickMenuExtras } from "./QuickModelMenu";
 import type { PickerProfile } from "./pickerProfiles";
 import type { SpeedTiers } from "./FastToggle";
+import type { HarnessAuth } from "./authPreflight";
 
 /// What the picker gets from ComposerPickers. Picks go through `onLand` (model, then its effort
 /// once the agent reports that model) and `onEffort`.
@@ -81,6 +82,7 @@ export type ModelPickerProps = {
   /// command (cx-ae9eb). Their rail tab dims and lists Log In in place of models; none of their
   /// models can be picked, so a pick never starts a chat that fails on its first turn.
   signedOut?: Readonly<Record<string, string>>;
+  auth?: Readonly<Record<string, HarnessAuth>>;
   /// Runs a signed-out harness's login (its Log In row).
   onLogIn?(harness: string, login: string): void;
   /// The compact menu a click on the chip opens (QuickModelMenu). Every composer passes it (Leo

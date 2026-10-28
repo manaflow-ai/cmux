@@ -4616,6 +4616,15 @@ export class AcpmuxDirectClient {
                 ? summary.agentInfo
                 : undefined,
             authSource: text(summary.authSource),
+            authState:
+              summary.authState === "signedIn" ||
+              summary.authState === "signedOut" ||
+              summary.authState === "expired" ||
+              summary.authState === "needsLogin" ||
+              summary.authState === "missing" ||
+              summary.authState === "unknown"
+                ? summary.authState
+                : undefined,
             baseUrl: text(summary.baseUrl),
             route: text(summary.route),
             settingsSources: summary.settingsSources,

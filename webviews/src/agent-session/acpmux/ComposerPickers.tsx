@@ -906,7 +906,13 @@ export function ComposerPickers({
   // Accounts are this Mac's acpmux routes: a chat on another machine has none here.
   const quickAccount: QuickMenuExtras["account"] =
     chatAccounts && summary?.sessionId && !summary.host && summary.hostKind !== "cloud"
-      ? { sessionId: summary.sessionId, accounts: chatAccounts }
+      ? {
+          sessionId: summary.sessionId,
+          accounts: chatAccounts,
+          ...(signIn && summary.harness
+            ? { onLogIn: (_routeId: string, login: string) => signIn.logIn(summary.harness!, login) }
+            : {}),
+        }
       : undefined;
   // Claude Code's Fast mode is one checkbox row of the menu, after Account (Leo 2026-10-20, as Claude
   // Code's). On is any tier past off; a click turns it off, or on at the option's first tier. Codex
@@ -961,7 +967,13 @@ export function ComposerPickers({
           onHarnessEnable={onHarnessEnable}
           onAddAgent={onAddAgent}
           harnessFixed={locked}
-          {...(signIn ? { signedOut: pickableSignedOut(signIn.signedOut, summary), onLogIn: signIn.logIn } : {})}
+          {...(signIn
+            ? {
+                signedOut: pickableSignedOut(signIn.signedOut, summary),
+                ...(signIn.auth ? { auth: signIn.auth } : {}),
+                onLogIn: signIn.logIn,
+              }
+            : {})}
           fastMode={bolted ? undefined : fastMode}
           {...(speedTiers ? { speed: speedTiers } : {})}
           catalogRefresh={catalogRefresh}

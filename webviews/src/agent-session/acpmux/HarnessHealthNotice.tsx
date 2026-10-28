@@ -1,6 +1,7 @@
 import { createContext, type ReactNode, useContext, useEffect, useRef, useState } from "react";
 import { Spinner } from "./conversation/icons";
 import { useT } from "./i18n";
+import type { AuthState } from "./authPreflight";
 import { useNoticeTurn } from "./NoticeSlot";
 
 /// One row of acpmux's `_acpmux/harness/health` (cx-ny85), as the host hands it to the pane
@@ -11,7 +12,7 @@ export type HarnessHealth = {
   latest?: string | null;
   outdated?: boolean;
   /// Only from evidence (a profile's check, or a probe's sign-in error).
-  auth?: "signedIn" | "signedOut" | "unknown";
+  auth?: AuthState;
   /// The command that signs it in.
   login?: string | null;
   /// How to update it; `elevated`: it needs sudo, so the pane never offers it.
@@ -107,7 +108,10 @@ export function HarnessHealthNotice({
   const t = useT();
   const [dismissed, setDismissed] = useState<string>();
   const [progress, setProgress] = useState<Progress>();
-  const signedOut = health && health.auth === "signedOut" && health.login ? health.login : undefined;
+  const signedOut =
+    health && (health.auth === "signedOut" || health.auth === "expired" || health.auth === "needsLogin") && health.login
+      ? health.login
+      : undefined;
   const update =
     health &&
     health.outdated &&

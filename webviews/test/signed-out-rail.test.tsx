@@ -273,3 +273,21 @@ test("Starred lists no model of a signed-out harness", async () => {
   const keys = modelRows().map((row) => row.dataset.key!.slice("model:".length));
   expect(keys).toEqual([claudeModel]);
 });
+
+
+test("an expired selected harness marks the closed chip and offers re-authentication", async () => {
+  const { catalog } = await mount({
+    harness: "claude",
+    signIn: {
+      signedOut: {},
+      auth: { claude: { state: "expired", login: "claude login", source: "harness" } },
+      logIn: () => undefined,
+    },
+  });
+  const button = host.querySelector<HTMLButtonElement>(".acpmux-model .acpmux-picker-button");
+  expect(button?.title).toContain("Session expired");
+  expect(host.querySelector(".acpmux-model[data-auth-state=expired]")).not.toBeNull();
+  await act(async () => openFullPicker());
+  const tab = tabFor(catalog.harnesses.find((entry) => entry.id === "claude")!.name);
+  expect(tab?.getAttribute("aria-disabled")).toBe("true");
+});

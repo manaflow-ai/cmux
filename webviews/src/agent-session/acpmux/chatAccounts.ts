@@ -1,8 +1,9 @@
 import { createContext, useContext } from "react";
+import type { AuthState } from "./authPreflight";
 
 /// One account a chat can run on: an acpmux route (`_acpmux/route/list`, routes.rs) that serves
 /// the chat's harness family, such as a direct subscription, an API key, a subrouter or CodeRouter.
-export type ChatAccount = { id: string; name: string; kind?: string };
+export type ChatAccount = { id: string; name: string; kind?: string; auth?: AuthState; login?: string; error?: string };
 
 /// A chat's accounts. `active` is the route bound to it and `scope` where that binding comes from
 /// (`chat`, `workspace`, `family`, `global`); no `active` means the harness's own login.
@@ -61,12 +62,30 @@ export function readChatAccounts(reply: unknown): ChatAccountList {
   };
   const accounts: ChatAccount[] = [];
   for (const row of Array.isArray(raw.routes) ? raw.routes : []) {
-    const route = row as { id?: unknown; name?: unknown; kind?: unknown; serves?: unknown } | null;
+    const route = row as {
+      id?: unknown;
+      name?: unknown;
+      kind?: unknown;
+      serves?: unknown;
+      auth?: unknown;
+      login?: unknown;
+      error?: unknown;
+    } | null;
     if (typeof route?.id !== "string" || route.serves === false) continue;
     accounts.push({
       id: route.id,
       name: typeof route.name === "string" && route.name ? route.name : route.id,
       ...(typeof route.kind === "string" ? { kind: route.kind } : {}),
+      ...(route.auth === "signedIn" ||
+      route.auth === "signedOut" ||
+      route.auth === "expired" ||
+      route.auth === "needsLogin" ||
+      route.auth === "missing" ||
+      route.auth === "unknown"
+        ? { auth: route.auth }
+        : {}),
+      ...(typeof route.login === "string" && route.login ? { login: route.login } : {}),
+      ...(typeof route.error === "string" && route.error ? { error: route.error } : {}),
     });
   }
   const active = typeof raw.active?.routeId === "string" ? raw.active.routeId : undefined;
