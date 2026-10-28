@@ -18,9 +18,11 @@ struct SplitSlowDaemonKeepsPaneTests {
             let content = try #require(services.windows.active?.workspaceContent)
             let daemon = services.daemon
             try #require(daemon.supports(DaemonCapability.splitClientKeys.rawValue), "the optimistic split needs client keys")
-            // A terminal split: a terminal pane splits to a terminal (no New Tab page).
+            // A terminal split (the chat header's Terminal asks for one), whatever the selected tab is.
+            var invocation = ActionInvocation(origin: .user)
+            invocation.opensTerminal = true
             try await keepsPane(services, content, past: DaemonConnection.defaultSpawnTimeout) {
-                _ = services.registry.perform("splitRight", invocation: ActionInvocation(origin: .user))
+                _ = services.registry.perform("splitRight", invocation: invocation)
             }
         }
     }
