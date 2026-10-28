@@ -502,18 +502,44 @@ class Harness:
                 made.append(json.dumps(reply)[:80])
         return made
 
+    def close_one(self, action, target, gone, args=None):
+        """Runs `action` on `target` as a script; a refusal is retried with `confirm` (a destructive action asks
+        scripts for it). Waits up to 15 s for `gone()`; a close that never takes effect is a harness error, so a row
+        never counts an item it failed to close as a leak of the product."""
+        reply = self.action(action, args, target=target)
+        error = reply.get("error") if isinstance(reply, dict) else None
+        if error:
+            reply = self.action(action, {**(args or {}), "confirm": True}, target=target)
+            error = reply.get("error") if isinstance(reply, dict) else None
+        if self.st.wait(gone, 15, step=0.1):
+            return True
+        self.error(f"close {action} {target}: still there after 15 s (reply {json.dumps(reply)[:200]}; "
+                   f"last refusals {self.stress.refusals[-2:]})")
+        self.report.setdefault("close_failures", []).append(f"{action} {target}")
+        return False
+
+    def tab_gone(self, tab):
+        return lambda: all(t.get("id") != tab for w in self.stress.workspaces() for p in self.stress.panes(w)
+                           for t in p.get("tabs") or [])
+
     def close(self, kind, made, workspace):
         for item in made:
             if kind in ("terminal", "tab", "chromium", "webkit", "page", "chat"):
-                self.action("closeTab", {"confirm": True}, target=f"tab:{item}")
+                self.close_one("closeTab", f"tab:{item}", self.tab_gone(item))
             elif kind == "pane":
-                self.action("closePane", {"confirm": True}, target=f"pane:{item}")
+                self.close_one("closePane", f"pane:{item}",
+                               lambda item=item: all(p.get("id") != item
+                                                     for p in self.stress.panes(self.stress.workspace(workspace))))
             elif kind == "screen":
-                self.action("screen.close", {"confirm": True}, target=f"screen:{item}")
+                self.close_one("screen.close", f"screen:{item}",
+                               lambda item=item: all(sc.get("id") != item for sc in
+                                                     (self.stress.workspace(workspace) or {}).get("screens") or []))
             elif kind == "workspace":
-                self.action("closeWorkspace", {"confirm": True}, target=f"workspace:{item}")
+                self.close_one("closeWorkspace", f"workspace:{item}", lambda item=item: self.stress.workspace(item) is None,
+                               {"confirm": True})
             elif kind == "window":
-                self.action("closeWindow", {"confirm": True}, target=f"window:{item}")
+                self.close_one("closeWindow", f"window:{item}",
+                               lambda item=item: all(w.get("key") != item for w in self.topology().get("windows") or []))
             elif kind == "profile":
                 self.action("browserProfile.delete", {"browserProfile": item, "confirm": True})
             elif kind == "chief":
@@ -523,7 +549,7 @@ class Harness:
             # the tabs the profiles opened live in the scratch workspace's first pane
             pane = self.first_pane(workspace)
             for tab in self.stress.tabs(workspace, pane)[1:]:
-                self.action("closeTab", {"confirm": True}, target=f"tab:{tab['id']}")
+                self.close_one("closeTab", f"tab:{tab['id']}", self.tab_gone(tab["id"]))
 
     def run_kind(self, kind, count):
         cap = CAPS.get(kind)
@@ -547,6 +573,7 @@ class Harness:
         time.sleep(self.opts.use_seconds)  # harness: pages load, shells start their jobs
         peak = self.sample(f"{kind}-{count}-peak")
         started = now()
+        failures_before = len(self.report.get("close_failures") or [])
         try:
             self.close(kind, made, workspace)
         except Exception as error:  # noqa: BLE001
@@ -557,7 +584,8 @@ class Harness:
         after = self.sample(f"{kind}-{count}-after", vmmap=True)
         closed_s = round(now() - started, 1)
         rows = compare(flatten(baseline), flatten(after), len(made))
-        record = {"kind": kind, "asked": asked, "count": len(made), "created_s": created_s, "closed_s": closed_s,
+        failed_closes = len(self.report.get("close_failures") or []) - failures_before
+        record = {"kind": kind, "close_failures": failed_closes, "asked": asked, "count": len(made), "created_s": created_s, "closed_s": closed_s,
                   "settled_s": settled, "baseline": baseline, "peak": peak, "after": after,
                   "rows": [dict(zip(("resource", "before", "after", "growth", "allowed", "ok"), r)) for r in rows],
                   "peak_flat": flatten(peak)}
@@ -567,7 +595,8 @@ class Harness:
                      f"peak={record['peak_flat'].get(resource)} after={end} growth={growth} allowed={allowed} "
                      f"{'ok' if ok else 'LEAK'}")
             if not ok:
-                line = f"{kind} n={len(made)} {resource}: {before} -> {end} (+{growth}, allowed {allowed})"
+                line = (f"{kind} n={len(made)} {resource}: {before} -> {end} (+{growth}, allowed {allowed})"
+                        + (f" [harness: {failed_closes} closes did not take effect]" if failed_closes else ""))
                 self.report["leaks"].append(line)
                 self.log(f"LEAK {line}")
         if after.get("orphans"):
@@ -858,6 +887,7 @@ def main(argv):
         finally:
             harness.stress.close()
             harness.end_orphans()
+            harness.report["refusals"] = harness.stress.refusals[-200:]
             report.update(harness.report)
         code = 1 if report.get("leaks") else 0
     finally:
