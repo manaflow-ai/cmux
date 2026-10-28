@@ -1,0 +1,239 @@
+#!/usr/bin/env python3
+"""The fleet-shared DEV compile cache (scripts/cmux-next/dev_cas_seed.py).
+
+- a packed cache unpacks to the same files and replaces the host's old cache whole;
+- a seed holding a link, a path outside the cache or `..` installs nothing;
+- a seed replaces a host's cache only when the host has none or the seed is newer;
+- a reader takes a record only from a trusted feat-cmux-next run with matching key fields, and
+  stops at the newest one that is not newer than the host's cache;
+- bytes that do not match the record's digest are never installed;
+- without the store's URL and token nothing is fetched or published, and a pack without --out
+  writes only the host's origin marker;
+- the workflow hands the token only to the DEV landing compile, from the next-dev-cas environment.
+"""
+from __future__ import annotations
+
+import hashlib
+import importlib.util
+import io
+import json
+import os
+import shutil
+import sys
+import tarfile
+import tempfile
+import unittest
+from pathlib import Path
+from unittest import mock
+
+import yaml
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "scripts/ci"))
+SPEC = importlib.util.spec_from_file_location("dev_cas_seed", ROOT / "scripts/cmux-next/dev_cas_seed.py")
+seed = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(seed)
+
+REPO, REPO_ID = "manaflow-ai/cmux", "123"
+ENV = {"GITHUB_REPOSITORY": REPO, "GITHUB_REPOSITORY_ID": REPO_ID, "GITHUB_RUN_ID": "900",
+       "GITHUB_WORKFLOW_REF": f"{REPO}/.github/workflows/cmux-next.yml@refs/heads/feat-cmux-next"}
+FIELDS = {"recipe": seed.RECIPE, "xcode": "Xcode 26.6 Build version 17F113", "sdk": "26.5 25F70"}
+KEY = seed.key_of(FIELDS)
+SHA_A, SHA_B = "a" * 40, "b" * 40
+
+
+def cat_zstd(directory: Path) -> str:
+    """A stand-in zstd that copies (compression is not under test)."""
+    path = directory / "zstd"
+    path.write_text("#!/bin/sh\nexec cat\n")
+    path.chmod(0o755)
+    return str(path)
+
+
+def make_cas(derived_data: Path, payload: str) -> None:
+    (derived_data / seed.CAS_DIR / "v1.3").mkdir(parents=True, exist_ok=True)
+    (derived_data / seed.CAS_DIR / "v1.3" / "data").write_text(payload)
+    (derived_data / seed.CAS_DIR / "v1.3" / "index").write_text(payload[::-1])
+
+
+def manifest(sha=SHA_B, committed_at=200, run_id=1, digest="0" * 64, size=10, fields=FIELDS):
+    return {"schema": seed.SCHEMA, "key": KEY, "key_fields": fields, "run_id": run_id, "blob_sha256": digest,
+            "blob_bytes": size, "source_sha": sha, "committed_at": committed_at}
+
+
+def artifact(run_id: int, branch="feat-cmux-next", created="2026-10-28T10:00:00Z") -> dict:
+    return {"id": run_id * 10, "name": seed.RECORD_PREFIX + KEY, "expired": False, "created_at": created,
+            "archive_download_url": f"https://example/{run_id}",
+            "workflow_run": {"id": run_id, "repository_id": REPO_ID, "head_repository_id": REPO_ID,
+                             "head_branch": branch}}
+
+
+class StubApi:
+    def __init__(self, artifacts, manifests, failed_runs=()):
+        self.artifacts, self.manifests, self.failed = artifacts, manifests, set(failed_runs)
+        self.deadline = 10**9
+
+    def left(self):
+        return 100.0
+
+    def json(self, path):
+        if path.startswith("actions/artifacts"):
+            return {"artifacts": self.artifacts}
+        run_id = int(path.split("/")[2].split("?")[0])
+        if path.endswith(f"runs/{run_id}"):
+            return {"id": run_id, "event": "push", "path": ".github/workflows/cmux-next.yml",
+                    "head_branch": "feat-cmux-next", "repository": {"full_name": REPO},
+                    "head_repository": {"full_name": REPO}}
+        conclusion = "failure" if run_id in self.failed else "success"
+        return {"jobs": [{"name": "cmux NEXT DEV Release compile (landing)", "status": "completed",
+                          "conclusion": conclusion}]}
+
+
+class SeedTests(unittest.TestCase):
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        self.root = Path(temp.name)
+        self.env = {**ENV, "CMUX_NEXT_DEV_CAS_ZSTD": cat_zstd(self.root)}
+
+    def test_pack_and_extract_round_trip_replaces_the_old_cache(self):
+        writer, reader = self.root / "w", self.root / "r"
+        make_cas(writer, "fresh objects")
+        make_cas(reader, "old objects")
+        (reader / seed.CAS_DIR / "v1.2").mkdir()
+        size, digest = seed.pack(writer, self.root / "out", self.env)
+        blob = self.root / "out" / seed.BLOB
+        self.assertEqual((size, digest), (blob.stat().st_size, hashlib.sha256(blob.read_bytes()).hexdigest()))
+        seed.extract(blob, reader, self.env)
+        self.assertEqual((reader / seed.CAS_DIR / "v1.3/data").read_text(), "fresh objects")
+        self.assertFalse((reader / seed.CAS_DIR / "v1.2").exists(), "the old cache survived beside the seed")
+        self.assertEqual(sorted(p.name for p in reader.iterdir()), [seed.CAS_DIR])
+
+    def unsafe_blob(self, add) -> Path:
+        blob = self.root / "bad.tar.zst"
+        with tarfile.open(blob, "w") as tar:
+            add(tar)
+        return blob
+
+    def test_a_seed_with_a_link_or_an_outside_path_installs_nothing(self):
+        def file(name):
+            def add(tar):
+                info = tarfile.TarInfo(name)
+                info.size = 1
+                tar.addfile(info, io.BytesIO(b"x"))
+            return add
+
+        def link(tar):
+            info = tarfile.TarInfo(f"{seed.CAS_DIR}/v1.3/data")
+            info.type, info.linkname = tarfile.SYMTYPE, "/etc/passwd"
+            tar.addfile(info)
+
+        for add in (file("elsewhere/x"), file(f"{seed.CAS_DIR}/../x"), file("/abs/x"), link):
+            reader = self.root / "reader"
+            shutil.rmtree(reader, ignore_errors=True)
+            make_cas(reader, "kept")
+            with self.assertRaises(seed.Miss):
+                seed.extract(self.unsafe_blob(add), reader, self.env)
+            self.assertEqual((reader / seed.CAS_DIR / "v1.3/data").read_text(), "kept")
+            self.assertFalse((self.root / "x").exists())
+
+    def test_a_seed_replaces_only_a_missing_or_older_cache(self):
+        host = self.root / "host"
+        record = manifest(SHA_B, committed_at=200)
+        self.assertEqual(seed.newer(record, {}, host), "", "a host with no cache takes any seed")
+        make_cas(host, "local")
+        self.assertEqual(seed.newer(record, {"sha": SHA_A, "committed_at": 100}, host), "")
+        self.assertIn("as new as", seed.newer(record, {"sha": SHA_A, "committed_at": 300}, host))
+        self.assertIn("already holds", seed.newer(record, {"sha": SHA_B, "committed_at": 1}, host))
+        self.assertIn("unknown origin", seed.newer(record, {}, host))
+
+    def find(self, api, marker, host=None):
+        host = host or self.root / "host"
+        with mock.patch.object(seed.reuse, "read_record", lambda _api, item, _scratch: api.manifests[item["workflow_run"]["id"]]):
+            return seed.find_seed(api, KEY, FIELDS, self.env, marker, host, self.root)
+
+    def test_a_reader_takes_only_trusted_matching_records(self):
+        api = StubApi([artifact(5, branch="some-pr-branch", created="2026-10-28T12:00:00Z"),
+                       artifact(4, created="2026-10-28T11:00:00Z"), artifact(3, created="2026-10-28T10:00:00Z")],
+                      {4: manifest(run_id=4, fields={**FIELDS, "xcode": "Xcode 27"}), 3: manifest(run_id=3)})
+        record, run_id = self.find(api, {})
+        self.assertEqual(run_id, 3, "a pull request branch's record or other key fields were taken")
+        failed = StubApi([artifact(3)], {3: manifest(run_id=3)}, failed_runs={3})
+        with self.assertRaisesRegex(seed.reuse.Miss, "did not finish successfully"):
+            self.find(failed, {})
+        with self.assertRaisesRegex(seed.reuse.Miss, "not the DEV compile cache lane"):
+            with mock.patch.dict(self.env, {"GITHUB_WORKFLOW_REF": f"{REPO}/.github/workflows/nightly.yml@refs/heads/main"}):
+                self.find(api, {})
+
+    def test_the_newest_seed_not_being_newer_stops_the_search(self):
+        host = self.root / "host"
+        make_cas(host, "local")
+        api = StubApi([artifact(4, created="2026-10-28T11:00:00Z"), artifact(3)],
+                      {4: manifest(SHA_B, committed_at=200, run_id=4), 3: manifest(SHA_A, committed_at=100, run_id=3)})
+        with self.assertRaisesRegex(seed.reuse.Miss, "as new as") as caught:
+            self.find(api, {"sha": "c" * 40, "committed_at": 250}, host)
+        self.assertNotIn("run 3", str(caught.exception))
+
+    def restore(self, blob_bytes: bytes, record: dict) -> str:
+        host = self.root / "dd"
+        make_cas(host, "local")
+        marker = self.root / "cas-origin.json"
+        marker.write_text(json.dumps({"sha": SHA_A, "committed_at": 100}))
+
+        def fake_curl(args, _token, _timeout):
+            Path(args[args.index("-o") + 1]).write_bytes(blob_bytes)
+
+        env = {**self.env, "CMUX_NEXT_DEV_CAS_URL": "http://store.invalid:8787", "CMUX_NEXT_DEV_CAS_TOKEN": "t",
+               "GH_TOKEN": "g"}
+        args = seed.argparse.Namespace(derived_data=str(host), build_root=str(self.root / "src"), marker=str(marker),
+                                       scratch=str(self.root / "scratch"), timeout=60)
+        with mock.patch.object(seed, "key_fields", lambda *_: FIELDS), \
+                mock.patch.object(seed, "find_seed", lambda *_: (record, 7)), \
+                mock.patch.object(seed, "curl", fake_curl), \
+                mock.patch.object(seed.reuse, "Api", lambda *a: StubApi([], {})), \
+                mock.patch.dict(os.environ, {}, clear=False):
+            seed.cmd_restore(args, env)
+        return (host / seed.CAS_DIR / "v1.3/data").read_text()
+
+    def test_bytes_that_do_not_match_the_record_are_never_installed(self):
+        writer = self.root / "w"
+        make_cas(writer, "seeded")
+        size, digest = seed.pack(writer, self.root / "out", self.env)
+        good = (self.root / "out" / seed.BLOB).read_bytes()
+        bad = bytearray(good)
+        bad[len(bad) // 2] ^= 0xFF
+        self.assertEqual(self.restore(bytes(bad), manifest(digest=digest, size=size)), "local")
+        self.assertEqual(self.restore(good, manifest(digest=digest, size=size)), "seeded")
+        marker = json.loads((self.root / "cas-origin.json").read_text())
+        self.assertEqual((marker["sha"], marker["seeded_from_run"]), (SHA_B, 7))
+
+    def test_without_the_store_nothing_is_fetched_or_published(self):
+        host = self.root / "dd"
+        make_cas(host, "local")
+        args = seed.argparse.Namespace(derived_data=str(host), build_root=str(self.root), marker=str(self.root / "m.json"),
+                                       scratch=str(self.root / "scratch"), timeout=5)
+        with mock.patch.object(seed, "curl", side_effect=AssertionError("fetched without a store")):
+            seed.cmd_restore(args, self.env)
+        (self.root / "pack").mkdir()
+        (self.root / "pack/pack.json").write_text(json.dumps({"schema": seed.SCHEMA}))
+        with mock.patch.object(seed, "curl", side_effect=AssertionError("published without a store")):
+            seed.cmd_publish(seed.argparse.Namespace(pack=str(self.root / "pack"), out=str(self.root / "rec"), timeout=5),
+                             self.env)
+        self.assertFalse((self.root / "rec").exists())
+
+    def test_the_token_reaches_only_the_dev_landing_compile_from_its_environment(self):
+        workflow = yaml.safe_load((ROOT / ".github/workflows/cmux-next.yml").read_text())
+        users = {}
+        for name, job in workflow["jobs"].items():
+            for step in job.get("steps", []):
+                text = json.dumps(step.get("env", {}))
+                if "NEXT_DEV_CAS_TOKEN" in text:
+                    users.setdefault(name, []).append(step.get("name"))
+        self.assertEqual(list(users), ["dev-landing-compile"])
+        job = workflow["jobs"]["dev-landing-compile"]
+        self.assertEqual(job["environment"], "${{ vars.CMUX_NEXT_DEV_CAS_URL != '' && 'next-dev-cas' || '' }}")
+        self.assertIn("refs/heads/feat-cmux-next", workflow["jobs"]["dev-landing-place"]["if"])
+
+
+if __name__ == "__main__":
+    unittest.main()
