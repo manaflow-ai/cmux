@@ -91,6 +91,8 @@ public final class DaemonService {
     /// Callers of `endpoint()` waiting for the first connection (terminals
     /// drawn from the launch snapshot attach as soon as it exists).
     @ObservationIgnored var connectionWaiters: [OnceContinuation<Void, OnceContinuationError>] = []
+    /// Work waiting for the first connection in its own turn on main (``onFirstConnection(_:)``).
+    @ObservationIgnored var firstConnectionCallbacks: [@MainActor () -> Void] = []
     /// Watches each line the service's connections and its terminal attachments read (their reader threads'
     /// `daemon.line` scopes); nil watches nothing.
     @ObservationIgnored public let hangWatch: (any HangWatchScoping)?

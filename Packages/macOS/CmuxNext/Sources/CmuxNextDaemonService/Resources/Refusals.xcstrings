@@ -3538,6 +3538,137 @@
         }
       }
     },
+    "handlers.refusal.launchTypingNotDelivered": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "What you typed while cmux opened didn't reach a terminal. Copy it to paste it again."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يصل ما كتبته أثناء فتح cmux إلى أي طرفية. انسخه لتلصقه مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ono što ste otkucali dok se cmux otvarao nije stiglo do terminala. Kopirajte to da biste ga ponovo zalijepili."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Det, du skrev, mens cmux åbnede, nåede ikke frem til en terminal. Kopiér det for at indsætte det igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Was du beim Öffnen von cmux getippt hast, hat kein Terminal erreicht. Kopiere es, um es erneut einzufügen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lo que escribiste mientras se abría cmux no llegó a ninguna terminal. Cópialo para volver a pegarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce que vous avez tapé pendant l'ouverture de cmux n'a atteint aucun terminal. Copiez-le pour le coller à nouveau."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quello che hai digitato mentre cmux si apriva non ha raggiunto alcun terminale. Copialo per incollarlo di nuovo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux の起動中に入力した内容はターミナルに届きませんでした。コピーしてもう一度ペーストしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អ្វីដែលអ្នកបានវាយ ពេល cmux កំពុងបើក មិនបានទៅដល់ terminal ទេ។ ចម្លងវា ដើម្បីបិទភ្ជាប់ម្តងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 열리는 동안 입력한 내용이 터미널에 전달되지 않았습니다. 복사해서 다시 붙여 넣으세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Det du skrev mens cmux åpnet seg, nådde ikke frem til en terminal. Kopier det for å lime det inn igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "To, co wpisano podczas otwierania cmux, nie trafiło do żadnego terminala. Skopiuj to, aby wkleić ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O que você digitou enquanto o cmux abria não chegou a nenhum terminal. Copie para colar de novo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "То, что вы ввели во время запуска cmux, не попало в терминал. Скопируйте текст, чтобы вставить его снова."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สิ่งที่คุณพิมพ์ขณะที่ cmux กำลังเปิดไม่ได้ไปถึงเทอร์มินัล คัดลอกไว้เพื่อวางอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux açılırken yazdıklarınız bir terminale ulaşmadı. Yeniden yapıştırmak için kopyalayın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Те, що ви ввели під час запуску cmux, не потрапило до термінала. Скопіюйте текст, щоб вставити його знову."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nội dung bạn gõ khi cmux đang mở chưa tới được terminal nào. Hãy sao chép để dán lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 打开时你输入的内容没有到达任何终端。请复制后重新粘贴。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 開啟時你輸入的內容沒有送到任何終端機。請拷貝後重新貼上。"
+          }
+        }
+      }
+    },
     "handlers.refusal.tabGroupGone": {
       "extractionState": "manual",
       "localizations": {

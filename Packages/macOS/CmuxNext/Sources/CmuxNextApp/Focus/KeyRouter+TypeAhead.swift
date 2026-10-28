@@ -1,5 +1,8 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextDaemon
+import CmuxNextDaemonService
+import CmuxNextDesign
 import CmuxNextPages
 import CmuxNextTerminal
 import CmuxNextFocus
@@ -162,41 +165,62 @@ extension KeyRouter {
 }
 
 // The key router's part in the launch picture phase (p08-startup-061): keys typed while a window shows its saved
-// picture change only the model in their turn, and no key builds the window.
-// - The window cannot decide a key yet (it has no controller, or its focus has not resolved): the key waits whole, a
-//   chord too, and goes through the router again once the window can (`holdsUndecided`).
+// picture change only the model in their turn, no key builds the window, and none waits for the window or a terminal
+// view to be built (each goes to its destination at once, and the destination queues it).
+// - The window cannot decide a key yet (it has no controller, or its focus has not resolved): a typing key goes to the
+//   terminal the window's saved session restores focus to, by id (`holdsUndecided`). A chord, or a key of a window
+//   with no such terminal, waits whole and goes through the router again once the window can.
 // - Otherwise the router decides it as usual: an action runs (a Command chord, a Control chord, a chord's leader or the
-//   key after it), and only a key the dispatcher hands to the focused terminal, whose live view is not built, waits in
-//   that terminal's stand-in buffer, which raises the pane's build slice to the next frame (`holdsForTerminal`).
+//   key after it), and only a key the dispatcher hands to the focused terminal, whose live view is not built, goes to
+//   that terminal by id (`holdsForTerminal`), which raises the pane's build slice to the next frame.
+// A key that reaches nothing is refused with the refusal notice, its text kept on it (`refuseKeys`).
 // The router turns its `.launchPicture` mode on while the buffer is active and asks it only then.
 extension LaunchPictureKeys {
-    /// The buffer of `router`: it delivers to the router's terminal views and replays through its dispatch.
+    /// The buffer of `router`: it delivers to the router's terminal views, sends by id through the tab's daemon,
+    /// replays through the router's dispatch, and refuses through its registry.
     static func routed(by router: KeyRouter) -> LaunchPictureKeys {
         let keys = LaunchPictureKeys { [weak router] target, events in
             router.map { deliverKeys(events, to: target, router: $0) } ?? false
         }
+        keys.forward = { [weak router] target, events, answered in
+            guard let router else { return answered("the app is closing") }
+            sendKeys(events, to: target, router: router, answered: answered)
+        }
         keys.replay = { [weak router] window, events in router.map { replayKeys(events, window: window, router: $0) } ?? false }
+        keys.refuse = { [weak router] window, text, reason in
+            guard let router else { return }
+            router.trace?("launch picture: keys of window \(window) reached nothing: \(reason ?? "no terminal could take them")")
+            refuseKeys(text, router: router)
+        }
         keys.onActiveChange = { [modes = router.modes] in modes.set(.launchPicture, $0) }
         return keys
     }
 
-    /// Before every owner: whether `event` waits because `window`, showing its launch picture, cannot decide it yet,
-    /// or keys typed there before it still wait to be decided (this one goes behind them).
+    /// Before every owner: whether `event` goes through here because `window`, showing its launch picture, cannot
+    /// decide it yet, or keys typed there before it still wait to be decided (this one goes behind them). A typing
+    /// key goes to the terminal the window restores focus to, by id; the rest wait to be decided.
     func holdsUndecided(_ event: NSEvent, in window: NSWindow?, router: KeyRouter) -> Bool {
         guard let window, let found = Self.pictureWindow(window, router: router, keys: self), holds(window: found.id) else { return false }
         if !isHoldingUndecided(window: found.id) {
             let decides = found.controller.map { Self.decidesKeys($0.focus.state.resolved) } ?? false
             guard showsPicture(window: found.id), !decides else { return false }
+            // A chord waits whole: it may be one of the window's shortcuts, which only the window can decide.
+            if !KeyRouter.isChord(event.modifierFlags), let target = Self.restoredTerminal(of: found.id, router: router) {
+                router.decided.add(event)
+                router.trace?("launch picture: the key goes to terminal \(target.tab), the window's restored focus")
+                hold(event, for: target)
+                return true
+            }
         }
         router.trace?("launch picture: the key waits for its window to decide it")
         holdUndecided(event, window: found.id)
         return true
     }
 
-    /// After the dispatcher handed `event` to the focused view: whether it waits for the focused terminal of
-    /// `window`, still a picture. A terminal that is live and has the keyboard, with nothing typed for it waiting,
-    /// takes its keys on the usual path. A Command chord no action took is the menu's or the terminal's key
-    /// equivalent, never typing: it goes on as usual.
+    /// After the dispatcher handed `event` to the focused view: whether it goes through here for the focused
+    /// terminal of `window`, still a picture (by id), or keys sent to it are still on their way (behind them). A
+    /// terminal that is live and has the keyboard, with nothing on its way to it, takes its keys on the usual path.
+    /// A Command chord no action took is the menu's or the terminal's key equivalent, never typing: it goes on as usual.
     func holdsForTerminal(_ event: NSEvent, in window: NSWindow?, router: KeyRouter) -> Bool {
         guard router.modes.contains(.launchPicture), let window, !event.modifierFlags.contains(.command) else { return false }
         let (controller, kind) = router.focus(for: window)
@@ -206,7 +230,7 @@ extension LaunchPictureKeys {
         let shell = controller.window ?? window
         if !isHolding(target), let live = Self.liveSurface(of: target, router: router), shell.firstResponder === live { return false }
         router.decided.add(event)
-        router.trace?("launch picture: the key waits for terminal \(tab)")
+        router.trace?("launch picture: the key goes to terminal \(tab)")
         hold(event, for: target)
         return true
     }
@@ -229,6 +253,51 @@ extension LaunchPictureKeys {
         return (id, nil)
     }
 
+    /// The terminal window `id` restores focus to from its saved session (`WindowState.adopt`): its shown
+    /// workspace's saved focused pane and that pane's selected tab, when that is a terminal. Nil when the window
+    /// shows a top page, saved no focus, or its focused pane shows something else.
+    private static func restoredTerminal(of id: String, router: KeyRouter) -> Target? {
+        guard let services = router.services, let state = services.windows.states[id], state.page == nil,
+              let workspace = state.workspaceID, let paneID = state.savedFocusedPane,
+              let pane = services.workspace(id: workspace)?.screens.flatMap(\.panes).first(where: { $0.id == paneID }) else { return nil }
+        let selected = state.selection.selection(in: paneID).flatMap { tab in pane.tabs.first { $0.id == tab } }
+        guard let tab = selected ?? (pane.tabs.indices.contains(pane.defaultTabIndex) ? pane.tabs[pane.defaultTabIndex] : nil),
+              tab.kind == .pty else { return nil }
+        return Target(window: id, pane: paneID, tab: tab.id)
+    }
+
+    /// Sends `events` to `target`'s terminal by its id through the daemon that holds its tab (`DaemonService.type`),
+    /// each key as the terminal's owner takes it (``TypedTerminalInput``); before the daemon's first connection they
+    /// wait for it, as the terminal's attach does. `answered` gets why not when no daemon holds a terminal tab
+    /// `target.tab` (a tab of another session's terminal, or one gone).
+    private static func sendKeys(_ events: [NSEvent], to target: Target, router: KeyRouter, answered: @escaping Answered) {
+        let inputs = events.compactMap(TypedTerminalInput.init)
+        guard let services = router.services, let (_, pane) = services.locateTab(target.tab) else {
+            return answered("no terminal tab \(target.tab)")
+        }
+        let daemon = services.daemon(for: pane)
+        daemon.onFirstConnection { [weak services] in
+            // Read again: the first connection's tree may name the tab's terminal anew.
+            guard let tab = services?.locateTab(target.tab)?.0, tab.kind == .pty else { return answered("no terminal tab \(target.tab)") }
+            daemon.type(inputs, terminal: tab.terminalID, surface: tab.surface, answered: answered)
+        }
+    }
+
+    /// Keys that reached nothing: the refusal notice says so (the refusal path: logged, and the notice in the active
+    /// window) and keeps `text`, everything of the window refused so far, on it until the person closes it. Its Copy
+    /// puts the text on the pasteboard only on a click, as a Cloud result's Copy does (`CloudPresenter`): the
+    /// person's clipboard is never replaced unasked.
+    private static func refuseKeys(_ text: String, router: KeyRouter) {
+        guard let services = router.services else { return }
+        let reason = RefusalStrings.launchTypingNotDelivered
+        services.registry.refuse(reason)
+        guard let shell = services.windows.active?.window ?? NSApp.keyWindow else { return }
+        // The refusal's own toast (same id), now with the text: one notice, not two.
+        let toast = CmuxToast(id: RefusalHUD.toastID, message: reason, action: CmuxToast.Action(title: Strings.menuCopy),
+                              duration: CmuxToast.untilClosed)
+        CmuxToastCenter.shared.show(toast, in: shell).onAction = { CloudPresenter.copy(text) }
+    }
+
     /// Sends `events`, typed in window `id` before it could decide them, through the router again, in order, as
     /// `CmuxApplication.sendEvent` would; false while the window still cannot decide them.
     private static func replayKeys(_ events: [NSEvent], window id: String, router: KeyRouter) -> Bool {
@@ -242,7 +311,7 @@ extension LaunchPictureKeys {
         return true
     }
 
-    /// Gives `events` to `target`'s terminal view, in order, when the pane shows it; false keeps them waiting. Each
+    /// Gives `events` to `target`'s terminal view, in order, when the pane shows it; false when it does not. Each
     /// goes in the dispatch context `sendEvent` gives a key, so the terminal reports the key it took.
     private static func deliverKeys(_ events: [NSEvent], to target: Target, router: KeyRouter) -> Bool {
         guard let surface = liveSurface(of: target, router: router) else { return false }

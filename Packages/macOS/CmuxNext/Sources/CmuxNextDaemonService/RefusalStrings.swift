@@ -167,6 +167,11 @@ public nonisolated enum RefusalStrings {
     public static var paneArgumentRequired: String { text("handlers.refusal.paneArgumentRequired", "a pane argument is required") }
     public static var paneCannotSwapWithItself: String { text("handlers.refusal.paneCannotSwapWithItself", "a pane cannot swap with itself") }
     public static var noLiveTerminal: String { text("handlers.refusal.noLiveTerminal", "the workspace shows no live terminal") }
+    /// Keys typed while a window showed its launch picture that no terminal took (its restore failed, the daemon
+    /// refused them, or the window closed first); the notice keeps the text to copy.
+    public static var launchTypingNotDelivered: String {
+        text("handlers.refusal.launchTypingNotDelivered", "What you typed while cmux opened didn't reach a terminal. Copy it to paste it again.")
+    }
     public static func noPaneInDirection(_ direction: String) -> String { format("handlers.refusal.noPaneInDirection", "no pane %@ of the focused pane", direction) }
     public static var screenHasOnePane: String { text("handlers.refusal.screenHasOnePane", "the screen has one pane") }
     public static func noDividerToMove(_ direction: String) -> String { format("handlers.refusal.noDividerToMove", "no divider to move %@ (or it is at its limit)", direction) }

@@ -7,7 +7,7 @@ public import CmuxNextWakeups
 /// the picture still over the live root (``LaunchPictureRegions``) is held (``LaunchPictureClicks``).
 /// - `launch_picture_shown` (this init): the buffer begins for the window; a key or a click raises the window's
 ///   build behind the picture (``LaunchWindowBuild/raise()``, a userBlocking post, never in the input's turn).
-/// - The pane region's first content: the buffer gives the waiting keys to their terminals.
+/// - The pane region's first content: the buffer sends the keys its window could not decide through the router again.
 /// - A part leaves at its region's first content: its held clicks go again at the same window point, now to the live
 ///   view under it, unless what the window shows or its size changed since, or they waited more than ``clickLimit``.
 ///   At the bound a part's clicks are dropped: its region has no content.

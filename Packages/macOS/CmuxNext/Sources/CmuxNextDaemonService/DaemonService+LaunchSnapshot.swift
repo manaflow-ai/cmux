@@ -154,6 +154,9 @@ extension DaemonService {
         let waiters = connectionWaiters
         connectionWaiters.removeAll()
         for waiter in waiters { waiter.resume(returning: ()) }
+        let callbacks = firstConnectionCallbacks
+        firstConnectionCallbacks.removeAll()
+        for callback in callbacks { callback() }
     }
 }
 
