@@ -76,7 +76,7 @@ extension ControlCommandCoordinator {
             )
         }
         switch systemContext.controlSessionImport(source: source) {
-        case let .restored(sourcePath, windowCount, heldBackResumeCount, droppedRemoteWorkspaceCount):
+        case let .restored(sourcePath, windowCount, heldBackResumeCount, droppedRemoteWorkspaceCount, droppedWorkspaceCount):
             return .ok(.object([
                 "restored": .bool(true),
                 "source_path": .string(sourcePath),
@@ -84,6 +84,7 @@ extension ControlCommandCoordinator {
                 "trusted": .bool(source.isTrusted),
                 "held_back_resume_count": .int(Int64(heldBackResumeCount)),
                 "dropped_remote_workspace_count": .int(Int64(droppedRemoteWorkspaceCount)),
+                "dropped_workspace_count": .int(Int64(droppedWorkspaceCount)),
             ]))
         case let .failed(code, message, path):
             return .err(code: code, message: message, data: .object(["path": orNull(path)]))

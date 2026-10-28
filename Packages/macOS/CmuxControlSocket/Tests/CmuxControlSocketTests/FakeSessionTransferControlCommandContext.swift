@@ -7,7 +7,8 @@ final class FakeSessionTransferControlCommandContext: ControlCommandContext {
         sourcePath: "/tmp/in.json",
         windowCount: 1,
         heldBackResumeCount: 0,
-        droppedRemoteWorkspaceCount: 0
+        droppedRemoteWorkspaceCount: 0,
+        droppedWorkspaceCount: 0
     )
     var exportResolution: ControlSessionExportResolution = .exported(path: "/tmp/out.json", sourcePath: "/tmp/src.json")
     private(set) var importSources: [ControlSessionImportSource] = []
