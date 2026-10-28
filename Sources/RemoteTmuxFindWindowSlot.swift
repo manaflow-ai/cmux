@@ -8,6 +8,9 @@ import Foundation
 @MainActor
 struct RemoteTmuxFindWindowSlot {
     private var model: RemoteTmuxFindWindowModel?
+    /// Opens the find bar after this window's jumps, so a newer jump replaces one
+    /// still loading history. It outlives each model, which closes on the jump.
+    let jumper = RemoteTmuxFindWindowJumper()
 
     /// The model, when find-window is the overlay showing.
     func activeModel(in state: CommandPaletteOverlayState) -> RemoteTmuxFindWindowModel? {

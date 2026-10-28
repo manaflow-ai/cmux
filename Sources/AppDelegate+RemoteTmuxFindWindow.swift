@@ -37,9 +37,11 @@ extension AppDelegate {
     ///
     /// - Parameters:
     ///   - focusedWorkspaceId: searched first and listed first.
+    ///   - jumper: opens the find bar for a content match, one jump at a time.
     ///   - didJump: called after a result was activated, so the panel can close.
     func makeRemoteTmuxFindWindowModel(
         focusedWorkspaceId: UUID?,
+        jumper: RemoteTmuxFindWindowJumper,
         didJump: @escaping @MainActor () -> Void
     ) -> RemoteTmuxFindWindowModel {
         RemoteTmuxFindWindowModel(environment: .init(
@@ -53,12 +55,12 @@ extension AppDelegate {
                     focusedWorkspaceId: focusedWorkspaceId
                 )
             },
-            readText: { [weak self] candidate in
-                await self?.remoteTmuxController.readFindWindowText(for: candidate)
+            readText: { [weak self] candidate, budget in
+                await self?.remoteTmuxController.readFindWindowText(for: candidate, budget: budget)
             },
             jump: { [weak self] result in
                 didJump()
-                self?.jumpToRemoteTmuxFindWindowResult(result)
+                self?.jumpToRemoteTmuxFindWindowResult(result, jumper: jumper)
             }
         ))
     }
@@ -67,7 +69,7 @@ extension AppDelegate {
     /// pane, and for a content match opens the pane's find bar on the matched text
     /// so the surface scrolls to it. A match older than the attach seed reached
     /// loads the pane's full tmux history first.
-    func jumpToRemoteTmuxFindWindowResult(_ result: RemoteTmuxFindWindowResult) {
+    func jumpToRemoteTmuxFindWindowResult(_ result: RemoteTmuxFindWindowResult, jumper: RemoteTmuxFindWindowJumper) {
         let candidate = result.candidate
         guard let context = mainWindowContexts.values.first(where: { context in
             context.tabManager.tabs.contains { $0.id == candidate.workspaceId }
@@ -84,7 +86,7 @@ extension AppDelegate {
               !hit.matchedText.isEmpty,
               let panel = workspace.terminalPanel(for: surfaceId) else { return }
         let tabManager = context.tabManager
-        Self.remoteTmuxFindWindowJumper.jump(
+        jumper.jump(
             loadsFullHistoryFirst: hit.isBeyondAttachSeed,
             reseed: { [weak self] in
                 await self?.remoteTmuxController.reseedFullHistory(forSurfaceId: surfaceId) ?? .failed
@@ -99,7 +101,4 @@ extension AppDelegate {
             }
         )
     }
-
-    /// One jump at a time across every window.
-    private static let remoteTmuxFindWindowJumper = RemoteTmuxFindWindowJumper()
 }

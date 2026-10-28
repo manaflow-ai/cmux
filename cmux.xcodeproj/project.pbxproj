@@ -3136,6 +3136,7 @@
 		A45ABFBE3D9BC3EF6890668C /* RemoteTmuxFindWindowSearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C43FE4629AC1AD4540760BB /* RemoteTmuxFindWindowSearch.swift */; };
 		6F9C68DFF091A35C9106DFD0 /* RemoteTmuxFindWindowSearchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA25929499D9BD6D0BF990EF /* RemoteTmuxFindWindowSearchTests.swift */; };
 		5C0C5E63C23D7E23A8B70A8B /* RemoteTmuxFindWindowSlot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 535046261BD7CEE268031FD4 /* RemoteTmuxFindWindowSlot.swift */; };
+		2542C008F2F4734C9CBE7A11 /* RemoteTmuxFindWindowTextBudget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E91905FF0470C120D7ACFED /* RemoteTmuxFindWindowTextBudget.swift */; };
 		04F37F7B96A07C9947AC13BB /* RemoteTmuxFindWindowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97D7B4AA20148C536301E4FE /* RemoteTmuxFindWindowView.swift */; };
 		B4EF8755C72FB112D5E81E45 /* RemoteTmuxFullHistorySearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04007DAA7CF0394424762C52 /* RemoteTmuxFullHistorySearch.swift */; };
 		C7836C811B244F7A31DE3C97 /* RemoteTmuxFullHistorySearchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26C1CB5AD8E43D5E1085A427 /* RemoteTmuxFullHistorySearchTests.swift */; };
@@ -7833,6 +7834,7 @@
 		8C43FE4629AC1AD4540760BB /* RemoteTmuxFindWindowSearch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxFindWindowSearch.swift; sourceTree = "<group>"; };
 		DA25929499D9BD6D0BF990EF /* RemoteTmuxFindWindowSearchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RemoteTmuxFindWindowSearchTests.swift"; sourceTree = "<group>"; };
 		535046261BD7CEE268031FD4 /* RemoteTmuxFindWindowSlot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxFindWindowSlot.swift; sourceTree = "<group>"; };
+		6E91905FF0470C120D7ACFED /* RemoteTmuxFindWindowTextBudget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxFindWindowTextBudget.swift; sourceTree = "<group>"; };
 		97D7B4AA20148C536301E4FE /* RemoteTmuxFindWindowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxFindWindowView.swift; sourceTree = "<group>"; };
 		04007DAA7CF0394424762C52 /* RemoteTmuxFullHistorySearch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Find/RemoteTmuxFullHistorySearch.swift; sourceTree = "<group>"; };
 		26C1CB5AD8E43D5E1085A427 /* RemoteTmuxFullHistorySearchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RemoteTmuxFullHistorySearchTests.swift"; sourceTree = "<group>"; };
@@ -12739,6 +12741,7 @@
 				97D7B4AA20148C536301E4FE /* RemoteTmuxFindWindowView.swift */,
 				2AD335430D12E6E3C3B20AF4 /* RemoteTmuxPaneText.swift */,
 				586FECF743502D66D6A5FC4A /* RemoteTmuxPaneTextReader.swift */,
+				6E91905FF0470C120D7ACFED /* RemoteTmuxFindWindowTextBudget.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -16883,6 +16886,7 @@
 				202CBEA2156A9946B5807DAA /* RemoteTmuxFindWindowRow.swift in Sources */,
 				A45ABFBE3D9BC3EF6890668C /* RemoteTmuxFindWindowSearch.swift in Sources */,
 				5C0C5E63C23D7E23A8B70A8B /* RemoteTmuxFindWindowSlot.swift in Sources */,
+				2542C008F2F4734C9CBE7A11 /* RemoteTmuxFindWindowTextBudget.swift in Sources */,
 				04F37F7B96A07C9947AC13BB /* RemoteTmuxFindWindowView.swift in Sources */,
 				B4EF8755C72FB112D5E81E45 /* RemoteTmuxFullHistorySearch.swift in Sources */,
 				490ED2CD7A2E9D406B94C521 /* RemoteTmuxFullHistorySeedOutcome.swift in Sources */,

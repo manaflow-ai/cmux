@@ -11,7 +11,7 @@ import Testing
 /// chunks that each wait for the previous reply.
 @MainActor
 @Suite struct RemoteTmuxPaneTextReaderTests {
-    @Test func historyIsReadInJoinedChunksOneReplyAtATimeThenTheScreen() async throws {
+    @Test func theScreenIsReadFirstThenHistoryNewestFirstOneReplyAtATime() async throws {
         let far = ScriptedTmux(replies: [
             "display-message": .lines(["2500 200 0"]),
             "capture-pane -p -J -S - -E -501": .lines(["old-1", "old-2"]),
@@ -24,9 +24,9 @@ import Testing
 
         #expect(far.commands == [
             "display-message -p -t %7 -F \"#{history_size} #{pane_width} #{alternate_on}\"",
-            "capture-pane -p -J -S - -E -501 -t %7",
-            "capture-pane -p -J -S -500 -E -1 -t %7",
             "capture-pane -p -J -t %7",
+            "capture-pane -p -J -S -500 -E -1 -t %7",
+            "capture-pane -p -J -S - -E -501 -t %7",
         ])
         #expect(far.mostInFlight == 1)
         // Blank rows under the prompt are dropped so the bottom line is real text.
@@ -50,12 +50,13 @@ import Testing
     @Test func aFailedChunkGivesUpOnThePane() async {
         let far = ScriptedTmux(replies: [
             "display-message": .lines(["100 80 0"]),
+            "capture-pane -p -J -t": .lines(["$ "]),
             "capture-pane -p -J -S": .unanswered,
         ])
         let reader = RemoteTmuxPaneTextReader(query: far.query)
 
         #expect(await reader.read(paneId: 3, budget: Self.unbounded) == nil)
-        #expect(far.commands.count == 2)
+        #expect(far.commands.count == 3)
     }
 
     @Test func historyPastTheByteBudgetKeepsTheScreenAndNewestRows() async throws {
@@ -100,7 +101,7 @@ import Testing
         let text = try #require(await reader.read(paneId: 3, budget: Self.unbounded))
 
         #expect(text.isTruncated)
-        #expect(far.commands[1] == "capture-pane -p -J -S -100 -E -1 -t %3")
+        #expect(far.commands[2] == "capture-pane -p -J -S -100 -E -1 -t %3")
     }
 }
 
