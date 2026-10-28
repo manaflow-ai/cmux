@@ -181,12 +181,13 @@ function measure(rect: Rect, axis: "x" | "y", point: "start" | "center" | "end")
   return point === "start" ? origin : point === "center" ? origin + size / 2 : origin + size;
 }
 
-function findingId(rule: GeometryRule, artifact: GeometryArtifact, suffix: string): string {
-  return `${rule.id}:${artifact.capture.caseId}:${artifact.capture.engine}:${artifact.capture.theme}:${suffix}`;
+function findingId(rule: GeometryRule, artifact: GeometryArtifact, elementIds: string[]): string {
+  // JSON preserves element boundaries; delimiter-joined IDs collide when IDs contain commas.
+  return `${rule.id}:${artifact.capture.caseId}:${artifact.capture.engine}:${artifact.capture.theme}:${JSON.stringify(elementIds)}`;
 }
 
 function pushFinding(findings: GeometryFinding[], rule: GeometryRule, artifact: GeometryArtifact, elementIds: string[], message: string, observedPx?: number, expectedPx?: number, deltaPx?: number): void {
-  findings.push({ id: findingId(rule, artifact, elementIds.join(",")), rule: rule.id, caseId: artifact.capture.caseId, theme: artifact.capture.theme, engine: artifact.capture.engine, elementIds, observedPx, expectedPx, deltaPx, message, screenshot: artifact.capture.screenshot });
+  findings.push({ id: findingId(rule, artifact, elementIds), rule: rule.id, caseId: artifact.capture.caseId, theme: artifact.capture.theme, engine: artifact.capture.engine, elementIds, observedPx, expectedPx, deltaPx, message, screenshot: artifact.capture.screenshot });
 }
 
 /** Rules and reported deltas use CSS px; preserve raw evidence for screenshot crops. */
@@ -347,6 +348,7 @@ export async function lintGeometry(artifacts: Array<{ file: string; artifact: Ge
   if (!artifacts.length) errors.push("no geometry artifacts were supplied");
   const seen = new Set<string>();
   for (const { file, artifact } of artifacts) {
+    if (artifact.revision.sha !== config.revision.sha) errors.push(`${file}: capture revision ${artifact.revision.sha} does not match config revision ${config.revision.sha}`);
     if (artifact.revision.sha !== artifacts[0]?.artifact.revision.sha) errors.push(`${file}: mixed capture revisions`);
     const key = `${artifact.capture.caseId}:${artifact.capture.engine}:${artifact.capture.theme}`;
     if (seen.has(key)) errors.push(`${file}: duplicate capture ${key}`);

@@ -87,6 +87,32 @@ test("evidence flags reject non-booleans instead of treating them as truthy", ()
   expect(parseArtifact(artifact()).elements[0]!.control).toBeUndefined();
 });
 
+
+test("rejects captures whose revision differs from the configured baseline", async () => {
+  const value = artifact();
+  value.revision.sha = "abcdef0123456789";
+  const report = await lint(value);
+  expect(report.passed).toBe(false);
+  expect(report.errors).toContain(`fixture.geometry.json: capture revision abcdef0123456789 does not match config revision ${sha}`);
+});
+
+test("finding IDs preserve element boundaries", async () => {
+  const first = artifact();
+  first.elements[0]!.id = "a,b";
+  first.elements[1]!.id = "c";
+  first.elements[1]!.rect.x = 20;
+  const second = artifact();
+  second.elements[0]!.id = "a";
+  second.elements[1]!.id = "b,c";
+  second.elements[1]!.rect.x = 20;
+  const report = await lintGeometry([
+    { file: "first.geometry.json", artifact: first },
+    { file: "second.geometry.json", artifact: second },
+  ], config());
+  expect(report.findings).toHaveLength(2);
+  expect(new Set(report.findings.map((finding) => finding.id)).size).toBe(2);
+});
+
 test("CLI writes a failing report when screenshot evidence is missing", async () => {
   const dir = mkdtempSync(join(process.cwd(), "geometry-cli-"));
   try {
