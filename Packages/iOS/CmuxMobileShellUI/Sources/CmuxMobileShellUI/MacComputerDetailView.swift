@@ -297,12 +297,14 @@ struct MacComputerDetailView: View {
                     availableMacs: privatePathEditorMacs
                 ) { draft in
                     let saved = await irohSettingsModel.upsertCustomPrivatePath(draft)
-                    if saved, pairedMac == nil {
-                        if draft.isEnabled {
-                            return await store.connectDiscoveredIrohMac(using: draft)
-                        }
+                    if saved, pairedMac == nil, draft.isEnabled {
+                        let connected = await store.connectDiscoveredIrohMac(using: draft)
+                        return (
+                            connected,
+                            connected ? nil : (store.connectionErrorGuidance ?? store.connectionError)
+                        )
                     }
-                    return saved
+                    return (saved, nil)
                 }
             }
         }
