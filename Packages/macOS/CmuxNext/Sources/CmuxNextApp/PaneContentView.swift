@@ -167,6 +167,9 @@ final class PaneContentView: NSView, PaneContentChrome {
             stripView.frame = NSRect(x: 0, y: onTop ? 0 : bounds.height - shown, width: stripLayoutWidth(shown: stripWidth), height: shown)
             stripView.shownWidth = enclosingRestSizeChange == nil ? nil : stripWidth
             toolbar?.view.frame = NSRect(x: bounds.width - tools, y: stripView.frame.minY, width: tools, height: shown)
+        } else {
+            // A band's constraints size the strip: no spring cut stays from before it pinned.
+            stripView.shownWidth = nil
         }
         let hostFrame = isBandActive || rowTools > 0 ? bounds : NSRect(x: 0, y: onTop ? stripHeight : 0, width: bounds.width, height: contentHeight)
         reportHeaderIfChanged()

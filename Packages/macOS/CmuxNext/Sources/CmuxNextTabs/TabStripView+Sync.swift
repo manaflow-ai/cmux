@@ -163,8 +163,14 @@ extension TabStripView {
             } else if let from = handed[item.id], let place = placed[from], let shown = cells[from] {
                 _ = makeCell(item, animated: false)
                 placed[item.id] = place
-                // It shows where that cell shows now; `relayout` moves it on from there.
-                cells[item.id]?.frame = shownFrame(shown.layer)
+                // It shows where that cell shows now; `relayout` moves it on from there. In the same layer
+                // it takes the shown frame as is: through the clip it would carry a reveal's remaining scroll.
+                let showing = (shown.layer.presentation() ?? shown.layer).frame
+                if let cell = cells[item.id], cell.layer.superlayer === shown.layer.superlayer {
+                    cell.setFrame(showing, laysOut: true)
+                } else {
+                    cells[item.id]?.frame = shownFrame(shown.layer)
+                }
                 removeTab(from)
             } else {
                 added.insert(makeCell(item, animated: cellsAnimate))
