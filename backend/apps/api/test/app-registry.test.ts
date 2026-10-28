@@ -176,10 +176,10 @@ describe("app registry review", () => {
   })
 
   it("serves a file named like an object prototype key as a file", async () => {
-    const body = bundle("ivy/proto", "1.0.0", { ["__proto__"]: b64("p"), "web/constructor": b64("c") })
-    const s = (await submit("app_dev_ivy", body)).body.submission
+    const body = bundle("quinn/proto", "1.0.0", { ["__proto__"]: b64("p"), "web/constructor": b64("c") })
+    const s = (await submit("app_dev_quinn", body)).body.submission
     expect((await decide("app_reviewer_1", s.id, "approve")).status).toBe(200)
-    const got = await call(`/apps/ivy/proto/versions/1.0.0/bundle`)
+    const got = await call(`/apps/quinn/proto/versions/1.0.0/bundle`)
     expect(Object.keys(got.body.files).sort()).toEqual(Object.keys(body.files).sort())
     expect(got.body.files["__proto__"]).toBe(b64("p"))
   })
