@@ -152,7 +152,10 @@ final class ExtensionsMenuController {
 
     /// Orders the panel in once, invisible and without the keys, so the window server builds its
     /// backing store and the glass before the first click; that first order-in was most of a
-    /// cold open.
+    /// cold open. The content's layer tree is committed while the panel is in: without that
+    /// commit the first click's entrance (`openPopup`'s flush) sent the whole tree to the render
+    /// server, 45-120 ms of the click's main thread against 8 ms for a reopen (the fleet's
+    /// phase timing, 2026-10-27).
     private func warmPanel() {
         guard !panelWarm, !panel.isVisible else { return }
         panelWarm = true
@@ -160,8 +163,11 @@ final class ExtensionsMenuController {
         panel.alphaValue = 0
         let card = NSRect(origin: NSPoint(x: -10_000, y: -10_000), size: content.frame.size)
         panel.setFrame(PopupStyle.standard.windowFrame(forCard: card), display: false)
+        panel.contentView?.wantsLayer = true
         panel.orderFront(nil)
         panel.displayIfNeeded()
+        // perf-gate-ok: one commit per bubble, at prepare (off the click's path), so the first open commits only what changed.
+        CATransaction.flush()
         panel.orderOut(nil)
         panel.alphaValue = alpha
     }
