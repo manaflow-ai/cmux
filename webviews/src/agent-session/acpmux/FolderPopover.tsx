@@ -103,7 +103,7 @@ export function FolderPopover({
     });
   const typed = query.trim();
   const typedPath = /^(?:\/|~\/)/.test(typed) && !shown.has(typed) ? typed : undefined;
-  // The actions follow the folders in the same list, so the arrows reach them from the field.
+  // Actions stay directly under search; arrows reach them before the scrolling folders.
   const actions: { value: string; text: string; run(): void }[] = [
     ...(onNoProject ? [{ value: ACTION + "none", text: t("project.noProject"), run: onNoProject }] : []),
     ...(onNewWorktree ? [{ value: ACTION + "worktree", text: t("worktree.new"), run: onNewWorktree }] : []),
@@ -114,7 +114,8 @@ export function FolderPopover({
         ]
       : []),
   ];
-  const suggestions = [...shown.keys(), ...(typedPath ? [typedPath] : []), ...actions.map((action) => action.value)];
+  const pinned = actions.map((action) => action.value);
+  const suggestions = [...pinned, ...shown.keys(), ...(typedPath ? [typedPath] : [])];
   const close = () => {
     setOpen(false);
     setQuery("");
@@ -273,6 +274,8 @@ export function FolderPopover({
       >
         <Combobox
           suggestions={suggestions}
+          pinnedSuggestions={pinned}
+          cancelOnBlur={false}
           onQuery={setQuery}
           onSubmit={submit}
           onCancel={close}
