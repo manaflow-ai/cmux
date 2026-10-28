@@ -42,7 +42,11 @@ const flows = {
 (window as Window & { __latencyFlows?: typeof flows }).__latencyFlows = flows;
 flows.restoreChat();
 await until(
-  () => window.cmuxAcpmuxDebug!.chatState().sessionId === sessionId && !!document.querySelector(".cv-user__bubble"),
+  () =>
+    window.cmuxAcpmuxDebug!.chatState().sessionId === sessionId &&
+    [...document.querySelectorAll(".cv-user__bubble")].some((node) =>
+      turns && !resident ? node.textContent?.startsWith(`Turn ${turns - 1}:`) : !!node.textContent?.trim(),
+    ),
 );
 // The resident case isolates virtual transcript work at 3,000 turns; the other long fixture
 // keeps the mock daemon's normal history paging. seedRows uses the existing mixed-row fixture

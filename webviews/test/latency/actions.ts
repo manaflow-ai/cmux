@@ -634,7 +634,8 @@ const shown = (selector: string) => `(() => {
   if (!node) return false;
   const box = node.getBoundingClientRect();
   return box.width > 0 && box.height > 0 && box.bottom > 0 && box.top < innerHeight &&
-    box.right > 0 && box.left < innerWidth && getComputedStyle(node).visibility !== "hidden";
+    box.right > 0 && box.left < innerWidth && getComputedStyle(node).visibility !== "hidden" &&
+    Number(getComputedStyle(node).opacity) > 0;
 })()`;
 
 async function clearComposer(page: Page): Promise<void> {
@@ -647,7 +648,7 @@ async function clearComposer(page: Page): Promise<void> {
 async function flowChat(page: Page): Promise<void> {
   await page.evaluate("window.__latencyFlows.restoreChat()");
   await page.waitForSelector(composerEditor);
-  await page.waitForFunction(() => !document.querySelector(".acpmux-newtab"));
+  await page.waitForFunction(() => !document.querySelector(".nt-screen"));
   await page.keyboard.press("Escape");
   if (await page.$("aside.acpmux-chat-inspector")) {
     await page.evaluate(() => window.cmuxAcpmuxBridge!.command!("toggleSessionInfo"));
@@ -760,6 +761,8 @@ const flowActions: LatencyAction[] = [
       await quiet(page);
       return `Array.from(document.querySelectorAll(".cv-user__bubble")).some((node) => {
         if (node.textContent?.trim() !== ${js(text)}) return false;
+        const row = node.closest(".acpmux-row");
+        if (row && Number(getComputedStyle(row).opacity) === 0) return false;
         const box = node.getBoundingClientRect();
         const scroll = node.closest(".acpmux-scroll")?.getBoundingClientRect();
         return scroll && box.width > 0 && box.height > 0 && box.bottom > Math.max(0, scroll.top) &&
@@ -773,7 +776,7 @@ const flowActions: LatencyAction[] = [
   },
   ...([true, false] as const).map((open): LatencyAction => ({
     id: `chat.session-info.${open ? "open" : "close"}`,
-    name: `toggleSessionInfo (${open ? "open" : "close"}, web command)`,
+    name: `Session Info (${open ? "open" : "close"}, pointer)`,
     metricType: "target_painted",
     requiredInstrumentation: [...profiled],
     async prepare(page) {
@@ -788,14 +791,27 @@ const flowActions: LatencyAction[] = [
         : `document.querySelector("aside.acpmux-chat-inspector") === null`;
     },
     async input(page) {
-      // The host command is the same production bridge used by the native palette. Its web
-      // portion starts here; the command lookup and native window are outside this metric.
+      await page.click("button.acpmux-chat-inspector-toggle");
+    },
+    settle: quiet,
+  })),
+  {
+    id: "chat.session-info.command",
+    name: "toggleSessionInfo (web command)",
+    metricType: "target_painted",
+    requiredInstrumentation: [...profiled],
+    async prepare(page) {
+      await flowChat(page);
+      return shown("aside.acpmux-chat-inspector[data-presence='shown']");
+    },
+    async input(page) {
+      // The same bridge used by the native palette, with native command lookup/IPC excluded.
       await page.evaluate(
         "window.__latency.markInput('session-info-command'); window.cmuxAcpmuxBridge.command('toggleSessionInfo')",
       );
     },
     settle: quiet,
-  })),
+  },
   {
     id: "chat.new-tab.open",
     name: "openNewTab (web adoption)",
@@ -803,7 +819,7 @@ const flowActions: LatencyAction[] = [
     requiredInstrumentation: [...profiled],
     async prepare(page) {
       await flowChat(page);
-      return shown(".acpmux-newtab .nt-field");
+      return shown(".nt-screen .nt-field");
     },
     async input(page) {
       await page.evaluate("window.__latency.markInput('new-tab-adoption'); window.__latencyFlows.openNewTab()");
@@ -843,7 +859,7 @@ function longScroll(resident: boolean): LatencyAction {
         const viewport = scroll.getBoundingClientRect();
         return Array.from(scroll.querySelectorAll(".acpmux-row")).some((row) => {
           const box = row.getBoundingClientRect();
-          return row.textContent?.trim() && box.width > 0 && box.height > 0 &&
+          return row.textContent?.trim() && Number(getComputedStyle(row).opacity) > 0 && box.width > 0 && box.height > 0 &&
             box.bottom > Math.max(0, viewport.top) && box.top < Math.min(innerHeight, viewport.bottom);
         });
       })()`;
