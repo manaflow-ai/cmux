@@ -198,12 +198,12 @@ test("the first child tool after a reply settles its Sources", () => {
 test("a running tool update keeps a settled child reply in Sources", () => {
   const fold = new SubagentFold();
   feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "a", parent: null }] });
-  feed(fold, say("Read https://example.com/guide"), { subagent: "a" });
   feed(
     fold,
     { sessionUpdate: "tool_call", toolCallId: "t1", title: "Read guide", status: "in_progress" },
     { subagent: "a" },
   );
+  feed(fold, say("Read https://example.com/guide"), { subagent: "a" });
   const settled = sessionSummary(fold.views().a!, "acme/app");
   feed(
     fold,

@@ -166,7 +166,10 @@ function sources(rows: readonly AcpmuxRow[], pullRequests: readonly SummaryPullR
       if (reference) {
         const [, owner, repo, path, number] = reference;
         const canonical = `https://github.com/${owner}/${repo}/${path}/${number}`;
-        const known = knownPullRequests.get(`${owner}/${repo}`.toLowerCase() + `#${number}`);
+        const byIdentity = knownPullRequests.get(`${owner}/${repo}`.toLowerCase() + `#${number}`);
+        // An /issues/N link remains an issue unless the transcript independently proved that
+        // exact record as an issue; a bare `repo#N` mention may otherwise promote it to a PR.
+        const known = path === "pull" ? byIdentity : byIdentity?.kind === "issue" ? byIdentity : undefined;
         if (known?.changed || known?.opened) continue;
         const pr = path === "pull" || known?.kind === "pullRequest";
         add(
