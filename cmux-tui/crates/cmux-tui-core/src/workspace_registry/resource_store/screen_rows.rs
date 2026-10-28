@@ -164,10 +164,9 @@ pub(super) fn side_tables_match(
 
 /// `(column id, column json)` of the screen's lone pinned column, if it has one.
 fn desired_lone_dock(screen: &RegistryScreen) -> anyhow::Result<Option<(String, String)>> {
-    if !screen.viewport.has_lone_pinned_column() {
+    let Some(column) = screen.viewport.lone_pinned_column() else {
         return Ok(None);
-    }
-    let column = &screen.viewport.columns[0];
+    };
     Ok(Some((column.id.to_string(), canonical_json(&serde_json::to_value(column)?)?)))
 }
 
@@ -303,29 +302,25 @@ fn overlay_column_rows(screen: &mut RegistryScreen, column_id: &str, rows: &[(St
     if rows.len() < 2 {
         return;
     }
-    let lone = screen.viewport.columns.is_empty();
-    let layout = match screen.viewport.columns.iter().find(|column| column.id.as_str() == column_id)
-    {
-        Some(column) => &column.layout,
+    if screen.viewport.columns.is_empty() {
         // A lone column with rows is stored as the screen layout itself.
-        None if lone && screen.auto_layout.is_none() => &screen.layout,
-        None => return,
-    };
-    if !chain_matches(layout, &rows) {
+        if screen.auto_layout.is_some() || !chain_matches(&screen.layout, &rows) {
+            return;
+        }
+        let Ok(id) = SplitPublicId::parse(column_id.to_string()) else { return };
+        let mut column = RegistryViewportColumn::new(id, 1.0, screen.layout.clone(), None, None);
+        column.rows = rows;
+        screen.viewport = RegistryViewport { base_width: Some(1.0), columns: vec![column] };
         return;
     }
-    if lone {
-        let Ok(id) = SplitPublicId::parse(column_id.to_string()) else { return };
-        let column = RegistryViewportColumn::new(id, 1.0, screen.layout.clone(), None, None);
-        screen.viewport = RegistryViewport { base_width: Some(1.0), columns: vec![column] };
+    let Some(column) =
+        screen.viewport.columns.iter_mut().find(|column| column.id.as_str() == column_id)
+    else {
+        return;
+    };
+    if chain_matches(&column.layout, &rows) {
+        column.rows = rows;
     }
-    let column = screen
-        .viewport
-        .columns
-        .iter_mut()
-        .find(|column| column.id.as_str() == column_id)
-        .expect("the column was found or created above");
-    column.rows = rows;
 }
 
 /// Whether `layout` is the compat chain of `rows`: from the outside in, one
@@ -333,7 +328,7 @@ fn overlay_column_rows(screen: &mut RegistryScreen, column_id: &str, rows: &[(St
 /// load rewrites them from the heights.
 fn chain_matches(layout: &RegistryLayoutNode, rows: &[RegistryRow]) -> bool {
     let mut node = layout;
-    for row in rows[1..].iter().rev() {
+    for row in rows.iter().skip(1).rev() {
         let RegistryLayoutNode::Split { split, direction, first, .. } = node else {
             return false;
         };
@@ -342,7 +337,9 @@ fn chain_matches(layout: &RegistryLayoutNode, rows: &[RegistryRow]) -> bool {
         }
         node = &**first;
     }
-    rows.iter().enumerate().all(|(index, row)| rows[..index].iter().all(|seen| seen.id != row.id))
+    rows.iter()
+        .enumerate()
+        .all(|(index, row)| rows.iter().take(index).all(|seen| seen.id != row.id))
 }
 
 /// The screen's top and bottom docks as `(column id, edge, mode)`, sorted.
@@ -423,8 +420,12 @@ fn with_column_docks(
             .iter()
             .enumerate()
             .any(|(other, column)| other != index && column.dock.is_none());
-        if columns[index].dock.is_none() && !edge_taken && other_scrolls {
-            columns[index].dock = Some(ColumnDock::new(edge, mode));
+        if let Some(column) = columns.get_mut(index)
+            && column.dock.is_none()
+            && !edge_taken
+            && other_scrolls
+        {
+            column.dock = Some(ColumnDock::new(edge, mode));
         }
     }
     Ok(screens)

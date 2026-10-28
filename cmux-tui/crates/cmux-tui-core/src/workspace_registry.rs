@@ -1093,7 +1093,7 @@ fn reset_confirmation_snapshot(
         update_reset_confirmation_part(&mut hash, &fingerprint);
         pending_reset_dir_fingerprints.push(fingerprint);
     }
-    let digest = hash.finalize();
+    let digest: [u8; 32] = hash.finalize().into();
     Ok(ResetConfirmationSnapshot {
         confirm_reset: digest.iter().take(12).map(|byte| format!("{byte:02x}")).collect(),
         session_fingerprint,

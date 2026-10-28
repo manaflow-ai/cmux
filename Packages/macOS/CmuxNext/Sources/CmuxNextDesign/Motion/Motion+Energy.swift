@@ -1,4 +1,5 @@
 public import CmuxNextWakeups
+public import CmuxNextAppearance
 
 /// Carries the app's Energy Saver into the motion gates: it writes the source's saver to
 /// ``DesignSettings/energySaver`` now and after each change, until it is released.
