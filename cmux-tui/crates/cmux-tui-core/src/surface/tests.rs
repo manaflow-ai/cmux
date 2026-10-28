@@ -35,6 +35,8 @@ mod resize_conformance;
 #[cfg(unix)]
 mod resize_sequence;
 mod stream_progress;
+#[cfg(unix)]
+mod terminal_models;
 use base64::Engine as _;
 use std::sync::mpsc::sync_channel;
 

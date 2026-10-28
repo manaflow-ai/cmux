@@ -250,6 +250,7 @@ impl Surface {
                 owner_detaching: AtomicBool::new(false),
                 host_connection_state: AtomicU8::new(TerminalHostConnectionState::Exited as u8),
                 host_fallback: std::sync::OnceLock::new(),
+                host_origin: HostOrigin::NotHosted,
                 dirty: AtomicBool::new(true),
                 title: RankedMutex::new(LockRank::Leaf, "pty.title", String::new()),
                 pwd: Mutex::new(None),

@@ -97,6 +97,7 @@ pub use render_tap::{
 use render_tap::{RenderHub, RenderTap};
 use spawn::{LocalLaunch, LocalSpawn};
 pub(crate) use stream_progress::{TerminalStreamProgress, TerminalStreamSubscription};
+pub(crate) use terminal_runtime::HostOrigin;
 pub use terminal_runtime::PtyTerminalRuntime;
 pub(crate) use terminal_runtime::{ColdFreeze, ScrollbackMemory, TerminalJournalGap, ThawWake};
 use terminal_runtime::{
@@ -831,6 +832,7 @@ impl Surface {
                 owner_detaching: AtomicBool::new(false),
                 host_connection_state: AtomicU8::new(TerminalHostConnectionState::Connected as u8),
                 host_fallback: host_fallback.map(std::sync::OnceLock::from).unwrap_or_default(),
+                host_origin: HostOrigin::NotHosted,
                 dirty: AtomicBool::new(true),
                 title: RankedMutex::new(LockRank::Leaf, "pty.title", title),
                 directory_reported: AtomicBool::new(pwd.is_some()),

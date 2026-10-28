@@ -954,6 +954,28 @@ impl Mux {
         ))
     }
 
+    /// Live terminals by process model (`server-stats` `terminal_models`,
+    /// H12). Red-commit stub: counts nothing yet.
+    pub(crate) fn terminal_models(&self) -> crate::diagnostics::TerminalModelsSnapshot {
+        let (holder_start_failures, last_holder_start_failure) = {
+            #[cfg(unix)]
+            {
+                crate::holder_runtime::start_failures()
+            }
+            #[cfg(not(unix))]
+            {
+                (0, None)
+            }
+        };
+        crate::diagnostics::TerminalModelsSnapshot {
+            model: "unknown",
+            model_reason: "unknown",
+            holder_start_failures,
+            last_holder_start_failure,
+            ..Default::default()
+        }
+    }
+
     pub fn surface(&self, id: SurfaceId) -> Option<Arc<Surface>> {
         let state = self.state.lock().recover_poison();
         state.surfaces.get(&id).or_else(|| state.terminal_runtime_by_id(id)).cloned()

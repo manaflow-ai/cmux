@@ -313,6 +313,10 @@ pub struct PtyTerminalRuntime {
     /// are on (cx-ko2e); unset for a hosted terminal and for every terminal
     /// where hosts are off. Set before the surface is published.
     pub(super) host_fallback: std::sync::OnceLock<TerminalHostFallback>,
+    /// Where a hosted terminal's host came from (H12 counts): this daemon
+    /// launched it, or it adopted a host an earlier daemon started.
+    /// `NotHosted` for every other runtime.
+    pub(super) host_origin: HostOrigin,
     /// Set when output arrived since the last render; cleared by the
     /// frontend when it draws.
     pub(super) dirty: AtomicBool,
@@ -384,6 +388,18 @@ pub struct PtyTerminalRuntime {
     pub(super) frame_requests: frame_producer::FrameRequests,
     #[cfg(test)]
     pub(super) frame_producer_before_upgrade: FrameProducerTestHook,
+}
+
+/// Where a hosted terminal's host process came from (`server-stats`
+/// `terminal_models`, H12).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum HostOrigin {
+    /// Not a terminal host's terminal (a holder, a daemon PTY, a backend).
+    NotHosted,
+    /// This daemon started the host (its model is hosts, or a standby host).
+    Launched,
+    /// This daemon adopted a host an earlier daemon started.
+    Adopted,
 }
 
 pub(crate) struct TerminalJournalGap {

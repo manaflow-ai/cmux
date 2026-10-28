@@ -43,6 +43,20 @@ pub(crate) const MODEL_ENV: &str = "CMUX_TUI_TERMINAL_HOST_MODEL";
 /// changes models after start (the feature is not `runtimeMutable`).
 static ENABLED: OnceLock<bool> = OnceLock::new();
 
+/// Why this process runs the model it runs (`server-stats` `terminal_models`, H12).
+pub(crate) fn model_reason() -> &'static str {
+    "unknown"
+}
+
+/// New terminals whose holder start failed since this process started, and
+/// the newest failure (`server-stats` `terminal_models`, H12).
+pub(crate) fn start_failures() -> (u64, Option<String>) {
+    (0, None)
+}
+
+/// A new terminal's holder start failed: counted and logged.
+pub(crate) fn note_start_failure(_error: &anyhow::Error) {}
+
 /// Fixes the holder model from the daemon's resolved `features` and returns
 /// the model in effect. The daemon calls it once at start, before any
 /// terminal exists; a read that came first has already fixed the model, and

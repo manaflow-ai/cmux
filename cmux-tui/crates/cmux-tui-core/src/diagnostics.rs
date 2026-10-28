@@ -826,6 +826,42 @@ pub struct ServerStatsSnapshot {
     /// and the newest records; present only when the request names `hangs`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hangs: Option<HangsSnapshot>,
+    /// Live terminals by process model and, for hosted ones, why they run on
+    /// a terminal host (H12); present only when the request names
+    /// `terminal_models`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub terminal_models: Option<TerminalModelsSnapshot>,
+}
+
+/// `server-stats` `terminal_models` (H12): the process model of every live
+/// terminal, counted once per terminal (not per placement), and why the
+/// hosted ones run on a terminal host.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+pub struct TerminalModelsSnapshot {
+    /// The model this daemon starts new terminals on: `holder` or `hosts`.
+    pub model: &'static str,
+    /// Why: `default`, `env-alias` (`CMUX_TUI_TERMINAL_HOST_MODEL`),
+    /// `feature-list` (the enable/disable list or a client hello) or
+    /// `policy` (managed policy or the signed document's DisabledFeatures).
+    pub model_reason: &'static str,
+    /// Terminals on the shared holder.
+    pub holder: u64,
+    /// Terminals on a PTY this daemon reads itself (ephemeral, auxiliary).
+    pub daemon: u64,
+    /// Hosted terminals whose host this daemon started (its model is hosts,
+    /// or a standby host).
+    pub host_launched: u64,
+    /// Hosted terminals whose host an earlier daemon started, adopted at
+    /// start: they stay on their host until their shell ends.
+    pub host_adopted: u64,
+    /// Hosted terminals that ended and are kept on screen.
+    pub exited: u64,
+    /// New terminals whose holder start failed since this daemon started.
+    /// No terminal falls back to a host: such a create fails.
+    pub holder_start_failures: u64,
+    /// The newest holder start failure's error, if any.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_holder_start_failure: Option<String>,
 }
 
 pub const SERVER_STATS_SCHEMA: u32 = 1;
