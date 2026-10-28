@@ -73,6 +73,7 @@ ap.add_argument("--sample-seconds", type=float, default=12.0, help="how long a l
 ap.add_argument("--max-seconds", type=float, default=520.0, help="stop starting runs after this long")
 ap.add_argument("--activate", action="store_true", help="relaunch activated (a key window), as a person's Dock click")
 ap.add_argument("--allow-non-slot", action="store_true")
+ap.add_argument("--snapshots", action="store_true", help="three window snapshots after restore settles (DIR/window-*.png)")
 ap.add_argument("--relaunch-delay", type=float, default=0.5, help="seconds between the old app's end and the reopen")
 ap.add_argument("--sample-app", action="store_true",
                 help="`sample` the relaunched app process for its first 3 s (DIR/app-sample-MODE-nN-RUN.txt)")
@@ -395,9 +396,23 @@ def sample_new_app(app, old_pid, path, seconds=3):
         time.sleep(0.002)
 
 
+def saved_frames(app):
+    """The terminal frames the last quit saved (`terminal-launch-frames` beside the build's sidebar snapshot), by name and size."""
+    home = app.env.get("HOME", os.environ["HOME"])
+    root = os.path.join(home, "Library", "Application Support")
+    found = []
+    for base, dirs, files in os.walk(root):
+        if os.path.basename(base) == "terminal-launch-frames":
+            found += [[os.path.join(base, f), os.path.getsize(os.path.join(base, f))] for f in sorted(files)]
+        if base.count(os.sep) - root.count(os.sep) >= 3:
+            dirs[:] = []
+    return found
+
+
 def measure(app, mode, workspaces, run):
     if not app.quit_keep_sessions():
         return None
+    frames_saved = saved_frames(app)
     if mode == "restart":
         app.kill_daemon()
     elif mode == "cold":
@@ -492,7 +507,12 @@ def measure(app, mode, workspaces, run):
                 echo_at = t
         trace.append([ms(t)] + [[classify(p), int(bool(p.get("frame_held"))), p.get("last_frame_holds"),
                                   int(bool((p.get("surface") or {}).get("replay_applied"))), p.get("link"), p.get("attach"),
-                                  p.get("status_text"), p.get("phase"), p.get("snapshots")] for p in panes])
+                                  p.get("status_text"), p.get("phase"), p.get("snapshots"),
+                                  {k: (p.get("surface") or {}).get(k) for k in ("drawing", "rendering_suspended", "paused", "in_window",
+                                                                              "hidden", "layer_size", "grid", "drawn_grid")},
+                                  {"frames": ((p.get("surface") or {}).get("render_counters") or {}).get("frames"),
+                                   "occluded": p.get("window_occluded"), "drawable": p.get("window_drawable"),
+                                   "content_visible": p.get("content_visible"), "presence": p.get("presence")}] for p in panes])
         if any_blank or not panes:
             blank_samples += 1
             if last_t is not None:
@@ -502,6 +522,11 @@ def measure(app, mode, workspaces, run):
         if done:
             break
         time.sleep(0.02)
+    if opts.snapshots:
+        for i in range(3):
+            path = os.path.join(opts.out, f"window-{mode}-n{workspaces}-{run}-{i}.png")
+            rpc("debug.window_snapshot", {"path": path}, timeout=20)
+            time.sleep(1.0)
     timings = rpc("debug.timings", timeout=10) or {}
     marks = timings.get("launch_ms_since_process_start") or {}
     first_frame = marks.get("first_window_frame_committed")
@@ -526,6 +551,7 @@ def measure(app, mode, workspaces, run):
         "live_terminals": live_terminals, "blank_panes_settled": (settled or {}).get("blank_panes"),
         "marks": marks,
         "trace": trace,
+        "frames_saved": frames_saved,
         "launch_clock": timings.get("launch_clock"), "launch_counters": timings.get("launch_counters"),
         "startup": rpc("debug.startup", timeout=10),
     }
