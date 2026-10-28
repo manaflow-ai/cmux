@@ -157,7 +157,13 @@ export const SubagentTray = memo(function SubagentTray({
     const known = seen.current ?? keys;
     seen.current = keys;
     const fresh = [...keys].filter((key) => !known.has(key));
-    if (fresh.length > 0 && fresh.length <= ARRIVALS_PER_UPDATE && open && !foldMotion.reducedMotion() && entranceMayRun()) {
+    if (
+      fresh.length > 0 &&
+      fresh.length <= ARRIVALS_PER_UPDATE &&
+      open &&
+      !foldMotion.reducedMotion() &&
+      entranceMayRun()
+    ) {
       const drawn = new Set([
         ...items.map(itemKey),
         ...finished.slice(0, showFinished ? finished.length : TRAY_OPEN_MAX).map(itemKey),
