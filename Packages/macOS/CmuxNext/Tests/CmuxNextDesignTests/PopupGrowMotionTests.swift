@@ -99,7 +99,7 @@ import CmuxNextDesignTokens
         #expect(layer.opacity == 1 && CATransform3DIsIdentity(layer.sublayerTransform))
     }
 
-    @Test(.enabled("needs a screen and animation speed on, or every popup snaps") { await Self.queuesAnimations() })
+    @Test(.enabled("needs an awake display that can advance animations") { await GUIAnimationTestSupport.animatesHere() })
     func underReduceMotionThePopupOnlyCrossfadesAtItsSize() throws {
         Motion.reduceMotionOverride = true
         defer { Motion.reduceMotionOverride = nil }
