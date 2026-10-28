@@ -47,7 +47,7 @@ extension AppServices {
     func startPlatformServices(settings: SettingsController, on startup: StartupScheduler, hotKeys: Bool) {
         LaunchStart.glass.runNow(on: startup) { seedGlass() }
         LaunchStart.notificationPreferences.runNow(on: startup) { notifications.preferences = settings.snapshot.notifications; notifications.followChiefPet(settings) }
-        LaunchStart.updaterSettings.runNow(on: startup) { updater.follow(settings) }
+        LaunchStart.updaterSettings.runNow(on: startup) { updater.follow(settings, on: mainWork) }
         LaunchStart.hibernation.runNow(on: startup) { startHibernation(settings: settings) }
         // Each start has its own declared type: one expression with every closure inline (and a ternary closure)
         // was too much for the type checker ("failed to produce diagnostic").

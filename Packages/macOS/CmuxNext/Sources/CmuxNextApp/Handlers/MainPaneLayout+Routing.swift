@@ -165,10 +165,11 @@ extension MainPaneLayout {
             services.locateTab(key).map { (pane: $0.1.handle, daemon: services.machines.daemon(forTab: $0.0)) }
         }
         let end = services.registry.completion(on: services.mainWork)
+        let mainWork = services.mainWork
         // One tab creation and its mirror are awaited off main, then the run's completion selects it (or docks the chat).
         end.start { [weak target] in
             var listed: AgentTabCreated?
-            if let tab = try? await pending.value(), await TabMirror.reaches(tab.key, in: locate) { listed = tab }
+            if let tab = try? await pending.value(), await TabMirror.reaches(tab.key, in: locate, on: mainWork) { listed = tab }
             let shown = listed
             end.post(owner: "MainPaneLayout.openAgentTab", answering: true) { [weak target] in
                 place(listed: shown, in: target, from: controller, focus: focus, services: services,

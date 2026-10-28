@@ -4,10 +4,10 @@ public import CmuxNextInput
 public import CmuxNextWakeups
 
 // Whether the strip is in sight, and what follows from it (split from TabStripView.swift): the window fan-outs, the
-// pointer state a hidden strip gets no exit for, and the appearance a hidden strip applies when it shows.
+// pointer state a hidden strip gets no exit for, and the work a hidden strip defers on its node until it shows.
 extension TabStripView {
-    /// A strip with a deadline placer of its own on a main-thread scheduler of its own, under an always-visible node
-    /// (tests and the demo; the App passes its one placer and the pane's or bar's node).
+    /// A strip with a deadline placer of its own on a main-thread scheduler of its own, under an always-visible root
+    /// (tests; the App passes its one placer and the pane's or bar's node).
     public convenience init(model: TabStripModel, background: Background = .none, input: InputEventTap) {
         self.init(model: model, background: background, input: input,
                   deadlines: MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget())),
@@ -28,27 +28,25 @@ extension TabStripView {
         buttonReveal.pointerInStrip = false
     }
 
-    // visibility-walk-allow: input state on hide: the strip leaves the window's fan-outs and ends its pointer state (a hidden strip gets no exit event)
+    /// Recipe R-hide: AppKit's hide only tells the strip's node; ``syncShown(_:)`` follows the node's flips.
     public override func viewDidHide() {
         super.viewDidHide()
-        syncShown(false)
+        visibilityNode.set(.hidden)
     }
 
-    // visibility-walk-allow: input state on unhide: the strip joins the window's fan-outs again and lands what changed while hidden, once
     public override func viewDidUnhide() {
         super.viewDidUnhide()
-        syncShown()
+        visibilityNode.set(.visible)
     }
 
-    /// The window-wide fan-outs (hover-card hit tests, main and occlusion changes) reach only a
-    /// shown strip: a hidden one (a parked workspace, still in its window, or a hidden screen bar)
-    /// is not in them, and an appearance or scale change waits until it shows. Showing re-reads
-    /// the window's state and applies, without motion, the model changes that came while hidden
-    /// (``syncFromModel()`` lays nothing out out of sight). ``isShownInWindow`` keeps the answer, so
-    /// the strip's hit tests and key intercepts read it instead of walking its ancestors.
+    /// The window-wide fan-outs (hover-card hit tests, main and occlusion changes) reach only a strip
+    /// in a window whose node is visible: a parked workspace's, a suspended pane's, a hidden screen bar
+    /// and a covered or minimized window's strip are not in them, and their spinners stop. The node's
+    /// flip to visible re-reads the window's state here, then runs what waited on the node: the model
+    /// changes, without motion (``syncFromModel()``), and the appearance. ``isShownInWindow`` keeps the
+    /// answer, so the strip's hit tests and key intercepts read it instead of walking its ancestors.
     func syncShown(_ shown: Bool? = nil) {
-        // visibility-walk-allow: one walk per window move, hide or unhide: the strip copies AppKit's hidden state into isShownInWindow (no node holds a view's isHidden)
-        let shown = shown ?? (window != nil && !isHiddenOrHasHiddenAncestor)
+        let shown = shown ?? (window != nil && visibilityNode.isVisible)
         guard shown != isShownInWindow else { return }
         isShownInWindow = shown
         hoverCards.unregister(hoverCard)
@@ -59,39 +57,27 @@ extension TabStripView {
             if window != nil { endPointerState() }
             return
         }
-        // What changed while out of sight lands at once in its final place: nobody saw it move.
-        if modelChangedWhileHidden {
-            modelChangedWhileHidden = false
-            sync(fromModel: true, animating: false)
-        }
         hoverCards.register(hoverCard)
         applyMultiSelection()
-        if appearanceIsStale {
-            appearanceIsStale = false
-            applyAppearance()
-            applyFrames()
-        }
     }
 
-    // visibility-walk-allow: a hidden strip defers it already (appearanceIsStale, applied once in syncShown's show); a shown one sets its layers' theme scope and scale
+    /// R-appear: a strip out of sight re-themes its layers once, when it shows.
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
-        guard isShownInWindow || window == nil else {
-            appearanceIsStale = true
-            return
-        }
-        applyAppearance()
+        visibilityNode.deferAppearance(owner: "TabStripView") { [weak self] in self?.applyAppearance() }
     }
 
     public override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
-        guard isShownInWindow || window == nil else {
-            appearanceIsStale = true
-            return
+        visibilityNode.deferUntilVisible(key: Self.backingKey) { [weak self] in
+            self?.applyAppearance()
+            self?.applyFrames()
         }
-        applyAppearance()
-        applyFrames()
     }
+
+    /// The ``visibilityNode`` keys of the strip's deferred work.
+    static let backingKey = "TabStripView.backing"
+    static let modelSyncKey = "TabStripView.modelSync"
 
     /// Layers do not inherit theme scope or scale; push both (re-applies colors).
     func applyAppearance() {
