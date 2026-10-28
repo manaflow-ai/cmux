@@ -496,13 +496,17 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// A sender that ends lets go of its record even while a child it forked has not exec'd
-    /// yet: the child shares the lock's open file description (in the test binary, other tests
-    /// fork such children at any moment, which made the test above fail on CI).
+    /// A sender that ends lets go of its record even while another process shares the lock's
+    /// open file description, as a child forked but not yet exec'd does (in the test binary,
+    /// other tests fork such children at any moment, which made the test above fail on CI).
+    /// The child here is `sleep`, handed the lock's descriptor and nothing else: every other
+    /// descriptor the test binary opens is close-on-exec, so it holds no other test's lock.
     #[cfg(unix)]
     #[test]
-    fn a_forked_child_does_not_keep_an_ended_senders_record() {
-        let dir = std::env::temp_dir().join(format!("amx-rec-fork-{}", std::process::id()));
+    fn a_shared_lock_descriptor_does_not_keep_an_ended_senders_record() {
+        use std::os::unix::io::AsRawFd;
+        use std::os::unix::process::CommandExt;
+        let dir = std::env::temp_dir().join(format!("amx-rec-shared-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("big.bin");
@@ -510,25 +514,29 @@ mod tests {
         let meta = std::fs::metadata(&file).unwrap();
         let records = dir.join("records");
         let first = Record::claim_in(&records, "chat", &file, &meta).expect("the first claim");
-        let nap = libc::timespec { tv_sec: 30, tv_nsec: 0 };
-        // SAFETY: the child only calls nanosleep and _exit, both async-signal-safe, and touches
-        // no Rust state; the parent kills and reaps it below.
-        let child = unsafe { libc::fork() };
-        if child == 0 {
-            unsafe {
-                libc::nanosleep(&nap, std::ptr::null_mut());
-                libc::_exit(0);
-            }
+        let fd = first.lock.as_raw_fd();
+        const SHARED: libc::c_int = 3;
+        let mut sleep = std::process::Command::new("sleep");
+        sleep.arg("30").stdin(std::process::Stdio::null());
+        // SAFETY: between fork and exec the child calls only dup2 and fcntl, both
+        // async-signal-safe. dup2 leaves the lock open across exec as descriptor 3; when the
+        // lock already is 3, fcntl clears its close-on-exec flag instead.
+        unsafe {
+            sleep.pre_exec(move || {
+                let ok = if fd == SHARED {
+                    libc::fcntl(fd, libc::F_SETFD, 0) == 0
+                } else {
+                    libc::dup2(fd, SHARED) == SHARED
+                };
+                if ok { Ok(()) } else { Err(std::io::Error::last_os_error()) }
+            });
         }
-        assert!(child > 0, "fork: {}", std::io::Error::last_os_error());
+        let mut child = sleep.spawn().expect("sleep");
         drop(first);
         let again = Record::claim_in(&records, "chat", &file, &meta);
-        // SAFETY: signals and reaps only the child forked above.
-        unsafe {
-            libc::kill(child, libc::SIGKILL);
-            libc::waitpid(child, std::ptr::null_mut(), 0);
-        }
-        assert!(again.is_some(), "the forked child kept the ended sender's record");
+        let _ = child.kill();
+        let _ = child.wait();
+        assert!(again.is_some(), "the child's copy kept the ended sender's record");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
