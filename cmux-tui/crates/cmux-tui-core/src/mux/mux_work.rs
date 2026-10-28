@@ -600,22 +600,21 @@ std::thread_local! {
 /// parked try: those hand-overs run in this loop, not nested in each other,
 /// so hundreds of parked tries never deepen the stack.
 fn hand_over(next: ParkedTry, permit: Permit) {
-    let nested = HANDING_OVER.with(|queue| {
+    // `Some` when this thread already hands one over: queued for that loop.
+    let first = HANDING_OVER.with(|queue| {
         let mut queue = queue.borrow_mut();
         match queue.as_mut() {
             Some(queue) => {
                 queue.push_back((next, permit));
-                true
+                None
             }
             None => {
                 *queue = Some(VecDeque::new());
-                false
+                Some((next, permit))
             }
         }
     });
-    if nested {
-        return;
-    }
+    let Some((next, permit)) = first else { return };
     // Runs `next`, then each hand-over it queued; the queue is gone after.
     struct Draining;
     impl Drop for Draining {
