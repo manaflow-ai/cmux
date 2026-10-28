@@ -228,6 +228,7 @@ extension SessionRemoteWorkspaceSnapshot {
                         sshOptions: restoredSSHOptions,
                         terminalProfile: restoredTerminalProfile,
                         remoteRelayPort: restoreMoshRelayNamespace ? normalizedRelayPort : nil,
+                        agentSocketPath: agentSocketPath,
                         sshFallbackCommand: sshFallbackCommand
                     )
                 }
@@ -517,6 +518,7 @@ extension SessionRemoteWorkspaceSnapshot {
         sshOptions reconnectSSHOptions: [String],
         terminalProfile: WorkspaceRemoteTerminalProfile,
         remoteRelayPort: Int?,
+        agentSocketPath: String?,
         sshFallbackCommand: String
     ) -> String {
         let invocationSSHOptions = SSHAgentSocketResolver().moshManagementOptions(
@@ -568,6 +570,9 @@ extension SessionRemoteWorkspaceSnapshot {
             destination: normalizedDestination,
             options: eternalTerminalOptions ?? .default,
             forwardsSSHAgent: EternalTerminalCommandBuilder.forwardsSSHAgent(sshOptions: invocationSSHOptions),
+            // Like the CLI launch, hand ET the restored agent socket so a
+            // ForwardAgent socket path survives relaunch.
+            sshAgentSocketPath: agentSocketPath ?? SSHAgentSocketResolver().agentSocketPath(for: invocationSSHOptions),
             remoteCommandArguments: remoteCommandArguments,
             remoteRelayPort: remoteRelayPort,
             preparationShellScript: preparationShellScript,

@@ -32,11 +32,30 @@ extension TerminalController {
             }
             port = parsed
         }
+        // A present value of the wrong type is an error, not an omitted option.
+        var terminalPath: String?
+        if v2HasNonNullParam(raw, "terminal_path") {
+            guard let parsed = raw["terminal_path"] as? String else {
+                return (.default, invalidRemoteEternalTerminalOptionsResult())
+            }
+            terminalPath = parsed
+        }
+        var tunnelLists: [[String]] = []
+        for key in ["tunnels", "reverse_tunnels"] {
+            guard v2HasNonNullParam(raw, key) else {
+                tunnelLists.append([])
+                continue
+            }
+            guard let parsed = raw[key] as? [String] else {
+                return (.default, invalidRemoteEternalTerminalOptionsResult())
+            }
+            tunnelLists.append(parsed)
+        }
         guard let options = EternalTerminalOptions(
             serverPort: port,
-            terminalPath: v2RawString(raw, "terminal_path"),
-            tunnels: v2StringArray(raw, "tunnels") ?? [],
-            reverseTunnels: v2StringArray(raw, "reverse_tunnels") ?? []
+            terminalPath: terminalPath,
+            tunnels: tunnelLists[0],
+            reverseTunnels: tunnelLists[1]
         ) else {
             return (.default, invalidRemoteEternalTerminalOptionsResult())
         }

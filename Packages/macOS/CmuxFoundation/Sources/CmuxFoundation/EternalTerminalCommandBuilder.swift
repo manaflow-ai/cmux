@@ -67,7 +67,8 @@ public struct EternalTerminalCommandBuilder: Sendable {
     ///     and to resolve the destination's host name.
     ///   - sessionSSHOptions: OpenSSH `-o` values passed to `et --ssh-option` for its bootstrap.
     ///   - localEternalTerminalExecutableName: Local executable basename; injectable for tests.
-    ///   - localServerProbeExecutableName: Local TCP probe basename (`nc`); injectable for tests.
+    ///   - localServerProbeExecutableName: Local TCP probe (`/usr/bin/nc`); injectable for tests.
+    ///     The default is absolute because `-G` is specific to the macOS `nc`.
     ///   - destination: SSH destination or host alias.
     ///   - options: ET port, terminal path, and tunnels.
     ///   - forwardsSSHAgent: Whether to pass `--forward-ssh-agent`.
@@ -83,7 +84,7 @@ public struct EternalTerminalCommandBuilder: Sendable {
         capabilityProbeSSHArguments: [String],
         sessionSSHOptions: [String],
         localEternalTerminalExecutableName: String = "et",
-        localServerProbeExecutableName: String = "nc",
+        localServerProbeExecutableName: String = "/usr/bin/nc",
         destination: String,
         options: EternalTerminalOptions = .default,
         forwardsSSHAgent: Bool = false,
@@ -169,9 +170,13 @@ public struct EternalTerminalCommandBuilder: Sendable {
         return "exec " + remoteCommandArguments.map(\.remoteCommandShellQuoted).joined(separator: " ")
     }
 
-    /// The `et` argv after the executable.
+    /// The `et` argv after the executable, with the configured terminal path.
     public var clientArguments: [String] {
-        var arguments = options.clientArguments
+        clientArguments(terminalPathArguments: options.terminalPath.map { ["--terminal-path", $0] } ?? [])
+    }
+
+    private func clientArguments(terminalPathArguments: [String]) -> [String] {
+        var arguments = terminalPathArguments + options.clientArguments(includingTerminalPath: false)
         if forwardsSSHAgent {
             arguments.append("--forward-ssh-agent")
             if let sshAgentSocketPath {
@@ -197,6 +202,8 @@ public struct EternalTerminalCommandBuilder: Sendable {
     /// through the SSH management lane (exit 127 means missing), and the
     /// `etserver` port on the SSH-resolved host name must accept a TCP
     /// connection. Each failure prints its reason and continues over SSH.
+    /// The probed `etterminal` path is passed to ET as `--terminal-path`,
+    /// because ET's own SSH hop only searches the non-interactive `PATH`.
     ///
     /// - Returns: A complete `/bin/sh -c` terminal startup command.
     public func command() -> String {
@@ -206,13 +213,13 @@ public struct EternalTerminalCommandBuilder: Sendable {
         )
         let remoteCapabilityCommand: String
         if let terminalPath = options.terminalPath {
-            let script = "if [ -x \"$1\" ]; then exit 0; fi; printf '%s\\n' 'cmux-et: remote etterminal not found' >&2; exit 127"
-            remoteCapabilityCommand = "/bin/sh -c \(script.remoteCommandShellQuoted) cmux-et-probe \(terminalPath.remoteCommandShellQuoted) >/dev/null 2>&1"
+            let script = "if [ -x \"$1\" ]; then printf '%s\\n' \"$1\"; exit 0; fi; printf '%s\\n' 'cmux-et: remote etterminal not found' >&2; exit 127"
+            remoteCapabilityCommand = "/bin/sh -c \(script.remoteCommandShellQuoted) cmux-et-probe \(terminalPath.remoteCommandShellQuoted) 2>/dev/null"
         } else {
             remoteCapabilityCommand = RemoteExecutableCommandBuilder(
                 executableName: "etterminal",
                 notFoundSentinel: "cmux-et: remote etterminal not found"
-            ).resolutionProbeShellCommand + " >/dev/null 2>&1"
+            ).resolutionProbeShellCommand + " 2>/dev/null"
         }
         let capabilityProbe = (capabilityProbeSSHArguments + ["-T", destination, remoteCapabilityCommand])
             .map(\.remoteCommandShellQuoted)
@@ -221,7 +228,7 @@ public struct EternalTerminalCommandBuilder: Sendable {
             .map(\.remoteCommandShellQuoted)
             .joined(separator: " ")
         let fallbackHost = destination.split(separator: "@").last.map(String.init) ?? destination
-        let quotedClientArguments = clientArguments
+        let quotedClientArguments = clientArguments(terminalPathArguments: [])
             .map(\.remoteCommandShellQuoted)
             .joined(separator: " ")
         var script = [
@@ -255,7 +262,7 @@ public struct EternalTerminalCommandBuilder: Sendable {
             ]
         }
         script += [
-            capabilityProbe,
+            "cmux_et_terminal_path=\"$(\(capabilityProbe) </dev/null)\"",
             "cmux_et_probe_status=$?",
             "if [ \"$cmux_et_probe_status\" -eq 127 ]; then",
             "  printf '%s\\n' \(messages.remoteMissing.remoteCommandShellQuoted) >&2",
@@ -265,17 +272,28 @@ public struct EternalTerminalCommandBuilder: Sendable {
             "  printf '%s\\n' \(messages.remoteProbeFailed.remoteCommandShellQuoted) >&2",
             "  cmux_et_fallback",
             "fi",
+            // Remote shell startup files may print before the probe; its
+            // path is the last line, and anything but an absolute path is a
+            // failed probe.
+            "cmux_et_terminal_path=\"$(printf '%s\\n' \"$cmux_et_terminal_path\" | /usr/bin/tail -n 1)\"",
+            "case \"$cmux_et_terminal_path\" in",
+            "  /*) ;;",
+            "  *) printf '%s\\n' \(messages.remoteProbeFailed.remoteCommandShellQuoted) >&2; cmux_et_fallback ;;",
+            "esac",
             "unset cmux_et_probe_status",
             // ET connects to the SSH-resolved HostName, so probe that host.
-            "cmux_et_host=\"$(\(hostNameQuery) 2>/dev/null | /usr/bin/awk '$1 == \"hostname\" { print $2; exit }')\"",
+            "cmux_et_ssh_config=\"$(\(hostNameQuery) 2>/dev/null)\"",
+            "cmux_et_host=\"$(printf '%s\\n' \"$cmux_et_ssh_config\" | /usr/bin/awk '$1 == \"hostname\" { print $2; exit }')\"",
+            "cmux_et_jump=\"$(printf '%s\\n' \"$cmux_et_ssh_config\" | /usr/bin/awk '$1 == \"proxyjump\" { print $2; exit }')\"",
             "if [ -z \"$cmux_et_host\" ]; then cmux_et_host=\(fallbackHost.remoteCommandShellQuoted); fi",
             "cmux_et_nc=\"$(command -v \(localServerProbeExecutableName.remoteCommandShellQuoted) 2>/dev/null || true)\"",
-            // Without a local probe tool, let ET report its own connection error.
-            "if [ -n \"$cmux_et_nc\" ] && ! \"$cmux_et_nc\" -z -G 5 -w 5 \"$cmux_et_host\" \(options.effectiveServerPort) >/dev/null 2>&1; then",
+            // Without a local probe tool, or behind a ProxyJump host whose
+            // etserver ET may use instead, let ET report its own error.
+            "if [ -n \"$cmux_et_nc\" ] && { [ -z \"$cmux_et_jump\" ] || [ \"$cmux_et_jump\" = none ]; } && ! \"$cmux_et_nc\" -z -G 5 -w 5 \"$cmux_et_host\" \(options.effectiveServerPort) >/dev/null 2>&1; then",
             "  printf '%s\\n' \(messages.serverUnreachable.remoteCommandShellQuoted) >&2",
             "  cmux_et_fallback",
             "fi",
-            "unset cmux_et_host cmux_et_nc",
+            "unset cmux_et_ssh_config cmux_et_host cmux_et_jump cmux_et_nc",
         ]
         if let managementReadyShellScript = managementReadyShellScript?
             .trimmingCharacters(in: .whitespacesAndNewlines),
@@ -293,7 +311,7 @@ public struct EternalTerminalCommandBuilder: Sendable {
                 "rm -f -- " + sshFallbackLauncherPaths.map(\.remoteCommandShellQuoted).joined(separator: " ")
             )
         }
-        script.append("exec \"$cmux_et\" \(quotedClientArguments)")
+        script.append("exec \"$cmux_et\" --terminal-path \"$cmux_et_terminal_path\" \(quotedClientArguments)")
         return "/bin/sh -c \(script.joined(separator: "\n").remoteCommandShellQuoted)"
     }
 

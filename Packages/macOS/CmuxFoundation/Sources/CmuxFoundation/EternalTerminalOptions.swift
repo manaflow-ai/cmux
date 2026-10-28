@@ -16,10 +16,10 @@ public struct EternalTerminalOptions: Codable, Equatable, Sendable {
     /// Absolute remote path to `etterminal` when it is off the non-interactive `PATH`.
     public let terminalPath: String?
 
-    /// ET `--tunnel` values, forwarded unchanged.
+    /// ET `--tunnel` values, joined into ET's single comma-separated option.
     public let tunnels: [String]
 
-    /// ET `--reversetunnel` values, forwarded unchanged.
+    /// ET `--reversetunnel` values, joined into ET's single comma-separated option.
     public let reverseTunnels: [String]
 
     /// The default ET client settings.
@@ -27,9 +27,10 @@ public struct EternalTerminalOptions: Codable, Equatable, Sendable {
 
     /// Creates validated ET client settings.
     ///
-    /// Returns `nil` for a port outside 1-65535, or for any value that is
-    /// empty or contains control characters, because each value becomes one
-    /// argument of a terminal startup command.
+    /// Returns `nil` for a port outside 1-65535, for a terminal path that is
+    /// not absolute (a remote `~` cannot be expanded locally), or for any
+    /// value that is empty or contains control characters, because each value
+    /// becomes one argument of a terminal startup command.
     ///
     /// - Parameters:
     ///   - serverPort: Remote `etserver` port.
@@ -44,7 +45,10 @@ public struct EternalTerminalOptions: Codable, Equatable, Sendable {
     ) {
         if let serverPort, !(1...65_535).contains(serverPort) { return nil }
         let normalizedTerminalPath = terminalPath?.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let normalizedTerminalPath, !normalizedTerminalPath.isValidEternalTerminalArgument { return nil }
+        if let normalizedTerminalPath,
+           !normalizedTerminalPath.hasPrefix("/") || !normalizedTerminalPath.isValidEternalTerminalArgument {
+            return nil
+        }
         let normalizedTunnels = tunnels.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
         let normalizedReverseTunnels = reverseTunnels.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
         guard (normalizedTunnels + normalizedReverseTunnels).allSatisfy(\.isValidEternalTerminalArgument) else {
@@ -65,15 +69,26 @@ public struct EternalTerminalOptions: Codable, Equatable, Sendable {
 
     /// The `et` arguments these settings select, excluding the destination.
     public var clientArguments: [String] {
+        clientArguments(includingTerminalPath: true)
+    }
+
+    /// The `et` arguments these settings select, optionally without `--terminal-path`.
+    ///
+    /// ET parses `--tunnel` and `--reversetunnel` as single options whose last
+    /// occurrence wins, so repeated values are joined with commas.
+    ///
+    /// - Parameter includingTerminalPath: Whether to emit the configured terminal path.
+    /// - Returns: The `et` arguments, excluding the destination.
+    public func clientArguments(includingTerminalPath: Bool) -> [String] {
         var arguments = ["--port", String(effectiveServerPort)]
-        if let terminalPath {
+        if includingTerminalPath, let terminalPath {
             arguments += ["--terminal-path", terminalPath]
         }
-        for tunnel in tunnels {
-            arguments += ["--tunnel", tunnel]
+        if !tunnels.isEmpty {
+            arguments += ["--tunnel", tunnels.joined(separator: ",")]
         }
-        for reverseTunnel in reverseTunnels {
-            arguments += ["--reversetunnel", reverseTunnel]
+        if !reverseTunnels.isEmpty {
+            arguments += ["--reversetunnel", reverseTunnels.joined(separator: ",")]
         }
         return arguments
     }
