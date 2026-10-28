@@ -78,12 +78,14 @@ test("the App's push sets the pane's machine and clears it for a chat on this Ma
 /// `gone`: the reconnect finds the peer removed (acpmux lists it no more). `cut`: the next
 /// `session/new` or `session/prompt` goes out and the link drops before the answer
 /// (`peer_disconnected`). `events`: it pushes peer link states (`peerStateEvents`).
-/// `origin`: what acpmux says this connection is (`local`, `peer`, `remote`). `hold()`: answers to
+/// `origin`: what acpmux says this connection is (`local`, `peer`, `remote`). `failStatus`: that
+/// many `_acpmux/status` reads fail first. `hold()`: answers to
 /// `_acpmux/status` are read at once but held until `release()`, so a push can come before them.
 function daemon(
   state: string,
-  { dropped = false, chat = false, gone = false, cut = false, events = false, origin = "local" } = {},
+  { dropped = false, chat = false, gone = false, cut = false, events = false, origin = "local", failStatus = 0 } = {},
 ) {
+  let statusFailures = failStatus;
   let cutNext = cut;
   const asked: { method: string; params: Record<string, unknown> }[] = [];
   let peerState = state;
@@ -104,6 +106,10 @@ function daemon(
           _meta: { acpmux: { origin, extensions: [], operations: [], features: events ? ["peerStateEvents"] : [] } },
         };
       case "_acpmux/status":
+        if (statusFailures > 0) {
+          statusFailures -= 1;
+          throw new Error("status unavailable");
+        }
         return peers();
       case "_acpmux/peer_reconnect":
         if (gone) {
@@ -280,12 +286,14 @@ test("with acpmux's pushes the strip follows each peer change, repeats change no
   const read = reads();
   await pane.refreshPeersOnOpen();
   expect(reads()).toBe(read);
-  const note = (state: string, error: string | null = null) =>
-    notify("_acpmux/peer_state_changed", { peer: "gpu-box", state, lastSeen: 1, error, at: 2 });
+  let at = 2;
+  // `again`: a lagging watcher's repeat of the last note (the same `at`).
+  const note = (state: string, error: string | null = null, again = false) =>
+    notify("_acpmux/peer_state_changed", { peer: "gpu-box", state, lastSeen: 1, error, at: again ? at : ++at });
   note("reconnecting");
   expect(states.at(-1)?.["gpu-box"]).toBe("reconnecting");
   const emitted = states.length;
-  note("reconnecting");
+  note("reconnecting", null, true);
   expect(states.length).toBe(emitted);
   note("connected");
   expect(states.at(-1)?.["gpu-box"]).toBe("connected");
@@ -296,6 +304,28 @@ test("with acpmux's pushes the strip follows each peer change, repeats change no
   notify("_acpmux/peer_state_changed", { peer: "new-box", state: "connecting", lastSeen: null, error: null, at: 3 });
   await new Promise((resolve) => setTimeout(resolve, 0));
   expect(reads()).toBe(read + 1);
+});
+
+test("a lagging watcher's older note never replaces a newer one", async () => {
+  const { states, notify } = await client("connected", { events: true });
+  notify("_acpmux/peer_state_changed", { peer: "gpu-box", state: "connected", lastSeen: 1, error: null, at: 5 });
+  notify("_acpmux/peer_state_changed", { peer: "gpu-box", state: "reconnecting", lastSeen: 1, error: null, at: 6 });
+  expect(states.at(-1)?.["gpu-box"]).toBe("reconnecting");
+  notify("_acpmux/peer_state_changed", { peer: "gpu-box", state: "connected", lastSeen: 1, error: null, at: 5 });
+  expect(states.at(-1)?.["gpu-box"]).toBe("reconnecting");
+});
+
+test("the peer list is read once the watch is on, and a failed read is read again as the list opens", async () => {
+  const { client: pane, asked } = await client("connected", { events: true, failStatus: 1 });
+  const methods = asked.map((message) => message.method);
+  expect(methods.indexOf("_acpmux/watch")).toBeGreaterThan(-1);
+  expect(methods.indexOf("_acpmux/status")).toBeGreaterThan(methods.indexOf("_acpmux/watch"));
+  const reads = () => asked.filter((message) => message.method === "_acpmux/status").length;
+  await pane.refreshPeersOnOpen();
+  expect(reads()).toBe(2);
+  // Read now: with the pushes on, the next open reads nothing.
+  await pane.refreshPeersOnOpen();
+  expect(reads()).toBe(2);
 });
 
 test("an older daemon with no pushes is read again as the list opens", async () => {
@@ -317,7 +347,9 @@ test("a connection that is not this machine's own acpmux reads no peer list and 
     expect(states.length).toBe(emitted);
     expect(states.at(-1)?.["gpu-box"]).toBeUndefined();
     await pane.refreshPeersOnOpen();
+    await pane.reconnectPeer("gpu-box", true, true);
     expect(reads()).toBe(0);
+    expect(asked.map((message) => message.method)).not.toContain("_acpmux/peer_reconnect");
   }
 });
 

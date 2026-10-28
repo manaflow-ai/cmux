@@ -1470,6 +1470,10 @@ export class AcpmuxDirectClient {
   /// answer may be from before a push, so each is applied again on top of it.
   private peerReads = 0;
   private pushedDuringReads = new Map<string, unknown>();
+  /// The peer list was read on this connection: until it is (a failed read), opening the list reads it.
+  private peersRead = false;
+  /// Each peer's last push taken (its `at`): a lagging watcher's repeat of an older note is not news.
+  private peerNoteAt = new Map<string, number>();
   /// Each peer's link state, last-seen time and failed attempts, for why a chat is not listed.
   private peerStatus: Record<string, PeerStatus> = {};
   private reconnectTimer?: number;
@@ -1730,11 +1734,13 @@ export class AcpmuxDirectClient {
         this.origin === "local" &&
         ((Array.isArray(features) && features.includes(PEER_STATE_EVENTS)) ||
           this.capabilities?.has(PEER_STATE_CAPABILITY) === true);
-      // The peers as they are now, at every connect (a reconnect included); the pushes apply on top.
-      // A connection acpmux calls `peer` or `remote` lists none: another host's peers are its own.
+      const first = await this.sessionPages.first();
+      // The peers as they are now, at every connect (a reconnect included), read once the watch
+      // above is on, so no change between the read and the watch is missed; the pushes apply on
+      // top. A connection acpmux calls `peer` or `remote` lists none: another host's are its own.
+      this.peersRead = false;
       if (this.listsPeers) await this.snapshotPeers(() => this.request("_acpmux/status", {}).catch(() => undefined));
       else this.readPeers(undefined);
-      const first = await this.sessionPages.first();
       let laterPages = first?.next ? first : undefined;
       const linkedLater =
         first !== undefined &&
@@ -6581,7 +6587,7 @@ export class AcpmuxDirectClient {
   /// The machine list opened: an older daemon's peers are read again; with acpmux's pushes they
   /// are already current, so nothing is read.
   refreshPeersOnOpen(): Promise<void> {
-    return this.peerStateEvents ? Promise.resolve() : this.refreshPeers();
+    return this.peerStateEvents && this.peersRead ? Promise.resolve() : this.refreshPeers();
   }
   /// One `_acpmux/peer_state_changed {peer, state, lastSeen, error, at}`: that peer's link now. A
   /// repeat (a lagged watcher gets every peer's last note again) changes nothing; a removed peer
@@ -6592,6 +6598,12 @@ export class AcpmuxDirectClient {
   private peerStateChanged(params: any): void {
     if (!this.peerStateEvents) return;
     const peer = params?.peer;
+    const at = params?.at;
+    if (typeof peer === "string" && peer && typeof at === "number") {
+      const last = this.peerNoteAt.get(peer);
+      if (last !== undefined && at <= last) return;
+      this.peerNoteAt.set(peer, at);
+    }
     if (typeof peer === "string" && peer && this.peerReads > 0) this.pushedDuringReads.set(peer, params);
     if (this.applyPeerState(params, false) && !this.snapshotHold) this.emit();
   }
@@ -6643,6 +6655,7 @@ export class AcpmuxDirectClient {
   /// to 30 s), so a send can follow it. A refusal leaves the listing as it was.
   /// `dropped`: acpmux just refused it as unreachable, whatever its listing said.
   async reconnectPeer(name: string, wait = false, dropped = false): Promise<void> {
+    if (!this.listsPeers) return;
     // One reconnect of a machine at a time: a send behind a pick's waits for it, and asks again,
     // waiting, only when the machine is still not back.
     // Read again after each wait: another caller may have started the next one meanwhile.
@@ -6683,6 +6696,7 @@ export class AcpmuxDirectClient {
       const status = await read();
       if (status !== undefined) {
         this.readPeers(status);
+        this.peersRead = true;
         for (const params of this.pushedDuringReads.values()) this.applyPeerState(params, true);
       }
       return status;
