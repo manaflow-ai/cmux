@@ -69,29 +69,30 @@ await requireBrowserLane("tool-output-full-read-browser.test.ts", async () => {
     try {
       const body = page.locator(".cv-tool-output__markdown");
       await body.evaluate((node) => {
-        node.ownerDocument.documentElement.style.minHeight = "1600px";
-        node.ownerDocument.body.style.minHeight = "1600px";
-        node.ownerDocument.documentElement.style.overflowY = "scroll";
+        const outer = node.ownerDocument.createElement("div");
+        outer.id = "wheel-reader";
+        outer.style.cssText = "height:260px; overflow:auto; width:720px";
+        const spacer = node.ownerDocument.createElement("div");
+        spacer.style.height = "900px";
+        const card = node.closest(".cv-tool-output-card")!;
+        card.parentElement!.insertBefore(outer, card);
+        outer.append(card, spacer);
         node.scrollTop = 0;
-        node.ownerDocument.defaultView!.scrollTo(0, 0);
+        outer.scrollTop = 0;
       });
       await body.hover();
-      expect(
-        await page.evaluate(
-          () => (document.scrollingElement?.scrollHeight ?? 0) > (document.scrollingElement?.clientHeight ?? 0),
-        ),
-      ).toBe(true);
+      expect(await page.locator("#wheel-reader").evaluate((node) => node.scrollHeight > node.clientHeight)).toBe(true);
       await page.mouse.wheel(0, 240);
       await page.waitForFunction(() => (document.querySelector(".cv-tool-output__markdown")?.scrollTop ?? 0) > 0);
-      expect(await page.evaluate(() => document.scrollingElement?.scrollTop ?? 0)).toBe(0);
+      expect(await page.locator("#wheel-reader").evaluate((node) => node.scrollTop)).toBe(0);
       await body.evaluate((node) => {
         node.scrollTop = node.scrollHeight;
-        node.ownerDocument.defaultView!.scrollTo(0, 0);
+        node.ownerDocument.querySelector<HTMLElement>("#wheel-reader")!.scrollTop = 0;
       });
       await page.mouse.wheel(0, 320);
-      await page.waitForFunction(() => (document.scrollingElement?.scrollTop ?? 0) > 0);
+      await page.waitForFunction(() => (document.querySelector<HTMLElement>("#wheel-reader")?.scrollTop ?? 0) > 0);
       expect(await body.evaluate((node) => node.scrollTop)).toBeGreaterThan(0);
-      expect(await page.evaluate(() => document.scrollingElement?.scrollTop ?? 0)).toBeGreaterThan(0);
+      expect(await page.locator("#wheel-reader").evaluate((node) => node.scrollTop)).toBeGreaterThan(0);
     } finally {
       await page.close();
     }
