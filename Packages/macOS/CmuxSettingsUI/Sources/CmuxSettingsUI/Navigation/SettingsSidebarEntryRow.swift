@@ -21,6 +21,7 @@ struct SettingsSidebarEntryRow: View {
             // Cloudy") before every entry.
             Image(systemName: symbolName)
                 .foregroundStyle(.secondary)
+                .fixedSize()
                 .frame(width: 16)
                 .accessibilityHidden(true)
 

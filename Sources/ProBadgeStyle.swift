@@ -252,12 +252,14 @@ struct ProBadgeLabel: View {
 }
 
 /// The Pro badge: renders the active ``ProBadgeStyle`` and opens the shared
-/// pricing destination. On hover the capsule widens to reveal a dismiss X
-/// inside it. The local dismissal preference controls visibility.
+/// pricing destination. Hover or focus reveals a dismiss X in a stable slot.
+/// The local dismissal preference controls visibility.
 struct ProBadgeView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.sidebarReadabilityBackdrop) private var readabilityBackdrop
     @State private var isHovered = false
+    @FocusState private var isDismissFocused: Bool
+    @AccessibilityFocusState private var isDismissAccessibilityFocused: Bool
     var actions = ProBadgeActions()
 
     private var helpTitle: String {
@@ -287,29 +289,36 @@ struct ProBadgeView: View {
                 .hintableAccessibilityLabel(helpTitle)
                 .accessibilityIdentifier("ProBadgeButton")
 
-                // The X is always laid out; only its container width animates,
-                // so it's revealed by the widening capsule (clipped) rather
-                // than fading or sliding on its own.
+                // Visibility must not change the glyph's layout proposal:
+                // collapsing an SF Symbol to zero width crashes CoreUI on
+                // macOS 27. Reserve the actual control size in every state,
+                // including before hover when keyboard/VoiceOver can reach it.
                 Button {
                     actions.dismissed()
                     withAnimation(.easeOut(duration: 0.15)) {
                         ProBadgeStyleStore.shared.isDismissed = true
                     }
                 } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 8, weight: .bold))
-                        .foregroundStyle(foreground)
-                        .opacity(0.75)
-                        .padding(.leading, 4)
-                        .frame(width: isHovered ? 14 : 0, alignment: .leading)
-                        .clipped()
-                        .contentShape(Rectangle())
+                    ZStack {
+                        Color.clear
+                        if isHovered || isDismissFocused || isDismissAccessibilityFocused {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 8, weight: .bold))
+                                .foregroundStyle(foreground)
+                                .opacity(0.75)
+                                .fixedSize()
+                                .padding(.leading, 4)
+                        }
+                    }
+                    .frame(width: 14, height: 16)
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .allowsHitTesting(isHovered)
                 .safeHelp(dismissTitle)
                 .accessibilityLabel(dismissTitle)
                 .accessibilityIdentifier("ProBadgeDismissButton")
+                .focused($isDismissFocused)
+                .accessibilityFocused($isDismissAccessibilityFocused)
             }
             .modifier(ProBadgeCapsule(style: style, isHovered: isHovered))
             .frame(height: 22, alignment: .center)
