@@ -160,8 +160,11 @@ async fn a_drop_fails_what_went_out_as_disconnected_and_what_did_not_as_not_sent
                 return;
             }
             let Some(id) = msg.get("id").cloned() else { continue };
-            let result =
-                if msg["method"] == method::MUX_WATCH { json!({"sessions": []}) } else { json!({}) };
+            let result = if msg["method"] == method::MUX_WATCH {
+                json!({"sessions": []})
+            } else {
+                json!({})
+            };
             let reply = json!({"jsonrpc": "2.0", "id": id, "result": result});
             server.send(Frame::Text(reply.to_string().into())).await.unwrap();
         }
@@ -177,13 +180,17 @@ async fn a_drop_fails_what_went_out_as_disconnected_and_what_did_not_as_not_sent
     }
     let asking = peer.clone();
     let sent = tokio::spawn(async move { asking.request("_acpmux/slow", json!({})).await });
-    let (_ended, mut out_rx) =
-        tokio::time::timeout(Duration::from_secs(5), serving).await.expect("the link drops").unwrap();
+    let (_ended, mut out_rx) = tokio::time::timeout(Duration::from_secs(5), serving)
+        .await
+        .expect("the link drops")
+        .unwrap();
     // What `run` does when a link ends, with one request still in the queue.
     peer.link_ended();
     let asking = peer.clone();
     let queued =
-        tokio::spawn(async move { asking.link_request_on("_acpmux/queued", json!({}), None).await });
+        tokio::spawn(
+            async move { asking.link_request_on("_acpmux/queued", json!({}), None).await },
+        );
     tokio::time::timeout(Duration::from_secs(5), async {
         while peer.out.capacity() == peer.out.max_capacity() {
             tokio::task::yield_now().await;
