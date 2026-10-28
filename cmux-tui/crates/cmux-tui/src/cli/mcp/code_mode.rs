@@ -121,13 +121,13 @@ pub(super) fn descriptors(tools: &[Value]) -> Vec<Value> {
              workspace}}, terminal_list, terminal_get: ids and names. Lists answer {{items: \
              [...]}}; a change answers {{value: {{...}}}} with the new ids (value.terminal_id, \
              value.pane_id, value.tab_id).\n\
-             - tab_create_terminal {{shell, name}}: with no pane, the terminal opens on the \
-             person's right, as a tab in the column right of this chat, or a new column when \
-             there is none. Use it for 'open a terminal', 'run X on my right', 'next to my \
-             logs'.\n\
-             - pane_split {{pane, direction, shell}}: only when the person asks for a split. A \
-             pane or tab started with shell closes when that command exits; to keep the \
-             output, start a shell and type the command with terminal_input_write.\n\
+             - To run a command for the person: tab_create_terminal {{name}} opens a shell \
+             on the person's right (a tab in the column right of this chat, or a new column \
+             when there is none), then terminal_input_write {{terminal: value.terminal_id, \
+             text: \"cmd\\n\"}} runs it there and the tab stays open with its output. Use this \
+             for 'open a terminal', 'run X on my right', 'next to my logs'. With shell (or \
+             argv) the tab runs only that command and closes when it exits.\n\
+             - pane_split {{pane, direction}}: only when the person asks for a split.\n\
              - terminal_input_write {{terminal, text: \"cmd\\n\"}}; terminal_wait {{terminal, \
              pattern, timeout_ms}} waits for text (never sleep or poll); terminal_screen_read and \
              terminal_history_read {{terminal}} read it.\n\
@@ -544,11 +544,21 @@ const PRELUDE: &str = r#"
     throw error;
   };
   const base = { call, docs: (query) => JSON.parse(native.docs(String(query ?? ""))) };
+  const noTimers = () => {
+    throw new Error("a cmux script has no timers; wait for terminal text with cmux.terminal_wait({terminal, pattern, timeout_ms})");
+  };
+  globalThis.setTimeout = noTimers;
+  globalThis.setInterval = noTimers;
   globalThis.cmux = new Proxy(base, {
     get(target, key) {
       if (key in target) return target[key];
       if (typeof key !== "string" || key === "then") return undefined;
-      return (args) => call(key, args);
+      // A Promise, so `.catch()` and `.then()` work as on any async API (the call itself
+      // runs now, in order). tests/tool-evals: `cmux.terminal_wait(...).catch(() => {})`
+      // threw "not a function" for 22 calls across models.
+      return (args) => new Promise((resolve, reject) => {
+        try { resolve(call(key, args)); } catch (error) { reject(error); }
+      });
     },
   });
   globalThis.__cmuxFinish = (promise) => promise.then(
@@ -562,6 +572,26 @@ const PRELUDE: &str = r#"
   );
 })();
 "#;
+
+/// The script as a function body. A script written as one function
+/// (`async function () {...}`, `async () => {...}`, the form many models
+/// send) is called and its value returned, where it would be a syntax error
+/// (tests/tool-evals: 29 such scripts from one model).
+fn function_body(script: &str) -> std::borrow::Cow<'_, str> {
+    let trimmed = script.trim().trim_end_matches(';').trim_end();
+    let head = trimmed.strip_prefix("async").map_or(trimmed, str::trim_start);
+    // An anonymous function: `function (`, `function(`, `() =>` or `(a) =>`. A named
+    // declaration (`function helper() {...} return helper();`) is ordinary body code.
+    let anonymous =
+        head.strip_prefix("function").is_some_and(|rest| rest.trim_start().starts_with('('))
+            || head.starts_with('(')
+                && head.split_once("=>").is_some_and(|(params, _)| !params.contains('{'));
+    if anonymous && trimmed.ends_with('}') {
+        std::borrow::Cow::Owned(format!("return await ({trimmed})();"))
+    } else {
+        std::borrow::Cow::Borrowed(script)
+    }
+}
 
 /// Runs one script on this (the engine) thread.
 fn run_script(script: &str, limits: Limits, to_server: &mpsc::Sender<ToServer>) -> Outcome {
@@ -691,8 +721,9 @@ fn run_script(script: &str, limits: Limits, to_server: &mpsc::Sender<ToServer>) 
         // The body runs inside an async function so it can await and return.
         // `finish` leaves the global scope first, so the script cannot
         // report a result of its own through it.
+        let body = function_body(script);
         let source = format!(
-            "((finish) => {{ delete globalThis.__cmuxFinish; finish((async () => {{\n{script}\n}})()); }})(globalThis.__cmuxFinish);"
+            "((finish) => {{ delete globalThis.__cmuxFinish; finish((async () => {{\n{body}\n}})()); }})(globalThis.__cmuxFinish);"
         );
         ctx.eval::<(), _>(source).catch(&ctx).map_err(|e| e.to_string())?;
         Ok(())

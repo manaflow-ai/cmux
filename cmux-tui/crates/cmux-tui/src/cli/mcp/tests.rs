@@ -1512,15 +1512,17 @@ fn code_mode_scripts_see_failed_calls_and_report_partial_runs() {
     );
     let syntax = call(&mut server, "cmux_exec", json!({"script": "return (;"}));
     assert_eq!(syntax["structuredContent"]["state"], "not_run");
-    // The engine has no file, network or process access.
+    // The engine has no file, network, process or timer access (setTimeout only
+    // throws, naming terminal_wait).
     let sandboxed = call(
         &mut server,
         "cmux_exec",
-        json!({"script": "return [typeof require, typeof fetch, typeof process, typeof setTimeout];"}),
+        json!({"script": "let timer = 'ran'; try { setTimeout(() => {}, 1); } catch { timer = 'threw'; } \
+                          return [typeof require, typeof fetch, typeof process, timer];"}),
     );
     assert_eq!(
         sandboxed["structuredContent"]["result"],
-        json!(["undefined", "undefined", "undefined", "undefined"])
+        json!(["undefined", "undefined", "undefined", "threw"])
     );
 }
 
@@ -1693,4 +1695,33 @@ fn open_url_without_an_app_stays_on_the_daemon() {
         sent.iter().any(|sent| sent["request"]["operation"] == "workspace.open_url"),
         "{sent:?}"
     );
+}
+
+/// What models write and the code mode now takes (tests/tool-evals, 11-model panel
+/// 2026-10-27): a call's `.catch()`, a script wrapped as one async function, and a
+/// missing selector or a timer that names its fix.
+#[test]
+fn code_mode_takes_the_shapes_models_write() {
+    let mut server = code_mode_server(Fake::default());
+    let wrapped = "async function () {\n  const r = await cmux.workspace_list({}).catch(() => null);\n  return {listed: r !== null};\n}";
+    let ran = call(&mut server, "cmux_exec", json!({"script": wrapped}));
+    assert_eq!(ran["structuredContent"]["result"]["listed"], true, "{ran}");
+
+    let missing = call(
+        &mut server,
+        "cmux_exec",
+        json!({"script":
+        "try { await cmux.workspace_get({}); } catch (e) { return e.message; }"}),
+    );
+    let message = missing["structuredContent"]["result"].as_str().unwrap_or_default();
+    assert!(message.contains("needs workspace") && message.contains("current"), "{missing}");
+
+    let timer = call(
+        &mut server,
+        "cmux_exec",
+        json!({"script":
+        "try { setTimeout(() => {}, 10); } catch (e) { return e.message; }"}),
+    );
+    let message = timer["structuredContent"]["result"].as_str().unwrap_or_default();
+    assert!(message.contains("terminal_wait"), "{timer}");
 }

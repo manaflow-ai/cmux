@@ -562,6 +562,30 @@ impl V2Tool {
                 _ => return Err(invalid(format!("{} has no argument {name:?}", self.name))),
             }
         }
+        // A missing required selector names the fix, where the daemon's
+        // answer ("required selector is missing") did not (tests/tool-evals:
+        // `workspace_get({})`, `terminal_input_write({terminal_id})`).
+        for (name, requiredness) in selectors.into_iter().flatten() {
+            if requiredness.as_str() == Some("required")
+                && self.selector_argument(name)
+                && !arguments.contains_key(name)
+            {
+                let current = if matches!(name.as_str(), "workspace" | "screen" | "pane" | "tab") {
+                    ", or `current` for this chat's own"
+                } else {
+                    ""
+                };
+                let also = if name == "terminal" {
+                    " (a create call answers it as value.terminal_id)"
+                } else {
+                    ""
+                };
+                return Err(invalid(format!(
+                    "{} needs {name}: an id{also}, a unique prefix or an exact name{current}",
+                    self.name
+                )));
+            }
+        }
         if self.waits() {
             let timeout = match params.get("timeout_ms") {
                 None => DEFAULT_WAIT_MS,
