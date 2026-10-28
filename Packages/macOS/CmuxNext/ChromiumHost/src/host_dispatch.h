@@ -131,6 +131,7 @@
 #include "host_mirror.h"
 #include "host_page_activity.h"
 #include "host_resize.h"
+#include "host_window_request_ids.h"
 #include "host_text_input.h"
 #include "host_wheel_ack.h"
 
@@ -287,9 +288,6 @@ class HostContext {
   // the fork's first ack of that browser after the acks of the wheels sent
   // before it answers it.
   void WheelSent(int chromium_id, uint32_t seq, bool momentum) { wheel_acks_.Sent(chromium_id, seq, momentum); }
-  static int OnWindowRequest(void* ctx, int kind, int disposition, int source_browser_id, int has_bounds, int x,
-                             int y, int width, int height, int user_gesture, const char* url,
-                             const char* profile_path);
   // cmux_shim_password_reveal's done; ctx is the reveal's PasswordReveal.
   static void OnPasswordRevealed(void* ctx, const char* password, size_t length);
 
@@ -317,8 +315,8 @@ class HostContext {
   // so cmux reads the host's value after the op once the ACK clears its mark.
   void RefreshMirror(uint16_t op, const TlvWriter& key, uint32_t wildcards);
 
-  // Puts the host's window-request handler in the shim and clears its focus handler
-  // (InstallPolicy* and Resume).
+  // Clears the shim's focus and window-request handlers: the shim's embedder-active
+  // rule decides focus and cmux's pushed policy windows (InstallPolicy* and Resume).
   void InstallHostPolicies();
 
   // An input ring frame (the ordered stream's dispatch, tasks 041 and 042):
@@ -506,6 +504,8 @@ class HostContext {
   std::unordered_map<uint64_t, PendingBind> pending_binds_;
   // DevTools message ids: (Chromium browser << 32 | the shim's id) -> the minted id.
   std::unordered_map<uint64_t, int32_t> devtools_ids_;
+  // The ids minted for the tabs of the window requests the shim decided (task 031).
+  WindowRequestTabIds window_request_tabs_;
 
   // The tab and host mirrors pushed for every open tab (tasks 016 and 017).
   HostMirrors mirrors_;
