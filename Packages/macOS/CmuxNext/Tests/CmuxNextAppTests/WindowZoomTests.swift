@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextApp
+import CmuxNextDesign
 import CmuxNextSidebar
 import Foundation
 import Testing
@@ -25,9 +26,11 @@ import Testing
         return (window, start)
     }
 
-    /// Runs the main run loop until `done` or 3 s (the resize animation lands on the run loop).
+    /// Runs the main run loop until `done` or 30 s (the resize animation lands on the run loop). The
+    /// test checks where the window lands, not how fast: a loaded runner may take far longer than
+    /// the animation's own length, so the bound is only a hang guard.
     private func runUntil(_ done: () -> Bool) {
-        let end = Date(timeIntervalSinceNow: 3)
+        let end = Date(timeIntervalSinceNow: 30)
         while !done(), Date() < end {
             _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01))
         }
@@ -37,6 +40,17 @@ import Testing
         let (window, start) = try shownWindow()
         defer { window.close() }
         try #require(!window.isZoomed)
+        // The zoom animates only when the panes' Motion gate lets it (`WindowZoom` resizes through
+        // `Motion.panes.animateTimed`). With Reduce Motion, calm mode, animations off, a live resize or
+        // a sleeping display it snaps by design, so "returns before the window resizes" does not apply.
+        // Read with the zoom's own inputs, just before it, so nothing changes in between.
+        let policy = Motion.panes.policy
+        guard Motion.panes.canAnimate(in: window.contentView), policy.duration(.move) > 0 else {
+            print("WindowZoomTests: skipped, the zoom snaps on this host by design: canAnimate=\(Motion.panes.canAnimate(in: window.contentView)) "
+                + "speed=\(policy.speed) animationsEnabled=\(policy.animationsEnabled) reduceMotion=\(policy.reduceMotion) "
+                + "liveResize=\(policy.liveResize) panesOff=\(policy.disabledCategories.contains(.panes))")
+            return
+        }
         window.zoom(nil)
         #expect(window.frame == start, "zoom resized the window inside its own call (\(window.frame)): the animation held the main thread")
         #expect(window.isZoomed, "a zoom on its way to the standard frame counts as zoomed")
