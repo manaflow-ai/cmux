@@ -1,10 +1,13 @@
 // l10n-allow-file: public-safe regression fixture commands and paths, not shipped copy.
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, spyOn, test } from "bun:test";
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import type { AcpmuxActivity } from "../model";
+import type { AcpmuxActivity, AcpmuxRow } from "../model";
+import { appendThought, mergeToolItem } from "../direct";
 import { ToolGroupRow } from "./ToolGroupRow";
+import { ToolRows } from "./TurnRows";
+import * as toolFailure from "./toolFailure";
 import { resetTranscriptDisclosure } from "./transcriptDisclosure";
 
 let dom: JSDOM | undefined;
@@ -13,7 +16,10 @@ const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, unknown>();
 
 async function render(node: ReactNode): Promise<HTMLElement> {
-  dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", { url: "http://localhost/" });
+  dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", {
+    url: "http://localhost/",
+    pretendToBeVisual: true,
+  });
   for (const key of ["window", "document", "navigator", "Node", "HTMLElement", "Element", "IS_REACT_ACT_ENVIRONMENT"])
     saved.set(key, scope[key]);
   Object.assign(scope, {
@@ -103,4 +109,65 @@ for (const [kind, toolKind] of [
     );
     expect(container.textContent).not.toMatch(/\+\d+ more/);
     for (const item of items) expect(container.textContent).toContain(item.text);
+  });
+
+for (const [kind, toolKind] of [
+  ["commands", "execute"],
+  ["reads", "read"],
+  ["searches", "search"],
+] as const)
+  test(`streaming a ${kind} group renders only its changed item`, async () => {
+    // rowFailed runs once inside each real CommandRow/ToolRow render, never in the group summary.
+    // Count that work without replacing either production row with a test renderer.
+    const rendered: string[] = [];
+    const rowFailed = toolFailure.rowFailed;
+    const probe = spyOn(toolFailure, "rowFailed").mockImplementation((tool) => {
+      rendered.push(tool.id);
+      return rowFailed(tool);
+    });
+    const completed = calls(toolKind);
+    const live = mergeToolItem(
+      undefined,
+      {
+        title: "Stream sample",
+        kind: toolKind,
+        ...(toolKind === "execute" ? { rawInput: { command: "echo stream" } } : {}),
+      },
+      "stream-item",
+      "chunk-0",
+    );
+    let row: AcpmuxRow = {
+      id: `stream-${kind}`,
+      kind: "activity",
+      version: 1,
+      at: 1,
+      items: [...completed, live],
+    };
+    try {
+      const container = await render(<ToolRows row={row} sessionId={`stream-${kind}`} />);
+      const allIds = [...completed.map((item) => item.tool!.id), "stream-item"];
+      const ids = () =>
+        [...container.querySelectorAll("[data-tool-id]")].map((node) => node.getAttribute("data-tool-id"));
+      expect(ids()).toEqual(allIds);
+      // Open only the live call's full body; its streamed result must stay live through the bailout.
+      const toggle = container.querySelector<HTMLButtonElement>('[data-tool-id="stream-item"]')!;
+      await act(async () => toggle.click());
+      for (let chunk = 1; chunk <= 5; chunk += 1) {
+        const next = mergeToolItem(row.items!.at(-1), { status: "in_progress" }, "stream-item", `chunk-${chunk}`);
+        row = { ...row, version: row.version + 1, items: [...completed, next] };
+        rendered.length = 0;
+        await act(async () => root!.render(<ToolRows row={row} sessionId={`stream-${kind}`} />));
+        expect(rendered).toEqual(["stream-item"]);
+        expect(ids()).toEqual(allIds);
+        expect(container.textContent).toContain(`chunk-${chunk}`);
+      }
+      // A thought chunk changes the activity version too, while every tool snapshot stays intact.
+      row = { ...row, version: row.version + 1, items: appendThought(row.items!, "Inspect the next sample.", 1_000) };
+      rendered.length = 0;
+      await act(async () => root!.render(<ToolRows row={row} sessionId={`stream-${kind}`} />));
+      expect(rendered).toEqual([]);
+      expect(ids()).toEqual(allIds);
+    } finally {
+      probe.mockRestore();
+    }
   });
