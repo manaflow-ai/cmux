@@ -4668,40 +4668,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
 
     private(set) var sharedLiveAgentIndexObserver: NSObjectProtocol?
 
-    /// Reconciles restored agents that a shared agent-index change reports as
-    /// finished. It never publishes this workspace.
-    func handleSharedLiveAgentIndexChange(userInfo: [AnyHashable: Any]?) {
-        guard !isRetiredFromOwningTabManager else { return }
-        if let index = SharedLiveAgentIndex.shared.index {
-            let completedPanelIds: [UUID]
-            if let panelIdsByWorkspaceId = userInfo?["panelIdsByWorkspaceId"] as? [UUID: Set<UUID>] {
-                guard let changedPanelIds = panelIdsByWorkspaceId[self.id] else {
-                    return
-                }
-                completedPanelIds = changedPanelIds.filter { panelId in
-                    self.restoredAgentResumeStatesByPanelId[panelId] == .completedAgentExit
-                }
-            } else if let changedWorkspaceId = userInfo?["workspaceId"] as? UUID,
-                      changedWorkspaceId != self.id {
-                return
-            } else if let changedPanelId = userInfo?["panelId"] as? UUID {
-                completedPanelIds = self.restoredAgentResumeStatesByPanelId[changedPanelId] == .completedAgentExit
-                    ? [changedPanelId]
-                    : []
-            } else {
-                completedPanelIds = self.restoredAgentResumeStatesByPanelId.compactMap { panelId, state in
-                    state == .completedAgentExit ? panelId : nil
-                }
-            }
-            for panelId in completedPanelIds {
-                guard let observation = index.entry(workspaceId: self.id, panelId: panelId) else {
-                    continue
-                }
-                self.reconcileCompletedRestoredAgent(panelId: panelId, observation: observation)
-            }
-        }
-    }
-
     deinit {
         for registrations in pendingTerminalInputObserversByPanelId.values {
             for registration in registrations {
