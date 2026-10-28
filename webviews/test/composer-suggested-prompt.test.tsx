@@ -466,3 +466,35 @@ test("the + menu keeps host sections separate and stays open for an unsupported 
   await act(async () => row.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true })));
   expect(host.querySelector('[data-value="browser"]')).toBeTruthy();
 });
+
+test("the + menu scrolls keyboard-selected skills into view before Enter picks one", async () => {
+  const commands = Array.from({ length: 24 }, (_, index) => ({
+    name: `skill${index}`,
+    description: `Skill ${index}`,
+    source: "skill" as const,
+  }));
+  await render(noChat([], { summary: { sessionId: "", cwd: APP } as never, commands }));
+  const plus = host.querySelector<HTMLButtonElement>(".acpmux-composer-plus button")!;
+  const scrolled: string[] = [];
+  const original = dom.window.HTMLElement.prototype.scrollIntoView;
+  dom.window.HTMLElement.prototype.scrollIntoView = function (options?: ScrollIntoViewOptions) {
+    if (options?.block === "nearest") scrolled.push(this.id);
+  };
+  try {
+    await act(async () => plus.click());
+    await act(async () => plus.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "End", bubbles: true })));
+    const last = plus.getAttribute("aria-activedescendant")!;
+    expect(scrolled).toContain(last);
+    for (let index = 0; index < 2; index++)
+      await act(async () =>
+        plus.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true })),
+      );
+    const skill = plus.getAttribute("aria-activedescendant")!;
+    expect(host.ownerDocument.getElementById(skill)?.getAttribute("data-value")).toBe("add.skill.skill23");
+    expect(scrolled).toContain(skill);
+    await act(async () => plus.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+    expect(field().textContent).toContain("/skill23 ");
+  } finally {
+    dom.window.HTMLElement.prototype.scrollIntoView = original;
+  }
+});
