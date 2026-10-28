@@ -19,7 +19,7 @@ echo "$count" > "$count_file"
 [ "$*" = "build --fetch=all" ] || { echo "unexpected zig args: $*" >&2; exit 2; }
 [ "$(pwd -P)" = "${FAKE_ZIG_DIR:?}" ] || { echo "zig ran in $(pwd -P)" >&2; exit 2; }
 if [ "$count" -le "${FAKE_ZIG_FAILURES:?}" ]; then
-  [ "${FAKE_ZIG_HANG:-0}" = 1 ] && exec sleep 600
+  [ "${FAKE_ZIG_HANG:-0}" = 1 ] && exec sleep 60
   echo "error: unable to connect to server: UnknownHostName" >&2
   exit 1
 fi

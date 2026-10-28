@@ -24,7 +24,9 @@ cd "$source_dir"
 attempt=1
 while :; do
   # perl's alarm survives the exec, so a stalled zig gets SIGALRM after $limit s.
-  # GNU timeout is not on the macOS runners; perl is on every runner.
+  # GNU timeout is not on the macOS runners; perl is on the Linux and macOS runners
+  # and the cmux-vm guest. Under Git Bash on Windows (MSYS perl, native zig.exe) the
+  # limit is not proven to end zig.
   if perl -e 'alarm shift; exec @ARGV or die "exec $ARGV[0]: $!\n"' "$limit" "$zig_bin" build --fetch=all; then
     echo "fetched the Zig packages of $source_dir (attempt $attempt)"
     exit 0
