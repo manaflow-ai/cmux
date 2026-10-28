@@ -214,6 +214,7 @@ let jobSeq = 0;
 async function callModel(body) {
   for (let attempt = 0; ; attempt++) {
     const res = await fetch(`${BASE_URL}/v1/messages`, {
+      signal: AbortSignal.timeout(300_000),
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -224,7 +225,12 @@ async function callModel(body) {
         "anthropic-beta": "claude-code-20250219,interleaved-thinking-2025-05-14,context-management-2025-06-27",
       },
       body: JSON.stringify(body),
-    });
+    }).catch((error) => (attempt < 8 ? null : Promise.reject(error)));
+    if (!res) {
+      // The model route dropped the connection (a gateway restart): try again.
+      await new Promise((r) => setTimeout(r, Math.min(30_000, 2000 * 2 ** attempt)));
+      continue;
+    }
     const text = await res.text();
     if (res.ok) return JSON.parse(text);
     if (attempt < 4 && (res.status === 429 || res.status >= 500)) {
