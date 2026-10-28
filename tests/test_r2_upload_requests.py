@@ -278,6 +278,30 @@ class R2UploadRequestsTests(unittest.TestCase):
         self.assertLess(time.monotonic() - started, 5)
         self.assertIn("too slow", result.stderr)
 
+    def test_the_deadline_is_not_swallowed_by_a_connect_over_several_addresses(self):
+        # socket.create_connection tries each resolved address and catches
+        # OSError between them: a deadline raised as one would be lost there.
+        import importlib.util
+        import socket
+        import unittest.mock
+
+        spec = importlib.util.spec_from_file_location("upload_r2_object", UPLOADER)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        self.assertFalse(issubclass(module.DownloadDeadline, OSError))
+        addresses = [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 1))] * 2
+        tried = []
+
+        def connect(_self, _address):
+            tried.append(_address)
+            raise module.DownloadDeadline("deadline")
+
+        with unittest.mock.patch("socket.getaddrinfo", return_value=addresses), \
+                unittest.mock.patch("socket.socket.connect", connect):
+            with self.assertRaises(module.DownloadDeadline):
+                socket.create_connection(("r2.invalid", 443), timeout=1)
+        self.assertEqual(len(tried), 1, "the deadline stops the connect at the first address")
+
     def test_a_failed_download_keeps_the_destination(self):
         self.env["CMUX_R2_UPLOAD_RETRY_DELAY"] = "0"
         endpoint, requests, stored = self.start_flaky_endpoint([])

@@ -315,6 +315,12 @@ def main() -> int:
     return 1
 
 
+class DownloadDeadline(Exception):
+    """A download attempt ran past its deadline. Not an OSError: the socket
+    layer (create_connection over several addresses, urllib's open) catches
+    OSError and would go on past an expired one-shot alarm."""
+
+
 def _download(args: argparse.Namespace) -> int:
     attempts = max(1, int(os.environ.get("CMUX_R2_UPLOAD_ATTEMPTS", "4")))
     retry_delay = float(os.environ.get("CMUX_R2_UPLOAD_RETRY_DELAY", "5"))
@@ -326,7 +332,7 @@ def _download(args: argparse.Namespace) -> int:
     deadline = float(os.environ.get("CMUX_R2_DOWNLOAD_ATTEMPT_SECONDS", "300"))
 
     def expire(_signum, _frame):
-        raise TimeoutError(f"the download did not finish within {deadline:g}s, too slow")
+        raise DownloadDeadline(f"the download did not finish within {deadline:g}s, too slow")
 
     previous = signal.signal(signal.SIGALRM, expire)
     try:
@@ -359,7 +365,7 @@ def _download_attempts(args: argparse.Namespace, attempts: int, retry_delay: flo
             os.replace(partial, args.download_to)
             print(f"Downloaded s3://{args.bucket}/{args.key} to {args.download_to} ({size} bytes)")
             return 0
-        except (urllib.error.HTTPError, OSError, http.client.HTTPException) as error:
+        except (urllib.error.HTTPError, OSError, http.client.HTTPException, DownloadDeadline) as error:
             try:
                 os.remove(partial)
             except FileNotFoundError:
@@ -380,7 +386,7 @@ def _transient(error: BaseException) -> bool:
     """A failure a later attempt can get past: no answer, or a 5xx or 429."""
     if isinstance(error, urllib.error.HTTPError):
         return error.code >= 500 or error.code == 429
-    return isinstance(error, (OSError, http.client.HTTPException))
+    return isinstance(error, (OSError, http.client.HTTPException, DownloadDeadline))
 
 
 def _upload_once(args: argparse.Namespace, body: bytes, amz_date: str, body_digest: str) -> int:
