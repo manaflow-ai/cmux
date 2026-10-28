@@ -104,7 +104,7 @@ instead:
   `cmux.acpmux_bg_start(...)` in a `cmux_exec` script in code mode. When the chat's MCP config has
   no `acpmux` server, a preset's allowlist leaves `bg_start` out, or the hook cannot read the
   config, the hook says nothing and the native background shell runs, so the agent is never
-  stranded. The task runs under `bash -c`, like the Bash tool. Codex keeps its unified exec on.
+  stranded. Codex keeps its unified exec on.
 - A daemon-owned task never keeps a chat awake. A harness-owned background shell, a Codex
   background terminal and a background subagent still do, because hibernating would end them.
 
