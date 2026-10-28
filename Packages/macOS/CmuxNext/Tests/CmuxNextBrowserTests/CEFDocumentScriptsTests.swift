@@ -90,12 +90,13 @@ import Testing
         #expect(CEFDocumentScripts(post: .binding).pageHost.isEmpty, "the DevTools path has no relay")
     }
 
-    /// `document.addEventListener` / `dispatchEvent` for one cancelable event, a `cmuxPost` that records its posts,
+    /// `document.addEventListener` / `dispatchEvent` for one cancelable event, an `Event` constructor, a `cmuxPost` that records its posts,
     /// and `fire(text)`, which answers whether a listener cancelled the event.
     static let domStub = """
     var posts = [];
     var listeners = [];
     var cmuxPost = function (channel, text) { posts.push(channel + ' ' + text); };
+    var Event = function (type) { this.type = type; this.defaultPrevented = false; };
     var document = {
       addEventListener: function (type, listener) { listeners.push({ type: type, listener: listener }); },
       dispatchEvent: function (event) {
@@ -109,6 +110,26 @@ import Testing
       return !document.dispatchEvent(event);
     }
     """
+
+    /// The relay announces itself once it listens, so a cmux page's posts that waited for it leave then, with no
+    /// timer in the page.
+    @Test func theRelayAnnouncesItselfOnceItListens() throws {
+        let context = try #require(JSContext())
+        context.evaluateScript(Self.domStub)
+        context.evaluateScript("var ready = 0; var heardFirst = false; var location = { href: 'cmux-page://agent/' };")
+        context.evaluateScript("""
+        document.addEventListener('\(CEFDocumentScripts.pageHostReadyEvent)', function () {
+          ready += 1;
+          heardFirst = fire('x');
+        });
+        """)
+        context.evaluateScript(CEFDocumentScripts.pageHostRelay(post: "cmuxPost('ch', stamped)", ready: "true"))
+        #expect(context.exception == nil, "\(String(describing: context.exception))")
+        #expect(context.evaluateScript("ready").toInt32() == 1, "the relay did not announce itself")
+        #expect(context.evaluateScript("heardFirst").toBool(), "the relay announced itself before it listened")
+        #expect(CEFDocumentScripts.pageHostReadyEvent == CEFDocumentScripts.pageHostEvent + "-ready",
+                "the page script derives the ready event's name from the channel event (ChromiumPageHostBridge.readyEvent(for:))")
+    }
 
     /// A document as the guard sees it.
     nonisolated struct Document: Sendable, CustomTestStringConvertible {

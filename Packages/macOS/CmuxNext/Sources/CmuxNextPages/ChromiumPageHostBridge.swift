@@ -37,6 +37,10 @@ public final class ChromiumPageHostBridge: PageHostPushing {
     public let engine = PageHostEngine.cef
     /// The binding the page script calls.
     nonisolated public static let bindingName = "__cmuxPageHost"
+
+    /// The DOM event the page channel's relay fires once it listens for `channelEvent`: posts that waited for a
+    /// transport leave then. The relay (`CEFDocumentScripts.pageHostReadyEvent`) uses the same name.
+    nonisolated public static func readyEvent(for channelEvent: String) -> String { channelEvent + "-ready" }
     /// The page function a reply calls.
     nonisolated public static let resolveName = "__cmuxPageHostResolve"
     /// The page script function a page registers its envelope receiver with, on the push channel.

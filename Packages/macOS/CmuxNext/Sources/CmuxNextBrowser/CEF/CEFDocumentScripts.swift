@@ -59,6 +59,9 @@ nonisolated struct CEFDocumentScripts: Equatable, Sendable {
     /// The DOM event a cmux page's own world fires for the relay: its `detail` is the post, and the
     /// relay cancels the event once ``pageHostChannel`` took it, so the page sends no binding call.
     static let pageHostEvent = "cmux-page-host-post"
+    /// The event the relay fires on its document once it listens for ``pageHostEvent``: a cmux page's posts that
+    /// waited for a transport leave then (`ChromiumPageHostBridge.readyEvent(for:)` derives the same name).
+    static let pageHostReadyEvent = pageHostEvent + "-ready"
 
     /// How a script reports on `channel`: a DevTools binding of that name, or the fork's `cmuxPost`.
     enum Post: Equatable, Sendable {
