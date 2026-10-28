@@ -81,8 +81,51 @@ screenshots).
 
 ## Results
 
-RESULTS
+Final head `bb1de92c`, Debug builds with Xcode 26.6 (and Xcode 27.0 for the
+iOS 27 UI test), aws-m4pro-2. Before = base plus this branch's trace only.
+
+| Composer, simulator | Docked gap before | Keyboard over field before | Docked gap after | Keyboard over field after |
+| --- | --- | --- | --- | --- |
+| Chief, iPhone iOS 26.5 | 15.7 pt | 0 frames | 15.7 pt | 0 frames |
+| Chief, iPhone iOS 27.0 | -300.3 pt | 3094 frames, max 300 pt | 15.7 pt | 0 frames |
+| Terminal, iPhone iOS 26.5 | 14.0 pt | 2 release frames | 14.0 pt | 3 release frames |
+| Terminal, iPhone iOS 27.0 | -205.0 pt | 2340 frames, max 219 pt | 14.0 pt | 3 release frames |
+| Chief + hardware key, iOS 27.0 | -300.3 pt | 65 frames | 15.7 pt | 0 frames |
+| Terminal + hardware key, iOS 27.0 | -205.0 pt | 159 frames | 14.0 pt | 0 frames |
+
+"Release frames": 1 to 3 frames at the end of a drag where the trace's keyboard
+reading has not caught up with the release; the same count before and after on
+iOS 26, and the recordings show the composer above the keyboard there.
+
+While the keyboard moves (show, hide, the settle after a drag), Chief's field
+stays within 9 to 12 pt of its docked gap on every frame on both versions,
+the same as before on iOS 26. The terminal's worst figure (about 57 pt on a
+show) is its key row folding in as the keyboard comes up, unchanged from base.
+
+UI tests at the final head:
+
+- `ComposerKeyboardPinUITests` (Chief, terminal): pass on iPhone iOS 26.5
+  (Xcode 26.6 build) and iPhone iOS 27.0 (Xcode 27.0 build, and the Xcode
+  26.6 build). On the base both fail on iOS 27.0 (keyboard over the field by
+  300.3 and 205.0 pt) and pass on iOS 26.5.
+- `TerminalComposerDockUITests` (composer bar work, #25788): pass on iOS 27.0.
+- iPad iOS 26.5: Chief passes; the terminal test fails at the interactive
+  dismissal step on the base and on this branch alike (the drag does not take
+  the keyboard away in the compatibility window).
+- iPad iOS 27.0: not verified at the final head (see Open items).
 
 ## Open items
 
-OPEN
+- iPad iOS 27.0 (an iPhone app in compatibility mode): the dock converts the
+  iPad keyboard's frames, and a screenshot on an intermediate build showed the
+  composer above the iPad keyboard on a second show. At the final head the UI
+  test could not raise the keyboard (no keyboard on screen at the first show)
+  and the screenshot rig tapped the iPad's Dock, so this is unverified.
+- iPad iOS 26.5, terminal: the UI test's interactive dismissal does not take
+  the keyboard away, on the base too. Not investigated.
+- Swift package tests (`CmuxConversation`, `CmuxMobileSupport`): not run; the
+  build controller timed out on every job request for the last hour of this
+  work. The app and its UI tests compiled with Xcode 26.6 and 27.0.
+- Split and floating keyboards were not exercised: the app is iPhone-only and
+  an iPhone app on iPad cannot float its keyboard in these runs.
+- Real devices were not used (no real-phone verification was requested).
