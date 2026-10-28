@@ -28,12 +28,13 @@ public struct ScrollFrameProbe {
     /// Moves the list to `scrollTo` (if any), then reads its frames for `duration` ms (50...5000) at `scale`
     /// (0.1...1) on `work`'s system lane. Nil when the list is not on screen in `window`.
     public func run(scrollTo: Double?, duration: Double, scale: Double, work: BackgroundWork) async -> [String: Any]? {
-        guard window.windowNumber > 0, var crop = window.unitRect(of: list.contentView) else { return nil }
+        guard window.windowNumber > 0, var region = window.unitRect(of: list.contentView) else { return nil }
         if let scrollTo {
             list.contentView.scroll(to: NSPoint(x: list.contentView.bounds.minX, y: scrollTo))
             list.reflectScrolledClipView(list.contentView)
         }
-        crop.size.width = max(0, crop.width - Self.scrollerWidth / max(1, window.frame.width))
+        region.size.width = max(0, region.width - Self.scrollerWidth / max(1, window.frame.width))
+        let crop = region
         let duration = min(max(duration, 50), 5000), scale = min(max(scale, 0.1), 1)
         let number = CGWindowID(window.windowNumber)
         let before = Double(list.contentView.bounds.minY)
