@@ -10,4 +10,3 @@ public struct CloudConnectorStatus: Codable, Equatable, Sendable {
         self.state = state
     }
 }
-

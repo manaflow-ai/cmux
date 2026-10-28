@@ -7,4 +7,3 @@ public enum CloudConnectorState: String, Codable, Equatable, Sendable {
     case needsAuth = "needs-auth"
     case expired
 }
-

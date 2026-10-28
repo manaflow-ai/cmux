@@ -125,6 +125,39 @@ struct CloudGitHubConnectorModelTests {
     }
 
     @MainActor
+    @Test func expiryDiscardsARepositoryPageAlreadyInFlight() async {
+        let fake = DelayedConnector()
+        let model = CloudGitHubConnectorModel(client: fake, openInstallURL: { _ in }, retryRepository: {})
+        let loading = Task { await model.searchRepositories("") }
+        for await _ in fake.started { break }
+        #expect(await model.refresh() == .expired)
+        await fake.finish()
+        await loading.value
+        #expect(model.repositories.isEmpty && model.repositoryCursor == nil)
+        #expect(!model.isLoadingRepositories)
+    }
+
+    private actor DelayedConnector: CloudGitHubConnectorClient {
+        nonisolated let started: AsyncStream<Void>
+        private let signal: AsyncStream<Void>.Continuation
+        private var pending: CheckedContinuation<CloudGitHubRepositoryPage, Never>?
+        init() {
+            let stream = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+            started = stream.stream
+            signal = stream.continuation
+        }
+        func connectorStatuses() async throws -> [CloudConnectorStatus] { [.init(provider: "github", state: .expired)] }
+        func installURL() async throws -> URL { throw CloudGitHubConnectorClientError.unavailable }
+        func repositories(query: String, cursor: String?) async throws -> CloudGitHubRepositoryPage {
+            await withCheckedContinuation { pending = $0; signal.yield(()); signal.finish() }
+        }
+        func finish() {
+            pending?.resume(returning: .init(repos: [.init(owner: "octo", name: "paint", isPrivate: true, defaultBranch: "main")], cursor: "next"))
+            pending = nil
+        }
+    }
+
+    @MainActor
     private final class Scope {
         var current = true
     }
@@ -162,4 +195,3 @@ struct CloudGitHubConnectorModelTests {
         }
     }
 }
-

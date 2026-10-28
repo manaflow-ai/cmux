@@ -49,4 +49,3 @@ public struct CloudGitHubConnectorJSONClient: CloudGitHubConnectorClient, Sendab
         return .requestFailed
     }
 }
-

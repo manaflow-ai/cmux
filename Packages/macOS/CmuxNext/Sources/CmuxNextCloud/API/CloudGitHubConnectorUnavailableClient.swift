@@ -16,4 +16,3 @@ public struct CloudGitHubConnectorUnavailableClient: CloudGitHubConnectorClient,
         throw CloudGitHubConnectorClientError.unavailable
     }
 }
-

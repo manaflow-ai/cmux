@@ -3,7 +3,7 @@ import CmuxNextDaemon
 import Foundation
 import Testing
 
-struct CloudMachineRepoRetryTests {
+nonisolated struct CloudMachineRepoRetryTests {
     @Test(arguments: ["offline", "needs_github", "not_found", "failed"])
     func cloneFailuresHaveTypedReasonsWithoutPersistingDiagnostics(_ expected: String) async throws {
         let diagnostic: String

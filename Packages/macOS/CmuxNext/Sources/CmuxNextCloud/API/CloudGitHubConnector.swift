@@ -9,4 +9,3 @@ public protocol CloudGitHubConnectorClient: Sendable {
     func installURL() async throws -> URL
     func repositories(query: String, cursor: String?) async throws -> CloudGitHubRepositoryPage
 }
-

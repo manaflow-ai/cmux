@@ -10,4 +10,3 @@ public struct CloudGitHubRepositoryPage: Codable, Equatable, Sendable {
         self.cursor = cursor
     }
 }
-

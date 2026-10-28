@@ -29,4 +29,3 @@ public enum CloudGitHubConnectorClientError: Error, Equatable, Sendable {
         }
     }
 }
-

@@ -22,4 +22,3 @@ public struct CloudGitHubRepository: Codable, Equatable, Sendable, Identifiable 
         case defaultBranch
     }
 }
-
