@@ -231,12 +231,20 @@ try:
 
     before_keys = {row.get("key") for row in before_rows}
 
+    settle_samples = []
+
     def settled_sidebar():
-        # Creation has settled when the daemon-confirmed list holds exactly one row the launch did not have.
+        # Creation has settled when the list holds exactly one row the launch did not have, in the same order for
+        # three samples in a row (the optimistic row alone would pass once before the daemon's echo moves it).
         report = sidebar()
         rows = workspace_rows(report)
         added = [row for row in rows if row.get("key") not in before_keys]
-        return report if len(rows) == len(before_rows) + 1 and len(added) == 1 else None
+        if len(rows) != len(before_rows) + 1 or len(added) != 1:
+            settle_samples.clear()
+            return None
+        settle_samples.append([row.get("key") for row in ordered(rows)])
+        del settle_samples[:-3]
+        return report if len(settle_samples) == 3 and settle_samples[0] == settle_samples[1] == settle_samples[2] else None
 
     after_sidebar = wait_for("Cmd-N creation to settle", settled_sidebar, timeout=30)
     after_rows = ordered(workspace_rows(after_sidebar))
@@ -267,18 +275,21 @@ try:
     save_json("display-probe.json", display)
     save_json("frame-strip.json", strip)
 
+    def visible_rows(native_frame):
+        views = native_frame.get("views") or {}
+        return {key: box for key, box in views.items() if key.startswith("workspace(") and
+                (len(box) < 5 or box[4] > 0.02)}
+
     observed_keys = []
     for native_frame in motion_frames:
-        for key in (native_frame.get("views") or {}):
-            if key.startswith("workspace(") and key not in before_keys and key not in observed_keys:
+        for key in visible_rows(native_frame):
+            if key not in before_keys and key not in observed_keys:
                 observed_keys.append(key)
     new_keys = observed_keys + [row.get("key") for row in after_rows
                                 if row.get("key") not in before_keys and row.get("key") not in observed_keys]
     positions = []
     for sample_index, native_frame in enumerate(motion_frames):
-        views = native_frame.get("views") or {}
-        visible = {key: box for key, box in views.items() if key.startswith("workspace(") and
-                   (len(box) < 5 or box[4] > 0.02)}
+        visible = visible_rows(native_frame)
         keys = sorted(visible, key=lambda key: (visible[key][1], key))
         for key in new_keys:
             if key in keys:

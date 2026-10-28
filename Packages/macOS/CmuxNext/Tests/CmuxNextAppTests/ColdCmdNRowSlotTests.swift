@@ -80,9 +80,15 @@ struct ColdCmdNRowSlotTests {
                     && Self.rows(list.displayed).contains { id in store.workspaces.first { $0.id == id }?.name == "cold-target" }
                     && PendingWorkspaceRows.shared.rows(in: window).isEmpty
             }
-            try? await Task.sleep(for: .seconds(1))
-
             let target = try #require(store.workspaces.first { $0.name == "cold-target" }?.id, "new workspace never entered the store")
+            // Settled: the daemon confirmed the new row's document item and the list draws the projection of the
+            // document's current version, so no later reconciliation is still on its way to the list.
+            let docMachines = SidebarDocWiring.docMachines(services.machines)
+            await RapidWorkspaceCreateTests.wait(within: .seconds(30)) {
+                guard let doc = SidebarDocStore.current, docMachines.item(workspace: target) != nil else { return false }
+                return doc.shownVersion == doc.version && Self.rows(list.displayed).contains(target)
+            }
+            try #require(docMachines.item(workspace: target) != nil, "the daemon never confirmed the new row's document item")
             let targetFrames = frames.filter { $0.contains(target) }
             let expected = anchor + 1
             let misplaced = targetFrames.filter { frame in

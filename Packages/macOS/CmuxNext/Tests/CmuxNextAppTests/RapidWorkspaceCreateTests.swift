@@ -62,28 +62,28 @@ struct RapidWorkspaceCreateTests {
             configuration: .init(binary: binary, session: session, stateDirectory: root.appendingPathComponent("state")),
             environment: { ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/sh", "TERM": "xterm-256color"] })
         if !preseedWorkspaceNames.isEmpty {
+            let owner = try await launcher.ensure()
+            let seed = DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil, sessionEvents: sessionEvents),
+                                        endpointProvider: launcher.endpointProvider)
             do {
-                _ = try await launcher.ensure()
-                let seed = DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil, sessionEvents: sessionEvents),
-                                            endpointProvider: launcher.endpointProvider)
-                do {
-                    _ = try await seed.start()
-                    for name in preseedWorkspaceNames {
-                        _ = try await seed.state.createWorkspace(name: name, ephemeral: false, terminal: true, focus: false)
-                    }
-                } catch {
-                    if let identity = await seed.identity {
-                        _ = try? await seed.request(ShutdownDaemonRequest(pid: identity.pid, generation: identity.generation, endTerminals: true),
-                                                    timeout: .seconds(10))
-                    }
-                    await seed.close()
-                    throw error
+                _ = try await seed.start()
+                for name in preseedWorkspaceNames {
+                    _ = try await seed.state.createWorkspace(name: name, ephemeral: false, terminal: true, focus: false)
+                }
+            } catch {
+                // No Launched comes back to stop it: end the daemon `ensure` spawned here, by its pid when the seed
+                // connection never learned its identity, and remove the fixture state.
+                if let identity = await seed.identity {
+                    _ = try? await seed.request(ShutdownDaemonRequest(pid: identity.pid, generation: identity.generation, endTerminals: true),
+                                                timeout: .seconds(10))
+                } else {
+                    kill(owner.pid, SIGTERM)
                 }
                 await seed.close()
-            } catch {
-                // A failed handshake may leave the owned daemon alive; retain its state for recovery.
+                try? FileManager.default.removeItem(at: root)
                 throw error
             }
+            await seed.close()
         }
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
