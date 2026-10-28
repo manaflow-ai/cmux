@@ -262,8 +262,9 @@ const quickRows = '.acpmux-quick-menu [role="menuitemradio"]';
 const openModel: Play = async (ctx) => {
   await ctx.click(MODEL);
   await ctx.waitFor(() => ctx.document.querySelector(quickRows) !== null);
-  if (!ctx.document.querySelector(".acpmux-model .acpmux-fast"))
-    throw new Error("the model picker has no inline Fast bolt");
+  if (ctx.document.querySelector(".acpmux-fast")) throw new Error("the composer must draw no Fast bolt");
+  if (!ctx.document.querySelector(".acpmux-quick-menu .acpmux-quick-fast"))
+    throw new Error("the compact model menu has no Fast mode toggle");
   const headers = [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-quick-menu .ui-menu-group-label")];
   if (headers.some((node) => node.textContent?.trim()))
     throw new Error("the compact model menu should not show a static session header");
@@ -361,11 +362,13 @@ const effortPick: Play = async (ctx) => {
 };
 
 const fastMode: Play = async (ctx) => {
-  const fast = { selector: ".acpmux-model .acpmux-fast" } as const;
+  const fast = { selector: ".acpmux-quick-menu .acpmux-quick-fast" } as const;
+  await ctx.click(MODEL);
   await ctx.waitFor(() => ctx.document.querySelector(fast.selector) !== null);
-  if (ctx.find(fast).getAttribute("aria-pressed") !== "false") throw new Error("Fast mode must start off");
+  if (ctx.document.querySelector(".acpmux-fast")) throw new Error("the composer must draw no Fast bolt");
+  if (ctx.find(fast).getAttribute("aria-checked") !== "false") throw new Error("Fast mode must start off");
   await ctx.click(fast);
-  await ctx.waitFor(() => ctx.document.querySelector(fast.selector)?.getAttribute("aria-pressed") === "true");
+  await ctx.waitFor(() => ctx.document.querySelector(fast.selector)?.getAttribute("aria-checked") === "true");
 };
 
 const morePicker: Play = async (ctx) => {
@@ -522,7 +525,7 @@ export default componentEntry<Props>({
       play: openEffort,
     },
     "fast-mode": {
-      note: "The free Fast mode is the bolt beside the model name: a click turns it on while the model picker remains adjacent.",
+      note: "Fast mode is the model picker’s toggle row: a click turns it on without adding a separate composer control.",
       props: {},
       play: fastMode,
     },
