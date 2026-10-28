@@ -268,6 +268,14 @@ extension AgentPaneRequest {
             }
         case "project.browse": self = .browseProject
         case "sandbox.state": self = .sandboxState(wait: params?["wait"] as? Bool == true)
+        case "cloud.handoffTurn":
+            // The store's session ids only (`SESSION` in backend handoffs/routes.ts).
+            guard let session = params?["sessionId"] as? String,
+                  session.range(of: #"^[A-Za-z0-9_.:-]{1,128}$"#, options: .regularExpression) != nil else {
+                self = .unsupported(method)
+                return
+            }
+            self = .cloudHandoffTurn(sessionId: session)
         case "sandbox.run":
             // The task is the person's prompt (never logged); the server checks the agent by name.
             let agent = params?["agent"] as? String

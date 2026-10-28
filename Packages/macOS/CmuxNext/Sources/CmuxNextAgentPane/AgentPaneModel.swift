@@ -63,6 +63,9 @@ public final class AgentPaneModel {
     /// Cloud VM behind Labs and answers the page's reply (the receipt, or a typed refusal). Nil: no
     /// sandboxes in this app.
     @ObservationIgnored public var onSandboxRun: (@MainActor (_ task: String, _ agent: String?, _ key: String) async -> [String: Any])?
+    /// A Cloud chat's hand-off turn (`cloud.handoffTurn`, ``AgentPaneHandoffPrompt``): the App opens
+    /// it and answers `{turn}` or a refusal. Nil: no hand-offs in this app.
+    @ObservationIgnored public var onCloudHandoffTurn: (@MainActor (_ sessionId: String) async -> [String: Any])?
     /// This pane's Sandboxed send, kept across a page reload (``AgentPaneSandboxRuns``).
     @ObservationIgnored public let sandboxRuns = AgentPaneSandboxRuns()
     /// Agent session avatars (the app's ``ChiefAvatarUploads``, keyed per session): the avatar as a
@@ -418,6 +421,13 @@ public final class AgentPaneModel {
             }
         case .sandboxState(let wait):
             return await sandboxRuns.state(wait: wait)
+        case .cloudHandoffTurn(let session):
+            // Only this pane's own chat on another machine: its chat, or the one it is starting now
+            // (a remote chat's session is made by its first send, just before this ask).
+            guard let onCloudHandoffTurn, remoteChat, sessionId == nil || sessionId == session else {
+                return Self.unsupported("cloud.handoffTurn")
+            }
+            return await onCloudHandoffTurn(session)
         case .cloudMachine(let request): return await request.reply(.shared, gestures: transport.gestures)
         case .cloudCredentialTransfer(let request):
             guard remoteChat, newTab == nil, sessionId == request.sessionID else {

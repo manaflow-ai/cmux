@@ -272,6 +272,8 @@ extension AgentTabStore {
             host.cloudMachineID = services.machines.session(daemon.machineID)?.machineID
             host.cloudCredentialRecoveryAvailable = host.cloudMachineID != nil &&
                 services.cloud.auth.isSignedIn && services.cloud.configuration.linkSource == .legacy
+            // A chat on one of the account's Cloud machines names each turn's hand-off, behind Labs.
+            host.cloudHandoffs = host.cloudMachineID != nil && CloudHandoffTurnOpener.refusal(services) == nil
             // A Cloud machine (the app's own record, never the guest's) starts a chat or asks folder
             // trust only on the Cloud API's owner answer on the link the call goes over, checked as
             // it is sent, through any daemon (an app-server link has none: no owner word).

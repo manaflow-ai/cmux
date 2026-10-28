@@ -42,6 +42,7 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .browseProject: "browseProject"
         case .sandboxRun: "sandboxRun"
         case .sandboxState: "sandboxState"
+        case .cloudHandoffTurn: "cloudHandoffTurn"
         case .chooseFolder: "chooseFolder"
         case .useFolder: "useFolder"
         case .chooseChatFolder: "chooseChatFolder"

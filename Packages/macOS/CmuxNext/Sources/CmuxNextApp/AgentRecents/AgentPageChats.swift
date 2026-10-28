@@ -31,6 +31,8 @@ final class AgentPageChats {
     var sandboxRun: (@MainActor (String, String?, String) async -> [String: Any])?
     /// The app-level waiter on every Sandboxed send's Run, and its notification (``SandboxRunNotices``).
     private(set) var runNotices: SandboxRunNotices?
+    /// A Cloud chat's hand-off turn (``CloudHandoffTurnOpener``), one runner for every page, given the pane that asked.
+    var handoffTurn: (@MainActor (AgentPaneView?, String) async -> [String: Any])?
     /// The app-level waiter on every hand-off of a chat to a Cloud machine, and its notification.
     private(set) var handoffNotices: HandoffNotices?
 
@@ -86,6 +88,7 @@ final class AgentPageChats {
         view.recentlyClosed = closed
         view.model.startFolders.environments = environments
         view.model.onSandboxRun = sandboxRun
+        view.model.onCloudHandoffTurn = handoffTurn.map { run in { [weak view] session in await run(view, session) } }
     }
 
     /// Sandboxed sends run through `services`' signed-in Cloud client (hq#3367), only while Labs >
@@ -100,6 +103,7 @@ final class AgentPageChats {
         let handoffs = HandoffNotices(services: services)
         tabs.pageChats.handoffNotices = handoffs
         handoffs.start()
+        tabs.pageChats.handoffTurn = CloudHandoffTurnOpener.runner(tabs, services: services)
         tabs.pageChats.sandboxRun = { [weak services] task, agent, key in
             guard let services else { return AgentPaneReply.failure(code: "cloud_disabled", message: "cloud_disabled") }
             // Cloud turned off by policy, or the managed team it requires missing: a definite

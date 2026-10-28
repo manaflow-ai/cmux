@@ -25,7 +25,7 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
     private enum CodingKeys: String, CodingKey {
         case protocolVersion, transport, sessionId, newSession, newTab, cwd, draft, prompt, promptTicket, harness, adopt, surface,
              linkScheme, sessionMustExist, revealTurn, chooseFolder, startKind, folderNeeded, pastTurns, machineName, githubRepository, harnesses, wake,
-             workspaceContext, sandboxState, cloudMachineID, cloudCredentialRecoveryAvailable
+             workspaceContext, sandboxState, cloudMachineID, cloudCredentialRecoveryAvailable, cloudHandoffs
     }
 
     public var protocolVersion: Int
@@ -108,6 +108,9 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
     public var cloudMachineID: String?
     /// True only when this Cloud backend supports credential delivery.
     public var cloudCredentialRecoveryAvailable: Bool?
+    /// True when this app opens the chat's hand-off turns (`cloud.handoffTurn`): a chat on a Cloud
+    /// machine names each turn's prompt (``AgentPaneHandoffPrompt``). Pages that predate it ignore it.
+    public var cloudHandoffs: Bool?
     /// This Mac's name (System Settings > General > Sharing), for the composer's location row.
     /// Pages that predate it ignore it.
     public var machineName: String?
