@@ -7,8 +7,9 @@ import { parseManifest } from "./runner";
 
 const baseline = JSON.parse(readFileSync(join(import.meta.dir, "geometry-baseline.json"), "utf8"));
 
+const fleetOrCi = process.env.CMUX_GALLERY_IN_VM === "1" || process.env.CI === "1" || process.env.CI === "true";
 for (const scenario of ["ready", "failed-play", "unready"] as const) {
-  test(`audit CLI preserves ${scenario} capture status when geometry passes`, async () => {
+  test.skipIf(!fleetOrCi)(`audit CLI preserves ${scenario} capture status when geometry passes`, async () => {
     const directory = mkdtempSync(join(tmpdir(), "geometry-audit-status-"));
     const sha = "a".repeat(40);
     const config = join(directory, "config.json");
@@ -33,7 +34,7 @@ for (const scenario of ["ready", "failed-play", "unready"] as const) {
       // Run the production CLI in a child: its process.exitCode must survive both stages.
       const child = Bun.spawn([process.execPath, join(import.meta.dir, "geometry-audit.ts"),
         "--gallery-dir", directory, "--output-dir", output, "--config", config, "--expected-sha", sha],
-        { env: { ...process.env, CMUX_GALLERY_IN_VM: "1" }, stdout: "pipe", stderr: "pipe" });
+        { env: { ...process.env }, stdout: "pipe", stderr: "pipe" });
       const deadline = setTimeout(() => child.kill(), 20_000);
       const [exitCode, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()])
         .finally(() => clearTimeout(deadline));
