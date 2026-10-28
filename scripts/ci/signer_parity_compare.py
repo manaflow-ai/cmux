@@ -519,6 +519,7 @@ def read_tlv(data: bytes, pos: int = 0, path: str = "", depth: int = 0):
                 node.children.append(child)
         else:
             node.value = data[pos:end]
+            node.issues += content_issues(node)
     if node.constructed and node.cls == 0 and node.number in STRING_TAGS:
         # Flattened to its value; the exact chunking stays in the issue, so two
         # different BER encodings of the same string never read as the same.
@@ -527,6 +528,25 @@ def read_tlv(data: bytes, pos: int = 0, path: str = "", depth: int = 0):
         node.value = b"".join(c.value for c in node.children)
         node.constructed, node.children = False, []
     return node, end
+
+
+def content_issues(node: Node) -> list:
+    """Non-DER encodings of a primitive's content that decode to the same value."""
+    v = node.value
+    if node.cls != 0:
+        return []
+    if node.number == 6:  # OID: no arc starts with 0x80, and the last byte ends an arc
+        if not v or v[-1] & 0x80:
+            raise ValueError("malformed DER: unterminated OBJECT IDENTIFIER")
+        if any(b == 0x80 and (i == 0 or not v[i - 1] & 0x80) for i, b in enumerate(v)):
+            return [f"non-minimal OBJECT IDENTIFIER ({v.hex()})"]
+    if node.number in (2, 10) and len(v) > 1 and (v[0] == 0 and not v[1] & 0x80 or v[0] == 0xFF and v[1] & 0x80):
+        return [f"non-minimal INTEGER ({v[:2].hex()}...)"]
+    if node.number == 1 and v not in (b"\x00", b"\xff"):
+        return [f"non-DER BOOLEAN ({v.hex()})"]
+    if node.number == 5 and v:
+        return ["NULL with content"]
+    return []
 
 
 def der(node: Node) -> bytes:
@@ -808,6 +828,27 @@ def blob_offsets(macho: bytes) -> dict:
     return {typ: sig[0] + off for typ, off in entries}
 
 
+def code_directory_errors(cd: bytes) -> list:
+    """A CodeDirectory's header, identifier, hash slots and team id must lie inside it."""
+    if len(cd) < 44:
+        return ["a CodeDirectory shorter than its header"]
+    (magic, length, version, _, hash_off, ident_off, n_special, n_code, _, hash_size,
+     _, _, _, _) = struct.unpack(">IIIIIIIIIBBBBI", cd[:44])
+    errors = []
+    if magic != 0xFADE0C02 or length != len(cd):
+        errors.append("a CodeDirectory whose magic or length is wrong")
+    if not ident_off < len(cd) or b"\0" not in cd[ident_off:]:
+        errors.append("a CodeDirectory identifier outside it")
+    if hash_size not in (20, 32, 48, 64) or hash_off < 44 + n_special * hash_size \
+            or hash_off + n_code * hash_size > len(cd):
+        errors.append("CodeDirectory hash slots outside it")
+    if version >= 0x20200 and len(cd) >= 52:
+        team = struct.unpack(">I", cd[48:52])[0]
+        if team and (team >= len(cd) or b"\0" not in cd[team:]):
+            errors.append("a CodeDirectory team id outside it")
+    return errors
+
+
 def cd_slots(cd: bytes):
     """(offset, size) of the CodeResources special slot in a CodeDirectory, or None."""
     _, _, _, _, hash_off, _, n_special, _, _, hash_size = struct.unpack(">IIIIIIIIIB", cd[:37])
@@ -831,6 +872,12 @@ def strict_slice(a: bytes, b: bytes, labels=("A", "B")):
         count = struct.unpack(">I", body[sig[0] + 8:sig[0] + 12])[0]
         if len(blob_offsets(body)) != count:
             out.append(f"the signature index names a blob type twice ({side})")
+    if out:
+        return out, slots
+    for side, blobs_ in zip(labels, (ba, bb)):
+        for t, blob in blobs_.items():
+            if t == 0 or 0x1000 <= t < 0x2000:
+                out += [f"{e} ({side}, slot {t:#x})" for e in code_directory_errors(blob)]
     if out:
         return out, slots
     oa, ob = blob_offsets(a), blob_offsets(b)
@@ -941,6 +988,20 @@ def code_signature_dirs(root: str) -> dict:
             if os.path.basename(d) == "_CodeSignature" and not os.path.islink(d)}
 
 
+def bundle_signature_dirs(root: str) -> set:
+    """Where a signature directory must be: Contents/_CodeSignature of the app and
+    of every nested .app, and Versions/X/_CodeSignature of every framework version."""
+    out = {os.path.join("Contents", "_CodeSignature")}
+    for d, dirs, _ in os.walk(root):
+        rel = os.path.relpath(d, root)
+        if rel != "." and d.endswith(".app") and os.path.isdir(os.path.join(d, "Contents")):
+            out.add(os.path.join(rel, "Contents", "_CodeSignature"))
+        if os.path.basename(os.path.dirname(d)) == "Versions" and d.split(os.sep)[-3].endswith(".framework") \
+                and not os.path.islink(d) and os.path.basename(d) != "Current":
+            out.add(os.path.join(rel, "_CodeSignature"))
+    return out
+
+
 def signature_dir_errors(a_root: str, b_root: str, labels) -> dict:
     """The default compare leaves every _CodeSignature directory out of the
     payload. In strict mode each must sit where a bundle's signature goes
@@ -949,6 +1010,10 @@ def signature_dir_errors(a_root: str, b_root: str, labels) -> dict:
     but CodeResources must be byte-identical."""
     out = {}
     da, db = code_signature_dirs(a_root), code_signature_dirs(b_root)
+    for rel in sorted(bundle_signature_dirs(a_root) | bundle_signature_dirs(b_root)):
+        if rel not in da or rel not in db:
+            missing = [side for side, d in zip(labels, (da, db)) if rel not in d]
+            out[rel] = [f"a bundle without its signature directory ({', '.join(missing)})"]
     for rel in sorted(set(da) | set(db)):
         parts = rel.split(os.sep)
         errors = []
@@ -1046,6 +1111,15 @@ def strict_compare(a_root, b_root, machos: dict, labels, failures: list) -> tupl
             if bad:
                 out.append(f"CodeResources hash slot differs, and not only by the signing time ({len(bad)} slots)")
             return out
+        if kind == "resources":
+            for side, x in zip(labels, (xa, xb)):
+                try:
+                    if not isinstance(plistlib.loads(x), dict):
+                        out.append(f"not a property list dictionary ({side})")
+                except Exception:
+                    out.append(f"not a property list ({side})")
+            if out:
+                return out
         if xa == xb:
             return out
         if kind == "manifest":  # its sha256 checksums of signed Mach-O files, in hex
@@ -1100,7 +1174,7 @@ def strict_compare(a_root, b_root, machos: dict, labels, failures: list) -> tupl
         else:
             verdicts[rel] = check(rel, known)
     for rel, errors in signature_dir_errors(a_root, b_root, labels).items():
-        verdicts[rel] = verdicts.get(rel, []) + errors
+        verdicts[rel] = (verdicts.get(rel) or []) + errors
         raw.setdefault(rel, (None, b""))
     count, identical, framing_only = len(failures), 0, 0
     for rel in sorted(verdicts):

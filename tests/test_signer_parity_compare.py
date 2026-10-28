@@ -843,5 +843,48 @@ class StrictThirdReviewTests(StrictFixture):
         self.assertIn("modes differ", proc.stdout)
 
 
+
+@unittest.skipUnless(shutil.which("openssl"), "openssl makes the test signatures")
+class StrictFourthReviewTests(StrictFixture):
+    """Each way the fourth strict review found to pass two apps that differ, or that are malformed."""
+
+    def test_non_minimal_primitive_encodings_are_framing(self):
+        padded_oid = spc.read_tlv(b"\x06\x04\x2a\x80\x86\x48")[0]
+        self.assertEqual(padded_oid.issues, ["non-minimal OBJECT IDENTIFIER (2a808648)"])
+        self.assertEqual(spc.oid(padded_oid), "1.2.840")
+        self.assertEqual(spc.read_tlv(b"\x02\x02\x00\x05")[0].issues, ["non-minimal INTEGER (0005...)"])
+        self.assertEqual(spc.read_tlv(b"\x01\x01\x01")[0].issues, ["non-DER BOOLEAN (01)"])
+        with self.assertRaises(ValueError):
+            spc.read_tlv(b"\x06\x02\x2a\x86")
+
+    def test_identical_malformed_code_directories_fail(self):
+        good = bytearray(macho(b"T" * 32, lambda cd: self.signer.cms(cd), reserve=4096))
+        sig_at = struct.unpack("<I", bytes(good[32 + 72 + 8:32 + 72 + 12]))[0]
+        cd_at = sig_at + struct.unpack(">I", bytes(good[sig_at + 16:sig_at + 20]))[0]
+        good[cd_at + 28:cd_at + 32] = struct.pack(">I", 1000)  # nCodeSlots far past the CodeDirectory
+        a = make_app(self.root / "a", tool=bytes(good))
+        proc, _ = self.strict(a, a)
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("CodeDirectory hash slots outside it", proc.stdout)
+
+    def test_identical_malformed_code_resources_fail(self):
+        a = self.app("a")
+        (a / "Contents/_CodeSignature/CodeResources").write_bytes(b"not a plist")
+        proc, _ = self.strict(a, a)
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("not a property list (A)", proc.stdout)
+
+    def test_a_bundle_without_its_signature_directory_fails(self):
+        a = self.app("a")
+        (a / "Contents/Frameworks/Lib.framework/Versions/A").mkdir(parents=True)
+        (a / "Contents/Frameworks/Lib.framework/Versions/A/Lib").write_bytes(b"x")
+        shutil.rmtree(a / "Contents/_CodeSignature")
+        proc, _ = self.strict(a, a)
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("Contents/_CodeSignature", proc.stdout)
+        self.assertIn("Contents/Frameworks/Lib.framework/Versions/A/_CodeSignature", proc.stdout)
+        self.assertIn("a bundle without its signature directory (A, B)", proc.stdout)
+
+
 if __name__ == "__main__":
     unittest.main()
