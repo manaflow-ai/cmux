@@ -119,7 +119,35 @@ fn a_cold_start_answers_before_it_ends_its_dead_hosts_and_respawns_an_attached_o
         }
     };
     let attached = attach_started.elapsed();
-    eprintln!("PHASE attached t={:?}", phase_clock.elapsed());
+    eprintln!("PHASE attached t={:?} response={response}", phase_clock.elapsed());
+    // Diagnostic: which request hangs, and is the daemon still alive.
+    for (index, probe) in [
+        serde_json::json!({"id": 901, "cmd": "identify"}),
+        serde_json::json!({"id": 902, "cmd": "list-terminals"}),
+        serde_json::json!({"id": 903, "cmd": "list-workspaces"}),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let alive = harness.child.as_mut().map(|child| child.try_wait().ok().flatten().is_none());
+        let stream = transport::connect(&harness.socket);
+        eprintln!("PHASE probe {index} connect={} alive={alive:?}", stream.is_ok());
+        let Ok(stream) = stream else { continue };
+        stream.set_read_timeout(Some(Duration::from_secs(10))).ok();
+        let mut writer = stream.try_clone_box().unwrap();
+        let mut reader = BufReader::new(stream);
+        let started = Instant::now();
+        writeln!(writer, "{probe}").unwrap();
+        let mut line = String::new();
+        let read = reader.read_line(&mut line);
+        eprintln!(
+            "PHASE probe {index} {} after {:?}: {:?} {}",
+            probe["cmd"],
+            started.elapsed(),
+            read.as_ref().map_err(|error| error.kind()),
+            &line.chars().take(160).collect::<String>()
+        );
+    }
     let pending = tabs(&request(&harness.socket, serde_json::json!({"cmd": "list-workspaces"})))
         .into_iter()
         .filter(|tab| tab["terminal_state"] == "adopting")
