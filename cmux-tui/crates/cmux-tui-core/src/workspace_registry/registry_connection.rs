@@ -31,25 +31,27 @@
 //! `LockHolder`'s try and wait: a frontend request goes before waiting
 //! automation; a re-entry never waits.
 //!
-//! The lock does not donate priority (parking_lot), so it boosts its owner
-//! (`cmux_threads::OwnerBoost`, Chromium's priority-inheritance locks in
-//! base/synchronization/lock_impl_posix.cc): a waiter of a higher QoS than
-//! the owner (a request thread behind a Utility journal writer) raises the
-//! owner to its QoS until the owner's last hold ends.
+//! On macOS the lock is priority-inheriting (crate::lock_rank
+//! `RankedReentrantLock`, an `os_unfair_lock`; Chromium's
+//! priority-inheritance locks in base/synchronization/lock_impl_posix.cc):
+//! a request thread blocked behind a Utility journal writer runs the writer
+//! at its own priority. The owner boost (`cmux_threads::OwnerBoost`) covers
+//! the waits the kernel cannot see (the class gate's admission, the
+//! writer's deadline wait) and Linux, where the lock is parking_lot's: a
+//! waiter of a higher QoS than the owner raises the owner to its QoS until
+//! the owner's last hold ends.
 
 use std::cell::Cell;
 use std::panic::Location;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use parking_lot::{
-    ArcReentrantMutexGuard, RawMutex, RawThreadId, ReentrantMutex, ReentrantMutexGuard,
-};
+use cmux_tui_platform::pi_mutex::{ArcPiReentrantMutexGuard, PiReentrantMutexGuard};
 use rusqlite::Connection;
 
 use cmux_threads::{OwnerBoost, OwnerHold};
 
-use crate::lock_rank::{HeldRank, LockRank, RankWait};
+use crate::lock_rank::{HeldRank, LockRank, RankWait, RankedReentrantLock};
 use crate::request_path::BlockingKind;
 use crate::server::priority_gate::{Gated, HoldTicket, PriorityGate};
 
@@ -65,7 +67,7 @@ pub(crate) struct RegistryConnectionGuard<'a> {
     _boost: OwnerHold<&'a OwnerBoost>,
     /// The lock; dropping it unlocks (or leaves a re-entry), then wakes the
     /// gate's waiters.
-    guard: Gated<ReentrantMutexGuard<'a, Connection>, &'a PriorityGate>,
+    guard: Gated<PiReentrantMutexGuard<'a, Connection>, &'a PriorityGate>,
     _rank: HeldRank,
     /// Dropped after the lock, so a note never prints under it.
     _request_path: RequestPathHold,
@@ -85,7 +87,7 @@ impl std::ops::Deref for RegistryConnectionGuard<'_> {
 pub(crate) struct RegistryConnectionPin {
     /// Dropped before the lock (see `RegistryConnectionGuard`).
     _boost: OwnerHold<Arc<OwnerBoost>>,
-    _guard: Gated<ArcReentrantMutexGuard<RawMutex, RawThreadId, Connection>, Arc<PriorityGate>>,
+    _guard: Gated<ArcPiReentrantMutexGuard<Connection>, Arc<PriorityGate>>,
     _rank: HeldRank,
     _request_path: RequestPathHold,
 }
@@ -151,7 +153,7 @@ pub(crate) struct JournalCommitHooks {
 // writes become writer-batch intents and the registry lock leaves the write
 // path. Reentrancy can hide lock-order bugs; debug_assert_lock_order guards it.
 pub(crate) struct RegistryConnection {
-    connection: Arc<ReentrantMutex<Connection>>,
+    connection: Arc<RankedReentrantLock<Connection>>,
     /// The thread that last took `connection` (lock waits name it).
     holder: cmux_threads::LockHolder,
     /// Admission by class of first acquisitions (`server::priority_gate`);
@@ -262,7 +264,7 @@ impl RegistryConnection {
             )
         });
         Arc::new(Self {
-            connection: Arc::new(ReentrantMutex::new(connection)),
+            connection: Arc::new(cmux_tui_platform::pi_mutex::reentrant_mutex(connection)),
             holder: cmux_threads::LockHolder::default(),
             gate: Arc::new(PriorityGate::new()),
             boost: Arc::new(OwnerBoost::new()),
@@ -501,6 +503,13 @@ impl RegistryConnection {
             _rank: record_rank(),
             _request_path: RequestPathHold::NONE,
         })
+    }
+}
+
+#[cfg(test)]
+impl RegistryConnection {
+    pub(crate) fn backing() -> crate::lock_rank::RankBacking {
+        crate::lock_rank::field_backing(|connection: &Self| &*connection.connection)
     }
 }
 

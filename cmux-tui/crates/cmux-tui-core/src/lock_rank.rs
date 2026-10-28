@@ -9,7 +9,7 @@
 //! both locks, so every test, Testbox gate and debug dogfood build checks the
 //! order on every path it runs. `try_lock` cannot deadlock: it is recorded but
 //! not checked. In release builds the rank, the name and the thread-local
-//! stack are compiled out; [`RankedMutex`] is then a plain [`Mutex`]. Holds
+//! stack are compiled out; [`RankedMutex`] is then a plain [`RankedLock`]. Holds
 //! of the ranks up to `Mux::state` are counted in every build: lock
 //! admission never makes a thread wait while it holds one
 //! ([`HeldRank::may_yield`]).
@@ -22,13 +22,31 @@
 //! `cmux_threads::blocking::snapshot`. Chromium times only the contended
 //! path the same way: base/synchronization/lock_impl.h (`LockImpl::Lock`
 //! tries first) and base/synchronization/lock_metrics_recorder.h.
+//!
+//! Every ranked lock is priority-inheriting on macOS (p05-ipc-138): its
+//! raw lock is `cmux_tui_platform::pi_mutex::PiRawMutex`, an
+//! `os_unfair_lock` whose blocked waiter raises the owner to its own
+//! priority, as Chromium's `base::Lock` inherits priority
+//! (base/synchronization/lock_impl_posix.cc). [`RankedMutex`],
+//! `SignaledMutex` (the registry), `StateMutex` and the registry connection
+//! hold a [`RankedLock`] or a [`RankedReentrantLock`];
+//! `pi_mutex_backs_every_rank` checks every rank. Elsewhere the raw lock is
+//! parking_lot's, and the holder boost (`LockRank::raises_holder`) is the
+//! only raise.
 
 use std::ops::{Deref, DerefMut};
 #[cfg(debug_assertions)]
 use std::panic::Location;
-use std::sync::{LockResult, Mutex, MutexGuard, PoisonError, TryLockError, TryLockResult};
+use std::sync::{LockResult, PoisonError, TryLockError, TryLockResult};
 #[cfg(debug_assertions)]
 use std::time::Instant;
+
+/// The lock behind every ranked mutex: priority-inheriting on macOS.
+pub(crate) type RankedLock<T> = cmux_tui_platform::pi_mutex::PiMutex<T>;
+/// A held [`RankedLock`].
+pub(crate) type RankedLockGuard<'a, T> = cmux_tui_platform::pi_mutex::PiMutexGuard<'a, T>;
+/// The lock behind the reentrant ranked lock (the registry connection).
+pub(crate) type RankedReentrantLock<T> = cmux_tui_platform::pi_mutex::PiReentrantMutex<T>;
 
 /// Rank of a ranked lock. A thread acquires ranks in ascending order.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -311,9 +329,9 @@ impl Drop for HeldRank {
     }
 }
 
-/// A [`Mutex`] with a lock rank. The API mirrors `std::sync::Mutex`.
+/// A [`RankedLock`] with a lock rank. The API mirrors `std::sync::Mutex`.
 pub(crate) struct RankedMutex<T> {
-    inner: Mutex<T>,
+    inner: RankedLock<T>,
     #[cfg(debug_assertions)]
     rank: LockRank,
     #[cfg(debug_assertions)]
@@ -337,7 +355,7 @@ impl<T> RankedMutex<T> {
         #[cfg(not(debug_assertions))]
         let _ = (rank, name);
         Self {
-            inner: Mutex::new(value),
+            inner: RankedLock::new(value),
             #[cfg(debug_assertions)]
             rank,
             #[cfg(debug_assertions)]
@@ -376,7 +394,7 @@ impl<T> RankedMutex<T> {
     #[cfg(debug_assertions)]
     #[track_caller]
     #[inline]
-    fn lock_timed(&self) -> LockResult<MutexGuard<'_, T>> {
+    fn lock_timed(&self) -> LockResult<RankedLockGuard<'_, T>> {
         match self.inner.try_lock() {
             Ok(guard) => Ok(guard),
             Err(TryLockError::Poisoned(poison)) => Err(poison),
@@ -386,7 +404,7 @@ impl<T> RankedMutex<T> {
 
     #[cfg(not(debug_assertions))]
     #[inline]
-    fn lock_timed(&self) -> LockResult<MutexGuard<'_, T>> {
+    fn lock_timed(&self) -> LockResult<RankedLockGuard<'_, T>> {
         self.inner.lock()
     }
 
@@ -395,7 +413,7 @@ impl<T> RankedMutex<T> {
     #[cfg(debug_assertions)]
     #[cold]
     #[inline(never)]
-    fn wait_timed(&self, site: &'static Location<'static>) -> LockResult<MutexGuard<'_, T>> {
+    fn wait_timed(&self, site: &'static Location<'static>) -> LockResult<RankedLockGuard<'_, T>> {
         let since = Instant::now();
         #[cfg(test)]
         self.probe.waiting.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
@@ -429,7 +447,7 @@ impl<T> RankedMutex<T> {
 
 /// A held [`RankedMutex`]. The lock is released before its rank.
 pub(crate) struct RankedGuard<'a, T> {
-    guard: MutexGuard<'a, T>,
+    guard: RankedLockGuard<'a, T>,
     _held: HeldRank,
 }
 
@@ -446,6 +464,95 @@ impl<T> DerefMut for RankedGuard<'_, T> {
     #[inline]
     fn deref_mut(&mut self) -> &mut T {
         &mut self.guard
+    }
+}
+
+/// What a rank's blocking acquisition waits on (`pi_mutex_backs_every_rank`).
+#[cfg(test)]
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum RankBacking {
+    /// A lock over this raw lock (its type name).
+    Lock(&'static str),
+    /// No lock: a FIFO of turns (`PtyInputFifo`) or a thread's scope
+    /// (`JournalWriterCommitScope`). Nothing owns it for the kernel to raise;
+    /// the holder boost raises the thread that takes it.
+    NoOwner,
+}
+
+/// The backing of the lock field `field` returns. It compiles only for a
+/// priority-inheriting field type, so a wrapper's `backing` names its real
+/// field, not a claim about it.
+#[cfg(test)]
+pub(crate) fn field_backing<W, L>(_field: fn(&W) -> &L) -> RankBacking
+where
+    L: cmux_tui_platform::pi_mutex::PriorityInheriting + ?Sized,
+{
+    RankBacking::Lock(std::any::type_name::<L::Raw>())
+}
+
+#[cfg(test)]
+impl LockRank {
+    /// Every rank, outermost first.
+    pub(crate) const ALL: [Self; 12] = [
+        Self::WorkspaceRegistry,
+        Self::JournalWriter,
+        Self::RegistryConnection,
+        Self::MuxState,
+        Self::PtyInput,
+        Self::KittyLimitsRequest,
+        Self::Geometry,
+        Self::Terminal,
+        Self::Runtime,
+        Self::KittyLimits,
+        Self::AttachTaps,
+        Self::Leaf,
+    ];
+}
+
+#[cfg(test)]
+impl<T> RankedMutex<T> {
+    pub(crate) fn backing() -> RankBacking {
+        field_backing(|mutex: &Self| &mutex.inner)
+    }
+}
+
+#[cfg(test)]
+mod backing_tests {
+    use super::{LockRank, RankBacking, RankedMutex};
+    use crate::mux::{Mux, SignaledMutex};
+    use crate::workspace_registry::registry_connection::RegistryConnection;
+
+    /// Every rank is a priority-inheriting lock or owns nothing: a new rank
+    /// does not compile here until it is classified, and a ranked lock
+    /// whose field is not `RankedLock`/`RankedReentrantLock` does not
+    /// compile in its `backing`.
+    #[test]
+    fn pi_mutex_backs_every_rank() {
+        // `ALL` lists every rank: the last rank's discriminant is its length.
+        assert_eq!(LockRank::Leaf as usize + 1, LockRank::ALL.len());
+        for (index, rank) in LockRank::ALL.into_iter().enumerate() {
+            assert_eq!(rank as usize, index, "{rank:?} is out of order in LockRank::ALL");
+        }
+        let pi =
+            || RankBacking::Lock(std::any::type_name::<cmux_tui_platform::pi_mutex::PiRawMutex>());
+        for rank in LockRank::ALL {
+            let (backing, expected) = match rank {
+                LockRank::WorkspaceRegistry => (SignaledMutex::<()>::backing(), pi()),
+                LockRank::JournalWriter | LockRank::PtyInput => {
+                    (RankBacking::NoOwner, RankBacking::NoOwner)
+                }
+                LockRank::RegistryConnection => (RegistryConnection::backing(), pi()),
+                LockRank::MuxState => (Mux::state_lock_backing(), pi()),
+                LockRank::KittyLimitsRequest
+                | LockRank::Geometry
+                | LockRank::Terminal
+                | LockRank::Runtime
+                | LockRank::KittyLimits
+                | LockRank::AttachTaps
+                | LockRank::Leaf => (RankedMutex::<()>::backing(), pi()),
+            };
+            assert_eq!(backing, expected, "{rank:?}");
+        }
     }
 }
 

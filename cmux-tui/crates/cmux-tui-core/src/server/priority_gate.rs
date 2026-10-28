@@ -558,14 +558,14 @@ pub(crate) trait GateGuard {
     fn unlock(self) -> bool;
 }
 
-impl<T> GateGuard for std::sync::MutexGuard<'_, T> {
+impl<T> GateGuard for cmux_tui_platform::pi_mutex::PiMutexGuard<'_, T> {
     fn unlock(self) -> bool {
         drop(self);
         true
     }
 }
 
-impl<T> GateGuard for parking_lot::ReentrantMutexGuard<'_, T> {
+impl<T> GateGuard for cmux_tui_platform::pi_mutex::PiReentrantMutexGuard<'_, T> {
     fn unlock(self) -> bool {
         let mutex = Self::remutex(&self);
         drop(self);
@@ -573,13 +573,7 @@ impl<T> GateGuard for parking_lot::ReentrantMutexGuard<'_, T> {
     }
 }
 
-impl<T> GateGuard
-    for parking_lot::lock_api::ArcReentrantMutexGuard<
-        parking_lot::RawMutex,
-        parking_lot::RawThreadId,
-        T,
-    >
-{
+impl<T> GateGuard for cmux_tui_platform::pi_mutex::ArcPiReentrantMutexGuard<T> {
     fn unlock(self) -> bool {
         !Self::into_arc(self).is_owned_by_current_thread()
     }

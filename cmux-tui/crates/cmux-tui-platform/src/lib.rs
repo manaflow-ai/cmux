@@ -2,8 +2,9 @@
 //! users and peers ([`platform`]), the terminal-host executable
 //! ([`host_exe`]), process identity and resource sampling, backtraces of a
 //! busy thread ([`thread_backtrace`]), the Unix process scope, the Windows
-//! process queries, the request-path blocking notes ([`request_path`]) and
-//! the request QoS with its lock-holder boost ([`qos`]).
+//! process queries, the request-path blocking notes ([`request_path`]), the
+//! request QoS with its lock-holder boost ([`qos`]) and the
+//! priority-inheriting locks behind the daemon's ranked locks ([`pi_mutex`]).
 //! cmux-tui-core re-exports each module at its old path
 //! (`cmux_tui_core::platform`, ...).
 
@@ -12,6 +13,7 @@
 #[cfg(unix)]
 pub mod host_exe;
 mod kinfo_proc;
+pub mod pi_mutex;
 pub mod platform;
 #[cfg(unix)]
 pub mod process_identity;
