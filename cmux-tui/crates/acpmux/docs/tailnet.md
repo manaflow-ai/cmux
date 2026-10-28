@@ -19,7 +19,8 @@ timer. A failed watch clears the node so a later explicit start can retry; a
 generation fence prevents an old watch from changing a replacement node's
 state. Each start, login, logout and shutdown runs on its own task, so a caller
 that goes away mid-request never leaves the controller half-changed. Daemon
-shutdown closes the node but leaves its saved login for the next explicit start.
+shutdown closes the node but leaves its saved login for the next explicit start,
+and no start is accepted after it begins.
 Builds with the `tailnet` feature list the four methods in `initialize`'s
 `extensions`; other builds answer them with `not_built`.
 

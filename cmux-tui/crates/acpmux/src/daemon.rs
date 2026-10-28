@@ -548,13 +548,13 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     }
     tracing::info!("shutting down");
     // A node a person started closes with the daemon; its saved login stays.
+    // The controller is made here if no request made it (it holds no node
+    // until a start), so a start racing this shutdown is refused either way.
     #[cfg(all(unix, feature = "tailnet"))]
-    if let Some(tailnet) = hub.tailnet_controller.get() {
-        match tokio::time::timeout(SHUTDOWN_BUDGET, tailnet.shutdown()).await {
-            Ok(Ok(())) => {}
-            Ok(Err(error)) => tracing::warn!("embedded tailnet close: {error}"),
-            Err(_) => tracing::warn!("embedded tailnet did not close within {SHUTDOWN_BUDGET:?}"),
-        }
+    match tokio::time::timeout(SHUTDOWN_BUDGET, hub.tailnet_controller().shutdown()).await {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => tracing::warn!("embedded tailnet close: {error}"),
+        Err(_) => tracing::warn!("embedded tailnet did not close within {SHUTDOWN_BUDGET:?}"),
     }
     hub.stop_idle_reaper();
     // New clients get "connection refused" instead of a dying daemon.

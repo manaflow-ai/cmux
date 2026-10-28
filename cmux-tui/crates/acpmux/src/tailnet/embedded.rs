@@ -147,6 +147,8 @@ struct Inner {
     node: Option<Arc<Node>>,
     starting: bool,
     generation: u64,
+    /// Set by daemon shutdown and never cleared: no node starts after it.
+    closed: bool,
 }
 
 /// Owns one embedded node per daemon install. The controller is cheap to
@@ -170,6 +172,7 @@ impl Controller {
                 node: None,
                 starting: false,
                 generation: 0,
+                closed: false,
             }),
             changes,
             lifecycle: tokio::sync::Mutex::new(()),
@@ -220,6 +223,9 @@ impl Controller {
         let generation;
         {
             let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
+            if inner.closed {
+                return Err("the daemon is shutting down".to_owned());
+            }
             if inner.node.is_some() || inner.starting {
                 return Ok(inner.snapshot.clone());
             }
@@ -307,6 +313,12 @@ impl Controller {
     }
 
     async fn shutdown_detached(self: Arc<Self>) -> Result<(), String> {
+        {
+            // Before waiting on the lifecycle lock: a start queued behind
+            // this shutdown sees it and refuses.
+            let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
+            inner.closed = true;
+        }
         let _lifecycle = self.lifecycle.lock().await;
         {
             let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
@@ -542,6 +554,15 @@ mod tests {
             .await
             .expect("detached lifecycle work finished after its caller was dropped")
             .unwrap();
+    }
+
+    #[tokio::test]
+    async fn no_node_starts_after_shutdown() {
+        let controller = Controller::new("/nonexistent/cmux-tailnet-test", "test");
+        controller.shutdown().await.unwrap();
+        assert_eq!(controller.start().await, Err("the daemon is shutting down".to_owned()));
+        assert!(controller.node().is_none());
+        assert_eq!(controller.snapshot().state, "stopped");
     }
 
     #[test]
