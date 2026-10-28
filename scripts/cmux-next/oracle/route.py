@@ -5,19 +5,20 @@ Spec: plans/cmux-next/chrome-parity/p15-oracle.md, sections 3F.5 and 6, task p15
 Stdlib only, Python 3.9+, safe under `python3 -I`. `oracle.py route ARGS` runs this script with ARGS.
 
 Usage:
-    route.py [CONFIRMED.jsonl ...] [--out FILE] [--switch NAME | --base REF --head REF]
+    route.py [CONFIRMED.jsonl ...] [--out FILE] [--merge] [--switch NAME | --base REF --head REF]
              [--owners FILE] [--registry DIR] [--repo DIR] [--json]
     exit 0: every confirmed divergence routed (none is fine); 1: a confirmed divergence could not be mapped
     (no switch or change, an unknown switch, a ref not in the checkout, a failed diff), the other lines
     are still routed; 2: a bad input file (an unreadable or malformed input, a missing or empty OWNERS.md),
-    and --out is removed so no older queue stays
+    and --out is removed so no older queue stays (with --merge the queue is left as it was)
 
 Input (default /tmp/oracle/confirmed.jsonl, written by `oracle.py confirm`, task p15-oracle-184): one
 JSON object per line, a diff.py finding (`journey`, `step`, `checkpoint`, `pointer`, `a`, `b`, `replay`,
 `evidence`, ...) plus what confirm learned:
     "confidence": "confirmed" | "flaky" | "base-red" | "unconfirmed"
     "verdicts": {"head": {"verdict": "fail", "run": RUN_ID}, "head_retry": {...}, "base": {"verdict": "pass", ...}}
-    "switch": NAME (a `diff --switch` divergence) or "base" and "head": commit SHAs (a `diff --base --head` one);
+    "switch": NAME (a `diff --switch` divergence) or "base" and "head": commit SHAs (a `diff --base --head` one),
+    or "mode": "launch-config" (a `diff --arm launch-config` one: every switch at once);
     a line's own target is used as a whole (half a commit pair is unroutable), --switch or --base/--head only for
     a line that names none
     optional "product": the oracle product the case ran on (default daemon)
@@ -28,7 +29,8 @@ already sent flaky lines to MQ-flakes and base-red lines to the base-red queue. 
 
 Mapping (one owner per divergence, the others listed):
 1. A switch divergence maps to the switch's files: its `plan` (without the #anchor) and `old_paths`
-   (plans/cmux-next/refactor-switches/<name>.json).
+   (plans/cmux-next/refactor-switches/<name>.json). A launch-config divergence maps to every switch's files,
+   and its fallback owner is every switch's registry owner.
 2. A base/head divergence maps to the files that differ between the two commits (`git diff --name-only`).
 3. Each file belongs to the most specific OWNERS.md row that matches it, the rule the pre-push hook uses
    (guardrails.parse_owners, glob_match, glob_specificity; this file has no second copy of it). The row
@@ -44,6 +46,11 @@ the same divergence (case, pointer, product, and switch at its source ref or com
 `replay` (confirm's diff.py command over the recorded runs) and `rerun` (the oracle.py command that builds
 and compares the case again).
 
+--merge (what `oracle.py confirm` uses, task p15-oracle-184): the routed lines join the queue already in --out
+instead of replacing it. A later route of the same divergence (same key) replaces its line; a queue line without
+the three verdicts and their run ids is dropped. The route holds the queue's sidecar lock (.<name>.lock,
+fcntl.flock) from its read to its replace, so confirms that end together keep each other's lines.
+
 Chrome reference:
 - depot_tools/owners_client.py and owners_finder.py: a file's owners come from the closest OWNERS file;
   here the most specific row of one OWNERS.md stands for the closest file.
@@ -56,6 +63,8 @@ Chrome reference:
 from __future__ import annotations
 
 import argparse
+import contextlib
+import fcntl
 import glob
 import hashlib
 import importlib.util
@@ -68,7 +77,7 @@ import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, Union
+from typing import Any, Dict, Iterable, Iterator, List, Optional, Sequence, Tuple, Union
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[2]
@@ -119,11 +128,12 @@ class Roots:
 
 @dataclass(frozen=True)
 class Target:
-    """What a divergence is mapped from: a switch, or the change between two commits."""
+    """What a divergence is mapped from: a switch, the change between two commits, or every switch (launch-config)."""
 
     switch: Optional[str] = None
     base: Optional[str] = None
     head: Optional[str] = None
+    launch_config: bool = False
 
 
 def load_guardrails() -> Any:
@@ -221,6 +231,8 @@ def target_of(item: Dict[str, Any], default: Target) -> Target:
     switch, base, head = item.get("switch"), item.get("base"), item.get("head")
     if switch:
         return Target(switch=str(switch))
+    if item.get("mode") == "launch-config":
+        return Target(launch_config=True)
     if base or head:
         return Target(base=str(base) if base else None, head=str(head) if head else None)
     return default
@@ -252,6 +264,19 @@ def switch_files(entry: Dict[str, Any]) -> List[str]:
         files.append(plan.split("#", 1)[0])
     files += [p for p in entry.get("old_paths") or [] if isinstance(p, str) and p]
     return list(dict.fromkeys(files))
+
+
+def registry_entries(roots: Roots) -> List[Dict[str, Any]]:
+    """Every switch's registry entry, in name order (a launch-config divergence is every switch's)."""
+    entries = []
+    for path in sorted(roots.registry.glob("*.json")) if roots.registry.is_dir() else ():
+        try:
+            entry = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as error:
+            raise Unroutable(f"launch-config: {path} is not readable JSON ({error})") from error
+        if isinstance(entry, dict):
+            entries.append(entry)
+    return entries
 
 
 def resolve(roots: Roots, ref: str) -> str:
@@ -322,6 +347,13 @@ class Router:
             return self._owned("switch-plan", files, fallback=switch_owner, fallback_source="switch-owner",
                                program=plan_program.group(0) if plan_program else None,
                                switch_owner=switch_owner, plan=plan)
+        if target.launch_config:
+            entries = registry_entries(self.roots)
+            files = list(dict.fromkeys(path for entry in entries for path in switch_files(entry)))
+            owners = sorted({entry["owner"] for entry in entries if isinstance(entry.get("owner"), str) and entry["owner"]})
+            switch_owner = ", ".join(owners) or None
+            return self._owned("launch-config switches", files, fallback=switch_owner, fallback_source="switch-owner",
+                               program=None, switch_owner=switch_owner)
         if bool(target.base) != bool(target.head):
             given, missing = ("base", "head") if target.base else ("head", "base")
             raise Unroutable(f"names a {given} commit but no {missing}: half a commit pair to map")
@@ -374,6 +406,11 @@ def rerun_command(item: Dict[str, Any], mapping: Mapping, target: Target) -> str
         ref = source_of(item)
         if ref:
             parts += ["--ref", ref]
+    elif target.launch_config:
+        parts += ["--arm", "launch-config"]
+        ref = source_of(item)
+        if ref:
+            parts += ["--ref", ref]
     else:
         parts += ["--base", mapping.base or "", "--head", mapping.head or ""]
     parts += ["--filter", glob.escape(item["journey"]), "--fresh"]
@@ -384,6 +421,8 @@ def route_key(item: Dict[str, Any], mapping: Mapping, target: Target) -> str:
     """One divergence: the case and pointer on one product, over one switch at one source ref or one commit pair."""
     if target.switch:
         scope = ["switch", target.switch, source_of(item)]
+    elif target.launch_config:
+        scope = ["launch-config", source_of(item)]
     else:
         scope = ["commits", mapping.base, mapping.head]
     text = json.dumps([item["journey"], item.get("pointer"), product_of(item), scope], separators=(",", ":"))
@@ -435,6 +474,50 @@ def write_jsonl(lines: Sequence[Dict[str, Any]], out: Path) -> None:
         raise
 
 
+def lock_path(out: Path) -> Path:
+    return out.with_name(f".{out.name}.lock")
+
+
+@contextlib.contextmanager
+def queue_lock(out: Path) -> Iterator[None]:
+    """The queue's sidecar lock, held across the read, the merge and the replace (--merge)."""
+    out.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path(out).open("a", encoding="utf-8") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+def queued(line: Dict[str, Any]) -> bool:
+    """A queue line that still carries a key and the three verdicts with their run ids."""
+    if not isinstance(line, dict) or line.get("schema") != SCHEMA or not line.get("key"):
+        return False
+    verdicts = line.get("verdicts")
+    return isinstance(verdicts, dict) and all(
+        isinstance(verdicts.get(name), dict) and verdicts[name].get("verdict") == wanted and verdicts[name].get("run")
+        for name, wanted in REQUIRED_VERDICTS)
+
+
+def merge_into_queue(lines: Sequence[Dict[str, Any]], out: Path) -> Tuple[int, List[str]]:
+    """Add LINES to the queue in OUT under its lock; returns (queue size, keys of the old lines dropped)."""
+    with queue_lock(out):
+        existing: List[Dict[str, Any]] = []
+        if out.is_file():
+            for number, text in enumerate(out.read_text(encoding="utf-8").splitlines(), 1):
+                if text.strip():
+                    try:
+                        existing.append(json.loads(text))
+                    except ValueError as error:
+                        raise InputError(f"{out}:{number}: the queue holds a line that is not JSON ({error})") from error
+        dropped = [str(line.get("key") if isinstance(line, dict) else line) for line in existing if not queued(line)]
+        queue = {line["key"]: line for line in existing if queued(line)}
+        queue.update((line["key"], line) for line in lines)
+        write_jsonl([queue[key] for key in sorted(queue)], out)
+    return len(queue), dropped
+
+
 @dataclass
 class Result:
     routed: List[Dict[str, Any]]
@@ -466,6 +549,25 @@ def route(items: Sequence[Tuple[str, Dict[str, Any]]], router: Router, default: 
     return result
 
 
+def route_files(paths: Sequence[Path], out: Path = DEFAULT_OUT, *, roots: Optional[Roots] = None,
+                default: Target = Target(), merge: bool = True) -> Dict[str, Any]:
+    """Route the lines of PATHS into OUT (joined to its queue when MERGE); InputError on a bad input file.
+
+    The library entry point of `oracle.py confirm` (task p15-oracle-184): a summary of what was routed and why
+    the other lines were not.
+    """
+    items = read_lines(paths)
+    result = route(items, Router(roots or Roots(), load_guardrails()), default)
+    if merge:
+        size, dropped = merge_into_queue(result.routed, out)
+    else:
+        write_jsonl(result.routed, out)
+        size, dropped = len(result.routed), []
+    return {"out": str(out), "routed": len(result.routed), "queue": size, "skipped": dict(result.skipped),
+            "unrouted": [{"where": where, "why": why} for where, why in result.unrouted],
+            "duplicates": result.duplicates, "dropped": dropped, "keys": [line["key"] for line in result.routed]}
+
+
 def print_summary(result: Result, out: Path) -> None:
     owners = sorted({line["owner"] for line in result.routed})
     print(f"route: {len(result.routed)} confirmed divergences to {len(owners)} owners -> {out}")
@@ -486,6 +588,8 @@ def main(argv: Optional[List[str]] = None, roots: Optional[Roots] = None) -> int
     parser = argparse.ArgumentParser(prog="route.py", description=__doc__.split("\n\n", 1)[0])
     parser.add_argument("inputs", type=Path, nargs="*", help=f"confirmed divergences, JSON lines (default {DEFAULT_IN})")
     parser.add_argument("--out", type=Path, default=DEFAULT_OUT, help=f"queue file (default {DEFAULT_OUT})")
+    parser.add_argument("--merge", action="store_true",
+                        help="join the routed lines to the queue in --out under its lock instead of replacing it")
     parser.add_argument("--switch", help="the switch of lines that name none (a `diff --switch` run)")
     parser.add_argument("--base", help="the base commit of lines that name none (a `diff --base --head` run)")
     parser.add_argument("--head", help="the head commit of lines that name none")
@@ -506,9 +610,13 @@ def main(argv: Optional[List[str]] = None, roots: Optional[Roots] = None) -> int
     try:
         items = read_lines(args.inputs or [DEFAULT_IN])
         result = route(items, Router(roots, load_guardrails()), Target(args.switch, args.base, args.head))
-        write_jsonl(result.routed, args.out)
+        if args.merge:
+            merge_into_queue(result.routed, args.out)
+        else:
+            write_jsonl(result.routed, args.out)
     except InputError as error:
-        args.out.unlink(missing_ok=True)  # a failed run leaves no queue, never the previous run's
+        if not args.merge:
+            args.out.unlink(missing_ok=True)  # a failed run leaves no queue, never the previous run's
         print(f"route: {error}", file=sys.stderr)
         return EXIT_BAD_INPUT
     if args.json:

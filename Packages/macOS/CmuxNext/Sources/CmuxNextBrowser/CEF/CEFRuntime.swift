@@ -47,8 +47,8 @@ final class CEFRuntime {
     let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "cef")
 
     // Routing tables (main thread).
-    var tabsByBrowser: [Int32: CEFTab] = [:]
-    var hosts: [CEFPaneKey: CEFPaneHost] = [:]
+    var tabsByBrowser: [Int32: CEFTab] = [:] { didSet { windowRequests.policyMayHaveChanged() } }
+    var hosts: [CEFPaneKey: CEFPaneHost] = [:] { didSet { windowRequests.policyMayHaveChanged() } }
     /// The chat open of each page window by pane (``CEFEngine/pagesTabConfiguration(chatOpen:)``); each leaves at its
     /// window's first contentful paint or when its host leaves ``hosts``.
     var chatOpens: [String: ChatOpenStages] = [:]
@@ -101,7 +101,7 @@ final class CEFRuntime {
     var openOffTheRecord: ((URL?, CEFTab?) -> Void)?
     /// The pane host that last showed a tab: where tabs from windows cmux
     /// does not host go.
-    weak var lastShownHost: CEFPaneHost?
+    weak var lastShownHost: CEFPaneHost? { didSet { windowRequests.policyMayHaveChanged() } }
     /// The app-wide list of hidden pages' kept frames (`HiddenFrameLRU`), given to each hosted page window.
     weak var hiddenFrames: (any CEFHiddenFrames)?
     /// Off-the-record context keys created this launch, by profile.
@@ -163,6 +163,9 @@ final class CEFRuntime {
     /// The one app-wide observer of display changes: each Chromium host view's resize wait is capped
     /// by the displays' frames (`CEFLayerHosting.displaysChanged`). Made when CEF is ready.
     private(set) var displayObservation: MainActorObservation?
+    /// The geometry transactions that resize Chromium pages, one fence each (`CEFResizeFences`); nil
+    /// while the feature `cefResizeFence` is off (the engine made last sets it): the API 27 deadlines.
+    var resizeFences: CEFResizeFences?
     /// True when `--load-extension` is in use (development, verification).
     private(set) var loadsUnpackedExtensions = false
     /// `browser.builtInAdBlocker`, asked at start (the App supplies it).
@@ -571,9 +574,10 @@ final class CEFRuntime {
         // The shim sets `external_message_pump` from this callback: in process only, where the app pumps.
         // SAFETY: a C function of `cmux_shim_schedule_fn`; its context is `context`, the runtime's token.
         let schedule: CEFShimLibrary.ScheduleFn? = if case .inProcess = library { unsafe cefScheduleCallback } else { nil }
-        // Chromium never opens a window (fork API 8) nor focuses a page cmux did not focus.
-        // SAFETY: a C function of `cmux_shim_window_request_fn`; its context is `context`, the runtime's token.
-        unsafe shim.setWindowRequestHandler(cefWindowRequestCallback)
+        // Chromium never opens a window (fork API 8) nor focuses a page cmux did not focus. In host mode
+        // cmux answers no window request inside the host's navigation: it pushes its policy instead.
+        let hostMode = if case .host = library { true } else { false }
+        windowRequests.install(on: shim, hostMode: hostMode)
         installFocusRequestPolicy(shim)
         let paths = library.chromiumPaths
         let logFile = library.chromiumLogFile(storage)
