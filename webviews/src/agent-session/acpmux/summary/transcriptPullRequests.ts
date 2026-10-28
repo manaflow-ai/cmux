@@ -142,6 +142,8 @@ const callText = (command: string) =>
 const executedShellText = (command: string): string => {
   let text = callText(command).replace(/\bif\s+(true|false)\s*;\s*then\s+([\s\S]*?)\s*;\s*([\s\S]*?)\s*fi\b/g, (_, condition: string, thenBody: string, rest: string) => {
     if (condition === "true") return thenBody.split(/\b(?:elif|else)\b/)[0]!;
+    const directElif = /^\s*elif\s+(?!true\s*;|false\s*;)([\s\S]*?)(?:;|$)/.exec(rest);
+    if (directElif) return rest.replace(/^\s*elif\s+/, "");
     const clauses = [...rest.matchAll(/\belif\s+(true|false)\s*;\s*then\s+([\s\S]*?)(?=\s*;\s*(?:elif|else)\b|$)/g)];
     const chosen = clauses.find((clause) => clause[1] === "true")?.[2];
     if (chosen) return chosen;
