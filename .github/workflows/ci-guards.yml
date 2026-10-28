@@ -190,6 +190,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_base_red_excuse.py
 
+      - name: Validate the per-test base-red classifier (a crash is never a base red)
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_test_reds.py
+
       - name: Validate the pinned gh-merge-green install
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_install_gh_merge_green.py
