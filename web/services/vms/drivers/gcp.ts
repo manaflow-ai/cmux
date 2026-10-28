@@ -6,10 +6,13 @@ import {
   type ExecOptions,
   type ExecResult,
   type ProviderCredential,
+  type EnsureProviderNetworkOptions,
+  type ProviderNetwork,
   type ProviderReadOptions,
   type SSHEndpoint,
   type SnapshotRef,
   type VMHandle,
+  type VMPrivateNetworking,
   type VMProvider,
   type VMStatus,
   type VmPauseState,
@@ -23,6 +26,26 @@ const DEFAULT_ZONE = "us-west1-b";
 const DEFAULT_MACHINE_TYPE = "e2-standard-2";
 const OPERATION_TIMEOUT_MS = 10 * 60_000;
 const OPERATION_POLL_MS = 250;
+const ENSURE_ATTEMPTS = 4;
+const FIREWALL_RULES = [
+  // Explicit sources: Compute Engine reads an omitted ingress source back as 0.0.0.0/0.
+  { name: "cmux-vms-deny-ingress", priority: 1000, denied: [{ IPProtocol: "all" }], sourceRanges: ["0.0.0.0/0"] },
+  // IAP TCP forwarding's documented source range.
+  { name: "cmux-vms-iap-ssh", priority: 900, allowed: [{ IPProtocol: "tcp", ports: ["22"] }], sourceRanges: ["35.235.240.0/20"] },
+] as const;
+/**
+ * One /20 per region inside 10.208.0.0/12, so subnets of the project-wide VPC
+ * never overlap. Append only: a region's index is its range for good.
+ */
+const GCP_REGIONS = [
+  "us-central1", "us-east1", "us-east4", "us-east5", "us-south1", "us-west1", "us-west2", "us-west3", "us-west4",
+  "northamerica-northeast1", "northamerica-northeast2", "northamerica-south1", "southamerica-east1", "southamerica-west1",
+  "europe-central2", "europe-north1", "europe-north2", "europe-southwest1", "europe-west1", "europe-west2", "europe-west3",
+  "europe-west4", "europe-west6", "europe-west8", "europe-west9", "europe-west10", "europe-west12",
+  "me-central1", "me-central2", "me-west1", "africa-south1",
+  "asia-east1", "asia-east2", "asia-northeast1", "asia-northeast2", "asia-northeast3", "asia-south1", "asia-south2",
+  "asia-southeast1", "asia-southeast2", "australia-southeast1", "australia-southeast2",
+] as const;
 
 type GcpMetadata = {
   readonly project?: unknown;
@@ -43,10 +66,26 @@ type GcpInstance = {
   }[];
 };
 
+type GcpFirewall = {
+  readonly network?: string;
+  readonly direction?: string;
+  readonly priority?: number;
+  readonly targetTags?: readonly string[];
+  readonly sourceRanges?: readonly string[];
+  readonly denied?: readonly { readonly IPProtocol?: string }[];
+  readonly allowed?: readonly { readonly IPProtocol?: string; readonly ports?: readonly string[] }[];
+  readonly disabled?: boolean;
+  readonly sourceTags?: readonly string[];
+  readonly sourceServiceAccounts?: readonly string[];
+  readonly targetServiceAccounts?: readonly string[];
+  readonly destinationRanges?: readonly string[];
+};
+
 type GcpOperation = {
   readonly name?: string;
   readonly status?: "PENDING" | "RUNNING" | "DONE";
   readonly zone?: string;
+  readonly region?: string;
   readonly error?: { readonly errors?: readonly { readonly code?: string; readonly message?: string }[] };
 };
 
@@ -83,9 +122,8 @@ export class GcpApiError extends Error {
  */
 export class GcpProvider implements VMProvider {
   readonly id = "gcp" as const;
-  // IAP attach is layered in the network follow-up; the core provider never
-  // advertises a direct public or private address.
-  readonly attachTransports = [] as const;
+  readonly attachTransports = ["ssh"] as const;
+  readonly privateNetworkingTunnels = false;
   readonly capabilities = {
     snapshot: false,
     restore: false,
@@ -100,6 +138,15 @@ export class GcpProvider implements VMProvider {
     sizing: false,
     persistentHome: false,
   } as const;
+  readonly privateNetworking: VMPrivateNetworking = {
+    ensureNetwork: (options) => this.ensureNetwork(options),
+    getNetwork: (networkIdOrSlug) => this.getNetwork(networkIdOrSlug),
+    deleteNetwork: async () => { throw new ProviderError("gcp", "project-scoped cmux-vms cleanup requires explicit operator action"); },
+    createTunnel: async () => { throw new ProviderError("gcp", "tailnet enrollment is not available in the GCP Labs provider"); },
+    getTunnel: async () => { throw new ProviderError("gcp", "tailnet enrollment is not available in the GCP Labs provider"); },
+    rotateTunnelKey: async () => { throw new ProviderError("gcp", "tailnet enrollment is not available in the GCP Labs provider"); },
+    deleteTunnel: async () => undefined,
+  };
 
   private readonly request: typeof fetch;
   private readonly now: () => number;
@@ -133,11 +180,14 @@ export class GcpProvider implements VMProvider {
     if (disabled) throw new ProviderError("gcp", disabled);
     const context = contextFromMetadata(options.providerMetadata);
     const image = requiredText(options.image, "image");
+    const network = options.network.id;
+    const subnetRegion = zoneRegion(context.zone);
     const name = instanceName(options.displayName);
     const body = {
       name,
       machineType: `zones/${context.zone}/machineTypes/${context.machineType}`,
       labels: { cmux: "cloud", cmux_labs: "gcp" },
+      tags: { items: ["cmux-vm"] },
       disks: [{
         boot: true,
         autoDelete: true,
@@ -147,8 +197,8 @@ export class GcpProvider implements VMProvider {
         },
       }],
       networkInterfaces: [{
-        network: options.network.id,
-        ...(context.subnetwork ? { subnetwork: context.subnetwork } : {}),
+        network,
+        subnetwork: `regions/${subnetRegion}/subnetworks/cmux-vms`,
       }],
       metadata: {
         items: [
@@ -312,8 +362,22 @@ export class GcpProvider implements VMProvider {
     throw new ProviderError("gcp", `restart(${vmId}) requires a per-operation credential`);
   }
 
-  async openSSH(_vmId: string, _credential?: ProviderCredential): Promise<SSHEndpoint> {
-    throw new ProviderError("gcp", "IAP SSH attach requires the GCP private-network follow-up");
+  async openSSH(vmId: string, credential?: ProviderCredential): Promise<SSHEndpoint> {
+    const token = this.requireCredential(credential);
+    const privateKey = credential?.sshPrivateKeyPem;
+    if (!privateKey) throw new ProviderError("gcp", "openSSH requires a short-lived client SSH private key");
+    const context = contextFromVmId(vmId);
+    await this.instance(context, context.name, token);
+    return {
+      transport: "ssh",
+      host: "gcp-iap",
+      port: 22,
+      username: credential.sshUsername ?? context.sshUsername,
+      publicKeyFingerprint: null,
+      credential: { kind: "authorizedKey", privateKeyPem: privateKey.utf8() },
+      identityHandle: vmId,
+      proxy: { kind: "gcp-iap", project: context.project, zone: context.zone, instance: context.name, port: 22 },
+    };
   }
 
   async revokeSSHIdentity(_identityHandle: string): Promise<void> {
@@ -331,6 +395,106 @@ export class GcpProvider implements VMProvider {
 
   async restore(_snapshotId: string): Promise<VMHandle> {
     throw new ProviderError("gcp", "restore is not available in the Labs provider");
+  }
+
+  private async ensureNetwork(options: EnsureProviderNetworkOptions): Promise<ProviderNetwork> {
+    const credential = this.requireCredential(options.providerCredential);
+    const project = options.providerProject ?? process.env.CMUX_VM_GCP_PROJECT ?? DEFAULT_PROJECT;
+    // The subnet must be in the region of the zone instances are placed in.
+    const region = options.providerRegion ?? zoneRegion(process.env.CMUX_VM_GCP_ZONE ?? DEFAULT_ZONE);
+    assertSegment(project, "project");
+    assertSegment(region, "region");
+    const subnetRange = regionCidr(region);
+    const name = "cmux-vms";
+    const networkPath = `/projects/${project}/global/networks/${name}`;
+    const network = await this.ensureResource<{ readonly selfLink?: string; readonly autoCreateSubnetworks?: boolean }>(project, networkPath, credential, {
+      create: () => this.api<GcpOperation>("POST", `/projects/${project}/global/networks`, credential, { name, autoCreateSubnetworks: false }),
+      // Only a custom-mode VPC has no subnets but ours for the NAT to cover.
+      conflict: (existing) => existing.autoCreateSubnetworks === false ? null : "is not a custom-mode VPC",
+    });
+    const networkLink = network.selfLink ?? networkPath;
+    const offNetwork = (existing: { readonly network?: string }) =>
+      sameNetwork(existing.network, project, networkLink) ? null : "exists on another network";
+    const subnet = await this.ensureResource<{ readonly ipCidrRange?: string; readonly network?: string }>(project, `/projects/${project}/regions/${region}/subnetworks/${name}`, credential, {
+      // The request path names the region; the body never repeats it.
+      create: () => this.api<GcpOperation>("POST", `/projects/${project}/regions/${region}/subnetworks`, credential, {
+        name,
+        network: networkLink,
+        ipCidrRange: subnetRange,
+      }),
+      // Its range is this region's for good; a subnet with another range is not ours.
+      conflict: (existing) => offNetwork(existing) ??
+        (existing.ipCidrRange === subnetRange ? null : `has range ${existing.ipCidrRange ?? "unknown"}, not ${subnetRange}`),
+    });
+    for (const rule of FIREWALL_RULES) {
+      const body = { ...rule, network: networkLink, direction: "INGRESS", targetTags: ["cmux-vm"], disabled: false };
+      const path = `/projects/${project}/global/firewalls/${rule.name}`;
+      await this.ensureResource<GcpFirewall>(project, path, credential, {
+        create: () => this.api<GcpOperation>("POST", `/projects/${project}/global/firewalls`, credential, body),
+        matches: (existing) => firewallMatches(existing, project, networkLink, rule),
+        repair: () => this.api<GcpOperation>("PUT", path, credential, body),
+      });
+    }
+    const routerPath = `/projects/${project}/regions/${region}/routers/${name}`;
+    const nat = { name, natIpAllocateOption: "AUTO_ONLY", sourceSubnetworkIpRangesToNat: "ALL_SUBNETWORKS_ALL_IP_RANGES", minPortsPerVm: 64 };
+    const router = { name, network: networkLink, bgp: { asn: 64514 }, nats: [nat] };
+    await this.ensureResource<{ readonly network?: string; readonly nats?: readonly Record<string, unknown>[] }>(project, routerPath, credential, {
+      create: () => this.api<GcpOperation>("POST", `/projects/${project}/regions/${region}/routers`, credential, router),
+      conflict: offNetwork,
+      matches: (existing) => (existing.nats ?? []).some((entry) =>
+        Object.entries(nat).every(([key, value]) => entry[key] === value)),
+      repair: () => this.api<GcpOperation>("PATCH", routerPath, credential, router),
+    });
+    return { id: networkLink, slug: name, cidr: subnetRange, cidrV6: null };
+  }
+
+  /**
+   * Reads a resource, creating or repairing it until a read shows it as
+   * wanted. A concurrent creator's 409, or an operation still settling, is
+   * retried a bounded number of times; success is always a verified read.
+   */
+  private async ensureResource<T>(
+    project: string,
+    path: string,
+    credential: ProviderCredential,
+    steps: {
+      readonly create: () => Promise<GcpOperation>;
+      readonly matches?: (existing: T) => boolean;
+      readonly repair?: () => Promise<GcpOperation>;
+      /** Why an existing resource's immutable fields cannot be repaired in place, if they cannot. */
+      readonly conflict?: (existing: T) => string | null;
+    },
+  ): Promise<T> {
+    const context = { project, zone: DEFAULT_ZONE, machineType: DEFAULT_MACHINE_TYPE, network: path, sshUsername: "cmux", idleStopMinutes: 30, name: "cmux-vms" };
+    for (let attempt = 0; attempt < ENSURE_ATTEMPTS; attempt += 1) {
+      if (attempt > 0) await this.sleep(OPERATION_POLL_MS * 4 * attempt);
+      let existing: T | null;
+      try {
+        existing = await this.api<T>("GET", path, credential);
+      } catch (error) {
+        if (!(error instanceof GcpApiError && error.status === 404)) throw error;
+        existing = null;
+      }
+      const conflict = existing ? steps.conflict?.(existing) : null;
+      if (conflict) throw new ProviderError("gcp", `${path.split("/").slice(-2).join("/")} ${conflict}; remove or rename it`);
+      if (existing && (!steps.matches || steps.matches(existing))) return existing;
+      const change = existing ? steps.repair : steps.create;
+      if (!change) break;
+      try {
+        await this.waitForOperation(context, await change(), credential);
+      } catch (error) {
+        // Another request created or changed it first: read it again.
+        if (!isAlreadyExists(error)) throw error;
+      }
+    }
+    throw new ProviderError("gcp", `could not confirm ${path.split("/").slice(-2).join("/")} is provisioned`);
+  }
+
+  private async getNetwork(networkIdOrSlug: string): Promise<ProviderNetwork | null> {
+    // Existing rows are revalidated by the credentialed ensureNetwork path. This
+    // read has no credential and must never claim a synthetic VPC or CIDR.
+    void networkIdOrSlug;
+    return null;
   }
 
   private async transition(vmId: string, operationName: "stop" | "start", credential: ProviderCredential): Promise<void> {
@@ -387,8 +551,10 @@ export class GcpProvider implements VMProvider {
     // is unknown, never success.
     if (!operation.name) throw new ProviderError("gcp", "Compute Engine answered with an unfinished operation that has no name");
     const deadline = this.now() + this.operationTimeoutMs;
-    const path = operation.zone
-      ? `/projects/${context.project}/zones/${context.zone}/operations/${operation.name}`
+    const path = operation.region
+      ? `/projects/${context.project}/regions/${resourceName(operation.region)}/operations/${operation.name}`
+      : operation.zone
+        ? `/projects/${context.project}/zones/${resourceName(operation.zone)}/operations/${operation.name}`
       : `/projects/${context.project}/global/operations/${operation.name}`;
     for (;;) {
       if (this.now() >= deadline) throw new ProviderError("gcp", `operation ${operation.name} timed out`);
@@ -535,6 +701,54 @@ function text(value: unknown): string | undefined {
 
 function positiveInt(value: unknown): number | undefined {
   return Number.isSafeInteger(value) && (value as number) > 0 ? value as number : undefined;
+}
+
+/** Whether a resource's network is the cmux-vms VPC (Compute Engine answers with a full self link). */
+function sameNetwork(actual: string | undefined, project: string, network: string): boolean {
+  return !!actual && (actual === network || actual.endsWith(`/projects/${project}/global/networks/cmux-vms`));
+}
+
+function regionCidr(region: string): string {
+  const index = (GCP_REGIONS as readonly string[]).indexOf(region);
+  if (index < 0) throw new ProviderError("gcp", `region ${region} is not available in the GCP Labs provider`);
+  return `10.${208 + Math.floor(index / 16)}.${(index % 16) * 16}.0/20`;
+}
+
+function zoneRegion(zone: string): string {
+  return zone.replace(/-[a-z]$/, "");
+}
+
+function resourceName(value: string): string {
+  return value.split("/").filter(Boolean).at(-1) ?? value;
+}
+
+function isAlreadyExists(error: unknown): boolean {
+  return error instanceof GcpApiError && error.status === 409;
+}
+
+function firewallMatches(
+  existing: GcpFirewall,
+  project: string,
+  network: string,
+  expected: { readonly priority: number; readonly denied?: readonly unknown[]; readonly allowed?: readonly unknown[]; readonly sourceRanges?: readonly string[] },
+): boolean {
+  return firewallScopeMatches(existing, project, network) &&
+    existing.priority === expected.priority &&
+    JSON.stringify(existing.denied ?? []) === JSON.stringify(expected.denied ?? []) &&
+    JSON.stringify(existing.allowed ?? []) === JSON.stringify(expected.allowed ?? []) &&
+    JSON.stringify(existing.sourceRanges ?? []) === JSON.stringify(expected.sourceRanges ?? []);
+}
+
+/** An enabled ingress rule on the cmux-vms network that targets exactly the cmux-vm tag. */
+function firewallScopeMatches(existing: GcpFirewall, project: string, network: string): boolean {
+  const unscoped = (value: readonly string[] | undefined) => (value ?? []).length === 0;
+  return sameNetwork(existing.network, project, network) &&
+    existing.direction === "INGRESS" &&
+    existing.disabled !== true &&
+    JSON.stringify([...(existing.targetTags ?? [])].sort()) === JSON.stringify(["cmux-vm"]) &&
+    // Any extra selector would narrow or widen what the rule applies to.
+    unscoped(existing.sourceTags) && unscoped(existing.sourceServiceAccounts) &&
+    unscoped(existing.targetServiceAccounts) && unscoped(existing.destinationRanges);
 }
 
 function assertSegment(value: string, name: string): void {

@@ -25,11 +25,10 @@ jobs:
     # The source run is checked again by id in the first step.
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     name: Sign cmux NEXT DEV
-    # A source handoff may wait for signing, but a newer handoff never cancels
-    # one that has started.
-    concurrency:
-      group: cmux-next-dev-daily-sign
-      cancel-in-progress: false
+    # No concurrency group: a group keeps one pending run and replaces it with
+    # each newer handoff, so a newer handoff would cancel one still waiting to
+    # sign. Signing shares no state between source runs (main's copy, which
+    # runs, has no group either).
     # This job signs and runs no code from the app. verify runs the app's
     # sidecar without secrets; publish uploads only the archive it tested.
     environment: release
@@ -398,6 +397,9 @@ jobs:
     # cutting-edge DEV artifact.
     needs: [sign]
     if: needs.sign.outputs.signed == 'true'
+    # This copy's publish updates the rolling release without a lease, so its
+    # group still serializes it. main's copy, the one that runs, replaced the
+    # group with an R2 lease and a newest-wins check.
     concurrency:
       group: cmux-next-dev-daily
       cancel-in-progress: false

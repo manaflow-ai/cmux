@@ -120,7 +120,7 @@ final class TopHomePageView: NSView {
             Task { _ = try? await store.perform(.setReadCursor(conversation: id, seq: row.summary.lastSeq)) }
         }
         list.onMarkUnread = { id in if id != HomeSidebarView.draftRowID { sidebar.setMarkedUnread(true, id) } }
-        // Usage…, Archive Chief and Delete Chief… on a Chief's row; Hide or Show Alerts on a DM or group's row, and for a group
+        // Conversation Info (sharing a Cloud Chief), Usage…, Archive Chief and Delete Chief… on a Chief's row; Hide or Show Alerts on a DM or group's row, and for a group
         // Group Info, Rename, Add People and Leave (the same actions as the palette and the CLI).
         list.menuItems = { id in
             guard let row = home.homeStore.rows.first(where: { $0.id == id }) else { return [] }
@@ -140,7 +140,9 @@ final class TopHomePageView: NSView {
                 let cloudChief = row.summary.participants.lazy.compactMap({ home.directory.chief(for: $0.id) }).first
                 let bring = item(ChiefMemoryImportHandlers.actionID, nil, cloudChief.map { ["chief": .string($0.id)] } ?? [:])
                 guard let chief = cloudChief else { return usage + bring + delete }
-                return usage + bring + item("home.archiveChief", nil, ["chief": .string(chief.id)]) + delete
+                // A Cloud Chief's conversation is shared with teammates from its info (Add People…).
+                let info = item("home.conversationInfo", nil, ["conversation": .string(id.rawValue)])
+                return info + usage + bring + item("home.archiveChief", nil, ["chief": .string(chief.id)]) + delete
             }
             let conversation: [String: ActionValue] = ["conversation": .string(id.rawValue)]
             let actions = home.groupActions
@@ -153,8 +155,11 @@ final class TopHomePageView: NSView {
                 items += item(muted ? "home.unmuteConversation" : "home.muteConversation", nil, conversation)
             }
             if row.kind == .group {
-                items += item("home.renameConversation", nil, conversation)
-                items += item("home.addMembers", nil, conversation)
+                // Someone else's Chief conversation shared with me: its owner names it and adds people.
+                if row.summary.declaredKind != .chief {
+                    items += item("home.renameConversation", nil, conversation)
+                    items += item("home.addMembers", nil, conversation)
+                }
                 items += item("home.leaveConversation", nil, conversation)
             }
             return items

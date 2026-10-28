@@ -13,6 +13,9 @@
 #                                    call, scripts' included, goes through it
 #   gh_budget_wait.sh --reserve N    wait (once, bounded) until the core budget has
 #                                    at least N calls left; never fails
+#   gh_budget_wait.sh --backoff TRY [WHAT]
+#                                    wait (once, bounded) after try TRY of a call
+#                                    made outside gh (an action) failed; never fails
 #
 # A refused call is tried at most GH_BUDGET_WAIT_ATTEMPTS times (default 6), and
 # one job waits at most GH_BUDGET_WAIT_MAX_SECONDS in all (default 3600, the
@@ -110,6 +113,18 @@ if [ "${1:-}" = "--install" ]; then
   chmod +x "$ledger_dir/bin/gh"
   echo "$ledger_dir/bin" >>"$GITHUB_PATH"
   echo "gh calls in this job wait through a rate limit (real gh: $real)"
+  exit 0
+fi
+
+# --backoff TRY: one wait after try TRY of a call that is not gh (an action such as
+# actions/attest-build-provenance) was refused. Until the exhausted budget's reset
+# (x-ratelimit-reset, read from /rate_limit) or, with none exhausted, GitHub's
+# secondary limit backoff for that try. Within the job total; never fails, so the
+# next try decides.
+if [ "${1:-}" = "--backoff" ]; then
+  try="${2:-1}"
+  case "$try" in '' | *[!0-9]* | 0) try=1 ;; esac
+  wait_for_budget "$(seconds_to_reset "$try")" "${3:-a GitHub API call} failed (try $try), likely the API rate limit" || true
   exit 0
 fi
 

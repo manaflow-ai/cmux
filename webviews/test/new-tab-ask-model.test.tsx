@@ -23,6 +23,7 @@ const keys = [
   "localStorage",
   "customElements",
   "MutationObserver",
+  "ResizeObserver",
 ] as const;
 const added: string[] = [];
 const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
@@ -53,6 +54,8 @@ beforeAll(() => {
     localStorage: window.localStorage,
     customElements: window.customElements,
     MutationObserver: window.MutationObserver,
+    // The composer's footer row fits its chips to its width (composerRowFit.ts) on every New Tab.
+    ResizeObserver: (window as unknown as { ResizeObserver: unknown }).ResizeObserver,
   });
   // Pierre's registered elements (App's diff view) read their own DOM constructors at import time.
   for (const key of Object.getOwnPropertyNames(window))

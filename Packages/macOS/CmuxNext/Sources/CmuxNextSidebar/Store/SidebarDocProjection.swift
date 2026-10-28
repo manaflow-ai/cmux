@@ -38,6 +38,8 @@ public nonisolated struct SidebarDocProjection: Hashable, Sendable {
         public var parent: String?
         /// Group levels above it: 0 at the top level.
         public var depth = 0
+        /// The open workspace members (rows that are not a closed one's, dimmed): the window listing one owns the group.
+        public var openMembers: [SidebarDocWorkspaceRef] = []
 
         /// A url, tab or app member and the workspace member's item it follows (nil: first).
         public struct Listed: Hashable, Sendable {
@@ -134,6 +136,7 @@ public nonisolated struct SidebarDocProjection: Hashable, Sendable {
             } else if row.depth > 0, let parent = row.parent ?? item.parent,
                       let at = bandGroups.lastIndex(where: { $0.id == parent }) {
                 bandGroups[at].add(id, item) // a workspace, link, tab or app member: a member row in the list
+                if let ref = item.body.workspace, !row.dimmed { bandGroups[at].openMembers.append(ref) }
             } else if row.depth == 0 {
                 sections[index].items.append(Self.layoutItem(item))
             }

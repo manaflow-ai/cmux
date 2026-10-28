@@ -6,10 +6,11 @@
 //! self-update` (`host_self_update.rs`) runs the same update on this machine.
 
 use super::host_auto_update::take_auto_update_off;
+use super::host_hold::{Holds, holds_path, now_ms};
 use super::{
-    DAEMON_UNIT, LAUNCHD_RELOAD, LockLost, MIGRATING, REFUSED, RESTORE_PREV, Remote, RemoteOut,
-    SshRemote, connect_peer, linux_restart, lock_updates, migrate, migrate_back, push_update, run,
-    ssh_host,
+    DAEMON_UNIT, IN_PLACE, LockLost, MIGRATING, REFUSED, RESTORE_PREV, Remote, RemoteOut,
+    SshRemote, connect_peer, launchd_reload, linux_restart, lock_updates, migrate, migrate_back,
+    push_update, run, ssh_host,
 };
 use crate::cli::output::print_json;
 use crate::client::Client;
@@ -23,11 +24,12 @@ use std::sync::Arc;
 mod host_self_update;
 pub(crate) use host_self_update::self_update;
 
-/// Restart the launchd daemon of a macOS host ([`LAUNCHD_RELOAD`]: bootout,
-/// then bootstrap, never `kickstart -k`), then give it
+/// Restart the launchd daemon of a macOS host ([`launchd_reload`]: bootout,
+/// then bootstrap, never `kickstart -k`; nothing stopped when launchd refuses
+/// jobs; in place with no GUI login), then give it
 /// [`super::LAUNCHD_START_GRACE`] (2 s) so its status is not read from the old one.
 fn launchd_restart() -> String {
-    format!("{LAUNCHD_RELOAD} && sleep 2")
+    format!("{} && sleep 2", launchd_reload(true))
 }
 
 /// Starts every script [`update_peer`] runs. The daemon's home and socket
@@ -108,7 +110,7 @@ const PROBE_SPLIT: &str = "ACPMUX_PROBE";
 /// A cmux Cloud VM has this file. Its daemon runs in a keyed `systemd-run`
 /// scope that `cmux link machine update --to-bundled` owns, so `host update`
 /// never replaces its binary or restarts it.
-const CLOUD_VM_MARK: &str = "/etc/cmux/vm-kind";
+pub(crate) const CLOUD_VM_MARK: &str = "/etc/cmux/vm-kind";
 
 /// What [`probe_script`] prints on a cmux Cloud VM ([`CLOUD_VM_MARK`]).
 const CLOUD_VM: &str = "ACPMUX_CLOUD_VM";
@@ -346,6 +348,8 @@ enum Outcome {
     RolledBack,
     /// Refused before any change, or the rollback failed too.
     Failed,
+    /// The peer is held (`host hold`, `host_hold.rs`): not reached at all.
+    Held,
 }
 
 impl Outcome {
@@ -357,6 +361,7 @@ impl Outcome {
             Self::NeedsBinary => "needsBinary",
             Self::RolledBack => "rolledBack",
             Self::Failed => "failed",
+            Self::Held => "held",
         }
     }
 
@@ -382,6 +387,9 @@ struct PeerUpdate {
     migrated_from: Option<String>,
     /// Why the host is left without its self-update timer, when it is.
     auto_update_off: Option<String>,
+    /// Why a macOS daemon was started in place, not as its launchd job
+    /// ([`IN_PLACE`]): `noGuiLogin` or `bootstrapFailed`.
+    in_place: Option<String>,
 }
 
 impl PeerUpdate {
@@ -396,6 +404,7 @@ impl PeerUpdate {
             error: None,
             migrated_from: None,
             auto_update_off: None,
+            in_place: None,
         }
     }
 
@@ -422,6 +431,7 @@ impl PeerUpdate {
             ("error", self.error.clone()),
             ("migratedFrom", self.migrated_from.clone()),
             ("autoUpdateOff", self.auto_update_off.clone()),
+            ("inPlace", self.in_place.clone()),
         ];
         for (key, value) in optional {
             if let Some(value) = value {
@@ -441,6 +451,10 @@ impl PeerUpdate {
                     Some(unit) => format!("{version} (moved from {unit} to acpmux.service)"),
                     None => version.to_owned(),
                 };
+                let line = match &self.in_place {
+                    Some(why) => format!("{line} (started in place: {why})"),
+                    None => line,
+                };
                 match &self.auto_update_off {
                     Some(why) => format!("{line}; auto-update off: {why}"),
                     None => line,
@@ -451,6 +465,7 @@ impl PeerUpdate {
             Outcome::NeedsBinary => format!("needs a binary: {error}"),
             Outcome::RolledBack => format!("rolled back: {error}"),
             Outcome::Failed => error.to_owned(),
+            Outcome::Held => format!("held, left alone: {error}"),
         }
     }
 }
@@ -493,6 +508,30 @@ fn update_locked(remote: &dyn Remote, opts: &UpdateOptions) -> PeerUpdate {
             PeerUpdate::new().end(Outcome::Failed, "updateRunning", why)
         }
         Err(e) => PeerUpdate::new().end(Outcome::Failed, "unreachable", e.to_string()),
+    }
+}
+
+/// [`update_locked`], unless peer `name` is held ([`Holds::why`]): then
+/// nothing reaches `remote`, not even ssh, and the row is `held`. The holds
+/// are read right before the peer is, so one written meanwhile counts; a
+/// holds file that cannot be read leaves the peer alone too (`failed`,
+/// `holdsUnreadable`): a hold is never skipped on a guess.
+fn update_unless_held(
+    name: &str,
+    remote: &dyn Remote,
+    holds: &Path,
+    now: u64,
+    opts: &UpdateOptions,
+) -> PeerUpdate {
+    let holds = match Holds::read(holds) {
+        Ok(holds) => holds,
+        Err(e) => {
+            return PeerUpdate::new().end(Outcome::Failed, "holdsUnreadable", format!("{e:#}"));
+        }
+    };
+    match holds.why(name, remote.host(), now) {
+        Some(why) => PeerUpdate::new().end(Outcome::Held, "held", why),
+        None => update_locked(remote, opts),
     }
 }
 
@@ -643,6 +682,7 @@ fn update_peer(remote: &dyn Remote, opts: &UpdateOptions) -> PeerUpdate {
     let (reason, why) = match restarted.result {
         Ok(status) => {
             up.auto_update_off = restarted.auto_update_off;
+            up.in_place = restarted.in_place;
             up.build = answering_build(&status);
             up.status = Some(cut(status, 400));
             up.migrated_from = restarted.migrating;
@@ -682,10 +722,19 @@ fn update_peer(remote: &dyn Remote, opts: &UpdateOptions) -> PeerUpdate {
             )
         }
     };
-    match restart_checked(remote, &rollback, None).result {
+    let back = restart_checked(remote, &rollback, None);
+    match back.result {
         Ok(status) => {
             up.build = answering_build(&status);
+            up.in_place = back.in_place;
             up.end(Outcome::RolledBack, &reason, why)
+        }
+        // Refused before it stopped anything: whatever runs keeps running.
+        Err((_, again)) if back.refused => {
+            let status = remote.exec(AWAIT_DAEMON, None).map(|o| o.stdout).unwrap_or_default();
+            up.build = answering_build(&status);
+            let why = format!("{why}; the rollback stopped nothing ({again})");
+            up.end(Outcome::Failed, &reason, why)
         }
         Err((_, again)) => {
             up.build = None;
@@ -709,6 +758,8 @@ struct Restarted {
     result: std::result::Result<String, (String, String)>,
     /// Why the script left the host without its self-update timer.
     auto_update_off: Option<String>,
+    /// Why the script started the daemon in place ([`IN_PLACE`]).
+    in_place: Option<String>,
 }
 
 /// Run a restart script, then wait for the daemon to answer
@@ -719,6 +770,7 @@ fn restart_checked(remote: &dyn Remote, script: &str, want: Option<&str>) -> Res
         refused,
         result: Err((reason.to_owned(), why)),
         auto_update_off: None,
+        in_place: None,
     };
     let out = match remote.exec(script, None) {
         Ok(out) => out,
@@ -750,7 +802,8 @@ fn restart_checked(remote: &dyn Remote, script: &str, want: Option<&str>) -> Res
         return failed(migrating, false, "buildMismatch", why);
     }
     let auto_update_off = take_auto_update_off(&out.stdout).1;
-    Restarted { migrating, refused: false, result: Ok(status), auto_update_off }
+    let in_place = out.stdout.lines().find_map(|l| l.strip_prefix(IN_PLACE)).map(str::to_owned);
+    Restarted { migrating, refused: false, result: Ok(status), auto_update_off, in_place }
 }
 
 /// `text` cut to at most `max` bytes, on a character boundary.
@@ -779,8 +832,9 @@ fn cut(mut text: String, max: usize) -> String {
 /// ```
 ///
 /// - `outcome`: `updated`, `current` (already that commit), `busy`
-///   (`--if-idle`), `needsBinary` (`--binary-dir` lacks `acpmux-<target>`,
-///   or without it this binary is for another target),
+///   (`--if-idle`), `held` (`host hold`: not reached at all),
+///   `needsBinary` (`--binary-dir` lacks `acpmux-<target>`, or without it
+///   this binary is for another target),
 ///   `rolledBack` (the restarted daemon failed its check; the previous
 ///   binary and unit run again) or `failed`. Only `updated` and `rolledBack`
 ///   restarted the daemon (a `busy` after the push only refreshed
@@ -790,16 +844,20 @@ fn cut(mut text: String, max: usize) -> String {
 /// - `version` and `status`: the pushed binary's `--version` and the
 ///   restarted daemon's status text (cut to 400 bytes), after a push.
 /// - `reason` and `error`, on every outcome but `updated` and `current`: a
-///   code (`busy`, `unknown`, `noBinary`, `wrongPlatform`,
-///   `unsupportedPlatform`, `cloudMachine`, `unreachable`, `updateRunning`
+///   code (`busy`, `unknown`, `held`, `holdsUnreadable` (`host hold`'s
+///   file could not be read, so the peer was not reached), `noBinary`,
+///   `wrongPlatform`, `unsupportedPlatform`, `cloudMachine`, `unreachable`, `updateRunning`
 ///   (another update of the host, such as its self-update timer, holds its
 ///   update lock), `lockLost` (this update's hold on that lock ended, its
 ///   connection dropped: it changed nothing more), `pushFailed`, `pushMismatch`,
 ///   `restartFailed`, `noAnswer`, `buildMismatch`, and for a daemon under a
 ///   hand-written unit `unitConflict`, `listenConflict`, `unitArgs`,
-///   `unitSettings`, `unitElsewhere`, `noLinger`) and a message.
+///   `unitSettings`, `unitElsewhere`, `noLinger`; on macOS `launchdRefused`:
+///   launchd starts no job now, so the daemon was left running) and a message.
 /// - `migratedFrom`: the hand-written unit the daemon was moved from to
 ///   `acpmux.service`.
+/// - `inPlace`: a macOS daemon started in place, not as its launchd job:
+///   `noGuiLogin` (no one is logged in at the screen) or `bootstrapFailed`.
 ///
 /// Exits 1 when any peer is `rolledBack` or `failed`.
 pub(crate) async fn update(
@@ -824,9 +882,10 @@ pub(crate) async fn update(
     if targets.is_empty() {
         return Err(anyhow!("no ssh peer to update (name one, or --all)"));
     }
+    let holds = holds_path();
     let mut rows = Vec::new();
     for (n, host) in targets {
-        let up = update_locked(&SshRemote(&host), &opts);
+        let up = update_unless_held(&n, &SshRemote(&host), &holds, now_ms(), &opts);
         if !json_out {
             if up.outcome.failed() {
                 eprintln!("{n} ({host}): {}", up.line());

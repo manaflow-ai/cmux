@@ -67,7 +67,7 @@ final class DesktopNotifier: NSObject {
 
     /// Posts a banner. `sound == "default"` uses the notification's own
     /// sound (Focus and the per-app sound setting apply); other sounds are
-    /// played by `NotificationSounds`. `attachment` is a status badge PNG
+    /// played by `NotificationSoundPlayer`. `attachment` is a status badge PNG
     /// (OSC 7501 alerts), written to a file only for a banner the center
     /// will take (it moves the file); a failed one is deleted.
     func post(id: String, title: String, subtitle: String? = nil, body: String, surface: UInt64?, workspace: String?,
@@ -116,6 +116,14 @@ final class DesktopNotifier: NSObject {
             return file
         } catch {
             return nil
+        }
+    }
+
+    /// Whether banner `id` is in Notification Center (an automation launch has none).
+    func isDelivered(_ id: String) async -> Bool {
+        guard let center = configuredCenter() else { return posted.contains { $0.id == id } }
+        return await withCheckedContinuation { continuation in
+            center.getDeliveredNotifications { delivered in continuation.resume(returning: delivered.contains { $0.request.identifier == id }) }
         }
     }
 
@@ -255,24 +263,5 @@ extension DesktopNotifier: UNUserNotificationCenterDelegate {
             if markRead { self?.markRead(id: id, surface: surface) }
         }
         completionHandler()
-    }
-}
-
-/// Sounds other than the notification's default: a system sound by name
-/// (`/System/Library/Sounds`, for example "Glass") or a file path.
-enum NotificationSounds {
-    @MainActor
-    static func play(_ name: String) {
-        guard name != "none", name != "default" else { return }
-        let sound = name.hasPrefix("/") ? NSSound(contentsOfFile: name, byReference: true) : NSSound(named: NSSound.Name(name))
-        sound?.play()
-    }
-
-    /// A poster asked for no banner (`notify --desktop false`): the
-    /// notification's own default sound has no banner to ride, so the
-    /// system alert sound stands in, as classic played one.
-    @MainActor
-    static func playWithoutBanner(_ name: String) {
-        name == "default" ? NSSound.beep() : play(name)
     }
 }

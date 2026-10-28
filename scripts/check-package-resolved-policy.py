@@ -326,7 +326,12 @@ def merge_base_with_base_ref() -> str | None:
         if os.environ.get("GITHUB_BASE_REF") or os.environ.get(
             "PACKAGE_RESOLVED_POLICY_BASE_REF"
         ):
-            raise
+            # A named base must be compared, never skipped: fail, and say why.
+            shallow = git_stdout("rev-parse", "--is-shallow-repository").strip() == "true"
+            raise SystemExit(
+                f"SwiftPM lockfile policy: no merge base between {base_ref()} and HEAD"
+                + (" (the checkout is shallow: fetch enough history to connect them)" if shallow else "")
+            )
         return None
 
 

@@ -61,9 +61,9 @@ pub(crate) struct OverCap {
 }
 
 impl OverCap {
-    /// The warning; `local` as in [`Refusal::error`]. `instead`: where the
-    /// placement engine would put it (`placement::placed`), when anywhere.
-    fn warning(&self, local: bool, instead: Option<&str>) -> String {
+    /// The warning; `local` as in [`Refusal::error`], `peers` as in [`Ask::peers`]. `instead`:
+    /// where the placement engine would put it (`placement::placed`), when anywhere.
+    fn warning(&self, local: bool, peers: bool, instead: Option<&str>) -> String {
         let host = if local { super::start_gate::host_label() } else { "this machine" };
         let source = if local {
             format!("lanes.max_lanes of {} in {}", self.machine, self.source.display())
@@ -72,7 +72,7 @@ impl OverCap {
         };
         let next = match instead {
             Some(placed) => format!("Next time try `acpmux new --host auto` ({placed})."),
-            None if local => "No connected host has room either.".into(),
+            None if local && peers => "No connected host has room either.".into(),
             None => "Next time start it on another host.".into(),
         };
         format!(
@@ -501,10 +501,11 @@ impl Hub {
     /// The warning of a create started past the lane cap, logged, with where the
     /// placement engine would put it instead from the connected peers' last
     /// readings (`server/place.rs` `pick` weighs the same hosts, this one too).
-    /// A caller that may not learn host names (a Web client) gets no host.
+    /// A caller that may not learn host names (a Web client) or this host's peers (a peer
+    /// daemon's connection) gets no host.
     fn over_cap_warning(&self, over: &OverCap, registry: Option<&Value>, ask: &Ask<'_>) -> Value {
         use crate::placement::{Candidate, Work};
-        let verdict = ask.local.then(|| {
+        let verdict = (ask.local && ask.peers).then(|| {
             let peers: Vec<Candidate> = self
                 .peers()
                 .into_iter()
@@ -524,7 +525,7 @@ impl Hub {
             verdict.filter(|v| v.get("overloaded").and_then(Value::as_bool) != Some(true));
         let placed = verdict.as_ref().and_then(crate::placement::placed);
         let host = verdict.as_ref().and_then(|v| v.get("pick")).and_then(Value::as_str);
-        let text = over.warning(ask.local, placed.as_deref());
+        let text = over.warning(ask.local, ask.peers, placed.as_deref());
         tracing::warn!(
             caller = ask.who,
             live = over.live,
@@ -559,6 +560,9 @@ pub(crate) struct Ask<'a> {
     /// The refusal may name this host and its paths (not a Web client, here or
     /// through a peer).
     pub local: bool,
+    /// The warning may name this host's peers (`suggestedHost`): not a peer daemon's
+    /// connection, which never learns them (`server/redact.rs` `hide_peers_from_peer`).
+    pub peers: bool,
 }
 
 #[cfg(test)]
@@ -731,7 +735,7 @@ mod tests {
         }
         assert_eq!(at("cmux-lawrence", 50).over, None, "no lanes entry: no warning");
         let cap = over("cmux16", 16, 3).unwrap();
-        let message = cap.warning(true, Some("placed on big-red: 31 GB RAM free"));
+        let message = cap.warning(true, true, Some("placed on big-red: 31 GB RAM free"));
         assert!(
             message.contains("16 live sessions")
                 && message.contains("cap of 3")
@@ -740,8 +744,10 @@ mod tests {
                 && message.contains("`acpmux new --host auto` (placed on big-red: 31 GB RAM free)"),
             "the warning names the count, the cap, where it comes from and a host with room: {message}"
         );
-        assert!(cap.warning(true, None).contains("No connected host has room"));
-        let web = cap.warning(false, None);
+        assert!(cap.warning(true, true, None).contains("No connected host has room"));
+        let peer = cap.warning(true, false, None);
+        assert!(!peer.contains("connected host"), "a peer hears of no peer: {peer}");
+        let web = cap.warning(false, false, None);
         assert!(!web.contains("/r/"), "a Web client learns no path: {web}");
         assert!(!web.contains("cmux16"), "nor the machine: {web}");
     }

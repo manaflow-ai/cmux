@@ -19,6 +19,13 @@ public protocol SettingsDeviceDirectory: AnyObject {
     /// its pairing keys are replaced, and the next connection asks the Mac
     /// again. Sign-out does not do this (verify/persistence.md).
     func removeThisPhoneFromMacs() async
+    /// A scanned Mac pairing code (`cmux-next://pair?…`): the phone moves to
+    /// that Mac and pairs with it. False when the text is no live code for this account.
+    func openPairingCode(_ text: String) -> Bool
+}
+
+extension SettingsDeviceDirectory {
+    public func openPairingCode(_ text: String) -> Bool { false }
 }
 
 /// The account's devices from the service, shared by the Settings root (its
@@ -66,6 +73,8 @@ struct DevicesPage: View {
     @State private var removalError: ServiceFailureMessage?
     /// Rows whose removal is in flight (shown dimmed, not removable twice).
     @State private var removing: Set<String> = []
+    /// "Scan QR on your Mac" is open.
+    @State private var scanning = false
     @Environment(\.dynamicTypeSize) private var typeSize
     @ScaledMetric(relativeTo: .body) private var dotSize: CGFloat = 8
     @ScaledMetric(relativeTo: .body) private var dotLift: CGFloat = 6
@@ -94,6 +103,18 @@ struct DevicesPage: View {
                     removableRow(mac)
                 }
                 .onDelete { offsets in pendingRemoval = offsets.first.map { macs[$0] } }
+                if directory != nil {
+                    Button {
+                        scanning = true
+                    } label: {
+                        CmuxMobileGutterRow {
+                            SettingsIcon("qrcode.viewfinder").accessibilityHidden(true)
+                        } content: {
+                            Text("Scan QR on your Mac").font(theme.type.rowTitle)
+                        }
+                    }
+                    .accessibilityIdentifier("settings.scanMacCode")
+                }
             } header: {
                 Text("Macs").cmuxMobileTextColumn()
             } footer: {
@@ -134,6 +155,9 @@ struct DevicesPage: View {
             }
         }
         .settingsPage("Devices")
+        .sheet(isPresented: $scanning) {
+            PairCodeScannerSheet { directory?.openPairingCode($0) ?? false }
+        }
         .toolbar { if directory != nil { EditButton() } }
         .refreshable { await list.load(directory) }
         .task { await list.load(directory) }

@@ -1,11 +1,12 @@
 // l10n-allow-file: gallery fixtures exercise picker states and labels, not shipped copy.
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { componentEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
 import type { AcpmuxSnapshot } from "./model";
 import { ComposerPickers, type ComposerPermissionGrant } from "./ComposerPickers";
 import { BUNDLED_MODEL_CATALOG, buildPickerCatalog } from "./modelCatalogData";
 import { ChatAccountsContext, readChatAccounts, type ChatAccounts } from "./chatAccounts";
+import { rememberFullAccess } from "./startMode";
 
 /// The chat's accounts: its CLI login alone, as Leo's chat had (the Account row names it).
 const galleryAccounts: ChatAccounts = {
@@ -14,7 +15,8 @@ const galleryAccounts: ChatAccounts = {
 };
 
 /** `claude`: Leo's started claude-sr2 chat (2026-10-21), whose model menu listed nine models. */
-type Props = { claude?: boolean; accounts?: boolean };
+/** `managed`: acpmux answered `"fullAccess": "managed"` (MDM keeps full access off, #23322). */
+type Props = { claude?: boolean; accounts?: boolean; managed?: boolean };
 
 const directAccounts: ChatAccounts = {
   list: async () =>
@@ -185,7 +187,12 @@ const codexSnapshot: AcpmuxSnapshot = {
   },
 };
 
-function GalleryComposerPickers({ claude, accounts }: Props) {
+function GalleryComposerPickers({ claude, accounts, managed }: Props) {
+  // As an acpmux answer would set it; cleared again when the variant goes.
+  useEffect(() => {
+    rememberFullAccess(managed ? "managed" : undefined);
+    return () => rememberFullAccess(undefined);
+  }, [managed]);
   const initialSnapshot = claude ? claudeSnapshot : codexSnapshot;
   const [model, setModel] = useState(initialSnapshot.summary!.model!);
   const [mode, setMode] = useState(initialSnapshot.summary!.modes!.currentModeId!);
@@ -248,15 +255,16 @@ function GalleryComposerPickers({ claude, accounts }: Props) {
 }
 
 // The model button opens its one menu (Leo 2026-10-20): numbered models, then Effort, More models
-// and Fast mode. The full picker (the search) is its More models row.
+// and Fast mode. The full picker (the search) is its More models row; Fast is always a toggle row.
 const MODEL = { role: "button", name: "Model" } as const;
 const quickRows = '.acpmux-quick-menu [role="menuitemradio"]';
 
 const openModel: Play = async (ctx) => {
   await ctx.click(MODEL);
   await ctx.waitFor(() => ctx.document.querySelector(quickRows) !== null);
-  if (!ctx.document.querySelector(".acpmux-model .acpmux-fast"))
-    throw new Error("the model picker has no inline Fast bolt");
+  if (ctx.document.querySelector(".acpmux-fast")) throw new Error("the composer must draw no Fast bolt");
+  if (!ctx.document.querySelector(".acpmux-quick-menu .acpmux-quick-fast"))
+    throw new Error("the compact model menu has no Fast mode toggle");
   const headers = [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-quick-menu .ui-menu-group-label")];
   if (headers.some((node) => node.textContent?.trim()))
     throw new Error("the compact model menu should not show a static session header");
@@ -354,11 +362,13 @@ const effortPick: Play = async (ctx) => {
 };
 
 const fastMode: Play = async (ctx) => {
-  const fast = { selector: ".acpmux-model .acpmux-fast" } as const;
+  const fast = { selector: ".acpmux-quick-menu .acpmux-quick-fast" } as const;
+  await ctx.click(MODEL);
   await ctx.waitFor(() => ctx.document.querySelector(fast.selector) !== null);
-  if (ctx.find(fast).getAttribute("aria-pressed") !== "false") throw new Error("Fast mode must start off");
+  if (ctx.document.querySelector(".acpmux-fast")) throw new Error("the composer must draw no Fast bolt");
+  if (ctx.find(fast).getAttribute("aria-checked") !== "false") throw new Error("Fast mode must start off");
   await ctx.click(fast);
-  await ctx.waitFor(() => ctx.document.querySelector(fast.selector)?.getAttribute("aria-pressed") === "true");
+  await ctx.waitFor(() => ctx.document.querySelector(fast.selector)?.getAttribute("aria-checked") === "true");
 };
 
 const morePicker: Play = async (ctx) => {
@@ -385,6 +395,17 @@ const openMode: Play = async (ctx) => {
     if (item.querySelector<HTMLElement>(".ui-menu-shortcut")?.textContent?.trim() !== String(index + 1))
       throw new Error("Permission mode shortcut is not a trailing hint");
   }
+};
+
+const managedMode: Play = async (ctx) => {
+  await ctx.click({ role: "button", name: "Mode" });
+  await ctx.waitFor(() => ctx.document.querySelector('[role="menuitemradio"][aria-checked="true"]') !== null);
+  const row = [...ctx.document.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find((item) =>
+    item.textContent?.includes("Full access"),
+  );
+  if (row?.getAttribute("aria-disabled") !== "true") throw new Error("Full access must be disabled while managed");
+  if (row.querySelector(".acpmux-menu-description")?.textContent?.trim() !== "Managed by your organization")
+    throw new Error("Full access must say it is managed by the organization");
 };
 
 const accessGrants: Play = async (ctx) => {
@@ -452,7 +473,7 @@ export default componentEntry<Props>({
       props: {},
     },
     "model-menu": {
-      note: "The model button opens its one menu: this harness's models, numbered, then Effort and More models; the free Fast bolt stays beside the model name.",
+      note: "The model button opens its one menu: this harness's models, numbered, then Effort, More models and the Fast mode toggle.",
       props: {},
       play: openModel,
     },
@@ -504,11 +525,16 @@ export default componentEntry<Props>({
       play: openEffort,
     },
     "fast-mode": {
-      note: "The free Fast mode is the bolt beside the model name: a click turns it on while the model picker remains adjacent.",
+      note: "Fast mode is the model picker’s toggle row: a click turns it on without adding a separate composer control; every non-off tier stays checked.",
       props: {},
       play: fastMode,
     },
     "permission-menu": { props: {}, play: openMode },
+    "permission-managed": {
+      note: "MDM keeps full access off (#23322): Full access is disabled and says Managed by your organization; the other rows are unchanged.",
+      props: { managed: true },
+      play: managedMode,
+    },
     "access-grants": {
       note: "Allowed folder and chat rules stay inside Access; the footer shows only a compact count and the menu offers removal.",
       props: {},

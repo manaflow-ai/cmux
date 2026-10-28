@@ -237,6 +237,8 @@ export type SSHEndpoint = {
   // One-time credential for this attach session. Drivers decide whether that's a password,
   // a bearer over an SSH ProxyCommand, or an authorized_keys line the client pushes.
   credential: { kind: "password"; value: string } | { kind: "authorizedKey"; privateKeyPem: string };
+  /** Provider-neutral dial metadata for clients that open a local proxy first. */
+  proxy?: { readonly kind: "gcp-iap"; readonly project: string; readonly zone: string; readonly instance: string; readonly port: number };
   daemon?: {
     url: string;
     headers: Record<string, string>;
@@ -420,6 +422,14 @@ export type ExecOptions = {
    * the provider stores, and never logs, traces or persists it.
    */
   readonly stdin?: SecretBytes;
+  /** Ends the provider request: the driver passes it to every request it makes. */
+  readonly signal?: AbortSignal;
+  /**
+   * Gateway only: abort the provider request (through `signal`) when the
+   * calling fiber is interrupted, a timeout included. Without it an
+   * interrupted exec's request runs on to its own end.
+   */
+  readonly cancelOnInterrupt?: boolean;
 };
 
 const REDACTED = "[redacted]";
@@ -547,7 +557,7 @@ export type ProviderNetwork = {
   /** IPv4 CIDR, when the network has one. */
   readonly cidr: string | null;
   /** IPv6 CIDR. Always present: provider networks are dual-stack. */
-  readonly cidrV6: string;
+  readonly cidrV6: string | null;
 };
 
 /**
@@ -654,6 +664,10 @@ export type EnsureProviderNetworkOptions = {
    * network's range is fixed for its life.
    */
   readonly cidr?: string;
+  /** User-owned provider credential and placement for providers such as GCP. */
+  readonly providerCredential?: ProviderCredential;
+  readonly providerProject?: string;
+  readonly providerRegion?: string;
 };
 
 export interface VMProvider {
@@ -664,6 +678,8 @@ export interface VMProvider {
    * on drivers whose machines are only reachable at a public address.
    */
   readonly privateNetworking?: VMPrivateNetworking;
+  /** Set false when the provider provisions a VPC but has no tunnel/tailnet transport yet. */
+  readonly privateNetworkingTunnels?: boolean;
   /**
    * Optional-operation support. A driver that implements `snapshot`/`restore` only to
    * throw NotImplementedError declares that here; `fork` defaults to whether the method

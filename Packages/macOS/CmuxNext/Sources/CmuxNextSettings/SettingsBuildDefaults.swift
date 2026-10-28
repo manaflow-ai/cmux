@@ -11,8 +11,9 @@ public nonisolated struct SettingsBuildDefaults: Sendable, Equatable {
         self.values = values
     }
 
-    /// `updates.downloadAutomatically` follows the channel: on in NIGHTLY and DEV, off (the schema's
-    /// default) on stable.
+    /// `updates.downloadAutomatically` follows the channel (`UpdateTrack.downloadsAutomaticallyByDefault`):
+    /// off (the schema's default) on every channel since Leo 2026-10-27 ("ask before the download +
+    /// install step"), so this is `.none`; a channel whose default is on would fill it here.
     public static func channel(downloadsAutomatically: Bool) -> SettingsBuildDefaults {
         downloadsAutomatically ? SettingsBuildDefaults(values: [UpdatesSettings.downloadAutomaticallyPath: .bool(true)]) : .none
     }

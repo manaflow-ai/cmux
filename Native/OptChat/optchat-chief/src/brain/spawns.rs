@@ -40,6 +40,11 @@ fn report_requires_approval(policy: Option<&str>) -> bool {
     policy == Some(crate::approval::ASK)
 }
 
+/// A subagent run shorter than this, that left nothing to land, is a short
+/// task: its workspace closes when it finishes (`mark_workspace`). Oct 20-27
+/// on Lawrence's Chief: 42% of runs were under 30 minutes, the median 48.
+pub const SHORT_TASK: std::time::Duration = std::time::Duration::from_secs(30 * 60);
+
 impl Brain {
     /// Where a spawn's subagents run: `place` (`cloud`/`local`), else the
     /// saved `control cloud` default, else the env's peer; None: here.
@@ -1436,24 +1441,53 @@ impl Brain {
     /// checkmark"): the chat tab's own idle state shows that it is done, and
     /// a name the user or the Chief gave it stays.
     fn mark_workspace(&mut self, id: &str, done: bool) {
-        if !(done && self.sub_close_on_finish) {
+        if !done {
             return;
         }
         let (Some(workspaces), Some((_, sub))) = (self.workspaces.clone(), self.state.sub(id))
         else {
             return;
         };
+        // Every finished one under the close setting; else a short task's
+        // (a run under SHORT_TASK whose report left nothing to land), so a
+        // sidebar does not fill with workspaces of one-off asks. Its chat
+        // stays readable (zoom).
+        let short = now_ms().saturating_sub(sub.run_ms) < SHORT_TASK.as_millis() as u64
+            && sub.run_ms > 0
+            && !sub.stopped
+            && !sub
+                .report
+                .as_deref()
+                .is_some_and(crate::sub_watch::unlanded);
+        if !(self.sub_close_on_finish || short) {
+            return;
+        }
         let Some(key) = sub.workspace.clone() else {
             return;
         };
-        if let Some(sub) = self.state.sub_mut(id) {
-            sub.workspace = None;
+        // The close setting closes every finished one and forgets it; a short
+        // task closes only while none of its terminals runs a command, so its
+        // key stays recorded (a later close of a closed one does nothing).
+        let explicit = self.sub_close_on_finish;
+        if explicit {
+            if let Some(sub) = self.state.sub_mut(id) {
+                sub.workspace = None;
+            }
+            self.save();
         }
-        self.save();
         let (log, id) = (self.log.clone(), id.to_owned());
         std::thread::spawn(move || {
-            if let Err(e) = workspaces.close(&key) {
-                log(&format!("subagent {id}: closing its workspace: {e}"));
+            let closed = if explicit {
+                workspaces.close(&key).map(|()| true)
+            } else {
+                workspaces.close_idle(&key)
+            };
+            match closed {
+                Ok(true) => {}
+                Ok(false) => log(&format!(
+                    "subagent {id}: its workspace stays: a terminal runs a command"
+                )),
+                Err(e) => log(&format!("subagent {id}: closing its workspace: {e}")),
             }
         });
     }
@@ -1489,6 +1523,10 @@ impl Brain {
             })
             .collect();
         for (id, text, floor, requires_approval, quiet) in done {
+            // A stopped run (the person's own stop) owes no outcome.
+            if !quiet {
+                self.note_finished(&id);
+            }
             let source = Source::Spawn(SpawnRef {
                 spawn: spawn.to_owned(),
                 subs: vec![(id.clone(), floor)],
@@ -2553,9 +2591,14 @@ mod security_tests {
     }
 }
 
+/// What the at-work line adds: their tasks are not finished yet.
+const AT_WORK_NOT_DONE: &str = "Their tasks are not done until each reports: never say they are finished, and keep any reply about them to what is under way.";
+
 impl Brain {
-    /// `Subagents at work now: a1, a3.` when any runs (a turn's line after
-    /// the view); None when none does.
+    /// `Subagents at work now: a1, a3. ...` when any runs (a turn's line
+    /// after the view); None when none does. It also says their work is not
+    /// done yet, so a turn never reports a task finished while the subagent
+    /// doing it still runs (issue 25577).
     pub(super) fn at_work_line(&self) -> Option<String> {
         let ids: Vec<&str> = self
             .state
@@ -2565,7 +2608,12 @@ impl Brain {
             .filter(|s| s.at_work())
             .map(|s| s.id.as_str())
             .collect();
-        (!ids.is_empty()).then(|| format!("Subagents at work now: {}.", ids.join(", ")))
+        (!ids.is_empty()).then(|| {
+            format!(
+                "Subagents at work now: {}. {AT_WORK_NOT_DONE}",
+                ids.join(", ")
+            )
+        })
     }
 
     /// A running subagent spawned under the spawn floor: the floor stays

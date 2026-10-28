@@ -1,3 +1,4 @@
+import CmuxNextHibernation
 import AppKit
 import CmuxNextActions
 import CmuxNextBrowser
@@ -5,6 +6,7 @@ import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextLayout
 import CmuxNextWakeups
 import Observation
 
@@ -101,6 +103,8 @@ final class WindowManager {
     /// The incognito session's off-the-record browser profile while any
     /// incognito window is open (`WindowManager+Incognito`).
     var incognitoSession: BrowserProfileID?
+    /// The incognito space each incognito window shows (window id to space), deleted with its window.
+    var incognitoSpaces: [String: ProfileID] = [:]
     /// Workspaces of open incognito windows, closed at the next launch when
     /// this run ends without closing them.
     lazy var incognitoLedger = IncognitoWorkspaceLedger.forApplication(bundleIdentifier: Bundle.main.bundleIdentifier)
@@ -186,7 +190,8 @@ final class WindowManager {
         if controllers.isEmpty, !LaunchSnapshotWindow(manager: self).show() {
             let id = UUID().uuidString.lowercased()
             launchWindowID = id
-            makeController(for: WindowRegistry.Window(id: id))
+            makeController(for: WindowRegistry.Window(id: id, frame: services.daemon.launchSnapshotWindows?.lastFrame?.rect,
+                                                      display: services.daemon.launchSnapshotWindows?.lastDisplay))
         }
         let store = services.daemon.store
         loadObservation = Task { [weak self] in
@@ -216,6 +221,10 @@ final class WindowManager {
         // resources: the app's ledger owns them, so they close, never shown.
         // A daemon with state resources owns its ephemeral workspaces (it closes them at its
         // next start); until then they show in an incognito window only, so wait for its flags.
+        // Incognito spaces a crashed run left: deleted, never shown.
+        if let home = services.machines.local.connection {
+            for space in await incognitoLedger.loadSpaces() { _ = try? await home.deleteProfile(ProfileID(rawValue: space), moveTo: nil) }
+        }
         let leftover = await incognitoLedger.load()
         if !leftover.isEmpty {
             registry.apply { $0.markDiscarding(leftover); return WindowRegistry.Changes() }
@@ -229,9 +238,11 @@ final class WindowManager {
                                             restoredAtMs: UInt64(max(0, Date().timeIntervalSince1970 * 1000)))
         }
         let adopted = adoptLaunchWindow(restoredRegistry, records: document.windows)
+        if adopted == nil { placeLaunchWindow(document) }
         // The closed launch window stood for the saved window it would have become.
         if closedLaunchWindowID != nil, let front = adoptableFront(restoredRegistry) { closedDuringRestore.insert(front) }
         for record in document.windows where states[record.id] == nil { states[record.id] = WindowState(record: record) }
+        rememberMachines(of: document)
         if !restoredRegistry.windows.isEmpty {
             registry.apply { registry in
                 registry = restoredRegistry
@@ -292,6 +303,14 @@ final class WindowManager {
             launch.window?.setFrame(WindowPlacementFallback.visible(frame, display: restored.window(front)?.display), display: true)
         }
         return launch
+    }
+
+    /// No saved window can show now (their workspaces ended, or the last window closed): the
+    /// launch window opens where the front window last was (#25568).
+    private func placeLaunchWindow(_ document: WindowStateDocument) {
+        guard services.environment.testWindow == nil, let launch = launchWindowID.flatMap(controller(for:)),
+              let frame = document.lastFrame?.rect else { return }
+        launch.window?.setFrame(WindowPlacementFallback.visible(frame, display: document.lastDisplay), display: true)
     }
 
     /// A window the person closed before the restore finished stays closed, even the last one: no
@@ -444,5 +463,37 @@ final class WindowManager {
                 return WindowRegistry.Changes()
             }
         }
+    }
+
+    // MARK: Workspace hibernation (plans/cmux-next/workspace-hibernation-DESIGN.md)
+
+    /// Workspaces some window keeps mounted off screen.
+    var parkedWorkspaceIDs: Set<String> { Set(controllers.flatMap(\.parked.keys)) }
+
+    /// Workspaces shown in a window: its content, the one under a top page, and `sidebar.multiView` companions.
+    var shownWorkspaceIDs: Set<String> {
+        controllers.reduce(into: Set<String>()) { shown, window in
+            if let id = window.content?.workspace.id { shown.insert(id) }
+            if let id = window.state.workspaceID { shown.insert(id) }
+            shown.formUnion(window.state.viewSet?.ids ?? [])
+            if LayoutTunables.dockedWorkspaces.value {
+                shown.formUnion(window.state.docks.visible.map(\.workspace))
+                if let stage = window.state.stageWorkspaceID { shown.insert(stage) }
+            }
+        }
+    }
+
+    /// Every workspace this app holds memory for (mounted in a window, or a tab `holdsMemory` says
+    /// holds a surface or page), with what keeps it awake.
+    func hibernationResidents(in stores: [DaemonStore], holdsMemory: (String) -> Bool) -> [WorkspaceHibernationResident] {
+        let mounted = parkedWorkspaceIDs
+        return WorkspaceActivityFacts.all(in: stores) { workspace, tabs in mounted.contains(workspace.id) || tabs.contains { holdsMemory($0.id) } }
+            .map { WorkspaceHibernationResident(workspace: $0.workspace, lastActivity: $0.lastActivity, pinned: $0.pinned,
+                                                running: $0.running, needsAttention: $0.needsAttention) }
+    }
+
+    /// Workspace `id` hibernated: every window unmounts its parked content.
+    func releaseParked(_ id: String) {
+        for window in controllers { window.releaseParked(id) }
     }
 }

@@ -165,6 +165,7 @@ import {
 } from "./repository";
 import { measureVmEffect, type VmTimingSink } from "./timings";
 import { guestPromptInstallCommand, vmPromptIdentity } from "./guestPrompt";
+import { scheduleGuestVmKindRecord } from "./guestVmKind";
 import { vmAgentUpdatesFromRow, type VmAgentUpdatesSetting } from "./agentUpdates";
 import {
   VM_API_ACTIVITY_MIN_INTERVAL_MS,
@@ -176,6 +177,7 @@ import {
   type VmPauseReason,
 } from "./idlePause";
 import { guestAgentUpdatesCommand } from "./guestAgentUpdates";
+import { vmKindForCaller } from "./vmKind";
 
 export {
   homeVolumeNameForUser,
@@ -1515,7 +1517,7 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
           measureVmEffect(
             input.timing,
             "resolve_network",
-            resolveOwnerNetwork({ userId: input.userId, provider: input.provider, billingTeamId: input.billingTeamId, teamDirectory: input.teamDirectory }),
+            resolveOwnerNetwork({ userId: input.userId, provider: input.provider, billingTeamId: input.billingTeamId, teamDirectory: input.teamDirectory, providerCredential: input.providerCredential, providerMetadata: input.providerMetadata }),
           ),
         ),
         beginCreateWithLazyProviderRefresh(repo, providers, beginInput),
@@ -1710,6 +1712,8 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
       yield* recordCreateSuccessEvents(repo, input, running);
     }
     yield* schedulePromptIdentityPush(providers, running, input.deferAfterResponse);
+    // The guest records its kind in /etc/cmux/vm-kind (guestVmKind.ts), after the response.
+    yield* scheduleGuestVmKindRecord(repo, providers, running, input.deferAfterResponse);
     // The create response carries the first connection, so openVmCmuxRemote
     // never runs for it; start the opted-in updater here, after the response.
     if (vmAgentUpdatesFromRow(running) === "latest") {
@@ -1903,6 +1907,8 @@ export function openBaseVm(input: {
   /** Set only when the requesting client routes team networks. */
   readonly teamDirectory?: VmTeamDirectory;
   readonly timing?: VmTimingSink;
+  /** Work to run after the route answers (the guest vm-kind write); detached when absent. */
+  readonly deferAfterResponse?: (work: Effect.Effect<void>) => void;
 }): Effect.Effect<BaseVmEntry, VmWorkflowError, VmRepository | VmProviderGateway | VmBillingGateway> {
   return Effect.gen(function* () {
     yield* requireGoShape(input.billingPlanId, input.imageSize ? {
@@ -1952,6 +1958,8 @@ export function resetBaseVm(input: {
   readonly reason?: string | null;
   readonly modelPlane?: VmModelPlaneProvisioner;
   readonly timing?: VmTimingSink;
+  /** Work to run after the route answers (the guest vm-kind write); detached when absent. */
+  readonly deferAfterResponse?: (work: Effect.Effect<void>) => void;
 }): Effect.Effect<BaseVmEntry, VmWorkflowError, VmRepository | VmProviderGateway | VmBillingGateway> {
   return Effect.gen(function* () {
     yield* requireMemoryPlan(input.billingPlanId, input.imageSize?.memoryMb ?? 0, input.imageSize?.cpu ?? null);
@@ -2004,6 +2012,7 @@ function finishBaseCreate(
     readonly modelPlane?: VmModelPlaneProvisioner;
     readonly teamDirectory?: VmTeamDirectory;
     readonly timing?: VmTimingSink;
+    readonly deferAfterResponse?: (work: Effect.Effect<void>) => void;
   },
   create: BeginBaseCreateResult,
 ): Effect.Effect<BaseVmEntry, VmWorkflowError, never> {
@@ -2064,7 +2073,7 @@ function finishBaseCreate(
     const network = yield* measureVmEffect(
       input.timing,
       "resolve_network",
-      resolveOwnerNetwork({ userId: input.userId, provider: input.provider, billingTeamId: input.billingTeamId, teamDirectory: input.teamDirectory }).pipe(
+      resolveOwnerNetwork({ userId: input.userId, provider: input.provider, billingTeamId: input.billingTeamId, teamDirectory: input.teamDirectory, providerCredential: input.providerCredential, providerMetadata: input.providerMetadata }).pipe(
         Effect.provideService(VmRepository, repo),
         Effect.provideService(VmProviderGateway, providers),
       ),
@@ -2219,6 +2228,7 @@ function finishBaseCreate(
 
     yield* recordCreateSuccessEvents(repo, { ...input, idempotencyKey, origin: "base" }, running);
     yield* schedulePromptIdentityPush(providers, running, undefined);
+    yield* scheduleGuestVmKindRecord(repo, providers, running, input.deferAfterResponse);
     yield* repo.recordUsageEvent({
       userId: input.userId,
       billingTeamId: input.billingTeamId,
@@ -2893,6 +2903,8 @@ export function restoreVm(input: {
   readonly provider: ProviderId;
   readonly snapshotId: string;
   readonly idempotencyKey?: string;
+  /** Work to run after the route answers (the guest vm-kind write); detached when absent. */
+  readonly deferAfterResponse?: (work: Effect.Effect<void>) => void;
   /** Same contract as createVm: the restored machine gets its own token and edge rule. */
   readonly modelPlane?: VmModelPlaneProvisioner;
   /** Set only when the requesting client routes team networks. */
@@ -2959,6 +2971,7 @@ export function restoreVm(input: {
       modelPlane: input.modelPlane,
       teamDirectory: input.teamDirectory,
       timing: input.timing,
+      deferAfterResponse: input.deferAfterResponse,
     });
   });
 }
@@ -4507,6 +4520,7 @@ function preflightResumeIfSuspended(
       vm,
       providerVmId,
       new VmNotFoundError({ vmId: providerVmId }),
+      options.providerCredential,
     ).pipe(
       Effect.tapError(() => rollbackPausedResumeReservation(repo, vm, providerVmId, reserved)),
     );
@@ -4556,6 +4570,7 @@ function withResumeOnSuspendedAfterFailure<A>(
   callerPlanId?: string | null,
   /** Failures a status probe and resume cannot fix; they are returned as they are. */
   isUnrecoverable: (error: VmWorkflowError) => boolean = () => false,
+  providerCredential?: ProviderCredential,
 ): Effect.Effect<A, VmWorkflowError> {
   return op.pipe(
     Effect.catchAll((originalError) => {
@@ -4564,11 +4579,11 @@ function withResumeOnSuspendedAfterFailure<A>(
       if (!getStatus || !resume || isUnrecoverable(originalError)) return Effect.fail(originalError);
 
       return Effect.gen(function* () {
-        const status = yield* getStatus(vm.provider, providerVmId).pipe(
+        const status = yield* getStatus(vm.provider, providerVmId, providerCredential).pipe(
           Effect.catchAll(() => Effect.succeed(null as VMStatus | null)),
         );
         if (status === "creating") {
-          const settled = yield* waitForRunningStatus(providers, vm, providerVmId);
+          const settled = yield* waitForRunningStatus(providers, vm, providerVmId, providerCredential);
           if (!settled) return yield* Effect.fail(originalError);
           const recorded = yield* repo.markProviderObservedStatus({
             id: vm.id,
@@ -4583,7 +4598,7 @@ function withResumeOnSuspendedAfterFailure<A>(
         }
 
         const reserved = yield* reservePausedResumeIfTeam(repo, vm, providerVmId, maxActiveVms, callerPlanId);
-        yield* resumeUntilRunning(providers, vm, providerVmId).pipe(
+        yield* resumeUntilRunning(providers, vm, providerVmId, providerCredential).pipe(
           Effect.tapError(() => rollbackPausedResumeReservation(repo, vm, providerVmId, reserved)),
           // An allowance refusal is the answer the caller needs; any other
           // resume failure reports the operation's own error.
@@ -4593,7 +4608,7 @@ function withResumeOnSuspendedAfterFailure<A>(
               : originalError,
           )),
         );
-        yield* recordRunningTransition(repo, providers, vm, providerVmId, originalError).pipe(
+        yield* recordRunningTransition(repo, providers, vm, providerVmId, originalError, providerCredential).pipe(
           Effect.tapError(() => rollbackPausedResumeReservation(repo, vm, providerVmId, reserved)),
         );
         if (reserved) yield* recordResumeUsageEvent(repo, vm, resumeSource);
@@ -4615,11 +4630,12 @@ function recordRunningTransition<E extends VmWorkflowError>(
   vm: CloudVmRow,
   providerVmId: string,
   staleRowError: E,
+  providerCredential?: ProviderCredential,
 ): Effect.Effect<void, VmDatabaseError | E> {
   const rollbackPause = (): Effect.Effect<void, never> => {
     const pause = providers.pause;
     if (!pause) return Effect.void;
-    return pause(vm.provider, providerVmId).pipe(Effect.catchAll(() => Effect.void));
+    return pause(vm.provider, providerVmId, providerCredential).pipe(Effect.catchAll(() => Effect.void));
   };
   return Effect.gen(function* () {
     const didUpdate = yield* repo.markProviderObservedStatus({
@@ -5870,7 +5886,8 @@ export function openVmCmuxRemote(input: {
     if (vmAgentUpdatesFromRow(vm) === "latest") {
       yield* scheduleGuestAgentUpdates(providers, vm, "latest", input.deferAfterResponse);
     }
-    return endpoint;
+    // The caller's own sandbox opt-out reads this; see vmKindForCaller.
+    return { ...endpoint, vmKind: vmKindForCaller(vm, input.userId) };
   });
 }
 
@@ -5960,6 +5977,8 @@ type OpenAttachEndpointInput = {
   /** Current billing-scope machine allowance; null means unlimited. */
   readonly maxActiveVms?: number | null;
   readonly options?: AttachOptions;
+  readonly transport?: "ssh" | "websocket";
+  readonly providerCredential?: ProviderCredential;
   readonly sessionTitle?: string | null;
   /** Caller's CURRENT billing plan; used for the free access window. */
   readonly callerPlanId?: string | null;
@@ -5969,8 +5988,8 @@ type OpenAttachEndpointInput = {
 export function openAttachEndpoint(input: OpenAttachEndpointInput) {
   return Effect.gen(function* () {
     const result = yield* openAttachEndpointResult(input);
-    return result.endpoint;
-  });
+    return { ...result.endpoint, vmKind: result.vmKind };
+  }).pipe(releaseProviderCredential(input.providerCredential, input.userId));
 }
 
 /**
@@ -6126,13 +6145,14 @@ function openAttachEndpointResult(input: OpenAttachEndpointInput) {
     const vm = yield* requireAccessibleUserVm(input);
     // A provider that only runs the cmux-tui daemon cannot serve the legacy
     // websocket/SSH attach at all; say so before waking or mutating anything.
+    const requestedTransport = input.transport ?? "websocket";
     const supportedTransports = providers.attachTransports?.(vm.provider);
-    if (supportedTransports && !supportedTransports.some((t) => t === "websocket" || t === "ssh")) {
+    if (supportedTransports && !supportedTransports.includes(requestedTransport)) {
       return yield* Effect.fail(
         new VmAttachTransportUnsupportedError({
           provider: vm.provider,
           vmId: input.providerVmId,
-          requested: "websocket",
+          requested: requestedTransport,
           supported: supportedTransports,
         }),
       );
@@ -6145,24 +6165,37 @@ function openAttachEndpointResult(input: OpenAttachEndpointInput) {
       vm,
       input.providerVmId,
       "attach",
-      { forceProviderProbe: true, maxActiveVms: input.maxActiveVms, callerPlanId: input.callerPlanId, modelPlane: input.modelPlane },
+      {
+        forceProviderProbe: true,
+        maxActiveVms: input.maxActiveVms,
+        callerPlanId: input.callerPlanId,
+        modelPlane: input.modelPlane,
+        providerCredential: input.providerCredential,
+      },
     );
     // Once preflight records the VM as running, that state is externally
     // visible to concurrent attach/SSH requests. Later cleanup failures must
     // fail closed without pausing a VM another request may have attached to.
     yield* revokeActiveIdentities(vm, { failOnCleanupError: true });
+    const providerCredential = input.providerCredential && vm.provider === "gcp" && !input.providerCredential.sshUsername
+      ? { ...input.providerCredential, sshUsername: typeof vm.providerMetadata.gcpSshUsername === "string" ? vm.providerMetadata.gcpSshUsername : undefined }
+      : input.providerCredential;
     const endpoint = yield* withResumeOnSuspendedAfterFailure(
       repo,
       providers,
       vm,
       input.providerVmId,
       "attach",
-      providers.openAttach(vm.provider, input.providerVmId, {
-        ...(input.options ?? {}),
-        providerMetadata: vm.providerMetadata,
-      }),
+      input.transport === "ssh"
+        ? providers.openSSH(vm.provider, input.providerVmId, providerCredential)
+        : providers.openAttach(vm.provider, input.providerVmId, {
+          ...(input.options ?? {}),
+          providerMetadata: vm.providerMetadata,
+        }),
       input.maxActiveVms,
       input.callerPlanId,
+      undefined,
+      providerCredential,
     );
     yield* storeEndpointLeases(vm, endpoint).pipe(
       Effect.catchAll((err) =>
@@ -6201,7 +6234,7 @@ function openAttachEndpointResult(input: OpenAttachEndpointInput) {
         },
       })
       : undefined;
-    return { endpoint, session };
+    return { endpoint, session, vmKind: vmKindForCaller(vm, input.userId) };
   });
 }
 

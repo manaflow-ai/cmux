@@ -46,6 +46,9 @@ pub struct AppError {
     pub retryable: bool,
     /// The daemon's error data, for a refusal with a `reason`.
     pub data: Option<serde_json::Value>,
+    /// The process's exit status when it is not `code`'s: a command another program ran for this
+    /// one (the send relay, `send_relay.rs`) exits with that program's status.
+    pub exit: Option<i32>,
 }
 
 impl AppError {
@@ -58,6 +61,7 @@ impl AppError {
             prompt_id: None,
             retryable: false,
             data: None,
+            exit: None,
         }
     }
     pub fn usage(message: impl Into<String>) -> Self {
@@ -85,13 +89,21 @@ impl AppError {
         self.retryable = true;
         self
     }
+    pub fn with_exit(mut self, status: i32) -> Self {
+        self.exit = Some(status);
+        self
+    }
+    /// The status the process exits with.
+    pub fn exit_status(&self) -> i32 {
+        self.exit.unwrap_or(self.code as i32)
+    }
     pub fn with_data(mut self, data: serde_json::Value) -> Self {
         self.data = Some(data);
         self
     }
     /// JSON envelope for stderr under --json.
     pub fn envelope(&self) -> serde_json::Value {
-        let mut envelope = serde_json::json!({"error": {"code": self.code.name(), "exit": self.code as i32, "detail": self.detail, "message": self.message, "sessionId": self.session_id, "promptId": self.prompt_id, "retryable": self.retryable}});
+        let mut envelope = serde_json::json!({"error": {"code": self.code.name(), "exit": self.exit_status(), "detail": self.detail, "message": self.message, "sessionId": self.session_id, "promptId": self.prompt_id, "retryable": self.retryable}});
         if let Some(data) = &self.data {
             envelope["error"]["data"] = data.clone();
             for key in ["errorKind", "recovery"] {
@@ -208,7 +220,7 @@ pub fn exit_with(e: &anyhow::Error, json_out: bool) -> ! {
     } else {
         eprintln!("{}", app.text());
     }
-    std::process::exit(app.code as i32);
+    std::process::exit(app.exit_status());
 }
 
 #[cfg(test)]

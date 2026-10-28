@@ -18,7 +18,7 @@ A pull request takes the highest tier of any file it changes. A file no rule nam
 | --- | --- | --- |
 | low | docs, plans, skills, copy (`*.xcstrings`, `*.strings`), logs (even inside a high directory), generated output, tests and fixtures, agent and tooling config (`.claude/`, `tools/`, prototypes) | green relevant checks. Post-merge checks catch the rest. |
 | normal | everything else: cmux NEXT UI and logic, webviews, the daemon and cmux-tui, web routes, CI workflows and scripts, pins and lockfiles (even inside a high directory), defaults behind a setting | agent review and the relevant checks, then auto-merge or the batch queue. No person. |
-| high | the six kinds below | an independent review receipt `Review (<reviewer>): SHIP at <full head sha>` on the exact head plus a green compile. An approving review on the head by a collaborator other than the author, or `risk:human-ok` added by a maintainer, also counts |
+| high | the six kinds below | an independent review receipt `Review (<reviewer>): SHIP at <full head sha>` on the exact head plus a green compile. The line goes in the description (no comment needed) or leads a comment. An approving review on the head by a collaborator other than the author, or `risk:human-ok` added by a maintainer, also counts. Only a BLOCK or FIX on the head turns the check red; with no verdict yet it passes with a warning |
 
 High is kept small on purpose. Each kind is here because a regression in it can't be undone by
 reverting the commit, or because it takes out the safety net every other tier relies on:
@@ -143,9 +143,14 @@ advisory window doesn't count after the cutover: `gh-merge-green` reads `ENFORCE
 base and refuses a `risk evidence` check whose job started before it, or one that never ran. Edit
 the description or push to re-grade.
 
-After posting a receipt on, or approving, a high pull request, re-run its `risk evidence` check, or
-edit the description, so it re-grades: a comment or review doesn't trigger the check. Adding
-`risk:human-ok` re-grades on its own.
+Put the receipt in the description: editing the description re-grades the check on its own. After
+posting a receipt comment on, or approving, a high pull request instead, re-run its `risk evidence`
+check, or edit the description, so it re-grades: a comment or review doesn't trigger the check.
+Adding `risk:human-ok` re-grades on its own.
+
+A high pull request with no verdict on its head passes with a warning in the job summary ("no
+review verdict on the head commit yet"), not a red check. It still lands only after an independent
+review passes. The newest verdict on the head being a BLOCK, FIX or change request is the one hold.
 
 ## Ship risky behavior dark
 
@@ -161,8 +166,11 @@ gh-merge-green --revert manaflow-ai/cmux#<number>
 
 `risk:human-ok` (and the older `risk:waived`) count only when a maintainer (admin or maintain
 role) added them; the check reads who did. Agents never add either, and never need to: a SHIP
-receipt on the head is enough. The receipt is the first line of a comment or review body from a
-collaborator, names the full head sha, and isn't a self-review. The newest verdict on the head
+receipt on the head is enough. The receipt is a line of the description, or the first line of a
+comment or review body, from a collaborator (for the description, its author must be one, the same
+rule as a commenter); it names the full head sha and isn't a self-review. A description line inside
+an HTML comment doesn't count, and description lines rank below every comment and review, so a later
+BLOCK comment beats a SHIP in the description. The newest verdict on the head
 decides, read as one timeline with approvals and change requests of the head commit: a later BLOCK
 or change request beats an earlier SHIP or approval, a BLOCK wins a tie, and any push needs a new
 receipt. The label counts only while no verdict names the head.

@@ -77,7 +77,9 @@ struct ContextMenuEssentialsTests {
         let entries = ContextMenuCatalog.shared.selectionEntries(for: .workspaceRow)
         let menu = registry().makeContextMenu(for: .workspaceRow, target: ActionTargetRef(kind: .workspace, id: "ws"), entries: entries)
         let shown = rows(menu)
-        #expect(shown == ["palette.workspaceColor", "workspace.newBelow", "workspace.moveToNewGroup", "—",
+        // One verb for a selection: the row is Group Selected Workspaces, the action Cmd-Shift-G runs,
+        // not a second "Add to New Group" that does the same thing under another name.
+        #expect(shown == ["palette.workspaceColor", "workspace.newBelow", "groupSelectedWorkspaces", "—",
                           "workspace.duplicate", "palette.moveWorkspaceToTop", "palette.toggleWorkspacePin", "workspace.toggleAudioMute", "—",
                           "More", "—", "closeWorkspace", "palette.closeOtherWorkspaces", "palette.closeWorkspacesBelow", "—",
                           "reopenClosedWorkspace"])
@@ -104,7 +106,7 @@ struct ContextMenuEssentialsTests {
             return Dictionary(menu.items.compactMap { item in ActionRegistry.menuRun(of: item).map { ($0.id, item.title) } }) { first, _ in first }
         }
         let on = titles(pins: true, mutes: true), off = titles(pins: false, mutes: false)
-        for id: ActionID in ["workspace.moveToNewGroup", "workspace.duplicate", "palette.toggleWorkspacePin", "workspace.toggleAudioMute"] {
+        for id: ActionID in ["workspace.duplicate", "palette.toggleWorkspacePin", "workspace.toggleAudioMute"] {
             #expect(on[id] == NSMenu.workspaceSelectionTitle(id, pins: true, mutes: true), "\(id)")
         }
         #expect(on["palette.toggleWorkspacePin"] != off["palette.toggleWorkspacePin"])

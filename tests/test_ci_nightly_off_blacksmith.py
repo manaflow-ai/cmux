@@ -41,7 +41,7 @@ def code_lines(path: Path):
         yield number, line.split(" # ", 1)[0]
 
 
-class NightlyOffBlacksmithTests(unittest.TestCase):
+class NightlyPooledRoutingTests(unittest.TestCase):
     def test_nightly_workflows_are_discovered(self) -> None:
         names = {path.name for path in nightly_workflows()}
         for required in ("nightly.yml", "auto-resume-nightly-notarization.yml"):
@@ -97,14 +97,15 @@ class NightlyOffBlacksmithTests(unittest.TestCase):
         text = (WORKFLOWS / "nightly.yml").read_text(encoding="utf-8")
         job = text[text.index("\n  build-nightly-app:"):]
         runs_on = re.search(r"^    runs-on: (.+)$", job, re.MULTILINE).group(1)
-        self.assertIn("vars.CI_SIDE_LANE_RUNNER", runs_on)
+        # nightly-next: an idle owned Mac, else the moving Blacksmith label (pick-nightly-build-runner).
+        self.assertIn("needs.pick-nightly-build-runner.outputs.owned", runs_on)
+        self.assertIn("needs.pick-nightly-build-runner.outputs.blacksmith", runs_on)
         self.assertIn("vars.MACOS_RUNNER_26", runs_on)
         self.assertIn("blacksmith-6vcpu-macos-26", runs_on)
 
     def test_secret_bearing_nightlies_use_the_trusted_owned_pool(self) -> None:
         text = (WORKFLOWS / "nightly.yml").read_text(encoding="utf-8")
-        for name in ("build-sign-notarize-nightly", "sign-nightly-identity-legacy",
-                     "publish-nightly-identity-legacy"):
+        for name in ("build-sign-notarize-nightly", "sign-nightly-identity-legacy"):
             job = text[text.index(f"\n  {name}:"):]
             match = re.search(r"^    runs-on: (.+)$", job, re.MULTILINE)
             with self.subTest(job=name):
@@ -113,19 +114,85 @@ class NightlyOffBlacksmithTests(unittest.TestCase):
                 self.assertIn("blacksmith-6vcpu-macos-26", match.group(1))
                 self.assertNotIn("vars.CI_SIDE_LANE_RUNNER", match.group(1))
 
-    def test_secret_free_prepare_fallback_does_not_requeue_a_retry_on_the_side_pool(self) -> None:
-        text = (WORKFLOWS / "nightly.yml").read_text(encoding="utf-8")
-        job = text[text.index("\n  prepare-nightly-variant-primary:"):]
-        runs_on = re.search(r"^    runs-on: (.+)$", job, re.MULTILINE).group(1)
-        self.assertIn("github.run_attempt == 1", runs_on)
-        self.assertIn("vars.CI_SIDE_LANE_RUNNER", runs_on)
-        self.assertIn("blacksmith-6vcpu-macos-26", runs_on)
-        # The fallback leg after a failed primary prepares on Blacksmith, never the side pool.
-        job = text[text.index("\n  prepare-nightly-variant-fallback:"):]
-        runs_on = re.search(r"^    runs-on: (.+)$", job, re.MULTILINE).group(1)
-        self.assertNotIn("vars.CI_SIDE_LANE_RUNNER", runs_on)
-        self.assertIn("blacksmith-6vcpu-macos-26", runs_on)
+    def test_prepare_runs_on_linux_and_executes_no_mach_o(self) -> None:
+        """prepare-nightly-variant only moves and reads files, so it runs on Linux.
 
+        The cmux-tui client install (it runs the client), Apple's strip and the
+        capability probes run in build-nightly-app; the theme picker regression
+        and the diff sidecar handshake (they run Mach-O) run on the signed app
+        in verify-signed-nightly. llvm-lipo thins, which gives Apple lipo's bytes.
+        """
+        import yaml
+        document = yaml.safe_load((WORKFLOWS / "nightly.yml").read_text(encoding="utf-8"))
+        jobs = document["jobs"]
+        owned = "vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-6vcpu-macos-26' || "
+        self.assertEqual(jobs["prepare-nightly-variant-primary"]["runs-on"],
+                         "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || " + owned
+                         + "'blacksmith-4vcpu-ubuntu-2404' }}")
+        self.assertEqual(jobs["prepare-nightly-variant-fallback"]["runs-on"],
+                         "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || " + owned
+                         + "'blacksmith-8vcpu-ubuntu-2404' }}")
+        moved_out = ("install-cmux-tui-client.sh", "strip-release-bundle.sh", "write-cmux-tui-version.sh",
+                     "check-daemon-capabilities.sh", "test_bundled_ghostty_theme_picker_helper.sh",
+                     "verify-diff-sidecar-artifact.sh", "select-ci-xcode.sh", "ditto ", "otool", "codesign")
+        for name in ("prepare-nightly-variant-primary", "prepare-nightly-variant-fallback"):
+            runs = "\n".join(step.get("run", "") for step in jobs[name]["steps"])
+            names = [step.get("name", "") for step in jobs[name]["steps"]]
+            with self.subTest(job=name):
+                for needle in moved_out:
+                    self.assertNotIn(needle, runs)
+                self.assertIn("Put llvm-lipo on PATH as lipo", names)
+                self.assertIn("Require the cmux-tui client build-nightly-app bundled", names)
+                self.assertIn("thin-app-bundle.sh", runs)
+                self.assertIn("verify_app_libintl.py", runs)
+        build = "\n".join(step.get("run", "") for step in jobs["build-nightly-app"]["steps"])
+        for needle in ("install-cmux-tui-client.sh", "write-cmux-tui-version.sh", "check-daemon-capabilities.sh"):
+            self.assertIn(needle, build)
+        steps = [step.get("name") for step in jobs["build-nightly-app"]["steps"]]
+        self.assertLess(steps.index("Strip unsigned nightly app before transfer"), steps.index("Bundle the cmux-tui client"))
+        self.assertLess(steps.index("Bundle the cmux-tui client"), steps.index("Archive unsigned nightly app"))
+        verify = "\n".join(step.get("run", "") for step in jobs["verify-signed-nightly"]["steps"])
+        self.assertIn("test_bundled_ghostty_theme_picker_helper.sh", verify)
+        self.assertIn("verify-diff-sidecar-artifact.sh", verify)
+        helper = "\n".join(step.get("run", "") for step in jobs["build-nightly-ghostty-cli-helper"]["steps"])
+        self.assertIn("strip -S -x nightly-helper/ghostty", helper)
+
+
+    def test_light_nightly_jobs_fail_over_to_the_owned_nightly_pool(self) -> None:
+        """Blacksmith Linux down and hosted Ubuntu saturated stalled the feed (2026-10-27).
+
+        The light nightly jobs that hold no release secrets take Blacksmith macOS 26
+        (which kept moving) while the overflow record is set. On a Mac, prepare
+        uses Apple's lipo (llvm-lipo is the Linux copy of its bytes) and the Mac's
+        own tar, as before #25885.
+        """
+        import yaml
+        jobs = yaml.safe_load((WORKFLOWS / "nightly.yml").read_text(encoding="utf-8"))["jobs"]
+        owned = "vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-6vcpu-macos-26' || "
+        for name in ("decide", "resolve-nightly-cmux-tui-client", "resolve-nightly-ghostty-cli-helper",
+                     "pick-nightly-build-runner", "prepare-nightly-variant-primary", "prepare-nightly-variant-fallback",
+                     "prepare-nightly-variant", "pick-nightly-sign-runner", "find-nightly-next-recovery"):
+            with self.subTest(job=name):
+                runs_on = jobs[name]["runs-on"]
+                self.assertIn(owned, runs_on)
+                self.assertRegex(runs_on, r"\|\| '(?:ubuntu-24\.04|blacksmith-\d+vcpu-ubuntu-2404)' }}$")
+                self.assertNotIn("secrets.APPLE", yaml.dump(jobs[name]))
+                self.assertNotIn("secrets.CMUX_RELEASE_APP_KEY", yaml.dump(jobs[name]))
+        for name in ("prepare-nightly-variant-primary", "prepare-nightly-variant-fallback"):
+            steps = {step.get("name"): step for step in jobs[name]["steps"]}
+            with self.subTest(job=name):
+                self.assertTrue(steps["Put llvm-lipo on PATH as lipo"]["if"].startswith("runner.os == 'Linux' && "))
+                restore = steps["Restore unsigned nightly products"]["run"]
+                self.assertIn('if [ "$RUNNER_OS" = Linux ]; then', restore)
+
+    def test_the_canary_takes_the_owned_side_label_then_blacksmith(self) -> None:
+        import yaml
+        jobs = yaml.safe_load((WORKFLOWS / "nightly-next-canary.yml").read_text(encoding="utf-8"))["jobs"]
+        self.assertIn("vars.CI_PR_POOL_OWNED == '1' && github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || "
+                      "vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}", jobs["canary"]["runs-on"])
+        for name in ("pick", "verdict"):
+            with self.subTest(job=name):
+                self.assertRegex(jobs[name]["runs-on"], r"'blacksmith-\d+vcpu-ubuntu-2404' }}$")
 
     def test_promotion_requests_never_wait_on_blacksmith(self) -> None:
         """The jobs that start a NEXT nightly are part of the nightly path.
@@ -133,7 +200,8 @@ class NightlyOffBlacksmithTests(unittest.TestCase):
         A feat-cmux-next push asks main to promote nightly-next from
         cmux-next.yml and cmux-tui-artifacts.yml (`request-nightly-next`). On
         Blacksmith those requests queued behind its pool like the nightly's own
-        jobs, so no nightly started. They must run on GitHub-hosted Linux.
+        jobs, so no nightly started. They take LINUX_RUNNER, which the overflow
+        switch moves off a stalled Blacksmith label, never a single host.
         """
         for name in ("cmux-next.yml", "cmux-tui-artifacts.yml"):
             text = (WORKFLOWS / name).read_text(encoding="utf-8")

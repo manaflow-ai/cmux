@@ -9,6 +9,7 @@ use serde_json::Value;
 use std::sync::Arc;
 use std::time::Duration;
 
+pub(crate) mod exe_path;
 mod lock;
 #[cfg(unix)]
 mod open_file_limit;
@@ -124,6 +125,9 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     windows::keep_from_children(opts.ready_fd);
     // Before anything is spawned: the key never reaches a child.
     let person_key = opts.person_key_fd.and_then(read_person_key);
+    // A capture fixture that cannot be read stops the start: a capture must
+    // never show this host's harnesses in its place (`harness_fixture.rs`).
+    crate::harness_fixture::check().map_err(|why| anyhow!(why))?;
     let login_env = crate::login_env::requested();
     anyhow::ensure!(
         opts.dev_origins.is_empty() || dev_origins_permitted(cfg!(debug_assertions), opts.dev),
@@ -160,6 +164,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     // home folder: nothing the daemon or a child does relative to its cwd may
     // walk the user's folders (LAUNCH-NO-TCC-PROMPTS).
     let _ = std::env::set_current_dir(home());
+    exe_path::check_run(opts.ready_fd)?;
     let lock = home().join("daemon.lock");
     let _lock_file = match acquire_lock(&lock) {
         Ok(lock) => lock,
@@ -317,6 +322,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         hub.watches.open(&home().join("watches.json"));
     }
     crate::hub::watches::Watches::start(&hub);
+    // The Macs whose app may allow here over the peer link (`hub/mac_approvers.rs`).
+    hub.person.macs.open(home().join(crate::hub::mac_approvers::FILE));
     if let Some(key) = person_key {
         // A Team-signed daemon takes the key only from the signed app's
         // `_acpmux/person_enroll`: a same-uid process could restart it with
@@ -352,7 +359,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     })));
     // Agents outlive this daemon unless the user opts out for this release.
     // `ACPMUX_IDLE_CHILD_SECS`: how long an unused session harness lives
-    // (default 300; 0 keeps every harness running).
+    // (default 120, `hub::IDLE_CHILD`; 0 keeps every harness running).
     if let Some(secs) =
         std::env::var("ACPMUX_IDLE_CHILD_SECS").ok().and_then(|v| v.parse::<u64>().ok())
     {
@@ -499,7 +506,11 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             }
             {
                 let hub = hub.clone();
-                tokio::spawn(async move { hub.load_logs_async().await });
+                tokio::spawn(async move {
+                    hub.load_logs_async().await;
+                    // Once every log is read: a pass reads only chats whose log is loaded.
+                    let _worker = hub.retention_worker();
+                });
             }
             // A chat a machine's Full-access setting moved out of its policy's mode goes back:
             // a revoke the previous daemon saved may not have reached it (`crate::pairing`).
@@ -536,6 +547,15 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         _ = shutdown => {}
     }
     tracing::info!("shutting down");
+    // A node a person started closes with the daemon; its saved login stays.
+    // The controller is made here if no request made it (it holds no node
+    // until a start), so a start racing this shutdown is refused either way.
+    #[cfg(all(unix, feature = "tailnet"))]
+    match tokio::time::timeout(SHUTDOWN_BUDGET, hub.tailnet_controller().shutdown()).await {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => tracing::warn!("embedded tailnet close: {error}"),
+        Err(_) => tracing::warn!("embedded tailnet did not close within {SHUTDOWN_BUDGET:?}"),
+    }
     hub.stop_idle_reaper();
     // New clients get "connection refused" instead of a dying daemon.
     let _ = std::fs::remove_file(socket_path());
@@ -654,6 +674,7 @@ pub async fn start_keyed(fd: i32) -> Result<String> {
     use std::io::Read;
     use std::os::fd::FromRawFd;
     not_dumpable().context("make the launcher not dumpable before it reads the person key")?;
+    exe_path::check_start()?;
     let path = socket_path();
     if Client::connect(&path).await.is_ok() {
         return Err(anyhow!(
@@ -925,6 +946,7 @@ where
     F: Fn() -> Fut,
     Fut: std::future::Future<Output = Result<T>>,
 {
+    exe_path::check_start()?;
     let deadline = tokio::time::Instant::now() + HANDOVER_BUDGET;
     loop {
         let ready = start_daemon().await?;
@@ -1045,7 +1067,7 @@ async fn wait_for_job(path: &std::path::Path, job: String) -> Result<String> {
         }
         tries += 1;
         let left = deadline.saturating_duration_since(tokio::time::Instant::now());
-        if tries % 5 == 0 && !left.is_zero() {
+        if tries.is_multiple_of(5) && !left.is_zero() {
             let job = job.clone();
             let budget = left.min(Duration::from_secs(1));
             let running =
@@ -1072,6 +1094,9 @@ async fn start_daemon() -> Result<String> {
 }
 
 fn not_ready(path: &std::path::Path, ready: &str, error: &anyhow::Error) -> anyhow::Error {
+    if let Some(refused) = exe_path::refused_line(ready) {
+        return anyhow!("{refused}");
+    }
     let why = if ready.trim().is_empty() {
         "exited before it was ready"
     } else {
@@ -1093,27 +1118,8 @@ fn open_daemon_log(path: &std::path::Path) -> Result<std::fs::File> {
 }
 
 #[cfg(all(test, unix))]
-mod state_file_tests {
-    use super::*;
-
-    #[test]
-    fn daemon_log_refuses_a_symlink() {
-        let dir = std::env::temp_dir().join(format!(
-            "acpmux-log-link-{}-{}",
-            std::process::id(),
-            uuid::Uuid::now_v7()
-        ));
-        std::fs::create_dir_all(&dir).unwrap();
-        let target = dir.join("outside");
-        let log = dir.join("daemon.log");
-        std::fs::write(&target, "outside").unwrap();
-        std::os::unix::fs::symlink(&target, &log).unwrap();
-
-        assert!(open_daemon_log(&log).is_err(), "the daemon opened a linked log");
-        assert_eq!(std::fs::read_to_string(&target).unwrap(), "outside");
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-}
+#[path = "daemon/state_file_tests.rs"]
+mod state_file_tests;
 
 /// Start `<exe> [prefix] daemon run --ready-fd N` in its own session and
 /// return the read end of its readiness pipe. With `key`, the daemon also

@@ -11,12 +11,22 @@ This reads the queue janitor's pool snapshot (macos-pool-load, at most
 next_macos_cascade.QUEUE_SNAPSHOT_MINUTES old; two API requests) and prints the
 first candidate whose queue is moving: vars.MACOS_RUNNER_26 when it names a
 Blacksmith macOS label, then 6 vCPU, then 12 vCPU. A label is not moving when
-the snapshot saw a job wait on it for next_macos_cascade.STALL_MINUTES or more.
+the snapshot saw a job wait on it for simple_pool_picker.BLACKSMITH_STALL_MINUTES or more.
 With no fresh snapshot (or an unreadable one) the variable keeps its say, as
-before. It never prints an empty label and never fails the job:
+before. It never prints an empty label and never fails the job.
+
+It also prints `alternate`, the other Blacksmith macOS 26 size, unless the
+snapshot sees that size stalled too: then `alternate` is the pick itself. GitHub never re-routes a queued job, and the pick is made once: a label
+that stalls after it holds the job until the run is cancelled. A re-run of
+failed jobs keeps this job's outputs, so the signing jobs read `alternate` on
+attempt 2 and later, and the re-run (the owned-pool rescue's or a person's)
+moves off the label that stalled instead of queueing on it again. When this
+step itself runs on a later attempt (a full re-run picks again), its pick is
+fresh, so `alternate` is that pick (run 40500413442's full re-run took the
+stale 12 vCPU alternate over a fresh pick, 2026-10-27):
 
     SNAPSHOT_TOKEN=<actions: read> CANDIDATE=<vars.MACOS_RUNNER_26> nightly_sign_runner.py
-    -> `runner=<label>` in $GITHUB_OUTPUT, and why in the step summary
+    -> `runner=<label>` and `alternate=<label>` in $GITHUB_OUTPUT, and why in the step summary
 """
 
 from __future__ import annotations
@@ -50,8 +60,9 @@ def stalled(snapshot: Mapping[str, Any] | None, labels: list[str], now: dt.datet
     age = max(0.0, age)
     out = set()
     for label in labels:
-        if cascade._field(pools, label, "queued") and \
-                cascade._field(pools, label, "oldest_queued_minutes") + age >= cascade.STALL_MINUTES:  # noqa: SLF001
+        # The one Blacksmith stall rule (simple_pool_picker.blacksmith_stalled, 10 min).
+        if cascade._picker_rule.blacksmith_stalled(cascade._field(pools, label, "queued"),  # noqa: SLF001
+                                                   cascade._field(pools, label, "oldest_queued_minutes"), age):  # noqa: SLF001
             out.add(label)
     return out
 
@@ -68,6 +79,16 @@ def pick(variable: str, snapshot: Mapping[str, Any] | None, now: dt.datetime) ->
     skipped = [label for label in labels[: labels.index(moving[0])]]
     why = f"`{moving[0]}`" + (f", past stalled {', '.join(f'`{s}`' for s in skipped)}" if skipped else "")
     return moving[0], why
+
+
+def alternate(variable: str, label: str, snapshot: Mapping[str, Any] | None, now: dt.datetime) -> str:
+    """The Blacksmith macOS 26 label a re-run takes: the other size, unless the snapshot sees it stalled.
+
+    Never a label a fresh snapshot saw stalled: with every other size stalled it is `label` itself.
+    """
+    others = [other for other in candidates(variable) if other != label]
+    stuck = stalled(snapshot, others, now) or set()
+    return next((other for other in others if other not in stuck), label)
 
 
 def main(env: Mapping[str, str] = os.environ, read: Callable[[str, str], Any] | None = None,
@@ -87,10 +108,13 @@ def main(env: Mapping[str, str] = os.environ, read: Callable[[str, str], Any] | 
         except Exception as error:  # noqa: BLE001 - never fail the job; the variable keeps its say
             print(f"::warning title=nightly sign runner::could not read the pool snapshot ({str(error)[:200]})")
     label, why = pick(variable, snapshot, now)
-    print(f"nightly sign runner: {why}")
+    # A pick made on attempt 2 or later is already fresh: the jobs reading `alternate` take it.
+    rerun_pick = (env.get("GITHUB_RUN_ATTEMPT") or "1").strip() not in ("", "1")
+    other = label if rerun_pick else alternate(variable, label, snapshot, now)
+    print(f"nightly sign runner: {why}; a re-run takes `{other}`")
     if env.get("GITHUB_OUTPUT"):
         with open(env["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
-            handle.write(f"runner={label}\n")
+            handle.write(f"runner={label}\nalternate={other}\n")
     if env.get("GITHUB_STEP_SUMMARY"):
         with open(env["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as handle:
             handle.write(f"\nNightly sign runner: {why}\n")

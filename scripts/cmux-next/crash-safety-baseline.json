@@ -33,7 +33,7 @@
    "cmux-tui-core": 26
   },
   "unwrap": {
-   "acpmux": 139,
+   "acpmux": 137,
    "chatmux-relay": 7,
    "cmux-remote": 4,
    "cmux-terminal-client": 30,
@@ -110,7 +110,7 @@
  "waived": {
   "rust": {
    "exit": {
-    "acpmux": 4,
+    "acpmux": 6,
     "cmux-browser-host": 4,
     "cmux-tui-core": 3
    },
@@ -139,7 +139,7 @@
     "CmuxNextAgentPane": 2,
     "CmuxNextBrowser": 11,
     "CmuxNextBrowserAutomation": 5,
-    "CmuxNextDesign": 1,
+    "CmuxNextDesign": 5,
     "CmuxNextPages": 1,
     "CmuxNextPhone": 1,
     "CmuxNextPopups": 2,
@@ -161,7 +161,7 @@
     "CmuxNextCloud": 1,
     "CmuxNextCompat": 10,
     "CmuxNextCrashReporting": 11,
-    "CmuxNextDesign": 2,
+    "CmuxNextDesign": 3,
     "CmuxNextFiles": 2,
     "CmuxNextHome": 1,
     "CmuxNextPages": 1,
@@ -176,7 +176,7 @@
     "CmuxNextTabs": 1,
     "CmuxNextTasks": 1,
     "CmuxNextVSCodeServer": 2,
-    "CmuxVNC": 2,
+    "CmuxVNC": 3,
     "CmuxVNCDemoServer": 3,
     "CmuxVNCWebRTC": 19,
     "MessagesLabHome": 1

@@ -5,6 +5,15 @@
 //! against. chief.engine.set also takes the compactor's harness and model
 //! (cosmic-gray 2026-10-14: a subrouter-only machine needs the compactor
 //! off `claude`), and refuses a harness acpmux does not have.
+//!
+//! cosmic-gray 2026-10-21: `cmux chief engine` failed three times in a row
+//! with "unavailable: Resource temporarily unavailable (os error 35)" (the
+//! daemon's 10 s read deadline on the tools socket, as macOS reports it) and
+//! the Settings panel read the running Chief as not running. The answer
+//! asked acpmux for every peer's models too; acpmux waits up to 10 s for a
+//! slow peer (models_fanout.rs `PEERS_BUDGET`), with the brain's one input
+//! loop held the whole time. The turns run on a harness of this machine's
+//! acpmux, so the answer and the probe ask that acpmux alone.
 
 mod common;
 
@@ -12,14 +21,22 @@ use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixListener;
 use std::sync::mpsc::channel;
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use optchat_chief::acpmux::{Acpmux, AgentEvent};
 use optchat_chief::brain::{Brain, EngineRequest, Input, Settings};
 use optchat_chief::state::StateFile;
 use serde_json::{Value, json};
 
-/// A fake acpmux whose `_acpmux/models` offers two harnesses.
-fn serve(listener: UnixListener) {
+/// How long acpmux may wait on its peers' models (models_fanout.rs
+/// `PEERS_BUDGET`), which is also how long the daemon waits for the brain's
+/// answer (cmux-tui chief_control.rs `TIMEOUT`).
+const PEERS_BUDGET: Duration = Duration::from_secs(10);
+
+/// A fake acpmux whose `_acpmux/models` offers two harnesses. A request that
+/// does not say `localOnly` also gets a peer's harness, after `fanout` (the
+/// real acpmux asks its peers then, a slow one for up to `PEERS_BUDGET`).
+fn serve(listener: UnixListener, fanout: Duration) {
     std::thread::spawn(move || {
         for conn in listener.incoming().flatten() {
             std::thread::spawn(move || {
@@ -28,24 +45,21 @@ fn serve(listener: UnixListener) {
                     let Ok(line) = line else { return };
                     let req: Value = serde_json::from_str(&line).unwrap();
                     let id = req["id"].clone();
+                    let peers = req["params"]["localOnly"] != json!(true);
                     let result = match req["method"].as_str().unwrap_or("") {
                         "_acpmux/sessions" => json!({"sessions": []}),
-                        "_acpmux/models" => json!({"harnesses": [
-                            {"harness": "codex", "kind": "acp", "models": [
-                                {"id": "gpt-6-sol", "name": "GPT-6 Sol"},
-                            ]},
-                            {"harness": "claude-sr", "kind": "claude-stdio", "models": [
-                                {"id": "default", "name": "Default (Claude Code's choice)"},
-                                {"id": "opus", "name": "Opus", "resolvedModel": "claude-opus-5-5"},
-                                {"id": "claude-fable-5-1", "name": "Fable 5.1", "family": "Fable",
-                                 "provider": "anthropic", "shortName": "Fable 5.1",
-                                 "efforts": ["low", "medium", "high", "xhigh", "max"],
-                                 "defaultEffort": "medium", "fast": true, "aliases": ["fable"],
-                                 "contextWindow": 1000000, "releaseDate": "2026-08-01",
-                                 "description": "Most capable", "curated": true,
-                                 "cost": {"input": 15}},
-                            ]},
-                        ]}),
+                        "_acpmux/models" if peers => {
+                            std::thread::sleep(fanout);
+                            let mut catalog = catalog();
+                            catalog["harnesses"].as_array_mut().unwrap().push(json!(
+                                {"harness": "huge-blue/claude-sr", "peer": "huge-blue",
+                                 "kind": "claude-stdio", "models": [
+                                    {"id": "sonnet", "name": "Sonnet"},
+                                ]}
+                            ));
+                            catalog
+                        }
+                        "_acpmux/models" => catalog(),
                         "_acpmux/harnesses" => harnesses(),
                         _ => json!({}),
                     };
@@ -59,6 +73,26 @@ fn serve(listener: UnixListener) {
             });
         }
     });
+}
+
+/// This machine's harnesses in the fake's `_acpmux/models` answer.
+fn catalog() -> Value {
+    json!({"harnesses": [
+        {"harness": "codex", "kind": "acp", "models": [
+            {"id": "gpt-6-sol", "name": "GPT-6 Sol"},
+        ]},
+        {"harness": "claude-sr", "kind": "claude-stdio", "models": [
+            {"id": "default", "name": "Default (Claude Code's choice)"},
+            {"id": "opus", "name": "Opus", "resolvedModel": "claude-opus-5-5"},
+            {"id": "claude-fable-5-1", "name": "Fable 5.1", "family": "Fable",
+             "provider": "anthropic", "shortName": "Fable 5.1",
+             "efforts": ["low", "medium", "high", "xhigh", "max"],
+             "defaultEffort": "medium", "fast": true, "aliases": ["fable"],
+             "contextWindow": 1000000, "releaseDate": "2026-08-01",
+             "description": "Most capable", "curated": true,
+             "cost": {"input": 15}},
+        ]},
+    ]})
 }
 
 /// The fake's `_acpmux/harnesses`: Claude Code through sr and directly,
@@ -106,8 +140,17 @@ fn harnesses() -> Value {
 /// A brain over the fake acpmux, its engine.json in `dir`, knowing
 /// `families` (`_acpmux/harnesses` at host start).
 fn brain(dir: &std::path::Path, families: &[(&str, optchat_chief::acpmux::Family)]) -> Brain {
+    brain_with(dir, families, Duration::ZERO)
+}
+
+/// [`brain`] over a fake acpmux whose peers take `fanout` to answer.
+fn brain_with(
+    dir: &std::path::Path,
+    families: &[(&str, optchat_chief::acpmux::Family)],
+    fanout: Duration,
+) -> Brain {
     let socket = dir.join("acpmux.sock");
-    serve(UnixListener::bind(&socket).unwrap());
+    serve(UnixListener::bind(&socket).unwrap(), fanout);
     let acpmux = Acpmux::new(socket, None, Vec::new());
     let (events, up) = channel();
     let sink = Mutex::new(events);
@@ -332,6 +375,91 @@ fn a_chief_switches_its_turn_harness_to_uniichat_and_back() {
         optchat_chief::engine::load(&dir.path().join("engine.json")).harness,
         None
     );
+}
+
+/// The ids of the answer's offered models.
+fn offered(answer: &Value) -> Vec<&str> {
+    answer["offered"]["models"]
+        .as_array()
+        .unwrap_or_else(|| panic!("no offered models: {answer:#}"))
+        .iter()
+        .filter_map(|m| m["id"].as_str())
+        .collect()
+}
+
+/// A slow peer of acpmux never holds the answer: the daemon gives up on the
+/// brain after `PEERS_BUDGET` and the owner reads a running Chief as gone.
+#[test]
+fn the_engine_answer_does_not_wait_on_acpmuxs_peers() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut brain = brain_with(dir.path(), &[], PEERS_BUDGET + Duration::from_secs(2));
+    let started = Instant::now();
+    let answer = engine(&mut brain, EngineRequest::Show);
+    let took = started.elapsed();
+    assert!(
+        took < PEERS_BUDGET / 2,
+        "the answer waited {took:?} on acpmux's peers: {answer:#}"
+    );
+    assert_eq!(offered(&answer), ["default", "opus", "claude-fable-5-1"]);
+}
+
+/// A set probes the new harness and answers, both without the peers.
+#[test]
+fn the_engine_set_does_not_wait_on_acpmuxs_peers() {
+    use optchat_chief::acpmux::Family;
+    let dir = tempfile::tempdir().unwrap();
+    let mut brain = brain_with(
+        dir.path(),
+        &[("claude-sr", Family::Claude), ("codex", Family::Codex)],
+        PEERS_BUDGET + Duration::from_secs(2),
+    );
+    let started = Instant::now();
+    let answer = engine(
+        &mut brain,
+        EngineRequest::Set {
+            harness: Some("codex".to_owned()),
+            model: None,
+            effort: None,
+            speed: None,
+            compactor_speed: None,
+            compactor_harness: None,
+            compactor_model: None,
+            reactions: Default::default(),
+        },
+    );
+    let took = started.elapsed();
+    assert!(
+        took < PEERS_BUDGET / 2,
+        "the set waited {took:?} on acpmux's peers: {answer:#}"
+    );
+    assert_eq!(answer["engine"]["harness"], "codex", "{answer:#}");
+    assert_eq!(offered(&answer), ["gpt-6-sol"]);
+}
+
+/// A turn harness on one of acpmux's peers (`peer/harness`) still gets that
+/// peer's models.
+#[test]
+fn a_peer_harness_still_offers_the_peers_models() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut brain = brain(dir.path(), &[]);
+    let answer = engine(
+        &mut brain,
+        EngineRequest::Set {
+            harness: Some("huge-blue/claude-sr".to_owned()),
+            model: None,
+            effort: None,
+            speed: None,
+            compactor_speed: None,
+            compactor_harness: None,
+            compactor_model: None,
+            reactions: Default::default(),
+        },
+    );
+    assert_eq!(
+        answer["engine"]["harness"], "huge-blue/claude-sr",
+        "{answer:#}"
+    );
+    assert_eq!(offered(&answer), ["sonnet"]);
 }
 
 /// The engine picker lists every harness a Chief turn can run on, from
