@@ -8,7 +8,7 @@ import { createRoot } from "react-dom/client";
 import { UiProvider } from "../../ui/UiProvider";
 import { AcpmuxDirectClient, nextFrame } from "../acpmux/direct";
 import { GuestPage } from "./GuestPage";
-import { attemptId, joinedAs, redeemOverFetch, rememberJoined, takeGuestLink } from "./redeem";
+import { attemptId, joinedAs, joinedName, redeemOverFetch, rememberJoined, takeGuestLink } from "./redeem";
 import { followBrowserTheme } from "./theme";
 import { installGuestHost } from "./guestHost";
 
@@ -35,9 +35,11 @@ createRoot(root).render(
       shareId={shareId}
       secret={link?.secret}
       guestId={link ? joinedAs(shareId, storage) : undefined}
+      name={link ? joinedName(shareId, storage) : undefined}
+      storage={storage}
       redeem={redeemOverFetch()}
       attempt={() => attemptId(shareId, storage)}
-      onJoined={(guestId) => rememberJoined(shareId, guestId, storage)}
+      onJoined={(guestId, name) => rememberJoined(shareId, guestId, storage, name)}
       socketUrl={socketUrl}
     />
   </UiProvider>,

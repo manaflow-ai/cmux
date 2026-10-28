@@ -4,11 +4,13 @@
 // multiplayer"): nothing about the chat, one field, Join. `offline` is a redeem the owner's
 // computer could not answer; `bad-link` a link that lost its secret.
 import { componentEntry } from "../../gallery/format";
+import { memoryStorage } from "./fixtures/liveChat";
 import type { GuestPageProps } from "./GuestPage";
 
 const base: GuestPageProps = {
   shareId: "c2hhcmUtZ2FsbGVyeQ",
   secret: "c2VjcmV0LWdhbGxlcnk",
+  storage: memoryStorage(),
   redeem: () => new Promise(() => undefined),
   attempt: () => "0".repeat(32),
   socketUrl: "",

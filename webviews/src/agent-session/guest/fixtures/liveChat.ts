@@ -4,6 +4,7 @@
 // the agent's reasoning, a test run with its output, and a second run, either still going or
 // waiting on the owner's answer. `fakeRoom` plays frames to the page as the room would.
 import type { EventRecord } from "../../acpmux/direct";
+import type { GuestPrompt } from "../guestPrompts";
 import type { ShareSocketLike } from "../shareSocket";
 
 const MINUTE = 60_000;
@@ -104,7 +105,11 @@ export const OWNER = { id: "owner-1", name: "Sam Rivera", kind: "owner", viewing
 export const GUEST = { id: "guest:share.g1", name: "Ana", kind: "guest", viewing: true, typing: false };
 
 /** The frames a room sends a guest on connect: presence, then the snapshot. */
-export const joinFrames = (snapshot: EventRecord[], title = "Fix the flaky upload retry test") => [
+export const joinFrames = (
+  snapshot: EventRecord[],
+  title = "Fix the flaky upload retry test",
+  prompts: { client_id: string; state: string; reason?: string }[] = [],
+) => [
   { v: 1, t: "presence", to: ["g1"], participants: [OWNER, GUEST] },
   {
     v: 1,
@@ -114,7 +119,7 @@ export const joinFrames = (snapshot: EventRecord[], title = "Fix the flaky uploa
     records: snapshot,
     watermark: snapshot.at(-1)?.seq ?? 0,
     has_more: false,
-    prompts: [],
+    prompts,
   },
 ];
 
@@ -132,5 +137,21 @@ export function fakeRoom(frames: object[]): (url: string) => ShareSocketLike {
       for (const frame of frames) socket.onmessage?.({ data: JSON.stringify(frame) });
     });
     return socket;
+  };
+}
+
+/** A tab's sessionStorage, in memory: optionally holding this guest's own messages already. */
+export function memoryStorage(shareId?: string, prompts?: GuestPrompt[]): Storage {
+  const items = new Map<string, string>();
+  if (shareId && prompts) items.set(`cmux.guest.${shareId}.prompts`, JSON.stringify(prompts));
+  return {
+    get length() {
+      return items.size;
+    },
+    clear: () => items.clear(),
+    key: (index: number) => [...items.keys()][index] ?? null,
+    getItem: (key: string) => items.get(key) ?? null,
+    setItem: (key: string, value: string) => void items.set(key, String(value)),
+    removeItem: (key: string) => void items.delete(key),
   };
 }
