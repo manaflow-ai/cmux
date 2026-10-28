@@ -21,7 +21,7 @@ final class OnboardingSurfaceView: NSView {
     init(surface: OnboardingSurface, content: NSView) {
         let reduced = NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
         self.surface = reduced ? .opaque : surface
-        super.init(frame: NSRect(origin: .zero, size: OnboardingMetrics.windowSize))
+        super.init(frame: .zero)
         autoresizingMask = [.width, .height]
         fill.wantsLayer = true
         fill.layer?.cornerCurve = .continuous

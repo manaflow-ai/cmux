@@ -4,6 +4,8 @@ import CmuxNextDesign
 /// Sizes and type for the onboarding window: one calm size, system font.
 enum OnboardingMetrics {
     static let windowSize = NSSize(width: 640, height: 520)
+    /// The Computer Use setup sheet: two permission cards and one note line.
+    static let computerUseWindowSize = NSSize(width: 600, height: 404)
     /// Margin around everything.
     static let margin: CGFloat = 40
     static var titleFont: NSFont { Typography.system(size: 22, weight: .semibold) }

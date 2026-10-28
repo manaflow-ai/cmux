@@ -13,6 +13,8 @@ extension OnboardingStrings {
         String(format: String(localized: "onboarding.computerUse.allow.named", defaultValue: "Allow %@", bundle: .module), name)
     }
     static var computerUseDone: String { String(localized: "onboarding.computerUse.done", defaultValue: "Done", bundle: .module) }
+    /// A card's state once macOS has the grant.
+    static var computerUseAllowed: String { String(localized: "onboarding.computerUse.allowed", defaultValue: "Allowed", bundle: .module) }
     static func computerUseName(_ pane: ComputerUsePermissionPane) -> String {
         switch pane {
         case .accessibility: String(localized: "onboarding.computerUse.accessibility", defaultValue: "Accessibility", bundle: .module)
@@ -40,8 +42,8 @@ extension OnboardingStrings {
     }
     /// Computer Use is off, so its grants are unknown until Allow turns it on.
     static var computerUseOff: String {
-        String(localized: "onboarding.computerUse.off",
-               defaultValue: "Computer Use is off. Allow turns it on, then shows its permissions here.", bundle: .module)
+        String(localized: "onboarding.computerUse.off.short",
+               defaultValue: "Computer Use turns on when you click Allow.", bundle: .module)
     }
     /// The helper does not speak this build's protocol.
     static var computerUseHelperVersionMismatch: String {
