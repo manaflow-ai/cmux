@@ -230,6 +230,10 @@ impl Hub {
             model_request: parent_meta.model_request.clone(),
             cwd,
             agent_session_id: new_sid,
+            // A fork is a new chat. Its parent transcript is authorized through parent_id; it
+            // must not inherit the parent's historical native session ids as its own.
+            previous_agent_session_ids: Vec::new(),
+            agent_session_family: parent_meta.family.clone(),
             status: SessionStatus::Idle,
             created_at: now,
             updated_at: now,

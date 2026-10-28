@@ -8,8 +8,8 @@
 //! session as `projects/<project>/<session>.jsonl` (`adopt::find_claude`) and its subagents
 //! under `projects/<project>/<session>/subagents`: a workflow agent's as
 //! `workflows/<runId>/agent-<agentId>.jsonl`, a background agent's as `agent-<agentId>.jsonl`.
-//! Only this chat's own Claude session folder is read. A run stored under a different
-//! session (including a fork ancestor) is unavailable until that access can be authorized.
+//! Only this chat's recorded Claude session folders and readable fork ancestors are tried.
+//! Neither a workflow index nor a sibling session folder grants access.
 //!
 //! The caller names plain ids, never a path, and nothing the harness says becomes one: the
 //! project folder comes from the store, and the file is opened below it one component at a time
@@ -31,7 +31,7 @@ use crate::rpc::RpcError;
 use serde_json::{Value, json};
 use std::ffi::OsString;
 use std::fs::File;
-use std::path::Path;
+use std::path::PathBuf;
 
 /// Lines a page holds unless the request asks for fewer, and the most it may ask for.
 const PAGE_LINES: usize = 200;
@@ -76,11 +76,6 @@ pub(crate) async fn handle(hub: &Hub, params: &Value) -> Result<Value, RpcError>
             "only a Claude Code chat has subagent transcripts",
         ));
     }
-    let session_id = meta
-        .agent_session_id
-        .clone()
-        .filter(|id| plain_id(id))
-        .ok_or_else(|| refused("transcript.none", "the chat has no agent session yet"))?;
     let text = |key: &str| params.get(key).and_then(Value::as_str).filter(|v| !v.is_empty());
     let agent = text("agentId")
         .filter(|id| plain_id(id))
@@ -93,13 +88,14 @@ pub(crate) async fn handle(hub: &Hub, params: &Value) -> Result<Value, RpcError>
     };
     let home = crate::harness_config::config_dir("CLAUDE_CONFIG_DIR", ".claude", &[&profile.env])
         .ok_or_else(|| refused("transcript.none", "the chat's Claude store is not known"))?;
+    let sessions = readable_claude_sessions(hub, meta, home).await;
     let number =
         |key: &str| params.get(key).and_then(Value::as_u64).and_then(|v| usize::try_from(v).ok());
     let limit = number("limit").unwrap_or(PAGE_LINES).clamp(1, MAX_LINES);
     let (before, after) = (number("before"), number("after"));
     let _turn = READS.acquire().await.map_err(|e| RpcError::internal(e.to_string()))?;
     let (text, truncated) =
-        tokio::task::spawn_blocking(move || read(&home, &session_id, run.as_deref(), &agent))
+        tokio::task::spawn_blocking(move || read(&sessions, run.as_deref(), &agent))
             .await
             .map_err(|e| RpcError::internal(e.to_string()))??;
     let total = text.lines.len();
@@ -131,6 +127,63 @@ pub(crate) async fn handle(hub: &Hub, params: &Value) -> Result<Value, RpcError>
     let (start, end, updates) = fit(per_line, start, end, after.is_some());
     Ok(json!({"updates": updates, "lines": total, "start": start, "end": end,
         "truncated": truncated}))
+}
+
+/// Bound corrupted/imported ancestry as well as cycles. Forks clear `lineage`; only their
+/// explicit parent IDs grant ancestry. Exact local IDs also enforce the peer-origin contract:
+/// a peer (including a paired device) gains no local ancestor access from a remote cached chat.
+/// No name/prefix resolution, peer forwarding, event payload or workflow index participates.
+async fn readable_claude_sessions(
+    hub: &Hub,
+    mut meta: crate::store::SessionMeta,
+    home: PathBuf,
+) -> Vec<(PathBuf, String)> {
+    const MAX_FORK_DEPTH: usize = 64;
+    let mut home = Some(home);
+    let mut visited = std::collections::HashSet::new();
+    let mut folders = std::collections::HashSet::new();
+    let mut allowed = Vec::new();
+    for _ in 0..MAX_FORK_DEPTH {
+        if !visited.insert(meta.id.clone()) {
+            break;
+        }
+        if let Some(home) = home {
+            for id in meta.claude_session_ids().filter(|id| plain_id(id)) {
+                let folder = (home.clone(), id.to_owned());
+                if folders.insert(folder.clone()) {
+                    allowed.push(folder);
+                }
+            }
+        }
+        let Some(parent) = meta.parent_id.as_ref().filter(|_| meta.fork_seq.is_some()) else {
+            break;
+        };
+        let ancestor = hub.sessions.lock().unwrap().get(parent).cloned();
+        let Some(ancestor) = ancestor else { break };
+        if ancestor.purged.load(std::sync::atomic::Ordering::SeqCst) {
+            break;
+        }
+        meta = ancestor.meta();
+        // Each ancestor uses its own configured store. An unreadable or non-Claude ancestor
+        // contributes no folders; walking its parent still permits a readable grandparent.
+        home = ancestor_claude_home(hub, &meta).await;
+    }
+    allowed
+}
+
+async fn ancestor_claude_home(hub: &Hub, meta: &crate::store::SessionMeta) -> Option<PathBuf> {
+    let (profile, defaults) = {
+        let cfg = hub.config.read().await;
+        let profile =
+            super::resolve::session_profile(&cfg, &meta.harness, &meta.cwd, meta.remote_origin)
+                .ok()?;
+        (profile, cfg.defaults_for(&meta.harness))
+    };
+    let profile = hub.spawn_profile_for(meta, &profile, &defaults.env).await.ok()?;
+    if profile.kind != crate::config::HarnessKind::ClaudeStdio {
+        return None;
+    }
+    crate::harness_config::config_dir("CLAUDE_CONFIG_DIR", ".claude", &[&profile.env])
 }
 
 /// An id that names one folder or file and nothing else: ASCII letters, digits, `-` and `_`.
@@ -197,21 +250,23 @@ impl Text {
 /// The transcript, and whether only its end was read (it was longer than `FILE_BYTES`, or had more
 /// than `INDEXED_LINES` lines). Blocking.
 fn read(
-    home: &Path,
-    session: &str,
+    sessions: &[(PathBuf, String)],
     run: Option<&str>,
     agent: &str,
 ) -> Result<(Text, bool), RpcError> {
-    let missing = || refused("transcript.missing", "no such transcript");
-    let own = crate::adopt::find_claude(home, session).ok_or_else(missing)?;
-    let project = own.parent().ok_or_else(missing)?;
-    let mut parts: Vec<OsString> = vec![session.into(), "subagents".into()];
-    if let Some(run) = run {
-        parts.extend(["workflows".into(), run.into()]);
+    for (home, session) in sessions {
+        let Some(own) = crate::adopt::find_claude(home, session) else { continue };
+        let Some(project) = own.parent() else { continue };
+        let mut parts: Vec<OsString> = vec![session.into(), "subagents".into()];
+        if let Some(run) = run {
+            parts.extend(["workflows".into(), run.into()]);
+        }
+        parts.push(format!("agent-{agent}.jsonl").into());
+        if let Ok(file) = super::media_read::open_regular_below(project, &parts) {
+            return lines_of(file);
+        }
     }
-    parts.push(format!("agent-{agent}.jsonl").into());
-    let file = super::media_read::open_regular_below(project, &parts).map_err(|_| missing())?;
-    lines_of(file)
+    Err(refused("transcript.missing", "no such transcript"))
 }
 
 /// The opened transcript's lines, from its last `FILE_BYTES` when it is longer and its last
@@ -355,14 +410,14 @@ mod tests {
         write(&project.join("s1/subagents"), "b01", 2);
         // Every line counts (the attachment too); only messages are replayed.
         assert_eq!(
-            read(&home, "s1", Some("wf_new"), "a01").unwrap().0.lines.len(),
+            read(&[(home.clone(), "s1".into())], Some("wf_new"), "a01").unwrap().0.lines.len(),
             4
         );
-        assert!(read(&home, "s1", Some("wf_old"), "a02").is_err());
-        assert_eq!(read(&home, "s1", None, "b01").unwrap().0.lines.len(), 3);
+        assert!(read(&[(home.clone(), "s1".into())], Some("wf_old"), "a02").is_err());
+        assert_eq!(read(&[(home.clone(), "s1".into())], None, "b01").unwrap().0.lines.len(), 3);
         // A background agent is the chat's own: never another session's.
         write(&project.join("s0/subagents"), "b02", 2);
-        assert!(read(&home, "s1", None, "b02").is_err());
+        assert!(read(&[(home.clone(), "s1".into())], None, "b02").is_err());
         let _ = std::fs::remove_dir_all(home);
     }
 
@@ -575,6 +630,91 @@ mod tests {
         let _ = std::fs::remove_dir_all(home);
     }
 
+    #[tokio::test]
+    async fn fork_transcript_imported_history_and_parent_never_grant_local_access() {
+        let home = scoped_store("import-authority");
+        let hub = transcript_hub(&home);
+        let mut meta = serde_json::to_value(hub.resolve("chat").unwrap().meta()).unwrap();
+        meta["id"] = json!("imported");
+        meta["name"] = json!("imported");
+        meta["agentSessionId"] = json!("imported-native");
+        meta["previousAgentSessionIds"] = json!(["s1"]);
+        meta["parentId"] = json!("chat");
+        meta["forkSeq"] = json!(1);
+        let bundle = home.join("bundle");
+        std::fs::create_dir_all(&bundle).unwrap();
+        std::fs::write(bundle.join("session.json"), meta.to_string()).unwrap();
+        hub.import(&bundle, None).await.unwrap();
+        let mut request = transcript_request("wf_own");
+        request["sessionId"] = json!("imported");
+        let imported = handle(&hub, &request).await.unwrap_err();
+        request["runId"] = json!("wf_missing");
+        let missing = handle(&hub, &request).await.unwrap_err();
+        assert_eq!(serde_json::to_vec(&imported).unwrap(), serde_json::to_vec(&missing).unwrap());
+        let _ = std::fs::remove_dir_all(home);
+    }
+
+    #[tokio::test]
+    async fn fork_transcript_ancestry_has_a_depth_limit() {
+        let home = scoped_store("depth");
+        let hub = transcript_hub(&home);
+        for n in 0..70 {
+            replace_meta(
+                &hub,
+                &format!("ancestor-{n}"),
+                json!({
+                    "agentSessionId": if n == 69 { "s1" } else { "empty" },
+                    "parentId": format!("ancestor-{}", n + 1), "forkSeq": 1
+                }),
+            );
+        }
+        replace_meta(
+            &hub,
+            "chat",
+            json!({
+                "agentSessionId": "child-new", "parentId": "ancestor-0", "forkSeq": 1
+            }),
+        );
+        let missing = handle(&hub, &transcript_request("wf_missing")).await.unwrap_err();
+        let too_deep = handle(&hub, &transcript_request("wf_own")).await.unwrap_err();
+        assert_eq!(serde_json::to_vec(&too_deep).unwrap(), serde_json::to_vec(&missing).unwrap());
+        let _ = std::fs::remove_dir_all(home);
+    }
+
+    #[tokio::test]
+    async fn fork_transcript_skips_unreadable_ancestor_and_uses_each_ancestors_store() {
+        let home = scoped_store("own-profile");
+        let ancestor_home = scoped_store("ancestor-profile");
+        let hub = transcript_hub(&home);
+        replace_meta(&hub, "grandparent", json!({"harness": "ancestor-profile"}));
+        replace_meta(
+            &hub,
+            "parent",
+            json!({
+                "harness": "unknown-profile", "parentId": "grandparent", "forkSeq": 1
+            }),
+        );
+        replace_meta(
+            &hub,
+            "chat",
+            json!({
+                "agentSessionId": "child-new", "parentId": "parent", "forkSeq": 1
+            }),
+        );
+        let mut profile = hub.config.read().await.harnesses["claude"].clone();
+        profile.env.insert("CLAUDE_CONFIG_DIR".into(), ancestor_home.to_string_lossy().into());
+        hub.config.write().await.harnesses.insert("ancestor-profile".into(), profile);
+        write(
+            &ancestor_home.join("projects/-work/s1/subagents/workflows/wf_grandparent"),
+            "a01",
+            2,
+        );
+        let page = handle(&hub, &transcript_request("wf_grandparent")).await.unwrap();
+        assert_eq!(page["lines"], 3);
+        let _ = std::fs::remove_dir_all(home);
+        let _ = std::fs::remove_dir_all(ancestor_home);
+    }
+
     #[cfg(unix)]
     #[tokio::test]
     async fn fork_transcript_ancestor_symlinks_are_refused_as_missing() {
@@ -614,8 +754,8 @@ mod tests {
             project.join("s1/subagents/workflows/wf_y"),
         )
         .unwrap();
-        assert!(read(&home, "s1", Some("wf_x"), "a01").is_err());
-        assert!(read(&home, "s1", Some("wf_y"), "a01").is_err());
+        assert!(read(&[(home.clone(), "s1".into())], Some("wf_x"), "a01").is_err());
+        assert!(read(&[(home.clone(), "s1".into())], Some("wf_y"), "a01").is_err());
         let _ = std::fs::remove_dir_all(home);
     }
 
@@ -652,7 +792,7 @@ mod tests {
         let line = json!({"type": "assistant", "message": {"content": [{"type": "text", "text": "x".repeat(1 << 20)}]}}).to_string();
         let text: String = (0..40).map(|_| format!("{line}\n")).collect();
         std::fs::write(dir.join("agent-b09.jsonl"), text).unwrap();
-        let (text, truncated) = read(&home, "s1", None, "b09").unwrap();
+        let (text, truncated) = read(&[(home.clone(), "s1".into())], None, "b09").unwrap();
         assert!(truncated);
         assert!(text.lines.len() < 40 && text.lines.len() >= 30, "{}", text.lines.len());
         let _ = std::fs::remove_dir_all(home);
@@ -671,7 +811,7 @@ mod tests {
         let line = format!("{head}{}{tail}\n", "x".repeat(pad));
         assert_eq!(line.len(), 1 << 20);
         std::fs::write(dir.join("agent-b10.jsonl"), line.repeat(40)).unwrap();
-        let (text, truncated) = read(&home, "s1", None, "b10").unwrap();
+        let (text, truncated) = read(&[(home.clone(), "s1".into())], None, "b10").unwrap();
         assert!(truncated);
         assert_eq!(text.lines.len(), 32);
         assert!(text.message(0).is_object(), "the first line is whole");
@@ -726,7 +866,7 @@ mod tests {
         let dir = home.join("projects/-work/s1/subagents");
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("agent-b11.jsonl"), "{}\n".repeat(INDEXED_LINES + 5)).unwrap();
-        let (text, truncated) = read(&home, "s1", None, "b11").unwrap();
+        let (text, truncated) = read(&[(home.clone(), "s1".into())], None, "b11").unwrap();
         assert!(truncated);
         assert_eq!(text.lines.len(), INDEXED_LINES);
         let _ = std::fs::remove_dir_all(home);

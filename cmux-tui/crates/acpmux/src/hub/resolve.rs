@@ -300,6 +300,8 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         model_request: d.model_request,
         cwd: d.cwd,
         agent_session_id: d.agent_session_id,
+        previous_agent_session_ids: Vec::new(),
+        agent_session_family: Some(d.family.to_owned()),
         status: SessionStatus::Idle,
         created_at: now,
         updated_at: now,
