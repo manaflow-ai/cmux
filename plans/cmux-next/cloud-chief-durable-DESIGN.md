@@ -193,3 +193,29 @@ adds an RPC hop per tool call.
 
 Until the two lanes agree: D gets no kernel features in TypeScript (no ledgers, no new tools). It
 stays the flag-gated DO placement and the measured baseline against P.
+
+## 12. Staging results (Oct 28, build f25ef1238c0)
+
+Runner: `backend/scripts/chief-durable-evals.ts`; raw results:
+[evidence/cloud-chief-durable-staging-evals-2026-10-28.json](evidence/cloud-chief-durable-staging-evals-2026-10-28.json).
+17 of the 44 eval cases can be answered by a Cloud Chief (one user turn, no command stubs, no host-tool
+check). Each case ran 2 times per brain on a new Chief whose memory held the case history. Model: Workers
+AI `@cf/moonshotai/kimi-k2.7-code` for both brains, because staging's Claude route answered every call
+with Bedrock `403 The security token included in the request is invalid` (P and D alike). Judge: Claude
+Sonnet 5 through the Vercel AI Gateway, because the subrouter's Claude path answered "upstream request
+failed".
+
+| | P (pi) | D (durable) |
+| --- | --- | --- |
+| cases passed | 7/34 (21%) | 8/34 (24%) |
+| graded checks passed | 33/72 (46%) | 34/72 (47%) |
+| run errors | 0 | 0 |
+| model cost, 34 runs | $0.127 | $0.122 |
+| first reply p50 (6 memory cases x 3) | 16.5 s | 15.6 s |
+| second reply p50, warm (same) | 4.3 s | 5.2 s |
+
+Reading: D is not worse than P on any measure here; the differences are inside the noise of 2-3 runs.
+The low absolute pass rate is the model (the cases were written for a Claude Chief) and the runner (the
+`silent` and multiplayer cases assume a group; the runner posts in the Chief's own conversation, so
+they fail for both brains). These results are not the promotion gate: that gate is the same run on the
+production model (Claude Opus 5.5), which needs staging's Claude route fixed first.
