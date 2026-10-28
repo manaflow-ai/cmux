@@ -1,4 +1,5 @@
 import CmuxNextAgentPane
+import CmuxNextCompat
 import CmuxNextDaemon
 import Foundation
 import os
@@ -53,9 +54,9 @@ enum QuitAgents {
 
     /// Nil when acpmux did not answer in time (unknown, not zero). An attached
     /// daemon's agents are another app's: this quit neither counts nor ends them.
-    static func facts(_ environment: AcpmuxEnvironment?) async -> QuitAgentFacts? {
+    static func facts(_ environment: AcpmuxEnvironment?, runner: any MayBlockRunner) async -> QuitAgentFacts? {
         if environment?.isAttached == true { return .zero }
-        guard let census = await AcpmuxQuit.census(environment, deadline: QuitFactsReader.deadline) else { return nil }
+        guard let census = await AcpmuxQuit.census(environment, runner: runner, deadline: QuitFactsReader.deadline) else { return nil }
         return QuitAgentFacts(live: census.live, inTurn: census.inTurn, inTurnNames: census.inTurnNames,
                               chiefInTurn: census.chiefInTurn)
     }
@@ -79,14 +80,14 @@ enum QuitAgents {
     /// `waitForShutdown` (a Retry) waits for a shutdown already in progress.
     /// `keep`: the Home Chief's sessions, unless the Chief runs on this daemon
     /// (``ChiefHostStop/appAcpmuxEndKeep(chiefUsesAppAcpmux:)``).
-    static func end(_ environment: AcpmuxEnvironment?, keep: AcpmuxQuit.Keep = .chief,
+    static func end(_ environment: AcpmuxEnvironment?, runner: any MayBlockRunner, keep: AcpmuxQuit.Keep = .chief,
                     waitForShutdown: Bool = false) async -> [EndSessionsFailure] {
         if environment?.isAttached == true {
             Logger(subsystem: "com.cmuxterm.app.next", category: "app.quit")
                 .info("end agents: skipped, attached to \(environment?.home.path ?? "", privacy: .public)")
             return []
         }
-        let result = await AcpmuxQuit.endAgents(environment, keep: keep, waitForShutdown: waitForShutdown)
+        let result = await AcpmuxQuit.endAgents(environment, runner: runner, keep: keep, waitForShutdown: waitForShutdown)
         Logger(subsystem: "com.cmuxterm.app.next", category: "app.quit")
             .info("end agents: \(String(describing: result), privacy: .public)")
         return failures(for: result)

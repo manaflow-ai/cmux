@@ -4,7 +4,6 @@ use std::io::{self, Read, Write};
 use std::os::fd::AsRawFd;
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
-use std::thread;
 use std::time::Duration;
 
 use cmux_tui_machine_agent_protocol::{MachineSecret, OpaqueId, SessionName};
@@ -53,7 +52,7 @@ struct StoredIdentity {
 
 pub(super) fn load_or_create(path: &Path) -> anyhow::Result<MachineIdentity> {
     ensure_private_parent(path)?;
-    match fs::symlink_metadata(path) {
+    match cmux_blocking::fs::symlink_metadata(path) {
         Ok(_) => {
             remove_orphaned_temporary_links(path)?;
             load_with_link_retry(path)
@@ -64,7 +63,7 @@ pub(super) fn load_or_create(path: &Path) -> anyhow::Result<MachineIdentity> {
 }
 
 fn remove_orphaned_temporary_links(path: &Path) -> anyhow::Result<()> {
-    let target = fs::symlink_metadata(path)?;
+    let target = cmux_blocking::fs::symlink_metadata(path)?;
     if !target.file_type().is_file()
         || target.uid() != cmux_tui_core::platform::effective_uid()
         || target.permissions().mode() & 0o777 != 0o600
@@ -77,7 +76,7 @@ fn remove_orphaned_temporary_links(path: &Path) -> anyhow::Result<()> {
     let prefix = format!(".{}.", file_name.to_string_lossy());
     let suffix = ".tmp";
     let mut removed = false;
-    for entry in fs::read_dir(parent)? {
+    for entry in cmux_blocking::fs::read_dir(parent)? {
         let entry = entry?;
         let name = entry.file_name();
         let name = name.to_string_lossy();
@@ -87,12 +86,12 @@ fn remove_orphaned_temporary_links(path: &Path) -> anyhow::Result<()> {
         {
             continue;
         }
-        let candidate = fs::symlink_metadata(entry.path())?;
+        let candidate = cmux_blocking::fs::symlink_metadata(entry.path())?;
         if candidate.file_type().is_file()
             && candidate.dev() == target.dev()
             && candidate.ino() == target.ino()
         {
-            match fs::remove_file(entry.path()) {
+            match cmux_blocking::fs::remove_file(entry.path()) {
                 Ok(()) => removed = true,
                 Err(error) if error.kind() == io::ErrorKind::NotFound => {}
                 Err(error) => return Err(error.into()),
@@ -132,7 +131,7 @@ fn load_with_link_retry(path: &Path) -> anyhow::Result<MachineIdentity> {
         Err(error)
             if error.downcast_ref::<UnexpectedLinkCount>().is_some_and(|error| error.0 == 2) =>
         {
-            thread::sleep(CONCURRENT_CREATE_RETRY_DELAY);
+            cmux_blocking::thread::sleep(CONCURRENT_CREATE_RETRY_DELAY);
             load(path)
         }
         result => result,
@@ -154,21 +153,23 @@ fn create(path: &Path) -> anyhow::Result<MachineIdentity> {
     encoded.push(b'\n');
     let temporary = temporary_path(path)?;
     let write_result = (|| -> anyhow::Result<bool> {
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
-            .open(&temporary)?;
+        let mut file = crate::blocking::fs::open_with(
+            OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC),
+            &temporary,
+        )?;
         verify_private_file(&file, "temporary machine-agent state")?;
         file.write_all(&encoded)?;
-        file.sync_all()?;
-        match fs::hard_link(&temporary, path) {
+        crate::blocking::fs::sync_all(&file)?;
+        match crate::blocking::fs::hard_link(&temporary, path) {
             Ok(()) => {}
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => return Ok(false),
             Err(error) => return Err(error.into()),
         }
-        match fs::remove_file(&temporary) {
+        match cmux_blocking::fs::remove_file(&temporary) {
             Ok(()) => {}
             Err(error) if error.kind() == io::ErrorKind::NotFound => {}
             Err(error) => return Err(error.into()),
@@ -178,7 +179,7 @@ fn create(path: &Path) -> anyhow::Result<MachineIdentity> {
     })();
     encoded.zeroize();
     if !matches!(write_result, Ok(true)) {
-        let _ = fs::remove_file(&temporary);
+        let _ = cmux_blocking::fs::remove_file(&temporary);
     }
     if write_result? {
         let loaded = load(path)?;
@@ -192,26 +193,28 @@ fn create(path: &Path) -> anyhow::Result<MachineIdentity> {
 }
 
 fn open_no_follow(path: &Path, write: bool) -> io::Result<File> {
-    OpenOptions::new()
-        .read(!write)
-        .write(write)
-        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
-        .open(path)
+    crate::blocking::fs::open_with(
+        OpenOptions::new()
+            .read(!write)
+            .write(write)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC),
+        path,
+    )
 }
 
 fn ensure_private_parent(path: &Path) -> anyhow::Result<()> {
     let parent = state_parent(path)?;
-    match fs::symlink_metadata(parent) {
+    match cmux_blocking::fs::symlink_metadata(parent) {
         Ok(_) => {}
         Err(error) if error.kind() == io::ErrorKind::NotFound => {
             let mut builder = DirBuilder::new();
             builder.recursive(true).mode(0o700);
-            builder.create(parent)?;
-            fs::set_permissions(parent, fs::Permissions::from_mode(0o700))?;
+            crate::blocking::fs::create_dir_with(&builder, parent)?;
+            crate::blocking::fs::set_permissions(parent, fs::Permissions::from_mode(0o700))?;
         }
         Err(error) => return Err(error.into()),
     }
-    let metadata = fs::symlink_metadata(parent)?;
+    let metadata = cmux_blocking::fs::symlink_metadata(parent)?;
     if metadata.file_type().is_symlink() || !metadata.is_dir() {
         anyhow::bail!("machine-agent state directory must be a real directory");
     }
@@ -266,13 +269,15 @@ pub(super) fn acquire_registration_lock(
         identity.machine_id.as_str(),
         session.as_str()
     ));
-    let file = OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .mode(0o600)
-        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
-        .open(&lock_path)?;
+    let file = crate::blocking::fs::open_with(
+        OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .mode(0o600)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC),
+        &lock_path,
+    )?;
     verify_private_file(&file, "machine-agent registration lock")?;
     // SAFETY: `file` is open for the call and flock takes no pointer.
     let result = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
@@ -292,7 +297,7 @@ fn temporary_path(path: &Path) -> anyhow::Result<PathBuf> {
     for _ in 0..16 {
         let candidate =
             path.with_file_name(format!(".{}.{}.tmp", file_name.to_string_lossy(), random_hex(8)?));
-        if !candidate.exists() {
+        if cmux_blocking::fs::metadata(&candidate).is_err() {
             return Ok(candidate);
         }
     }
@@ -321,13 +326,14 @@ fn random_hex(length: usize) -> anyhow::Result<String> {
 }
 
 fn sync_directory(path: &Path) -> io::Result<()> {
-    File::open(path)?.sync_all()
+    crate::blocking::fs::sync_all(&cmux_blocking::fs::open(path)?)
 }
 
 #[cfg(test)]
 mod tests {
     use std::os::unix::fs::PermissionsExt;
     use std::os::unix::fs::symlink;
+    use std::thread;
 
     use super::*;
 

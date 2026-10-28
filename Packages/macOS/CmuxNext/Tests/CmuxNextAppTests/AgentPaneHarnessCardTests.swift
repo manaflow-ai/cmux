@@ -1,6 +1,7 @@
 @testable import CmuxNextAgentPane
 import Foundation
 import Testing
+import CmuxNextWakeups
 
 /// The agent CLI card's Restart Chat (cx-1mbnu) restarts only a chat this pane started or shows:
 /// a page that adopts another chat's id (`chat.persistSession`) and then asks for a restart is
@@ -14,7 +15,7 @@ struct AgentPaneHarnessCardTests {
     /// A pane with an acpmux socket that does not answer: a request that reaches it fails as
     /// `harness.failed`, one refused first never gets there.
     private static func pane() -> AgentPaneModel {
-        let model = AgentPaneModel(host: NoHost())
+        let model = AgentPaneModel(runner: BackgroundWork(label: "test.agent-pane"), host: NoHost())
         model.transport.acpmuxSocket = FileManager.default.temporaryDirectory.appending(path: "no-acpmux-\(UUID().uuidString).sock").path
         return model
     }
