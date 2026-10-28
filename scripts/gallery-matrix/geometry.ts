@@ -136,6 +136,9 @@ export function parseArtifact(value: unknown, file = "artifact"): GeometryArtifa
     const style = element.style;
     if (style !== undefined && (!style || typeof style !== "object")) throw new Error(`${file}: element ${element.id} style must be an object`);
     if (element.hoverRect !== undefined && !rectValid(element.hoverRect)) throw new Error(`${file}: element ${element.id} hoverRect is invalid`);
+    for (const flag of ["control", "secondary", "menuOpen"]) {
+      if (element[flag] !== undefined && typeof element[flag] !== "boolean") throw new Error(`${file}: element ${element.id} ${flag} must be a boolean`);
+    }
     return element as unknown as GeometryElement;
   });
   return { schemaVersion: GEOMETRY_SCHEMA_VERSION, revision: revision as GeometryArtifact["revision"], capture: { ...capture, viewport } as unknown as GeometryCapture, elements };

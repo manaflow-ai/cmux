@@ -71,6 +71,22 @@ test("hover, insets, radii and secondary styles require their own evidence", asy
   expect((await lint(value, rules)).findings[0]!.message).toContain("beyond its control");
 });
 
+test("evidence flags reject non-booleans instead of treating them as truthy", () => {
+  for (const flag of ["control", "secondary", "menuOpen"] as const) {
+    for (const invalid of ["false", "true", 0, 1, null, {}, []]) {
+      const value = artifact();
+      Object.assign(value.elements[0]!, { [flag]: invalid });
+      expect(() => parseArtifact(value)).toThrow(`${flag} must be a boolean`);
+    }
+    for (const valid of [false, true]) {
+      const value = artifact();
+      value.elements[0]![flag] = valid;
+      expect(parseArtifact(value).elements[0]![flag]).toBe(valid);
+    }
+  }
+  expect(parseArtifact(artifact()).elements[0]!.control).toBeUndefined();
+});
+
 test("CLI writes a failing report when screenshot evidence is missing", async () => {
   const dir = mkdtempSync(join(process.cwd(), "geometry-cli-"));
   try {
