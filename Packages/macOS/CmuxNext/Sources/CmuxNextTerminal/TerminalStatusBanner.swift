@@ -91,8 +91,8 @@ final class TerminalStatusBanner: NSView {
 
     /// "Restoring…" fades in only after `restoringRevealDelay`, so an attach
     /// that answers within a second (the usual case, warm or cold) never flashes the label
-    /// (restore-perf.md: no pill unless the attach is still missing after 1 s, then over the
-    /// last content, which ``TerminalFrameHold`` keeps up).
+    /// (Lawrence's restore targets, 2026-10-27: no pill unless the attach is still missing after 1 s,
+    /// then over the last content, which ``TerminalFrameHold`` keeps up).
     static let restoringRevealDelay: CFTimeInterval = 1.0
     private static let revealHoldKey = "terminalStatus.restoringHold"
     private static let revealFadeKey = "terminalStatus.restoringReveal"

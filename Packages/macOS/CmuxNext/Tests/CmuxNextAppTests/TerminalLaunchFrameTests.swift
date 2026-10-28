@@ -92,7 +92,7 @@ import Testing
         #expect(!frames.show("tab-1", on: pane.session, in: pane.content, reveal: reveal), "a frame is shown once per launch")
     }
 
-    /// Lawrence 2026-10-27 (restore-perf.md): after a relaunch with 60 workspaces, three visible terminals showed an empty
+    /// Lawrence 2026-10-27 (restore targets): after a relaunch with 60 workspaces, three visible terminals showed an empty
     /// pane with a cursor box and "Restoring…". The pane showed its last frame from the first launch frame, but the hold
     /// gave up after 3 s (`contentLimit`) while the attach still waited for a busy daemon, so the empty surface showed
     /// until the attach came back (n=600 cold, optimized build: last frame at 1.0 s, pane empty from 4.0 s to 9.9 s).

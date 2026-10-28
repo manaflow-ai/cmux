@@ -3,7 +3,7 @@ import AppKit
 import QuartzCore
 import Testing
 
-/// restore-perf.md (Lawrence 2026-10-27, binding): no "Restoring…" pill on a visible pane unless its attach is
+/// Lawrence's restore targets (2026-10-27, binding): no "Restoring…" pill on a visible pane unless its attach is
 /// still missing after 1 s, and then over the last content. The pill faded in after 0.5 s, so an attach that
 /// answered in 0.5-1 s (a warm relaunch with 60 workspaces: 0.4-0.5 s to live on the optimized build, more on a
 /// loaded Mac) flashed it.
