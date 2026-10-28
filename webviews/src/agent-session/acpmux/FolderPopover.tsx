@@ -103,7 +103,7 @@ export function FolderPopover({
     });
   const typed = query.trim();
   const typedPath = /^(?:\/|~\/)/.test(typed) && !shown.has(typed) ? typed : undefined;
-  // Actions stay directly under search; arrows reach them before the scrolling folders.
+  // Actions stay directly under search; Tab reaches them and arrows navigate the matching folders.
   const actions: { value: string; text: string; run(): void }[] = [
     ...(onNoProject ? [{ value: ACTION + "none", text: t("project.noProject"), run: onNoProject }] : []),
     ...(onNewWorktree ? [{ value: ACTION + "worktree", text: t("worktree.new"), run: onNewWorktree }] : []),
