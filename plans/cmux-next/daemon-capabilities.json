@@ -109,6 +109,7 @@
     "sidebar-layout-v1",
     "split-client-keys-v1",
     "split-client-split-id-v1",
+    "startup-marks-v1",
     "stash-v1",
     "stash-workspaces-v1",
     "state-resources-v1",
