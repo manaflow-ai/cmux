@@ -130,12 +130,6 @@ and render-server field animation, blurred header and native scrolling.
 
 ## Blocker patches
 
-Home activity uses cmux’s standard working arc: no dot-opacity or bubble-breathing loop.
-`RowCell+Working` owns rotation, with the host’s Home motion gate and Reduce Motion;
-leaving the viewport, ending typing, and recycling a row remove its loop.
-`MessagesLabHomeTests/NoBreathingDotTests` exercises the actual native Home view.
-
-
 | file | why |
 | --- | --- |
 | Springs, Layout, TranscriptAccess, Model (fixture root) | resources live in the package bundle, not the app's main bundle |

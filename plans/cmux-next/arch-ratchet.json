@@ -585,12 +585,6 @@
       "row": "blocking_allow_escapes",
       "allow": 1,
       "why": "CmuxNextUpdater SingleInstanceGuard.claim: the single-instance claim (mkdir of <Application Support>/<bundle id>, open, flock) runs once in CmuxNextApp.main before NSApp exists and before any other thread starts. Whether this process may start at all (a second copy must not reach CEF or the session) decides everything after it, so it cannot move off the main thread or after launch. Codex xhigh review of PR #25918."
-    },
-    {
-      "date": "2026-10-27",
-      "row": "observer_sites",
-      "allow": 1,
-      "why": "HomeReduceMotion is the existing process-wide adapter for native Home. It additionally observes Motion.speedDidChange once per app so already-mounted working spinners stop immediately when the master/category animation switch or speed is disabled. The existing per-view Reduce Motion delivery refreshes affected cells; no observer is added per row. Tokens live with the process-wide adapter until app shutdown. PR #26385 includes independent xhigh review of this lifecycle and rationale."
     }
   ],
   "observer_wrappers": [
