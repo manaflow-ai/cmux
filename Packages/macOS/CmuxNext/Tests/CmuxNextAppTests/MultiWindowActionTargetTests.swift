@@ -318,6 +318,44 @@ import Testing
         #expect(seen.after == world.w3.state.id, "the run's work after it ordered window 3 in acted in \(world.name(seen.after))")
     }
 
+    /// A script or socket command with no window goes to the app's most recently active window, from the app's
+    /// own window order (Chrome's last active browser window), also when no window is key (a capture slot, the
+    /// app in the background): the person clicked into window 3 and their last window (2) closed. Never
+    /// window 1, the window that was key long before, and never `NSApp.keyWindow` / `mainWindow`.
+    @Test func aScriptWithNoWindowActsInTheMostRecentlyActiveWindow() async throws {
+        let world = try Self.world()
+        defer { world.close() }
+        let windows = world.services.windows
+        world.services.keyWindowSource = { nil }  // no window is key: the app is in the background
+        windows.didActivate(world.w1)              // window 1 was key once, long ago
+        let shell2 = try #require(world.w2.window), shell3 = try #require(world.w3.window)
+        windows.dispatching(eventFrom: shell2) {}  // the person clicks into window 2 (it never becomes key)
+        windows.dispatching(eventFrom: shell3) {}  // then into window 3
+        world.w2.window?.close()                   // window 2 closes
+        try #require(!windows.controllers.contains { $0 === world.w2 })
+        world.probe.reset()
+        let registry = world.services.registry
+        _ = registry.perform("splitDown", invocation: Self.invocation("splitDown", origin: .script, registry: registry))
+        await world.probe.drain()
+        #expect(world.probe.now["splitDown"] == world.w3.state.id, "a script's split acted in \(world.name(world.probe.now["splitDown"]))")
+    }
+
+    /// The same when the app ordered window 3 in front (`WindowActivation.show`) and no window became key.
+    @Test func aScriptWithNoWindowFollowsTheAppsWindowOrder() async throws {
+        let world = try Self.world()
+        defer { world.close() }
+        let windows = world.services.windows
+        world.services.keyWindowSource = { nil }
+        windows.didActivate(world.w1)
+        let shell3 = try #require(world.w3.window)
+        windows.windowDidOrder(shell3, inFront: true)
+        world.probe.reset()
+        let registry = world.services.registry
+        _ = registry.perform("splitDown", invocation: Self.invocation("splitDown", origin: .cli, registry: registry))
+        await world.probe.drain()
+        #expect(world.probe.now["splitDown"] == world.w3.state.id, "a CLI split acted in \(world.name(world.probe.now["splitDown"]))")
+    }
+
     // MARK: Home and the sidebar, real handlers
 
     private struct HomeWorld {
