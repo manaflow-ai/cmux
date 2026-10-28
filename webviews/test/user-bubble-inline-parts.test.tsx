@@ -189,6 +189,103 @@ try {
     expect(body.classList.contains("is-clamped")).toBe(false);
     expect(host.querySelector(".cv-user__paste-text")?.textContent).toBe("pasted details");
   });
+  // A prompt whose attachments the composer placed records each one `placed` (inlinePrompt.ts,
+  // acpmux hub/prompt_images.rs): it draws where it was put, the last part included, never in the
+  // legacy band above the bubble. An unplaced prompt (the old shape: text, pastes, then
+  // attachments) records no marker and keeps the band.
+  const inlineShape = () =>
+    [...host.querySelectorAll<HTMLElement>("[data-inline-content] > *")].map((node) =>
+      node.querySelector("img")
+        ? `image:${node.querySelector("img")!.getAttribute("alt")}`
+        : node.querySelector(".cv-user__paste")
+          ? "paste"
+          : node.textContent,
+    );
+  test("inline: a placed trailing image sits after its text inside the bubble", async () => {
+    clearImageEntries();
+    resetTranscriptDisclosure();
+    await act(async () => setComposerSettings({ attachmentView: "inline" }));
+    await render({
+      ...prompt("trailing-image", "look at this", [
+        { kind: "text", text: "look at this" },
+        { kind: "image", id: "trail", mimeType: "image/png", name: "trail.png", placed: true },
+      ]),
+      images: [{ id: "trail", mimeType: "image/png", name: "trail.png" }],
+    });
+    expect(host.querySelector(".cv-user__images")).toBeNull();
+    expect(inlineShape()).toEqual(["look at this", "image:trail.png"]);
+  });
+  test("inline: a placed leading paste then a trailing image keep their order", async () => {
+    clearImageEntries();
+    resetTranscriptDisclosure();
+    await act(async () => setComposerSettings({ attachmentView: "inline" }));
+    const pasted = "pasted line one\npasted line two";
+    await render({
+      ...prompt("paste-then-image", pasted, [
+        { kind: "pasted", name: "Pasted text", text: pasted, placed: true },
+        { kind: "image", id: "after-paste", mimeType: "image/png", name: "after-paste.png", placed: true },
+      ]),
+      images: [{ id: "after-paste", mimeType: "image/png", name: "after-paste.png" }],
+    });
+    expect(host.querySelector(".cv-user__images")).toBeNull();
+    expect(inlineShape()).toEqual(["paste", "image:after-paste.png"]);
+  });
+  test("inline: a placed prompt draws the same before and after acpmux echoes it", async () => {
+    clearImageEntries();
+    resetTranscriptDisclosure();
+    await act(async () => setComposerSettings({ attachmentView: "inline" }));
+    const pasted = "a long paste\nof two lines";
+    const text = `see this\n${pasted}`;
+    // This pane's own row, before the echo (direct.ts): the composer's parts, its image's bytes.
+    await render({
+      ...prompt("placed-send", text, [
+        { kind: "text", text: "see this" },
+        { kind: "pasted", attachmentId: "paste", name: "Pasted text", text: pasted, placed: true },
+        {
+          kind: "image",
+          id: "shot",
+          attachmentId: "shot",
+          mimeType: "image/png",
+          name: "shot.png",
+          src: "data:image/png;base64,AA==",
+          placed: true,
+        },
+      ]),
+      pasted: [{ start: 9, end: text.length }],
+      images: [{ id: "shot", mimeType: "image/png", name: "shot.png", src: "data:image/png;base64,AA==" }],
+    });
+    expect(host.querySelector(".cv-user__images")).toBeNull();
+    const before = inlineShape();
+    expect(before).toEqual(["see this", "paste", "image:shot.png"]);
+    // acpmux's echo: the same parts by its own ids, each still placed.
+    await render({
+      ...prompt("placed-send", text, [
+        { kind: "text", text: "see this" },
+        { kind: "pasted", name: "Pasted text", text: pasted, placed: true },
+        { kind: "image", id: "durable-shot", mimeType: "image/png", name: "shot.png", placed: true },
+      ]),
+      pasted: [{ start: 9, end: text.length }],
+      images: [{ id: "durable-shot", mimeType: "image/png", name: "shot.png" }],
+    });
+    expect(host.querySelector(".cv-user__images")).toBeNull();
+    expect(inlineShape()).toEqual(before);
+  });
+  test("inline: an unplaced text then image keeps the legacy band above the bubble", async () => {
+    clearImageEntries();
+    resetTranscriptDisclosure();
+    await act(async () => setComposerSettings({ attachmentView: "inline" }));
+    await render({
+      ...prompt("unplaced", "what is this", [
+        { kind: "text", text: "what is this" },
+        { kind: "image", id: "strip-shot", mimeType: "image/png", name: "strip-shot.png" },
+      ]),
+      images: [{ id: "strip-shot", mimeType: "image/png", name: "strip-shot.png" }],
+    });
+    expect(host.querySelectorAll(".cv-user__images img")).toHaveLength(1);
+    expect(host.querySelector("[data-inline-content]")).toBeNull();
+    expect(host.querySelector(".cv-user__bubble")?.textContent).toBe("what is this");
+  });
+
   // acpmux records a prompt's text blocks joined by a newline (hub/session.rs prompt_text): the
   // strip view's bubble, with the image moved to the band, reads that text, not "beforeafter".
   test("strip: the bubble keeps the separator between text blocks an image stood between", async () => {

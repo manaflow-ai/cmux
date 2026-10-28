@@ -680,6 +680,50 @@ mod tests {
             vec![json!({"type": "resource_link", "uri": "", "name": "archive.zip"})];
         assert!(validated_display_parts(Some(&empty_resource), &resource_block).is_empty());
     }
+    /// The app marks the attachments its composer placed in the text (`placed`); the web
+    /// transcript draws only those prompts in their recorded order. The marker survives
+    /// validation and the copy onto every part kind it can name; a prompt without it (the old
+    /// unplaced shape, or one recorded before the marker) never gains one, and only `true` counts.
+    #[test]
+    fn inline_parts_keep_the_placed_marker_only_when_sent() {
+        let image =
+            json!({"type": "image", "mimeType": "image/png", "name": "one.png", "data": "AQID"});
+        let blocks = vec![
+            json!({"type": "text", "text": "look"}),
+            image,
+            json!({"type": "text", "text": "pasted", "_meta": {"cmux": {"pasted": true}}}),
+            json!({"type": "resource_link", "uri": "file:///tmp/key.pem", "name": "key.pem"}),
+        ];
+        let placed = json!([
+            {"kind": "image", "blockIndex": 1, "name": "one.png", "placed": true},
+            {"kind": "pasted", "blockIndex": 2, "name": "Pasted text", "placed": true},
+            {"kind": "file", "blockIndex": 3, "name": "key.pem", "placed": true}
+        ]);
+        let validated = validated_display_parts(Some(&placed), &blocks);
+        assert!((1..=3).all(|index| validated[&index]["placed"] == true));
+        let parts = inline_parts(&blocks, &[], Some(&placed));
+        assert_eq!(
+            parts.iter().map(|part| part.get("placed").cloned()).collect::<Vec<_>>(),
+            [None, Some(json!(true)), Some(json!(true)), Some(json!(true))]
+        );
+
+        let unplaced = json!([{"kind": "file", "blockIndex": 3, "name": "key.pem"}]);
+        assert!(
+            inline_parts(&blocks, &[], Some(&unplaced))
+                .iter()
+                .all(|part| part.get("placed").is_none())
+        );
+        assert!(inline_parts(&blocks, &[], None).iter().all(|part| part.get("placed").is_none()));
+        for invalid in [json!(false), json!("yes"), json!(1)] {
+            let display = json!([{"kind": "image", "blockIndex": 1, "placed": invalid}]);
+            assert!(
+                inline_parts(&blocks, &[], Some(&display))
+                    .iter()
+                    .all(|part| part.get("placed").is_none())
+            );
+        }
+    }
+
     #[test]
     fn inline_parts_validate_companion_relation() {
         let image = json!({"type": "image", "mimeType": "image/png", "data": "AQID"});

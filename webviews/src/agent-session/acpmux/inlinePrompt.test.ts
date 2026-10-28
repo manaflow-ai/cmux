@@ -353,3 +353,62 @@ test("path-only files omit an empty MIME so the daemon accepts their display met
     io.client.close?.();
   }
 });
+
+// The bubble draws a prompt in its recorded order only when the composer placed its attachments
+// (conversation/UserBubble.tsx). The pane says so in the display metadata acpmux keeps
+// (`placed`, hub/prompt_images.rs); an unplaced prompt (the old shape) sends no marker.
+test("a placed prompt marks its attachments placed, through the echo; an unplaced one does not", async () => {
+  const io = await connect();
+  try {
+    await io.client.send(`look${inlineToken("one")}`, [image("one")]);
+    const sent = io.sent[0];
+    expect(sent._meta.acpmux.inlineParts.length).toBeGreaterThan(0);
+    expect(sent._meta.acpmux.inlineParts.every((part: any) => part.placed === true)).toBe(true);
+    const optimistic = io.rows().find((row) => row.id.startsWith("local-"))!;
+    expect(optimistic.inlineParts?.filter((part) => part.kind !== "text").every((part) => part.placed === true)).toBe(
+      true,
+    );
+    // An acpmux from before the marker records none: this pane's own prompt stays placed.
+    io.emit(sent.sessionId, {
+      mux: "user_message",
+      msg: {
+        promptId: sent._meta.acpmux.promptId,
+        text: "look",
+        inlineParts: [
+          { kind: "text", text: "look" },
+          { kind: "image", id: "durable-one", mimeType: "image/png" },
+          { kind: "file", name: "one.png", uri: "file:///tmp/one.png", companionOf: 1 },
+        ],
+      },
+    });
+    await settle(() => io.rows().some((row) => row.id.startsWith("user-")));
+    expect(io.rows().find((row) => row.id.startsWith("user-"))!.inlineParts?.[1]).toMatchObject({ placed: true });
+
+    await io.client.send("plain", [image("two")]);
+    expect(io.sent[1]._meta.acpmux.inlineParts.some((part: any) => "placed" in part)).toBe(false);
+  } finally {
+    io.client.close?.();
+  }
+});
+
+test("a recorded part keeps acpmux's placed marker, and only a true one", async () => {
+  const { recordedPromptParts } = await import("./inlinePrompt");
+  const parts = recordedPromptParts({
+    inlineParts: [
+      { kind: "text", text: "look" },
+      { kind: "image", id: "a", mimeType: "image/png", placed: true },
+      { kind: "file", name: "b.pem", uri: "file:///tmp/b.pem", placed: true },
+      { kind: "text", text: "pasted", pasted: true, placed: true },
+      { kind: "image", id: "c", mimeType: "image/png", placed: "yes" },
+      { kind: "image", id: "d", mimeType: "image/png" },
+    ],
+  })!;
+  expect(parts.map((part) => (part.kind === "text" ? undefined : part.placed))).toEqual([
+    undefined,
+    true,
+    true,
+    true,
+    undefined,
+    undefined,
+  ]);
+});
