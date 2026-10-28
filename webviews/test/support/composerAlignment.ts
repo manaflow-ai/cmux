@@ -108,6 +108,39 @@ export function measureComposerAlignment(): ComposerAlignment {
     actionsGridRow: css(actions, "grid-row-start"),
     actionsGridColumn: css(actions, "grid-column-start"),
     actionsDisplay: css(actions, "display"),
+    modeChipDisplay: css(mode, "display"),
+    modeChipAlignItems: css(mode, "align-items"),
+    modeChipHeight: css(mode, "height"),
+    modeChipPadding: css(mode, "padding-top") + " " + css(mode, "padding-bottom"),
+    modeLabelDisplay: css(q(".acpmux-composer-foot .acpmux-mode-text"), "display"),
+    modeLabelPosition: css(q(".acpmux-composer-foot .acpmux-mode-text"), "position"),
+    modeLabelTopBottom:
+      css(q(".acpmux-composer-foot .acpmux-mode-text"), "top") +
+      " " +
+      css(q(".acpmux-composer-foot .acpmux-mode-text"), "bottom"),
+    modeLabelMargin:
+      css(q(".acpmux-composer-foot .acpmux-mode-text"), "margin-top") +
+      " " +
+      css(q(".acpmux-composer-foot .acpmux-mode-text"), "margin-bottom"),
+    modeLabelPadding:
+      css(q(".acpmux-composer-foot .acpmux-mode-text"), "padding-top") +
+      " " +
+      css(q(".acpmux-composer-foot .acpmux-mode-text"), "padding-bottom"),
+    modeLabelLineHeight: css(q(".acpmux-composer-foot .acpmux-mode-text"), "line-height"),
+    modeLabelFont: css(q(".acpmux-composer-foot .acpmux-mode-text"), "font-size"),
+    modeChipKids: kids(mode),
+    modelChipKids: kids(q(".acpmux-composer-foot .acpmux-model .acpmux-picker-button")),
+    modelChipAlignItems: css(q(".acpmux-composer-foot .acpmux-model .acpmux-picker-button"), "align-items"),
+    modelDetailMargin:
+      css(q(".acpmux-composer-foot .acpmux-model-detail"), "margin-top") +
+      " " +
+      css(q(".acpmux-composer-foot .acpmux-model-detail"), "margin-bottom") +
+      " pos " +
+      css(q(".acpmux-composer-foot .acpmux-model-detail"), "position") +
+      " top " +
+      css(q(".acpmux-composer-foot .acpmux-model-detail"), "top"),
+    plusGlyphDisplay: css(plusGlyph, "display"),
+    plusGlyphVerticalAlign: css(plusGlyph, "vertical-align"),
   };
   return {
     dom,
