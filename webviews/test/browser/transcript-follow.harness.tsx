@@ -39,6 +39,7 @@ Object.assign(root.style, { height: "100%", display: "flex", flexDirection: "col
 const view = createRoot(root);
 // "Worked for" lines open and close as the pane's do: a click toggles the turn in `expanded`.
 let shown: AcpmuxRow[] = [];
+let rawRows = false;
 let expanded = new Set<string>();
 // Prompts "sent" from the pane's composer (App's `chat.send`), which put the view at its latest message.
 let sends = 0;
@@ -52,7 +53,7 @@ let working = false;
 const draw = () =>
   view.render(
     <VirtualTranscript
-      rows={turnView(shown, expanded)}
+      rows={rawRows ? shown : turnView(shown, expanded)}
       sessionId={sessionId}
       onToggleActivity={(id) => {
         expanded = new Set(expanded);
@@ -69,6 +70,12 @@ const draw = () =>
     />,
   );
 (window as unknown as { __showRows: (rows: AcpmuxRow[]) => void }).__showRows = (rows) => {
+  rawRows = false;
+  shown = rows;
+  draw();
+};
+(window as unknown as { __showRawRows: (rows: AcpmuxRow[]) => void }).__showRawRows = (rows) => {
+  rawRows = true;
   shown = rows;
   draw();
 };
