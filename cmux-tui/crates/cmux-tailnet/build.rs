@@ -24,6 +24,8 @@ fn main() {
     }
     println!("cargo:rerun-if-env-changed=LIBTAILSCALE_A");
     println!("cargo:rerun-if-env-changed=LIBTAILSCALE_SRC");
+    // The Go CI installs: a new one rebuilds the archive in a warm target.
+    println!("cargo:rerun-if-changed={}/.go-version", env!("CARGO_MANIFEST_DIR"));
     let out = PathBuf::from(std::env::var("OUT_DIR").unwrap());
     let key = patch_key();
     let archive = match std::env::var_os("LIBTAILSCALE_A") {
