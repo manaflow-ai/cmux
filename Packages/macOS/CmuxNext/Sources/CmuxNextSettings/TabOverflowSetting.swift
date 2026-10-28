@@ -1,5 +1,6 @@
 public import CmuxNextActions
-public import CmuxNextDesign
+public import CmuxNextAppearance
+public import CmuxNextDesignTokens
 
 /// `tabs.overflow` in cmux.json: "shrink" (default, Chrome's) or "scroll" (cx-kp9b4). The palette's
 /// Tabs: Use Scrolling Tabs and Tabs: Use Shrinking Tabs (`tabs.overflow.scroll`, `tabs.overflow.shrink`)

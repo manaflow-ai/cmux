@@ -1,3 +1,4 @@
+public import CmuxNextWakeups
 public import Foundation
 import Observation
 
@@ -5,12 +6,13 @@ import Observation
 /// the selection, history, view options and undo.
 ///
 /// Listing and sorting run off the main actor (``DirectoryListing``); live
-/// changes arrive through ``FolderWatching`` and update single rows. Every
-/// dependency comes through `init`, so tests drive the model against a temp
-/// folder or fakes:
+/// changes arrive through ``FolderWatching`` and update single rows: each
+/// change is read off main and its rows land as one visible task on the app's
+/// ``MainWorkScheduler``. Every dependency comes through `init`, so tests drive
+/// the model against a temp folder or fakes:
 ///
 /// ```swift
-/// let model = FileBrowserModel(folder: tempFolder)
+/// let model = FileBrowserModel(folder: tempFolder, work: mainWork)
 /// await model.reload()
 /// model.select(model.entries[0].url)
 /// try await model.trashSelection()
@@ -34,7 +36,7 @@ public final class FileBrowserModel {
     /// The items shown: sorted, hidden ones only when ``showHidden``, filtered by ``filterText``.
     public private(set) var entries: [FileEntry] = []
     /// Loading, ready or failed.
-    public private(set) var phase: Phase = .loading
+    public internal(set) var phase: Phase = .loading
     /// Names of the selected items (names are unique in one folder).
     public var selection: Set<String> = []
     /// The name of the item keyboard moves start from (the last clicked or moved to).
@@ -72,20 +74,25 @@ public final class FileBrowserModel {
     @ObservationIgnored private var forwardStack: [URL] = []
     @ObservationIgnored var undoStack: [FileUndoAction] = []
     @ObservationIgnored var redoStack: [FileUndoAction] = []
-    @ObservationIgnored private var generation = 0
-    @ObservationIgnored private var watchTask: Task<Void, Never>?
+    /// Bumped by every listing: a watched change or a re-sort of an older one applies nothing.
+    @ObservationIgnored private(set) var generation = 0
+    /// The current folder's watch (`FileBrowserModel+Watch.swift`).
+    @ObservationIgnored var watchTask: Task<Void, Never>?
     @ObservationIgnored private var typeSelect = TypeSelectBuffer()
     @ObservationIgnored private var indexCache: [String: Int]?
     @ObservationIgnored let lister: any DirectoryListing
-    @ObservationIgnored private let watcher: any FolderWatching
+    @ObservationIgnored let watcher: any FolderWatching
     @ObservationIgnored let files: any FileOperating
     @ObservationIgnored private let now: @Sendable () -> Date
     @ObservationIgnored private let resolver: GoToFolderResolver
     @ObservationIgnored private let memory: FolderViewMemory?
+    /// Where each watched change's rows land (a visible task: the pane shows them; no action of the person caused them).
+    @ObservationIgnored let work: MainWorkScheduler
 
     /// Makes a model on `folder`; call ``reload()`` (or ``open(_:)``) to list it.
     /// - Parameters:
     ///   - folder: The first folder.
+    ///   - work: The app's main-thread scheduler (`AppServices.mainWork`), where watched changes land.
     ///   - viewMode: The first layout. Defaults to list.
     ///   - sortOrder: The first order. Defaults to Finder's (name, ascending).
     ///   - showHidden: Show hidden items. Defaults to false.
@@ -95,12 +102,13 @@ public final class FileBrowserModel {
     ///   - resolver: Resolves Go to Folder text. Defaults to the real file system.
     ///   - now: The clock type-select reads (a seam for tests).
     ///   - memory: Each folder's remembered view and order; nil keeps one for all.
-    public init(folder: URL, viewMode: FileViewMode = .list, sortOrder: FileSortOrder = FileSortOrder(),
+    public init(folder: URL, work: MainWorkScheduler, viewMode: FileViewMode = .list, sortOrder: FileSortOrder = FileSortOrder(),
                 showHidden: Bool = false, lister: any DirectoryListing = DirectoryLister(),
                 watcher: any FolderWatching = FolderWatcher(), files: any FileOperating = FileOperator(),
                 resolver: GoToFolderResolver = GoToFolderResolver(), now: @escaping @Sendable () -> Date = { Date() },
                 memory: FolderViewMemory? = nil) {
         self.folder = folder.standardizedFileURL
+        self.work = work
         self.viewMode = viewMode
         self.sortOrder = sortOrder
         self.showHidden = showHidden
@@ -189,7 +197,7 @@ public final class FileBrowserModel {
             }
         }
         phase = .loading
-        startWatching(target, token: token)
+        startWatching(target)
         let started = DispatchTime.now().uptimeNanoseconds
         do {
             let order = sortOrder
@@ -217,58 +225,6 @@ public final class FileBrowserModel {
     @concurrent
     static func listSorted(_ folder: URL, lister: any DirectoryListing, order: FileSortOrder) async throws -> [FileEntry] {
         order.sorted(try await lister.list(folder))
-    }
-
-    @concurrent
-    private static func sortOff(_ entries: [FileEntry], order: FileSortOrder) async -> [FileEntry] {
-        order.sorted(entries)
-    }
-
-    private func startWatching(_ target: URL, token: Int) {
-        watchTask?.cancel()
-        let stream = watcher.changes(in: target)
-        watchTask = Task { [weak self] in
-            for await change in stream {
-                guard let self, token == self.generation || self.folder == target else { return }
-                await self.apply(change, in: target)
-            }
-        }
-    }
-
-    /// Applies one watched change (single rows, or a full listing on rescan).
-    func apply(_ change: FolderChange, in target: URL) async {
-        guard target == folder else { return }
-        switch change {
-        case .rescan:
-            await show(folder, select: nil, keepSelection: true)
-        case .items(let names):
-            if names.count > 500 { await show(folder, select: nil, keepSelection: true); return }
-            var byName = Dictionary(all.map { ($0.name, $0) }, uniquingKeysWith: { a, _ in a })
-            for name in Set(names) {
-                let url = folder.appendingPathComponent(name)
-                if let entry = await lister.entry(at: url) {
-                    byName[name] = FileEntry(name: name, in: folder, kind: entry.kind, size: entry.size, modified: entry.modified,
-                                            created: entry.created, isHidden: entry.isHidden)
-                } else {
-                    byName[name] = nil
-                }
-            }
-            guard target == folder else { return }
-            all = await Self.sortOff(Array(byName.values), order: sortOrder)
-            refilter()
-        }
-    }
-
-    private func resort() {
-        let order = sortOrder
-        let snapshot = all
-        let token = generation
-        Task { [weak self] in
-            let sorted = await Self.sortOff(snapshot, order: order)
-            guard let self, token == self.generation else { return }
-            self.all = sorted
-            self.refilter()
-        }
     }
 
     func refilter() {
@@ -386,7 +342,8 @@ public final class FileBrowserModel {
         (error as? FileBrowserError) ?? .failed(error.localizedDescription)
     }
 
-    private static func describe(_ error: FileBrowserError) -> String {
+    /// The pane's message for a listing failure (also read off main, by a watched relisting).
+    nonisolated static func describe(_ error: FileBrowserError) -> String {
         switch error {
         case .unreadable(_, let code): FileBrowserError.systemText(code)
         case .failed(let message): message

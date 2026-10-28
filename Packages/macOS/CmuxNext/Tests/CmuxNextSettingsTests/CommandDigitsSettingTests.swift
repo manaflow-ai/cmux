@@ -1,7 +1,7 @@
 import AppKit
 import Carbon.HIToolbox
 import CmuxNextActions
-import CmuxNextDesign
+import CmuxNextAppearance
 @testable import CmuxNextSettings
 import Testing
 

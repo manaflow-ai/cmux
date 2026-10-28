@@ -5,6 +5,7 @@ import CmuxNextActions
 import CmuxHomeCore
 @testable import CmuxNextHome
 @testable import CmuxNextImportCards
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -51,7 +52,8 @@ import Testing
         center.bind(into: registry, host: ImportCardsHost(runImport: { _, _, _ in throw CancellationError() },
                                                            importedProfiles: { [] },
                                                            openSettings: { routes.append($0) },
-                                                           importClassic: { _ in nil }))
+                                                           importClassic: { _ in nil },
+                                                           appEvents: AppEvents(center: NotificationCenter())))
         #expect(registry.isBound("import.open"))
         #expect(registry.perform("import.open", invocation: ActionInvocation(origin: .user)))
         #expect(routes == ["#/settings/import"])

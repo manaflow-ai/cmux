@@ -63,7 +63,8 @@
 
     "CmuxNextHibernation": {"layer": "domain"},
     "OracleConfigDump": {"layer": "domain", "note": "oracle config-suite executable (p15-oracle-212); not linked by the App"},
-    "CmuxNextSettings": {"layer": "domain", "plan": "drop Design: its 86 value types move to CmuxNextDesignTokens"},
+    "CmuxNextSettings": {"layer": "domain", "plan": "off Design (p15-oracle-134): values from CmuxNextDesignTokens, the state it applies to from CmuxNextAppearance"},
+    "CmuxNextAppearance": {"layer": "domain", "plan": "slice B3's Appearance: DesignSettings, AppearanceSignals, the backdrop catalog and selection (p15-oracle-134); ThemeStore and its injection next"},
     "CmuxNextInputModel": {"layer": "domain", "note": "the terminal attach machine and the input journal values, observation and model and transition invariants (p15-oracle-102): pure, Foundation, Daemon and Focus only"},
     "CmuxNextBridge": {"layer": "domain", "plan": "maps daemon state to view models: the models it fills move out of Layout, Sidebar, Tabs into their domain packages"},
     "CmuxNextImportSuggestions": {"layer": "domain"},

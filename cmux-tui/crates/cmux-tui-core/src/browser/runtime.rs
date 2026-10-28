@@ -3,6 +3,7 @@
 
 use super::*;
 use crate::panic_free::RecoverPoison;
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 
 impl BrowserRuntime {
     pub fn connect(opts: &SurfaceOptions) -> anyhow::Result<Arc<Self>> {
@@ -440,7 +441,7 @@ pub(super) fn start_router(
     runtime: Weak<BrowserRuntime>,
     events: Receiver<CdpEvent>,
 ) -> anyhow::Result<()> {
-    std::thread::Builder::new().name("browser-runtime-events".into()).spawn(move || {
+    supervised::spawn("browser-runtime-events", Fatal, ShutdownBehavior::Continue, move || {
         while let Ok(event) = events.recv() {
             let Some(runtime) = runtime.upgrade() else { break };
             match event {

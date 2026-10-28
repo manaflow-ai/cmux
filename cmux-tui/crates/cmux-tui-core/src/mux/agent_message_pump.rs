@@ -40,6 +40,7 @@ use crate::state::agent_message_store as messages;
 use crate::state::agent_message_unsend::clip;
 use crate::state::commit::StateEffects;
 use crate::state::store::StateChanges;
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 
 /// Queued acpmux deliveries one read takes, oldest first.
 const PAGE: usize = 200;
@@ -51,7 +52,6 @@ const ORIGIN: &str = "agent-message-pump";
 const ERROR_MAX: usize = 1024;
 /// The most hand-overs out at once; more recipients wait for a later pass.
 const IN_FLIGHT_MAX: usize = 16;
-const HANDOVER_THREAD_STACK_BYTES: usize = 256 * 1024;
 
 /// The pump's wake and the delivery lock.
 #[derive(Default)]
@@ -100,10 +100,11 @@ impl Mux {
             *slot = Some(wake);
         }
         let mux = Arc::downgrade(self);
-        let spawned = cmux_threads::spawn_with_stack(
+        let spawned = supervised::spawn_at(
             "mux-agent-message-pump",
             cmux_tui_platform::qos::outside_request_class(),
-            256 * 1024,
+            Fatal,
+            ShutdownBehavior::Continue,
             move || run(&mux, &woken),
         );
         if spawned.is_err() {
@@ -198,10 +199,11 @@ impl Mux {
         let mux = Arc::clone(self);
         let (session_id, id_owned, recipient_owned) =
             (session_id.to_owned(), id.to_owned(), recipient.to_owned());
-        let spawned = crate::thread_qos::spawn_raisable(
+        let spawned = supervised::spawn_raisable(
             "mux-agent-message-handover",
             crate::thread_qos::ThreadType::Utility.qos(),
-            Some(HANDOVER_THREAD_STACK_BYTES),
+            Fatal,
+            ShutdownBehavior::Continue,
             move || mux.hand_over(&session_id, &message, &id_owned, &recipient_owned),
         );
         if spawned.is_err() {
