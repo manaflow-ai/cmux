@@ -56,6 +56,8 @@ public struct TerminalSurfaceDiagnostics: Sendable, Equatable {
     /// The last unpause and the layer's first frame after it (``TerminalShowRecord``); nil in Release
     /// builds and before the first unpause.
     public var showTiming: TerminalShowTiming?
+    /// The last draw-pause computations and the pause the inputs give now (``TerminalPauseRecord``); nil in Release.
+    public var pauseRecord: TerminalPauseRecordReport?
 
     /// True when the surface can show terminal content right now.
     public var isPresentable: Bool {
@@ -131,7 +133,8 @@ extension TerminalSession {
             },
             lastFrameHolds: lastFrameHolds,
             holdingFrame: frameHold.isHolding,
-            showTiming: surface.showTiming
+            showTiming: surface.showTiming,
+            pauseRecord: surface.pauseRecordReport
         )
     }
 }

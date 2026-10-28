@@ -11,7 +11,7 @@ extension TerminalSurfaceView {
     /// pauses before diagnostics read the window.
     func watchOcclusionFamily(of window: NSWindow) -> WindowOcclusionSubscription {
         WindowOcclusionFamily.of(window).subscribe(.content, owner: "TerminalSurfaceView") { [weak self] _ in
-            self?.updateOcclusion()
+            self?.updateOcclusion(caller: "occlusion family flip")
         }
     }
 
@@ -20,11 +20,15 @@ extension TerminalSurfaceView {
     /// comes back before that draw and goes after a pause (``TerminalGPUResidencyGate``). A window an
     /// opaque cmux window covers is occluded too (its ``WindowOcclusionFamily``).
     /// A shown surface whose window stays off screen counts as away (``TerminalOffScreenRelease``).
-    func updateOcclusion() {
+    func updateOcclusion(caller: StaticString = #function, file: StaticString = #fileID, line: UInt = #line) {
         guard surface != nil else { return }
-        var inputs = WindowDrawPolicy.inputs(for: self, suspended: isRenderingSuspended, forced: mirrorDemand > 0)
-        if let window, WindowOcclusionFamily.installed(on: window)?.isOccluded == true { inputs.windowVisible = false }
+        let (inputs, family) = currentPauseInputs()
         pause = inputs.pause
+        #if DEBUG || CMUX_BENCH_HOOKS
+        pauseRecord.append(TerminalPauseComputation(atNanos: clock_gettime_nsec_np(CLOCK_UPTIME_RAW), caller: "\(file):\(line) \(caller)",
+                                                    pause: pause?.rawValue, inputs: inputs, familyOccluded: family,
+                                                    shown: isShown, watchingWindow: isWatchingWindow))
+        #endif
         let shownOffScreen = isShown && inputs.windowOffScreen
         if let deadline = offScreenRelease.follow(shownOffScreen: shownOffScreen, windowOnScreen: inputs.windowOnScreen) {
             deadline.schedule(after: WindowDrawPolicy.offScreenGPUReleaseDelay) { [weak self] in self?.offScreenDelayPassed() }
