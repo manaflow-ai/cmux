@@ -17,7 +17,10 @@ public import UIKit
 /// under the keyboard (Chief on its first show; the terminal after a rotation,
 /// with no keyboard notification at all; verify/keyboard-pin.md). A drag uses
 /// the system guide only when it agreed with the notified keyboard as the
-/// drag began.
+/// drag began. Otherwise the finger places the keyboard: UIKit puts its top
+/// edge at the finger plus the guide's `keyboardDismissPadding` once the
+/// finger is below the keyboard's top edge, which is what the keyboard did on
+/// screen while the system guide and the keyboard's placeholder stayed put.
 ///
 /// Only a keyboard that reaches the view's bottom edge counts
 /// (``MobileKeyboardReservation``): a floating or split keyboard leaves the
@@ -44,6 +47,9 @@ public final class MobileKeyboardDock: NSObject {
     /// A drag moved the keyboard and let go; UIKit's notification for where
     /// the keyboard goes next has not come yet.
     private var holdingAfterDrag = false
+    /// A drag over a shown keyboard that the finger places (the system guide
+    /// did not follow the keyboard as the drag began).
+    private var fingerDrag = false
 
     /// - Parameters:
     ///   - view: the view the composer lives in.
@@ -88,7 +94,7 @@ public final class MobileKeyboardDock: NSObject {
     /// safe area (the view moved, resized or rotated while the keyboard
     /// stayed). Call it from the view's layout pass.
     public func refresh() {
-        guard !systemTop.isActive, !holdingAfterDrag else { return }
+        guard !systemTop.isActive, !holdingAfterDrag, !fingerDrag else { return }
         let constant = notifiedConstant
         if notifiedTop.constant != constant { notifiedTop.constant = constant }
     }
@@ -116,6 +122,7 @@ public final class MobileKeyboardDock: NSObject {
         // UIKit has decided where the keyboard goes: any drag hand-off ends,
         // also for a view out of its window (its next layout re-reads it).
         holdingAfterDrag = false
+        fingerDrag = false
         followNotifications()
         guard let view, view.window != nil else { return }
         notifiedTop.constant = notifiedConstant
@@ -144,24 +151,38 @@ public final class MobileKeyboardDock: NSObject {
         guard let view else { return }
         switch pan.state {
         case .began:
-            // A drag over a shown keyboard, where the system guide agrees with
-            // it: an iOS 27 guide that reads a docked keyboard as undocked
-            // would drop the composer under the keyboard.
+            // Only a drag over a shown keyboard can move it.
             let restingTop = view.bounds.maxY - (usesBottomSafeArea ? view.safeAreaInsets.bottom : 0)
             let top = guide.layoutFrame.minY
-            guard !systemTop.isActive, top < restingTop - 0.5,
-                  abs(view.keyboardLayoutGuide.layoutFrame.minY - top) < 1 else { return }
+            guard !systemTop.isActive, !fingerDrag, top < restingTop - 0.5 else { return }
             holdingAfterDrag = false
-            notifiedTop.isActive = false
-            systemTop.isActive = true
-        case .changed, .possible:
+            if abs(view.keyboardLayoutGuide.layoutFrame.minY - top) < 1 {
+                // The system guide follows the keyboard: it tracks the drag.
+                notifiedTop.isActive = false
+                systemTop.isActive = true
+            } else {
+                // An iOS 27 guide that reads a docked keyboard as undocked
+                // would drop the composer under the keyboard: the finger
+                // places it instead.
+                fingerDrag = true
+            }
+        case .changed:
+            guard fingerDrag else { return }
+            let docked = notifiedConstant
+            let finger = pan.location(in: view).y + max(0, view.keyboardLayoutGuide.keyboardDismissPadding)
+            let constant = min(0, max(docked, finger - view.bounds.maxY))
+            guard abs(notifiedTop.constant - constant) > 0.01 else { return }
+            notifiedTop.constant = constant
+            UIView.performWithoutAnimation { view.layoutIfNeeded() }
+        case .possible:
             break
         default:
-            guard systemTop.isActive else { return }
+            guard systemTop.isActive || fingerDrag else { return }
             // Where the finger left the keyboard. UIKit moves its guide to rest
             // before the keyboard's own animation (and notification) start, so
             // a keyboard the drag moved holds there until that notification.
             let top = guide.layoutFrame.minY
+            fingerDrag = false
             followNotifications()
             let notified = notifiedConstant
             let dragged = top - view.bounds.maxY
