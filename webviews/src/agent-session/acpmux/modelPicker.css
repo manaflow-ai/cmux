@@ -345,8 +345,8 @@
 .acpmux-quick-railed {
   display: flex;
   flex-direction: column;
-  width: min(480px, var(--available-width, calc(100vw - 24px)));
-  max-width: min(480px, var(--available-width, calc(100vw - 24px)));
+  width: min(480px, calc(100vw - 24px), var(--available-width, calc(100vw - 24px)));
+  max-width: min(480px, calc(100vw - 24px), var(--available-width, calc(100vw - 24px)));
   padding: 0;
   --acpmux-quick-room: min(var(--available-height, calc(100vh - 16px)), calc(100vh - 16px));
   max-height: calc(100vh - 16px);

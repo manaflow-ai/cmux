@@ -126,14 +126,17 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
   });
 
   test("inline effort controls keep a narrow railed menu inside the viewport when switching harnesses", async () => {
-    const page = await open("claude-many-harnesses", 320, 560);
+    const page = await open("claude-many-harnesses-inline-effort", 320, 560);
     try {
+      await page.locator(".acpmux-quick-efforts").first().waitFor();
       const menu = await bounds(page, ".acpmux-quick-menu");
       const rail = await bounds(page, ".acpmux-quick-rail");
       await page.getByRole("button", { name: "Codex", exact: true }).click();
       await page.waitForFunction(
-        () => document.querySelector(".acpmux-quick-rail-tab[aria-pressed=true]")?.getAttribute("aria-label") === "Codex",
+        () =>
+          document.querySelector(".acpmux-quick-rail-tab[aria-pressed=true]")?.getAttribute("aria-label") === "Codex",
       );
+      await page.locator(".acpmux-quick-efforts").first().waitFor();
       const switched = await bounds(page, ".acpmux-quick-menu");
       const switchedRail = await bounds(page, ".acpmux-quick-rail");
       expect(switched.width).toBeLessThanOrEqual(296);

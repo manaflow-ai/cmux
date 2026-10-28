@@ -306,6 +306,9 @@ export function QuickModelMenu({
     // Inline effort controls are opt-in. Other compact-menu callers may expose a combined
     // callback for the full picker while retaining the standalone Effort submenu here.
     if (menu.inlineEffort !== true || (!families && !menu.onModelEffort)) return [];
+    // The opt-in slider owns the running model's effort control; do not render a duplicate
+    // segmented control beside it while its standalone Effort row is openable below.
+    if (running && effort?.slider) return [];
     // An explicit empty list must not inherit session choices, including Ultracode.
     if (model.efforts?.length === 0) return [];
     const advertised = running
@@ -611,14 +614,15 @@ export function QuickModelMenu({
         onChatTab &&
         effort &&
         levels.length > 1 &&
-        !rows.some(
-          (row) =>
-            row.id === current &&
-            effortChoices(row).length > 0 &&
-            // Provider submenus and expanded provider rows bypass withEffort; keep the
-            // standalone Effort row unless the current row visibly has segments.
-            (!row.offers || providerLook === "row"),
-        ) && (
+        (effort.slider ||
+          !rows.some(
+            (row) =>
+              row.id === current &&
+              effortChoices(row).length > 0 &&
+              // Provider submenus and expanded provider rows bypass withEffort; keep the
+              // standalone Effort row unless the current row visibly has segments.
+              (!row.offers || providerLook === "row"),
+          )) && (
           <>
             <MenuSeparator />
             <Submenu
@@ -758,20 +762,24 @@ export function QuickModelMenu({
   // pushing the segments past the narrow chat boundary.
   const widthProbe = families ? (
     <div className="acpmux-quick-width-probe" aria-hidden="true">
-      {families.list.flatMap((family) => [...family.models, ...family.more]).map((model) => (
-        <div className="acpmux-quick-width-probe-row" key={`${model.family}\u0000${model.id}`}>
-          <span className="acpmux-menu-label">{model.name}</span>
-          {menu.inlineEffort === true && (
-            <span className="acpmux-quick-width-probe-efforts acpmux-quick-efforts">
-              {(model.efforts?.length ? model.efforts : effort?.levels.map((choice) => choice.id) ?? []).map((id) => (
-                <span className="acpmux-quick-width-probe-segment" key={id}>
-                  {id}
-                </span>
-              ))}
-            </span>
-          )}
-        </div>
-      ))}
+      {families.list
+        .flatMap((family) => [...family.models, ...family.more])
+        .map((model) => (
+          <div className="acpmux-quick-width-probe-row" key={`${model.family}\u0000${model.id}`}>
+            <span className="acpmux-menu-label">{model.name}</span>
+            {menu.inlineEffort === true && (
+              <span className="acpmux-quick-width-probe-efforts acpmux-quick-efforts">
+                {(model.efforts?.length ? model.efforts : (effort?.levels.map((choice) => choice.id) ?? [])).map(
+                  (id) => (
+                    <span className="acpmux-quick-width-probe-segment" key={id}>
+                      {id}
+                    </span>
+                  ),
+                )}
+              </span>
+            )}
+          </div>
+        ))}
     </div>
   ) : null;
   return (

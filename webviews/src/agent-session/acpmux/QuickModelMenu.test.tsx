@@ -337,7 +337,10 @@ test("current-model inline effort pick preserves a searched Fast request", async
           current: "a",
           onModel() {},
           effort: {
-            levels: [{ id: "low", name: "Low" }, { id: "high", name: "High" }],
+            levels: [
+              { id: "low", name: "Low" },
+              { id: "high", name: "High" },
+            ],
             current: "high",
             onPick: (value) => effortPicks.push(value),
           },
