@@ -28,6 +28,32 @@ import Testing
         #expect(!pool.timer.isScheduled, "switching engines cancels the queued WebKit build")
     }
 
+    @Test(arguments: [false, true]) func claimOptionsDriveWarmup(initiallyWebKit: Bool) {
+        let window = PageHostPoolLaunchWindowTests.shownWindow()
+        defer { window.close() }
+        let webKitOptions = PageEngineOptions(requiresWebKit: .transparentOverlay)
+        let pool = PageHostPool(memoryPressure: MemoryPressureEvents(source: ManualMemoryPressureSource()),
+                                options: initiallyWebKit ? webKitOptions : .standard, activity: { 0 }, isTrackingMenu: { false },
+                                engineDecision: { _, options in
+                                    options.requiresWebKit == nil
+                                        ? .chromium
+                                        : .webKit(.transparentOverlay)
+                                })
+        defer { pool.dropSpare() }
+        pool.follow(window)
+        pool.noteLikely()
+        #expect(pool.timer.isScheduled == initiallyWebKit)
+        #expect(pool.claim(.settings, routes: [], options: webKitOptions, window: window, focus: false) == nil)
+        #expect(pool.timer.isScheduled, "a WebKit-required claim warms even a Chromium-configured pool")
+
+        #expect(pool.claim(.settings, routes: [], options: .standard, window: window, focus: false) == nil)
+        #expect(!pool.timer.isScheduled)
+        #expect(!pool.shouldBuild)
+
+        #expect(pool.claim(.settings, routes: [], options: webKitOptions, window: window, focus: false) == nil)
+        #expect(pool.timer.isScheduled)
+    }
+
     @Test func parkedPageSleepsAfterPaintAndWakesOnClaim() async throws {
         let window = PageHostPoolLaunchWindowTests.shownWindow()
         defer { window.close() }

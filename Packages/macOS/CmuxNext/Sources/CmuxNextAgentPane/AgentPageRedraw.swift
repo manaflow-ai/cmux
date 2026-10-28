@@ -107,7 +107,14 @@ public final class AgentPageRedraw {
     }
 
     /// A capture for the app's New Tab frame is on the way (one per page at a time).
-    public var givesNewTabFrame = false
+    public var givesNewTabFrame = false {
+        didSet {
+            if givesNewTabFrame != oldValue { newTabFrameCaptureChanged?(givesNewTabFrame) }
+        }
+    }
+    /// A parked spare wakes for a fresh cover capture and sleeps once it finishes. Its owner
+    /// removes this callback on adoption or drop, so a late capture cannot hide an active page.
+    public var newTabFrameCaptureChanged: ((Bool) -> Void)?
 
     /// The page as it drew out of sight (a parked New Tab spare), at its size and appearance.
     private var remembered: (image: NSImage, size: CGSize, appearance: NSAppearance.Name?, generation: UInt64)?

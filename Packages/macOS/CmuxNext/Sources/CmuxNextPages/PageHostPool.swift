@@ -25,7 +25,9 @@ public final class PageHostPool {
     public static let maximumRecords = 64
 
     let policy: Policy
-    let options: PageEngineOptions
+    /// The options most recently requested by a page claim, used when deciding whether another
+    /// WebKit spare is useful. It starts with the pool's default warmup options.
+    var latestClaimOptions: PageEngineOptions
     let activity: () -> UInt64
     let isTrackingMenu: () -> Bool
     let engineDecision: (PageDescriptor, PageEngineOptions) -> PageEngineDecision
@@ -63,7 +65,7 @@ public final class PageHostPool {
                 }) {
         self.memoryPressure = memoryPressure
         self.policy = policy
-        self.options = options
+        latestClaimOptions = options
         self.activity = activity
         self.isTrackingMenu = isTrackingMenu
         self.engineDecision = engineDecision
@@ -88,9 +90,12 @@ public final class PageHostPool {
                       focus: Bool = true) -> PageWebView? {
         guard PageServedHosts.pooledDescriptors.contains(descriptor) else { return nil }
         // Spares are WebKit views: a page that shows in Chromium is made fresh (PageWebView+Chromium).
+        latestClaimOptions = options
         let decision = engineDecision(descriptor, options)
         guard decision.engine == .webKit else {
-            if !canUseSpare { dropSpare() }
+            // A Chromium claim cannot use the parked WebKit view. Cancel any queued/building
+            // WebKit warmup too; the next WebKit claim will arm it with its own options.
+            dropSpare()
             return nil
         }
         isLikely = true
@@ -124,7 +129,7 @@ public final class PageHostPool {
             host.close()
             return
         }
-        if !host.touched, spare == nil, let content = target?.contentView {
+        if !host.touched, spare == nil, let content = target?.contentView, canUseSpare {
             host.countsTouches = false
             park(host, in: content)
             spare = host

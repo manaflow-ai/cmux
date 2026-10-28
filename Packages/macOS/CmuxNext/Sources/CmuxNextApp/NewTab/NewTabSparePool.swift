@@ -210,6 +210,7 @@ final class NewTabSparePool {
         defer { scheduleWarm() }
         guard let view = slot.take() else { return nil }
         snapshotGeneration &+= 1
+        view.redraw.newTabFrameCaptureChanged = nil
         view.isHidden = false
         // The launch's page took the prewarmed spare: the next one starts once that page painted,
         // not after quiet input, so a Cmd-N right after launch finds a page loading (cx-ec99).
@@ -231,6 +232,18 @@ final class NewTabSparePool {
     /// not the last New Tab page shown, drawn at another size or moment (4 px off, 2026-10-15).
     private func snapshotParked() {
         guard let view = slot.peek, view.superview === parking else { return }
+        view.redraw.newTabFrameCaptureChanged = { [weak self, weak view] capturing in
+            guard let self, let view, slot.peek === view, view.superview === parking else { return }
+            if capturing {
+                // A late chats.page answer invalidates the first cover. Keep the renderer awake
+                // through the replacement capture, and invalidate any older sleep completion.
+                snapshotGeneration &+= 1
+                view.isHidden = false
+            } else {
+                snapshotParked()
+            }
+        }
+        guard !view.redraw.givesNewTabFrame else { return }
         snapshotGeneration &+= 1
         let generation = snapshotGeneration
         // Rendering is needed only until this capture finishes, including after a parked resize.
@@ -286,6 +299,7 @@ final class NewTabSparePool {
     /// Drops the spare (memory pressure, the last window closing).
     func dropAll() {
         guard let view = slot.drop() else { return }
+        view.redraw.newTabFrameCaptureChanged = nil
         view.removeFromSuperview()
         view.close()
     }
