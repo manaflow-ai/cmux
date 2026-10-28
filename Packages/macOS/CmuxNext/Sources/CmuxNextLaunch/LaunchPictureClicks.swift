@@ -3,16 +3,16 @@ public import AppKit
 /// The clicks ``LaunchPictureInput`` holds while a part of the window is still its picture (p08-startup-061), in
 /// the order pressed: which to send again when the part's region goes live, and which to drop.
 ///
-/// A held click is its mouse-down and, once it came, its mouse-up. When its part leaves at its region's first content
-/// and the model the part shows reads the same as at the press, within the limit, both go again in order; a
-/// mouse-up that comes after its mouse-down went follows it at once. Any other held click is dropped: the point
-/// means something else now (another workspace shows), it waited too long, the window changed size, or the picture left at its bound.
+/// A held click is its mouse-down and, once it came, its mouse-up. When its part leaves (at its region's first content,
+/// or at the picture's bound: the live root shows there then) and the model the part shows reads the same as at the
+/// press, both go again in order; a mouse-up that comes after its mouse-down went follows it at once. A held click is
+/// dropped only when the point means something else now (another workspace shows, the window changed size).
 ///
 /// ```swift
-/// var clicks = LaunchPictureClicks(limit: .seconds(2))
+/// var clicks = LaunchPictureClicks()
 /// clicks.press(down, part: "pane", stamp: "ws-1", at: now)
 /// _ = clicks.release(up)                                      // [] (it waits with its press)
-/// clicks.partDidGoLive("pane", stamp: "ws-1", at: now)        // [down, up]
+/// clicks.partDidGoLive("pane", stamp: "ws-1", at: now).send   // [down, up]
 /// ```
 public struct LaunchPictureClicks {
     struct Held {
@@ -26,9 +26,8 @@ public struct LaunchPictureClicks {
     }
 
     private var held: [Held] = []
-    private let limit: Duration
 
-    public init(limit: Duration) { self.limit = limit }
+    public init() {}
 
     /// Clicks still waiting for their part.
     public var count: Int { held.count(where: { !$0.sent }) }
@@ -49,33 +48,51 @@ public struct LaunchPictureClicks {
         return []
     }
 
-    /// `part` went live and its model reads `stamp`: its clicks within the limit whose stamp is the same, in order.
-    /// Returns what to send now; the others of `part` are dropped.
-    public mutating func partDidGoLive(_ part: String, stamp: String?, at now: ContinuousClock.Instant) -> [NSEvent] {
-        var send: [NSEvent] = []
+    /// What a part's leaving did with its held clicks.
+    public struct Outcome {
+        /// The events to send now, in order.
+        public var send: [NSEvent] = []
+        /// Clicks sent (their press).
+        public var delivered = 0
+        /// Clicks dropped: what the window shows changed since the press.
+        public var dropped = 0
+        /// The longest a sent click waited.
+        public var longestWait: Duration = .zero
+    }
+
+    /// `part` left (its region went live, or the bound took it down: the live root shows there either way) and its
+    /// model reads `stamp`: its clicks whose stamp is the same go, in order, however long they waited (a click on an
+    /// unchanged window means what it meant). The others of `part` are dropped.
+    public mutating func partDidGoLive(_ part: String, stamp: String?, at now: ContinuousClock.Instant) -> Outcome {
+        var outcome = Outcome()
         var kept: [Held] = []
         for var click in held {
             guard click.part == part, !click.sent else {
                 kept.append(click)
                 continue
             }
-            guard click.stamp == stamp, click.at.duration(to: now) <= limit else { continue }
-            send.append(click.down)
+            guard click.stamp == stamp else {
+                outcome.dropped += 1
+                continue
+            }
+            outcome.delivered += 1
+            outcome.longestWait = max(outcome.longestWait, click.at.duration(to: now))
+            outcome.send.append(click.down)
             if let up = click.up {
-                send.append(up)
+                outcome.send.append(up)
             } else {
                 click.sent = true
                 kept.append(click)
             }
         }
         held = kept
-        return send
+        return outcome
     }
 
-    /// Drops the clicks still waiting for `part` (nil: for every part). A mouse-down that went already keeps its
-    /// place, so its mouse-up still follows it.
-    public mutating func drop(_ part: String? = nil) {
-        held.removeAll { !$0.sent && (part == nil || $0.part == part) }
+    /// The parts of the clicks still waiting, in press order (each once).
+    public var waitingParts: [String] {
+        var seen = Set<String>()
+        return held.filter { !$0.sent }.map(\.part).filter { seen.insert($0).inserted }
     }
 
     /// Whether `up` ends the press `down` began (the same button).

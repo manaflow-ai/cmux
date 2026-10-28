@@ -8,11 +8,12 @@ public import CmuxNextWakeups
 /// - `launch_picture_shown` (this init): the buffer begins for the window; a key or a click raises the window's
 ///   build behind the picture (``LaunchWindowBuild/raise()``, a userBlocking post, never in the input's turn).
 /// - The pane region's first content: the buffer gives the waiting keys to their terminals.
-/// - A part leaves at its region's first content: its held clicks go again at the same window point, now to the live
-///   view under it, unless what the window shows or its size changed since, or they waited more than ``clickLimit``.
-///   At the bound a part's clicks are dropped: its region has no content.
-/// - The picture left (``finish()``): the held clicks are dropped and the buffer ends for the window, in its own turn
-///   (the picture can leave inside the root's layout, where no key is delivered).
+/// - A part leaves at its region's first content, or at the picture's bound (``LaunchPicturePhase/bound``, the hard
+///   limit of every wait here): its held clicks go again at the same window point, now to the live view under it,
+///   unless what the window shows or its size changed since (then they are dropped and counted). A click is never
+///   lost to a timer (audit B10): ``clickStage`` counts the clicks sent and dropped and the longest wait.
+/// - The picture left (``finish()``): a click still waiting goes the same way, and the buffer ends for the window, in
+///   its own turn (the picture can leave inside the root's layout, where no key is delivered).
 ///
 /// Chrome's startup paint preview does the same with a tap on the capture: it waits for the live tab, which gets it
 /// once it painted (`PlayerCompositorDelegateImpl`,
@@ -27,9 +28,6 @@ public import CmuxNextWakeups
 /// ```
 @MainActor
 public final class LaunchPictureInput {
-    /// How long a click on the picture waits for its part to go live.
-    public static let clickLimit: Duration = .seconds(2)
-
     /// The window's build behind the picture, once it started: a key or a click raises it.
     public weak var build: LaunchWindowBuild?
 
@@ -39,7 +37,7 @@ public final class LaunchPictureInput {
     private let stamp: @MainActor () -> String?
     private let resend: @MainActor (NSEvent) -> Void
     private let now: @MainActor () -> ContinuousClock.Instant
-    private var clicks = LaunchPictureClicks(limit: LaunchPictureInput.clickLimit)
+    private var clicks = LaunchPictureClicks()
     private weak var picture: LaunchPictureView?
     private var isFinished = false
 
@@ -99,7 +97,8 @@ public final class LaunchPictureInput {
     public func finish() {
         guard !isFinished else { return }
         isFinished = true
-        clicks.drop()
+        // The picture is gone: the live root is under every click still waiting (normally none: each part's leave sent them).
+        for part in clicks.waitingParts { partLeft(part, drawn: false) }
         if let picture {
             picture.takesClick = nil
             picture.pressed = nil
@@ -117,8 +116,13 @@ public final class LaunchPictureInput {
         for event in clicks.release(up) { resend(event) }
     }
 
+    /// `holder`'s part left: drawn (its region's first content) or at the bound (`drawn` false). Either way the live
+    /// root shows there now, so its clicks go to it: the person clicked that place, and a drop would lose the click.
     private func partLeft(_ holder: String, drawn: Bool) {
-        guard drawn else { return clicks.drop(holder) }
-        for event in clicks.partDidGoLive(holder, stamp: shown(), at: now()) { resend(event) }
+        let outcome = clicks.partDidGoLive(holder, stamp: shown(), at: now())
+        clickStage.delivered += outcome.delivered
+        clickStage.dropped += outcome.dropped
+        clickStage.longestWait = max(clickStage.longestWait, outcome.longestWait)
+        for event in outcome.send { resend(event) }
     }
 }
