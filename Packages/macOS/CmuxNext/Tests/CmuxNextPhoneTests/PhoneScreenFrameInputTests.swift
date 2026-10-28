@@ -4,8 +4,8 @@ import CmuxNextWakeups
 import CmuxNextWakeupsTestSupport
 import Testing
 
-/// A phone screen's touch moves once per frame (feature `pointerFrameRemoteInput`, p04-input-035): with
-/// the window's FrameInputCoalescer (p04-input-030) a frame interval's first drag goes to the phone at
+/// A phone screen's touch moves once per frame (feature `pointerFrameRemoteInput`): with
+/// the window's FrameInputCoalescer a frame interval's first drag goes to the phone at
 /// once and the rest once at the frame, to the latest point; the touch's start and end send what waits
 /// first, so the phone sees the last move before the touch ends (Chromium's rAF-aligned input and
 /// `ShouldFlushQueue`, `third_party/blink/renderer/platform/widget/input/main_thread_event_queue.cc`).

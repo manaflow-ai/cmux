@@ -6,8 +6,8 @@ import CmuxNextDesign
 // toolbar and the page (below a top toolbar, above a bottom one), the browser
 // opens a band beside its toolbar rows (`PaneHeaderBandHosting`) and the pane
 // frames the strip on it each time the browser lays out, so it moves in the
-// toolbar's animation frames without changing parent (chrome-parity
-// p03-rendering-111: frames, no constraints across the two views).
+// toolbar's animation frames without changing parent
+// (frames, no constraints across the two views).
 // The pane stops framing before the browser leaves it on every path: this
 // pane's show and detach, and the browser's own viewWillMove hooks
 // (`onPaneHeaderBandRelease`, v4 review).

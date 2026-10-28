@@ -54,7 +54,7 @@ public final class BlockingTraceSink: Sendable {
 public final class BlockingTraceHook: Sendable {
     /// The process's hook.
     // singleton-allow: blockingCall is a free function every module's seams call with no injection path; Chrome's ScopedBlockingCall writes to the process-wide TraceLog.
-    // lint:allow singleton: the blocking-call trace hook exception in plans/cmux-next/arch-ratchet.json (2026-10-26, p02-threads-124).
+    // lint:allow singleton: the blocking-call trace hook exception in plans/cmux-next/arch-ratchet.json (2026-10-26).
     @usableFromInline static let process = BlockingTraceHook()
 
     /// The address of the sink that records blocking calls now (an `Unmanaged` reference the hook retained

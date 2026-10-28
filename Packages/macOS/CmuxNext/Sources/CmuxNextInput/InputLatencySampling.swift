@@ -1,7 +1,7 @@
 public import CmuxNextInputCore
 public import Foundation
 
-/// Which events of `sendEvent` open an input latency slot, and as what kind (p04-input-005). Pure: the event's type,
+/// Which events of `sendEvent` open an input latency slot, and as what kind. Pure: the event's type,
 /// scroll phase and time in, a decision out.
 ///
 /// Chrome makes one `EventMetrics` per dispatched input that a person waits on (cc/metrics/event_metrics.h): key

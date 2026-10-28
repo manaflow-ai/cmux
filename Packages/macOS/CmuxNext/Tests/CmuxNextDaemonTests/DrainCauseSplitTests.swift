@@ -3,7 +3,7 @@ import CmuxNextCompat
 import CmuxNextWakeups
 import Testing
 
-/// The frame drain ordered by cause (p06-scheduler-223, ``DrainTail``): the frame applies every
+/// The frame drain ordered by cause (``DrainTail``): the frame applies every
 /// daemon transaction up to and including the last one a person or the frontend caused, in order;
 /// the program and automation transactions after it wait in one ordered tail and apply in budgeted
 /// tasks of their head's class, whole, in 2 ms slices. A snapshot, and the tail it supersedes,

@@ -24,8 +24,8 @@ import CmuxNextTrace
 /// - Ghostty writes one surface's keys in order on its IO thread, and the session sends them in that
 ///   order, so a write goes to its surface's oldest unwritten press (``inputWritten(on:)``) and a send to
 ///   the oldest written, unsent press (``openFlow``), never to whichever key was pressed last.
-/// - The send carries that press's flow, and the daemon's `output` event names the press it echoes
-///   (p09-observability-018), so the decode marks that press (``outputDecoded(flow:)``) and the attach
+/// - The send carries that press's flow, and the daemon's `output` event names the press it echoes,
+///  so the decode marks that press (``outputDecoded(flow:)``) and the attach
 ///   stream carries the flow with the chunk to the session and the lane (``mark(_:flow:)``). The surface's
 ///   frame then marks the presses on it whose echo was parsed (``mark(_:surface:)``).
 /// - A daemon without exact flows names no press: the newest press sent takes the decode and older
@@ -46,7 +46,7 @@ import CmuxNextTrace
 /// mark the same press on the same clock. No CSV is written without `CMUX_NEXT_TYPING_PROBE`.
 ///
 /// Nothing is sampled while the trace runtime's keystroke-timing gate is closed (secure keyboard entry,
-/// ``TraceRuntime/isKeyTimingSuppressed``, p09-observability-128): a key-down then drops every open press
+/// ``TraceRuntime/isKeyTimingSuppressed``): a key-down then drops every open press
 /// unwritten and opens none, no hop is recorded and ``openFlow`` is nil, so the daemon, the terminal host and
 /// the holder write no `key.echo` hop for a key typed into a password prompt.
 ///

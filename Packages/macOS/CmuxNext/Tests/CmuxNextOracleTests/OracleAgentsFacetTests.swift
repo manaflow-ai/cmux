@@ -2,7 +2,7 @@
 import CmuxNextOracle
 import Testing
 
-/// The agents facet (p15-oracle-043): each agent chat tab's session row and each Home view's conversation in the
+/// The agents facet: each agent chat tab's session row and each Home view's conversation in the
 /// schema's shape, read in the snapshot's main-actor turn; with its host gone it is not-comparable with its task,
 /// never an empty pass. Run: `swift test --filter OracleAgentsFacetTests`.
 @MainActor

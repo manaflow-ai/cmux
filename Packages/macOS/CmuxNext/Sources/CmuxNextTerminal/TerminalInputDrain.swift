@@ -9,7 +9,7 @@ public nonisolated enum TerminalInputRecord: Sendable, Equatable {
     case bytes(Data)
     /// The bytes Ghostty wrote for the key press the app is dispatching, with its latency slot's flow
     /// (``CmuxNextInputCore/InputLatencyToken/keyFlow``): a daemon terminal sends the flow with them, so the daemon
-    /// stamps the key's stages (p04-input-094). Any other IO takes them as ``bytes(_:)``.
+    /// stamps the key's stages. Any other IO takes them as ``bytes(_:)``.
     case keyBytes(Data, keyFlow: UInt64)
     case resize(TerminalGridSize, pixelWidth: Int, pixelHeight: Int)
     case focusGained

@@ -5,7 +5,7 @@ import Foundation
 import Testing
 
 /// ``ChildExitWatch`` reaps a child from a process-exit source on its own named queue, with no thread parked in
-/// `waitpid` while the child runs (p02-threads-120): the shell-mode and Tab-completion shells used to hold a GCD
+/// `waitpid` while the child runs: the shell-mode and Tab-completion shells used to hold a GCD
 /// root-queue thread each for their whole run.
 @Suite(.serialized)
 struct ChildExitWatchTests {

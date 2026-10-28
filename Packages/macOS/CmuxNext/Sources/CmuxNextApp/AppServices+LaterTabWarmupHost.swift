@@ -2,7 +2,7 @@ import CmuxNextAgentPane
 import CmuxNextLaunch
 import CmuxNextPages
 
-// The later-tab warm-ups' engines (LaterTabWarmups, p13-webui-056); `startChromiumWarmup` is the launch's own
+// The later-tab warm-ups' engines (LaterTabWarmups); `startChromiumWarmup` is the launch's own
 // (AppServices+Chromium).
 extension AppServices: LaterTabWarmupHost {
     var skipsBrowserPagesAtLaunch: Bool { crashRecovery.recovery.skipsBrowserPages }

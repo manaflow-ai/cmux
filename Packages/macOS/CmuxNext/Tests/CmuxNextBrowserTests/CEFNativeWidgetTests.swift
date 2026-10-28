@@ -2,7 +2,7 @@ import AppKit
 @testable import CmuxNextBrowser
 import Testing
 
-/// Chromium's native UI on an attached page (p03-rendering-046), without Chromium: the route table read from
+/// Chromium's native UI on an attached page, without Chromium: the route table read from
 /// Chromium's source (not yet checked on the fleet), the fork's `pageWindowWidget` reports, and the host view's
 /// per-widget fallback to its page window.
 @MainActor

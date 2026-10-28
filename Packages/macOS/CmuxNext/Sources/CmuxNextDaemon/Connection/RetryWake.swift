@@ -53,7 +53,7 @@ public final class RetryWake: Sendable {
     private let probe: RetryWakeProbe
     private let queue = DispatchQueue(label: "com.cmuxterm.next.retry-wake", qos: .userInitiated)
     private let state = Mutex<State>(State())
-    /// The vnode watch's record in the launch's arm census (Debug and bench builds, p08-startup-085).
+    /// The vnode watch's record in the launch's arm census (Debug and bench builds).
     private let census: ArmCensusWatch
 
     /// The folder the vnode watch is on.

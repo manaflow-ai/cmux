@@ -3,7 +3,7 @@ import AppKit
 import CmuxNextWakeups
 import Testing
 
-/// p06-scheduler-042: a status indicator runs its loop only while its visibility node is visible.
+/// A status indicator runs its loop only while its visibility node is visible.
 /// The node sits under its window's node and follows AppKit's hidden state for the view; the
 /// indicator observes no window notices and walks no ancestors.
 @MainActor @Suite(.serialized) struct StatusIndicatorVisibilityTests {

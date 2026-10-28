@@ -111,8 +111,8 @@ public struct WindowDrawPolicy {
         isAutomationLaunch(environment) && environment[shippingDrawKey] != "1"
     }
 
-    /// How long a window stays off screen before the surfaces it shows let their GPU memory go
-    /// (p07-memory-097); the first draw after it comes back makes them resident again. A hidden
+    /// How long a window stays off screen before the surfaces it shows let their GPU memory go;
+    /// the first draw after it comes back makes them resident again. A hidden
     /// renderer frees its tiles at once in Chrome (`LayerTreeHostImpl::SetVisible(false)`,
     /// cc/trees/layer_tree_host_impl.cc); a window waits as long as a hidden page waits for its
     /// freeze (`browser.freezeHiddenTabs`), so a Space switch or Mission Control reallocates nothing.

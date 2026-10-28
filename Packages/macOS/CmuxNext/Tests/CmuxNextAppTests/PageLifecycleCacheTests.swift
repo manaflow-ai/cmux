@@ -9,7 +9,7 @@ import CmuxNextHibernation
 import Foundation
 import Testing
 
-/// The tab content cache feeds the page lifecycle (`pageLifecycle`, p13-webui-022): with only that
+/// The tab content cache feeds the page lifecycle (`pageLifecycle`): with only that
 /// feature wired (no `memoryDiscardInternalPages`), a page tab mounts, so its reveal and conceal reach
 /// the lifecycle; a reveal thaws a frozen page before the content shows; and a tab's release forgets
 /// it. Driven through `TabContentCache.present`/`withdraw` with a stand-in pane, as `PaneController`

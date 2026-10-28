@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import CmuxNextDaemon
 
-/// A stream view's priority (`set-stream-priority`, p05-ipc-142) on the attach streams of p05-ipc-095: a view
+/// A stream view's priority (`set-stream-priority`) on the attach streams of p05-ipc-095: a view
 /// that rides a stream sends each change once, naming its stream; the same priority again, a priority after
 /// it detached, and any priority of a view on a connection of its own send nothing. Served by
 /// ``StreamWireDaemon``, which records every request in each connection's order.

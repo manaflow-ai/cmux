@@ -3,7 +3,7 @@ import CmuxNextCompat
 @testable import CmuxNextDesign
 import Testing
 
-/// p07-memory-083: the glass lens stills are one lossless memory consumer that reports the bytes of its encoded
+/// The glass lens stills are one lossless memory consumer that reports the bytes of its encoded
 /// data URLs. A new limit frees nothing; a release drops the least recently asked encoded stills down to the limit's
 /// share of the capacity, never one still encoding; a still asked again after a release is encoded again.
 @MainActor @Suite struct GlassBackdropMemoryTests {

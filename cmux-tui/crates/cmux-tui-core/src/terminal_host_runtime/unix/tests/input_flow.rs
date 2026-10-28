@@ -1,5 +1,5 @@
-//! Key-press flows on host input and output (`FLAG_INPUT_FLOW`,
-//! p09-observability-018): the owner sends the trailer only to a host that
+//! Key-press flows on host input and output (`FLAG_INPUT_FLOW`):
+//! the owner sends the trailer only to a host that
 //! negotiated it on the smart stream, the host never writes it to the PTY,
 //! its next PTY read after the bytes reached the PTY takes the flow and its
 //! Output frame carries it back, once; input that never reached the PTY arms
@@ -233,10 +233,10 @@ fn echo_flow_records_from_before_the_flag_still_load() {
     let _ = fs::remove_dir_all(record_path.parent().unwrap());
 }
 
-/// The smart stream with key-press flows and their stages (p04-input-094).
+/// The smart stream with key-press flows and their stages.
 const SMART_STAGES: u32 = SMART_FLOW | FLAG_INPUT_STAGES;
 
-/// p04-input-094: a host that negotiated key stages stamps its PTY write of
+/// A host that negotiated key stages stamps its PTY write of
 /// a flagged input and the read that echoes it, and the echo's Output frame
 /// carries both with the flow, once.
 #[test]

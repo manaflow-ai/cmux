@@ -284,7 +284,7 @@ fn a_signed_app_hello_reclasses_its_processs_connections() {
 /// the automation cause for the connection's lines, and that cause runs its
 /// requests at Utility (crate::request_qos). The control task that posted
 /// the item ran on a shared pool worker inside a scope of the connection's
-/// class, which leaves the worker's row at its declared class (p05-ipc-073).
+/// class, which leaves the worker's row at its declared class.
 #[test]
 fn an_automation_connections_clear_history_runs_at_its_cause_on_the_work_pool() {
     let mux = crate::Mux::new_for_test("connection-qos-dispatch", crate::SurfaceOptions::default());
@@ -341,8 +341,8 @@ fn exchange(stream: &mut UnixStream, reader: &mut BufReader<UnixStream>, line: V
 
 /// A connection without a hello is classed when its hello window closes:
 /// its first line closes it, and the connection, which can no longer become
-/// the verified app, is automation. The connection has no reader thread
-/// (p01-process-203): each line runs at the connection's class on the pool
+/// the verified app, is automation. The connection has no reader thread:
+/// each line runs at the connection's class on the pool
 /// worker that handles it, so the hello gate sees the first line unclassed
 /// and its dispatch, and every later line, runs at utility. (`identify`,
 /// which keeps the window open, reads the registry's revision from SQLite:
@@ -396,7 +396,7 @@ fn a_connection_is_classed_when_its_hello_window_closes() {
     mux.shutdown();
 }
 
-/// p01-process-203: a served connection holds no thread (no `mux-conn`,
+/// A served connection holds no thread (no `mux-conn`,
 /// `mux-line-out` or `mux-events-out` row); its class is still recorded on
 /// its client (its lines and requests run at it on the pool's workers).
 #[test]
@@ -453,7 +453,7 @@ fn a_reader_classes_its_connection_once() {
 /// `identify`, `set-client-info {kind: frontend}`, then `attach-surface`, and
 /// it carries the person's keys. From the process of a verified app
 /// connection its lines run at the echo class, never at utility, and on the
-/// pool's input workers, ahead of automation's lines (p01-process-203: the
+/// pool's input workers, ahead of automation's lines (the
 /// connection has no reader thread of its own). `identify` is left out here
 /// (a recorded SQLite site on a request worker); `set-client-info` closes
 /// the window in its place.

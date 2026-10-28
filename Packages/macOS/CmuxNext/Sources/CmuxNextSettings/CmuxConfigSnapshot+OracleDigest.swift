@@ -2,7 +2,7 @@
 import CryptoKit
 import Foundation
 
-/// What the refactor oracle's `settings` facet (p15-oracle-039) records of an applied snapshot: values only,
+/// What the refactor oracle's `settings` facet records of an applied snapshot: values only,
 /// no file read. Chromium's `chrome://prefs-internals` does the same: it serializes the values `PrefService`
 /// holds in memory, never the Preferences file, and a pref is non-default by comparison with its registered
 /// default (components/prefs/pref_service.cc, `PrefService::GetPreferenceValues`, `Preference::IsDefaultValue`).

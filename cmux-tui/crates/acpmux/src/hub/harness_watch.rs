@@ -189,7 +189,7 @@ impl Hub {
                 let _ = self
                     .harness_watch
                     .changes
-                    .send(json!({"harnesses": reply["harnesses"], "diagnostics": diagnostics}));
+                    .send(json!({"harnesses": reply.get("harnesses"), "diagnostics": diagnostics}));
                 true
             }
             Err(e) => {

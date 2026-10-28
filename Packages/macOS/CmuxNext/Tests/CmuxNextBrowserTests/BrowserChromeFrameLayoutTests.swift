@@ -4,7 +4,7 @@ import CmuxNextDesign
 import Testing
 import CmuxNextWakeups
 
-/// p03-rendering-071: the browser toolbar and omnibar lay out with frames from
+/// The browser toolbar and omnibar lay out with frames from
 /// pure functions (`BrowserChromeLayout`, `ToolbarRowLayout`, `AddressBarLayout`),
 /// not Auto Layout. The pure layouts are checked at narrow, normal and wide
 /// widths, right to left, with the toolbar at the bottom and with an accessory

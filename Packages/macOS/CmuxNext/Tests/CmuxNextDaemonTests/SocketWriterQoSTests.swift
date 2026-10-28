@@ -7,7 +7,7 @@ import Testing
 /// The daemon socket writer of the key-carrying connection (terminal attach) is on the key echo path: most
 /// typed keys (`TerminalAttachment.enqueueInput`) go through its drain queue, and the frame that shows the
 /// echo waits for it. Every other connection, the control link included (commands, replies, automation and
-/// sidebar events; p04-input-059), stays below user-interactive, so its traffic never shares a keystroke's
+/// sidebar events), stays below user-interactive, so its traffic never shares a keystroke's
 /// class. Two key paths still use the control link and so run at user-initiated: pre-attach input of a new
 /// split (`send {terminal_id}` from `CreatingTerminalInput`, until p04-input-058) and a TUI's Command chords
 /// (`send-key` from `TerminalHooks`). (threading-model.md, QoS table: userInteractive is the main thread and
@@ -69,10 +69,10 @@ import Testing
         #expect(buffer == Array("k\n".utf8))
     }
 
-    /// A terminal attach's writer drains on its view's input queue (p04-input-058): a write that waits behind
+    /// A terminal attach's writer drains on its view's input queue: a write that waits behind
     /// a queued one reaches the socket only once that queue runs, on that serial queue, not after a second hop
-    /// to a writer queue of its own. The first write comes from the main thread, which always queues
-    /// (p05-ipc-140), so the second, from a worker thread, finds a message waiting and queues behind it.
+    /// to a writer queue of its own. The first write comes from the main thread, which always queues,
+    /// so the second, from a worker thread, finds a message waiting and queues behind it.
     @Test func aQueuedWriteDrainsOnTheWritersTarget() async throws {
         var fds: [Int32] = [-1, -1]
         try #require(socketpair(AF_UNIX, SOCK_STREAM, 0, &fds) == 0)
@@ -106,7 +106,7 @@ import Testing
         #expect(writer.queueHops == 1)
     }
 
-    /// An idle writer sends a worker thread's write on that thread (p05-ipc-140): the bytes reach the socket
+    /// An idle writer sends a worker thread's write on that thread: the bytes reach the socket
     /// while the target queue runs nothing, and the drain queue is never woken. So a key written from the
     /// attach input queue goes to the socket in that queue's turn.
     @Test func anIdleWriteFromAWorkerThreadNeedsNoTarget() throws {

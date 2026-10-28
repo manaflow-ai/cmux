@@ -149,7 +149,7 @@ struct RenderTapState {
     queue: Mutex<RenderTapQueue>,
     ready: Condvar,
     /// The viewer's drain task when it runs on a sequence instead of
-    /// blocking on `ready` (attach streams, p05-ipc-079).
+    /// blocking on `ready` (attach streams).
     ready_hook: crate::stream_interrupt::ReadyHook,
 }
 

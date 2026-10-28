@@ -460,7 +460,7 @@ class CountersTests(unittest.TestCase):
         self.assertEqual(xbench.fmt(2.25, "ms/s"), "2.2 ms/s")
         self.assertIn("ms/s", xbench.FLOORS)
 
-    # -- v2 (p14-energy-002) ------------------------------------------------------------------------------
+    # -- v2 ------------------------------------------------------------------------------
 
     def test_v2_kinds(self):
         frameworks = f"{APP}/Contents/Frameworks"
@@ -2226,7 +2226,7 @@ class D8BenchTests(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------------------------------------
-# D15: disk, network, log and WindowServer (task p14-energy-105)
+# D15: disk, network, log and WindowServer
 
 # `nettop -x -n -d -L 3 -s 1`: sample 0 (totals so far) and two window samples. The app has a TLS flow and a
 # listening socket; the daemon only a loopback flow; mDNSResponder is not in the set.
@@ -3509,7 +3509,7 @@ class AgentSessionTests(unittest.TestCase):
         self.assertEqual(ib.SESSIONS["agent-idle"]["agents"], {"visible": True, "hidden": True, "pool": 1})
         self.assertEqual(ib.SESSIONS["agent-working-visible"]["agents"], {"visible": True, "working": True, "engine": "cef"})
         self.assertEqual(ib.SESSIONS["busy-hidden"]["busy_terminal"], 0.1)
-        # agent-idle settles past the hidden harness's freeze (p14-energy-117).
+        # agent-idle settles past the hidden harness's freeze.
         self.assertGreater(ib.settle_seconds("agent-idle", 60), ib.HARNESS_FREEZE_S)
         self.assertEqual(ib.settle_seconds("busy-hidden", 60), 60)
         self.assertIn("agent-harness", budget["kinds"])

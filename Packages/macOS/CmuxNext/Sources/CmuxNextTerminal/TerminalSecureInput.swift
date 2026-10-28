@@ -5,8 +5,8 @@ import GhosttyNextKit
 
 /// Secure keyboard entry requested by Ghostty (`GHOSTTY_ACTION_SECURE_INPUT`: the toggle keybind, or a password
 /// prompt Ghostty detects). While any terminal holds it, the system's secure event input is on and the trace
-/// runtime's keystroke-timing gate is held closed (``TraceRuntime/KeyTimingHold/terminalSecureInput``,
-/// p09-observability-128), so no key timing is written, in the black box or a recording.
+/// runtime's keystroke-timing gate is held closed (``TraceRuntime/KeyTimingHold/terminalSecureInput``),
+/// so no key timing is written, in the black box or a recording.
 ///
 /// HIToolbox counts secure event input per process, so the process has one: ``GhosttyRuntime/secureInput``,
 /// which each ``TerminalSession`` passes to its surfaces unless its owner injects another.

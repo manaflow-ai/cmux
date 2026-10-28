@@ -1,4 +1,4 @@
-/// The launch mark `launch.visible_terminals_drawn` (p01-process-152, bench_launch.py `after-kill`): every terminal on
+/// The launch mark `launch.visible_terminals_drawn` (bench_launch.py `after-kill`): every terminal on
 /// screen when the visible panes loaded (`VisiblePaneRefs.whenShown(_:)`) drew its first frame after its first content.
 ///
 /// A pane counts as loaded when its terminal's first content is queued on the surface's lane, before the parse, the

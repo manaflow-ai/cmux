@@ -63,8 +63,8 @@ private final class Person {
         #expect(model.isStale("4+4"))
     }
 
-    /// The page's appear read (`readFirst`) runs once: a gated page tab appears again on each show
-    /// (p06-scheduler-214), and a show must not read the memory again.
+    /// The page's appear read (`readFirst`) runs once: a gated page tab appears again on each show,
+    /// and a show must not read the memory again.
     @Test func theFirstReadRunsOnceAcrossShows() async {
         let source = FakeMemory()
         let model = ChiefMemoryInspectorModel(source: source, confirmDelete: { _, _ in true })
@@ -93,7 +93,7 @@ private final class Person {
         #expect(names == ["0+8", "4+1", "0+8"])
     }
 
-    /// A tab whose view was discarded (`memoryDiscardInternalPages`, p07-memory-027) opens on the
+    /// A tab whose view was discarded (`memoryDiscardInternalPages`) opens on the
     /// node and the search it showed: its first reload reads the node and searches again, so the
     /// field and the list agree. A query whose hits never showed is not searched.
     @Test(arguments: [true, false])

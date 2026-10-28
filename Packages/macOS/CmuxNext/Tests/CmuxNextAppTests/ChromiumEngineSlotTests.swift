@@ -12,7 +12,7 @@ import CmuxNextWakeups
 import Testing
 
 /// The App's Chromium engine is built at its first Chromium need (a tab, a page, the warm-up), not in
-/// `AppServices.init` nor by the launch wiring after it (p08-startup-024, Q1), and its wiring (`engineDidCreate`)
+/// `AppServices.init` nor by the launch wiring after it (Q1), and its wiring (`engineDidCreate`)
 /// runs before any reader gets it, so the crash handlers are always set before anything can run CefInitialize
 /// (`AppRunMarker.keepSignalHandlers`). Serialized: the handlers and the settings land on the process's one runtime.
 @MainActor @Suite(.serialized) struct ChromiumEngineSlotTests {

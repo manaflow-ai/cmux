@@ -315,13 +315,13 @@ pub(crate) mod activity;
 mod browser_input;
 mod chief_control;
 mod chief_engine_mirror;
-/// `energy.set` and `energy.status` (p14-energy-033).
+/// `energy.set` and `energy.status`.
 pub(crate) mod energy_op;
-/// The app's Energy Saver rule for the daemon's own reading (p14-energy-137).
+/// The app's Energy Saver rule for the daemon's own reading.
 pub(crate) mod energy_rule;
-/// `frontend.visibility.set`: the verified app's visible surfaces scope its subscriptions (p06-scheduler-227).
+/// `frontend.visibility.set`: the verified app's visible surfaces scope its subscriptions.
 pub(crate) mod frontend_visibility;
-/// `memory.limit`: the app's memory limit (p07-memory-109).
+/// `memory.limit`: the app's memory limit.
 pub(crate) mod memory_limit;
 pub(crate) use chief_engine_mirror::{
     engine_file as chief_engine_file, write as write_chief_engine_file,
@@ -761,16 +761,16 @@ enum Command {
     },
     /// Wait and hold time of the registry and state locks per caller class
     /// and request op (diagnostics/daemon_locks.rs; the plan's
-    /// `debug.daemon_locks`, p06-scheduler-226). Owner-only diagnostics,
+    /// `debug.daemon_locks`). Owner-only diagnostics,
     /// never journaled.
     DebugDaemonLocks,
     /// Every registered daemon thread (declared, desired and kernel QoS,
     /// scheduler priority), the work lanes and the process task role (the
-    /// plan's `server.threads`, p02-threads-203). Owner-only diagnostics,
+    /// plan's `server.threads`). Owner-only diagnostics,
     /// never journaled.
     ServerThreads,
     /// The blocking calls made on threads that disallow blocking, by call
-    /// site (the plan's `server.blocking`, p02-threads-203). Owner-only
+    /// site (the plan's `server.blocking`). Owner-only
     /// diagnostics, never journaled.
     ServerBlocking,
     /// Start a trace recording in the daemon, the holder, every terminal host

@@ -179,7 +179,7 @@ class BlockingTests(unittest.TestCase):
         self.assertEqual(run_cli(["blocking", raw, "--check"])[0], 0)
 
     def test_a_report_from_a_build_without_the_detector_is_refused_not_clean(self):
-        # p12-perf-process-147: a `--config bench` app answers debug.blocking with no detector, so its empty
+        # A `--config bench` app answers debug.blocking with no detector, so its empty
         # sites are no evidence; only `compiled_in: true` (Debug, `--config bench-checks`) counts.
         files = Files()
         for result in ({"compiled_in": False, "mode": "record", "overflow": 0, "sites": []},

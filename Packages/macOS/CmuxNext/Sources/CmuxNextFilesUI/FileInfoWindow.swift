@@ -38,7 +38,7 @@ final class FileInfoWindow: NSObject, NSWindowDelegate {
         super.init()
         panel.title = FilesStrings.infoTitle(url.lastPathComponent)
         panel.isReleasedWhenClosed = false
-        panel.isRestorable = false  // AppKit state restoration is off for every cmux window (p08-startup-087)
+        panel.isRestorable = false  // AppKit state restoration is off for every cmux window
         panel.hidesOnDeactivate = false
         panel.delegate = self
         let image = NSImageView(image: NSImage(systemSymbolName: url.hasDirectoryPath ? "folder" : "doc", accessibilityDescription: nil) ?? NSImage())

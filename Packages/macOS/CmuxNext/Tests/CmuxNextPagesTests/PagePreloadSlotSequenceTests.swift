@@ -5,7 +5,7 @@ import Foundation
 import Testing
 
 /// The real window parking of ``PagePreloadSlot`` and the slot's one-held-page property under random
-/// sequences of preloads, refits, claims, drops, pressure, deadlines and engine callbacks (p13-webui-043).
+/// sequences of preloads, refits, claims, drops, pressure, deadlines and engine callbacks.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(1)))
 struct PagePreloadSlotSequenceTests {
     typealias FakePage = PagePreloadSlotTests.FakePage

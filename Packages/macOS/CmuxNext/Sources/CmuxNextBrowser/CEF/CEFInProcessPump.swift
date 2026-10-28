@@ -39,7 +39,7 @@ final class CEFInProcessPump {
         if forkAPI < CEFPumpSchedule.demandDrivenForkAPI {
             logger.error("CEF fork API \(forkAPI) predates the demand-driven pump (\(CEFPumpSchedule.demandDrivenForkAPI)): work left after a time slice and delayed tasks posted during a pass wait for the next CEF request, so pages may stall")
         }
-        // CEF's delayed work as absolute run times with Chromium's leeway (p14-energy-046); older forks
+        // CEF's delayed work as absolute run times with Chromium's leeway; older forks
         // keep the ms path.
         // SAFETY: the callback is a C function of `cmux_shim_schedule_delayed_fn`; its context is the runtime
         // `initialize` was given, which lives for the process once started.
@@ -55,7 +55,7 @@ final class CEFInProcessPump {
         }
     }
 
-    /// The pump's frame-deadline slices (p03-rendering-116). A fork without
+    /// The pump's frame-deadline slices. A fork without
     /// `cmux_set_message_loop_time_slice` (the shim answers 0 to a 0 slice, which changes nothing) keeps
     /// the static `--cmux-pump-time-slice-us` for every pass; its passes still wait for input turns.
     static func frameDeadline(shim: CEFShimLibrary, frames: CEFPumpFrameSeams, cap: TimeInterval,

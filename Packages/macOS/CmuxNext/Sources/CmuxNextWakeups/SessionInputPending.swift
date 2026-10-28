@@ -140,7 +140,7 @@ public final class SessionInputPending: InputPendingSource {
     public var staleAfter: TimeInterval { max(2 * refreshInterval, Self.minimumStaleAfter) }
 
     /// The display's refresh interval in seconds; 60 Hz when it reports none (the MainJobGate's
-    /// deadline, p04-input-076).
+    /// deadline).
     public var refreshInterval: TimeInterval {
         let interval = events.refreshInterval
         return interval.isFinite && interval > 0 ? interval : 1.0 / 60
@@ -184,7 +184,7 @@ public final class SessionInputPending: InputPendingSource {
     }
 
     /// Every kind of input pending at `uptime` (seconds since boot), for the pending-input state's
-    /// once-per-run-loop-turn publisher (InputPendingState, p04-input-021). Empty when the app is
+    /// once-per-run-loop-turn publisher (InputPendingState). Empty when the app is
     /// inactive. Safe next to the budget's checks: the only state a check keeps is when it first
     /// saw an undispatched scroll begin or drag, which is the same whoever looks.
     public func pendingKinds(uptime: TimeInterval) -> Kinds {

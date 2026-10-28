@@ -2,8 +2,8 @@
 //! snapshots, live output, history and images chunks and the idle digest.
 //!
 //! Every viewer, legacy or on a client-minted attach stream, runs it as a
-//! drain on the daemon-wide sequenced pool and holds no thread (p05-ipc-079,
-//! p01-process-125), at its connection's view priority
+//! drain on the daemon-wide sequenced pool and holds no thread,
+//! at its connection's view priority
 //! (`ConnectionClass::view_priority`: the person's viewers on the input
 //! workers, automation's on the utility workers). Its idle digest is a
 //! delayed task of its sequence, aligned to the daemon's wake grid so the

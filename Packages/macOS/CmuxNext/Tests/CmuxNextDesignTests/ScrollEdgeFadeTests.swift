@@ -3,7 +3,7 @@ import AppKit
 import Testing
 
 /// The edge fade and the scroll fit follow their scroll view from its ``ScrollGeometryClipView`` hooks, not
-/// frame or bounds notifications (p03-rendering-038): a scroll, a clip resize and a document resize each
+/// frame or bounds notifications: a scroll, a clip resize and a document resize each
 /// reach them in the same turn, with the clip's notifications left off.
 @MainActor
 @Suite(.serialized)

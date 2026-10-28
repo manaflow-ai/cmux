@@ -2,7 +2,7 @@ import CmuxNextCompat
 @testable import CmuxNextSettings
 import Testing
 
-/// `memory.saver` (``MemorySaverSetting``, p07-memory-065): Chrome's four Memory Saver modes, medium
+/// `memory.saver` (``MemorySaverSetting``): Chrome's four Memory Saver modes, medium
 /// by default, the default written as no key, and one schema row whose choices are exactly the modes,
 /// off the Settings page while the kinds it times are behind default-off features, settable by agents
 /// like `browser.hibernation`.

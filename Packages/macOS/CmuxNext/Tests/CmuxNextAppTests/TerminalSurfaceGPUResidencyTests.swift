@@ -5,7 +5,7 @@ import CmuxNextWakeups
 import GhosttyNextKit
 import Testing
 
-/// p07-memory-037: a paused terminal away from the viewport lets its GPU memory go after the pause
+/// A paused terminal away from the viewport lets its GPU memory go after the pause
 /// reaches Ghostty, and gets it back before the occlusion change that draws its first frame on show.
 /// One in the keep-alive band never lets it go.
 @MainActor @Suite(.serialized) struct TerminalSurfaceGPUResidencyTests {
@@ -132,7 +132,7 @@ import Testing
         var isParkedOffScreen = false
     }
 
-    /// p07-memory-078: a GPU-released terminal in a parked workspace gets no scale or display call from a
+    /// A GPU-released terminal in a parked workspace gets no scale or display call from a
     /// backing change (each wakes its parked renderer thread); shown again, it applies its display once.
     @Test func aParkedReleasedTerminalSendsNoDisplayCallOnABackingChange() throws {
         let drew = WindowDrawPolicy.drawsWhenOccluded

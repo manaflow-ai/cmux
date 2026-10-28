@@ -7,13 +7,13 @@ import CmuxNextInput
 import Foundation
 import Testing
 
-/// A tab drag hears its events through one input tap intercept that lives for the drag only
-/// (p04-input-015): it takes the drag's moves, its release and Escape (no responder gets them),
+/// A tab drag hears its events through one input tap intercept that lives for the drag only:
+/// it takes the drag's moves, its release and Escape (no responder gets them),
 /// passes other keys and the press after a lost release on, and every end (release, Escape, a press
 /// after a lost release) leaves the tap with the intercepts it had before the drag.
 ///
-/// With feature `pointerFrameDrags` its moves go to the ghost window's FrameInputCoalescer
-/// (p04-input-030, 032): a frame interval's first move hit-tests at once, the rest once at the frame
+/// With feature `pointerFrameDrags` its moves go to the ghost window's FrameInputCoalescer:
+/// a frame interval's first move hit-tests at once, the rest once at the frame
 /// at their latest point, a frame whose moves hit-tested does not hit-test again for its scroll step,
 /// and the release hit-tests once at its own point. With the feature off every move hit-tests.
 /// The drop over a real layout equals the per-event drag's (`TabDragFramedDropTests`).

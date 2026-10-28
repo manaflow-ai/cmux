@@ -11,7 +11,7 @@ let package = Package(
     platforms: [.iOS(.v17), .macOS(.v14)],
     products: [.library(name: "CmuxAppAttest", targets: ["CmuxAppAttest"])],
     dependencies: [
-        // blockingCall for the Keychain calls (p02-threads-130, 146).
+        // blockingCall for the Keychain calls.
         .package(path: "../CmuxThreading"),
     ],
     targets: [

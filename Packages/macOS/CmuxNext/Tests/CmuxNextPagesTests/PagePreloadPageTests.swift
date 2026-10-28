@@ -8,7 +8,7 @@ import Foundation
 import Testing
 import WebKit
 
-/// Settings, History and Cloud through the preload slot with a real ``PageWebView`` (p13-webui-045),
+/// Settings, History and Cloud through the preload slot with a real ``PageWebView``,
 /// the PageHostPool tests ported onto ``PagePreloadSlot``: the page loads parked in its own engine
 /// (Chromium, not a WebKit spare), waits hidden and frozen in a parking in a shown window, and the
 /// claim in the open's turn thaws it, shows it, binds the open's routes and claims its document, and

@@ -7,7 +7,7 @@ import Observation
 import Testing
 @testable import CmuxNextApp
 
-/// The index of tabs across machines (p06-scheduler-051): `AppServices.locateTab` (``MachineTabIndex/locate(_:)``)
+/// The index of tabs across machines: `AppServices.locateTab` (``MachineTabIndex/locate(_:)``)
 /// finds a tab and its pane on the machine that lists it, without reading any other machine's store,
 /// whatever the number of machines and tabs. The index follows each store's net key changes as tabs
 /// come, go and move, ranks machines that list the same key in the registry's order, and tells a

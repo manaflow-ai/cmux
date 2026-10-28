@@ -2,7 +2,7 @@ import AppKit
 @testable import CmuxNextBrowser
 import Testing
 
-/// Keys of a hosted page (p01-process-030): the KeyRouter decided in `CmuxApplication.sendEvent`
+/// Keys of a hosted page: the KeyRouter decided in `CmuxApplication.sendEvent`
 /// before the page view sees a key; a chord the page leaves unhandled comes back as KEY_UNHANDLED
 /// with the input seq of the frame that carried it and goes to the held cmux action or the menus.
 @MainActor

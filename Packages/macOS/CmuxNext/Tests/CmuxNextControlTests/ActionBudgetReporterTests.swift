@@ -145,7 +145,7 @@ import Testing
     }
 
     #if DEBUG || CMUX_BLOCKING_CHECKS
-    /// p02-threads-122: the Debug line's symbol map (a file read and an inflate through the checked seam) is
+    /// The Debug line's symbol map (a file read and an inflate through the checked seam) is
     /// read on the files lane, never on the reporter's cooperative-pool task, where it is a pool violation.
     @MainActor
     @Test func theSymbolMapIsReadOnTheFilesLaneNotThePool() async throws {

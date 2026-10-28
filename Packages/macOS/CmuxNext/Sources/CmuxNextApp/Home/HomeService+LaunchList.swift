@@ -12,7 +12,7 @@ import Observation
 /// and pins, each Chief's avatar and engine, the archived Chiefs and the cloud Chiefs (Main, where
 /// each runs). Before, the first frames drew this Mac's old order, the default avatar, no tags and
 /// archived Chiefs, and each piece popped in. Now the last state is read on a launch lane from `main`
-/// (``HomeListLaunch``, p08-startup-076), and every live answer replaces its piece in place.
+/// (``HomeListLaunch``), and every live answer replaces its piece in place.
 extension HomeService {
     /// Seeds the store, the inboxes, the directory and the roster with the last launch's list, once, before the list's
     /// first frame (`makeSidebarSource`, `start`): when its read lands (the theme background until then), no file read here.

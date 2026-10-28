@@ -1,14 +1,14 @@
 import CmuxNextCompat
 public import CmuxNextWakeups
 
-/// The app process's crash report and Rust diagnostics forwarders (cx-urd.58, cx-urd.59, p09-observability-075),
+/// The app process's crash report and Rust diagnostics forwarders (cx-urd.58, cx-urd.59),
 /// started as one unit: the helper crash reports (``SystemCrashForwarder``), the panic and hang logs of the cmux-tui
 /// owner and the other shipped Rust processes and, when this app runs one, the acpmux daemon's
 /// (``RustDiagnosticsForwarder``).
 ///
 /// ``start()`` starts each on its own queue now. ``run()`` does the same work on the calling thread, which
 /// may block on files, and ``post(on:)`` posts it as one afterStartup best-effort files-lane task, so it waits
-/// for startup completion and the best-effort fence (feature `crashForwardersAfterStartup`, p08-startup-078), as
+/// for startup completion and the best-effort fence (feature `crashForwardersAfterStartup`), as
 /// Chrome posts non-critical startup work with `AfterStartupTaskUtils::PostTask`
 /// (chrome/browser/after_startup_task_utils.cc) to a BEST_EFFORT ThreadPool runner. Either way the first pass
 /// sends what the last run left: each forwarder keeps its watermark or offset across runs, so a report written
@@ -16,7 +16,7 @@ public import CmuxNextWakeups
 ///
 /// With `systemWaitsForRelease` the helper crash forwarder starts only once both have happened: the start (``start()``,
 /// ``run()`` or ``post(on:)``) and ``releaseSystem()`` (the app calls it at the hang-reports controller's first
-/// decision, p09-observability-097, so no pass sends a Rust crash's black box before consent is decided). Released
+/// decision, so no pass sends a Rust crash's black box before consent is decided). Released
 /// before the start, it runs with the others; released after, it starts then on its own queue.
 ///
 /// ```swift

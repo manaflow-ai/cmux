@@ -381,7 +381,7 @@ fn publish_pty_frame(host: &HostShared, bytes: Vec<u8>, flow: u64) -> bool {
     host.parser_budget.reserve(count);
     // The smart stream's frame carries the flow; the writer of a client that
     // did not negotiate it strips it (`client_wire_frame`).
-    // A flow's frame also carries the host's write and read of the press (p04-input-094); the
+    // A flow's frame also carries the host's write and read of the press; the
     // writer of a client that negotiated only the flow turns it into the flow trailer.
     let frame = if flow == 0 {
         Frame::new(MessageKind::Output, bytes.clone())

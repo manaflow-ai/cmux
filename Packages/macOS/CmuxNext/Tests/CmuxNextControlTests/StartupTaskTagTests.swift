@@ -6,7 +6,7 @@ import Darwin
 import Foundation
 import Testing
 
-/// The launch's startup tag (p08-startup-088): `main()`'s steps and the startup scheduler's running task,
+/// The launch's startup tag: `main()`'s steps and the startup scheduler's running task,
 /// with the launch phase, written with one store per step or task and read by the watchdog thread inside a
 /// stall's sample, so a stall before startup completion names where the launch was.
 @Suite(.serialized, .timeLimit(.minutes(1))) struct StartupTaskTagTests {

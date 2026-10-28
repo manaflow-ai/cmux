@@ -9,7 +9,7 @@ import CmuxNextCompat
 public nonisolated protocol TerminalAttachLink: AnyObject, Sendable {
     /// `replay -> (output | resized | …)* -> closed`, finishing after `closed`.
     var events: AsyncStream<TerminalChannelEvent> { get }
-    /// Sends input; `keyFlow` is the latency slot flow of the key press the bytes encode (0: none, p04-input-094).
+    /// Sends input; `keyFlow` is the latency slot flow of the key press the bytes encode (0: none).
     func sendInput(_ data: Data, keyFlow: UInt64)
     /// Reports `size`, then claims canonical geometry.
     func sendClaim(reporting size: CellSize)
@@ -169,7 +169,7 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
 
     public func start() { send(.start) }
     /// Input from the surface; `keyFlow` is the latency slot flow of the key press the bytes encode (0: none). The
-    /// live link sends it with them (p04-input-094); input held while attaching goes without it.
+    /// live link sends it with them; input held while attaching goes without it.
     public func input(_ data: Data, keyFlow: UInt64 = 0) { send(.input(data), keyFlow: keyFlow) }
     public func resize(_ size: CellSize) { send(.resize(size)) }
     public func setVisible(_ visible: Bool) {

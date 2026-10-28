@@ -6,7 +6,7 @@ import Testing
 @testable import CmuxNextWakeups
 import CmuxNextWakeupsTestSupport
 
-/// The MainJobGate on the main run loop and in the Swift runtime (p04-input-076): held jobs go
+/// The MainJobGate on the main run loop and in the Swift runtime: held jobs go
 /// after the frame's commit with an input check between them, the one-refresh deadline releases
 /// them only after a commit stage and has its own wake, a menu's tracking loop releases them at its
 /// entry and suspends holding until its exit, the end of a dispatch drops the input it dispatched,

@@ -1,5 +1,5 @@
 // Text input state the Chromium Host pushes ahead to cmux's NSTextInputClient
-// (plans/cmux-next/chrome-parity/p01-process.md, task p01-process-044), so
+// (plans/cmux-next/chrome-parity/p01-process.md), so
 // markedRange, selectedRange, attributedSubstringForProposedRange: and
 // firstRectForCharacterRange: answer from the last push, with no sync call.
 //

@@ -2,7 +2,7 @@
 import Testing
 
 /// A `.whenHidden` MainDeadline's action is charged to its scheduler's CPU-time budget
-/// (plans/cmux-next/chrome-parity/p06-scheduler.md, p06-scheduler-210): a hidden node's repeating 20 ms action is
+/// (plans/cmux-next/chrome-parity/p06-scheduler.md): a hidden node's repeating 20 ms action is
 /// held to 10 ms/s by placing its wake again for the first aligned wake with budget, while a visible node's action
 /// and an exempt one (media) are never charged or deferred. The wake queue and the budget share one fake uptime.
 @MainActor @Suite(.timeLimit(.minutes(1))) struct MainDeadlineCPUBudgetTests {

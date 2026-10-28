@@ -26,7 +26,7 @@ final class MainActorEnergyLink {
     }
 }
 
-/// Energy Saver on the frame schedulers (p14-energy-028).
+/// Energy Saver on the frame schedulers.
 ///
 /// Every scheduler follows the app's one policy (`MainWorkScheduler.energy`): ``FrameScheduler/app``
 /// from ``FrameScheduler/install(displays:energy:)``, each window's from ``FrameScheduler/app``, the

@@ -2,7 +2,7 @@
 //! dispatch with its cancellation, and the VT-state command reply. Moved out of
 //! server.rs unchanged (cx-6so.3).
 //!
-//! The reader runs no handler (p05-ipc-086). It reads a line's head once and
+//! The reader runs no handler. It reads a line's head once and
 //! puts the line on its connection's control sequence
 //! (connection_scheduler.rs) in arrival order: a `Command` parsed, any other
 //! line (a v2 operation, a feature route, a remote-relay line, a line the

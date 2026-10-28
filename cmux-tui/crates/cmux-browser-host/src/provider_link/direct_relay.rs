@@ -1,4 +1,4 @@
-//! Agent CDP straight to the Chromium Host (p01-process-233).
+//! Agent CDP straight to the Chromium Host.
 //!
 //! In host mode the app's Chromium tabs run in the Chromium Host, a second
 //! process. With a relay link from that host (`relay.hello`, the credential

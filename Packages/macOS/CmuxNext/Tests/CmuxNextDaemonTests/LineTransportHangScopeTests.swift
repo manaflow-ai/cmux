@@ -9,9 +9,9 @@ import Testing
 /// for a line from the app, sends a second and exits. The counts are read at close, after the reader
 /// saw EOF: two lines give exactly two scopes and none still open, where a scope around `read(2)`
 /// would give a third enter (the read that saw EOF) or a scope left open. The app's one line, sent from the
-/// decode lane's worker thread to an idle writer, goes out inline on that thread (p05-ipc-140): no drain step,
+/// decode lane's worker thread to an idle writer, goes out inline on that thread: no drain step,
 /// so no `daemon.write` scope (p09-observability-069 scopes each drain step; SocketWriterHangScopeTests).
-/// Each event's handler and the close run on the connection's decode lane (p05-ipc-144), each in one
+/// Each event's handler and the close run on the connection's decode lane, each in one
 /// `daemon.decode` scope.
 @Suite(.timeLimit(.minutes(1))) struct LineTransportHangScopeTests {
     enum Seen: Sendable {

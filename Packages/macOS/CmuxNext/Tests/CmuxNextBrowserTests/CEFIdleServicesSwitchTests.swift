@@ -2,7 +2,7 @@
 import Foundation
 import Testing
 
-/// Chrome runtime services that cmux does not use stay off at Home (p13-webui-084): sync, the
+/// Chrome runtime services that cmux does not use stay off at Home: sync, the
 /// HangWatcher thread in every Chromium process and the Optimization Hints component. Safe Browsing
 /// and the component updater (Widevine CDM, CRLSet) are a written decision to keep (perf-lead.md
 /// "Chrome runtime idle services"), so no switch may turn them off.

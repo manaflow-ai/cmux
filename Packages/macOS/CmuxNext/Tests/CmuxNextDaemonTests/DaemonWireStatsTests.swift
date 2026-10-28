@@ -5,7 +5,7 @@ import Foundation
 import Testing
 @testable import CmuxNextDaemon
 
-/// `DaemonWireStats`: the app side of the daemon wire, counted lock-free (p05-ipc-004). The fake
+/// `DaemonWireStats`: the app side of the daemon wire, counted lock-free. The fake
 /// daemon tests are the red baselines of later tasks: 095 (one connection per app) turns
 /// `connectionsOpenedTotal == 3` into 1, 090 made the transport route a line without parsing it (one
 /// parse per reply), and 113 (terminal output in a shared ring) turns `outputBytesCopiedApp > 0` into 0.
@@ -71,7 +71,7 @@ struct DaemonWireStatsTests {
     }
 
     /// Decodes are counted where they happen, one per parse. The transport routes each line by fields it
-    /// reads from the bytes (p05-ipc-090), so on one attach connection:
+    /// reads from the bytes, so on one attach connection:
     /// - a line that is not JSON: the envelope's try, once the scan gave it up (1),
     /// - `identify`: the reply (1),
     /// - `set-client-info`: none; the attach never reads its data (0),
@@ -198,7 +198,7 @@ struct DaemonWireStatsTests {
         #expect(try await DaemonConnection.perform(IdentifyRequest(), on: transport).app == "cmux-tui")
     }
 
-    // MARK: Send-to-reply by method (p05-ipc-009)
+    // MARK: Send-to-reply by method
 
     /// A trace clock that moves `stepNanos` forward on every read.
     static func steppingClock(stepNanos: UInt64) -> TraceClock {

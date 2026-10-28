@@ -26,7 +26,7 @@
 #     --arg=bench=daemon [--arg=before=SHA] --timeout 5400 \
 #     [--artifact .build/acpmux-overhead/perf-after.log] [--artifact .build/acpmux-overhead/perf-before.log]
 #
-# bench=agents: the daemon's memory per agent (p07-memory-064): the release build of
+# bench=agents: the daemon's memory per agent: the release build of
 # cmux-tui/crates/acpmux/tests/daemon_agent_memory.rs starts n= fake agents (default 100 here)
 # that each stream chunks= chunks of bytes= bytes, rounds= times, all at once, and reports the
 # daemon's resident bytes per agent over its idle start. This ref has a budget of 2048 KB per
@@ -38,7 +38,7 @@
 #     --arg=bench=agents [--arg=n=100] [--arg=chunks=1000] [--arg=bytes=2048] [--arg=rounds=2] \
 #     [--arg=before=SHA] --timeout 5400
 #
-# bench=hidden: hidden idle chats and the page lifecycle's freeze (p13-webui-080): the
+# bench=hidden: hidden idle chats and the page lifecycle's freeze: the
 # AgentPaneFrozenChatsBench Swift Testing suite. n= chats (default 10 here), each with its own
 # transport, frame pacer and acpmux connection to a stand-in acpmux that sends every open connection an
 # idle watch frame 2.5 times a second. ACPMUX-HIDDEN lines give the frames per second the host receives,

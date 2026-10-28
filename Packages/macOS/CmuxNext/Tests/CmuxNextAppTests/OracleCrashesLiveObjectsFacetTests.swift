@@ -9,7 +9,7 @@ import CmuxNextOracle
 import Foundation
 import Testing
 
-/// The oracle's `crashes` and `liveObjects` facets (p15-oracle-188). Crashes counts child exits by kind from the
+/// The oracle's `crashes` and `liveObjects` facets. Crashes counts child exits by kind from the
 /// records the app and the daemon already keep (Chromium's crash log tallies, the previous run, `oracle-state`
 /// childExits); a daemon that is lost or has no childExits is not-comparable, never a zero. Live objects counts
 /// the owners' tables in the snapshot's turn. Neither adds an observer: the app's list builds them and nothing
@@ -51,7 +51,7 @@ import Testing
     }
 
     /// The Chromium Host's end (`CEFRuntime.hostEnded`, processType chromium-host) is the end of Chromium's browser
-    /// process, so it counts as the browser, as a kill step aimed at the browser expects (p15-oracle-223).
+    /// process, so it counts as the browser, as a kill step aimed at the browser expects.
     @Test func theChromiumHostCountsAsTheBrowser() {
         let log = Self.log([Self.record("chromium-host", .process, .killed, code: 9)])
         let app = OracleCrashesFacet.AppExits(previous: nil, tallies: log.tallies, records: log.records)

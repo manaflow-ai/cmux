@@ -4,8 +4,8 @@ import CmuxNextWakeups
 import Observation
 import Testing
 
-/// The CmuxNextSidebar/{Store,Model,Logic} sweep (plans/cmux-next/chrome-parity/p06-scheduler.md, task
-/// p06-scheduler-329, rule 9): one case per migrated owner class. The placeholder grace's deadline is in
+/// The CmuxNextSidebar/{Store,Model,Logic} sweep (plans/cmux-next/chrome-parity/p06-scheduler.md,
+/// rule 9): one case per migrated owner class. The placeholder grace's deadline is in
 /// SidebarSeedTests.
 /// - Service: the rows and selection passes (`SidebarSameTurn`) apply their current value at once, a program burst in
 ///   one posted `visible` task, and a person's change in the input-response pass, before the commit (rules 2 and 3).

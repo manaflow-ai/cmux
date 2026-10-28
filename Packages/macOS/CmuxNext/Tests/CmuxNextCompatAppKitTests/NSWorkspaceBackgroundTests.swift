@@ -3,7 +3,7 @@ import CmuxNextCompatAppKit
 import Dispatch
 import Testing
 
-/// The background open and reveal helpers (p02-threads-120) run each call on the named concurrent queue
+/// The background open and reveal helpers run each call on the named concurrent queue
 /// `com.cmuxterm.next.workspace-open`, not a root queue and not one serial queue: an open stalled in
 /// LaunchServices holds no later open or reveal. The workspace is a stand-in that opens nothing.
 struct NSWorkspaceBackgroundTests {

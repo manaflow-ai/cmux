@@ -1,5 +1,5 @@
 #![cfg(unix)]
-//! A connection holds no thread (p01-process-203): idle CLI connections on a
+//! A connection holds no thread: idle CLI connections on a
 //! real daemon socket, each of which pinged and subscribed, add at most 2
 //! threads to the process. Before, each held a reader (`mux-conn`), a writer
 //! (`mux-line-out`) and, once subscribed, an event writer

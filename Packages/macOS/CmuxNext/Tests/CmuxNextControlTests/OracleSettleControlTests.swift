@@ -40,7 +40,7 @@ actor OracleBackgroundModel {
     var connectionChanges: [Int] = []
 }
 
-/// `debug.oracle.settle` and `debug.oracle.wait_for` (p15-oracle-031): the settle passes its stages in order
+/// `debug.oracle.settle` and `debug.oracle.wait_for`: the settle passes its stages in order
 /// and answers settled; a stage that misses `settleMaxMs` answers the pending list with what still keeps the
 /// app from settling (a real store's forced pending intent among it); a sync barrier that cannot answer waits for
 /// the next connection instead of failing; `wait_for` resolves on the facet's own change signal and answers
@@ -321,7 +321,7 @@ actor OracleBackgroundModel {
         #expect(reply["value"] == 2)
     }
 
-    /// The terminals facet (p15-oracle-044, a split facet): its screen changes off the main actor with no publish and no
+    /// The terminals facet (a split facet): its screen changes off the main actor with no publish and no
     /// mirror change; the host's change signal wakes a wait on `/terminals/list/0/last24Sha256`.
     @Test func aWaitOnTheTerminalsScreenResolvesOnItsChangeSignal() async throws {
         let model = OracleBackgroundModel()
@@ -401,7 +401,7 @@ actor OracleBackgroundModel {
         let router = router(sources: idle(), allowsDebug: false)
         #expect(router.method(named: OracleSettleControl.settle) == nil)
         #expect(router.method(named: OracleSettleControl.waitFor) == nil)
-        // The oracle family answers not_allowed in Release (p15-oracle-030), so the runner can tell it from an older build.
+        // The oracle family answers not_allowed in Release, so the runner can tell it from an older build.
         #expect(failure(await call(router, OracleSettleControl.settle, [:]))?.code == "not_allowed")
         #expect(failure(await call(router, OracleSettleControl.waitFor, [:]))?.code == "not_allowed")
     }

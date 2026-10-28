@@ -1,5 +1,5 @@
 // The input ring from cmux to the Chromium Host
-// (plans/cmux-next/chrome-parity/p01-process.md 3.1, task p01-process-041).
+// (plans/cmux-next/chrome-parity/p01-process.md 3.1).
 //
 // Keys, clicks, pointer moves and wheel ticks go from cmux to the host in a
 // single-producer, single-consumer ring of 4,096 frames of 64 bytes in a

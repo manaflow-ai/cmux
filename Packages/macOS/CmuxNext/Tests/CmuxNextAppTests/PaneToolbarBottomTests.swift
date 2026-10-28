@@ -87,7 +87,7 @@ import CmuxNextWakeups
         #expect(tab.pageArea.minY >= tab.toolbar.maxY)
     }
 
-    /// Toggle Omnibar with the strip in the band (p03-rendering-111 review): the browser's own
+    /// Toggle Omnibar with the strip in the band: the browser's own
     /// layout pass, the one inside the hide and show animation, places the strip next to the page.
     /// No pane layout runs between the toggle and the reads.
     @Test func theStripInTheBandFollowsATopToolbarHideAndShow() {

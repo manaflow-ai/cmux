@@ -1,4 +1,4 @@
-//! Connections run on the daemon-wide sequenced pool (p05-ipc-073): their
+//! Connections run on the daemon-wide sequenced pool: their
 //! thread count does not follow the number of connections.
 
 use std::sync::Arc;
@@ -70,7 +70,7 @@ fn open_connections_add_no_dispatcher_threads() {
     );
 }
 
-/// `when_settled` (p01-process-203: a connection's close goes on from it and
+/// `when_settled` (a connection's close goes on from it and
 /// never waits) runs each hook exactly once: a hook given while a request
 /// still runs runs when it ends, not at the close before it; a later close
 /// runs it no second time; a hook given to a settled scheduler runs at once.
@@ -131,7 +131,7 @@ fn when_settled_runs_each_hook_once_and_at_once_when_settled() {
 }
 
 /// The person's requests run on the pool's input workers, automation's on
-/// its control workers (p01-process-203): an agent's burst of requests
+/// its control workers: an agent's burst of requests
 /// never queues ahead of a key. A fresh mux has no worker of either.
 #[test]
 fn the_persons_requests_run_on_the_input_workers() {

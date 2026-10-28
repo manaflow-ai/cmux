@@ -1,7 +1,7 @@
 public import CmuxNextDaemon
 
 /// A hosted Chromium page's HTML fullscreen fills its window (`BrowserTabIntent.contentFullscreen`, feature
-/// `chromiumHostLocks`, task p01-process-229): no host window goes fullscreen, so the page's pane zooms, with the
+/// `chromiumHostLocks`): no host window goes fullscreen, so the page's pane zooms, with the
 /// daemon's `zoom-pane` that Toggle Pane Zoom sends, and the zoom ends when the page leaves fullscreen
 /// (FULLSCREEN a = 0 after Escape or `document.exitFullscreen()`, the host's end, the tab's close or move).
 /// Chrome's tab fullscreen fills the browser window the same way and gives it back on exit

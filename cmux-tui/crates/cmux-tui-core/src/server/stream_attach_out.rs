@@ -1,6 +1,6 @@
 //! The byte, render and browser views as drains on the sequenced pool, on a
-//! client-minted attach stream (p05-ipc-079) or a legacy one
-//! (p01-process-125): the work of the former `mux-attach-out`,
+//! client-minted attach stream or a legacy one:
+//! the work of the former `mux-attach-out`,
 //! `mux-render-attach-out` and `mux-attach-notifications` threads, without
 //! the threads. The snapshot view's drain is in snapshot_attach_out.rs.
 
@@ -77,7 +77,7 @@ impl StreamView<'_> {
     }
 
     /// A replay byte view: the terminal's output is the echo path.
-    /// Each echo goes out with its press's stages from `key_stages` (p04-input-094).
+    /// Each echo goes out with its press's stages from `key_stages`.
     pub(crate) fn start_bytes(
         self,
         attach: AttachStream,

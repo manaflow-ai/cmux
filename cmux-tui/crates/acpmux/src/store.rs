@@ -722,7 +722,7 @@ const OPEN_LOGS_MAX: usize = 2048;
 /// from [`OPEN_LOGS`] (the 256 of launchd) to [`OPEN_LOGS_MAX`]. With 64 at the daemon's raised
 /// limit, more than 64 agents that stream at once closed one log and opened another on every
 /// record: 100 fake agents logged about 700 records a second in all, and each agent's unlogged
-/// entries waited in the daemon (p07-memory-064).
+/// entries waited in the daemon.
 pub(crate) fn open_logs_for(soft: u64) -> usize {
     usize::try_from(soft / 4).unwrap_or(usize::MAX).clamp(OPEN_LOGS, OPEN_LOGS_MAX)
 }

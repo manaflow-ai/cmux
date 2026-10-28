@@ -1,6 +1,6 @@
 public import AppKit
 
-/// The clicks ``LaunchPictureInput`` holds while a part of the window is still its picture (p08-startup-061), in
+/// The clicks ``LaunchPictureInput`` holds while a part of the window is still its picture, in
 /// the order pressed: which to send again when the part's region goes live, and which to drop.
 ///
 /// A held click is its mouse-down and, once it came, its mouse-up. When its part leaves at its region's first content

@@ -4,7 +4,7 @@ import CmuxNextWakeups
 import Foundation
 import Testing
 
-/// p14-energy-124: a tab's main-frame renderer pid comes from the fork's `cmux_cef_browser_renderer_pid`
+/// A tab's main-frame renderer pid comes from the fork's `cmux_cef_browser_renderer_pid`
 /// through `cmux_shim_renderer_pid`, for the browser the tab holds. The shim answers 0 on a fork
 /// without the call and while there is no renderer; the tab then reports none. Against a spy shim.
 @MainActor @Suite(.serialized) struct CEFTabRendererPIDTests {
@@ -32,7 +32,7 @@ import Testing
         #expect(RendererPIDSpy.asked.isEmpty)
     }
 
-    /// p09-observability-061: every browser's frames per renderer come from one `cmux_shim_renderer_frames`
+    /// Every browser's frames per renderer come from one `cmux_shim_renderer_frames`
     /// listing, popups and other browsers no tab holds included, so a renderer's total is whole. A short buffer is
     /// sized again from the count, never truncated; a browser the shim does not hold has no frames.
     @Test func everyBrowsersFramesComeFromOneListing() throws {

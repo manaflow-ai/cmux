@@ -5,7 +5,7 @@ import Foundation
 import Testing
 import WebKit
 
-/// A change of the served web files through the page host (p13-webui-071, p13-webui.md 3.C). It
+/// A change of the served web files through the page host (p13-webui.md 3.C). It
 /// reaches only the WebKit pages the update folder serves (a Chromium page keeps its bundled files).
 /// With feature `webUpdateReloadOnShow` only the shown page is asked and reloaded; hidden and frozen
 /// pages get no call and stay frozen, as Chrome loads a background tab marked `SetNeedsReload` only

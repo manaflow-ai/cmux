@@ -1,7 +1,7 @@
 public import CmuxNextInputCore
 public import CmuxNextWakeups
 
-/// A terminal key's stages outside the app (p04-input-094). The key's slot goes to the daemon as the `flow` of its
+/// A terminal key's stages outside the app. The key's slot goes to the daemon as the `flow` of its
 /// `send` (``CmuxNextInputCore/InputLatencyToken/keyFlow``); the daemon stamps when it received the key, wrote it to the
 /// PTY and read its echo, and sends those times with the echo. Chromium's `EventMetrics` takes each dispatch stage's
 /// time in the process that saw it (cc/metrics/event_metrics.h); here the daemon's times come back with the echo.

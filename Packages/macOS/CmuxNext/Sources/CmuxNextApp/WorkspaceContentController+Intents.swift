@@ -12,7 +12,7 @@ import CmuxNextWakeups
 // settles or rejects the gesture's LayoutTransactionID (no snapshot counting).
 extension WorkspaceContentController {
     /// `LayoutPaneContentProvider`: with the `pageSpringResizeOnce` feature, a page in a springing pane resizes as
-    /// `browserResize.springPageResize` says (p03-rendering-036). Read once per pane host, as it is made.
+    /// `browserResize.springPageResize` says. Read once per pane host, as it is made.
     var pageSpringResizing: PageSpringResizing? {
         services.features.isEnabled(.pageSpringResizeOnce)
             ? PageSpringResizing(mode: { BrowserResizeTunables.springPageResize.value }) : nil
@@ -241,7 +241,7 @@ extension WorkspaceContentController {
     // MARK: Tab drops onto the layout
 
     func drop(_ tabID: LayoutTabID, on target: LayoutDropTarget) {
-        // view-observation-allow: no observation; locateTab is the MachineTabIndex's one lookup (p06-scheduler-051)
+        // view-observation-allow: no observation; locateTab is the MachineTabIndex's one lookup
         guard let (tab, source) = services.locateTab(tabID.rawValue) else { return }
         focus.send(.dragEnded(.dropped(tabs: [tab.id], awayFrom: source.id)))
         let restore: @MainActor (Bool) -> Void = { [services] ok in if !ok { services.restoreDetachedTab(tabID.rawValue) } }
@@ -279,7 +279,7 @@ extension MainWorkScheduler {
     /// result as soon as it is back, unbudgeted: p06-scheduler.md rule 2 makes the async completion of
     /// a person's action userBlocking (Chrome's `TaskPriority::USER_BLOCKING`, base/task/task_traits.h),
     /// which never waits behind pending input or a spent visible budget. Until that class
-    /// (p06-scheduler-208) lands it runs as frame work, as a person-caused observation flush does.
+    /// lands it runs as frame work, as a person-caused observation flush does.
     ///
     /// ```swift
     /// mainWork.personAction(owner: "WorkspaceContent.gestureSettled") {

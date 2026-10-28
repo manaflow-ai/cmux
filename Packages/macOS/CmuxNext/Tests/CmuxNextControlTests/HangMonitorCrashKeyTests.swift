@@ -7,7 +7,7 @@ import Foundation
 import Testing
 
 /// The hang monitor names each reported thread in the crash keys' hung threads until its scope ends
-/// (p10-stability-207, Chrome's `HangWatcher` crash keys): driven on an injected clock, one service call
+/// (Chrome's `HangWatcher` crash keys): driven on an injected clock, one service call
 /// at a time, with the scope held open on a thread of its own.
 @Suite(.serialized, .timeLimit(.minutes(1))) struct HangMonitorCrashKeyTests {
     @Test func aReportedScopeIsNamedUntilItEndsEvenWhenTheMonitorParked() throws {

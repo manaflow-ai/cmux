@@ -11,7 +11,7 @@ import CmuxNextOracle
 import CmuxNextTerminalFind
 import Testing
 
-/// The app's `overlays` facet (p15-oracle-038) reads the owners: the dialogs and toasts a window's overlay host
+/// The app's `overlays` facet reads the owners: the dialogs and toasts a window's overlay host
 /// presents, in its drawing order (a tab dialog whose tab is hidden is not there), the palette's rows and selection,
 /// the terminal's and the browser's find models, and the hover target through its owners' parsers. A
 /// `debug.oracle.wait_for` on the stack wakes when a dialog opens. Run: `swift test --filter OracleOverlaysAppFacetTests`.

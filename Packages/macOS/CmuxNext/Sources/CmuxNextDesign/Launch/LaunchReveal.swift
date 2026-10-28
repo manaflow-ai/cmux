@@ -26,8 +26,8 @@ public import CmuxNextDesignTokens
 /// composition root (`AppDelegate`) and passes it by init; there is no
 /// shared instance.
 ///
-/// A region under the window's saved picture (`LaunchPicturePhase`,
-/// p08-startup-060) needs no fade of its own: its views show at once under
+/// A region under the window's saved picture (`LaunchPicturePhase`)
+/// needs no fade of its own: its views show at once under
 /// the picture, and the picture's part over the region is what fades, at the
 /// region's first content.
 @MainActor

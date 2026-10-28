@@ -9,12 +9,12 @@ import AppKit
 /// Look (plans/cmux-next/send-button/gallery.html, design 1 "Graphite disc", Recommended): a
 /// 24 pt disc, near-black with a white arrow on a light theme, light gray with a dark arrow on a
 /// dark one; no accent colour. Its layer is the 28 pt hit target around the disc, drawn in the compose
-/// bar's one controls view (`ComposeChromeView`, p03-rendering-074), which hit-tests and tracks it.
+/// bar's one controls view (`ComposeChromeView`), which hit-tests and tracks it.
 @MainActor
 final class ComposeSendButton {
     /// A click or VoiceOver press on an enabled, shown button.
     var onSend: () -> Void = {}
-    /// The view it is drawn in (p03-rendering-074: a layer of `ComposeChromeView`, no view of its own).
+    /// The view it is drawn in (a layer of `ComposeChromeView`, no view of its own).
     weak var owner: ComposeChromeView? { didSet { element.view = owner } }
 
     /// The 28 pt hit target, in the owner's coordinates (y down).

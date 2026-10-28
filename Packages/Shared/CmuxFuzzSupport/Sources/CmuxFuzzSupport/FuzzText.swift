@@ -1,6 +1,6 @@
 import Foundation
 
-/// Hostile text for text layout, Markdown and render suites (p10-stability-028): Markdown syntax with
+/// Hostile text for text layout, Markdown and render suites: Markdown syntax with
 /// fences left open or closed, tables with ragged columns, ZWJ emoji, combining marks, bidi controls,
 /// CRLF, lone CR and Unicode line ends, and huge lines with and without break opportunities. Every
 /// choice comes from the run's `FuzzRNG`, so a replay line rebuilds the same text and a libFuzzer

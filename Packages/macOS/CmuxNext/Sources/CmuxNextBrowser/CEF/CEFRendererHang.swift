@@ -1,7 +1,7 @@
 import AppKit
 import CmuxNextWakeups
 
-/// One tab's renderer hang under Chrome's visibility rules (task p01-process-072, feature
+/// One tab's renderer hang under Chrome's visibility rules (feature
 /// `chromiumHangFollowsVisibility`).
 ///
 /// Chromium times the hang itself: `RenderWidgetHostImpl` calls a renderer unresponsive when an
@@ -16,7 +16,7 @@ import CmuxNextWakeups
 /// content/browser/web_contents/web_contents_impl.cc).
 ///
 /// cmux shows the hang as the tab's own prompt (`PageStatusViews`), never as anything of the
-/// Chromium Host's: the host's busy banner (task p01-process-084) times the host's dispatch of
+/// Chromium Host's: the host's busy banner times the host's dispatch of
 /// cmux's input, which a hung renderer never holds. A hang that comes while the tab is hidden, or
 /// a prompt whose tab hides, is held: no prompt, and Chromium's callback stays unanswered. When the
 /// tab shows, cmux answers Wait, so the timer runs a full `kHungRendererDelay` again from the show,

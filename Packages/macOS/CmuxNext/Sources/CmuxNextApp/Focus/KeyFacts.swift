@@ -60,6 +60,6 @@ nonisolated struct KeyFacts: Equatable, Sendable {
     /// (``KeyRouter/offersToPage(_:focus:facts:)``).
     var pageReportsUnhandledKeys = false
     /// The focused hosted page holds a keyboard lock in its fullscreen: it gets the chords cmux would
-    /// run but Ghostty's split keys and Quit (``KeyRouter/keyboardLockTakes(_:facts:)``, task p01-process-229).
+    /// run but Ghostty's split keys and Quit (``KeyRouter/keyboardLockTakes(_:facts:)``).
     var pageLocksKeys = false
 }

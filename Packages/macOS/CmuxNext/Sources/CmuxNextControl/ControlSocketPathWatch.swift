@@ -74,7 +74,7 @@ final class ControlSocketPathWatch: Sendable {
     /// The hang-watched lane of `queue` (the server's `control.accept`): each job this watch runs there, a check
     /// or a restore, is one scope of it. Nil watches nothing.
     private let lane: HangWatchedLane?
-    /// The watch's record in the launch's arm census (Debug and bench builds, p08-startup-085).
+    /// The watch's record in the launch's arm census (Debug and bench builds).
     private let census: ArmCensusWatch
 
     init(path: String, queue: DispatchQueue, lane: HangWatchedLane? = nil, yieldsToHeldPath: Bool = false,

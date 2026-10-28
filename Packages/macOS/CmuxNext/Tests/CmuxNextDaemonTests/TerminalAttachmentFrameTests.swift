@@ -3,7 +3,7 @@ import Foundation
 import Testing
 @testable import CmuxNextDaemon
 
-/// Attach frames to channel events (attach-frames-v1, p05-ipc-097): output reaches a view that keeps up as a
+/// Attach frames to channel events (attach-frames-v1): output reaches a view that keeps up as a
 /// slice of the read buffer, a backlog merges into one step, offsets are checked, a gap asks for a fresh READY,
 /// and a repair that fails reattaches.
 struct TerminalAttachmentFrameTests {

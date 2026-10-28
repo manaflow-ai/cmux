@@ -1,4 +1,4 @@
-// p14-energy-063: every CSS loop of the web pages holds still under Energy Saver
+// Every CSS loop of the web pages holds still under Energy Saver
 // (`data-cmux-energy="saver"`) and with animations off (`data-cmux-motion="off"`), the two marks the
 // app's WebTheme bootstrap sets on <html> (WebTheme.swift). Chrome's battery saver stops frames
 // nobody interacts with (chrome/browser/performance_manager/user_tuning/battery_saver_mode_manager.cc);
@@ -18,7 +18,7 @@ const MOTION_OFF = "[data-cmux-motion=off]";
 
 /** Loops the saver keeps by design, with why. Animations off still stops them. */
 const SAVER_KEEPS: Record<string, string> = {
-  // Edit mode follows the person; the native edit mode keeps its wiggle too (p14-energy-027).
+  // Edit mode follows the person; the native edit mode keeps its wiggle too.
   ".nt-widget-frame:not([data-dragging])": "edit mode's wiggle is person-started motion",
 };
 

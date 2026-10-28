@@ -2,7 +2,7 @@
 use super::*;
 
 /// Serves `stream` and returns once the connection ended, as the reader
-/// thread a connection had did (p01-process-203).
+/// thread a connection had did.
 pub(super) fn handle_connection(mux: Arc<Mux>, stream: Box<dyn transport::Stream>) {
     let _ = serve_connection(
         mux,

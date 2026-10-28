@@ -1,7 +1,7 @@
 import CmuxNextInputCore
 import Testing
 
-/// The merge rules of continuous pointer input (p04-input-030; Chromium's WebCoalescedInputEvent
+/// The merge rules of continuous pointer input (Chromium's WebCoalescedInputEvent
 /// CanCoalesceWith and CoalesceWith): moves keep the latest, drags keep the latest and the newest 16
 /// points, scrolls sum within one phase, a merged delivery keeps the oldest time and a count, and the
 /// queue merges only into its newest entry so order holds.

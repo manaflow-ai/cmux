@@ -318,7 +318,7 @@ class Runtime {
     if (energy_saver_ && energy_saver_->enabled) Route(EnergySaverMessage(*energy_saver_), std::nullopt);
     // The same for cmux's lock handler: a new host's fork starts with none.
     if (locks_.installed()) Route(LockHandlerMessage(true), std::nullopt);
-    // The browser host's provider link (task p01-process-233), as the saver: kept for every host.
+    // The browser host's provider link, as the saver: kept for every host.
     if (provider_link_ && provider_link_->socket) Route(ProviderLinkMessage(*provider_link_), std::nullopt);
     Flush();
     AnswerDroppedReveals();
@@ -1054,7 +1054,7 @@ class Runtime {
   uint32_t ctl_seq_ = 0;
   uint32_t input_seq_ = 0;
   // The attached host's HELLO listed kHangWatchHelloName: OrderInput's seqs count against its
-  // kOpInputDispatched and control-channel input's tokens against its kOpAck (task p01-process-084).
+  // kOpInputDispatched and control-channel input's tokens against its kOpAck.
   bool watches_host_ = false;
   cmux_host::hang::InputAcks input_acks_;
   cmux_remote_host_watch_fn host_watch_ = nullptr;
@@ -1276,13 +1276,13 @@ CMUX_SHIM_EXPORT int cmux_shim_set_schedule_delayed(cmux_shim_schedule_delayed_f
 }
 
 // The Chromium Host applies Energy Saver: kOpEnergySaver, its own versioned op
-// (ChromiumHost/src/host_energy_saver.h, p14-energy-045).
+// (ChromiumHost/src/host_energy_saver.h).
 CMUX_SHIM_EXPORT int cmux_shim_set_energy_saver(int enabled, const char* exempt_scheme) {
   return R().SetEnergySaver(enabled, exempt_scheme);
 }
 
 // The Chromium Host runs the fork's lock delegate; cmux's fn hears its CMUX_SHIM_LOCK pushes
-// (host_locks.h, task p01-process-229).
+// (host_locks.h).
 CMUX_SHIM_EXPORT int cmux_shim_set_lock_handler(void (*fn)(void* context, int event, int browser_id, int detail),
                                                 void* context) {
   return R().SetLockHandler(fn, context);
@@ -1296,7 +1296,7 @@ CMUX_SHIM_EXPORT int cmux_shim_renderer_pid(int browser_id) {
 }
 
 // Memory per hidden workspace is in-process only for the same reason: the renderers are the Chromium
-// Host's children, so the app finds no pid for them and counts the sample unclear (p09-observability-061).
+// Host's children, so the app finds no pid for them and counts the sample unclear.
 CMUX_SHIM_EXPORT int cmux_shim_renderer_frames(int* browser_ids, int* client_ids, int* frame_counts, int capacity) {
   (void)browser_ids;
   (void)client_ids;

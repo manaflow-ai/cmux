@@ -12,7 +12,7 @@ import Foundation
 /// One spare per ``Kind``: `browser`, a host of the default profile's own
 /// store, and `pages`, a host of the cmux pages' in-memory profile
 /// (`pagesProfile`, `CEFEngine.beginPagesProfile()`), so a cmux page's key takes a
-/// live window too (p13-webui-016). One spare per kind is cmux's own choice
+/// live window too. One spare per kind is cmux's own choice
 /// (p13-webui design D), not Chrome's: Chrome keeps one spare renderer, of
 /// one BrowserContext's default StoragePartition, and a spare asked for
 /// another context replaces it, because a spare of one store cannot serve
@@ -20,7 +20,7 @@ import Foundation
 /// Each spare holds a placeholder tab, in no pane (its window starts at the
 /// hidden-tab viewport). With the `rendererlessSpareWindow` feature, where the
 /// fork can, the placeholder has no renderer
-/// and never navigates (`cmux_shim_create_placeholder_window`, p13-webui-019),
+/// and never navigates (`cmux_shim_create_placeholder_window`),
 /// so a spare costs a window and no renderer process; on an older fork it is
 /// an about:blank page frozen through DevTools (`CEFTab.freezeNeverShownPage`).
 /// The first host a spare's store needs
@@ -36,7 +36,7 @@ import Foundation
 /// `maxDelay` (`ChromiumWarmup`, `MainWorkScheduler.postIdle`), never in the
 /// key's turn or its input response and only after 750 ms with no input, and
 /// past the delay as background work, so the next Cmd-T still finds one in a
-/// busy app (p06-scheduler-050). Chrome
+/// busy app. Chrome
 /// also refills its spare renderer after the take, off the navigation's path
 /// (`SpareRenderProcessHostManagerImpl::PrepareForFutureRequests`).
 ///
@@ -54,7 +54,7 @@ import Foundation
 /// extension's `chrome.tabs.create` targets its last window) waits there
 /// (`park`) and is adopted by the first tab that takes that spare.
 ///
-/// With the Chromium Host the spare stays (`ChromiumWarmup.Placement.host`, p01-process-086): content
+/// With the Chromium Host the spare stays (`ChromiumWarmup.Placement.host`): content
 /// makes its spare RenderProcessHost only after a navigation took a process
 /// (`SpareRenderProcessHostManagerImpl::PrepareForFutureRequests`; `IsSpareProcessKeptAtAllTimes`
 /// only refills a taken one), so after a warm start only the spare's window, and its placeholder's

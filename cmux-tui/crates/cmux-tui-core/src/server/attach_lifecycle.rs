@@ -6,7 +6,7 @@
 //!
 //! A control attach's worker, legacy or on a client-minted stream, is an
 //! [`attach_pump::AttachPump`] on the daemon-wide sequenced pool, which
-//! also takes the surface's notifications (p05-ipc-079, p01-process-125).
+//! also takes the surface's notifications.
 //! Resource attaches still start a worker thread
 //! ([`commit_client_attach_and_start_worker`]) until p01-process-204.
 

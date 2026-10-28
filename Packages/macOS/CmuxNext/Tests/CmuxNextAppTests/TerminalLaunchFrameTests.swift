@@ -146,7 +146,7 @@ import Testing
         #expect(pane.held == nil)
     }
 
-    /// p01-process-152: after a run that ended with no quit (`kill -9`), the saved frames are an earlier quit's screens.
+    /// After a run that ended with no quit (`kill -9`), the saved frames are an earlier quit's screens.
     /// Shown, they drew an older screen that the daemon's live one then replaced; discarded, the terminal stays held
     /// clear until its live content draws, as with no saved frame.
     @Test func aDiscardedReadShowsNoFrame() async throws {
@@ -186,7 +186,7 @@ import Testing
         #expect(frames.launchFrameCount == 0)
     }
 
-    /// p07-memory-083: the decoded frames no pane took went 30 s after launch; they go once the launch settled.
+    /// The decoded frames no pane took went 30 s after launch; they go once the launch settled.
     @Test func theLaunchReadHoldsNoFrameOnceTheLaunchSettled() async throws {
         let directory = try await Self.saved(["tab-1": Self.frame(Self.size, scale: 2), "tab-2": Self.frame(Self.size, scale: 2)])
         defer { try? FileManager.default.removeItem(at: directory) }

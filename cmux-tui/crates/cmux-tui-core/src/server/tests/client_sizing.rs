@@ -1,4 +1,4 @@
-//! Sizing identity per app (`terminalSizingPerApp`, p05-ipc-075): one
+//! Sizing identity per app (`terminalSizingPerApp`): one
 //! connection's views of one terminal are leases of one participant; kicking
 //! that participant on one terminal ends only that terminal's views; a
 //! whole-client detach ends every stream.

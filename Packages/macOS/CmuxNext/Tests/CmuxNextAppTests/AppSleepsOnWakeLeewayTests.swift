@@ -120,7 +120,7 @@ struct AppSleepsOnWakeLeewayTests {
         #expect(asks.isTriageScheduled, "the second round's pause planned no third")
     }
 
-    /// p14-energy-032: under Energy Saver a round's pause is stretched four times.
+    /// Under Energy Saver a round's pause is stretched four times.
     @Test func aTriageRoundsPauseIsStretchedUnderTheSaver() async throws {
         let rig = MainDeadlineRig()
         let asks = CloudAccessAsks()
@@ -172,7 +172,7 @@ struct AppSleepsOnWakeLeewayTests {
         #expect(poll.started == 1, "a released CloudAccessAsks ran its next round")
     }
 
-    /// p06-scheduler-312: a round that ends while the app still launches posts its end and awaits nothing the launch
+    /// A round that ends while the app still launches posts its end and awaits nothing the launch
     /// holds (the app's held-await report is a Debug assertion); the end runs once the reveal opens background work.
     @Test func aRoundEndingWhileLaunchingAwaitsNoHeldWork() async throws {
         let held = HeldAwaits()

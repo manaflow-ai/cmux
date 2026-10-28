@@ -30,10 +30,10 @@ import func CmuxSafeConcurrency.withOnceContinuation
 /// App-only debug methods.
 @MainActor
 final class AppControl {
-    /// The launch's watchdog, running since `main()` (p08-startup-088); its busy windows end on the main deadline
-    /// queue `main()` gave it and the scheduler (p14-energy-065).
+    /// The launch's watchdog, running since `main()`; its busy windows end on the main deadline
+    /// queue `main()` gave it and the scheduler.
     let watchdog: MainThreadWatchdog
-    /// The app's crash keys (p10-stability-207: the action timing names the running action, the hang monitor the hung threads).
+    /// The app's crash keys (the action timing names the running action, the hang monitor the hung threads).
     let crashKeys = CrashKeySlots()
     /// The app's main-thread scheduler (built by `AppDelegate`, the composition root).
     let mainWork: MainWorkScheduler
@@ -56,7 +56,7 @@ final class AppControl {
     #endif
     #if DEBUG || CMUX_BENCH_HOOKS
     private let keySequencePlayer = DebugKeySequencePlayer() // `debug.key` sequences' player (one at a time), not a static
-    let hops = InputTurnHops() // `debug.input hops` (p04-input-022); the MainJobGate hook (021) records into `hops.recorder`
+    let hops = InputTurnHops() // `debug.input hops`; the MainJobGate hook (021) records into `hops.recorder`
     /// `debug.startup`'s report: the launch marks and the first committed frame (kept by AppDelegate). Counters, scheduler
     /// and catalog wait have no producer yet (tasks 007, 012, 092 wire theirs here); their fields read null until then.
     let startupReport = StartupReportRecorder(launch: { DebugTimings.launchMarksNow }, processStartNanos: DebugTimings.processStartUptimeNanos,
@@ -124,7 +124,7 @@ final class AppControl {
 
     /// Prepares the service (no socket yet) with its core methods: the sync barrier and the oracle
     /// settle. Every other method family is a group of ``launchGroups(_:settings:)``
-    /// (below), registered before the service serves (p08-startup-019).
+    /// (below), registered before the service serves.
     func start(registry: ActionRegistry, settings: SettingsController, launch: LaunchIdentity, services: AppServices) throws {
         let service = try ControlService.prepare(registry: registry, settings: settings, launch: launch,
                                                  frameSource: frames, watchdog: watchdog, mainWork: mainWork,
@@ -136,7 +136,7 @@ final class AppControl {
                                             logsRuns: ControlService.isDebugBuild, work: services.work, mainWork: mainWork)
         commitWindows = ActionCommitWindows(monitor: services.actionBudget) { NSApp.keyWindow.map { FrameScheduler.forWindow($0) } }
         services.restartControlListener = { [weak service] in try service?.restartListener() }
-        // A busy renderer's record names the Chromium tabs it serves (p14-energy-124), from the snapshot
+        // A busy renderer's record names the Chromium tabs it serves, from the snapshot
         // the cache publishes: the watchdog reads it off the main thread.
         watchdog.busy.setTabSource { [directory = services.cache.tabRenderers] in directory.snapshot() }
         // Its helpers are the children of the Chromium helpers' parent (the app, or the Chromium Host in host mode),
@@ -209,7 +209,7 @@ final class AppControl {
                                                        }
                                                    }) ?? DebugInputScrollViews(rows: [])
                                                }],
-                                     // `hittest` (p04-input-098): one audit for the app, its hooks installed on request only.
+                                     // `hittest`: one audit for the app, its hooks installed on request only.
                                      recorders: [hops.start(input: input),
                                                  InputDirtyRecorder(tap: services.inputTap) { [mainWork = services.mainWork] copy in
                                                      await mainWork.apply(.automation, owner: "debug.input.dirty") { copy() }
@@ -225,7 +225,7 @@ final class AppControl {
     }
 }
 
-/// The control service's method groups (p08-startup-019): every method family the service registers
+/// The control service's method groups: every method family the service registers
 /// after its core start (``AppControl/start(registry:settings:launch:services:)``), one group each, in
 /// the order they registered in before. With the feature `controlSocketEarlyBind` each group is its
 /// own afterFirstFrame post (`ControlLaunch`), budgeted behind input, so no single main turn after the
@@ -345,7 +345,7 @@ extension AppControl {
                 var fields = chromiumHost.handle(op: call.params["op"]?.stringValue, url: call.params["url"]?.stringValue,
                                                  over: pane?.view.contentHost, focus: call.params["focus"]?.boolValue == true,
                                                  idleExitSeconds: call.params["idle_exit_s"]?.doubleValue)
-                // Host mode's input route (feature chromiumHostInputRing, p01-process-042), without building the engine.
+                // Host mode's input route (feature chromiumHostInputRing), without building the engine.
                 if let route = services?.cache.chromium.built?.hostInputReport { fields["input_route"] = route }
                 return .value(JSONValue(foundation: fields) ?? .null)
             },
@@ -379,7 +379,7 @@ extension AppControl {
     #endif
 }
 
-/// The control socket's launch order (p08-startup-019, plans/cmux-next/chrome-parity/p08-startup.md 3A).
+/// The control socket's launch order (plans/cmux-next/chrome-parity/p08-startup.md 3A).
 ///
 /// With the feature `controlSocketEarlyBind` (default off, risk:high):
 /// - ``beginBind(features:settingsRead:launch:work:mainWork:)``, right after the settings launch read:

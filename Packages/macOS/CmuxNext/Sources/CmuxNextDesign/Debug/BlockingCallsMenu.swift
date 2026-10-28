@@ -8,7 +8,7 @@ public import CmuxNextCompat
 /// reports and show nothing.
 ///
 /// A site nobody has looked at yet is a badge on the item (the number of new sites since the submenu last
-/// opened): Debug records instead of stopping at the call (p02-threads-006), so the badge and the
+/// opened): Debug records instead of stopping at the call, so the badge and the
 /// unified-log fault are what make a new site loud. Opening the submenu clears it.
 ///
 /// It is the delegate of the Debug menu that holds its item (``attach(to:)``), so the count is read

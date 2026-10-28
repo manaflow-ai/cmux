@@ -2,7 +2,7 @@
 public import CmuxNextDaemon
 public import CmuxNextOracle
 
-/// The oracle's `liveObjects` facet (p15-oracle-188, schemas/oracle/snapshot-v1.schema.json `liveObjects`): how
+/// The oracle's `liveObjects` facet (schemas/oracle/snapshot-v1.schema.json `liveObjects`): how
 /// many of each runtime object the app holds now, read from the registries that own them. Invariant I18 compares
 /// the counts after a case's teardown with the fixture's before its first step; a count that stays higher is a
 /// leak (a tab whose page or surface outlived its close).

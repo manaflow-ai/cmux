@@ -1,6 +1,6 @@
 public import CmuxNextWakeups
 
-/// Where the launch starts the Chromium Host (p08-startup-046): one post named `ChromiumHost.start`,
+/// Where the launch starts the Chromium Host: one post named `ChromiumHost.start`,
 /// decided once the launch's restore finished, when the restored panes exist. Before the restore no pane shows its Chromium tab yet, so a
 /// decision then would always find none. A launch whose startup completes with no restore (the daemon
 /// unavailable, the failsafe) decides then from what it has.

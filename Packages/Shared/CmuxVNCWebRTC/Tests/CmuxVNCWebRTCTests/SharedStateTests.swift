@@ -3,7 +3,7 @@ import CmuxVNC
 import Foundation
 import Testing
 
-/// p10-stability-062: the state the data channel, the signaling tasks and the
+/// The state the data channel, the signaling tasks and the
 /// readers share is behind CmuxSafeConcurrency's Mutex (checked Sendable),
 /// not an unchecked lock. These pin the behavior the conversions keep.
 struct ByteInboxTests {

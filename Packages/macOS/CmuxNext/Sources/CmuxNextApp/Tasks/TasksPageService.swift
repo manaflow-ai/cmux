@@ -87,7 +87,7 @@ final class TasksPageService: InternalPageProvider {
         return TasksHostView(model: makeModel(services), layout: { [weak services] in Self.layout(services?.settings) })
     }
 
-    // MARK: Discard (p07-memory-025)
+    // MARK: Discard
 
     /// Ten minutes hidden (Chrome's proactive_discarding_policy.cc). The scope, the selection and a
     /// New Task title typed and not sent (`newTaskDraft`) live in the shared model, which stays

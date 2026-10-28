@@ -4,7 +4,7 @@ import CmuxNextFocus
 import CmuxNextInput
 import Testing
 
-/// The focus source of a user-invoked change comes from the event the action answers (p04-input-067), never
+/// The focus source of a user-invoked change comes from the event the action answers, never
 /// from AppKit's current event after its dispatch ended (cx-3hw0i.2).
 @MainActor @Suite(.serialized)
 struct FocusCoordinatorTests {

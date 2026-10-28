@@ -5,19 +5,17 @@
 # JSON (into a scratch root, never the checkout), and runs:
 #   host_dispatch_test.cpp  the dispatcher alone, frame by frame, the App
 #                           Nap activity it holds while a page shows
-#                           (host_page_activity.h, task p14-energy-128) and
-#                           the helper ends it forwards (host_helper_exits.h,
-#                           task p01-process-225)
+#                           (host_page_activity.h) and
+#                           the helper ends it forwards (host_helper_exits.h)
 #   host_text_input_test.cpp  the text input pushes, alone and through the
-#                           dispatcher (task p01-process-044)
+#                           dispatcher
 #   host_resize_test.cpp    a page's resize and its fence (host_resize.h),
-#                           alone and through the dispatcher (task p01-process-052)
+#                           alone and through the dispatcher
 #   host_wheel_ack_test.cpp the wheel acks, alone and through the dispatcher
-#                           (task p01-process-234)
 #   host_provider_link_test.cpp  agent CDP straight from the browser host:
 #                           the relays alone, through the dispatcher, and the
 #                           link's transport against a fake browser host
-#                           (host_provider_link.{h,mm}, task p01-process-233)
+#                           (host_provider_link.{h,mm})
 #   host_mirror_test.cpp    the dispatcher and the real remote shim
 #                           (ChromiumHost/client, built as a shared library
 #                           from the committed client/generated/remote_shim.inc)
@@ -25,10 +23,10 @@
 #   host_choosers_test.cpp  the chooser payloads (host_choosers.h), then the
 #                           dispatcher and the real remote shim on a socket
 #                           pair: the color, device and screen-share handlers
-#                           end to end (task p01-process-228)
+#                           end to end
 #   host_page_resource_test.cpp  the same pair: cmux-page:// schemes as preinit
 #                           ops with their verdicts, PAGE_RESOURCE and a 10 MB
-#                           answer in shared memory (task p01-process-070)
+#                           answer in shared memory
 # Every test links a fake of the shim: the test's own functions, and a weak
 # zero stub for each other export of cmux_cef_shim.h (the generated cases call
 # them all). First, the sources compile alone with -Werror against the same

@@ -13,8 +13,8 @@ import CmuxNextWakeups
 import Foundation
 import Testing
 
-/// p07-memory-037: the warm set grows only when hidden surfaces can let their GPU memory go, the
-/// larger capacity reaches the sliced pressure release (`WarmSetRelease`, p07-memory-096), and the
+/// The warm set grows only when hidden surfaces can let their GPU memory go, the
+/// larger capacity reaches the sliced pressure release (`WarmSetRelease`), and the
 /// surface ledger says which terminals are away (hidden, outside the keep-alive band).
 @MainActor @Suite(.serialized) struct WarmSetGPUBudgetTests {
     @Test func theWarmSetGrowsOnlyWithTheGPURelease() {

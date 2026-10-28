@@ -11,7 +11,7 @@
 /// counts an unclean exit at the end of a system session apart (components/metrics/stability_metrics_provider.cc).
 ///
 /// Before each window's first frame the launch also takes over what the ended run left (``Steps``): the daemon output
-/// ring of every restored terminal (p01-process-131) and the Chromium Host that kept its pages (p01-process-150).
+/// ring of every restored terminal and the Chromium Host that kept its pages.
 ///
 /// ```swift
 /// let reattach = RelaunchReattach(previousEnd: .killed, enabled: features.isEnabled(.relaunchReattach))
@@ -44,11 +44,11 @@ public struct RelaunchReattach: Sendable, Equatable {
     /// The steps that take over what the ended run left, run before any window's first frame. The app passes the
     /// real ones; ``Steps/unavailable`` stands in while a dependency is not in the build.
     public struct Steps: Sendable {
-        /// Maps the daemon output ring of each terminal the launch restores (p01-process-131: `TerminalOutputRing`,
+        /// Maps the daemon output ring of each terminal the launch restores (`TerminalOutputRing`,
         /// mapped read-only by the daemon connection's `TerminalOutputRingMapping`), so its first screen is read from
         /// the ring the daemon kept writing.
         public var mapTerminalRings: @MainActor @Sendable () -> StepResult
-        /// Adopts the Chromium Host the ended run left (p01-process-150: `ChromiumHostAdoption`, feature
+        /// Adopts the Chromium Host the ended run left (`ChromiumHostAdoption`, feature
         /// `chromiumHostSurvivesAppCrash`), so the restored pages keep their renderers.
         public var adoptBrowserHost: @MainActor @Sendable () -> StepResult
 

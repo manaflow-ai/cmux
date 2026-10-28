@@ -2,7 +2,7 @@ import AppKit
 import IOSurface
 import QuartzCore
 
-/// A hosted page's volatile snapshot on screen (p03-rendering-055): the page's last frame, copied
+/// A hosted page's volatile snapshot on screen: the page's last frame, copied
 /// before its renderer evicted it, over the page's surface in the stand-in slot, so a show presents it
 /// in the switch's own commit with no decode and no copy. Chrome shows an evicted page's copied frame
 /// the same way, in a layer over its surface layer until the first new frame arrives

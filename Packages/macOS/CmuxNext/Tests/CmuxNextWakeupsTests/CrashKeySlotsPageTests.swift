@@ -2,7 +2,7 @@ import CmuxNextTrace
 import CmuxNextWakeups
 import Testing
 
-/// The crash-key page keys the app's crash keys set for their owners (p09-observability-078): the last input time,
+/// The crash-key page keys the app's crash keys set for their owners: the last input time,
 /// the window, terminal and browser counts. Each reads back from the attached page, and nothing is stored before a
 /// page is attached.
 @Suite struct CrashKeySlotsPageTests {

@@ -4,7 +4,7 @@ import CmuxNextSettings
 import Foundation
 import Testing
 
-/// A forwarding provider keeps its wrapped stream's ``PageFrozenDelivery`` (p13-webui-024): the
+/// A forwarding provider keeps its wrapped stream's ``PageFrozenDelivery``: the
 /// confirmation sheet gates calls, never what the router keeps while the page is frozen.
 @MainActor
 @Suite struct ConfirmingPageProviderFrozenDeliveryTests {

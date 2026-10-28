@@ -2,7 +2,7 @@ import Foundation
 @testable import CmuxNextTerminal
 import Testing
 
-/// The first terminal surface's cost (p08-startup-091): its `ghostty_surface_new` and the view's setup are split
+/// The first terminal surface's cost: its `ghostty_surface_new` and the view's setup are split
 /// into runtime phases once per runtime, and the launch prefetch picks the Metal device Ghostty picks.
 @MainActor
 struct TerminalFirstSurfaceCostTests {

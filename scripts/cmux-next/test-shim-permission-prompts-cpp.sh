@@ -17,8 +17,8 @@ if ! grep -q '"chromium_feature": "CmuxPermissionPromptsFromData"' \
   echo "FAIL: chromiumPermissionPromptsFromData.json does not declare CmuxPermissionPromptsFromData" >&2
   exit 1
 fi
-# Screen sharing keeps Chromium's desktop media path (DisplayMediaAccessHandler's picker, task
-# p01-process-228): the shim answers no media access request, so no Allow can grant the whole desktop.
+# Screen sharing keeps Chromium's desktop media path (DisplayMediaAccessHandler's picker):
+# the shim answers no media access request, so no Allow can grant the whole desktop.
 if grep -q 'OnRequestMediaAccessPermission' "$root/Packages/macOS/CmuxNext/CEFShim/src/shim_permissions.mm"; then
   echo "FAIL: shim_permissions.mm answers media access requests (screen sharing must keep Chromium's picker path)" >&2
   exit 1

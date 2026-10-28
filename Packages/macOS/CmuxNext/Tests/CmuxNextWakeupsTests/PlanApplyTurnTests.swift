@@ -2,7 +2,7 @@
 import Testing
 
 /// A layout plan's apply is open from the apply until its run loop turn ends (its before-waiting
-/// commit): the in-process CEF pump starts no slice inside it (p03-rendering-116). The test drives the
+/// commit): the in-process CEF pump starts no slice inside it. The test drives the
 /// turn meter's run-loop callouts by hand.
 @MainActor
 @Suite struct PlanApplyTurnTests {

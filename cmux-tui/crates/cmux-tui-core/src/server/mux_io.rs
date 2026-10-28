@@ -1,5 +1,4 @@
-//! One `mux-io` thread for every local daemon connection
-//! (p01-process-203).
+//! One `mux-io` thread for every local daemon connection.
 //!
 //! A connection held a reader thread (`mux-conn`) blocked in `recvmsg` and a
 //! writer thread (`mux-line-out`) blocked on its queue: 200 idle CLI
@@ -25,7 +24,7 @@
 //!   did; a full socket leaves the rest for its next writable readiness.
 //!   While the loop holds nothing to write, a producer on an idle
 //!   connection writes its item inline instead, with a send that never
-//!   waits (p05-ipc-140, server/inline_write.rs), as Mojo's
+//!   waits (server/inline_write.rs), as Mojo's
 //!   `ChannelPosix::Write` does; the loop gets only the tail the socket did
 //!   not take, ahead of every queued item.
 //! - **Write timeout.** A write that makes no progress for the queue's write
@@ -277,7 +276,7 @@ pub(crate) struct MuxIo {
 impl Default for MuxIo {
     fn default() -> Self {
         Self::with_spawner(Arc::new(|kind: LoopKind, body: LoopBody| {
-            // Supervised (p10-stability-112): a failure of the loop itself
+            // Supervised: a failure of the loop itself
             // ends the process; each connection's own errors close only it.
             crate::supervised::spawn_at(
                 kind.thread_name(),
@@ -528,8 +527,8 @@ struct Connection {
     writer: MessageWriter,
     /// Set by the doorbell, cleared before the queue is read.
     write_signal: Arc<AtomicBool>,
-    /// The turn being written: the tail an inline write left (p05-ipc-140,
-    /// server/inline_write.rs), then the batch, and how many of their bytes
+    /// The turn being written: the tail an inline write left
+    /// (server/inline_write.rs), then the batch, and how many of their bytes
     /// went.
     batch: Vec<OutboundItem>,
     rest: Option<Vec<u8>>,
@@ -860,7 +859,7 @@ impl Loop {
     fn on_ready(&mut self, event: Ready, now: Instant) {
         // Classed the person's since its last turn: it moves before it
         // reads, so its lines are routed on the person's loop. Its reply
-        // may have left inline (p05-ipc-140), with no write turn here to
+        // may have left inline, with no write turn here to
         // move it; the socket stays readable for that loop.
         if self.moves(event.token) {
             self.move_to_person(event.token);

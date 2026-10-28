@@ -3,7 +3,7 @@ public import CoreGraphics
 
 // Image and bitmap calls whose C signature takes a pointer the callers always pass as nil, each
 // written once with its `unsafe` and SAFETY argument so the callers stay pointer-free (strict
-// memory safety, p10-stability-072): the way Chromium keeps each UNSAFE_BUFFERS() in one helper
+// memory safety): the way Chromium keeps each UNSAFE_BUFFERS() in one helper
 // instead of at every use (docs/unsafe_buffers.md).
 
 extension NSImage {

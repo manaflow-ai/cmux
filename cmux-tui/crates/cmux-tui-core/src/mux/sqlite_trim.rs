@@ -1,5 +1,4 @@
-//! SQLite page caches given back under memory pressure (`memorySqliteTrim`,
-//! p07-memory-090).
+//! SQLite page caches given back under memory pressure (`memorySqliteTrim`).
 //!
 //! Chrome's `sql::Database` registers a memory pressure listener per
 //! connection and its `TrimMemory()` (sql/database.cc) calls

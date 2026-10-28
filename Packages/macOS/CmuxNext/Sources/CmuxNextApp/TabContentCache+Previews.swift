@@ -127,7 +127,7 @@ extension TabContentCache {
     }
 }
 
-/// The browser pages' pictures from the last quit (`BrowserLaunchPictures`, p08-startup-043): saved at quit for
+/// The browser pages' pictures from the last quit (`BrowserLaunchPictures`): saved at quit for
 /// the pages on screen, drawn over their panes at launch until each page shows its first content.
 extension TabContentCache {
     /// Uses the launch's read of the pictures when the feature `browserLaunchPictures` is on, and drops the ones no

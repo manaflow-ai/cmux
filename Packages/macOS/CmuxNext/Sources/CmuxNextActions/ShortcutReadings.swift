@@ -1,6 +1,6 @@
 /// The shortcuts one key-down may mean (``ActionRegistry/shortcuts(for:)``): none, one, or its
 /// characters then its unshifted key ("}" then "]" for Shift-]). Held inline, so reading a key
-/// allocates no array (p04-input-055).
+/// allocates no array.
 public nonisolated struct ShortcutReadings: RandomAccessCollection, Hashable, Sendable {
     private let head: Shortcut
     private let tail: Shortcut

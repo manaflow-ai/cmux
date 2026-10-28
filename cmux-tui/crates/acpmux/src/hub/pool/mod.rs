@@ -28,7 +28,7 @@
 //! Shutdown ends every entry; a crashed daemon's entries are ended by the
 //! next daemon before it adopts hosts (`sweep_pool_hosts`).
 //!
-//! Priority (p14-energy-038, the `idleHelperBackgroundPriority` feature): an
+//! Priority (the `idleHelperBackgroundPriority` feature): an
 //! entry's host and harness run best-effort from the moment it is ready
 //! until a `session/new` claims it, as Chromium runs its spare
 //! renderer at `kBestEffort` (`RenderProcessHostImpl::UpdateProcessPriority`).

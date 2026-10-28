@@ -2,8 +2,8 @@
 import Foundation
 import Testing
 
-/// p13-webui-019: with the `rendererlessSpareWindow` feature (`CEFSpareWindow.rendererlessPlaceholders`),
-/// where the fork makes renderer-less placeholders (p13-webui-017, `cmux_shim_placeholder_supported`),
+/// With the `rendererlessSpareWindow` feature (`CEFSpareWindow.rendererlessPlaceholders`),
+/// where the fork makes renderer-less placeholders (`cmux_shim_placeholder_supported`),
 /// a spare window's first tab is made with no renderer and no navigation (Chrome's `kNoRendererProcess`,
 /// `chrome/browser/ui/browser_tabrestore.cc`), so the spare sends no DevTools call: no page setup and
 /// no `freezeNeverShownPage`. Take, give back and drop work as before. With the feature off, or on a
@@ -120,7 +120,7 @@ import Testing
         #expect(!blank.isRendererlessPlaceholder)
     }
 
-    /// p08-startup-044: the spare's window coming up marks `cef.spare_window_ready`, once per process: not
+    /// The spare's window coming up marks `cef.spare_window_ready`, once per process: not
     /// while it is being built, and not again when it comes back to the spare or a later spare comes up.
     @Test func theSparesWindowMarksSpareWindowReadyOnce() throws {
         let (runtime, root) = try Self.spyRuntime(forkAPI: 29)

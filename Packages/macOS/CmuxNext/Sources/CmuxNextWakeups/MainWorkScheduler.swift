@@ -64,7 +64,7 @@ public final class MainWorkScheduler {
     /// scheduler interns its owner here, and the app's other observers take an owner from it too.
     /// Its counters are atomics, so the report reads them from any thread.
     public nonisolated let observations = ObservationLedger()
-    /// The app's one Energy Saver policy (p14-energy-024): its owners write it once (the App's
+    /// The app's one Energy Saver policy: its owners write it once (the App's
     /// `EnergyPolicyDriver`), and everything this scheduler is passed to reads it from here, so no
     /// consumer needs a shared instance or a second injection path.
     public nonisolated let energy: EnergyPolicySource
@@ -96,7 +96,7 @@ public final class MainWorkScheduler {
     /// The posted work's class queues (MainWorkScheduler+Post.swift).
     var posting = Posting()
     /// Classed visible, automation and background work held until the input's frame commits
-    /// (MainWorkScheduler+Classed.swift, p04-input-080).
+    /// (MainWorkScheduler+Classed.swift).
     var classedHold = ClassedHold()
     /// Whether classed work that is not input or frame waits now: the app's ``MainJobGateSwitch``
     /// (``follow(_:)``); never without one. Tests set it.
@@ -193,7 +193,7 @@ public final class MainWorkScheduler {
             guard let self else { return false }
             return self.posting.turnQueued || self.frames.hasBudgetedWork
         }
-        // Idle work waits for the launch to settle (p06-scheduler-006); the settle reschedules it.
+        // Idle work waits for the launch to settle; the settle reschedules it.
         idle.admitted = { [startup] in startup.admits(.idle) }
         startup.whenReached(.settled) { [weak idle = self.idle] in idle?.reschedule() }
         updateRenderPassMeter()

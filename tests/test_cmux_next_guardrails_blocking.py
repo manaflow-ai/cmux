@@ -74,7 +74,7 @@ CASES = {
          "func nap() {\n    // blocking-allow: test fixture for the escape\n    Thread.sleep(forTimeInterval: 0.1)\n}\n"),
         (UI, "func done() {\n    process.waitUntilExit()\n}\n",
          "func done() {\n    process.terminationHandler = { _ in }\n}\n"),
-        # A nested modal run loop (p02-threads-132), in any target and in a closure too.
+        # A nested modal run loop, in any target and in a closure too.
         (UI, "func ask() {\n    _ = alert.runModal()\n}\n",
          "func ask(_ window: NSWindow) {\n    alert.beginSheetModal(for: window) { _ in }\n}\n"),
         (SERVICE, "func pick() {\n    if let window { panel.beginSheetModal(for: window) { _ in } } else { _ = panel.runModal() }\n}\n",

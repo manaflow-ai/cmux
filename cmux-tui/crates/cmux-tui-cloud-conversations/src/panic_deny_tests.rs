@@ -1,4 +1,4 @@
-//! p10-stability-141: client and peer JSON that is not an object no longer
+//! Client and peer JSON that is not an object no longer
 //! panics the daemon.
 
 use std::sync::Arc;

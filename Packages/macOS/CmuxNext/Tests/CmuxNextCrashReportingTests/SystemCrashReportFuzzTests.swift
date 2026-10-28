@@ -4,7 +4,7 @@ import Sentry
 import Testing
 @testable import CmuxNextCrashReporting
 
-/// p10-stability-029: ``SystemCrashReport`` reads `.ips` files that other processes wrote and
+/// ``SystemCrashReport`` reads `.ips` files that other processes wrote and
 /// macOS may still be writing, and its result goes to Sentry. Any bytes give `.crash`,
 /// `.other` or `.incomplete`, never a trap; a crash comes only from a bug type 309 header, its
 /// frames and images only from the report's own lists, and its Sentry event builds. Seeded
@@ -69,7 +69,7 @@ import Testing
     ]
     static let strings = ["", "0", "1", "main", "/", "/Users/alice/Library/x.dylib", "é🙂", "309"]
 
-    /// One input, its choices read from `data` (the libFuzzer entry, p10-stability-182).
+    /// One input, its choices read from `data` (the libFuzzer entry).
     static func oneInput(_ data: Data) throws {
         var rng = FuzzRNG(replaying: data)
         try check(rng.bool() ? structured(&rng) : mutated(&rng))

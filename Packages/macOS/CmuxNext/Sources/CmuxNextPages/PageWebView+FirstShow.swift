@@ -31,7 +31,7 @@ import WebKit
     let subscription: VisibilitySubscription
 }
 
-// No renderer before the first show (p07-memory-048, feature `pageRendererAtFirstShow`). A page
+// No renderer before the first show (feature `pageRendererAtFirstShow`). A page
 // opened hidden (a background tab, a tab of a hidden workspace) keeps its view, router and bridge,
 // and starts its document, and with it its WebKit WebContent process or Chromium renderer, only
 // when it first shows. Until then it makes no engine call: its scripts are dropped
@@ -45,7 +45,7 @@ import WebKit
 // shows it (``followAppearance(_:node:)``: tab, pane, workspace, window, app), else its window's
 // ``WindowVisibilitySource`` node.
 //
-// At launch (p08-startup-041) a Chromium page the launch restored (``PageOpenOrigin/launchRestore``) waits the
+// At launch a Chromium page the launch restored (``PageOpenOrigin/launchRestore``) waits the
 // same way while the launch runs, and shows its pane's theme background meanwhile (the page is transparent).
 // When it shows it asks for its Chromium page at once as ``PageChromiumOrigin/restoreVisible``, and the engine's
 // launch order (`CEFLaunchDeferral`, feature `cefLaunchOrigin`) starts it in the first afterFirstFrame slot; one

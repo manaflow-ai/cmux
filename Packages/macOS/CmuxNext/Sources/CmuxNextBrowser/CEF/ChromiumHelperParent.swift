@@ -1,7 +1,7 @@
 public import Darwin
 import CmuxNextCompat
 
-/// Whose children the Chromium helpers are, read from any thread (task p01-process-225): this app in process, the
+/// Whose children the Chromium helpers are, read from any thread: this app in process, the
 /// attached Chromium Host in host mode, none while no host is attached. ``CEFRuntimeSource`` holds the one value;
 /// the runtime writes it on the main actor as a host attaches and ends, and every ``ChromiumHelperProcess`` listing
 /// reads it where it runs (the busy watchdog's thread, the memory sampler, the Energy Saver's work lane) without

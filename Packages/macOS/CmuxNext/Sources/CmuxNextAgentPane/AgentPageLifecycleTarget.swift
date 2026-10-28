@@ -1,7 +1,7 @@
 package import CmuxNextHibernation
 package import CmuxNextPages
 
-/// Who decides for an agent tab's page in the page lifecycle (p13-webui-038): the app's agent page
+/// Who decides for an agent tab's page in the page lifecycle: the app's agent page
 /// hibernation, which knows the tab's turn, pin, draft and machine, and lets the page go at its discard.
 @MainActor
 package protocol AgentPageLifecycleOwner: AnyObject {

@@ -15,7 +15,7 @@ import Testing
 import WebKit
 
 /// A page keeps its picture and its state from the turn it hides, and a discard makes no call into the
-/// page (p13-webui-088): a frozen page cannot answer, so the old design's discard-time save call kept a
+/// page: a frozen page cannot answer, so the old design's discard-time save call kept a
 /// page frozen for 300 s from ever being discarded.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(1)))
 struct PageDiscardTests {

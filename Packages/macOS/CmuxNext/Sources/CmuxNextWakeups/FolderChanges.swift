@@ -31,7 +31,7 @@ public struct FolderChanges: Sendable {
     /// - Parameters:
     ///   - folders: The folders whose contents matter; missing ones are watched through a parent.
     ///   - ledger: Where the watch counts its wakes. In Debug and bench builds its ``ArmCensus`` also gets the watch's
-    ///     launch arm and first change (startup-queue.py arms, p08-startup-085).
+    ///     launch arm and first change (startup-queue.py arms).
     ///   - file: The line that made the watch, named by the arm census (leave the default).
     ///   - line: See `file`.
     public init(folders: [URL], ledger: WakeupLedger = .shared, file: StaticString = #fileID, line: UInt = #line) {
