@@ -62,8 +62,14 @@ fn main() -> std::process::ExitCode {
     // The holder of every PTY (cmux-holder) runs from this small binary too,
     // with the same panic log (holder-panics.jsonl).
     #[cfg(unix)]
-    if args.first().map(String::as_str) == Some("__holder") {
-        return match cmux_holder::serve_process(&args[1..]) {
+    if let Some(("__holder", holder_args)) =
+        args.split_first().map(|(first, rest)| (first.as_str(), rest))
+    {
+        // Its black box first (p09-observability-095), as cmux-holder's main.
+        if let Some(dir) = cmux_holder::blackbox_dir(holder_args) {
+            drop(cmux_trace::init_blackbox(dir, cmux_trace::Role::Holder));
+        }
+        return match cmux_holder::serve_process(holder_args) {
             Ok(()) => std::process::ExitCode::SUCCESS,
             Err(error) => {
                 eprintln!("cmux-tui-host holder: {error}");
@@ -84,6 +90,12 @@ fn main() -> std::process::ExitCode {
 }
 
 fn run(args: &[String]) -> anyhow::Result<()> {
+    // Single-threaded until the host has left the daemon's session and
+    // closed every inherited descriptor.
     cmux_tui_core::terminal_host_runtime::enter_terminal_host_process()?;
+    // Then the black box (p09-observability-095), before any terminal work:
+    // the app's trace folder, which the daemon shares with its hosts.
+    #[cfg(unix)]
+    drop(cmux_trace::init_blackbox(cmux_trace::process_dir(), cmux_trace::Role::TerminalHost));
     cmux_tui_core::terminal_host_runtime::serve_terminal_host_process(args)
 }

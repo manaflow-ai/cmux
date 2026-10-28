@@ -65,9 +65,10 @@ public struct SidebarDocMachines {
 
     /// Keeps `store` current: it refreshes when the home daemon connects or starts serving the document, and it shows
     /// the live workspaces (`connectedRemotes`: the sessions of the connected remote machines) after each document or
-    /// live-set change; `shown` gets the band layout it shows. Returns the follows (``ServiceObservation``s on `work`,
-    /// class visible: the document and its bands are model state the sidebar shows, and they must follow while no
-    /// window shows a sidebar); the caller keeps them for the app's life, and releasing them stops the follows.
+    /// live-set change; `shown` gets the band layout it shows (after its last chunk when the store shows in chunks).
+    /// Returns the follows (``ServiceObservation``s on `work`, class visible: the document and its bands are model state
+    /// the sidebar shows, and they must follow while no window shows a sidebar); the caller keeps them for the app's
+    /// life, and releasing them stops the follows.
     public func follow(_ store: SidebarDocStore, connected: @escaping @MainActor () -> Bool, serves: @escaping @MainActor () -> Bool,
                        connectedRemotes: @escaping @MainActor () -> Set<String>, shown: @escaping @MainActor (SidebarLayoutDocument?) -> Void,
                        on work: MainWorkScheduler) -> [AnyObject] {
@@ -82,8 +83,7 @@ public struct SidebarDocMachines {
             _ = (store.version, store.isActive)
             return ObservationTrigger(liveRefs())
         } apply: { live in
-            store.show(live: live.value, connectedRemotes: connectedRemotes())
-            shown(store.shown?.layout)
+            store.show(live: live.value, connectedRemotes: connectedRemotes()) { shown($0?.layout) }
         }
         return [link, bands]
     }
