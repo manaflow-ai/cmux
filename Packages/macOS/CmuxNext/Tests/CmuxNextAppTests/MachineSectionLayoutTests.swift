@@ -172,7 +172,11 @@ import Testing
         #expect(add.frame.minY > 0)
         let overText = NSPoint(x: add.frame.minX + add.label.frame.midX, y: add.frame.midY)
         #expect(add.hitTest(overText) === add)
-        #expect(view.hitTest(overText) === add)
+        // Through the section, as a click arrives: hitTest takes the superview's coordinates, so the
+        // section sits in a host of its own (with none, AppKit converts from window coordinates).
+        let host = FlippedHost(frame: view.frame)
+        host.addSubview(view)
+        #expect(host.hitTest(overText) === add)
         #expect(add.hitTest(NSPoint(x: add.frame.maxX - 2, y: add.frame.midY)) == nil)
         #expect(add.hitTest(NSPoint(x: overText.x, y: add.frame.minY - 4)) == nil)
     }
@@ -187,4 +191,9 @@ import Testing
             #expect(!source.contains("NSHostingView"), "\(path)")
         }
     }
+}
+
+/// A flipped container, so a point given to it is in the same top-down coordinates as the section's.
+private final class FlippedHost: NSView {
+    override var isFlipped: Bool { true }
 }
