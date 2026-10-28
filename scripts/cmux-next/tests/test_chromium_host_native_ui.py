@@ -249,6 +249,23 @@ class HostRowsTest(unittest.TestCase):
         self.assertFalse(ok)
         self.assertFalse(rows["download"]["bytes_ok"])
 
+    def test_every_row_goes_through_on_row_in_order(self):
+        app = FakeHostApp(self.tmp)
+        seen = []
+
+        def on_row(name, row):
+            seen.append(name)
+            return {**row, "seen": True}
+        names = ("context_menu", "download", "date", "autofill")
+        rows, ok = native.run(app.rpc, instant, app.page_eval, "file:///native-ui.html", rows_to_run=list(names),
+                              front=app.front, app_pid=APP_PID, right_click=app.right_click, on_row=on_row)
+        self.assertEqual(seen, list(names), "each row once, in ROWS order, the 069 rows with their own runners")
+        self.assertEqual(list(rows), list(names))
+        self.assertTrue(all(row["seen"] for row in rows.values()))
+        self.assertTrue(rows["context_menu"]["ok"] and rows["download"]["ok"], rows)
+        self.assertIn("not_run", rows["date"], "no widget host")
+        self.assertFalse(ok)
+
     def test_without_host_mode_the_rows_do_not_run(self):
         app = FakeHostApp(self.tmp, backend="inProcess")
         rows, ok = self.run_rows(app)

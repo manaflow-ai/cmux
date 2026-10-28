@@ -196,10 +196,11 @@ RUNNERS = {
 }
 
 
-def run(rpc, wait, page_eval, url, host_pid, front, windows, rows_to_run=ROWS):
+def run(rpc, wait, page_eval, url, host_pid, front, windows, rows_to_run=ROWS, on_row=lambda name, row: row):
     """The rows of `rows_to_run`, in ROWS order, on the probe page at `url` (PAGE). `host_pid`, `front` and `windows`
-    are chromium-host-bench.py's (chromium_host_native_ui_dialogs.run). Returns (rows, ok); a not_run row is not ok,
-    a skipped row (another task's) counts neither way."""
+    are chromium-host-bench.py's (chromium_host_native_ui_dialogs.run). `on_row(name, row)` runs right after each row
+    and returns the row to keep. Returns (rows, ok); a not_run row is not ok, a skipped row (another task's) counts
+    neither way."""
     rows = {}
     wanted = [name for name in ROWS if name in rows_to_run]
     if not wanted:
@@ -213,6 +214,7 @@ def run(rpc, wait, page_eval, url, host_pid, front, windows, rows_to_run=ROWS):
             rows[name] = RUNNERS[name](page, clear)
         except Exception as error:  # noqa: BLE001 - a row's failure is that row's result
             rows[name] = {"ok": False, "error": f"{type(error).__name__}: {error}"[:300]}
+        rows[name] = on_row(name, rows[name])
     return rows, all(row.get("ok") for row in rows.values() if "skipped" not in row)
 
 

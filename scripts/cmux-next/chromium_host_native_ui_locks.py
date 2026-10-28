@@ -153,21 +153,22 @@ def keyboard_lock_row(rpc, wait, page_eval, out, clear):
 RUNNERS = {"fullscreen": fullscreen_row, "pointer_lock": pointer_lock_row, "keyboard_lock": keyboard_lock_row}
 
 
-def run(rpc, wait, page_eval, out, clear, rows_to_run=ROWS):
+def run(rpc, wait, page_eval, out, clear, rows_to_run=ROWS, on_row=lambda name, row: row):
     """The rows of `rows_to_run`, in ROWS order; `clear()` is chromium_host_native_ui_dialogs.host_ui_clear for the
-    running host. Returns (rows, ok)."""
+    running host. `on_row(name, row)` runs right after each row and returns the row to keep (the bench adds the host's
+    window lines the row caused, p01-process-068). Returns (rows, ok)."""
     rows = {}
     for name in ROWS:
         if name not in rows_to_run:
             continue
         if host_locks(rpc) is None:
-            rows[name] = {"ok": False, "not_run": "no cmux locks: host mode is not live in this build or "
-                                                  "chromiumHostLocks is off"}
-            continue
-        try:
-            rows[name] = RUNNERS[name](rpc, wait, page_eval, out, clear)
-        except Exception as error:  # noqa: BLE001 - a row's failure is that row's result
-            rows[name] = {"ok": False, "error": f"{type(error).__name__}: {error}"[:300]}
+            row = {"ok": False, "not_run": "no cmux locks: host mode is not live in this build or chromiumHostLocks is off"}
+        else:
+            try:
+                row = RUNNERS[name](rpc, wait, page_eval, out, clear)
+            except Exception as error:  # noqa: BLE001 - a row's failure is that row's result
+                row = {"ok": False, "error": f"{type(error).__name__}: {error}"[:300]}
+        rows[name] = on_row(name, row)
     return rows, bool(rows) and all(row.get("ok") for row in rows.values())
 
 
