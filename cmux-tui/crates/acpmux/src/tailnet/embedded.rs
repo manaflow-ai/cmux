@@ -193,6 +193,26 @@ impl Controller {
         self.inner.lock().unwrap_or_else(PoisonError::into_inner).node.clone()
     }
 
+    /// Resume only a saved explicit opt-in; an untouched installation creates nothing.
+    pub async fn resume(self: &Arc<Self>) -> Result<(), String> {
+        let _lifecycle = self.lifecycle.lock().await;
+        let path = self.state_dir.join("enabled");
+        let enabled = tokio::task::spawn_blocking(move || saved_opt_in(&path))
+            .await
+            .map_err(|e| e.to_string())??;
+        if enabled {
+            self.start_locked().await?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn note_listener_error(&self) {
+        self.update(|snapshot| {
+            snapshot.state = "error";
+            snapshot.error = Some("The tailnet listener stopped. Start it again to retry.".into());
+        });
+    }
+
     /// Start the node without waiting for login. A saved login resumes; an
     /// unsigned node reports `needs_login` and its URL through `state`.
     pub async fn start(self: &Arc<Self>) -> Result<Snapshot, String> {
@@ -220,6 +240,10 @@ impl Controller {
 
     async fn start_detached(self: Arc<Self>) -> Result<Snapshot, String> {
         let _lifecycle = self.lifecycle.lock().await;
+        self.start_locked().await
+    }
+
+    async fn start_locked(self: &Arc<Self>) -> Result<Snapshot, String> {
         let generation;
         {
             let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
@@ -239,9 +263,12 @@ impl Controller {
         let state_dir = self.state_dir.clone();
         let hostname = self.hostname.clone();
         let node = match tokio::task::spawn_blocking(move || {
+            crate::config::private_state_dir(&state_dir).map_err(|e| e.to_string())?;
+            let enabled = state_dir.join("enabled");
             let config = NodeConfig::new(state_dir, hostname);
             let node = Node::new(&config).map_err(|error| error.0)?;
             node.start().map_err(|error| error.0)?;
+            crate::config::write_atomic(&enabled, b"1\n").map_err(|e| e.to_string())?;
             Ok::<_, String>(Arc::new(node))
         })
         .await
@@ -288,6 +315,10 @@ impl Controller {
 
     async fn logout_detached(self: Arc<Self>) -> Result<Snapshot, String> {
         let _lifecycle = self.lifecycle.lock().await;
+        let path = self.state_dir.join("enabled");
+        tokio::task::spawn_blocking(move || clear_opt_in(&path))
+            .await
+            .map_err(|e| e.to_string())??;
         {
             let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
             inner.generation = inner.generation.wrapping_add(1);
@@ -441,9 +472,65 @@ pub fn state_dir(home: &Path) -> PathBuf {
     home.join("tailnet")
 }
 
+fn saved_opt_in(path: &Path) -> Result<bool, String> {
+    match std::fs::read(path) {
+        Ok(value) => Ok(value == b"1\n"),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(error.to_string()),
+    }
+}
+
+fn clear_opt_in(path: &Path) -> Result<(), String> {
+    match std::fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error.to_string()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn tailnet_resume_does_not_create_state_without_opt_in() {
+        let temporary = tempfile::tempdir().unwrap();
+        let path = temporary.path().join("tailnet");
+        let controller = Controller::new(&path, "test");
+        controller.resume().await.unwrap();
+        assert!(controller.node().is_none());
+        assert!(!path.exists());
+    }
+
+    #[tokio::test]
+    async fn tailnet_logout_clears_opt_in_before_any_later_resume() {
+        let temporary = tempfile::tempdir().unwrap();
+        let marker = temporary.path().join("enabled");
+        std::fs::write(&marker, b"1\n").unwrap();
+        let controller = Controller::new(temporary.path(), "test");
+        controller.shutdown().await.unwrap();
+        assert!(saved_opt_in(&marker).unwrap());
+        controller.logout().await.unwrap();
+        assert!(!saved_opt_in(&marker).unwrap());
+        controller.resume().await.unwrap();
+        assert!(controller.node().is_none());
+    }
+
+    #[tokio::test]
+    async fn tailnet_resume_rechecks_opt_in_after_waiting_for_lifecycle() {
+        let temporary = tempfile::tempdir().unwrap();
+        let marker = temporary.path().join("enabled");
+        std::fs::write(&marker, b"1\n").unwrap();
+        let controller = Controller::new(temporary.path(), "test");
+        let lock = controller.lifecycle.lock().await;
+        let queued = controller.clone();
+        let resume = tokio::spawn(async move { queued.resume().await });
+        tokio::task::yield_now().await;
+        clear_opt_in(&marker).unwrap();
+        drop(lock);
+        resume.await.unwrap().unwrap();
+        assert!(controller.node().is_none());
+    }
 
     #[test]
     fn failed_logout_still_closes_the_node() {
