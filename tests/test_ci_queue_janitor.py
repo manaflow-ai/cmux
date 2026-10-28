@@ -1327,6 +1327,15 @@ class SupersededDeliveryTests(unittest.TestCase):
             with self.subTest(broken=broken):
                 self.assertFalse(self.judge({**old, "run_attempt": 1, **broken}, gate_jobs(60), [old, new])[0])
 
+    def test_a_queued_rerun_after_an_attempt_that_built_is_a_candidate(self):
+        # A re-run of a build that ran is a new build; its attempt's own jobs say whether it started.
+        old = {**nightly_run("864dceb6", 60), "run_attempt": 2}
+        built = {"name": "build-nightly-app", "status": "completed", "conclusion": "failure", "labels": [MAC],
+                 "runner_name": "mini-1", "started_at": iso(90), "completed_at": iso(80), "run_attempt": 1}
+        jobs = [built, *({**job, "run_attempt": 2} for job in gate_jobs(60))]
+        self.assertEqual(janitor.superseded_candidates([old], {old["id"]: jobs}), [old])
+        self.assertEqual(janitor.superseded_candidates([old], {old["id"]: gate_jobs(60)}), [])  # attempts unread
+
     def sweep(self, runs, jobs, *, completed=(), dry_run=False, prs=None, rejob=None, extra_runs=()):
         fake = FakeGitHub({r["id"]: dict(r) for r in [*runs, *extra_runs]}, jobs)
         fake.completed["nightly.yml"] = list(completed)

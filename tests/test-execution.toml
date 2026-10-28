@@ -777,6 +777,10 @@ path = "tests/test_ci_queue_janitor.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_delivery_workflows_cancel.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_starved_labels.py"
 lane = "linux-guard"
 
@@ -1747,6 +1751,14 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_cloud_overflow_switch.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_fast_checks_failover.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_fast_checks_receipt.py"
 lane = "linux-guard"
 
 [[test]]

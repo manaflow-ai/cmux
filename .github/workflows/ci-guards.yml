@@ -150,6 +150,14 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_cloud_overflow_switch.py
 
+      - name: Validate fast checks fail over with the overflow switch
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_fast_checks_failover.py
+
+      - name: Validate fast checks name the commit they test
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_fast_checks_receipt.py
+
       - name: Validate guard failure attribution
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_guard_attribution.py
@@ -723,6 +731,10 @@ jobs:
       - name: Validate CI queue janitor policy
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_queue_janitor.py
+
+      - name: Validate when a nightly run may be cancelled (attempts, pickers, latest-wins, known-bad)
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_delivery_workflows_cancel.py
 
       - name: Validate the starved fleet runner label alert
         if: ${{ matrix.group == 'ci' }}
