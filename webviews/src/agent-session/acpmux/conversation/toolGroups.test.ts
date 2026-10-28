@@ -11,7 +11,7 @@ import { recordedMessageBodyParseCountForTests, resetRecordedMessageBodyCacheFor
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 
 let ids = 0;
-const item = (tool: Omit<Tool, "id" | "status">): AcpmuxActivity => {
+const item = (tool: Omit<Tool, "id" | "status"> & { status?: string }): AcpmuxActivity => {
   const full = { id: `call-${(ids += 1)}`, status: "completed", ...tool };
   return { kind: "tool", text: full.title, tool: full };
 };
@@ -156,7 +156,7 @@ test("nonmutating read search fetch and MCP tools preserve recorded message bodi
   for (const observer of observers) {
     // A read that failed or is still running cannot overwrite the file or block an ordered writer.
     for (const status of ["completed", "failed", "in_progress"]) {
-      const read = item({ ...observer, ...{ status } });
+      const read = item({ ...observer, status });
       const group = toolGroups([writer, read, send]).find((entry) => entry.type === "send");
       expect(group?.type).toBe("send");
       if (group?.type === "send") expect(group.send.text).toBe("recorded body\n");
@@ -196,7 +196,7 @@ test("mutation capable and ambiguous tools still invalidate recorded message bod
   ];
   for (const mutation of mutations) {
     for (const status of ["completed", "failed", "in_progress"]) {
-      const tool = item({ ...mutation, ...{ status }, startedAt: 3, endedAt: 4 });
+      const tool = item({ ...mutation, status, startedAt: 3, endedAt: 4 });
       const group = toolGroups([writer, tool, send]).find((entry) => entry.type === "send");
       expect(group?.type).toBe("send");
       if (group?.type === "send") expect(group.send.text).toBeUndefined();
