@@ -138,9 +138,15 @@ function searchTools(deferred, query, max) {
 /** A shell with `cmux` routed to the eval session and logged; other commands run in the work dir. */
 async function runBash(sample, command) {
   const dir = sample.dir;
+  // macOS: a sandbox that blocks every cmux socket but the sample's own and writes outside its
+  // directories. Linux (the rbx builder, which runs no other cmux): plain bash; the graders'
+  // session check still catches an agent that names another socket.
+  const [exe, args] = process.platform === "darwin"
+    ? ["sandbox-exec", ["-f", join(dir, "sandbox.sb"), "bash", "-c", command]]
+    : ["bash", ["-c", command]];
   const { stdout, stderr, code } = await pexec(
-    "sandbox-exec",
-    ["-f", join(dir, "sandbox.sb"), "bash", "-c", command],
+    exe,
+    args,
     { cwd: sample.session.work, env: sample.shellEnv, timeout: 60_000, maxBuffer: 8 << 20 },
   ).then((r) => ({ ...r, code: 0 }), (e) => ({ stdout: e.stdout ?? "", stderr: e.stderr ?? String(e.message), code: e.code ?? 1 }));
   const out = `${stdout}${stderr}`.slice(0, 30_000);
