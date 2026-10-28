@@ -97,6 +97,9 @@ SKIPPED_WORKFLOW_RATIO = 0.90
 SKIPPED_WORKFLOW_MIN_RUNS = 20
 CANCELLED_MACOS_WASTE_MINUTES = 5.0
 REPEATED_FAILURE_MIN_HEADS = 3
+# The events whose head is a pull request's: its run's head_sha is the head that pull request had when
+# the event fired (for pull_request_target too, though the run executes the base's workflow).
+PULL_REQUEST_EVENTS = frozenset({"pull_request", "pull_request_target"})
 UNCHANGED_TREE_MIN_RUNS = 2
 
 START_MARKER = "<!-- ci-health-report:start -->"
@@ -244,6 +247,9 @@ class JobRow:
     branch: str
     event: str
     fork: bool
+    # The repository the head branch lives in ("" when the run does not say): with the branch, it names
+    # one pull request's head, so a fork's `main` is never this repository's.
+    head_repo: str = ""
 
 
 def never_got_a_runner(job: Mapping[str, Any]) -> bool:
@@ -296,6 +302,7 @@ def job_rows(run: Mapping[str, Any], jobs: Iterable[Mapping[str, Any]], repo: st
                 branch=str(run.get("head_branch") or ""),
                 event=str(run.get("event") or ""),
                 fork=fork,
+                head_repo=str(((run.get("head_repository") or {}).get("full_name")) or ""),
             )
         )
     return rows
@@ -455,20 +462,67 @@ class RepeatedFailure:
     branches: tuple[str, ...]
 
 
+def pull_request_heads(runs: Iterable[Mapping[str, Any]]) -> dict[tuple[str, str], str]:
+    """Each pull request branch's current head, as the window's runs show it.
+
+    Keyed by (head repository, head branch); the value is the head_sha of the
+    branch's newest pull request run (by creation, then id). A push creates its
+    runs, queued ones included, the moment it lands, so the newest run names the
+    head the pull request has now; a re-run keeps its run's creation time and
+    never makes an older head look current.
+    """
+    newest: dict[tuple[str, str], tuple[tuple[str, int], str]] = {}
+    for run in runs:
+        if run.get("event") not in PULL_REQUEST_EVENTS:
+            continue
+        branch, sha = str(run.get("head_branch") or ""), str(run.get("head_sha") or "")
+        if not branch or not sha:
+            continue
+        key = (str(((run.get("head_repository") or {}).get("full_name")) or "").lower(), branch)
+        stamp = (str(run.get("created_at") or ""), int(run.get("id") or 0))
+        if key not in newest or stamp > newest[key][0]:
+            newest[key] = (stamp, sha)
+    return {key: sha for key, (_, sha) in newest.items()}
+
+
+def superseded(row: JobRow, heads: Mapping[tuple[str, str], str]) -> bool:
+    """A pull request job whose head is no longer that pull request's head.
+
+    Its red says nothing about the pull request as it is (2026-10-28: 22 CLA
+    policy guard "identity mismatch" reds were stale events for heads already
+    replaced, and every one of those pull requests was green at its head).
+    Push and schedule runs are never superseded here: a base branch failing on
+    commit after commit is the main-broken signal itself.
+    """
+    if row.event not in PULL_REQUEST_EVENTS:
+        return False
+    head = heads.get((row.head_repo.lower(), row.branch))
+    return head is not None and head != row.head_sha
+
+
 def repeated_job_failures(
-    rows: Iterable[JobRow], min_heads: int = REPEATED_FAILURE_MIN_HEADS
+    rows: Iterable[JobRow],
+    min_heads: int = REPEATED_FAILURE_MIN_HEADS,
+    runs: Iterable[Mapping[str, Any]] | None = None,
 ) -> list[RepeatedFailure]:
     """One job failing across unrelated heads: main is broken, not a PR.
 
     Grouping by head SHA is what makes it a main signal. A single PR failing
     the same job ten times is one author's problem; the same job failing on
     heads that share nothing is everybody's.
+
+    With `runs` (the window's runs), a pull request failure counts only at that
+    pull request's current head (`superseded`): one pull request pushed four
+    times is one head, not four.
     """
+    current = pull_request_heads(runs) if runs is not None else {}
     heads: dict[tuple[str, str], set[str]] = defaultdict(set)
     branches: dict[tuple[str, str], set[str]] = defaultdict(set)
     counts: dict[tuple[str, str], int] = defaultdict(int)
     for row in rows:
         if row.bucket != "failure":
+            continue
+        if superseded(row, current):
             continue
         key = (row.workflow, row.job)
         heads[key].add(row.head_sha)
@@ -1063,8 +1117,10 @@ def render_report(
         lines.append("_None in the sample._")
     lines.append("")
 
-    repeated = repeated_job_failures(current.rows)
+    repeated = repeated_job_failures(current.rows, runs=current.runs)
     lines.append(f"**Same job failing across ≥{REPEATED_FAILURE_MIN_HEADS} unrelated heads (main-broken signal)**")
+    lines.append("")
+    lines.append("_A pull request's failure counts only at its current head._")
     lines.append("")
     if repeated:
         lines.append("| Workflow / job | distinct heads | failures | branches |")

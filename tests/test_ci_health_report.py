@@ -248,6 +248,63 @@ class WastePatternTests(unittest.TestCase):
         one_head = [row for row in self.rows if row.head_sha == "bbb2bbb2bbb2"] * 5
         self.assertEqual(report.repeated_job_failures(one_head), [])
 
+    def test_a_failure_at_a_superseded_pull_request_head_is_not_counted(self):
+        # feature-c and feature-d were each pushed again: their failures are at heads the pull
+        # requests no longer have, so only feature-b's failure (still its head) is left.
+        newer = [
+            dict(run, id=run["id"] + 100, head_sha=run["head_sha"][::-1], conclusion="success",
+                 created_at="2026-09-22T17:50:00Z")
+            for run in self.fixture["runs"] if run["head_branch"] in ("feature-c", "feature-d")
+        ]
+        runs = self.fixture["runs"] + newer
+        self.assertEqual(report.repeated_job_failures(self.rows, runs=runs), [])
+        self.assertEqual(report.repeated_job_failures(self.rows, min_heads=1, runs=runs)[0].heads, 1)
+
+    def test_a_failure_still_at_each_pull_requests_head_counts(self):
+        repeated = report.repeated_job_failures(self.rows, runs=self.fixture["runs"])
+        self.assertEqual([(item.job, item.heads) for item in repeated], [("macOS / app-host tests", 3)])
+
+    def test_a_stale_pull_request_target_event_is_not_counted(self):
+        # The CLA policy guard shape: a pull_request_target run for a head already replaced
+        # fails ("identity mismatch") while the newer head's run passes.
+        base = self.fixture["runs"][2]
+        runs, rows = [], []
+        for n, branch in enumerate(("pr-1", "pr-2", "pr-3")):
+            stale = dict(base, id=5000 + n, event="pull_request_target", head_branch=branch,
+                         head_sha=f"old{n}", path=".github/workflows/cla-policy-guard.yml",
+                         created_at="2026-09-22T16:00:00Z", conclusion="failure")
+            fresh = dict(stale, id=6000 + n, head_sha=f"new{n}", created_at="2026-09-22T16:01:00Z",
+                         conclusion="success")
+            runs += [stale, fresh]
+            job = {"name": "CLA policy guard", "labels": [LINUX], "status": "completed",
+                   "created_at": "2026-09-22T16:00:00Z", "started_at": "2026-09-22T16:00:10Z",
+                   "completed_at": "2026-09-22T16:00:40Z"}
+            rows += report.job_rows(stale, [dict(job, conclusion="failure")], REPO)
+            rows += report.job_rows(fresh, [dict(job, conclusion="success")], REPO)
+        self.assertEqual(report.repeated_job_failures(rows, runs=runs), [])
+        # Without the runs (no head to compare with), every failure still counts, as before.
+        self.assertEqual(report.repeated_job_failures(rows)[0].heads, 3)
+
+    def test_base_branch_failures_across_commits_still_count(self):
+        base = self.fixture["runs"][5]
+        runs = [dict(base, id=7000 + n, head_sha=f"main{n}", created_at=f"2026-09-22T1{n}:00:00Z",
+                     conclusion="failure") for n in range(3)]
+        job = {"name": "build", "labels": [LINUX], "status": "completed", "conclusion": "failure",
+               "created_at": "2026-09-22T10:00:00Z", "started_at": "2026-09-22T10:00:10Z",
+               "completed_at": "2026-09-22T10:05:00Z"}
+        rows = [row for run in runs for row in report.job_rows(run, [job], REPO)]
+        self.assertEqual(report.repeated_job_failures(rows, runs=runs)[0].heads, 3)
+
+    def test_a_forks_branch_is_not_this_repositorys_branch_of_the_same_name(self):
+        heads = report.pull_request_heads([
+            {"event": "pull_request", "head_branch": "main", "head_sha": "fork1", "id": 1,
+             "created_at": "2026-09-22T16:00:00Z", "head_repository": {"full_name": "outsider/cmux"}},
+            {"event": "pull_request", "head_branch": "main", "head_sha": "ours1", "id": 2,
+             "created_at": "2026-09-22T17:00:00Z", "head_repository": {"full_name": REPO}},
+        ])
+        self.assertEqual(heads[("outsider/cmux", "main")], "fork1")
+        self.assertEqual(heads[(REPO.lower(), "main")], "ours1")
+
     def test_a_workflow_whose_runs_are_all_skipped_is_surfaced(self):
         skipped = report.mostly_skipped_workflows(self.fixture["runs"], min_runs=5)
         self.assertEqual([item.workflow for item in skipped], ["docs-channels.yml"])
