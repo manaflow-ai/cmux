@@ -202,7 +202,9 @@ final class WorkspacesHeightCache {
 final class WorkspacesListCell: UICollectionViewCell {
     var heights: WorkspacesHeightCache?
     var key: WorkspacesHeightCache.Key?
-    /// A hairline under a row, from the rows' text column to their trailing inset.
+    /// The plain list's separator end, from the trailing edge.
+    static let separatorTrailing: CGFloat = 16
+    /// A hairline under a row, from the rows' text column to 16 pt from the trailing edge.
     var showsSeparator = false {
         didSet { hairline.isHidden = !showsSeparator }
     }
@@ -225,7 +227,9 @@ final class WorkspacesListCell: UICollectionViewCell {
         let height: CGFloat = 1
         let size = DynamicTypeSize(traitCollection.preferredContentSizeCategory) ?? .large
         let leading = CmuxMobileListColumn.plain(size).text
-        hairline.frame = CGRect(x: leading, y: bounds.height - height, width: max(0, bounds.width - leading - 20), height: height)
+        // To 16 pt from the trailing edge, where the plain list's separator ended
+        // (measured: 1062 px from x = 96 px at 3x, 48 px short of the edge).
+        hairline.frame = CGRect(x: leading, y: bounds.height - height, width: max(0, bounds.width - leading - Self.separatorTrailing), height: height)
         bringSubviewToFront(hairline)
     }
 
