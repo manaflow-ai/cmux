@@ -34,6 +34,20 @@ import Testing
         #expect(session.daemonFailure == nil)
     }
 
+    @Test @MainActor func reconnectOnAHealthyConnectedLinkDoesNotStartARecoveryAttempt() throws {
+        let host = try SSHHost(destination: SSHDestination(parsing: "nohost.invalid"))
+        let session = SSHMachineSession(host: host, binary: URL(fileURLWithPath: "/usr/bin/false"),
+                                        paths: SSHPaths(root: URL(fileURLWithPath: "/private/tmp/remote-recovery-tests")),
+                                        environment: { [:] }, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
+        session.linkStatus = .connected
+        session.daemon.noteStartupFailure(.binaryNotFound(searched: ["/usr/bin/false"]))
+        let service = SSHService(machines: MachineRegistry(local: DaemonService()), bundleID: nil,
+                                 mainWork: MainWorkScheduler(budget: MainFrameBudget()))
+        service.reconnect(session)
+        #expect(session.connectionAttemptID == 0)
+        #expect(session.daemon.startup.isUnavailable)
+    }
+
     @Test func aRetryChangesTheDaemonObservationForAnIdenticalFailure() {
         let failure = DaemonStartupState.unavailable(.timedOut("daemon handshake"))
         let first = SSHMachineSession.daemonObservationKey(startup: failure, attemptID: 1)
