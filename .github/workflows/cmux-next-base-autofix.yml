@@ -7,7 +7,8 @@ name: cmux-next base autofix
 # generated-files job's tools), every React page's generated/strings.json
 # (webviews/scripts/pages/gen-strings.mjs), the SDK wire layers
 # (cmux-tui/bindings/codegen/generate.py), the docs shortcuts copy of the
-# action catalog export (web/scripts/export-docs-shortcuts.ts), the app-host
+# action catalog export (web/scripts/export-docs-shortcuts.ts) and the cmux-next
+# docs reference pages (web/scripts/export-next-docs.ts), the app-host
 # generated files (cmux-tui/crates/cmux-app-host/tools/gen-cmux-global.ts), the namespace
 # daemon capability export (scripts/cmux-next/check-daemon-capabilities-fresh.py), the
 # ratchet's stale rows (scripts/lint-namespace-types-ratchet.txt), the cloud
@@ -82,6 +83,7 @@ on:
       - docs/mdm/**
       - scripts/ci/defaults_guard.py
       - web/scripts/export-docs-shortcuts.ts
+      - web/scripts/export-next-docs.ts
       # The app-host generated files (base-autofix.sh --app-host).
       - cmux-tui/spec/resource-operations-v2.json
       - first-party-apps/**

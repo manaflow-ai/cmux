@@ -1,0 +1,54 @@
+{
+  "id": "routing-follow-up-tells-finished-owner",
+  "group": "routing",
+  "owner": "a680",
+  "about": "A follow-up on work an agent finished goes back to that agent (tell runs an idle one again, with its context and workspace), not to a new agent in a new workspace.",
+  "history": [
+    {
+      "kind": "user",
+      "text": "fix the white flash when cmux restarts"
+    },
+    {
+      "kind": "talk",
+      "text": "a12 is on it: [Fix restart white flash](cmux://workspace/ws_9f3a1c2e)."
+    },
+    {
+      "kind": "work",
+      "text": "[a12] Landed the restart flash fix on feat-cmux-next (3e1f0a2..9b7c4d1): the window now paints the theme background before the first frame. Test: RestartFlashTests (red before, green after)."
+    },
+    {
+      "kind": "talk",
+      "text": "a12 landed the restart flash fix: 3e1f0a2..9b7c4d1, in [Fix restart white flash](cmux://workspace/ws_9f3a1c2e)."
+    }
+  ],
+  "stubs": [
+    {
+      "cmd": "control",
+      "match": "status",
+      "stdout": "outcome: done.\n- a12 [idle] Fix restart white flash: done, reported. [Fix restart white flash](cmux://workspace/ws_9f3a1c2e)"
+    }
+  ],
+  "turns": [
+    {
+      "text": "still flashes for me when i open a second window",
+      "checks": [
+        {
+          "type": "called",
+          "cmd": "tell",
+          "re": "a12"
+        },
+        {
+          "type": "not_called",
+          "cmd": "spawn"
+        },
+        {
+          "type": "posted"
+        },
+        {
+          "type": "max_words",
+          "n": 30
+        }
+      ]
+    }
+  ]
+}

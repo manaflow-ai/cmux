@@ -34,12 +34,14 @@ mod inbox;
 pub mod media;
 mod mux_ack;
 mod outbox;
+mod outcome_ledger;
 mod previews;
 mod prewarm;
 pub mod reaction_wake;
 mod recover;
 mod replies;
 mod reply_ledger;
+pub use outcome_ledger::UNTOLD_TAG;
 pub use reply_ledger::{MAX_REPLY_TRIES, NO_REPLY_TAG, REPLY_RETRY_WAITS};
 mod send;
 mod side;
@@ -1090,6 +1092,14 @@ impl Brain {
         self.sub_close_on_finish = close;
     }
 
+    /// Moves subagent `id`'s run start back by `by` (tests of how long a run
+    /// took; no production caller).
+    pub fn backdate_sub_run(&mut self, id: &str, by: std::time::Duration) {
+        if let Some(sub) = self.state.sub_mut(id) {
+            sub.run_ms = sub.run_ms.saturating_sub(by.as_millis() as u64);
+        }
+    }
+
     /// Auto-resume of subagents that stop on an error (None: off), and the
     /// probe a network stop waits on.
     pub fn set_auto_resume(
@@ -1245,6 +1255,7 @@ impl Brain {
                 self.next_wake(),
                 self.next_unanswered_due(),
                 self.next_reply_due(),
+                self.next_outcome_due(),
             ]
             .into_iter()
             .flatten()
@@ -1256,6 +1267,7 @@ impl Brain {
                         self.on_timer();
                         self.fire_wakes_at(now_ms());
                         self.fire_reply_checks_at(now_ms());
+                        self.fire_outcome_checks_at(now_ms());
                         let now = (self.clock)();
                         self.deny_overdue_permissions_at(now);
                         continue;

@@ -206,6 +206,8 @@ extension ConversationViewController {
         let overlay = ReplyThreadOverlay(frame: view.bounds)
         overlay.onClose = { [weak self] in self?.exitReplyMode() }
         view.insertSubview(overlay, belowSubview: composerContainer)
+        // The thread's own interactive dismissal moves the composer too.
+        keyboardDock.trackInteractiveDismissal(of: overlay.content)
         populate(overlay, rootID: rootID)
         composer.isReplyMode = true
         // Messages drops the back button at once and shows the X as the

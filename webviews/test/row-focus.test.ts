@@ -19,8 +19,14 @@ await requireBrowserLane("row-focus.test.ts", async () => {
     .map((file) => fs.readFileSync(path.join(source, file), "utf8"))
     .join("\n");
 
-  // The agent pane: desktop.css first, then the pane's own sheets (agent-session/acpmux/main.tsx).
-  const paneCss = ["pages/shared/desktop.css", "agent-session/shared/styles.css", "agent-session/acpmux/styles.css"]
+  // The agent pane: desktop.css first, then the pane's own sheets (agent-session/acpmux/main.tsx),
+  // then the question card's own, which its component imports (a4eff4c722b2 moved its rows there).
+  const paneCss = [
+    "pages/shared/desktop.css",
+    "agent-session/shared/styles.css",
+    "agent-session/acpmux/styles.css",
+    "agent-session/acpmux/question/questionCard.css",
+  ]
     .map((file) => fs.readFileSync(path.join(source, file), "utf8"))
     .join("\n");
 

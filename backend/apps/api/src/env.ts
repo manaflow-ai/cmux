@@ -3,6 +3,7 @@ import type { ConversationDO } from "./conversation-do.ts"
 import type { MuxDO } from "./mux-do.ts"
 import type { ChiefBrainDO } from "./chief-brain/brain-do.ts"
 import type { OpencodeBrainDO } from "./chief-brain-opencode/brain-do.ts"
+import type { ChiefDurableDO } from "./chief-durable/durable-do.ts"
 import type { AccountIndexDO } from "./account-index-do.ts"
 import type { DomainDO } from "./domain-do.ts"
 import type { PairingDO } from "./pairing-do.ts"
@@ -19,6 +20,8 @@ import type { FreeDeviceDO } from "./inference/free-device-do.ts"
 import type { AutomationRunParams, SchedulerDO } from "./scheduler-do.ts"
 import type { TeamDO } from "./team-do.ts"
 import type { UserDO } from "./user-do.ts"
+import type { HandoffDO } from "./handoffs/handoff-do.ts"
+import type { HandoffIndexDO } from "./handoffs/index-do.ts"
 
 export interface Env {
   /** production | staging | development | preview | test */
@@ -42,6 +45,9 @@ export interface Env {
   readonly FEED_DO: DurableObjectNamespace<FeedDO>
   /** One AccountIndexDO per provider account key: which team connections a webhook goes to. */
   readonly ACCOUNT_INDEX_DO: DurableObjectNamespace<AccountIndexDO>
+  /** Cloud work mode's hand-offs (handoffs/): one HandoffDO per handed-off session, one HandoffIndexDO per owner. Unbound in production until hand-off ships there. */
+  readonly HANDOFF_DO?: DurableObjectNamespace<HandoffDO>
+  readonly HANDOFF_INDEX_DO?: DurableObjectNamespace<HandoffIndexDO>
   /** One DomainDO per lowercased email domain: which team verified it (enterprise SSO). */
   readonly DOMAIN_DO: DurableObjectNamespace<DomainDO>
   /** Workers rate limit for unauthenticated sign-in discovery (30 per minute per client IP). */
@@ -120,6 +126,9 @@ export interface Env {
   readonly CLOUD_VM_API_IMAGE_REVISION?: string
   /** The https API origin written into each VM's bind file (the image's bind agent calls it). */
   readonly CLOUD_API_ORIGIN?: string
+  /** Prepaid credits top-up range in USD (paid-plans-DESIGN.md §6.2); defaults 5 and 2500. */
+  readonly CREDITS_TOPUP_MIN_USD?: string
+  readonly CREDITS_TOPUP_MAX_USD?: string
   /** Secret: the operator key for /v1/admin/cloud/abandoned/clear (also needs a person's session token). */
   readonly CLOUD_ADMIN_KEY?: string
   /** Comma-separated user ids who may use the Cloud admin routes (with CLOUD_ADMIN_KEY and their own verified session). */
@@ -135,6 +144,8 @@ export interface Env {
   readonly CLOUD_ALLOWED_TEAMS?: string
   /** Var: "on" = Cloud machine limits follow the team's paid plan (cloud-entitlements.ts); anything else = off (stub plan only). Production stays off until go-live. */
   readonly CLOUD_PLAN_ENTITLEMENTS?: string
+  /** Var: "on" = PlatformMachines (platform-machines.ts) answers bound Workers; anything else refuses every call. Development only today. */
+  readonly PLATFORM_MACHINES?: string
   /**
    * Secret: link-token signing keys (LINK-TOKEN-FORMAT) as JSON {active: kid, keys: {kid: private Ed25519 JWK}}, at most 2 kids.
    * Per environment; never logged, never in a response, error, event or storage. Without it bind and link_token refuse.
@@ -303,6 +314,10 @@ export interface Env {
   readonly OPENCODE_BRAIN_DO?: DurableObjectNamespace<OpencodeBrainDO>
   /** "1": a Chief's owner may pick the opencode brain (`brain_impl`); MuxDO sends that Chief's wakes there only. */
   readonly CHIEF_OPENCODE_ENABLED?: string
+  /** One ChiefDurableDO per Chief conversation: Cloud Chief D (chief-durable/, pi-durable). Absent: D is off. */
+  readonly CHIEF_DURABLE_DO?: DurableObjectNamespace<ChiefDurableDO>
+  /** "1": a Chief may pick brain_impl "durable" and its wakes go to D (with CHIEF_DURABLE_DO bound). */
+  readonly CHIEF_DURABLE_ENABLED?: string
   /** "1": the deployment has the brain container image bound to OpencodeBrainDO. */
   readonly CHIEF_OPENCODE_CONTAINER?: string
   /** "1": test-only fault hooks (chief-fault.ts) for the crash-mid-turn conformance case; ignored on staging and production. */
@@ -473,6 +488,6 @@ export interface Env {
   readonly PROJECTION_PRIMARY?: string
   /** Projection shadow during dual write: "mysql" or "postgres"; unset = none. */
   readonly PROJECTION_SHADOW?: string
-  /** Where projection reads (home.search, feed sweep) go: "postgres" (default) or "mysql". */
+  /** Where projection reads (home.search, feed sweep) go: "postgres" (default), "shadow" (Postgres answers, MySQL compared per read) or "mysql". */
   readonly PROJECTION_READS?: string
 }

@@ -44,7 +44,7 @@ fn agent_socket_clients_never_stop_the_worker() {
     result.unwrap().unwrap();
 }
 
-/// A `github_token` line is answered on its own connection; an unbound
+/// A `github_token` or `handoff_report` line is answered on its own connection; an unbound
 /// machine and a malformed ask are refusals, and the worker keeps going.
 #[test]
 fn github_token_asks_get_one_reply_line() {
@@ -80,6 +80,13 @@ fn github_token_asks_get_one_reply_line() {
         "{\"github_token\": {\"repo\": \"no-slash\", \"permissions\": {\"contents\": \"read\"}}}\n",
     );
     assert_eq!(invalid["error"]["code"], "request.invalid");
+    // A hand-off report (acpmux, `daemon/cloud_handoff.rs`) is answered the same way.
+    let report =
+        ask("{\"handoff_report\": {\"session\": \"s1\", \"turn\": 1, \"status\": \"running\"}}\n");
+    assert_eq!(report["error"]["code"], "vm.unbound");
+    let bad =
+        ask("{\"handoff_report\": {\"session\": \"s1\", \"turn\": 0, \"status\": \"running\"}}\n");
+    assert_eq!(bad["error"]["code"], "request.invalid");
     let mut control = ours;
     control.write_all(b"stop\n").unwrap();
     let result = thread.join();

@@ -1,0 +1,39 @@
+:root {
+  color-scheme: light dark;
+  --bg: Canvas;
+  --fg: CanvasText;
+  --line: color-mix(in srgb, CanvasText 15%, transparent);
+  --soft: color-mix(in srgb, CanvasText 6%, transparent);
+  font: 13px/1.45 -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); height: 100vh; display: flex; flex-direction: column; }
+header { display: flex; gap: 16px; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.title { display: flex; gap: 8px; align-items: center; }
+.controls { display: flex; gap: 6px; align-items: center; flex: 1; flex-wrap: wrap; }
+button { font: inherit; padding: 4px 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--soft); color: inherit; cursor: pointer; }
+button[aria-pressed="true"] { background: color-mix(in srgb, #ff453a 25%, transparent); }
+.muted { opacity: 0.65; }
+.rec { color: #ff453a; }
+body.paused .rec { color: #8e8e93; }
+main { flex: 1; display: grid; grid-template-columns: 1fr 380px; min-height: 0; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px; padding: 8px; align-content: start; overflow: auto; }
+.tile { position: relative; background: #000; border-radius: 8px; overflow: hidden; aspect-ratio: 16 / 10; }
+.tile video { width: 100%; height: 100%; object-fit: cover; }
+.tile .name { position: absolute; left: 8px; bottom: 6px; color: #fff; text-shadow: 0 1px 2px #000; }
+.tile.ai { display: grid; place-items: center; background: var(--soft); color: inherit; }
+.tile.ai .name { color: inherit; text-shadow: none; }
+aside { border-left: 1px solid var(--line); overflow: auto; padding: 0 12px 12px; }
+h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; opacity: 0.6; margin: 14px 0 6px; }
+ol { list-style: none; margin: 0; padding: 0; }
+.transcript { max-height: 38vh; overflow: auto; }
+.transcript li { padding: 2px 0; }
+.transcript .who { font-weight: 600; margin-right: 4px; }
+.transcript .screen { opacity: 0.55; font-style: italic; }
+.tasks li { border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; margin-bottom: 6px; }
+.tasks .state { float: right; opacity: 0.65; }
+.tasks .quote { opacity: 0.65; font-style: italic; }
+.memory { max-height: 30vh; overflow: auto; white-space: pre-wrap; font: 11px/1.4 ui-monospace, SFMono-Regular, monospace; background: var(--soft); padding: 8px; border-radius: 6px; }
+.error { position: fixed; bottom: 8px; left: 8px; right: 8px; background: #ff453a; color: #fff; padding: 6px 10px; border-radius: 6px; margin: 0; }
+@media (prefers-reduced-motion: no-preference) { body:not(.paused) .rec { animation: pulse 2s infinite; } }
+@keyframes pulse { 50% { opacity: 0.35; } }

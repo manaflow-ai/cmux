@@ -38,6 +38,8 @@ let package = Package(
         .package(path: "../../vendor/stack-auth-swift-sdk-prerelease"),
         // Safari-style tabs (workspaces) and the Messages-style conversation (Chief).
         .package(path: "../../Packages/iOS/CmuxTabsKit"),
+        // The classic app's composer dictation, shared as-is (terminal composer mic).
+        .package(path: "../../Packages/iOS/CmuxMobileSupport"),
         .package(path: "../../Packages/iOS/CmuxConversation"),
         // The agents' brand marks (Claude, Codex), shared with the Mac app.
         .package(path: "../../Packages/Shared/CmuxAgentBrands"),
@@ -62,7 +64,7 @@ let package = Package(
         ),
         .target(name: "CmuxMobileTransport", dependencies: [.target(name: "CmuxMobileLinkFFI", condition: .when(platforms: [.iOS]))]),
         // Markdown: native block renderer for transcripts, WKWebView renderer (pooled) for the Feed and math.
-        .target(name: "CmuxMobileMarkdown", dependencies: ["CmuxMobileDesign"], resources: [.copy("Resources/web")]),
+        .target(name: "CmuxMobileMarkdown", dependencies: ["CmuxMobileDesign", "CmuxMobileModel"], resources: [.copy("Resources/web")]),
         // Diff model (line + word diff, unified parser) and the GitHub-mobile-style viewer.
         .target(name: "CmuxMobileDiff", dependencies: ["CmuxMobileDesign"]),
         // Session artifacts: the reference model and extractor, sources (mock, inline, the Mac's `file`
@@ -73,6 +75,7 @@ let package = Package(
             "CmuxMobileDesign", "CmuxMobileModel", "CmuxMobileMarkdown", "CmuxMobileDiff", "CmuxMobileArtifacts", "CmuxMobileTransport",
             .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
             .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
+            .product(name: "CmuxMobileSupport", package: "CmuxMobileSupport", condition: .when(platforms: [.iOS])),
         ]),
         .target(name: "CmuxMobileFeed", dependencies: [
             "CmuxMobileDesign", "CmuxMobileModel", "CmuxMobileMarkdown", "CmuxMobileAgentChat",
@@ -108,6 +111,7 @@ let package = Package(
             .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
             .product(name: "CmuxConversationCore", package: "CmuxConversation"),
             .product(name: "CmuxConversationUI", package: "CmuxConversation", condition: .when(platforms: [.iOS])),
+            .product(name: "CmuxMobileSupport", package: "CmuxMobileSupport", condition: .when(platforms: [.iOS])),
         ]),
         // Live data: device registry, presence, the Mac link state machine, the
         // daemon tree, acpmux chats, Feed events and Chief over the link.
@@ -122,7 +126,11 @@ let package = Package(
             name: "CmuxMobileTerminal",
             // libghostty ships for iOS only here; macOS `swift test` builds the
             // portable parts (session, detector, extractor, input) without it.
-            dependencies: ["CmuxMobileDesign", "CmuxMobileArtifacts", "CmuxMobileTransport", .product(name: "CmuxGhosttyKit", package: "CmuxGhosttyKit", condition: .when(platforms: [.iOS]))]
+            dependencies: [
+                "CmuxMobileDesign", "CmuxMobileArtifacts", "CmuxMobileTransport",
+                .product(name: "CmuxGhosttyKit", package: "CmuxGhosttyKit", condition: .when(platforms: [.iOS])),
+                .product(name: "CmuxMobileSupport", package: "CmuxMobileSupport", condition: .when(platforms: [.iOS])),
+            ]
         ),
         // Live Chief calls, portable part: the Realtime API's events and session config, the call's
         // state machine and tools, the OpenAI key in the Keychain (Foundation and Security only).
@@ -152,6 +160,7 @@ let package = Package(
                 "CmuxMobileAgentChat", "CmuxMobileFeed", "CmuxMobileTransport", "CmuxMobileWorkspaces", "CmuxMobileChief", "CmuxMobileLive", "CmuxMobileTerminal",
                 "CmuxMobileBrowserStream", "CmuxMobileNotifications", "CmuxMobileVoice", "CmuxMobileRealtime",
                 .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
+                .product(name: "CmuxMobileSupport", package: "CmuxMobileSupport", condition: .when(platforms: [.iOS])),
             ]
         ),
         .testTarget(name: "CmuxMobileRealtimeTests", dependencies: ["CmuxMobileRealtime"]),
@@ -165,6 +174,7 @@ let package = Package(
         .testTarget(name: "CmuxMobileLiveTests", dependencies: [
             "CmuxMobileLive", "CmuxMobileNotifications", "CmuxMobileTransport", "CmuxMobileModel", "CmuxMobileAgentChat", "CmuxMobileFeed", "CmuxMobileTerminal", "CmuxMobileDesign",
             .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
+            .product(name: "CmuxConversationCore", package: "CmuxConversation"),
         ]),
         .testTarget(name: "CmuxMobileShellTests", dependencies: ["CmuxMobileShell", "CmuxMobileNotifications", "CmuxMobileModel", "CmuxMobileLive", "CmuxMobileDesign"]),
         .testTarget(name: "CmuxMobileOnboardingTests", dependencies: ["CmuxMobileOnboarding"]),

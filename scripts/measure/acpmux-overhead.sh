@@ -34,6 +34,12 @@
 # missed the pool or a run failed.
 #   cmux-ci run --class exclusive --script scripts/measure/acpmux-overhead.sh --ref SHA \
 #     --arg=bench=prewarm [--arg=n=20] [--arg=before=SHA] --timeout 5400
+#
+# bench=hibernate: an idle chat's hibernation (acpmux hub/idle.rs): n chats per harness on screen,
+# one turn each, 135 s idle, then whether their agent processes (host, harness, MCP servers) still
+# run and the next prompt's time to its first answer text. With before=SHA both builds run.
+#   cmux-ci run --class exclusive --script scripts/measure/acpmux-overhead.sh --ref SHA \
+#     --arg=bench=hibernate --arg=harness=claude,codex [--arg=n=4] [--arg=before=SHA] --timeout 5400
 set -euo pipefail
 n=20
 harness="claude,codex,opencode"
@@ -63,9 +69,32 @@ for v in "$claude_version" "$codex_version" "$opencode_version"; do
   [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "acpmux-overhead.sh: versions are X.Y.Z" >&2; exit 2; }
 done
 [[ "$guard_ms" =~ ^[0-9]{1,4}$ ]] || { echo "acpmux-overhead.sh: guard_ms is a number" >&2; exit 2; }
-[[ "$bench" =~ ^(harness|daemon|prewarm)$ ]] || { echo "acpmux-overhead.sh: bench=harness, daemon or prewarm" >&2; exit 2; }
+[[ "$bench" =~ ^(harness|daemon|prewarm|hibernate)$ ]] || { echo "acpmux-overhead.sh: bench=harness, daemon, prewarm or hibernate" >&2; exit 2; }
+# Every tool this bench always calls, checked before anything runs, so a worker without one says
+# which at once instead of failing after a build (cmux20-bench had no npm). Build tools are checked
+# where a build happens: cargo for the cmux fallback below, cargo and rustup in build-acpmux.sh when
+# no acpmux is cached, so a worker with cached builds is never refused for lacking them.
+need_tools() {  # need_tools WHAT TOOL...: exit 2 naming every TOOL not on PATH.
+  local what="$1" tool missing=()
+  shift
+  for tool in "$@"; do command -v "$tool" >/dev/null 2>&1 || missing+=("$tool"); done
+  (( ${#missing[@]} == 0 )) && return 0
+  echo "ACPMUX-OVERHEAD-MISSING-TOOL ${missing[*]}: $what needs $* on PATH; run the step on a worker that has them" >&2
+  exit 2
+}
+if [[ "$bench" == daemon ]]; then
+  need_tools "bench=daemon" git sysctl sw_vers cargo
+elif [[ "$bench" == hibernate ]]; then
+  # Hibernation counts the agent's processes with ps (acpmux-overhead-bench.py).
+  need_tools "bench=hibernate" git sysctl sw_vers curl shasum awk python3 npm ps
+else
+  need_tools "bench=$bench" git sysctl sw_vers curl shasum awk python3 npm
+fi
 root="$(git rev-parse --show-toplevel)"
 cd "$root"
+# Where before= is fetched from: a cmux-ci step tree has no `origin` remote, so origin's URL when
+# there is one, else the repository's own URL.
+fetch_url="${ACPMUX_OVERHEAD_FETCH_URL:-$(git remote get-url origin 2>/dev/null || echo https://github.com/manaflow-ai/cmux.git)}"
 work="$root/.build/acpmux-overhead"
 rm -rf "$work"
 mkdir -p "$work/bin" "$work/tools"
@@ -100,7 +129,7 @@ if [[ "$bench" == daemon ]]; then
   if [[ -n "$before" ]]; then
     depth=()
     [[ "$(git rev-parse --is-shallow-repository)" == true ]] && depth=(--depth 1)
-    git fetch -q ${depth[@]+"${depth[@]}"} origin "$before"
+    git fetch -q ${depth[@]+"${depth[@]}"} "$fetch_url" "$before"
     git worktree add -q --detach "$work/before-src" "$before"
     trap 'git -C "$root" worktree remove --force "$work/before-src" 2>/dev/null || true' EXIT
     perf before "$work/before-src" || before_rc=$?
@@ -129,6 +158,7 @@ if curl -fsSL --proto '=https' "$tree/cmux-tui-aarch64-apple-darwin" -o "$work/c
   sum="$(curl -fsSL --proto '=https' "$tree/cmux-tui-aarch64-apple-darwin.sha256" | awk '{print $1}')"
   [[ "$(shasum -a 256 "$work/cmux" | awk '{print $1}')" == "$sum" ]] || { echo "ACPMUX-OVERHEAD cmux sha256 mismatch ($key)" >&2; exit 1; }
 else
+  need_tools "the cmux build (no published cmux-tui tree for $key)" cargo
   (cd cmux-tui && CARGO_TARGET_DIR="$work/target" cargo build --release --locked -p cmux-tui)
   cp "$work/target/release/cmux-tui" "$work/cmux"
 fi
@@ -140,7 +170,7 @@ if [[ -n "$before" ]]; then
   # --depth only in an already-shallow checkout; it would make a full clone shallow.
   depth=()
   [[ "$(git rev-parse --is-shallow-repository)" == true ]] && depth=(--depth 1)
-  git fetch -q ${depth[@]+"${depth[@]}"} origin "$before"
+  git fetch -q ${depth[@]+"${depth[@]}"} "$fetch_url" "$before"
   git worktree add -q --detach "$work/before-src" "$before"
   trap 'git -C "$root" worktree remove --force "$work/before-src" 2>/dev/null || true' EXIT
   (cd "$work/before-src" && git submodule update --init --depth 1 ghostty-next && scripts/cmux-next/build-acpmux.sh --output "$work/before/acpmux")
@@ -155,11 +185,18 @@ echo "ACPMUX-OVERHEAD-BIN claude $(claude --version) codex $(codex --version) op
 status=0
 mode=overhead
 [[ "$bench" == prewarm ]] && mode=prewarm
+[[ "$bench" == hibernate ]] && mode=hibernate
 run() {
   local label="$1" bin="$2"
   python3 -I scripts/cmux-next/acpmux-overhead-bench.py --acpmux "$bin" --harness "$harness" -n "$n" --mode "$mode" \
     --label "$label" --json "$work/$label.json" --md "$work/table.md" 2> "$work/$label.log" | sed "s/^/ACPMUX-OVERHEAD /"
 }
+if [[ "$bench" == hibernate ]]; then
+  [[ -n "$before" ]] && run before "$work/before/acpmux"
+  run after "$work/after/acpmux"
+  tail -n 20 "$work/after.log" | sed "s/^/ACPMUX-OVERHEAD-LOG /"
+  exit 0
+fi
 if [[ "$bench" == prewarm ]]; then
   [[ -n "$before" ]] && run before "$work/before/acpmux"
   run after "$work/after/acpmux"
