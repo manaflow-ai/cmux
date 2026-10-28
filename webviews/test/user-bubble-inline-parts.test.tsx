@@ -56,6 +56,10 @@ const { TurnActionsContext } = await import("../src/agent-session/acpmux/convers
 const { clearImageEntries } = await import("../src/agent-session/acpmux/conversation/imageEntries");
 const { ImageViewerContext } = await import("../src/agent-session/acpmux/conversation/imageViewerContext");
 
+const { setComposerSettings } = await import("../src/agent-session/acpmux/composerSettings");
+const { resetTranscriptDisclosure } = await import("../src/agent-session/acpmux/conversation/transcriptDisclosure");
+const { translate } = await import("../src/agent-session/acpmux/i18n");
+
 const host = dom.window.document.getElementById("root")!;
 const root = createRoot(host);
 type Row = Parameters<typeof UserBubble>[0]["row"];
@@ -121,6 +125,66 @@ try {
     );
     expect(host.querySelector("[data-inline-content]")).not.toBeNull();
     expect(host.textContent).not.toContain("shot-original.heic");
+  });
+  for (const attachmentView of ["inline", "strip"] as const) {
+    test(`${attachmentView}: a 2,000-line interleaved prompt folds and toggles without losing its order`, async () => {
+      resetTranscriptDisclosure();
+      await act(async () => setComposerSettings({ attachmentView }));
+      const text = Array.from({ length: 2000 }, (_, index) => `line ${index + 1}`).join("\n");
+      await render(
+        prompt(`long-${attachmentView}`, `before\n${text}\nafter`, [
+          { kind: "text", text: "before\n" },
+          { kind: "image", id: "first", mimeType: "image/png", name: "first.png" },
+          { kind: "text", text },
+          { kind: "image", id: "second", mimeType: "image/png", name: "second.png" },
+          { kind: "text", text: "\nafter" },
+        ]),
+      );
+      const body = host.querySelector<HTMLElement>(".cv-user__text")!;
+      const toggle = () => host.querySelector<HTMLButtonElement>(".cv-user__more")!;
+      const order = () =>
+        [...host.querySelectorAll<HTMLElement>("[data-inline-content] > *")].map(
+          (node) => node.querySelector("img")?.getAttribute("alt") ?? node.textContent,
+        );
+      const expected =
+        attachmentView === "inline"
+          ? ["before\n", "first.png", text, "second.png", "\nafter"]
+          : ["before\n", text, "\nafter"];
+      expect(body.classList.contains("is-clamped")).toBe(true);
+      expect(toggle().textContent).toBe(translate("message.more"));
+      expect(toggle().getAttribute("aria-controls")).toBe(body.id);
+      expect(order()).toEqual(expected);
+      if (attachmentView === "strip")
+        expect(
+          [...host.querySelectorAll("[data-inline-attachment-strip] img")].map((img) => img.getAttribute("alt")),
+        ).toEqual(["first.png", "second.png"]);
+      await act(async () => toggle().click());
+      expect(body.classList.contains("is-clamped")).toBe(false);
+      expect(toggle().textContent).toBe(translate("message.less"));
+      expect(order()).toEqual(expected);
+      await act(async () => toggle().click());
+      expect(body.classList.contains("is-clamped")).toBe(true);
+      expect(toggle().getAttribute("aria-expanded")).toBe("false");
+      expect(order()).toEqual(expected);
+      await act(async () => setComposerSettings({ attachmentView: "inline" }));
+    });
+  }
+
+  test("opening a pasted block also opens its enclosing ordered prompt", async () => {
+    resetTranscriptDisclosure();
+    const text = Array.from({ length: 30 }, (_, index) => `line ${index + 1}`).join("\n");
+    await render(
+      prompt("long-with-paste", text, [
+        { kind: "text", text: "before " },
+        { kind: "text", text: "pasted details", pasted: true },
+        { kind: "text", text },
+      ]),
+    );
+    const body = host.querySelector(".cv-user__text")!;
+    expect(body.classList.contains("is-clamped")).toBe(true);
+    await act(async () => host.querySelector<HTMLButtonElement>(".cv-user__paste")!.click());
+    expect(body.classList.contains("is-clamped")).toBe(false);
+    expect(host.querySelector(".cv-user__paste-text")?.textContent).toBe("pasted details");
   });
 } finally {
   afterAll(() => {

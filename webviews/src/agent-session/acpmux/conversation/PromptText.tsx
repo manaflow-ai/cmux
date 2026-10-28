@@ -5,7 +5,7 @@
 // choice is kept by the row's id (transcriptDisclosure.tsx), so a prompt scrolled out and back, or
 // drawn again from history, stays as the reader left it. Find opens a collapsed prompt, or a closed
 // chip, that holds its current match. The bubble keeps the whole text; Copy copies all of it.
-import { useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useT, usePaneLanguage } from "../i18n";
 import { FindReveal } from "./chatFind";
 import {
@@ -25,6 +25,7 @@ export function PromptText({
   text,
   pasted,
   show,
+  children,
 }: {
   rowId: string;
   /// The prompt as recorded: what Find searches and the paste ranges point into.
@@ -32,6 +33,8 @@ export function PromptText({
   pasted?: readonly PasteRange[];
   /// How a typed part reads in the bubble (a `data:` image as its name, UserBubble.tsx).
   show: (text: string) => string;
+  /// Ordered attachments share this fold; opening a pasted block also opens the prompt.
+  children?: (open: () => void) => ReactNode;
 }) {
   const t = useT();
   const id = useId();
@@ -70,7 +73,7 @@ export function PromptText({
     // The bubble: a text drawn whole has no box to observe.
     observer.observe(node.parentElement ?? node);
     return () => observer.disconnect();
-  }, [parts, long, open]);
+  }, [parts, long, open, children]);
   const collapsed = long && !open;
   // Show more and Show less (Leo 2026-10-21: "these all need animations for expand and collpase"),
   // over the fold's token, without moving what the reader looks at ("just expand the area at the
@@ -152,23 +155,25 @@ export function PromptText({
   return (
     <>
       <div ref={body} id={id} className={`cv-user__text${collapsed ? " is-clamped is-faded" : ""}`}>
-        {parts.map((part, index) =>
-          part.kind === "text" ? (
-            <span key={index} className="cv-user__typed">
-              {show(part.text)}
-            </span>
-          ) : (
-            <PasteChip
-              key={index}
-              rowId={rowId}
-              index={part.index}
-              text={part.text}
-              needle={needle}
-              // An opened paste shows whole, not cut at the prompt's tenth line.
-              onOpen={() => setOpen(true)}
-            />
-          ),
-        )}
+        {children
+          ? children(() => setOpen(true))
+          : parts.map((part, index) =>
+              part.kind === "text" ? (
+                <span key={index} className="cv-user__typed">
+                  {show(part.text)}
+                </span>
+              ) : (
+                <PasteChip
+                  key={index}
+                  rowId={rowId}
+                  index={part.index}
+                  text={part.text}
+                  needle={needle}
+                  // An opened paste shows whole, not cut at the prompt's tenth line.
+                  onOpen={() => setOpen(true)}
+                />
+              ),
+            )}
       </div>
       {long && (
         <button
