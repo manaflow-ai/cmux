@@ -165,16 +165,19 @@ export const intervalCleanup = {
         const fn = resolveFunction(node);
         if (!fn || fn.async) return false;
         let starts = false;
-        walk(fn.body, (child) => {
-          if (child.type === "CallExpression" && isTimer(child.callee, "setInterval")) starts = true;
-          if (child.type === "CallExpression" && resolveFunction(child.callee)) {
-            const called = resolveFunction(child.callee);
-            if (called?.async) starts = true;
-            if (called && called !== fn) walk(called.body, (nested) => {
-              if (nested.type === "CallExpression" && isTimer(nested.callee, "setInterval")) starts = true;
-            });
-          }
-        });
+        const visited = new Set();
+        function inspect(called) {
+          if (visited.has(called)) return;
+          visited.add(called);
+          if (called.async) starts = true;
+          walk(called.body, (child) => {
+            if (child.type !== "CallExpression") return;
+            if (isTimer(child.callee, "setInterval")) starts = true;
+            const helper = resolveFunction(child.callee);
+            if (helper) inspect(helper);
+          });
+        }
+        inspect(fn);
         return !starts && clears(fn.body, handle);
       };
       function flow(node, started) {

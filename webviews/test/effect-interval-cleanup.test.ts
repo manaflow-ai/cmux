@@ -10,6 +10,16 @@ const vp = resolve(import.meta.dir, "../node_modules/.bin/vp");
 const prefix = 'import React, { useEffect, useEffect as effect, useLayoutEffect } from "react";\n';
 const cases = [
   [
+    "chained cleanup helper restart",
+    "useEffect(() => { let id = setInterval(tick, 1000); function restart() { clearInterval(id); id = setInterval(tick, 1000); } function stop() { restart(); } return () => stop(); }, []);",
+    2,
+  ],
+  [
+    "cyclic helper scan terminates",
+    "useEffect(() => { const id = setInterval(tick, 1000); function stop() { clearInterval(id); if (again) stop(); } return () => stop(); }, []);",
+    0,
+  ],
+  [
     "cleanup helper restart",
     "useEffect(() => { let id = setInterval(tick, 1000); function restart() { clearInterval(id); id = setInterval(tick, 1000); } return () => restart(); }, []);",
     2,
