@@ -70,9 +70,9 @@ import Testing
             }
         }
         let spare = try #require(pool.spare)
-        _ = await PageTestWait.value("spare painted") { (done: @escaping (Bool) -> Void) in
-            spare.whenPainted { done(true) }
-        }
+        // A zero-opacity WebKit page in swift-test receives no compositor frame. Deliver the
+        // same host event as PagePaintProbe, so this tests the pool's response to paint.
+        spare.notePainted()
         #expect(spare.isHidden, "zero opacity alone leaves the parked renderer active")
 
         let claimed = try #require(pool.claim(.settings, routes: [], window: window, focus: false))
@@ -87,6 +87,7 @@ import Testing
             }
         }
         #expect(pool.spare === claimed)
+        claimed.notePainted()
         #expect(claimed.isHidden, "an untouched page returned to the pool must sleep again")
     }
 }

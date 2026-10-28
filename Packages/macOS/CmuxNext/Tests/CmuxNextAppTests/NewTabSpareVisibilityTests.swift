@@ -16,8 +16,12 @@ struct NewTabSpareVisibilityTests {
             pool.retarget(window)
             pool.prewarm()
             pool.start()
-            try await PasswordManagerRouteTests.until({ pool.spare?.view.isHidden == true })
+            try await PasswordManagerRouteTests.until({ pool.spare != nil })
             let view = try #require(pool.spare?.view), host = try #require(view.superview)
+            // Native swift-test has no page compositor for this zero-opacity spare. Deliver the
+            // existing pane.painted event explicitly; the lifecycle under test starts here.
+            view.model.markPainted()
+            try await PasswordManagerRouteTests.until({ view.isHidden })
             let frames = AgentPaneNewTabFrame.shared
             // A first-page response arrives after the initial cover was taken.
             frames.chatsAnswered(.init(chats: [], nextCursor: nil, ready: true, enabled: true, design: "visibility-regression"),
