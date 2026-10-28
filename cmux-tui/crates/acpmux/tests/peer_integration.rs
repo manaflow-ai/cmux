@@ -124,7 +124,7 @@ async fn client_with_key(h: Arc<Hub>, key: &str) -> C {
     // The app's proof of the key for this connection's challenge (`hub/person.rs`).
     let challenge = &init["_meta"]["acpmux"]["personChallenge"];
     let proof = acpmux::hub::person::person_proof(
-        PERSON_KEY,
+        key,
         acpmux::hub::person::TRANSPORT_UNIX,
         challenge["nonce"].as_str().unwrap(),
         challenge["connection"].as_str().unwrap(),
