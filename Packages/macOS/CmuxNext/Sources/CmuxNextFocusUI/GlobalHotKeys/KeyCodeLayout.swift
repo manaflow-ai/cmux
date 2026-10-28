@@ -42,9 +42,6 @@ package struct KeyCodeLayout: Sendable {
         return codes
     }()
 
-    /// The numeric keypad's key codes (kVK_ANSI_Keypad*).
-    package static let keypad: ClosedRange<Int> = kVK_ANSI_KeypadDecimal...kVK_ANSI_Keypad9
-
     /// US ANSI, the fallback when the current layout cannot be read.
     package static let ansi: KeyCodeLayout = {
         let printable: [String: Int] = [

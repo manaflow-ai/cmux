@@ -10,9 +10,9 @@
 /// its overlay can say what it offers. A bare first key (no Command,
 /// Control or Option: `g g`) arms only where the context owns bare keys
 /// (``KeyContext/ownsBareKeys``, K1). A key has several readings
-/// (`ActionRegistry.shortcuts(for:)`, Ghostty's order: the digit row's
-/// digit, the text, the Command map's key, the key-equivalent reading, the
-/// unshifted key, the ASCII-capable layout's key). As in Ghostty's
+/// (`ActionRegistry.shortcuts(for:)`, Ghostty's order: the text, the
+/// Command map's key, the digit row's digit, the key-equivalent reading,
+/// the unshifted key, the ASCII-capable layout's key). As in Ghostty's
 /// `Set.getEvent`, the first reading with an entry decides: it extends the
 /// chord (or arms the leader), else it completes an entry; a later reading
 /// never wins over an earlier one (Cmd-C on Dvorak - QWERTY ⌘ also reads j,
