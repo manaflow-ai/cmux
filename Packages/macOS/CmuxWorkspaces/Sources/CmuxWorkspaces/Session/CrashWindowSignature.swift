@@ -20,6 +20,14 @@ public struct CrashWindowSignature: Equatable, Sendable {
     private let sortedWorkspaceTitles: [String]
     private let dock: CrashDockSignature?
 
+    /// Captures persisted identity and checkpoint evidence for one window.
+    /// - Parameters:
+    ///   - windowId: Persisted window ID, or nil for legacy snapshots.
+    ///   - workspaceCount: Number of workspaces in this generation.
+    ///   - workspaceIDs: Workspace IDs when every workspace has one.
+    ///   - checkpointIDs: Agent session checkpoints, excluding multiplexer sessions.
+    ///   - workspaceTitles: Trimmed, nonempty custom workspace titles.
+    ///   - dock: Complete dock comparison evidence, when a dock exists.
     public nonisolated init(
         windowId: UUID?,
         workspaceCount: Int,
@@ -73,16 +81,7 @@ public struct CrashWindowSignature: Equatable, Sendable {
         return Double(overlap) / Double(smaller) >= 0.75
     }
 
-    /// Allows a third generation to join a cluster already proven to be a
-    /// replay. Equal checkpoints alone are intentionally insufficient for two
-    /// fresh windows, but are safe after the first strict-subset merge.
-    nonisolated func isCrashClusterContinuation(of other: CrashWindowSignature) -> Bool {
-        guard dock == other.dock, dock == nil || dock?.contentFingerprint != nil,
-              workspaceCount == other.workspaceCount,
-              checkpointIDs == other.checkpointIDs,
-              hasSameTitleMultiset(as: other) else { return false }
-        return true
-    }
+
 }
 
 extension CrashWindowSignature {

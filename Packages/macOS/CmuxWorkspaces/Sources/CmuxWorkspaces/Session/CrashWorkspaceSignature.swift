@@ -7,6 +7,7 @@ public struct CrashWorkspaceSignature: Sendable {
     let checkpointIDs: Set<String>
     let nonAgentPanelIDs: Set<UUID>
     let preservedContentIDs: Set<String>?
+    let metadataFingerprint: String?
     let title: String?
     let description: String?
     let groupID: UUID?
@@ -27,19 +28,21 @@ public struct CrashWorkspaceSignature: Sendable {
     ///   - dock: Dock identity, or nil when no dock was persisted.
     ///   - fidelityScore: Restore metadata score used when checkpoint sets are equal.
     ///   - nonAgentPanelIDs: Persisted panels without agent checkpoint identity.
+    ///   - metadataFingerprint: Exact comparison of user-authored workspace state; nil refuses merging.
     ///   - preservedContentIDs: Fingerprints of non-agent panel contents and saved agent text;
     ///     nil refuses whole-copy selection when that content cannot be compared.
     public nonisolated init(
         stableID: UUID?, workspaceID: UUID?, checkpointIDs: Set<String>,
         title: String?, description: String?, groupID: UUID?, directory: String,
         dock: CrashDockSignature?, fidelityScore: Int, nonAgentPanelIDs: Set<UUID> = [],
-        preservedContentIDs: Set<String>? = []
+        preservedContentIDs: Set<String>? = [], metadataFingerprint: String? = ""
     ) {
         self.stableID = stableID
         self.workspaceID = workspaceID
         self.checkpointIDs = checkpointIDs
         self.nonAgentPanelIDs = nonAgentPanelIDs
         self.preservedContentIDs = preservedContentIDs
+        self.metadataFingerprint = metadataFingerprint
         self.title = title
         self.description = description
         self.groupID = groupID
@@ -50,7 +53,8 @@ public struct CrashWorkspaceSignature: Sendable {
 
     /// A whole copy may replace another only if it covers every panel identity.
     nonisolated func canMerge(with other: Self) -> Bool {
-        groupID == other.groupID && dock == other.dock
+        metadataFingerprint != nil && metadataFingerprint == other.metadataFingerprint
+            && groupID == other.groupID && dock == other.dock
             && (dock == nil || dock?.contentFingerprint != nil)
             && (containsPanels(of: other) || other.containsPanels(of: self))
     }

@@ -640,7 +640,7 @@ struct CrashDiagnosticSessionPolicyTests {
 
     func terminalPanelSnapshot(
         id: UUID,
-        directory: String,
+        directory: String?,
         terminal: SessionTerminalPanelSnapshot
     ) -> SessionPanelSnapshot {
         SessionPanelSnapshot(

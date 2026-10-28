@@ -17,9 +17,10 @@ public struct CrashWorkspaceMergePlan: Sendable {
         var selections = preferred.indices.map(CrashWorkspaceMergeSelection.preferred)
         var matches: [Int: Int] = [:]
         var consumed: Set<Int> = []
+        let candidateCounts = supplemental.map { index.candidateMatches($0).count }
         let order = supplemental.indices.sorted {
-            let left = index.candidateMatches(supplemental[$0]).count
-            let right = index.candidateMatches(supplemental[$1]).count
+            let left = candidateCounts[$0]
+            let right = candidateCounts[$1]
             return left == right ? $0 < $1 : left < right
         }
         var matchedSupplemental: Set<Int> = []

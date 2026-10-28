@@ -8,9 +8,9 @@ import Testing
 #endif
 
 extension CrashDiagnosticSessionPolicyTests {
-    @Test("A large restored generation retains every panel and its scrollback")
-    func crashMergeLargeScrollbackGeneration() throws {
-        let scrollback = String(repeating: "x", count: SessionPersistencePolicy.maxScrollbackCharactersPerTerminal)
+    @Test("A large restored generation retains all data within and beyond the comparison budget", arguments: [2_000, 400_000])
+    func crashMergeLargeScrollbackGeneration(scrollbackSize: Int) throws {
+        let scrollback = String(repeating: "x", count: scrollbackSize)
         let workspaces = (0..<41).map { index -> SessionWorkspaceSnapshot in
             var workspace = terminalWorkspaceSnapshot(currentDirectory: "/work/\(index)")
             workspace.workspaceId = UUID()
@@ -33,7 +33,13 @@ extension CrashDiagnosticSessionPolicyTests {
         let elapsed = start.duration(to: .now)
         #expect(restored.windows.count == 1)
         let panels = restored.windows[0].tabManager.workspaces.flatMap(\.panels)
-        #expect(panels.count == 164)
+        if scrollbackSize == 2_000 {
+            #expect(panels.count == 164)
+        } else {
+            // Large inputs must retain ambiguous copies once exact comparison
+            // exhausts its budget, rather than claiming sampled data is equal.
+            #expect(panels.count > 164)
+        }
         #expect(Set(panels.map(\.id)) == Set(workspaces.flatMap(\.panels).map(\.id)))
         #expect(panels.allSatisfy { $0.terminal?.scrollback == scrollback })
         print("Crash merge: 41 workspaces, 164 panels, \(164 * scrollback.utf8.count) scrollback bytes per generation, elapsed \(elapsed)")
@@ -119,12 +125,10 @@ extension CrashDiagnosticSessionPolicyTests {
             layout: .pane(SessionPaneLayoutSnapshot(panelIds: [panel.id], selectedPanelId: panel.id)),
             panels: [panel], sourceWorkspaceIdsByPanelId: [panel.id: sourceID]
         )
-        var replayDock = dock
-        replayDock.sourceWorkspaceIdsByPanelId = [panel.id: replacementID]
         if windowDock {
-            original.dock = dock; replay.dock = replayDock
+            original.dock = dock; replay.dock = dock
         } else {
-            original.tabManager.workspaces[0].dock = dock; replay.tabManager.workspaces[0].dock = replayDock
+            original.tabManager.workspaces[0].dock = dock; replay.tabManager.workspaces[0].dock = dock
         }
         let restored = try #require(SessionPersistencePolicy.snapshotForLiveRestore(AppSessionSnapshot(
             version: SessionSnapshotSchema.currentVersion, createdAt: 10, windows: [original, replay]
@@ -208,8 +212,8 @@ extension CrashDiagnosticSessionPolicyTests {
             crashTestWorkspace("plain", tmuxSessions: ["build"])
         ], id: id)
         let supplemental = crashTestWindow([
-            crashTestWorkspace("one", agents: ["a"], richDirectories: false),
-            crashTestWorkspace("two", agents: ["b"], richDirectories: false)
+            crashTestWorkspace("shared", agents: ["a"], richDirectories: false),
+            crashTestWorkspace("shared", agents: ["b"], richDirectories: false)
         ], id: id)
         let result = SessionPersistencePolicy.mergingCrashDuplicateWindows(in: AppSessionSnapshot(
             version: SessionSnapshotSchema.currentVersion,

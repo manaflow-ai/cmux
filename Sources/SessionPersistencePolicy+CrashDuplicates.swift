@@ -1,6 +1,5 @@
 import Foundation
 import CmuxWorkspaces
-import CryptoKit
 
 extension SessionPersistencePolicy {
     /// The snapshot a live restore opens: crash-diagnostic windows pruned,
@@ -49,25 +48,23 @@ extension SessionPersistencePolicy {
         in snapshot: AppSessionSnapshot
     ) -> (snapshot: AppSessionSnapshot, mergedWindowCount: Int) {
         var result: [SessionWindowSnapshot] = []
-        var signatures: [CrashWindowSignature] = []
-        var mergedClusters: Set<Int> = []
+        var signatures: [(signature: CrashWindowSignature, resultIndex: Int)] = []
+        var fingerprints = CrashContentFingerprint()
         result.reserveCapacity(snapshot.windows.count)
         var merged = 0
         for window in snapshot.windows {
-            let signature = crashWindowSignature(window)
-            if let index = signatures.indices.first(where: { index in
-                signatures[index].isCrashDuplicate(of: signature)
-                    || (mergedClusters.contains(index)
-                        && signatures[index].isCrashClusterContinuation(of: signature))
-            }) {
-                result[index] = mergingCrashDuplicateWindows(result[index], window)
-                signatures[index] = crashWindowSignature(result[index])
-                mergedClusters.insert(index)
+            let signature = crashWindowSignature(window, fingerprints: &fingerprints)
+            if let match = signatures.first(where: { $0.signature.isCrashDuplicate(of: signature) }) {
+                let index = match.resultIndex
+                result[index] = mergingCrashDuplicateWindows(result[index], window, fingerprints: &fingerprints)
+                // Keep observed generations as evidence. The combined result is
+                // not a new observation and cannot broaden duplicate identity.
+                signatures.append((signature, index))
                 merged += 1
                 continue
             }
+            signatures.append((signature, result.count))
             result.append(window)
-            signatures.append(signature)
         }
         guard merged > 0 else { return (snapshot, 0) }
         var deduplicated = snapshot
@@ -76,7 +73,7 @@ extension SessionPersistencePolicy {
     }
 
     private nonisolated static func crashWindowSignature(
-        _ window: SessionWindowSnapshot
+        _ window: SessionWindowSnapshot, fingerprints: inout CrashContentFingerprint
     ) -> CrashWindowSignature {
         let workspaces = window.tabManager.workspaces
         let workspaceIDs = workspaces.compactMap(\.workspaceId)
@@ -90,17 +87,17 @@ extension SessionPersistencePolicy {
             workspaceIDs: workspaceIDs.count == workspaces.count ? workspaceIDs : nil,
             checkpointIDs: crashWindowCheckpointIDs(window),
             workspaceTitles: titles,
-            dock: crashDockSignature(window.dock)
+            dock: crashDockSignature(window.dock, fingerprints: &fingerprints)
         )
     }
 
     /// Applies a package-owned, one-to-one workspace plan to the app's snapshots.
     private nonisolated static func mergingCrashDuplicateWindows(
         _ lhs: SessionWindowSnapshot,
-        _ rhs: SessionWindowSnapshot
+        _ rhs: SessionWindowSnapshot, fingerprints: inout CrashContentFingerprint
     ) -> SessionWindowSnapshot {
-        let lhsEvidence = lhs.tabManager.workspaces.map(crashWorkspaceSignature)
-        let rhsEvidence = rhs.tabManager.workspaces.map(crashWorkspaceSignature)
+        let lhsEvidence = lhs.tabManager.workspaces.map { crashWorkspaceSignature($0, fingerprints: &fingerprints) }
+        let rhsEvidence = rhs.tabManager.workspaces.map { crashWorkspaceSignature($0, fingerprints: &fingerprints) }
         let lhsIsRicher = lhsEvidence.reduce(0) { $0 + $1.fidelityScore } >=
             rhsEvidence.reduce(0) { $0 + $1.fidelityScore }
         let preferred = lhsIsRicher ? lhs : rhs
@@ -120,6 +117,12 @@ extension SessionPersistencePolicy {
         var preferredReplacements: [UUID: UUID] = [:]
         var supplementalReplacements: [UUID: UUID] = [:]
         for (preferredIndex, supplementalIndex) in plan.matches {
+            // A legacy richer copy may omit its runtime ID. A proven match
+            // retains the other generation's ID so group/dock references survive.
+            if mergedWorkspaces[preferredIndex].workspaceId == nil {
+                mergedWorkspaces[preferredIndex].workspaceId = preferredWorkspaces[preferredIndex].workspaceId
+                    ?? supplementalWorkspaces[supplementalIndex].workspaceId
+            }
             guard let keptID = mergedWorkspaces[preferredIndex].workspaceId else { continue }
             if let oldID = preferredWorkspaces[preferredIndex].workspaceId { preferredReplacements[oldID] = keptID }
             if let oldID = supplementalWorkspaces[supplementalIndex].workspaceId { supplementalReplacements[oldID] = keptID }
@@ -149,139 +152,80 @@ extension SessionPersistencePolicy {
         return merged
     }
 
-    private nonisolated static func crashWorkspaceSignature(_ workspace: SessionWorkspaceSnapshot) -> CrashWorkspaceSignature {
+    private nonisolated static func crashWorkspaceSignature(
+        _ workspace: SessionWorkspaceSnapshot, fingerprints: inout CrashContentFingerprint
+    ) -> CrashWorkspaceSignature {
         CrashWorkspaceSignature(
             stableID: workspace.stableId, workspaceID: workspace.workspaceId,
             checkpointIDs: workspaceCheckpointIDs(workspace),
             title: workspace.customTitle, description: workspace.customDescription,
             groupID: workspace.groupId,
             directory: workspace.currentDirectory.isEmpty ? "" : URL(fileURLWithPath: workspace.currentDirectory).standardizedFileURL.path,
-            dock: crashDockSignature(workspace.dock),
+            dock: crashDockSignature(workspace.dock, fingerprints: &fingerprints),
             fidelityScore: sessionWorkspaceRestoreFidelityScore(workspace),
             nonAgentPanelIDs: Set(workspace.panels.compactMap {
                 crashPanelCheckpointID($0) == nil ? $0.id : nil
             }),
-            preservedContentIDs: crashWorkspaceContentIDs(workspace)
+            preservedContentIDs: crashWorkspaceContentIDs(workspace, fingerprints: &fingerprints),
+            metadataFingerprint: crashWorkspaceMetadataFingerprint(workspace, fingerprints: &fingerprints)
         )
     }
 
-    private nonisolated static func crashDockSignature(_ dock: SessionSplitContainerSnapshot?) -> CrashDockSignature? {
+    private nonisolated static func crashDockSignature(
+        _ dock: SessionSplitContainerSnapshot?, fingerprints: inout CrashContentFingerprint
+    ) -> CrashDockSignature? {
         dock.map {
-            var normalized = $0
-            // Ownership IDs are remapped after workspace matching. Excluding
-            // them here lets an otherwise identical replay reach that remap.
-            normalized.sourceWorkspaceIdsByPanelId = nil
+            // Ownership is part of the persisted state. Different ownership
+            // maps remain separate until correspondence is known; never erase
+            // an ownership distinction merely to make the windows match.
             CrashDockSignature(
-                panelIDs: Set(normalized.panels.map(\.id)), checkpointIDs: crashPanelCheckpointIDs(normalized.panels),
-                contentFingerprint: crashDockContentFingerprint(normalized)
+                panelIDs: Set($0.panels.map(\.id)), checkpointIDs: crashPanelCheckpointIDs($0.panels),
+                contentFingerprint: fingerprints.fingerprint($0)
             )
         }
     }
 
-    /// Preserve complete non-agent panel contents and agent text independently of metadata scores.
-    private nonisolated static func crashWorkspaceContentIDs(_ workspace: SessionWorkspaceSnapshot) -> Set<String>? {
+    /// Preserve all persisted non-agent contents and agent text. Exhausting
+    /// the comparison budget retains both copies instead of using sampled text.
+    private nonisolated static func crashWorkspaceContentIDs(
+        _ workspace: SessionWorkspaceSnapshot, fingerprints: inout CrashContentFingerprint
+    ) -> Set<String>? {
         var contents: Set<String> = []
         for panel in workspace.panels {
             guard let checkpoint = crashPanelCheckpointID(panel) else {
-                guard let fingerprint = crashPanelContentFingerprint(panel) else { return nil }
+                guard let fingerprint = fingerprints.fingerprint(panel) else { return nil }
                 contents.insert("panel:\(panel.id):\(fingerprint)")
                 continue
             }
             if let scrollback = panel.terminal?.scrollback, !scrollback.isEmpty {
-                guard let fingerprint = crashTextContentFingerprint(scrollback) else { return nil }
+                guard let fingerprint = fingerprints.fingerprint(scrollback) else { return nil }
                 contents.insert("scrollback:\(checkpoint):\(fingerprint)")
             }
             if let draft = panel.terminal?.textBoxDraft {
-                guard let fingerprint = crashDraftContentFingerprint(draft) else { return nil }
+                guard let fingerprint = fingerprints.fingerprint(draft) else { return nil }
                 contents.insert("draft:\(checkpoint):\(fingerprint)")
             }
         }
         return contents
     }
 
-    private static let crashFingerprintTextLimit = 16_384
-
-    private nonisolated static func boundedCrashText(_ value: String?) -> String {
-        guard let value else { return "<nil>" }
-        let prefix = String(value.prefix(crashFingerprintTextLimit))
-        let suffix = String(value.suffix(crashFingerprintTextLimit))
-        return "\(value.utf8.count):\(prefix):\(suffix)"
-    }
-
-    private nonisolated static func digestCrashComponents(_ components: [String?]) -> String {
-        let joined = components.map { boundedCrashText($0) }.joined(separator: "\u{1f}")
-        return Data(SHA256.hash(data: Data(joined.utf8))).base64EncodedString()
-    }
-
-    private nonisolated static func crashTextContentFingerprint(_ value: String) -> String? {
-        digestCrashComponents([value])
-    }
-
-    private nonisolated static func crashDraftContentFingerprint(
-        _ draft: SessionTextBoxInputDraftSnapshot
+    /// User-authored workspace state must agree before a whole copy is lost.
+    /// Runtime IDs, focus/layout, and recovered working directories belong to
+    /// the chosen complete generation; panels and docks have their own checks.
+    private nonisolated static func crashWorkspaceMetadataFingerprint(
+        _ workspace: SessionWorkspaceSnapshot, fingerprints: inout CrashContentFingerprint
     ) -> String? {
-        var components: [String?] = [draft.isActive ? "active" : "inactive"]
-        for part in draft.parts {
-            components.append(part.kind.rawValue)
-            components.append(part.text)
-            if let attachment = part.attachment {
-                components += [attachment.displayName, attachment.submissionPath, attachment.submissionText]
-            }
-        }
-        return digestCrashComponents(components)
-    }
-
-    private nonisolated static func crashPanelContentFingerprint(
-        _ panel: SessionPanelSnapshot
-    ) -> String? {
-        var components: [String?] = [
-            String(describing: panel.type), panel.title, panel.customTitle,
-            panel.directory, panel.ttyName, panel.gitBranch?.branch
-        ]
-        if let browser = panel.browser {
-            components += [browser.urlString, browser.profileID?.uuidString]
-            components += (browser.backHistoryURLStrings ?? []).map(Optional.some)
-            components += (browser.forwardHistoryURLStrings ?? []).map(Optional.some)
-            components += [browser.diffViewerRequestPath, browser.cloudTeamID,
-                           browser.interactionState.map(crashDataContentFingerprint)]
-        }
-        if let markdown = panel.markdown { components.append(markdown.filePath) }
-        if let filePreview = panel.filePreview { components.append(filePreview.filePath) }
-        if let project = panel.project {
-            components += [project.projectPath, project.selectedNodePath, project.activeTab]
-        }
-        if let chief = panel.chief {
-            components.append(chief.conversationID)
-        }
-        if let customSidebar = panel.customSidebar { components.append(customSidebar.name) }
-        if let terminal = panel.terminal {
-            components += [terminal.workingDirectory, terminal.scrollback]
-            if let draft = terminal.textBoxDraft { components.append(crashDraftContentFingerprint(draft)) }
-        }
-        return digestCrashComponents(components)
-    }
-
-    private nonisolated static func crashDataContentFingerprint(_ data: Data) -> String {
-        let limit = min(data.count, crashFingerprintTextLimit)
-        var sample = Data(data.prefix(limit))
-        if data.count > limit {
-            sample.append(data.suffix(limit))
-        }
-        return "\(data.count):\(Data(SHA256.hash(data: sample)).base64EncodedString())"
-    }
-
-    private nonisolated static func crashDockContentFingerprint(
-        _ dock: SessionSplitContainerSnapshot
-    ) -> String? {
-        let panelContents = dock.panels.sorted { $0.id.uuidString < $1.id.uuidString }.compactMap {
-            guard let content = crashPanelContentFingerprint($0) else { return nil }
-            return "\($0.id.uuidString):\(content)"
-        }
-        guard panelContents.count == dock.panels.count else { return nil }
-        return digestCrashComponents([
-            String(describing: dock.layout), dock.focusedPanelId?.uuidString,
-            panelContents.joined(separator: "|")
-        ])
+        var metadata = workspace
+        metadata.workspaceId = nil
+        metadata.stableId = nil
+        metadata.processTitle = ""
+        metadata.currentDirectory = ""
+        metadata.focusedPanelId = nil
+        metadata.layout = .pane(SessionPaneLayoutSnapshot(panelIds: [], selectedPanelId: nil))
+        metadata.canvasPanes = nil
+        metadata.panels = []
+        metadata.dock = nil
+        return fingerprints.fingerprint(metadata)
     }
 
     private nonisolated static func remappingCrashDockOwnership(
