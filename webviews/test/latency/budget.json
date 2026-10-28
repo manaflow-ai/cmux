@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 1,
+  "maxP95Ms": 50,
+  "maxRegressionRatio": 0.15,
+  "maxRegressionDeltaMs": 5,
+  "topN": 10
+}
