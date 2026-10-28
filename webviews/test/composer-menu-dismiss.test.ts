@@ -89,6 +89,16 @@ await requireBrowserLane("composer-menu-dismiss.test.ts", async () => {
       chips: ["Folder", "Model"],
       picks: ["Model"],
     },
+    {
+      // The preview environment picker is a composer popover too. Keep its same-press
+      // handoff covered alongside the classic Folder/Model routes: opening Environment
+      // must replace Folder immediately, without a dismissing click first.
+      entry: "agent-pane.composer-context",
+      variant: "environment-picker",
+      field: ".acpmux-composer-context",
+      chips: ["Folder", "Environment"],
+      picks: [],
+    },
   ];
   const chip = (name: string) => `button[aria-haspopup][aria-label="${name}"]`;
 
