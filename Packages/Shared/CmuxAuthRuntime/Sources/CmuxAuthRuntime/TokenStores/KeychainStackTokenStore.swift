@@ -25,6 +25,7 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
 
     private var cachedAccessToken: String?
     private var cachedRefreshToken: String?
+    private var lastReadWasDefinitive = true
 
     /// Creates a Keychain store writing under one exact signed access group.
     ///
@@ -81,6 +82,7 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
     /// independently of the current account.
     public func isReadable() async -> Bool {
         if cachedRefreshToken != nil { return true }
+        lastReadWasDefinitive = true
 #if canImport(Security)
         let currentStatus = keychainProbeStatus(account: Self.refreshTokenAccount)
         guard Self.isDefinitiveReadStatus(currentStatus) else { return false }
@@ -96,6 +98,18 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
 #else
         return true
 #endif
+    }
+
+    /// Whether the most recent token read returned a definitive Keychain status.
+    /// This preserves a temporary read failure across the availability check
+    /// that follows session restore's token reads.
+    public func wasLastReadDefinitive() -> Bool {
+        lastReadWasDefinitive
+    }
+
+    /// Forget the consumed token-read status before retrying availability.
+    public func resetLastReadStatus() {
+        lastReadWasDefinitive = true
     }
 
     /// Whether a Keychain read status definitively says whether an item exists.
@@ -247,6 +261,7 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         var result: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
+        lastReadWasDefinitive = lastReadWasDefinitive && Self.isDefinitiveReadStatus(status)
         guard status == errSecSuccess, let data = result as? Data else {
             if status != errSecItemNotFound {
                 log.log("keychain READ status=\(status) account=\(account)")
@@ -302,6 +317,7 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         var result: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
+        lastReadWasDefinitive = lastReadWasDefinitive && Self.isDefinitiveReadStatus(status)
         guard status == errSecSuccess, let data = result as? Data else {
             if status != errSecItemNotFound {
                 log.log("keychain legacy READ status=\(status) account=\(account)")

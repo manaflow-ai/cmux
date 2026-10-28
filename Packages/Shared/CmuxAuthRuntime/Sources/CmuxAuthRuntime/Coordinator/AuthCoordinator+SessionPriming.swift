@@ -149,6 +149,10 @@ extension AuthCoordinator {
             preserveCachedSessionAfterValidationFailure()
             return
         }
+        // The pre-read probe can race with the Keychain becoming unreadable.
+        // Ask the store whether the actual token reads were definitive before
+        // treating an empty result as a signed-out session.
+        let tokenStorageReadsWereAvailable = await isTokenStorageAvailable()
         guard generation == sessionGeneration else { return }
 
         #if DEBUG
@@ -190,7 +194,7 @@ extension AuthCoordinator {
             return
         }
 
-        if !tokenStorageWasAvailable {
+        if !tokenStorageWasAvailable || !tokenStorageReadsWereAvailable {
             authLog.info("Token storage unavailable during session restore; preserving cached session")
             preserveCachedSessionAfterValidationFailure()
             if retryOnStorageAvailable {

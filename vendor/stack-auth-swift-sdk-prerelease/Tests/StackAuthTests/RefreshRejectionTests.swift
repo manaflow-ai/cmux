@@ -6,6 +6,8 @@ import Testing
 @testable import StackAuth
 
 /// Answers every request to its synthetic host with one scripted response.
+/// URLProtocol callbacks may run concurrently; the lock guards all mutable
+/// static scripts and request counters.
 private final class ScriptedTokenEndpoint: URLProtocol, @unchecked Sendable {
     struct Answer: Sendable {
         var status: Int
@@ -153,6 +155,38 @@ private final class ScriptedTokenEndpoint: URLProtocol, @unchecked Sendable {
         #expect(result.exchanges == 1)
     }
 
+    @Test func rejectedRequestCooldownExpires() async {
+        let host = UUID().uuidString.lowercased() + ".invalid"
+        ScriptedTokenEndpoint.script(.init(
+            status: 401,
+            headers: ["x-hexclave-known-error": "INVALID_PUBLISHABLE_CLIENT_KEY"],
+            body: #"{"code":"INVALID_PUBLISHABLE_CLIENT_KEY"}"#
+        ), host: host)
+        defer { ScriptedTokenEndpoint.remove(host: host) }
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [ScriptedTokenEndpoint.self]
+        let session = URLSession(configuration: config)
+        defer { session.invalidateAndCancel() }
+        let clock = RefreshTestClock()
+        let store = MemoryTokenStore()
+        await store.setTokens(accessToken: Self.expiredAccessToken, refreshToken: "session")
+        let client = APIClient(
+            baseUrl: "https://" + host, projectId: "fixture", publishableClientKey: "synthetic",
+            tokenStore: store, session: session, refreshClock: testClock(clock)
+        )
+
+        _ = await client.getOrFetchLikelyValidTokens()
+        clock.advance(by: .seconds(6))
+        ScriptedTokenEndpoint.script(.init(
+            status: 200,
+            body: #"{"access_token":"eyJhbGciOiJIUzI1NiJ9.eyJleHAiOjk5OTk5OTk5OTl9.synthetic"}"#
+        ), host: host)
+        let result = await client.getOrFetchLikelyValidTokens()
+        #expect(result.accessToken == RefreshLifecycleTests.fresh)
+        #expect(result.refreshToken == "session")
+        #expect(ScriptedTokenEndpoint.requestCount(host: host) == 2)
+    }
+
     @Test func newSessionClearsRejectedRequestCooldown() async {
         let host = UUID().uuidString.lowercased() + ".invalid"
         ScriptedTokenEndpoint.script(.init(
@@ -186,11 +220,46 @@ private final class ScriptedTokenEndpoint: URLProtocol, @unchecked Sendable {
         #expect(ScriptedTokenEndpoint.requestCount(host: host) == 2)
     }
 
+    @Test func lateRejectedRefreshCannotCoolDownANewSession() async {
+        let fixture = RefreshTransportFixture()
+        let session = await fixture.session()
+        let clock = RefreshTestClock()
+        let store = MemoryTokenStore()
+        await store.setTokens(accessToken: Self.expiredAccessToken, refreshToken: "old-session")
+        let client = APIClient(
+            baseUrl: "https://" + fixture.host, projectId: "fixture", publishableClientKey: "synthetic",
+            tokenStore: store, session: session, refreshClock: testClock(clock)
+        )
+        let oldRefresh = Task { await client.getOrFetchLikelyValidTokens() }
+        await fixture.waitForRequest()
+        await client.setTokens(accessToken: Self.expiredAccessToken, refreshToken: "new-session")
+        await fixture.release(status: 401, token: "unused")
+        _ = await oldRefresh.value
+        await fixture.release(status: 200, token: RefreshLifecycleTests.fresh)
+
+        let result = await client.getOrFetchLikelyValidTokens()
+        #expect(result.accessToken == RefreshLifecycleTests.fresh)
+        #expect(result.refreshToken == "new-session")
+        #expect(await fixture.count == 2)
+        session.invalidateAndCancel()
+        await fixture.close()
+    }
+
     @Test func expiredRefreshTokenClearsTheSession() async {
         let kept = await refreshTokenAfterRefresh(answering: .init(
             status: 401,
             headers: ["x-hexclave-known-error": "REFRESH_TOKEN_NOT_FOUND_OR_EXPIRED"],
             body: #"{"code":"REFRESH_TOKEN_NOT_FOUND_OR_EXPIRED","error":"Refresh token not found."}"#
+        ))
+        #expect(kept == nil)
+    }
+
+    @Test(arguments: ["REFRESH_TOKEN_ERROR", "PROVIDER_REJECTED"])
+    func sessionEndingKnownErrorHeaderClearsEvenWithMalformedBody(_ code: String) async {
+        let kept = await refreshTokenAfterRefresh(answering: .init(
+            status: 401,
+            headers: ["x-hexclave-known-error": code],
+            body: "<html>proxy error</html>"
         ))
         #expect(kept == nil)
     }
@@ -202,9 +271,9 @@ private final class ScriptedTokenEndpoint: URLProtocol, @unchecked Sendable {
         #expect(kept == nil)
     }
 
-    @Test func unnamedRejectionStillClearsTheSession() async {
+    @Test func unnamedRejectionKeepsTheSession() async {
         let kept = await refreshTokenAfterRefresh(answering: .init(status: 401, body: ""))
-        #expect(kept == nil)
+        #expect(kept == "session")
     }
 
     private func testClock(_ clock: RefreshTestClock) -> TokenRefreshClock {

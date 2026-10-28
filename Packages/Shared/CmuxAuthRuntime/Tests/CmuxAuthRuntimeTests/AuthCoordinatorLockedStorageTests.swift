@@ -209,6 +209,31 @@ actor TokenStorageAvailabilityProbe {
         #expect(await client.clearLocalSessionCallCount == 0)
     }
 
+    @Test func readBecomingUnavailableAfterSuccessfulProbePreservesCachedSession() async throws {
+        let cachedUser = CMUXAuthUser(id: "cached", primaryEmail: "cached@example.com", displayName: "Cached")
+        let client = LockedStorageAuthClient(
+            access: "access",
+            refresh: "refresh",
+            user: nil,
+            locked: false,
+            locksFirstReads: 2
+        )
+        let availability = TokenStorageAvailabilityProbe(available: true)
+        let (coordinator, store) = try makeCoordinator(
+            client: client,
+            cachedUser: cachedUser,
+            availability: availability
+        )
+
+        coordinator.start()
+        await coordinator.awaitBootstrapped()
+
+        #expect(coordinator.isAuthenticated == true)
+        #expect(coordinator.currentUser == cachedUser)
+        #expect(store.bool(forKey: "has_tokens") == true)
+        #expect(await client.clearLocalSessionCallCount == 0)
+    }
+
     @Test func availableEmptyStorageClearsSeededCache() async throws {
         let cachedUser = CMUXAuthUser(id: "cached", primaryEmail: "cached@example.com", displayName: "Cached")
         let client = LockedStorageAuthClient(access: nil, refresh: nil, user: nil, locked: false)

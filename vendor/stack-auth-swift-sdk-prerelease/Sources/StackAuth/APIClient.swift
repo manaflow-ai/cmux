@@ -160,6 +160,7 @@ actor APIClient {
     private var refreshRejectedCooldownActive = false
     private var refreshRejectedCooldownID: UUID?
     private var refreshRejectedCooldownTask: Task<Void, Never>?
+    private var refreshCooldownEpoch: UInt64 = 0
     
     private static let sdkVersion = "1.0.0"
     
@@ -394,24 +395,27 @@ actor APIClient {
             body: Data
         ) -> Self? {
             guard statusCode == 400 || statusCode == 401 else { return nil }
-            var json: [String: Any]?
-            if !body.allSatisfy({ $0 == 0x20 || $0 == 0x0A || $0 == 0x0D || $0 == 0x09 }) {
-                guard let object = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any] else {
-                    return .requestRejected(code: nonEmpty(knownErrorCode))
-                }
-                json = object
+            if let knownErrorCode = nonEmpty(knownErrorCode) {
+                return sessionEndingKnownErrors.contains(knownErrorCode.uppercased())
+                    ? .sessionEnded
+                    : .requestRejected(code: knownErrorCode)
             }
-            if let code = nonEmpty(knownErrorCode) ?? nonEmpty(json?["code"] as? String) {
+            guard let bodyText = String(data: body, encoding: .utf8),
+                  !bodyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  let json = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any] else {
+                return .requestRejected(code: nil)
+            }
+            if let code = nonEmpty(json["code"] as? String) {
                 return sessionEndingKnownErrors.contains(code.uppercased())
                     ? .sessionEnded
                     : .requestRejected(code: code)
             }
-            if let oauthError = nonEmpty(json?["error"] as? String) {
+            if let oauthError = nonEmpty(json["error"] as? String) {
                 return oauthError == "invalid_grant"
                     ? .sessionEnded
                     : .requestRejected(code: oauthError)
             }
-            return .sessionEnded
+            return .requestRejected(code: nil)
         }
 
         private static func nonEmpty(_ value: String?) -> String? {
@@ -536,7 +540,11 @@ actor APIClient {
         if let until = refreshRateLimitedUntil, refreshClock.now() < until {
             return .transientFailure
         }
+        let epoch = refreshCooldownEpoch
         let outcome = await refresh(refreshToken: refreshToken)
+        guard epoch == refreshCooldownEpoch else {
+            return .transientFailure
+        }
         switch outcome {
         case .rateLimited(let retryAfter, let bodyKind):
             refreshRateLimitStreak += 1
@@ -606,6 +614,7 @@ actor APIClient {
     }
 
     private func resetRefreshCooldownState() {
+        refreshCooldownEpoch &+= 1
         refreshRateLimitedUntil = nil
         refreshRateLimitStreak = 0
         refreshRejectedStreak = 0
