@@ -155,7 +155,13 @@ export class SubagentFold {
   deferredRun = false;
   /// `acpmux run --parent` calls whose sub-session acpmux has not said started (``reduceChild``):
   /// what each runs, its first update and its newest. The oldest go past PENDING_CHILDREN.
-  private readonly parentCalls = new Map<string, { run: AgentRun; command: string; first: Step; last?: Step }>();
+  private readonly parentCalls = new Map<
+    string,
+    { run: AgentRun; command: string; first: Step; last?: Step; ambiguous: boolean }
+  >();
+  /// A start_session may finish while its child waits for a run slot. Its eventual `started`
+  /// record has no call id, so later shell starts cannot rule it out either.
+  private sessionStartSeen = false;
   /// The run each sub-session is, by its session id; the runs whose reply acpmux recorded.
   private readonly children = new Map<string, string>();
   private readonly recorded = new Set<string>();
@@ -178,6 +184,11 @@ export class SubagentFold {
 
   /// Folds one session/update record; true when it belongs to subagents and draws no row.
   reduce(event: Event, update: any): boolean {
+    const kind = update?.sessionUpdate;
+    if ((kind === "tool_call" || kind === "tool_call_update") && startsSession(update)) {
+      this.sessionStartSeen = true;
+      for (const pending of this.parentCalls.values()) pending.ambiguous = true;
+    }
     const mux = event.msg?.params?._meta?.acpmux;
     const events: any[] = Array.isArray(mux?.subagents) ? mux.subagents : [];
     const tag = typeof mux?.subagent === "string" ? mux.subagent : undefined;
@@ -223,7 +234,6 @@ export class SubagentFold {
       this.touch(owner);
       return true;
     }
-    const kind = update?.sessionUpdate;
     if (kind === "subagent_spawned" || kind === "subagent_state_update" || kind === "subagent_progress") return true;
     if (this.reduceRun(event, update)) return true;
     const call = typeof update?.toolCallId === "string" ? update.toolCallId : undefined;
@@ -257,7 +267,10 @@ export class SubagentFold {
     if (kind === "background_task_update") {
       const agent = known ? this.agents.get(known) : undefined;
       // A `--parent` call still waiting for its child's start that ended starts none.
-      if (!agent && ["completed", "failed", "stopped"].includes(update.state)) this.parentCalls.delete(call);
+      if (!agent && ["completed", "failed", "stopped"].includes(update.state)) {
+        this.parentCalls.delete(call);
+        this.notRuns.add(call);
+      }
       if (!agent) return false;
       const state = update.state;
       const failed = state === "failed" || (Number.isInteger(update.exitCode) && update.exitCode !== 0);
@@ -281,8 +294,10 @@ export class SubagentFold {
       // to the background) started none, or its start already came.
       pending.last = { event, update };
       const ended = update.status === "failed" || update.status === "completed";
-      if (ended && !(update.status === "completed" && backgroundOutputPath(outputOf(update))))
+      if (ended && !(update.status === "completed" && backgroundOutputPath(outputOf(update)))) {
         this.parentCalls.delete(call);
+        this.notRuns.add(call);
+      }
       return false;
     }
     const command = update?.rawInput?.command;
@@ -293,10 +308,15 @@ export class SubagentFold {
     // A sub-session of a chat (acpmux #25019): its records name its harness, even one the command
     // does not, and only this chat's own children come to its log.
     if (run?.parent !== undefined && this.harness) {
-      this.parentCalls.set(call, { run, command: line, first: { event, update } });
+      // Child names are made unique by the daemon, and prompts can be identical. Neither
+      // distinguishes concurrent shell starts, even after one call ends or fails.
+      const ambiguous = this.sessionStartSeen || this.parentCalls.size > 0;
+      if (ambiguous) for (const pending of this.parentCalls.values()) pending.ambiguous = true;
+      this.parentCalls.set(call, { run, command: line, first: { event, update }, ambiguous });
       for (const old of this.parentCalls.keys()) {
         if (this.parentCalls.size <= PENDING_CHILDREN) break;
         this.parentCalls.delete(old);
+        this.notRuns.add(old);
       }
       return false;
     }
@@ -376,13 +396,15 @@ export class SubagentFold {
     // prompt in a file) stays its command.
     const name = text(record.shortName);
     const asked = promptKey(record.prompt);
-    // A name is the surer of the two: any call it names wins over one only its prompt matches.
+    // A name is the surer of the two: a different explicit name cannot fall back to its prompt.
     const calls = [...this.parentCalls];
     const call =
       calls.find(([, pending]) => name !== undefined && pending.run.session === name)?.[0] ??
-      calls.find(([, pending]) => asked !== undefined && promptKey(pending.run.prompt) === asked)?.[0];
+      calls.find(
+        ([, pending]) => !pending.run.session && asked !== undefined && promptKey(pending.run.prompt) === asked,
+      )?.[0];
     const pending = call !== undefined ? this.parentCalls.get(call) : undefined;
-    if (call === undefined || !pending) return undefined;
+    if (call === undefined || !pending || pending.ambiguous) return undefined;
     this.parentCalls.delete(call);
     const harness = text(record.harness);
     if (!harness || !this.harness || harnessFamily(harness) === harnessFamily(this.harness)) {
@@ -785,6 +807,14 @@ const HARNESS_GONE = new Set(["exited", "stopped", "reopened", "resumed", "host_
 function promptKey(prompt: unknown): string | undefined {
   const start = typeof prompt === "string" ? prompt.replace(/\s+/g, " ").trim().slice(0, 60) : "";
   return start || undefined;
+}
+
+/// Both MCP servers expose start_session; Claude names the tool, Codex nests its arguments.
+/// An unknown server's identically named tool is conservatively a possible competing start.
+function startsSession(update: any): boolean {
+  return [update?._meta?.claude?.tool, update?.title, update?.rawInput?.tool].some(
+    (name) => typeof name === "string" && /(?:^|[_.])start_session(?: call)?$/.test(name),
+  );
 }
 
 const text = (value: unknown) => (typeof value === "string" && value.trim() ? value.trim() : undefined);

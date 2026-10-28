@@ -130,7 +130,12 @@ test("only the child record supplies harness, model, effort and host identity", 
 const sessionStart = (id: string, style: "claude" | "cmux" | "codex" = "claude") => ({
   sessionUpdate: "tool_call",
   toolCallId: id,
-  title: style === "cmux" ? "mcp__cmux__subsessions_start_session" : "mcp__cmux-subsessions__start_session",
+  title:
+    style === "codex"
+      ? "cmux-subsessions.start_session call"
+      : style === "cmux"
+        ? "mcp__cmux__subsessions_start_session"
+        : "mcp__cmux-subsessions__start_session",
   status: "in_progress",
   rawInput:
     style === "codex"
@@ -203,6 +208,75 @@ test("an overlapping start stays ambiguous after the other shell call fails", ()
   send(call("shell-a", PARENT_RUN));
   send(call("shell-b", PARENT_RUN));
   send({ sessionUpdate: "tool_call_update", toolCallId: "shell-a", status: "failed" });
+  send({ sessionUpdate: "tool_call_update", toolCallId: "shell-b", status: "failed" });
+  // A repeated update with its input must not reintroduce a discarded ambiguous candidate.
+  send({ ...call("shell-b", PARENT_RUN), sessionUpdate: "tool_call_update" });
   expect(child(fold, 5, { event: "started", shortName: "fix", harness: "codex" })).toBeUndefined();
+  expect(fold.all()).toEqual([]);
+});
+
+test("two background parent runs and a same-name MCP start all retain their calls", () => {
+  const { fold, send } = folder();
+  for (const id of ["shell-a", "shell-b"]) send(call(id, PARENT_RUN, { run_in_background: true }));
+  send(sessionStart("mcp"));
+  for (const [index, shortName] of ["fix", "fix-2", "fix-3"].entries())
+    expect(
+      child(fold, 10 + index, {
+        childSessionId: `child-${index}`,
+        event: "started",
+        shortName,
+        prompt: "Fix the flaky test",
+        harness: "codex",
+      }),
+    ).toBeUndefined();
+  for (const id of ["shell-a", "shell-b", "mcp"])
+    expect(send({ sessionUpdate: "tool_call_update", toolCallId: id, status: "completed", content: text(id) })).toBe(
+      false,
+    );
+  expect(fold.all()).toEqual([]);
+});
+
+test("a completed MCP call can still have a queued first prompt", () => {
+  const { fold, send } = folder();
+  send(sessionStart("mcp"));
+  send({ sessionUpdate: "tool_call_update", toolCallId: "mcp", status: "completed" });
+  send(call("shell", PARENT_RUN));
+  expect(child(fold, 5, { event: "started", shortName: "fix", harness: "codex" })).toBeUndefined();
+  expect(fold.all()).toEqual([]);
+});
+
+test("a native subagent's MCP start can also compete for the parent's child record", () => {
+  const { fold, send } = folder();
+  send(call("shell", PARENT_RUN));
+  const update = sessionStart("nested-mcp");
+  fold.reduce(
+    {
+      seq: 2,
+      at: 2000,
+      msg: {
+        params: {
+          update,
+          _meta: {
+            acpmux: {
+              subagent: "native-agent",
+              subagents: [{ id: "native-agent", parent: null, name: "native", state: "running" }],
+            },
+          },
+        },
+      },
+    },
+    update,
+  );
+  expect(child(fold, 5, { event: "started", shortName: "fix", harness: "codex" })).toBeUndefined();
+  expect(fold.isRun("shell")).toBe(false);
+});
+
+test("a child's different explicit name cannot fall back to a matching prompt", () => {
+  const { fold, send } = folder();
+  send(call("shell", PARENT_RUN));
+  expect(
+    child(fold, 5, { event: "started", shortName: "fix-2", prompt: "Fix the flaky test", harness: "codex" }),
+  ).toBeUndefined();
+  expect(fold.isRun("shell")).toBe(false);
   expect(fold.all()).toEqual([]);
 });
