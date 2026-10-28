@@ -1,4 +1,3 @@
-import React from "react";
 import { ChevronIcon } from "./ComposerPickers";
 import { useT } from "./i18n";
 import { remoteLocationState, type RemoteLocationState } from "./remoteLocationState";
@@ -6,41 +5,41 @@ import type { Environment } from "./environments";
 import "./remoteLocationStrip.css";
 
 /// Shares only the face/status between the two existing run-location pickers.
-export function RemoteLocationStrip({
+export function RemoteLocationStatus({
   machine,
   onReconnect,
-  children,
 }: {
   machine?: Environment;
   onReconnect?(peer: string): void;
-  children: React.ReactNode;
 }) {
   const t = useT();
-  if (!machine) return children;
+  if (!machine) return null;
   const state = remoteLocationState(machine);
   const stateLabel = remoteStateLabel(state, t);
   const reconnectable = state === "offline" && onReconnect !== undefined;
-  return (
-    <span className="acpmux-remote-location" data-state={state}>
-      {children}
-      {reconnectable ? (
-        <button
-          type="button"
-          className="acpmux-remote-location-status acpmux-remote-location-reconnect"
-          aria-label={t("unavailable.reconnect")}
-          title={t("composer.remoteReconnect", { name: machine.label })}
-          onClick={() => onReconnect(machine.id)}
-        >
-          <span aria-hidden="true" />
-          <span className="acpmux-remote-location-status-text">{stateLabel}</span>
-        </button>
-      ) : (
-        <output className="acpmux-remote-location-status" aria-label={stateLabel} title={stateLabel}>
-          <span aria-hidden="true" />
-          <span className="acpmux-remote-location-status-text">{stateLabel}</span>
-        </output>
-      )}
-    </span>
+  const statusProps = { "data-state": state };
+  return reconnectable ? (
+    <button
+      type="button"
+      className="acpmux-remote-location acpmux-remote-location-status acpmux-remote-location-reconnect"
+      {...statusProps}
+      aria-label={t("unavailable.reconnect")}
+      title={t("composer.remoteReconnect", { name: machine.label })}
+      onClick={() => onReconnect(machine.id)}
+    >
+      <span aria-hidden="true" />
+      <span className="acpmux-remote-location-status-text">{stateLabel}</span>
+    </button>
+  ) : (
+    <output
+      className="acpmux-remote-location acpmux-remote-location-status"
+      {...statusProps}
+      aria-label={stateLabel}
+      title={stateLabel}
+    >
+      <span aria-hidden="true" />
+      <span className="acpmux-remote-location-status-text">{stateLabel}</span>
+    </output>
   );
 }
 

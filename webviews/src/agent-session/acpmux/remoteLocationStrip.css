@@ -1,8 +1,8 @@
 /* RemoteLocationStrip.tsx: the location row's remote face keeps the existing glass and picker menu,
    adding only one quiet state mark for the machine acpmux actually reported. */
-.acpmux-remote-location { display: inline-flex; align-items: center; min-width: 0; max-width: 100%; flex: 0 1 auto; gap: 0; }
-.acpmux-remote-location .acpmux-location-picker { min-width: 0; }
-.acpmux-remote-location .acpmux-location-button { min-width: 0; max-width: 100%; }
+.acpmux-remote-location-preview { display: inline-flex; align-items: center; min-width: 0; max-width: 100%; flex: 0 1 auto; gap: 0; }
+.acpmux-remote-location-preview .acpmux-location-picker { min-width: 0; }
+.acpmux-location-button:has(> .acpmux-remote-location-face) { min-width: 0; max-width: 100%; }
 .acpmux-remote-location-face { display: inline-flex; align-items: center; min-width: 0; gap: var(--ds-space-1); }
 .acpmux-remote-location-kind { flex: none; }
 .acpmux-remote-location-machine { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -28,11 +28,11 @@
   clip-path: inset(50%);
   white-space: nowrap;
 }
-.acpmux-remote-location[data-state=connected] .acpmux-remote-location-status { color: var(--agent-success, var(--acpmux-add, #36c57b)); }
-.acpmux-remote-location[data-state=offline] .acpmux-remote-location-status { color: var(--agent-error, var(--acpmux-del, #ff6464)); }
-.acpmux-remote-location[data-state=unknown] .acpmux-remote-location-status { color: var(--agent-muted); }
-.acpmux-remote-location[data-state=unknown] .acpmux-remote-location-status > span:first-child { border: 1px solid currentColor; background: transparent; }
-.acpmux-remote-location[data-state=connecting] .acpmux-remote-location-status > span:first-child {
+.acpmux-remote-location-status[data-state=connected] { color: var(--agent-success, var(--acpmux-add, #36c57b)); }
+.acpmux-remote-location-status[data-state=offline] { color: var(--agent-error, var(--acpmux-del, #ff6464)); }
+.acpmux-remote-location-status[data-state=unknown] { color: var(--agent-muted); }
+.acpmux-remote-location-status[data-state=unknown] > span:first-child { border: 1px solid currentColor; background: transparent; }
+.acpmux-remote-location-status[data-state=connecting] > span:first-child {
   width: 9px;
   block-size: 9px;
   border: 1.5px solid color-mix(in srgb, currentColor 35%, transparent);
@@ -40,9 +40,9 @@
   background: transparent;
 }
 @media (prefers-reduced-motion: no-preference) {
-  .acpmux-remote-location[data-state=connecting] .acpmux-remote-location-status > span:first-child { animation: cmux-spin var(--cmux-spinner-period, 900ms) linear infinite; }
+  .acpmux-remote-location-status[data-state=connecting] > span:first-child { animation: cmux-spin var(--cmux-spinner-period, 900ms) linear infinite; }
 }
-:root[data-status-indicators=static] .acpmux-remote-location[data-state=connecting] .acpmux-remote-location-status > span:first-child { animation: none; }
+:root[data-status-indicators=static] .acpmux-remote-location-status[data-state=connecting] > span:first-child { animation: none; }
 .acpmux-remote-location-reconnect { cursor: pointer; }
 .acpmux-remote-location-reconnect:hover { background: var(--acpmux-pill-hover, color-mix(in srgb, var(--agent-text) 11%, transparent)); }
 .acpmux-remote-location-reconnect:focus-visible { outline: 1.5px solid var(--agent-text); outline-offset: 1px; }

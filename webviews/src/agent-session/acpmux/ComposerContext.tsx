@@ -31,7 +31,7 @@ import {
   type OffloadKind,
 } from "./environments";
 import { FolderPopover } from "./FolderPopover";
-import { RemoteLocationFace, RemoteLocationStrip } from "./RemoteLocationStrip";
+import { RemoteLocationFace, RemoteLocationStatus } from "./RemoteLocationStrip";
 import type { Project } from "./ProjectChooser";
 import { ProjectBadge } from "./ProjectBadge";
 import { projectSuffixes } from "./projectSuffix";
@@ -398,67 +398,66 @@ export function ComposerContext({
               </button>
             </span>
           )}
-          <RemoteLocationStrip machine={remoteComputer} onReconnect={onReconnectRemote}>
-            {environmentsShown ? (
-              <EnvironmentPicker
-                label={t(CONTEXT_LABELS.environment)}
-                menu="Computer"
-                value={
-                  sandboxPicked
-                    ? t("composer.sandboxed")
-                    : (savedPick?.name ?? currentComputer?.label ?? t(CONTEXT_LABELS.chooseComputer))
-                }
-                face={
-                  // Sandboxed picked (hq#3367): the control names it where the machine was.
-                  remoteComputer ? (
-                    <RemoteLocationFace machine={remoteComputer} />
-                  ) : sandboxPicked ? (
-                    <LocationFace icon={<EnvironmentIcon kind="cloud" />} value={t("composer.sandboxed")} chevron />
-                  ) : (
-                    <LocationFace
-                      icon={
-                        <EnvironmentIcon
-                          kind={savedPick?.kind ?? currentComputer?.kind ?? "local"}
-                          name={savedPick ? undefined : currentComputer?.label}
-                        />
-                      }
-                      value={savedPick?.name ?? currentComputer?.label ?? t(CONTEXT_LABELS.chooseComputer)}
-                      chevron
-                    />
-                  )
-                }
-                environments={offload && currentComputer ? [currentComputer] : computers}
-                current={selectedComputer}
-                onPick={pickEnvironment}
-                {...(offload && onOffload ? { offload, onOffload } : {})}
-                {...(!started && onConnect ? { onConnect } : {})}
-                {...(savedRows ? { saved: savedRows } : {})}
-                {...(onRefreshMachines ? { onOpen: onRefreshMachines } : {})}
-                {...(runMode && !started && !readOnly ? { runMode } : {})}
-              />
-            ) : (
-              <LocationPicker
-                label={t(CONTEXT_LABELS.computer)}
-                menu="Computer"
-                kind="computer"
-                icon={<ComputerIcon name={currentComputer?.kind === "local" ? undefined : currentComputer?.label} />}
-                value={currentComputer?.label ?? t(CONTEXT_LABELS.chooseComputer)}
-                options={menuComputers}
-                selected={selectedComputer}
-                disabled={computerDisabled}
-                {...(onRefreshMachines ? { onOpen: onRefreshMachines } : {})}
-                extras={
-                  !started && onConnect
-                    ? [
-                        { id: "ssh", label: t(CONTEXT_LABELS.connectSSH), onSelect: () => onConnect("ssh") },
-                        { id: "cloud", label: t(CONTEXT_LABELS.newCloudMachine), onSelect: () => onConnect("cloud") },
-                      ]
-                    : undefined
-                }
-                onPick={pickComputer}
-              />
-            )}
-          </RemoteLocationStrip>
+          {environmentsShown ? (
+            <EnvironmentPicker
+              label={t(CONTEXT_LABELS.environment)}
+              menu="Computer"
+              value={
+                sandboxPicked
+                  ? t("composer.sandboxed")
+                  : (savedPick?.name ?? currentComputer?.label ?? t(CONTEXT_LABELS.chooseComputer))
+              }
+              face={
+                // Sandboxed picked (hq#3367): the control names it where the machine was.
+                remoteComputer ? (
+                  <RemoteLocationFace machine={remoteComputer} />
+                ) : sandboxPicked ? (
+                  <LocationFace icon={<EnvironmentIcon kind="cloud" />} value={t("composer.sandboxed")} chevron />
+                ) : (
+                  <LocationFace
+                    icon={
+                      <EnvironmentIcon
+                        kind={savedPick?.kind ?? currentComputer?.kind ?? "local"}
+                        name={savedPick ? undefined : currentComputer?.label}
+                      />
+                    }
+                    value={savedPick?.name ?? currentComputer?.label ?? t(CONTEXT_LABELS.chooseComputer)}
+                    chevron
+                  />
+                )
+              }
+              environments={offload && currentComputer ? [currentComputer] : computers}
+              current={selectedComputer}
+              onPick={pickEnvironment}
+              {...(offload && onOffload ? { offload, onOffload } : {})}
+              {...(!started && onConnect ? { onConnect } : {})}
+              {...(savedRows ? { saved: savedRows } : {})}
+              {...(onRefreshMachines ? { onOpen: onRefreshMachines } : {})}
+              {...(runMode && !started && !readOnly ? { runMode } : {})}
+            />
+          ) : (
+            <LocationPicker
+              label={t(CONTEXT_LABELS.computer)}
+              menu="Computer"
+              kind="computer"
+              icon={<ComputerIcon name={currentComputer?.kind === "local" ? undefined : currentComputer?.label} />}
+              value={currentComputer?.label ?? t(CONTEXT_LABELS.chooseComputer)}
+              options={menuComputers}
+              selected={selectedComputer}
+              disabled={computerDisabled}
+              {...(onRefreshMachines ? { onOpen: onRefreshMachines } : {})}
+              extras={
+                !started && onConnect
+                  ? [
+                      { id: "ssh", label: t(CONTEXT_LABELS.connectSSH), onSelect: () => onConnect("ssh") },
+                      { id: "cloud", label: t(CONTEXT_LABELS.newCloudMachine), onSelect: () => onConnect("cloud") },
+                    ]
+                  : undefined
+              }
+              onPick={pickComputer}
+            />
+          )}
+          <RemoteLocationStatus machine={remoteComputer} onReconnect={onReconnectRemote} />
         </div>
         {branch && <BranchPicker branch={branch} />}
       </div>
@@ -796,12 +795,8 @@ function LocationPicker({
                 : undefined;
             return (
               // tooltip-allow: the row shows the folder's name; the tooltip is its full path
-              <span
-                className={
-                  kind === "computer"
-                    ? "acpmux-location-row acpmux-location-name"
-                    : "acpmux-menu-text acpmux-location-name"
-                }
+                <span
+                className={kind === "computer" ? "acpmux-location-row acpmux-location-name" : "acpmux-menu-text acpmux-location-name"}
                 title={path}
                 data-section={section}
                 data-first-section={section && index === 0 ? "" : undefined}

@@ -65,6 +65,7 @@ nonisolated extension AcpmuxPaneMethods {
         // grants nothing (the same probes acpmux runs in the background), so no gesture rule.
         "_acpmux/models": (["refresh"], []),
         "_acpmux/status": ([], []),
+        "_acpmux/peers": ([], []),
         "_acpmux/draft_get": (["sessionId"], []),
         "_acpmux/draft_set": (["sessionId", "text"], []),
         "_acpmux/bookmark_get": (["sessionId"], []),

@@ -27,6 +27,9 @@ nonisolated extension AcpmuxPaneMethods {
     /// tell a chat on a machine that is not connected (with when it was last seen) from a deleted
     /// one, and from one whose machine is still connecting (chatUnavailable.ts).
     public static let replyShapes: [String: ReplyShape] = [
+        "_acpmux/peers": .object(["peers": .list(.object([
+            "name": .string, "state": .string, "lastSeen": .number, "error": .string,
+        ]))]),
         "_acpmux/status": .object([
             "peers": .list(.object([
                 "name": .string, "transport": .scheme(from: "url"), "connected": .bool,

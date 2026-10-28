@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import CmuxNextAgentPane
 
@@ -48,5 +49,17 @@ struct AgentPaneRemoteLocationTests {
         if case .unsupported = AgentPaneRequest(body: ["method": "action.run", "params": ["id": "remote.reconnect"]]) {} else {
             Issue.record("A missing target must never fall back to the active workspace")
         }
+    }
+
+    @Test func peerSnapshotIsReadOnlyAndDoesNotExposeURLs() throws {
+        #expect(AcpmuxPaneMethods.requests.contains("_acpmux/peers"))
+        let shape = try #require(AcpmuxPaneMethods.replyShapes["_acpmux/peers"])
+        let value = ["peers": [["name": "studio-mac", "state": "offline", "lastSeen": 5,
+                               "error": "removed", "url": "ssh://private"]]]
+        let filtered = try #require(AcpmuxPaneMethods.filtered(value, to: shape) as? [String: Any])
+        let peer = try #require((filtered["peers"] as? [[String: Any]])?.first)
+        #expect(peer["state"] as? String == "offline")
+        #expect(peer["error"] as? String == "removed")
+        #expect(peer["url"] == nil)
     }
 }

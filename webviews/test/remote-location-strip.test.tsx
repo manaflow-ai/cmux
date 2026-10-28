@@ -152,22 +152,22 @@ test("a remote prompt without a project starts on that peer without a cwd", asyn
   expect(sent.find((call) => call.method === "chat.send")?.params).toEqual({ text: "hello remote" });
 });
 
-test("peer events update a closed remote control through the actual client", async () => {
+test.each([true, false])("peer events update a closed remote control only with the feature (%s)", async (supported) => {
   const { AcpmuxDirectClient } = await import("../src/agent-session/acpmux/direct");
   const { MockAcpmuxSocket, mockHost } = await import("../src/agent-session/acpmux/mock");
   const { ComposerContext } = await import("../src/agent-session/acpmux/ComposerContext");
   const requests: string[] = [];
+  let snapshotPeers = [{ name: "studio-mac", state: "connecting", lastSeen: null, error: null }];
   class PeerSocket extends MockAcpmuxSocket {
     override send(raw: string) {
       const request = JSON.parse(raw);
       requests.push(request.method);
       let result: unknown;
       if (request.method === "initialize")
-        result = { protocolVersion: 1, _meta: { acpmux: { features: ["peerStateEvents"] } } };
+        result = { protocolVersion: 1, _meta: { acpmux: { features: supported ? ["peerStateEvents"] : [] } } };
       else if (request.method === "_acpmux/status")
         result = { peers: [{ name: "studio-mac", transport: "ssh", state: "connected" }] };
-      else if (request.method === "_acpmux/peers")
-        result = { peers: [{ name: "studio-mac", state: "connecting", lastSeen: null, error: null }] };
+      else if (request.method === "_acpmux/peers") result = { peers: snapshotPeers };
       else return super.send(raw);
       queueMicrotask(() => this.onmessage?.({ data: JSON.stringify({ jsonrpc: "2.0", id: request.id, result }) }));
     }
@@ -196,7 +196,7 @@ test("peer events update a closed remote control through the actual client", asy
       );
     });
     const state = () => host.querySelector(".acpmux-remote-location")?.getAttribute("data-state");
-    expect(state()).toBe("connecting");
+    expect(state()).toBe(supported ? "connecting" : "connected");
     for (const [wire, visual] of [
       ["connected", "connected"],
       ["reconnecting", "offline"],
@@ -218,10 +218,15 @@ test("peer events update a closed remote control through the actual client", asy
           }),
         }),
       );
-      expect(state()).toBe(visual);
+      expect(state()).toBe(supported ? visual : "connected");
       expect(host.querySelector('[aria-expanded="true"]')).toBeNull();
     }
-    expect(requests.filter((method) => method === "_acpmux/peers")).toHaveLength(1);
+    if (supported) {
+      snapshotPeers = [];
+      await act(async () => client?.refreshPeers());
+      expect(state()).toBe("unknown");
+    }
+    expect(requests.filter((method) => method === "_acpmux/peers")).toHaveLength(supported ? 2 : 0);
   } finally {
     await act(async () => client?.close());
   }
