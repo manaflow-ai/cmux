@@ -1,9 +1,0 @@
-{
-  "notifications": {
-    "sources": {
-      "agent": {
-        "dismissal": "__not_a_choice__"
-      }
-    }
-  }
-}
