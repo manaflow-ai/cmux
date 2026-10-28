@@ -198,6 +198,6 @@ extension PaneHandlers {
             }
         }
         queue.latest = task
-        ctx.registry.track(task)
+        ctx.report { await task.value }
     }
 }
