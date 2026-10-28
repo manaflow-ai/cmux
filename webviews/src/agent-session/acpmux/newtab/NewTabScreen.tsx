@@ -2,7 +2,8 @@ import { useWebSwapHold } from "../../../pages/shared/useWebSwapHold";
 import { WEB_SWAP_KEPT_TEXT } from "../../../pages/shared/webSwap";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
-import type { ConnectKind } from "../environments";
+import { chooseAutoEnvironment } from "../autoEnvironment";
+import { knownMachines, type ConnectKind, type Environment } from "../environments";
 import type { DictationField } from "../dictation";
 import { FOCUS_LOCATION_EVENT, type NewTabHost } from "../NewTabPage";
 import type { AcpmuxSnapshot } from "../model";
@@ -166,6 +167,9 @@ export type NewTabScreenActions = {
     model: string | undefined,
     attachments: ComposerAttachment[],
   ): boolean | string;
+  /// A Cloud start from this page is out (App): every send waits, so an edited prompt never also
+  /// starts somewhere else while the first goes to Cloud.
+  cloudStarting?: boolean;
   /// The page goes with an unsent draft (a typed prompt, staged attachments): handed over so the
   /// view that replaces it can keep it (the tab's Sandboxed run taking the chat view).
   onLeaveDraft?(text: string, attachments: ComposerAttachment[]): void;
@@ -274,6 +278,7 @@ const NO_DEVICE_CHATS: ReturnType<typeof useDeviceChats> = [];
 /// (cx-e2aa), and the recent chats as cards. A key typed anywhere on the page goes to the field.
 export function NewTabScreen(props: Props) {
   const nt = useNt();
+  const t = useT();
   // What the page shows or opens appears at once; exits keep their fades (noEntryMotion.ts).
   useNoEntryMotion();
   const { snapshot, omnibar = EMPTY_OMNIBAR, location, lastAgent, home, now, inputToken } = props;
@@ -316,6 +321,10 @@ export function NewTabScreen(props: Props) {
   // Another machine acpmux lists, picked in the location row's machine list: the chat starts there
   // (screenActions onAsk with its `peer`), in a folder on it once one is picked.
   const [machine, setMachine] = useState<{ peer: string; folder?: string }>();
+  // New chats begin in Auto: the folder's run location (runLocationDefault.ts), moved only by a
+  // prompt that asks for a destination (autoEnvironment.ts). An explicit machine, saved environment
+  // or Run as row clears it; a folder pick keeps it, since the folder is what Auto reads.
+  const [autoEnvironment, setAutoEnvironment] = useState(true);
   const folderless = !props.cwd || props.cwd === home || isAgentHome(props.cwd);
   const startsRecent = !picked && folderless && !props.startCwd;
   const candidate = useMemo(
@@ -476,6 +485,8 @@ export function NewTabScreen(props: Props) {
   const runMode = props.runMode && {
     ...props.runMode,
     onMode: (mode: RunMode) => {
+      // Any Run as row is a pick of its own: Auto no longer chooses.
+      setAutoEnvironment(false);
       if (mode === "cloud") {
         saved.pick(undefined);
         setMachine(undefined);
@@ -483,26 +494,71 @@ export function NewTabScreen(props: Props) {
       props.runMode?.onMode(mode);
     },
   };
+  const autoEnvironments = useMemo<Environment[]>(() => {
+    const peers = snapshot.peers ?? [];
+    return [
+      { id: "local", label: props.machineName ?? t("composer.thisMac"), kind: "local" },
+      ...knownMachines(
+        peers,
+        snapshot.sessions,
+        snapshot.peerKinds ?? {},
+        [],
+        snapshot.peerConnected ?? {},
+        snapshot.peerStates ?? {},
+      ).filter((environment) => environment.kind === "local" || peers.includes(environment.id)),
+    ];
+  }, [
+    props.machineName,
+    snapshot.peers,
+    snapshot.sessions,
+    snapshot.peerKinds,
+    snapshot.peerConnected,
+    snapshot.peerStates,
+    t,
+  ]);
+  // Auto routes only in the environment picker (preview), and never over a Sandboxed pick. Under
+  // Auto the Run as mode is the folder's default (App: Cloud only by the folder's history), so it
+  // is Auto's fallback, not a pick.
+  const autoOn = !!props.environments && autoEnvironment && props.runMode?.mode !== "sandboxed";
+  const autoFolder = props.runMode?.mode === "cloud" ? "cloud" : "local";
+  const cloudRow = !!props.runMode && !!props.onCloud;
+  const chooseAuto = (prompt: string) =>
+    chooseAutoEnvironment({
+      prompt,
+      folder: autoFolder,
+      cloudRow,
+      ...(project ? { project } : {}),
+      environments: autoEnvironments,
+      sessions: snapshot.sessions,
+    });
+  const autoChoice = chooseAuto(text);
   // A prompt's chat, in no project when that was the pick.
   // The images and files pasted or dropped on the page go with the first prompt.
-  /// A Sandboxed send refused here (attachments, an agent a sandbox can't run): said over the box,
-  /// and the prompt stays.
-  const [sandboxRefusal, setSandboxRefusal] = useState<string>();
+  /// A Sandboxed or Cloud send refused here (attachments, an agent a sandbox can't run): said over
+  /// the box, and the prompt stays. Tagged with the run it refused: Auto may send to Cloud while the
+  /// Run as mode is Persistent.
+  const [sandboxRefusal, setSandboxRefusal] = useState<{ run: "cloud" | "sandboxed"; code: string }>();
   /// False only when a Sandboxed send started nothing, so the caller's one-shot guards stay open.
   const askChat = (agent: string, prompt: string, cwd?: string, model?: string): boolean | void => {
-    if (props.runMode?.mode === "cloud" && props.onCloud) {
+    if (props.cloudStarting) return false;
+    const auto = autoOn ? chooseAuto(prompt) : undefined;
+    if (auto ? auto.to === "cloud" : props.runMode?.mode === "cloud" && props.onCloud) {
       // The folder the chip names (envFolder), never the raw `cwd` a caller passes: a tab that
       // inherited home with a start folder elsewhere shows and copies the start folder.
-      const started = props.onCloud(agent, prompt, envFolder, model, attachments);
-      setSandboxRefusal(typeof started === "string" ? started : undefined);
+      const started = props.onCloud!(agent, prompt, envFolder, model, attachments);
+      setSandboxRefusal(typeof started === "string" ? { run: "cloud", code: started } : undefined);
       return started === true;
     }
     if (props.runMode?.mode === "sandboxed" && props.onSandbox) {
       const started = props.onSandbox(agent, prompt, attachments);
-      setSandboxRefusal(typeof started === "string" ? started : undefined);
+      setSandboxRefusal(typeof started === "string" ? { run: "sandboxed", code: started } : undefined);
       return started === true;
     }
     if (environment) return askInEnvironment(environment, agent, prompt, model);
+    if (auto?.to === "machine")
+      return props.onAsk(agent, prompt, auto.cwd, model, undefined, attachments.length ? attachments : undefined, {
+        peer: auto.environment.id,
+      });
     if (machine)
       return props.onAsk(
         agent,
@@ -590,7 +646,6 @@ export function NewTabScreen(props: Props) {
     const row = rows[index];
     setSelected(row ? rowKey(row) : NO_ROW);
   };
-  const t = useT();
   const chrome = useComposerChrome();
   // The chat composer's footer look (composerSettings.ts plainFooter): the New Tab row draws the
   // same plain chips, so the two composers never disagree (composerLocation.css).
@@ -1068,10 +1123,17 @@ export function NewTabScreen(props: Props) {
   };
   // A machine picked in the location row: the chat starts there, and the prompt takes the keyboard
   // back, as after a folder pick (the picker returns no focus itself).
+  // A machine or saved environment picked here: Auto ends, and Run as is a Persistent pick (App), so
+  // the folder's Cloud default, now or later, never takes the prompt elsewhere.
+  const pickedHere = () => {
+    setAutoEnvironment(false);
+    props.runMode?.onMode("persistent");
+  };
   const pickMachine = (next?: { peer: string; folder?: string }) => {
     // A newer choice than any worktree still on its way (`projectChoice`).
     projectChoice.current += 1;
     saved.pick(undefined);
+    pickedHere();
     touch();
     setMachine(next);
     field.current?.focus();
@@ -1096,6 +1158,7 @@ export function NewTabScreen(props: Props) {
       return props.onAsk(agent, prompt, picked.folder, model, undefined, extra, {});
     if (worktreePending.current) return;
     worktreePending.current = true;
+    const choice = ++projectChoice.current;
     setWorktreeError(undefined);
     // No chat started: the page's create buttons work again (startChat set `created`).
     const unstarted = () => {
@@ -1104,13 +1167,14 @@ export function NewTabScreen(props: Props) {
     };
     void props.onNewWorktree(picked.folder).then(
       (folder) => {
-        if (!folder) return unstarted();
+        if (!folder || choice !== projectChoice.current) return unstarted();
         worktreePending.current = false;
         props.onAsk(agent, prompt, folder, model, undefined, extra, {});
       },
       (error: unknown) => {
         unstarted();
-        setWorktreeError((error instanceof Error && error.message) || String(error));
+        if (choice === projectChoice.current)
+          setWorktreeError((error instanceof Error && error.message) || String(error));
       },
     );
   }
@@ -1185,11 +1249,13 @@ export function NewTabScreen(props: Props) {
         summary={{
           ...chipSnapshot.summary,
           sessionId: chipSnapshot.summary?.sessionId ?? "",
-          ...(machine
-            ? { peer: machine.peer, cwd: machine.folder }
-            : askFolder
-              ? { cwd: askFolder }
-              : { cwd: undefined }),
+          ...(autoOn && autoChoice.to === "machine"
+            ? { peer: autoChoice.environment.id, cwd: autoChoice.cwd }
+            : machine
+              ? { peer: machine.peer, cwd: machine.folder }
+              : askFolder
+                ? { cwd: askFolder }
+                : { cwd: undefined }),
         }}
         // Every machine acpmux lists (`_acpmux/status`), as the chat composer lists them: a pick
         // starts the chat there (screenActions onAsk with its `peer`).
@@ -1200,6 +1266,25 @@ export function NewTabScreen(props: Props) {
         {...(snapshot.peerStates ? { peerStates: snapshot.peerStates } : {})}
         {...(props.onRefreshMachines ? { onRefreshMachines: props.onRefreshMachines } : {})}
         onComputer={(computer) => pickMachine(computer === "local" ? undefined : { peer: computer })}
+        {...(props.environments
+          ? {
+              auto: {
+                detail: autoChoice.to === "cloud" ? t("composer.cloud") : autoChoice.environment.label,
+                kind: autoChoice.to === "cloud" ? ("cloud" as const) : autoChoice.environment.kind,
+                selected: autoOn,
+                onPick: () => {
+                  projectChoice.current += 1;
+                  saved.pick(undefined);
+                  setMachine(undefined);
+                  setAutoEnvironment(true);
+                  // The Run as mode goes back to the folder's default (App), which Auto reads.
+                  props.runMode?.onDefault?.();
+                  touch();
+                  requestAnimationFrame(() => field.current?.focus());
+                },
+              },
+            }
+          : {})}
         {...(props.machineName ? { localName: props.machineName } : {})}
         projectChoices={props.projects ?? []}
         onProject={(cwd, peer) => (peer ? pickMachine({ peer, folder: cwd }) : pickProject(cwd))}
@@ -1217,6 +1302,7 @@ export function NewTabScreen(props: Props) {
                 ...(environment ? { current: environment.id } : {}),
                 onPick: (id: string) => {
                   touch();
+                  pickedHere();
                   saved.pick(id);
                   requestAnimationFrame(() => field.current?.focus());
                 },
@@ -1252,7 +1338,10 @@ export function NewTabScreen(props: Props) {
       machines={sshMachines}
       machineFolders={machineFolders}
       {...(props.onConnect ? { onConnectSSH: () => props.onConnect!("ssh") } : {})}
-      onSave={saved.save}
+      onSave={async (draft) => {
+        await saved.save(draft);
+        pickedHere();
+      }}
       onRemove={saved.remove}
       onClose={() => {
         saved.edit(undefined);
@@ -1356,14 +1445,14 @@ export function NewTabScreen(props: Props) {
           composer location strip; newtab/screen.css). */}
       <div ref={setComposer} className="nt-composer" data-composer-look={look === "codex" ? "codex" : undefined}>
         {worktreeError && <WorktreeFailure error={worktreeError} onDismiss={() => setWorktreeError(undefined)} />}
-        {sandboxRefusal && props.runMode?.mode === "sandboxed" && (
+        {sandboxRefusal?.run === "sandboxed" && props.runMode?.mode === "sandboxed" && (
           <output className="acpmux-switch-notice">
-            <span role="alert">{t(sandboxFailureKey(sandboxRefusal) ?? "sandbox.error.failed")}</span>
+            <span role="alert">{t(sandboxFailureKey(sandboxRefusal.code) ?? "sandbox.error.failed")}</span>
           </output>
         )}
-        {sandboxRefusal && props.runMode?.mode === "cloud" && (
+        {sandboxRefusal?.run === "cloud" && (autoOn ? autoChoice.to === "cloud" : props.runMode?.mode === "cloud") && (
           <output className="acpmux-switch-notice">
-            <span role="alert">{sandboxRefusal}</span>
+            <span role="alert">{sandboxRefusal.code}</span>
           </output>
         )}
         {/* Above the box: the project strip (Cards draws it under the field). */}
