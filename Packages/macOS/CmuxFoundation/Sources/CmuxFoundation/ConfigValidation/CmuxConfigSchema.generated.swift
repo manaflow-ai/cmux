@@ -1186,7 +1186,8 @@ enum CmuxEmbeddedConfigSchema {
             "enabled": {
               "type": "boolean",
               "default": false,
-              "description": "Monitor pane process trees for runaway memory use."
+              "description": "Stops a pane's runaway jobs when its processes push memory use to a critical level.",
+              "descriptionKey": "schemaDescriptions.terminal.runawayMemoryGuardrailEnabled"
             },
             "thresholdGB": {
               "type": "number",

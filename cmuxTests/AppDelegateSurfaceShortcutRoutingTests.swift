@@ -14,23 +14,6 @@ private final class ShortcutUnrelatedResponderView: NSView {
 }
 
 @MainActor
-private final class CanvasViewportSpy: CanvasViewportControlling {
-    var revealedPanelIds: [UUID] = []
-    var overviewToggleCount = 0
-    var modelDidChangeCount = 0
-    var resetZoomCount = 0
-    var currentMagnification: CGFloat = 1
-    var currentCenterInCanvas: CGPoint = .zero
-
-    func revealPane(_ panelId: UUID, animated: Bool) { revealedPanelIds.append(panelId) }
-    func toggleOverview() { overviewToggleCount += 1 }
-    func zoom(by factor: CGFloat) {}
-    func resetZoom() { resetZoomCount += 1 }
-    func setViewport(center: CGPoint, magnification: CGFloat?) {}
-    func modelDidChangeExternally(animated: Bool) { modelDidChangeCount += 1 }
-}
-
-@MainActor
 @Suite(.serialized)
 struct AppDelegateSurfaceShortcutRoutingTests {
     @Test func rightSidebarModeShortcutsDoNotFallThroughWhenResponderTemporarilyClears() throws {
@@ -218,6 +201,8 @@ struct AppDelegateSurfaceShortcutRoutingTests {
             let workspace = try #require(manager.selectedWorkspace)
             let foregroundPanelId = try #require(workspace.focusedPanelId)
             let foregroundPanel = try #require(workspace.terminalPanel(for: foregroundPanelId))
+            // Establish split geometry before the window's first layout pass.
+            workspace.bonsplitController.setContainerFrame(CGRect(x: 0, y: 0, width: 1200, height: 800))
             let backgroundPanel = try #require(workspace.newTerminalSplit(
                 from: foregroundPanelId,
                 orientation: .horizontal,
@@ -379,6 +364,8 @@ struct AppDelegateSurfaceShortcutRoutingTests {
             let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
             let workspace = try #require(manager.selectedWorkspace)
             let leftPanelId = try #require(workspace.focusedPanelId)
+            // The setup split runs before this window is laid out or enters canvas mode.
+            workspace.bonsplitController.setContainerFrame(CGRect(x: 0, y: 0, width: 1200, height: 800))
             _ = try #require(workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal))
             let event = try #require(makeKeyDownEvent(
                 key: "\r",

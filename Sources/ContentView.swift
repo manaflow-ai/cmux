@@ -1873,7 +1873,7 @@ struct ContentView: View {
         .modifier(WorkspacePresentationModeContentTopPaddingModifier(
             isFullScreen: isFullScreen,
             runtimeCache: workspacePresentationModeRuntimeCache
-        ))
+        )).background { runawayPaneWarningBackground(tabManager: tabManager, selection: sidebarSelectionState) }
     }
 
     private func terminalContentWithSidebarDropOverlay(appearance: WindowAppearanceSnapshot) -> some View {

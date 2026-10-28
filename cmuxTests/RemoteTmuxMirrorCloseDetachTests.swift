@@ -423,46 +423,6 @@ import Testing
         Issue.record("Timed out waiting for fake SSH argument '\(argument)': \(log)")
         return log
     }
-
-    @MainActor
-    fileprivate struct Harness {
-        let appDelegate: AppDelegate
-        let windowId: UUID
-        let manager: TabManager
-        let workspace: Workspace
-        var controller: RemoteTmuxController { appDelegate.remoteTmuxController }
-
-        init() throws {
-            appDelegate = try #require(AppDelegate.shared)
-            windowId = appDelegate.createMainWindow()
-            manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
-            workspace = try #require(manager.selectedWorkspace)
-        }
-
-        func tearDown() {
-            workspace.isRemoteTmuxMirror = false
-            // Clear any marker so it can't leak into another serialized test.
-            controller.consumeKillSessionsOnWindowClose(windowId: windowId)
-            closeWindow(windowId)
-        }
-
-        func cacheConnection(host: RemoteTmuxHost, session: String) {
-            controller.cacheConnection(RemoteTmuxControlConnection(host: host, sessionName: session))
-        }
-
-        func closeWindow(_ id: UUID) {
-            let identifier = "cmux.main.\(id.uuidString)"
-            if let manager = appDelegate.tabManagerFor(windowId: id) {
-                manager.tabs.forEach { $0.teardownAllPanels() }
-            }
-            if let window = NSApp.windows.first(where: { $0.identifier?.rawValue == identifier }) {
-                appDelegate.suppressClosedWindowHistoryForTesting(windowId: id)
-                window.close()
-            }
-            appDelegate.forgetRecoverableMainWindowRoute(windowId: id)
-            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
-        }
-    }
 }
 
 /// Run focus-neutral window creation in a fresh app host. The close/detach

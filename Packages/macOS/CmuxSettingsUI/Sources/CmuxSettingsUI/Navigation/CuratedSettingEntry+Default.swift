@@ -287,8 +287,8 @@ extension Array where Element == CuratedSettingEntry {
                 section: .terminal,
                 id: "memory-guardrail",
                 title: String(localized: "settings.terminal.memoryGuardrail", defaultValue: "Runaway Memory Guardrail"),
-                detailText: String(localized: "settings.terminal.memoryGuardrail.subtitle", defaultValue: "Warns when the processes in one pane use too much memory."),
-                synonyms: "terminal.runawayMemoryGuardrail.enabled runaway memory guardrail high memory warning badge banner oom leak process tree pane"
+                detailText: String(localized: "settings.terminal.memoryGuardrail.subtitle", defaultValue: "Stops a pane's runaway jobs when its processes push memory use to a critical level."),
+                synonyms: "terminal.runawayMemoryGuardrail.enabled runaway memory guardrail high memory oom leak process tree pane stop kill fork storm critical pressure"
             ),
             .init(
                 section: .terminal,

@@ -561974,55 +561974,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Warns when the processes in one pane use too much memory."
+            "value": "Stops a pane's runaway jobs when its processes push memory use to a critical level."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Warnt, wenn die Prozesse in einem Teilfenster zu viel Speicher verbrauchen."
+            "value": "Beendet die außer Kontrolle geratenen Jobs eines Teilfensters, wenn dessen Prozesse die Speicherauslastung auf ein kritisches Niveau treiben."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Avertit lorsque les processus d’un volet utilisent trop de mémoire."
+            "value": "Arrête les tâches incontrôlées d’un volet lorsque ses processus poussent l’utilisation de la mémoire à un niveau critique."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "ينبّه عندما تستهلك العمليات في جزء واحد ذاكرة أكثر من اللازم."
+            "value": "يوقف المهام الخارجة عن السيطرة في جزء ما عندما ترفع عملياته استخدام الذاكرة إلى مستوى حرج."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Avisa cuando los procesos de un panel usan demasiada memoria."
+            "value": "Detiene los trabajos desbocados de un panel cuando sus procesos llevan el uso de memoria a un nivel crítico."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "單一窗格中的處理程序使用過多記憶體時發出警告。"
+            "value": "當窗格中的處理程序使記憶體使用量達到臨界水準時，停止該窗格中失控的工作。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "某个窗格中的进程占用过多内存时发出警告。"
+            "value": "当窗格中的进程使内存使用达到临界水平时，停止该窗格中失控的作业。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "한 분할 창의 프로세스가 메모리를 너무 많이 사용하면 경고합니다."
+            "value": "분할 창의 프로세스가 메모리 사용량을 위험 수준까지 끌어올리면 해당 분할 창의 폭주 작업을 중지합니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "1 つのペインのプロセスがメモリを使いすぎると警告します。"
+            "value": "ペインのプロセスがメモリ使用量を危険な水準まで押し上げると、そのペインで暴走しているジョブを停止します。"
           }
         }
       }
@@ -671649,6 +671649,773 @@
           "stringUnit": {
             "state": "translated",
             "value": "Подвійне клацання роздільника робить панелі в його рядку або стовпці однаковими за розміром."
+          }
+        }
+      }
+    },
+    "runawayPaneWarning.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · Processes: %2$@ · Memory: %3$@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · العمليات: %2$@ · الذاكرة: %3$@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · Prozesse: %2$@ · Speicher: %3$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · Procesos: %2$@ · Memoria: %3$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · Processus : %2$@ · Mémoire : %3$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · プロセス: %2$@ · メモリ: %3$@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · 프로세스: %2$@ · 메모리: %3$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · 进程：%2$@ · 内存：%3$@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · 處理程序：%2$@ · 記憶體：%3$@"
+          }
+        }
+      }
+    },
+    "runawayPaneWarning.location": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ in %2$@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ في %2$@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ in %2$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ en %2$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ dans %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$@ の %1$@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$@의 %1$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$@ 中的 %1$@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$@ 中的 %1$@"
+          }
+        }
+      }
+    },
+    "runawayPaneWarning.unnamedTerminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الطرفية"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナル"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "终端"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "終端機"
+          }
+        }
+      }
+    },
+    "runawayPaneWarning.confirm.cancel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إلغاء"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abbrechen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancelar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Annuler"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キャンセル"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "취소"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取消"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取消"
+          }
+        }
+      }
+    },
+    "runawayPaneWarning.confirm.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux stops the jobs this terminal started, including nested shells and suspended jobs, and force-quits any that don't exit. The terminal's own shell stays open."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يوقف cmux المهام التي بدأتها هذه الطرفية، بما في ذلك الصدفات المتداخلة والمهام المعلّقة، ويفرض إنهاء أي مهمة لا تتوقف. تبقى صدفة الطرفية نفسها مفتوحة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux beendet die Jobs, die dieses Terminal gestartet hat, auch verschachtelte Shells und angehaltene Jobs, und erzwingt das Beenden aller, die nicht enden. Die eigene Shell des Terminals bleibt geöffnet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux detiene los trabajos que inició este terminal, incluidos los shells anidados y los trabajos suspendidos, y fuerza el cierre de los que no terminen. El shell propio del terminal sigue abierto."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux arrête les tâches lancées par ce terminal, y compris les shells imbriqués et les tâches suspendues, et force l’arrêt de celles qui ne se terminent pas. Le shell propre au terminal reste ouvert."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux はこのターミナルが開始したジョブ（入れ子のシェルや一時停止中のジョブを含む）を停止し、終了しないものは強制終了します。ターミナル自体のシェルは開いたままです。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 이 터미널이 시작한 작업(중첩된 셸과 일시 중지된 작업 포함)을 중지하고, 종료되지 않는 작업은 강제로 종료합니다. 터미널 자체의 셸은 열린 상태로 유지됩니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 会停止此终端启动的作业，包括嵌套 Shell 和已暂停的作业，并强制退出未结束的作业。终端本身的 Shell 保持打开。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 會停止此終端機啟動的工作，包括巢狀 Shell 與暫停的工作，並強制結束未結束的工作。終端機本身的 Shell 會保持開啟。"
+          }
+        }
+      }
+    },
+    "runawayPaneWarning.confirm.stop": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stop"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إيقاف"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beenden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Detener"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arrêter"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "停止"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "중지"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "停止"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "停止"
+          }
+        }
+      }
+    },
+    "runawayPaneWarning.confirm.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stop this terminal's process tree?"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هل تريد إيقاف شجرة عمليات هذه الطرفية؟"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den Prozessbaum dieses Terminals beenden?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Detener el árbol de procesos de este terminal?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arrêter l’arborescence de processus de ce terminal ?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このターミナルのプロセスツリーを停止しますか？"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 터미널의 프로세스 트리를 중지할까요?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要停止此终端的进程树吗？"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要停止此終端機的處理程序樹嗎？"
+          }
+        }
+      }
+    },
+    "runawayPaneWarning.dismiss": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dismiss"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تجاهل"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schließen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Descartar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ignorer"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "閉じる"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "닫기"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉"
+          }
+        }
+      }
+    },
+    "runawayPaneWarning.stop": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stop Process Tree"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إيقاف شجرة العمليات"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prozessbaum beenden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Detener árbol de procesos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arrêter l’arborescence de processus"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロセスツリーを停止"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로세스 트리 중지"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "停止进程树"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "停止處理程序樹"
+          }
+        }
+      }
+    },
+    "runawayPaneWarning.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A terminal's processes are running away"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عمليات إحدى الطرفيات خارجة عن السيطرة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Prozesse eines Terminals laufen aus dem Ruder"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los procesos de un terminal están desbocados"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les processus d’un terminal s’emballent"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルのプロセスが暴走しています"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "한 터미널의 프로세스가 폭주하고 있습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "某个终端的进程已失控"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "某個終端機的處理程序已失控"
+          }
+        }
+      }
+    },
+    "runawayPaneWarning.notification.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@. Open the terminal to stop its process tree."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@. افتح الطرفية لإيقاف شجرة عملياتها."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@. Öffne das Terminal, um seinen Prozessbaum zu beenden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@. Abre el terminal para detener su árbol de procesos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@. Ouvrez le terminal pour arrêter son arborescence de processus."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@。ターミナルを開いてプロセスツリーを停止してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@. 터미널을 열어 프로세스 트리를 중지하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@。打开终端以停止其进程树。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@。開啟終端機以停止其處理程序樹。"
+          }
+        }
+      }
+    },
+    "runawayPaneWarning.detailWithoutCommand": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Processes: %1$@ · Memory: %2$@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "العمليات: %1$@ · الذاكرة: %2$@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prozesse: %1$@ · Speicher: %2$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Procesos: %1$@ · Memoria: %2$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Processus : %1$@ · Mémoire : %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロセス: %1$@ · メモリ: %2$@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로세스: %1$@ · 메모리: %2$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "进程：%1$@ · 内存：%2$@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "處理程序：%1$@ · 記憶體：%2$@"
+          }
+        }
+      }
+    },
+    "runawayPaneWarning.cannotStop": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux can't safely stop this process tree from here. Stop it in the terminal."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يمكن لـ cmux إيقاف شجرة العمليات هذه بأمان من هنا. أوقفها من الطرفية."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kann diesen Prozessbaum von hier aus nicht sicher stoppen. Stoppe ihn im Terminal."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no puede detener este árbol de procesos de forma segura desde aquí. Deténlo en el terminal."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ne peut pas arrêter cet arbre de processus en toute sécurité depuis ici. Arrêtez-le dans le terminal."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux はここからこのプロセスツリーを安全に停止できません。ターミナルで停止してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 여기서 이 프로세스 트리를 안전하게 중지할 수 없습니다. 터미널에서 중지하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 无法从这里安全地停止此进程树。请在终端中停止它。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 無法從這裡安全地停止此處理程序樹。請在終端機中停止它。"
           }
         }
       }

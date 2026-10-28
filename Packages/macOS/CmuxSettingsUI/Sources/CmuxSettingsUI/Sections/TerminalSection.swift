@@ -621,7 +621,7 @@ public struct TerminalSection: View {
                 configurationReview: .settingsOnly,
                 searchAnchorID: "setting:terminal:memory-guardrail",
                 String(localized: "settings.terminal.memoryGuardrail", defaultValue: "Runaway Memory Guardrail"),
-                subtitle: String(localized: "settings.terminal.memoryGuardrail.subtitle", defaultValue: "Warns when the processes in one pane use too much memory.")
+                subtitle: String(localized: "settings.terminal.memoryGuardrail.subtitle", defaultValue: "Stops a pane's runaway jobs when its processes push memory use to a critical level.")
             ) {
                 Toggle("", isOn: Binding(get: { memGuardrailEnabled.current }, set: { memGuardrailEnabled.set($0) }))
                     .labelsHidden()

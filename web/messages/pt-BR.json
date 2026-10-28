@@ -2218,6 +2218,7 @@
           "globalFontMagnification": "Zoom percentual para tudo o que o próprio cmux desenha: texto do terminal, títulos das abas, barras laterais, Settings, sobreposições e moldura da janela. Páginas web dentro de superfícies de navegador mantêm o próprio tamanho."
         },
         "terminal": {
+          "runawayMemoryGuardrailEnabled": "Interrompe as tarefas descontroladas de um painel quando seus processos elevam o uso de memória a um nível crítico.",
           "adaptiveDefaultTheme": "Quando true (padrão), o cmux fornece uma paleta padrão que se adapta à aparência, a menos que um tema do Ghostty ou cores do terminal estejam configurados. A fonte e as outras configurações são preservadas. Quando false, o Ghostty usa sua paleta integrada fixa. Temas e cores explícitos sempre têm prioridade, incluindo theme = light:X,dark:Y.",
           "sessionContentMaxWidth": "Largura máxima opcional, em pontos, para o conteúdo do terminal e do chat integrado do agente. Defina como false para usar toda a largura do painel.",
           "sessionContentAlignment": "Posicionamento horizontal do conteúdo do terminal e do chat integrado do agente quando sessionContentMaxWidth está ativado.",
