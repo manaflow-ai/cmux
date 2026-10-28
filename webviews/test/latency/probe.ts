@@ -153,6 +153,10 @@ export function installLatencyProbe(): void {
         stop();
         const times: number[] = [];
         calibration = () => resolve(interval);
+        timer = setTimeout(() => {
+          interval = Number.NaN;
+          stop();
+        }, 5000);
         const tick = () => {
           times.push(performance.now());
           if (times.length < 10) frameId = requestAnimationFrame(tick);
