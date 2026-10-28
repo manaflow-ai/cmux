@@ -134,6 +134,44 @@ import Testing
         #expect(model.row(.codex).phase == (opened ? .reauthenticating : .idle))
     }
 
+    /// A refresh may have started before the provider login opens its tab. Its
+    /// detection result must not clear the row after the tab opener returns,
+    /// while that older refresh is still delivering its result.
+    @Test func aRefreshStartedBeforeLoginCannotClearTheBusyRow() async {
+        let services = MockAccountsServices()
+        let model = await refreshed(services)
+        let detectionStarted = AsyncStream<Void>.makeStream()
+        var releaseDetection: CheckedContinuation<Void, Never>?
+        services.beforeDetect = {
+            detectionStarted.continuation.yield(())
+            detectionStarted.continuation.finish()
+            await withCheckedContinuation { continuation in
+                releaseDetection = continuation
+            }
+        }
+        let loginStarted = AsyncStream<Void>.makeStream()
+        var finishLogin: CheckedContinuation<Bool, Never>?
+        services.openProviderTab = { _ in
+            loginStarted.continuation.yield(())
+            loginStarted.continuation.finish()
+            return await withCheckedContinuation { continuation in
+                finishLogin = continuation
+            }
+        }
+
+        model.refresh()
+        for await _ in detectionStarted.stream { break }
+        let login = Task { @MainActor in await model.reauthenticate(.codex) }
+        for await _ in loginStarted.stream { break }
+        finishLogin?.resume(returning: true)
+        #expect(await login.value == nil)
+        #expect(model.row(.codex).phase == .reauthenticating)
+
+        releaseDetection?.resume()
+        for _ in 0..<200 where model.isRefreshing { await Task.yield() }
+        #expect(model.row(.codex).phase == .reauthenticating)
+    }
+
     @Test func aCodexConnectWithoutACodexSignInNamesCodexNotCmux() async {
         let services = MockAccountsServices()
         services.detections.removeAll { $0.provider == .codex }

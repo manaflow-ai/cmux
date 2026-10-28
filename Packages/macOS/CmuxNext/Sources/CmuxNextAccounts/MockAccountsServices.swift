@@ -37,6 +37,9 @@ public final class MockAccountsServices: AccountsServices {
     public var opensTabs = true
     /// Optional async tab opener for exercising delayed workspace creation.
     @ObservationIgnored public var openProviderTab: ((ReauthPlan) async -> Bool)?
+    /// Optional gate before a detection result is produced. Tests use this to
+    /// reproduce a refresh completing after a local login has started.
+    @ObservationIgnored public var beforeDetect: (() async -> Void)?
     public private(set) var calls: [String] = []
 
     public init() {
@@ -44,6 +47,7 @@ public final class MockAccountsServices: AccountsServices {
     }
 
     public func detect() async -> [ProviderDetection] {
+        if let beforeDetect { await beforeDetect() }
         calls.append("detect")
         let found = Dictionary(uniqueKeysWithValues: detections.map { ($0.provider, $0) })
         return AIProvider.allCases.map { found[$0] ?? .missing($0) }
