@@ -59,9 +59,67 @@ const BACKOFF_FIRST_MS = 500;
 const BACKOFF_MAX_MS = 30_000;
 const END_REASONS = new Set(["revoked", "expired", "closed"]);
 
-const isRecord = (value: unknown): value is EventRecord =>
-  !!value && typeof value === "object" && Number.isFinite((value as EventRecord).seq);
-const recordsOf = (value: unknown): EventRecord[] => (Array.isArray(value) ? value.filter(isRecord) : []);
+const isObject = (value: unknown): value is Record<string, unknown> =>
+  !!value && typeof value === "object" && !Array.isArray(value);
+
+/** The reducer reads a permission's options as objects. A malformed ask must not end the chat. */
+function readablePermission(msg: Record<string, unknown>): boolean {
+  if (msg.request !== undefined && !isObject(msg.request)) return false;
+  const request = isObject(msg.request) ? msg.request : msg;
+  return (
+    (request.options == null || (Array.isArray(request.options) && request.options.every(isObject))) &&
+    (request.title == null || typeof request.title === "string")
+  );
+}
+
+/** Validate the room envelope before handing its payload to the pane's transcript reducer. */
+function recordOf(value: unknown): EventRecord | undefined {
+  if (
+    !isObject(value) ||
+    typeof value.seq !== "number" ||
+    !Number.isSafeInteger(value.seq) ||
+    value.seq <= 0 ||
+    (value.dir !== "in" && value.dir !== "out" && value.dir !== "mux" && value.dir !== "peer") ||
+    typeof value.kind !== "string" ||
+    !value.kind
+  )
+    return undefined;
+  // The daemon relay cuts oversized records to seq/dir/kind and these two fields, with no msg
+  // or at. Keep a no-op record so an all-truncated older page still advances historyFrom. Its
+  // original kind must not run with an invented payload (e.g. a permission_request or turn_end).
+  if (value.truncated === true) {
+    if (typeof value.full_bytes !== "number" || !Number.isSafeInteger(value.full_bytes) || value.full_bytes <= 0)
+      return undefined;
+    return {
+      seq: value.seq,
+      at: typeof value.at === "number" && Number.isFinite(value.at) ? value.at : 0,
+      dir: value.dir,
+      kind: "share_truncated",
+      msg: {},
+    };
+  }
+  if (typeof value.at !== "number" || !Number.isFinite(value.at) || !isObject(value.msg)) return undefined;
+  const msg = value.msg;
+  if (msg.method === "session/update" && (!isObject(msg.params) || !isObject(msg.params.update)))
+    return undefined;
+  if (value.kind === "permission_request" && !readablePermission(msg)) return undefined;
+  return {
+    seq: value.seq,
+    at: value.at,
+    dir: value.dir,
+    kind: value.kind,
+    msg,
+    ...(typeof value.sessionId === "string" ? { sessionId: value.sessionId } : {}),
+  };
+}
+
+const recordsOf = (value: unknown): EventRecord[] =>
+  Array.isArray(value)
+    ? value.flatMap((entry) => {
+        const record = recordOf(entry);
+        return record ? [record] : [];
+      })
+    : [];
 
 /** The wait before reconnect number `attempt` (0 first): doubling to 30 s, with up to half of jitter. */
 export function backoffMs(attempt: number, random = Math.random): number {
