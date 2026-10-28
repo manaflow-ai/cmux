@@ -59,11 +59,16 @@ export function chatCloudMachine(
   machines: readonly CloudMachine[],
 ): CloudMachine | undefined {
   if (summary?.hostKind !== "cloud") return undefined;
-  const name = typeof summary.peer === "string" && summary.peer ? summary.peer : summary.host;
-  if (typeof name !== "string" || !name) return undefined;
-  const lower = name.toLowerCase();
-  const named = machines.filter((machine) => machine.name.toLowerCase() === lower);
-  return named.length === 1 ? named[0] : undefined;
+  const names = new Set(
+    [summary.peer, summary.host]
+      .filter((name): name is string => typeof name === "string" && name !== "")
+      .map((name) => name.toLowerCase()),
+  );
+  // Both the peer's and the host's name: exactly one of the account's machines, or none.
+  const named = new Map(
+    machines.filter((machine) => names.has(machine.name.toLowerCase())).map((machine) => [machine.id, machine]),
+  );
+  return named.size === 1 ? [...named.values()][0] : undefined;
 }
 
 /// The menu rows for the chat's machine: Pause while it runs (stopping a running turn first),
@@ -92,8 +97,11 @@ export function cloudMachineRows(
           // A paused machine would freeze a turn that has not stopped yet: no pause then.
           if (!(await stopped(session))) return;
         }
-        // The pane moved to another chat meanwhile: this pick was for the one it left.
-        if (live().session !== session) return;
+        // The pane moved to another chat meanwhile (this pick was for the one it left), or a
+        // turn started again in it: no pause freezes it.
+        const before = live();
+        if (session === undefined || before.session !== session) return;
+        if (method === "cloudMachine.pause" && before.running) return;
         await call(method, { id: machine.id });
       } catch {
         // The app refused (no gesture, the machine moved on): the list read shows its stage.

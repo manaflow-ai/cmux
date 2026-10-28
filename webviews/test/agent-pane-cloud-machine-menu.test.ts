@@ -33,6 +33,12 @@ test("a Cloud chat's machine is the account's machine of its peer name, any case
   // Two machines of that name: neither, so a pick never lands on the other one.
   const twins = [...machines, { id: "vm_twin", name: "dev-vm-2", stage: "ready" }];
   expect(chatCloudMachine({ hostKind: "cloud", peer: "dev-vm-2" }, twins)).toBeUndefined();
+  // A peer name the account does not have still lets the host's name match.
+  expect(chatCloudMachine({ hostKind: "cloud", peer: "stale", host: "build box" }, machines)?.id).toBe("vm_paused");
+  // Peer and host naming two different machines: neither.
+  expect(chatCloudMachine({ hostKind: "cloud", peer: "dev-vm-2", host: "build box" }, machines)).toBeUndefined();
+  // Both naming the same machine: that one.
+  expect(chatCloudMachine({ hostKind: "cloud", peer: "dev-vm-2", host: "DEV-VM-2" }, machines)?.id).toBe("vm_run");
 });
 
 function rows(
@@ -94,6 +100,33 @@ test("the pick reads the chat's turn when it runs, not when the menu was drawn",
   const r = rows(machines[0], false, true, { session: "s1", running: true });
   await r.pick();
   expect(r.calls.map(([method]) => method)).toEqual(["chat.cancel", "(turn ended?)", "cloudMachine.pause"]);
+});
+
+test("a turn that starts again in the chat after the stop is not frozen", async () => {
+  const state = { session: "s1" as string | undefined, running: true };
+  const calls: string[] = [];
+  const items = cloudMachineRows(
+    machines[0],
+    true,
+    t,
+    async (method) => void calls.push(method),
+    () => undefined,
+    () => ({ ...state }),
+    async () => {
+      // The turn stopped; a queued prompt started the next one before the pause.
+      state.running = true;
+      return true;
+    },
+  );
+  (items[0] as Exclude<ChatMenuItem, "separator">).onSelect!();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(calls).toEqual(["chat.cancel"]);
+});
+
+test("a pick with no chat shown pauses nothing", async () => {
+  const r = rows(machines[0], false, true, { session: undefined, running: false });
+  await r.pick();
+  expect(r.calls).toEqual([]);
 });
 
 test("a pick for a chat the pane has left pauses nothing", async () => {
