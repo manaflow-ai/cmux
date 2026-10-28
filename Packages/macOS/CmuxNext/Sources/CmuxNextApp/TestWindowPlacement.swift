@@ -4,7 +4,8 @@ import CoreGraphics
 /// Where an agent's visual-evidence launch puts the app's windows, so a
 /// screenshot needs no window moves and no focus change.
 ///
-/// Read only with `CMUX_NEXT_NO_ACTIVATE=1`:
+/// Read only in an isolated launch (`LaunchIsolation.isolated`: `CMUX_NEXT_NO_ACTIVATE=1`, or
+/// `CMUX_NEXT_ISOLATED_LAUNCH=1` for a bench that activates the app):
 ///
 /// - `CMUX_NEXT_TEST_WINDOW_SCREEN=<index|last>`: the `NSScreen.screens`
 ///   index (0 is the menu-bar screen). `last` is the agent default: the last
@@ -15,9 +16,10 @@ import CoreGraphics
 ///   Without it the window is 1100x720, centered. The frame is clamped to
 ///   the visible frame.
 ///
-/// Placed windows are ordered front with `orderFrontRegardless`; the app is
-/// never activated and no window becomes key. Each further window cascades
-/// by ``cascadeStep`` so every one stays visible.
+/// With no-activate, placed windows are ordered front with
+/// `orderFrontRegardless`; the app is never activated and no window becomes
+/// key (`WindowActivation.plan`). Each further window cascades by
+/// ``cascadeStep`` so every one stays visible.
 struct TestWindowPlacement: Sendable, Equatable {
     typealias Screen = WindowPlacement.TestScreen
 
@@ -30,10 +32,10 @@ struct TestWindowPlacement: Sendable, Equatable {
     /// Top-left-origin frame inside the screen's visible frame.
     var frame: CGRect?
 
-    /// Nil unless no-activate is on and at least one knob is set. A malformed
-    /// value disables the knob it belongs to rather than guessing.
-    static func parse(_ environment: [String: String], noActivate: Bool) -> TestWindowPlacement? {
-        guard noActivate else { return nil }
+    /// Nil unless the launch is isolated and at least one knob is set. A
+    /// malformed value disables the knob it belongs to rather than guessing.
+    static func parse(_ environment: [String: String], isolatedLaunch: Bool) -> TestWindowPlacement? {
+        guard isolatedLaunch else { return nil }
         let screenValue = environment[screenKey]?.trimmingCharacters(in: .whitespaces) ?? ""
         let frame = environment[frameKey].flatMap(parseFrame)
         let screen: Screen?

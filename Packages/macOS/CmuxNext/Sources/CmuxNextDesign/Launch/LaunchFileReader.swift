@@ -33,6 +33,14 @@ public nonisolated struct LaunchFileReader: Sendable {
         self.read = read
     }
 
+    /// This reader while `reads()` is true; once it is false, every file reads as missing (nothing is read or
+    /// decoded): the app's launch caches in a crash streak's safe launch (`LaunchSafeMode`). `reads` runs on the
+    /// reading thread before each read.
+    public func gated(by reads: @escaping @Sendable () -> Bool) -> LaunchFileReader {
+        let read = self.read
+        return LaunchFileReader(read: { url, maximumBytes in reads() ? read(url, maximumBytes) : nil })
+    }
+
     /// The bytes of the file at `url`.
     ///
     /// - Parameters:
@@ -50,9 +58,8 @@ public nonisolated struct LaunchFileReader: Sendable {
     ///   - maximumBytes: The largest file that is read.
     /// - Returns: The image; nil when the file is missing, larger than `maximumBytes` or not an image.
     public func image(at url: URL, maximumBytes: Int) -> CGImage? {
-        guard let data = data(at: url, maximumBytes: maximumBytes),
-              let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
-        return CGImageSourceCreateImageAtIndex(source, 0, [kCGImageSourceShouldCacheImmediately: true] as CFDictionary)
+        guard let data = data(at: url, maximumBytes: maximumBytes) else { return nil }
+        return blockingImageDecode(data)
     }
 
     /// The file's bytes from disk when it holds at most `maximumBytes`.

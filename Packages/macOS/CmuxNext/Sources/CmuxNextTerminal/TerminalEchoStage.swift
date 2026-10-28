@@ -65,15 +65,16 @@ public nonisolated final class TerminalEchoStage: Sendable {
     ///   - gate: The contents hook's gate, shared by every surface of the process.
     ///   - deadline: Closes keys after ``window``.
     ///   - capacity: Keys tracked at once.
-    ///   - now: `CLOCK_UPTIME_RAW` nanoseconds (the clock of `NSEvent.timestamp`).
+    ///   - now: `CLOCK_UPTIME_RAW` nanoseconds (the clock of `NSEvent.timestamp`); `nil` reads that
+    ///     clock (a public default argument cannot name the internally imported Darwin clock).
     public init(sink: any TerminalEchoLatencySink, gate: TerminalContentsGate, deadline: any TerminalEchoDeadline,
                 capacity: Int = TerminalEchoStage.defaultCapacity,
-                now: @escaping @Sendable () -> UInt64 = { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) }) {
+                now: (@Sendable () -> UInt64)? = nil) {
         entries = (0..<max(capacity, 1)).map { _ in Entry() }
         self.sink = sink
         self.gate = gate
         self.deadline = deadline
-        self.now = now
+        self.now = now ?? { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) }
     }
 
     /// Keys armed so far. The output lane reads it when a chunk arrives: keys armed later cannot be
@@ -242,19 +243,28 @@ public nonisolated final class TerminalEchoStage: Sendable {
 
     // MARK: Layer association
 
-    /// The associated-object key: the stage class object, one stable address readable from any thread.
-    private static var associationKey: UnsafeRawPointer {
-        UnsafeRawPointer(Unmanaged.passUnretained(TerminalEchoStage.self as AnyObject).toOpaque())
+    /// The associated-object key: the stage class's identity, one stable address readable from any
+    /// thread (nil only for a 0 identity, which no type has).
+    @safe private static var associationKey: UnsafeRawPointer? {
+        // SAFETY: built from the identity's bits and only compared by the runtime, never
+        // dereferenced; the class's metadata lives for the process, so the address is stable.
+        unsafe UnsafeRawPointer(bitPattern: UInt(bitPattern: ObjectIdentifier(TerminalEchoStage.self)))
     }
 
     /// Ties this stage to the layer Ghostty presents the surface's frames in.
     func attach(to layer: AnyObject) {
-        objc_setAssociatedObject(layer, Self.associationKey, self, .OBJC_ASSOCIATION_RETAIN)
+        guard let key = unsafe Self.associationKey else { return }
+        // SAFETY: the key is an address the runtime only compares (`associationKey`); the runtime
+        // retains this stage on `layer` (OBJC_ASSOCIATION_RETAIN).
+        unsafe objc_setAssociatedObject(layer, key, self, .OBJC_ASSOCIATION_RETAIN)
     }
 
     /// The stage tied to `layer`, if any (read only while the gate is open).
     static func attached(to layer: AnyObject) -> TerminalEchoStage? {
-        objc_getAssociatedObject(layer, associationKey) as? TerminalEchoStage
+        guard let key = unsafe associationKey else { return nil }
+        // SAFETY: the key is an address the runtime only compares (`associationKey`); the value is
+        // an object the layer retains, and the cast checks its type.
+        return unsafe objc_getAssociatedObject(layer, key) as? TerminalEchoStage
     }
 }
 

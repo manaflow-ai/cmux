@@ -1,3 +1,5 @@
+use cmux_threads::checked::sync as waits;
+use cmux_threads::sync::mpsc as receipt;
 use std::collections::VecDeque;
 use std::io;
 use std::mem::size_of;
@@ -22,8 +24,9 @@ mod coalesce;
 mod completion;
 pub(crate) mod contention;
 mod effect_intents;
+mod writer_qos;
 pub(crate) use completion::JournalBatchReceipt;
-use completion::{complete_batch_error, complete_batch_success};
+use completion::{JournalIngressCompletion, complete_batch_error, complete_batch_success};
 pub(crate) use effect_intents::{EffectSend, PendingRegistryReceipt};
 
 const JOURNAL_TERMINAL_QUEUE_CAPACITY: usize = 1024;
@@ -324,43 +327,6 @@ fn json_value_resident_bytes(value: &serde_json::Value) -> usize {
     }
 }
 
-#[derive(Debug)]
-enum JournalIngressCompletion {
-    Durable {
-        sender: SyncSender<Result<(), String>>,
-        deadline: Instant,
-        commit_fence: Arc<AtomicU8>,
-    },
-    Producer {
-        sender: SyncSender<Result<crate::JournalAppendCommit, String>>,
-        deadline: Instant,
-        commit_fence: Arc<AtomicU8>,
-    },
-    Effect {
-        sender: SyncSender<Result<crate::workspace_registry::RegistryReceipt, String>>,
-        deadline: Instant,
-        commit_fence: Arc<AtomicU8>,
-    },
-}
-
-impl JournalIngressCompletion {
-    fn deadline(&self) -> Instant {
-        match self {
-            Self::Durable { deadline, .. }
-            | Self::Producer { deadline, .. }
-            | Self::Effect { deadline, .. } => *deadline,
-        }
-    }
-
-    fn commit_fence(&self) -> &AtomicU8 {
-        match self {
-            Self::Durable { commit_fence, .. }
-            | Self::Producer { commit_fence, .. }
-            | Self::Effect { commit_fence, .. } => commit_fence,
-        }
-    }
-}
-
 pub(crate) struct QueuedJournalEvent {
     event: JournalIngressEvent,
     completion: Option<JournalIngressCompletion>,
@@ -434,7 +400,7 @@ struct JournalWriter {
 impl JournalWriter {
     fn spawn(name: &str, task: impl FnOnce() + Send + 'static) -> io::Result<Self> {
         let (finished_sender, finished) = sync_channel(1);
-        let thread = std::thread::Builder::new().name(name.into()).spawn(move || {
+        let thread = cmux_threads::spawn(name, writer_qos::WRITER_QOS, move || {
             task();
             let _ = finished_sender.send(());
         })?;
@@ -449,17 +415,14 @@ impl JournalWriter {
         let Self { thread, finished } = self;
         if thread.thread().id() == std::thread::current().id() {
             let reaper_completion = completion.clone();
-            let spawn = std::thread::Builder::new()
-                .name("mux-session-journal-writer-reaper".into())
-                .spawn(move || {
-                    let result = thread.join().map_err(|_| {
-                        eprintln!(
-                            "cmux-tui: session journal writer panicked during self-join handoff"
-                        );
-                        "session journal writer panicked during self-join handoff".to_string()
-                    });
-                    reaper_completion.finish(result);
+            let reaper = "mux-session-journal-writer-reaper";
+            let spawn = cmux_threads::spawn(reaper, cmux_threads::ThreadQos::Utility, move || {
+                let result = waits::join(thread).map_err(|_| {
+                    eprintln!("cmux-tui: session journal writer panicked during self-join handoff");
+                    "session journal writer panicked during self-join handoff".to_string()
                 });
+                reaper_completion.finish(result);
+            });
             if let Err(error) = spawn {
                 let error =
                     format!("hand off session journal writer self-join to reaper thread: {error}");
@@ -469,9 +432,8 @@ impl JournalWriter {
             return Ok(());
         }
         let wait = deadline.saturating_duration_since(Instant::now());
-        let result = match finished.recv_timeout(wait) {
-            Ok(()) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => thread
-                .join()
+        let result = match waits::recv_timeout(&finished, wait) {
+            Ok(()) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => waits::join(thread)
                 .map_err(|_| "session journal writer panicked during shutdown".to_string()),
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => Err(format!(
                 "session journal writer did not stop within {} ms; an admitted commit remains \
@@ -506,6 +468,7 @@ struct JournalIngressState {
     commit_admission: Mutex<()>,
     queue_space_epoch: Mutex<u64>,
     queue_space_changed: Condvar,
+    request_waits: writer_qos::RequestWaits,
     #[cfg(test)]
     failure_notifier: Mutex<Option<SyncSender<String>>>,
     #[cfg(test)]
@@ -642,6 +605,7 @@ impl JournalIngressSender {
         )
     }
 
+    #[track_caller]
     pub(crate) fn send(&self, event: JournalIngressEvent) {
         debug_assert!(event.lane() == JournalLane::Terminal);
         let Some(sender) = &self.terminal_sender else { return };
@@ -709,6 +673,7 @@ impl JournalIngressSender {
         }
     }
 
+    #[track_caller]
     pub(crate) fn send_durable(&self, event: JournalIngressEvent) -> anyhow::Result<()> {
         self.send_durable_until(event, self.durable_deadline())
     }
@@ -717,6 +682,7 @@ impl JournalIngressSender {
         Instant::now() + journal_durable_wait()
     }
 
+    #[track_caller]
     pub(crate) fn send_durable_until(
         &self,
         event: JournalIngressEvent,
@@ -731,7 +697,8 @@ impl JournalIngressSender {
             &self.durable_sender
         };
         let Some(sender) = sender else { return Ok(()) };
-        let (completion, result) = sync_channel(1);
+        let _wait = self.state.request_waits.enter();
+        let (completion, result) = receipt::sync_channel(1);
         let commit_fence = Arc::new(AtomicU8::new(COMMIT_PENDING));
         self.enqueue_until(
             sender,
@@ -752,15 +719,18 @@ impl JournalIngressSender {
             deadline,
             &commit_fence,
             "waiting for session journal durability",
+            std::panic::Location::caller(),
         );
         self.state.stats.receipt_waited(waited.elapsed());
         outcome
     }
 
+    #[track_caller]
     pub(crate) fn flush_terminal(&self) -> anyhow::Result<()> {
         self.send_durable(JournalIngressEvent::TerminalBarrier)
     }
 
+    #[track_caller]
     pub(crate) fn send_producer(
         &self,
         ingress: crate::JournalIngress,
@@ -774,7 +744,8 @@ impl JournalIngressSender {
         let Some(sender) = &self.durable_sender else {
             anyhow::bail!("session journal writer is unavailable")
         };
-        let (completion, result) = sync_channel(1);
+        let _wait = self.state.request_waits.enter();
+        let (completion, result) = receipt::sync_channel(1);
         let deadline = Instant::now() + journal_durable_wait();
         let commit_fence = Arc::new(AtomicU8::new(COMMIT_PENDING));
         self.enqueue_until(
@@ -801,6 +772,7 @@ impl JournalIngressSender {
             deadline,
             &commit_fence,
             "waiting for a session journal producer receipt",
+            std::panic::Location::caller(),
         );
         self.state.stats.receipt_waited(waited.elapsed());
         outcome
@@ -910,6 +882,10 @@ impl JournalIngressSender {
         &self.state.stats
     }
 
+    /// Queue `event`, waiting for queue space when the lane is full: one
+    /// `journal_wait` per call on a request thread (`request_path`), noted
+    /// at the caller.
+    #[track_caller]
     fn enqueue(
         &self,
         sender: &SyncSender<QueuedJournalEvent>,
@@ -917,6 +893,9 @@ impl JournalIngressSender {
     ) -> Result<(), String> {
         let lane = event.event.lane();
         let mut pending = event;
+        // A producer waiting for space waits on the writer: counted until
+        // its event is queued, so the writer drains the lane at its class.
+        let mut space_wait = None;
         loop {
             let space_epoch = self.state.queue_space_epoch();
             let result = {
@@ -948,31 +927,40 @@ impl JournalIngressSender {
                     return Err(self.writer_error());
                 }
             }
+            if space_wait.is_none() {
+                space_wait = Some(self.state.request_waits.enter());
+                crate::request_path::note(crate::request_path::BlockingKind::JournalWait);
+            }
             #[cfg(test)]
             self.state.notify_enqueue_full_for_test();
             self.state.wait_for_queue_space_change(space_epoch)?;
         }
     }
 
+    #[track_caller]
     fn enqueue_until(
         &self,
         sender: &SyncSender<QueuedJournalEvent>,
         event: QueuedJournalEvent,
         deadline: Instant,
     ) -> Result<(), String> {
-        self.enqueue_until_or_return(sender, event, deadline).map_err(|(error, _)| error)
+        self.enqueue_until_or_return(sender, event, deadline, std::panic::Location::caller())
+            .map_err(|(error, _)| error)
     }
 
     /// [`Self::enqueue_until`] that hands the event back when it was not
-    /// queued (deadline, admission closed, writer gone).
+    /// queued (deadline, admission closed, writer gone). A wait for queue
+    /// space is one `journal_wait` (`request_path`) per call, noted at `site`.
     fn enqueue_until_or_return(
         &self,
         sender: &SyncSender<QueuedJournalEvent>,
         event: QueuedJournalEvent,
         deadline: Instant,
+        site: &'static std::panic::Location<'static>,
     ) -> Result<(), (String, Box<QueuedJournalEvent>)> {
         let lane = event.event.lane();
         let mut pending = event;
+        let mut waited = false;
         loop {
             if Instant::now() >= deadline {
                 return Err((
@@ -1023,6 +1011,9 @@ impl JournalIngressSender {
                     return Err((self.writer_error(), Box::new(event)));
                 }
             }
+            if !std::mem::replace(&mut waited, true) {
+                crate::request_path::note_at(crate::request_path::BlockingKind::JournalWait, site);
+            }
             if let Err(error) = self.state.wait_for_queue_space_until(space_epoch, deadline) {
                 return Err((error, Box::new(pending)));
             }
@@ -1033,13 +1024,18 @@ impl JournalIngressSender {
         self.state.admission_error().unwrap_or_else(|| "session journal writer stopped".into())
     }
 
+    /// Wait for the writer's receipt: a `journal_wait` on a request thread
+    /// (`request_path`), noted at `site`, the public call's caller.
     fn wait_for_commit_result<T>(
         &self,
-        result: &Receiver<Result<T, String>>,
+        result: &receipt::Receiver<Result<T, String>>,
         deadline: Instant,
         commit_fence: &AtomicU8,
         operation: &str,
+        site: &'static std::panic::Location<'static>,
     ) -> anyhow::Result<T> {
+        crate::request_path::note_at(crate::request_path::BlockingKind::JournalWait, site);
+        // wakeup-allow: deadline the request's durable-wait deadline, one wait per receipt
         match result.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
             Ok(result) => result.map_err(anyhow::Error::msg),
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
@@ -1057,6 +1053,7 @@ impl JournalIngressSender {
                     }
                     COMMIT_ADMITTED => {
                         drop(admission);
+                        // wakeup-allow: deadline one bounded wait for an admitted commit's receipt
                         match result.recv_timeout(JOURNAL_COMMIT_RESULT_WAIT) {
                             Ok(result) => result.map_err(anyhow::Error::msg),
                             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
@@ -1096,7 +1093,15 @@ pub(crate) fn start(
     Ok(())
 }
 
+/// How long one batch commit may run before the release hang watch reports
+/// it. The retry waits between attempts are outside the scope.
+const JOURNAL_BATCH_HANG_DEADLINE: Duration = Duration::from_secs(5);
+
 fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
+    let _hang_watch = cmux_hang_watch::register_thread(
+        cmux_hang_watch::ThreadKind::Lane,
+        "mux-session-journal-writer",
+    );
     loop {
         let Some(batch) = receive_batch(&receivers) else { return };
         let mut pending = VecDeque::from([batch]);
@@ -1125,6 +1130,7 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
                     complete_queued_error(&receivers, &error);
                     return;
                 };
+                let _class = writer_qos::enter_attempt(&mux, &receivers.state.request_waits);
                 // The whole iteration runs as the journal writer: any registry
                 // lock taken here is counted and asserted (a request thread
                 // holds the registry while it waits for this batch). It ends
@@ -1141,12 +1147,18 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
                     }
                 }
                 let events = batch.iter().map(|queued| &queued.event).collect::<Vec<_>>();
+                // A commit busy past its hang tier is written to the hang
+                // log with this thread's stack (request_watchdog.rs).
+                let hang = mux.request_watchdog.watch(crate::server::WatchKind::JournalWriter, 0);
+                let watched = cmux_hang_watch::watch(JOURNAL_BATCH_HANG_DEADLINE);
                 let committed = mux.commit_session_journal_events(
                     &events,
                     retry_deadline,
                     JOURNAL_SQLITE_RETRY_SLICE,
                     || admit_batch_commit(&receivers.state, &batch, retry_deadline),
                 );
+                drop(watched);
+                drop(hang);
                 match committed {
                     Ok(commits) => {
                         let terminal_events =
@@ -1372,7 +1384,7 @@ fn receive_batch(receivers: &JournalIngressReceivers) -> Option<Vec<QueuedJourna
         if receivers.state.closed.load(Ordering::Acquire) {
             return None;
         }
-        if receivers.wake.recv().is_err() {
+        if waits::recv(&receivers.wake).is_err() {
             return None;
         }
     }
@@ -2325,8 +2337,10 @@ mod tests {
             release_gate_path.as_os_str(),
         ))
         .unwrap();
+        // SAFETY: `release_gate_path_c` is a NUL-terminated CString that outlives the call.
+        let made_release_gate = unsafe { libc::mkfifo(release_gate_path_c.as_ptr(), 0o600) };
         assert_eq!(
-            unsafe { libc::mkfifo(release_gate_path_c.as_ptr(), 0o600) },
+            made_release_gate,
             0,
             "failed to create descendant release gate: {}",
             io::Error::last_os_error()
@@ -2342,8 +2356,11 @@ mod tests {
             std::os::unix::ffi::OsStrExt::as_bytes(release_ready_signal_path.as_os_str()),
         )
         .unwrap();
+        // SAFETY: `release_ready_signal_path_c` is a NUL-terminated CString that outlives the call.
+        let made_ready_signal =
+            unsafe { libc::mkfifo(release_ready_signal_path_c.as_ptr(), 0o600) };
         assert_eq!(
-            unsafe { libc::mkfifo(release_ready_signal_path_c.as_ptr(), 0o600) },
+            made_ready_signal,
             0,
             "failed to create descendant readiness signal: {}",
             io::Error::last_os_error()
@@ -2830,7 +2847,7 @@ mod tests {
     fn mux_shutdown_completes_receipts_left_in_ingress_queues() {
         let (sender, receivers) = JournalIngressSender::new(true);
         let receivers = receivers.expect("journal receivers");
-        let (completion_sender, completion_receiver) = sync_channel(1);
+        let (completion_sender, completion_receiver) = receipt::sync_channel(1);
         let deadline = Instant::now() + JOURNAL_DURABLE_WAIT;
         let queued = QueuedJournalEvent {
             event: JournalIngressEvent::TerminalBarrier,

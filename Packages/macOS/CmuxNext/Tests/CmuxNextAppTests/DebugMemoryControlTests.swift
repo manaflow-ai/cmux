@@ -46,7 +46,7 @@ import Testing
     }
 
     private func router(allowsDebug: Bool = true, threads: Threads = Threads(),
-                        rows: [MemoryDiagnosticsProcesses.Row] = [], renderers: [Int32: Int32] = [:],
+                        rows: [MemoryDiagnosticsProcesses.Row] = [], renderers: [Int32: Int32] = [:], framed: Set<Int32>? = nil,
                         read: @escaping @MainActor @Sendable () -> MemoryDiagnosticsSnapshot?) -> ControlRouter {
         let router = ControlRouter(identity: ControlIdentity(version: "1.0", build: "1", bundleID: "com.cmuxterm.app.debug.test",
                                                              tag: "test", processID: getpid()),
@@ -54,13 +54,13 @@ import Testing
                                    configuration: .init(requestDeadline: .seconds(30), allowsDebugMethods: allowsDebug))
         router.register([DebugMemoryControl.memoryMethod(read: read, sample: { _ in
             threads.note()
-            return MemoryDiagnosticsProcesses(rows: rows, rendererPIDs: renderers)
+            return MemoryDiagnosticsProcesses(rows: rows, rendererPIDs: renderers, rendererClientsWithFrames: framed)
         })])
         return router
     }
 
     private func call(_ router: ControlRouter, id: String = "1") async throws -> [String: JSONValue] {
-        let reply = try await router.handle(ControlRequest(id: id, method: "debug.memory")).get()
+        let reply = try await router.handle(ControlRequest(id: .string(id), method: "debug.memory")).get()
         return try #require(reply.objectValue)
     }
 
@@ -144,6 +144,34 @@ import Testing
         #expect(samples.onMain == [false])
     }
 
+    /// The answer has the histograms the read copied, and a read adds no sample: three reads that
+    /// each sample the processes leave one footprint sample, the emitter's (p07-memory-016).
+    @Test func readsShowTheHistogramsAndRecordNothing() async throws {
+        let pressure = MemoryPressureEvents(source: ManualMemoryPressureSource())
+        let histograms = MemoryHistograms(pressure: pressure, discardKinds: ["browser"])
+        histograms.recordFootprints(MemoryDiagnosticsProcesses(rows: [.init(kind: .app, pid: 501, physFootprintBytes: 300 << 20)]))
+        let rows: [MemoryDiagnosticsProcesses.Row] = [
+            .init(kind: .app, pid: 501, physFootprintBytes: 361 << 20),
+            .init(kind: .chromiumRenderer, pid: 812, physFootprintBytes: 62 << 20),
+        ]
+        let snapshot = Self.snapshot()
+        let memory = router(allowsDebug: false, rows: rows) {
+            var read = snapshot
+            read.histograms = histograms.snapshot()
+            return read
+        }
+        for id in ["1", "2", "3"] {
+            let json = try await call(memory, id: id)
+            #expect(json["processes"]?.arrayValue?.count == 2, "the answer lost the sampled processes")
+            let shown = try #require(json["histograms"]?.objectValue)
+            #expect(shown["app_pmf_mb"]?.objectValue?["count"] == 1)
+            #expect(shown["app_pmf_mb"]?.objectValue?["sum"] == 300)
+            #expect(shown["renderer_pmf_mb"]?.objectValue?["count"] == 0)
+            #expect(shown["discards_per_hour"]?.objectValue?.keys.sorted() == ["browser"])
+        }
+        #expect(histograms.snapshot().appFootprintMiB.count == 1, "a debug.memory read recorded a footprint")
+    }
+
     @Test func answersNullOnceTheAppIsGone() async throws {
         let reply = try await router { nil }.handle(ControlRequest(id: "1", method: "debug.memory")).get()
         #expect(reply == .null)
@@ -183,6 +211,56 @@ import Testing
         #expect(workspaces.compactMap { $0["unknown_tabs"] } == [1, 2])
         #expect(workspaces.compactMap { $0["state"] } == ["mounted", "parked"])
         #expect(json["spares"] == [["pool": "new_tab", "process_kind": "webkit_webcontent", "pid": 950, "bytes": 41_000_000]])
+    }
+
+    /// p07-memory-113: `spares` lists the Chromium spares by kind with process and bytes: a spare window
+    /// by its placeholder's renderer (null with none), and each renderer helper that hosts no frame of any
+    /// browser as `chromium_unattributed_renderer`, never as Chromium's spare. A renderer that hosts a frame
+    /// of a browser that is no tab (a DevTools front end) is no such row, and extension renderers are none.
+    @Test func listsChromiumSparesByKind() async throws {
+        let snapshot = Self.snapshot(
+            tabs: [.init(key: "tab", kind: .browser, engine: .cef, state: .live, visible: true, processes: [.chromiumRendererClient(7)])],
+            spares: [.init(pool: "chromium_window", processKind: .chromiumRenderer, pid: nil, rendererClients: [3]),
+                     .init(pool: "chromium_pages_window", processKind: .chromiumRenderer, pid: nil)])
+        let rows: [MemoryDiagnosticsProcesses.Row] = [
+            .init(kind: .chromiumRenderer, pid: 812, physFootprintBytes: 62_000_000),
+            .init(kind: .chromiumRenderer, pid: 830, physFootprintBytes: 21_000_000),
+            .init(kind: .chromiumRenderer, pid: 840, physFootprintBytes: 24_000_000),
+            .init(kind: .chromiumRenderer, pid: 850, physFootprintBytes: 30_000_000),
+            .init(kind: .chromiumRenderer, pid: 860, physFootprintBytes: 40_000_000),
+        ]
+        // 7: the tab, 3: the spare window's placeholder, 11: a DevTools front end (no tab), 9: no frame.
+        let renderers: [Int32: Int32] = [7: 812, 3: 830, 9: 840, 11: 860]
+        let json = try await call(router(rows: rows, renderers: renderers, framed: [7, 3, 11]) { snapshot })
+        #expect(json["spares"] == [
+            ["pool": "chromium_window", "process_kind": "chromium_renderer", "pid": 830, "bytes": 21_000_000],
+            ["pool": "chromium_pages_window", "process_kind": "chromium_renderer", "pid": nil, "bytes": nil],
+            ["pool": "chromium_unattributed_renderer", "process_kind": "chromium_renderer", "pid": 840, "bytes": 24_000_000],
+        ])
+        let document = try schema()
+        let pools = document["properties"]?.objectValue?["spares"]?.objectValue?["items"]?.objectValue?["properties"]?
+            .objectValue?["pool"]?.objectValue?["enum"]?.arrayValue?.compactMap(\.stringValue) ?? []
+        for spare in json["spares"]?.arrayValue ?? [] {
+            #expect(pools.contains(spare.objectValue?["pool"]?.stringValue ?? ""), "\(spare) is no schema pool")
+        }
+
+        // A sample that did not read the renderers with frames (no Chromium, host mode) lists no unattributed one.
+        let unread = try await call(router(rows: rows, renderers: renderers, framed: nil) { snapshot })
+        #expect(unread["spares"]?.arrayValue?.count == 2)
+    }
+
+    /// p07-memory-113: the app's sample reads the renderers that host a frame on the main actor, after it
+    /// listed the helpers off it, and carries that read: a renderer that started and committed its page
+    /// between the model read and the helper list is in it, so it is no unattributed row.
+    @Test func appSampleReadsTheFramedRenderersOnMainAfterTheHelpers() async {
+        let threads = Threads()
+        let processes = await AppMemoryModel.processes(Self.snapshot(), rendererClientsWithFrames: {
+            threads.note()
+            return [5]
+        })
+        #expect(threads.onMain == [true])
+        #expect(processes.rendererClientsWithFrames == [5])
+        #expect(processes.rows.first?.kind == .app)
     }
 
     /// A release router serves `debug.memory` (and drops other debug methods), and the answer has no

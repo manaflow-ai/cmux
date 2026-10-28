@@ -16,13 +16,28 @@ nonisolated struct PreviousRun: Codable, Equatable, Sendable {
     /// over the socket, SIGTERM, SIGINT, SIGHUP) when it ended. Nil in
     /// markers written before this field existed.
     var quitting: Bool?
+    /// The boot the run was in (`kern.bootsessionuuid` as hex); nil when unknown or in markers written before
+    /// this field existed. A different boot at the next launch means the machine restarted after the run.
+    var bootSession: String?
     /// The uncaught Objective-C exception that ended the run
     /// (`UncaughtExceptionRecorder`). Read from `run.exception`, never
     /// encoded into `run.json`.
     var exception: RecordedException?
+    /// The run's kernel process start in Unix microseconds, as its black box and crash-key page headers say it
+    /// (p09-observability-079): the next launch takes only that process's files. Nil when unknown or in markers
+    /// written before this field existed.
+    var processStart: UInt64?
+    /// That run's startup completed (`StartupScheduler`'s completion). Nil in markers written before this field,
+    /// which never count toward ``LaunchSafeMode``'s streak.
+    var startupComplete: Bool?
+    /// The last startup main task that run began before its startup completed (`debug.crashes`).
+    var lastStartupTask: String?
+    /// The runs in a row before that one that ended before their startup completed (``LaunchSafeMode``).
+    var incompleteLaunches: Int?
 
     private enum CodingKeys: String, CodingKey {
-        case pid, launched, recovery, survived, signal, quitting
+        case pid, launched, recovery, survived, signal, quitting, bootSession, processStart, startupComplete, lastStartupTask,
+             incompleteLaunches
     }
 
     /// The run ended because someone asked it to: a requested-quit signal
@@ -77,6 +92,19 @@ nonisolated enum LaunchRecovery: Equatable, Sendable {
         if decide(previous: previous).isRestart { return true }
         guard let previous, !previous.endedAsAsked else { return false }
         return !previous.survived
+    }
+
+    /// Whether the previous run adds one to the feature safe-mode crash
+    /// streak (`FeatureSafeMode.launch`): it ended without a clean exit and
+    /// no quit was asked for. Chrome counts every session whose clean-exit
+    /// beacon was not written (components/metrics/clean_exit_beacon.cc)
+    /// toward `variations_crash_streak`
+    /// (components/variations/service/safe_seed_manager.cc). A run killed
+    /// with no handler running counts too: Force Quit of a hang at launch
+    /// records no signal.
+    static func countsTowardCrashStreak(previous: PreviousRun?) -> Bool {
+        guard let previous else { return false }
+        return !previous.endedAsAsked
     }
 
     var previous: PreviousRun? {

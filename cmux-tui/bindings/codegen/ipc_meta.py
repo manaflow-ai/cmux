@@ -71,6 +71,8 @@ _INTEGER_RANGES = {
     "uint64": (0, 2**64 - 1),
 }
 _RESOLVE_DEPTH = 32
+# A family has ordinals 0-255; next_ordinal 256 means the family is full.
+_ORDINALS = 0x100
 
 
 def family_kind(family_id: int) -> str | None:
@@ -107,6 +109,7 @@ class IpcMetaValidator:
         self.issue = issue
         self.types: JsonObject = types if isinstance(types, Mapping) else {}
         self.family_ids: dict[int, str] = {}
+        self.next_ordinals: dict[int, int] = {}
         # Declaring $.families opts the document into framed IPC: from then on
         # every command and event has a wire id and a priority (queue Q6).
         self.framed = False
@@ -168,8 +171,14 @@ class IpcMetaValidator:
             if not isinstance(entry, Mapping):
                 self.issue(entry_path, "must be an object")
                 continue
-            for key in sorted(set(entry) - {"id", "description"}):
+            for key in sorted(set(entry) - {"id", "description", "next_ordinal"}):
                 self.issue(f"{entry_path}.{key}", "unknown key")
+            next_ordinal = entry.get("next_ordinal")
+            if "next_ordinal" in entry and (
+                not _is_int(next_ordinal) or not 0 <= next_ordinal <= _ORDINALS
+            ):
+                self.issue(f"{entry_path}.next_ordinal", f"must be an integer 0-{_ORDINALS}")
+                next_ordinal = None
             description = entry.get("description")
             if not isinstance(description, str) or not description:
                 self.issue(f"{entry_path}.description", "must be a non-empty string")
@@ -196,12 +205,14 @@ class IpcMetaValidator:
                 )
                 continue
             self.family_ids[family_id] = name
+            if next_ordinal is not None:
+                self.next_ordinals[family_id] = next_ordinal
 
     def wire_id(self, value: Any, path: str, *, kind: str, owner: str) -> None:
         if not _is_int(value) or not 0 <= value <= 0xFFFF:
             self.issue(path, "must be a u16 (family << 8 | ordinal)")
             return
-        family_id, _ = split_wire_id(value)
+        family_id, ordinal = split_wire_id(value)
         family = self.family_ids.get(family_id)
         if family is None:
             self.issue(path, f"family 0x{family_id:02X} is not declared in $.families")
@@ -211,6 +222,14 @@ class IpcMetaValidator:
                 path,
                 f"0x{value:04X} is outside the {kind} family range "
                 f"(family {family!r} is a {family_kind(family_id)} family)",
+            )
+            return
+        next_ordinal = self.next_ordinals.get(family_id)
+        if next_ordinal is not None and ordinal >= next_ordinal:
+            self.issue(
+                path,
+                f"ordinal {ordinal} of 0x{value:04X} is not below family {family!r} "
+                f"next_ordinal {next_ordinal}",
             )
             return
         existing = self.wire_ids[kind].get(value)
@@ -251,6 +270,8 @@ class IpcMetaValidator:
             self.wire_id(node["method_id"], f"{path}.method_id", kind="command", owner=name)
         if "priority" not in node:
             self.issue(path, "IPC attributes need priority")
+        if "durability" not in node:
+            self.issue(path, "IPC attributes need durability")
         self._priority(node, path)
         self._enum(node, "ordering", path, ORDERINGS)
         self._enum(node, "durability", path, DURABILITIES)

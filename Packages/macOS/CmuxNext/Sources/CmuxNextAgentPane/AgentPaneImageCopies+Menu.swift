@@ -29,23 +29,27 @@ extension AgentPaneImageCopies {
         return NSPasteboard.general.writeObjects([item])
     }
 
-    /// The pasteboard item for `file` (Copy, a drag out): its file URL, its name, and an image's
-    /// `data` under its type and as TIFF.
-    @MainActor static func pasteboardItem(_ file: URL, data: Data?) -> NSPasteboardItem {
+    /// The pasteboard item for `file` (Copy): its file URL, its name, and an image's bytes under its type and its
+    /// TIFF (``AgentPanePasteboardImage``, made off the main actor), so the main thread decodes nothing here.
+    @MainActor static func pasteboardItem(_ file: URL, image: AgentPanePasteboardImage?) -> NSPasteboardItem {
         let item = NSPasteboardItem()
         item.setString(file.absoluteString, forType: .fileURL)
         item.setString(file.lastPathComponent, forType: .string)
-        if let type = UTType(filenameExtension: file.pathExtension), type.conforms(to: .image), let data {
-            item.setData(data, forType: NSPasteboard.PasteboardType(type.identifier))
-            if type != .tiff, let tiff = NSImage(data: data)?.tiffRepresentation { item.setData(tiff, forType: .tiff) }
+        if let type = UTType(filenameExtension: file.pathExtension), type.conforms(to: .image), let image {
+            item.setData(image.data, forType: NSPasteboard.PasteboardType(type.identifier))
+            if let tiff = image.tiff { item.setData(tiff, forType: .tiff) }
         }
         return item
     }
 
-    /// An image file's bytes, read on `runner`'s files lane; nil for another type or a failed read.
-    static func imageBytes(_ file: URL, runner: any MayBlockRunner) async -> Data? {
-        guard UTType(filenameExtension: file.pathExtension)?.conforms(to: .image) == true else { return nil }
-        return try? await runner.runFiles(.userBlocking) { try Data(blockingContentsOf: file, options: .mappedIfSafe) }
+    /// An image file's bytes and their TIFF, read and made on `runner`'s files lane at userBlocking (the person
+    /// waits for the Copy); nil for another type, a failed read or a refused item.
+    static func pasteboardImage(_ file: URL, runner: any MayBlockRunner) async -> AgentPanePasteboardImage? {
+        guard let type = UTType(filenameExtension: file.pathExtension), type.conforms(to: .image) else { return nil }
+        return try? await runner.runFiles(.userBlocking) { () -> AgentPanePasteboardImage? in
+            guard let data = try? Data(blockingContentsOf: file, options: .mappedIfSafe) else { return nil }
+            return AgentPanePasteboardImage(data, type: type)
+        }
     }
 
     /// The name Save Image As… offers: the image's name with its copy's extension (no hash), or the

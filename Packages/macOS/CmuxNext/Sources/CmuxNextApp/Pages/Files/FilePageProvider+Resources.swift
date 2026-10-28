@@ -20,11 +20,11 @@ extension FilePageProvider {
             guard let file, request.path.count >= 2, request.path[0] == assetToken else { return nil }
             let folder = file.deletingLastPathComponent()
             let relative = request.path.dropFirst().joined(separator: "/")
-            let image = try? await runner.runFiles(.userVisible) { Self.localImage(folder: folder, relative: relative) }
+            let image = try? await work.runFiles(.userVisible) { Self.localImage(folder: folder, relative: relative) }
             return image ?? nil
         case MarkdownPageResource.library:
             guard let libraries, request.path.count == 1,
-                  let data = await MarkdownPageResource.library(request.path[0], in: libraries, runner: runner) else { return nil }
+                  let data = await MarkdownPageResource.library(request.path[0], in: libraries, runner: work) else { return nil }
             return PageResource(data: data, mimeType: "text/javascript; charset=utf-8")
         case MarkdownPageResource.remoteImage:
             guard remoteImagesAllowed, request.path.count == 2, request.path[0] == remoteImageToken,

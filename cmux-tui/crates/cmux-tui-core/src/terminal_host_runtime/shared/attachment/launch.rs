@@ -3,7 +3,7 @@
 //! one-shot owner connection, and a surface adoption bounded by the Kitty
 //! graphics quota.
 
-use std::fs;
+use cmux_threads::checked::fs as files;
 use std::path::PathBuf;
 
 use super::super::super::sys::{
@@ -264,7 +264,7 @@ fn launch_terminal_host_seeded_in(
     crate::debug_spans::mark("host.launch_ready");
 
     let record: TerminalHostRecord = serde_json::from_slice(
-        &fs::read(&record_path).context("read terminal-host discovery record")?,
+        &files::read(&record_path).context("read terminal-host discovery record")?,
     )?;
     validate_terminal_host_record(&record_path, &record)?;
     if record.terminal_id != terminal_hex
@@ -282,7 +282,8 @@ fn launch_terminal_host_seeded_in(
     // row Exited.
     let mut attachment = connect_record(record, record_path, OwnerIntent::Surface)?;
     crate::debug_spans::mark("host.connected");
-    attachment.launch_process = Some(process);
+    attachment.launch_process =
+        Some(LaunchedHostProcess { process, panic_log: options.host_panic_log.clone() });
     debug_assert_eq!(
         attachment.launch_activation_pending,
         attachment.protocol_version >= LAUNCH_ACTIVATION_PROTOCOL_VERSION

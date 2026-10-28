@@ -12,6 +12,7 @@
 // While the host says a read is running, the page asks it again every ``WAIT_MS`` — a local call
 // to the app, never to GitHub — so a card opened before the first read lands fills in by itself.
 import { useEffect, useSyncExternalStore } from "react";
+import { usePageInterval } from "../../../pages/shared/pageLifecycle";
 import type { HeaderPullRequest } from "../header/headerState";
 import { callChipHost } from "./host";
 
@@ -123,13 +124,15 @@ export function usePullRequestAnswer(url: string | undefined, open: boolean): Pu
   useEffect(() => {
     if (url && open) ask(url);
   }, [open, url]);
-  // …then again every WAIT_MS only while the host is still reading. Both are calls to the app,
-  // which answers from its cache; neither is a call to GitHub.
-  useEffect(() => {
-    if (!url || !open || !waiting) return;
-    const timer = setInterval(() => ask(url), WAIT_MS);
-    return () => clearInterval(timer);
-  }, [open, url, waiting]);
+  // …then again every WAIT_MS only while the host is still reading and the page shows. Both are
+  // calls to the app, which answers from its cache; neither is a call to GitHub. A hidden page
+  // asks nothing, and asks again at the next period after it shows.
+  usePageInterval(
+    () => {
+      if (url) ask(url);
+    },
+    url && open && waiting ? WAIT_MS : null,
+  );
   return answer;
 }
 

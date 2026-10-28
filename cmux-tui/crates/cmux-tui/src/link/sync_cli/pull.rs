@@ -41,9 +41,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write;
 use std::os::unix::fs::{DirBuilderExt as _, OpenOptionsExt as _, PermissionsExt as _};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 
 use anyhow::{Context as _, bail};
+use cmux_process::{Command, Stdio};
 use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
 
@@ -549,9 +549,12 @@ fn ignored(local: &Path, paths: &[(String, bool, Found)]) -> anyhow::Result<BTre
         input.push(0);
     }
     let mut stdin = child.stdin.take().context("no stdin")?;
-    let writer = std::thread::spawn(move || stdin.write_all(&input));
-    let output = child.wait_with_output()?;
-    let _ = writer.join();
+    let output = std::thread::scope(|scope| {
+        let writer = scope.spawn(move || stdin.write_all(&input));
+        let output = child.wait_with_output();
+        let _ = writer.join();
+        output
+    })?;
     // 0: some are ignored; 1: none is.
     if !matches!(output.status.code(), Some(0 | 1)) {
         bail!("git check-ignore failed");

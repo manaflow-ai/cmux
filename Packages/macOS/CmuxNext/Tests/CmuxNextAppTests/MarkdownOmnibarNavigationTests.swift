@@ -45,7 +45,7 @@ import CmuxNextWakeups
         let url = folder.appending(path: "a.md")
         try Data("# A\n".utf8).write(to: url)
         let host = Host()
-        let provider = FilePageProvider(kind: .markdown, file: url, host: host, runner: BackgroundWork(), libraries: nil, images: NoImages())
+        let provider = FilePageProvider(kind: .markdown, file: url, host: host, libraries: nil, images: NoImages())
         defer { provider.close() }
         let context = PageCallContext(page: FilePageKind.markdown.namespace)
         _ = try await provider.call("cmux.markdown.history", params: ["canBack": true, "canForward": false], context: context)
@@ -59,7 +59,7 @@ import CmuxNextWakeups
         let actions = MarkdownOmnibarActions(
             open: { _, _ in }, returnFocus: {}, liveLink: { _ in nil }, openInBrowser: { _ in },
             back: { ran.append("back") }, forward: { ran.append("forward") }, reload: { ran.append("reload") })
-        let bar = MarkdownOmnibarBar(suggestionEngine: OmniboxSuggestionEngine(), actions: actions)
+        let bar = MarkdownOmnibarBar(suggestionEngine: OmniboxSuggestionEngine(), actions: actions, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         let back = try #require(bar.toolbar.backButton)
         let forward = try #require(bar.toolbar.forwardButton)
         let reload = try #require(bar.toolbar.reloadButton)
@@ -86,7 +86,7 @@ import CmuxNextWakeups
     @Test func theRowIsTheBrowserToolbarsHeight() {
         let bar = MarkdownOmnibarBar(suggestionEngine: OmniboxSuggestionEngine(), actions: MarkdownOmnibarActions(
             open: { _, _ in }, returnFocus: {}, liveLink: { _ in nil }, openInBrowser: { _ in },
-            back: {}, forward: {}, reload: {}))
+            back: {}, forward: {}, reload: {}), mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         #expect(bar.toolbar.preferredHeight == OmnibarStyle.toolbarHeight(scale: NSScreen.main?.backingScaleFactor ?? 2))
     }
 }

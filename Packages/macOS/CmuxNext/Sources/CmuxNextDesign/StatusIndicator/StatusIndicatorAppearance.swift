@@ -1,7 +1,5 @@
 public import AppKit
-import CmuxNextCompat
-import Observation
-import CmuxNextWakeups
+public import CmuxNextWakeups
 public import CmuxNextDesignTokens
 
 /// Every input that shapes how indicators look, resolved once: the
@@ -108,6 +106,12 @@ public extension StatusIndicatorConfigClient {
 }
 
 /// The shared config and its change broadcast.
+///
+/// The composition root starts its follows once (``observe(on:appEvents:workspaceEvents:)``): the config is a
+/// ``ServiceObservation`` in the `visible` class (it restyles the indicators on screen; a person's settings edit
+/// flushes as `userBlocking`), and the resync moments are subscriptions on the app's one ``AppEvents`` per center,
+/// as Chromium's app controller observes the NSApp notices once and fans them out
+/// (`chrome/browser/app_controller_mac.mm`).
 @MainActor
 public final class StatusIndicatorAppearance {
     public static let shared = StatusIndicatorAppearance()
@@ -117,49 +121,68 @@ public final class StatusIndicatorAppearance {
     /// an app activation should touch the indicators on screen only, never every row and tab.
     public static var resyncs: UInt64 = 0
     private let clients = NSHashTable<AnyObject>.weakObjects()
-    private var observation: Task<Void, Never>?
-    private var reduceMotionObserver: MainActorObservation?
-    private var reduceMotionOverrideObserver: (any NSObjectProtocol)?
-    private var resyncObservers: [MainActorObservation] = []
+    private var observation: ServiceObservation<StatusIndicatorConfig>?
+    private var reduceMotionWatch: AppearanceSignals.Subscription?
+    private var resyncWatches: [EventSubscription] = []
+    /// The windows whose visibility a resync reads again (``resync()``).
+    private let windows: @MainActor () -> [NSWindow]
 
-    /// - Parameters:
-    ///   - appCenter: Where the app and window notices arrive (tests post to their own).
-    ///   - workspaceCenter: Where the wake notices arrive.
-    init(appCenter: NotificationCenter = .default, workspaceCenter: NotificationCenter = NSWorkspace.shared.notificationCenter) {
+    /// - Parameter windows: The app's windows (tests pass their own).
+    init(windows: @escaping @MainActor () -> [NSWindow] = { NSApplication.shared.windows }) {
         config = StatusIndicatorConfig.current
-        startObserving()
-        // Reduce Motion is not observable through Observation.
-        let center = NSWorkspace.shared.notificationCenter
-        reduceMotionObserver = MainActorObservation(NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, center: center) { [weak self] in
+        self.windows = windows
+        // Re-read synchronously when Reduce Motion flips (the system setting, the tests' pin or calm
+        // mode), or an appearance created before a pin keeps the system setting's loops (a runner
+        // with Reduce Motion on shows no spinner).
+        reduceMotionWatch = DesignSettings.shared.signals.subscribe([.reduceMotion], owner: "StatusIndicatorAppearance") { [weak self] in
             self?.apply(StatusIndicatorConfig.current)
         }
-        // The override (tests) is a plain static: re-read synchronously when it
-        // changes, or an appearance created before the override keeps the
-        // system setting's loops (a runner with Reduce Motion on shows no spinner).
-        reduceMotionOverrideObserver = NotificationCenter.default.addObserver(
-            forName: Motion.reduceMotionDidChange, object: nil, queue: nil) { [weak self] _ in
-            MainDelivery().run { self?.apply(StatusIndicatorConfig.current) }
+    }
+
+    /// Whether ``observe(on:appEvents:workspaceEvents:)`` ran (tests).
+    var isObserving: Bool { observation != nil }
+
+    /// Follows the config and the resync moments. The composition root calls it once, before the first window
+    /// opens (`AppDelegate`, before `WindowManager.restoreWhenLoaded`); its first read applies any change made
+    /// since ``shared`` was made. Later calls do nothing.
+    ///
+    /// - Parameters:
+    ///   - mainWork: The app's one main-thread scheduler: a config change restyles in one posted task.
+    ///   - appEvents: The app's fan-out of `NotificationCenter.default` notices.
+    ///   - workspaceEvents: The app's fan-out of the workspace center's notices (the wakes).
+    public func observe(on mainWork: MainWorkScheduler, appEvents: AppEvents, workspaceEvents: AppEvents) {
+        guard observation == nil else { return }
+        observation = ServiceObservation(.visible, owner: "StatusIndicatorAppearance", on: mainWork) {
+            StatusIndicatorConfig.current
+        } apply: { [weak self] next in
+            self?.apply(next)
         }
-        observeResyncMoments(app: appCenter, workspace: workspaceCenter)
+        observeResyncMoments(app: appEvents, workspace: workspaceEvents)
     }
 
     /// Indicators pause while their window is hidden and resume on its occlusion notice; a notice
     /// that never comes (a row out of the list when it was posted, a wake that posts none) used to
     /// leave every row's spinner still until its state changed (Leo 2026-10-20). Whenever the app
-    /// comes back, every indicator checks itself again.
-    private func observeResyncMoments(app: NotificationCenter, workspace: NotificationCenter) {
-        let moments: [(NotificationCenter, Notification.Name)] = [
-            (app, NSApplication.didBecomeActiveNotification), (app, NSApplication.didUnhideNotification),
-            (app, NSWindow.didBecomeMainNotification), (workspace, NSWorkspace.didWakeNotification),
-            (workspace, NSWorkspace.screensDidWakeNotification), (workspace, NSWorkspace.sessionDidBecomeActiveNotification),
-        ]
-        resyncObservers = moments.map { center, name in
-            MainActorObservation(name, center: center) { [weak self] in self?.resync() }
+    /// comes back, every indicator checks itself again. The subscriptions have no node: a resync
+    /// reaches only the registered clients, and a hidden one defers its check to its own node.
+    private func observeResyncMoments(app: AppEvents, workspace: AppEvents) {
+        let owner = "StatusIndicatorAppearance.resync"
+        let wakes = [NSWorkspace.didWakeNotification, NSWorkspace.screensDidWakeNotification,
+                     NSWorkspace.sessionDidBecomeActiveNotification]
+        resyncWatches = [
+            app.subscribe(NSApplication.didBecomeActiveNotification, owner: owner) { [weak self] in self?.resync() },
+            app.subscribe(NSApplication.didUnhideNotification, owner: owner) { [weak self] in self?.resync() },
+            app.subscribe(NSWindow.didBecomeMainNotification, owner: owner) { [weak self] in self?.resync() },
+        ] + wakes.map { name in
+            workspace.subscribe(name, owner: owner) { [weak self] in self?.resync() }
         }
     }
 
-    /// Tells every client to check its indicator again (`statusIndicatorResync`).
+    /// Reads each window's visibility again, then tells every client to check its indicator again
+    /// (`statusIndicatorResync`). A window whose occlusion notice never came still has a stale node,
+    /// and a hidden indicator waits on that node; an unchanged read flips nothing.
     public func resync() {
+        for window in windows() { WindowVisibilitySource.installed(on: window)?.refresh() }
         for case let client as any StatusIndicatorConfigClient in clients.allObjects {
             client.statusIndicatorResync()
         }
@@ -168,16 +191,6 @@ public final class StatusIndicatorAppearance {
     /// Adds `client`; it is told about every later change (weakly held).
     public func register(_ client: any StatusIndicatorConfigClient) {
         clients.add(client)
-    }
-
-    private func startObserving() {
-        guard observation == nil else { return }
-        observation = Task { [weak self] in
-            for await next in ObservationStream({ StatusIndicatorConfig.current }) {
-                guard let self else { return }
-                self.apply(next)
-            }
-        }
     }
 
     /// Sets the config and tells every client (tests call it directly).

@@ -1,5 +1,4 @@
 public import Foundation
-@preconcurrency public import Sparkle
 
 /// The current phase of the custom (non-Sparkle-UI) update flow, with the per-phase payload
 /// needed to advance, cancel, or describe it.
@@ -143,14 +142,11 @@ public enum UpdateState: Equatable {
 
     /// Payload for ``UpdateState/permissionRequest(_:)``.
     public struct PermissionRequest {
-        /// The Sparkle permission request being answered.
-        public let request: SPUUpdatePermissionRequest
         /// Replies to Sparkle's permission prompt.
-        public let reply: @Sendable (SUUpdatePermissionResponse) -> Void
+        public let reply: @Sendable (UpdatePermissionResponse) -> Void
 
         /// Creates the payload.
-        public init(request: SPUUpdatePermissionRequest, reply: @escaping @Sendable (SUUpdatePermissionResponse) -> Void) {
-            self.request = request
+        public init(reply: @escaping @Sendable (UpdatePermissionResponse) -> Void) {
             self.reply = reply
         }
     }
@@ -184,17 +180,17 @@ public enum UpdateState: Equatable {
     /// Payload for ``UpdateState/updateAvailable(_:)``.
     public struct UpdateAvailable {
         /// The appcast item describing the available update.
-        public let appcastItem: SUAppcastItem
+        public let appcastItem: UpdateAppcastItem
         /// Replies to Sparkle with the user's install/dismiss choice (at most once).
         public let reply: UpdatePromptReply
 
         /// Creates the payload.
-        @MainActor public init(appcastItem: SUAppcastItem, reply: @escaping @Sendable (SPUUserUpdateChoice) -> Void) {
+        @MainActor public init(appcastItem: UpdateAppcastItem, reply: @escaping @Sendable (UpdateChoice) -> Void) {
             self.appcastItem = appcastItem
             self.reply = UpdatePromptReply(reply)
         }
 
-        init(appcastItem: SUAppcastItem, reply: UpdatePromptReply) {
+        init(appcastItem: UpdateAppcastItem, reply: UpdatePromptReply) {
             self.appcastItem = appcastItem
             self.reply = reply
         }

@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextIcons
+import CmuxNextWakeups
 
 /// One notification in the panel: unread dot, title and time, the source
 /// workspace, the body (two lines), and a dismiss button. A press opens it;
@@ -18,7 +19,7 @@ final class NotificationRowView: NSView {
     private var close: NSButton?
     /// Each label and the color it draws in, applied in the view's theme scope.
     private var tinted: [(ChromeLabel, Tone)] = []
-    var isSelected = false { didSet { needsDisplay = true } }
+    var isSelected = false { didSet { if isSelected != oldValue { needsDisplay = true } } }
 
     private static let timeFormatter: RelativeDateTimeFormatter = {
         let formatter = RelativeDateTimeFormatter()
@@ -26,11 +27,16 @@ final class NotificationRowView: NSView {
         return formatter
     }()
 
-    init(row: NotificationsPanelRow, now: Date, callbacks: Callbacks) {
+    /// The panel's node: an appearance change while the panel is closed recolors the row when it shows.
+    private let node: VisibilityNode
+
+    init(row: NotificationsPanelRow, now: Date, node: VisibilityNode, callbacks: Callbacks) {
         self.row = row
+        self.node = node
         self.callbacks = callbacks
         super.init(frame: .zero)
         wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
         layer?.cornerRadius = Metrics.space2
         layer?.cornerCurve = .continuous
         translatesAutoresizingMaskIntoConstraints = false
@@ -74,7 +80,7 @@ final class NotificationRowView: NSView {
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
-        applyColors()
+        node.deferUntilVisible(key: ObjectIdentifier(self)) { [weak self] in self?.applyColors() }
     }
 
     private func applyColors() {
@@ -82,6 +88,7 @@ final class NotificationRowView: NSView {
             for (label, tone) in tinted { label.textColor = tone.color }
             close?.contentTintColor = Palette.textTertiary
         }
+        // invalidate: a new window or appearance (the only callers); the fill and dot resolve again.
         needsDisplay = true
     }
 

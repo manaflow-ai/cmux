@@ -116,7 +116,9 @@ struct FileTransferJob: Sendable {
     /// Whether `target` is taken, and whether it and `source` are both folders; on the lane.
     private static func probe(_ source: URL, target: URL) -> Probe {
         var isDir: ObjCBool = false
-        guard FileManager.checked.fileExists(atPath: target.path, isDirectory: &isDir) else { return Probe() }
+        // SAFETY: `isDir` is a local that outlives the call; Foundation writes one ObjCBool through the pointer and
+        // keeps no reference to it after returning.
+        guard unsafe FileManager.checked.fileExists(atPath: target.path, isDirectory: &isDir) else { return Probe() }
         let sourceIsDir = (try? source.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
         return Probe(exists: true, bothFolders: isDir.boolValue && sourceIsDir)
     }
@@ -125,7 +127,9 @@ struct FileTransferJob: Sendable {
     private static func trash(_ target: URL) throws -> TrashedItem {
         var trashed: NSURL?
         do {
-            try FileManager.checked.trashItem(at: target, resultingItemURL: &trashed)
+            // SAFETY: `trashed` is a local that outlives the call; Foundation stores at most one autoreleased NSURL
+            // through the pointer and keeps no reference to it.
+            try unsafe FileManager.checked.trashItem(at: target, resultingItemURL: &trashed)
         } catch {
             throw FileBrowserError.failed(error.localizedDescription)
         }
@@ -139,8 +143,9 @@ struct FileTransferJob: Sendable {
         switch mode {
         case .move:
             if sameVolume(source, folder) {
-                guard Darwin.rename(source.path, target.path) == 0 else {
-                    throw FileBrowserError.failed(String(cString: strerror(errno)))
+                // SAFETY: rename reads the NUL-terminated copies of both paths made for the call.
+                guard unsafe Darwin.rename(source.path, target.path) == 0 else {
+                    throw FileBrowserError.posix(errno)
                 }
             } else {
                 try copy(source, to: target, base: base, step: &step, stop: stop, emit: emit)
@@ -170,7 +175,9 @@ struct FileTransferJob: Sendable {
     /// Bytes under `url` (files only; folders summed through their contents).
     static func bytes(at url: URL) -> Int64 {
         var info = stat()
-        guard lstat(url.path, &info) == 0 else { return 0 }
+        // SAFETY: lstat reads the NUL-terminated copy of the path made for the call and writes one struct stat into
+        // `info`, a local live for the call.
+        guard unsafe lstat(url.path, &info) == 0 else { return 0 }
         if info.st_mode & S_IFMT != S_IFDIR { return Int64(info.st_size) }
         var total: Int64 = 0
         let keys: [URLResourceKey] = [.fileSizeKey, .isRegularFileKey]
@@ -185,7 +192,9 @@ struct FileTransferJob: Sendable {
 
     static func sameVolume(_ a: URL, _ b: URL) -> Bool {
         var sa = stat(), sb = stat()
-        guard lstat(a.path, &sa) == 0, stat(b.path, &sb) == 0 else { return false }
+        // SAFETY: lstat and stat read the NUL-terminated copies of the paths made for each call and write one struct
+        // stat each into `sa` and `sb`, locals live for the calls.
+        guard unsafe lstat(a.path, &sa) == 0, unsafe stat(b.path, &sb) == 0 else { return false }
         return sa.st_dev == sb.st_dev
     }
 }

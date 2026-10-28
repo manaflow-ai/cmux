@@ -73,7 +73,7 @@ public final class MacScreenStore {
         let bundle = bundleIdentifier.flatMap { $0.isEmpty ? nil : $0 } ?? "com.cmuxterm.app.next"
         let service = "\(bundle).mac-screen"
         return MacScreenStore(file: support.appending(path: bundle).appending(path: "mac-screen.json"), runner: runner, removeLinkPairings: {
-            SecItemDelete([kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service] as CFDictionary)
+            _ = blockingSecItemDelete([kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service] as CFDictionary)
         })
     }
 
@@ -90,7 +90,7 @@ public final class MacScreenStore {
                 do {
                     stored = try await runner.runFiles(.userVisible) { () -> File? in
                         guard let data = try? Data(blockingContentsOf: file) else { return nil }
-                        return try? JSONDecoder().decode(File.self, from: data)
+                        return try? JSONDecoder().blockingDecode(File.self, from: data)
                     }
                 } catch {
                     self?.loadTask = nil

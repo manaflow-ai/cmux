@@ -11,7 +11,7 @@ use std::io;
 use std::process::{Child, Command};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
-use std::thread::{self, JoinHandle};
+use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 /// What to run: the browser binary, its arguments and its environment additions.
@@ -114,9 +114,12 @@ impl BrowserSupervisor {
         });
         let first = spawn(&cmd, &shared)?;
         let s = Arc::clone(&shared);
-        let thread = thread::Builder::new()
-            .name("cmux-rd-browser".into())
-            .spawn(move || supervise(cmd, backoff, first, &s))?;
+        // A supervisor waits on the browser's exit and restarts it: Utility.
+        // supervise-allow: the browser's restarter, owned by BrowserSupervisor (joined at drop); a panic ends restarts only: the running browser keeps serving, and its next crash is final.
+        let thread =
+            cmux_threads::spawn("cmux-rd-browser", cmux_threads::ThreadQos::Utility, move || {
+                supervise(cmd, backoff, first, &s)
+            })?;
         Ok(Self { shared, thread: Some(thread) })
     }
 
@@ -196,6 +199,7 @@ fn supervise(cmd: BrowserCommand, backoff: Backoff, first: Child, shared: &Share
 fn terminate(pid: u32) {
     if pid != 0 {
         // SIGTERM lets Chrome flush its profile; the wait in `supervise` reaps it.
+        // SAFETY: kill takes integers only and touches no memory.
         unsafe { libc::kill(pid as libc::pid_t, libc::SIGTERM) };
     }
 }
@@ -227,11 +231,12 @@ mod tests {
         while !f() {
             assert!(t0.elapsed() < Duration::from_secs(30), "timed out waiting for {what}");
             // Test-only wait for real child processes; the code under test uses no polling.
-            thread::sleep(Duration::from_millis(10));
+            std::thread::sleep(Duration::from_millis(10));
         }
     }
 
     fn alive(pid: u32) -> bool {
+        // SAFETY: kill with signal 0 only checks that the process exists; it takes integers only.
         unsafe { libc::kill(pid as libc::pid_t, 0) == 0 }
     }
 
@@ -248,6 +253,8 @@ mod tests {
         let first = sup.pid();
         assert_eq!(sup.starts(), 1);
         // The browser crashes (or a person quits it): the supervisor starts a new one.
+        // SAFETY: kill takes integers only; `first` is the supervisor's live, unreaped browser
+        // child.
         unsafe { libc::kill(first as libc::pid_t, libc::SIGKILL) };
         wait_until("restart", || sup.starts() == 2 && sup.pid() != 0 && sup.pid() != first);
         let second = sup.pid();

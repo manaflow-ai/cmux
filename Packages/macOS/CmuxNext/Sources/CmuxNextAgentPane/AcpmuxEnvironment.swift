@@ -40,6 +40,10 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
     /// Whether an unsigned development daemon needs its person key on an
     /// inherited descriptor. Signed builds enroll only after checking the peer.
     public var passesPersonKeyAtSpawn = true
+    /// The app's overridden daemon features as `CMUX_ENABLE_FEATURES` / `CMUX_DISABLE_FEATURES`
+    /// (`FeatureList.daemonEnvironment`): set on the daemon over any inherited lists, since a
+    /// Team-signed spawn inherits neither, so the daemon resolves its features as the app did.
+    public var daemonFeatures: [String: String] = [:]
     /// The daemon is another app's, reached through `CMUX_NEXT_ACPMUX_ATTACH`
     /// (AcpmuxEnvironment+Attach.swift): this app never starts, hands off or ends it.
     public var isAttached = false
@@ -82,8 +86,9 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
 
     /// Resolves the environment of `build` (nil: no build, the shared home),
     /// or nil when no `acpmux` executable exists. `bundledBinDirectory` is the
-    /// app's `Contents/Resources/bin`. A Debug compile takes a test root for
-    /// `~/.acpmux` from `CMUX_NEXT_ACPMUX_ROOT` (tests only).
+    /// app's `Contents/Resources/bin`. A Debug or bench compile takes a test root for
+    /// `~/.acpmux` from `CMUX_NEXT_ACPMUX_ROOT` (tests and bench stories only). `signingTeam` holds this
+    /// app's team, read on the system lane at launch, so a main-thread resolve asks securityd nothing.
     public static func resolve(
         build: BuildIdentity?,
         bundledBinDirectory: URL?,
@@ -91,7 +96,8 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
         userHome: URL = FileManager.default.homeDirectoryForCurrentUser,
         uid: UInt32 = getuid(),
         isExecutable: (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) },
-        launchEnvironment: [String: String] = [:]
+        launchEnvironment: [String: String] = [:],
+        signingTeam: SigningTeamInstall = .process
     ) -> AcpmuxEnvironment? {
         // DEBUG only: `CMUX_NEXT_ACPMUX_BIN` wins (AcpmuxEnvironment+DebugOverride.swift).
         // Release passes nil, so it compiles no read of it.
@@ -102,7 +108,7 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
         #endif
         return resolve(build: build, bundledBinDirectory: bundledBinDirectory, environment: environment, userHome: userHome,
                        uid: uid, isExecutable: isExecutable, launchEnvironment: launchEnvironment,
-                       executableOverride: executableOverride, teamIdentifier: AcpmuxServerPeer.ownTeam,
+                       executableOverride: executableOverride, teamIdentifier: signingTeam.team,
                        isTrustedExecutable: AcpmuxServerPeer.executableSignedByAppTeam)
     }
 
@@ -118,7 +124,7 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
         isExecutable: (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) },
         launchEnvironment: [String: String] = [:],
         executableOverride: URL?,
-        teamIdentifier: String? = AcpmuxServerPeer.ownTeam,
+        teamIdentifier: String? = SigningTeamInstall.process.team,
         isTrustedExecutable: (URL, String) -> Bool = { AcpmuxServerPeer.executableSignedByAppTeam($0, team: $1) }
     ) -> AcpmuxEnvironment? {
         guard let executable = executableOverride
@@ -153,9 +159,10 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
     }
 
     /// `CMUX_NEXT_ACPMUX_ROOT`, the directory that stands for `~/.acpmux` in a
-    /// Debug compile (live per-build tests); nil in Release.
+    /// Debug compile (live per-build tests) and a bench compile (the acpmux fake-agent
+    /// tracks of the perf lab's corpus stories, p12-perf-process.md); nil in Release.
     static func testRoot(_ environment: [String: String]) -> URL? {
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         guard let root = environment["CMUX_NEXT_ACPMUX_ROOT"], !root.isEmpty else { return nil }
         return URL(fileURLWithPath: root, isDirectory: true).standardizedFileURL
         #else

@@ -218,18 +218,16 @@ public nonisolated struct CLIPathInstaller: Sendable {
 
     /// `do shell script … with administrator privileges`, the command passed
     /// as an argument so it needs no AppleScript quoting.
-    /// The child is spawned off the pool and awaited without a thread (``AsyncProcess``). It runs to its end
-    /// whatever the caller does: a privileged install is never stopped half way.
-    public static func runAsAdministrator(_ command: String) async throws {
-        let arguments = ["-e", "on run argv", "-e", "do shell script (item 1 of argv) with administrator privileges",
-                         "-e", "end run", command]
-        let outcome: ProcessOutcome
-        do {
-            outcome = try await AsyncProcess().run(ProcessRequest(URL(fileURLWithPath: "/usr/bin/osascript"), arguments,
-                                                                  errorOutput: .separate, onCancel: .finish))
-        } catch let failure as ProcessFailure {
-            throw Failure.privilegedCommandFailed(message: String(describing: failure))
-        }
+    ///
+    /// osascript starts through ``AsyncProcess`` (never on the caller's thread)
+    /// at the caller's priority, and runs to its end even when the caller is
+    /// cancelled: the command must not stop half way through a link.
+    @concurrent public static func runAsAdministrator(_ command: String) async throws {
+        let request = ProcessRequest(URL(fileURLWithPath: "/usr/bin/osascript"),
+                                     ["-e", "on run argv", "-e", "do shell script (item 1 of argv) with administrator privileges",
+                                      "-e", "end run", command],
+                                     errorOutput: .separate, onCancel: .finish)
+        let outcome = try await AsyncProcess().run(request)
         guard outcome.succeeded else {
             let text = String(decoding: outcome.errorOutput, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
             throw Failure.privilegedCommandFailed(message: text.isEmpty ? "osascript exited with status \(outcome.status)" : text)

@@ -3,6 +3,8 @@ import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextPages
 import CmuxNextSettings
+import CmuxNextSettingsWindow
+import CmuxNextWakeups
 import Foundation
 import Observation
 
@@ -16,8 +18,9 @@ import Observation
 @MainActor
 final class SettingsPageProvider: PageProvider {
     private let settings: SettingsController
-    /// Value domains the page offers in menus (`themes`, `font_families`, `sounds`, `recent_fonts`).
-    private let domains: @MainActor () -> [String: [String]]
+    /// Value domains the page offers in menus (`themes`, `font_families`, `sounds`, `recent_fonts`); async,
+    /// so a domain read from disk (the sounds folder) is awaited on a lane, never read on the main thread.
+    private let domains: @MainActor () async -> [String: [String]]
     /// Live lists Settings shows beside the schema rows (spaces, machines, browser profiles); nil
     /// in tests without an app.
     private let hostLists: (@MainActor () -> JSONValue)?
@@ -44,6 +47,9 @@ final class SettingsPageProvider: PageProvider {
     /// The theme picker's write (level, spec or nil) and its spec check (R82 commit 4).
     var setTheme: (@MainActor (_ level: String, _ spec: String?) throws -> Void)?
     var acceptsTheme: (@MainActor (String) -> Bool)?
+    /// Experimental > Feature Flags' choice (`cmux.settings.features.set`): a feature on, off or back to no choice
+    /// (nil) for the next launch; nil in tests without an app.
+    var setFeature: (@MainActor (_ name: String, _ on: Bool?) throws -> Void)?
     /// Every published theme's colors (`cmux.settings.theme.colors`), for the Theme section's
     /// preview and swatches; nil in tests without an app.
     var themeColors: (@MainActor () -> [ThemeFileColors])?
@@ -69,15 +75,40 @@ final class SettingsPageProvider: PageProvider {
     /// The gesture (``PageCallContext/gestureEvent``) that last turned a device's Full access on:
     /// one click or key turns on one setting.
     private var spentFullAccessGesture: TimeInterval?
+    /// The forms of one page that hold typed values not saved yet (a custom density being edited, a
+    /// relay's fields), as the page reports them (`cmux.settings.editing`). While any does, the
+    /// page's tab keeps its view (``SettingsWindowService/keepReasons(for:)``): a page built again
+    /// would lose them (Chrome's kUserEdits, chrome/browser/performance_manager/policies/
+    /// cannot_discard_reason.h).
+    @MainActor
+    final class Edits {
+        /// The page's unsaved forms, by the page's own form names.
+        private(set) var forms: Set<String> = []
+        var hasUnsaved: Bool { !forms.isEmpty }
+
+        func set(_ form: String, unsaved: Bool) {
+            if unsaved { forms.insert(form) } else { forms.remove(form) }
+        }
+    }
+
+    /// This page's unsaved forms.
+    var edits = Edits()
     /// Results of recent writes by idempotency key (a retried key replays its first answer).
     private var replies: [(key: String, value: JSONValue)] = []
     private static let replayLimit = 64
 
-    init(settings: SettingsController, domains: @escaping @MainActor () -> [String: [String]] = { [:] },
-         hostLists: (@MainActor () -> JSONValue)? = nil) {
+    /// The app's main-thread scheduler: each stream's observation flushes on it.
+    private let work: MainWorkScheduler
+
+    /// - Parameter work: The app's main-thread scheduler (`AppServices.mainWork`): a stream's
+    ///   follower writes to the page's router (which holds it while the page is hidden), so it is a
+    ///   ``ServiceObservation`` there, one flush per frame behind the person's input.
+    init(settings: SettingsController, domains: @escaping @MainActor () async -> [String: [String]] = { [:] },
+         hostLists: (@MainActor () -> JSONValue)? = nil, on work: MainWorkScheduler) {
         self.settings = settings
         self.domains = domains
         self.hostLists = hostLists
+        self.work = work
     }
 
     /// A theme's colors as the page reads them (`GhosttyTheme` in webviews/src/theme/ghosttyTheme.ts).
@@ -104,7 +135,7 @@ final class SettingsPageProvider: PageProvider {
     func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
         switch op {
         case "cmux.settings.list": return list(section: params["section"]?.stringValue)
-        case "cmux.settings.snapshot": return snapshot()
+        case "cmux.settings.snapshot": return await snapshot()
         case "cmux.settings.set":
             guard let value = params["value"] else { throw PageError.invalidParams("value is required") }
             let descriptor = try descriptor(params)
@@ -158,6 +189,16 @@ final class SettingsPageProvider: PageProvider {
             guard let setTheme else { throw PageError(code: "cmux.page.unavailable", message: "no theme host") }
             guard let level = params["level"]?.stringValue else { throw PageError.invalidParams("level is required") }
             do { try setTheme(level, params["spec"]?.stringValue) } catch { throw PageError.invalidParams("unknown theme level \(level)") }
+            return .object([:])
+        case "cmux.settings.features.set":
+            // A local choice changes what the next launch runs: the person's own click in Settings only.
+            guard context.page == PageDescriptor.settings.id, context.userGesture else {
+                throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage)
+            }
+            guard let name = params["name"]?.stringValue, let on = params["on"], on == .null || on.boolValue != nil else {
+                throw PageError.invalidParams("name and on (true, false or null) are required")
+            }
+            try Self.host(setFeature, "feature flags")(name, on.boolValue)
             return .object([:])
         case "cmux.settings.theme.colors": return try ["themes": .array(Self.host(themeColors, "theme colors")().map(Self.json))]
         case "cmux.settings.theme.save", "cmux.settings.theme.import":
@@ -219,6 +260,12 @@ final class SettingsPageProvider: PageProvider {
         case "cmux.settings.preview.end":
             settings.endPreview()
             return .object([:])
+        case "cmux.settings.editing":
+            guard let form = params["form"]?.stringValue, let unsaved = params["editing"]?.boolValue else {
+                throw PageError.invalidParams("form and editing are required")
+            }
+            edits.set(form, unsaved: unsaved)
+            return .object([:])
         case "cmux.settings.sound.play":
             guard let name = params["name"]?.stringValue else { throw PageError.invalidParams("name is required") }
             if name != "default", name != "none" { NSSound(named: NSSound.Name(name))?.play() }
@@ -233,72 +280,64 @@ final class SettingsPageProvider: PageProvider {
     func subscribe(_ stream: String, filter: JSONValue, context: PageCallContext,
                    onEvent: @escaping @MainActor (JSONValue) -> Void) async throws -> PageSubscription {
         if stream == "cmux.settings.accounts.changed", let accountsState {
-            return Self.watch(accountsState, onEvent: onEvent)
+            return watch(stream, accountsState, onEvent: onEvent)
         }
         if stream == "cmux.settings.agents.changed", let agents {
             // The daemon's harness events reach the list only while a page shows it.
             agents.beginWatching()
-            let watch = Self.watch({ agents.pageState }, onEvent: onEvent)
-            return PageSubscription {
-                watch.cancel()
-                Task { @MainActor in agents.endWatching() }
+            let state = watch(stream, { agents.pageState }, onEvent: onEvent)
+            return PageSubscription(frozenDelivery: state.frozenDelivery) {
+                state.cancel()
+                agents.endWatching()
             }
         }
         if stream == "cmux.settings.devices.changed", let devicesState {
             // The history follows the hub's pushes only while a page shows the card.
             devicesWatching?(true)
-            let watch = Self.watch(devicesState, onEvent: onEvent)
+            let state = watch(stream, devicesState, onEvent: onEvent)
             let watching = devicesWatching
-            return PageSubscription {
-                watch.cancel()
-                Task { @MainActor in watching?(false) }
+            return PageSubscription(frozenDelivery: state.frozenDelivery) {
+                state.cancel()
+                watching?(false)
             }
         }
         if stream == "cmux.settings.harnesses.changed", let harnessesState {
-            return Self.watch(harnessesState, onEvent: onEvent)
+            return watch(stream, harnessesState, onEvent: onEvent)
         }
         if stream == "cmux.settings.host.changed", let hostLists {
-            return Self.watch(hostLists, onEvent: onEvent)
+            return watch(stream, hostLists, onEvent: onEvent)
         }
         guard stream == "cmux.settings.changed" else { throw PageError.unknownOp(stream) }
         let settings = settings
         // Capture before returning the subscription so an immediate mutation cannot become
-        // the task's baseline and disappear from the first event.
+        // the observation's baseline and disappear from the first event.
         let initialRoot = settings.snapshot.root
         let initialFileRoots = settings.fileRoot.value(at: ChatSettings.rootsPath)
         let initialManagedRoots = settings.managedChatRoots
-        let task = Task { @MainActor in
-            var last = initialRoot
-            var lastFileRoots = initialFileRoots
-            var lastManagedRoots = initialManagedRoots
-            for await (count, root, fileRoots, managedRoots) in ObservationStream({
-                (settings.loadCount, settings.snapshot.root, settings.fileRoot.value(at: ChatSettings.rootsPath), settings.managedChatRoots)
-            }) {
-                let keys = SettingsSchema.all.filter {
-                    $0.storedValue(in: root) != $0.storedValue(in: last)
-                        || ($0.path == ChatSettings.rootsPath && (fileRoots != lastFileRoots || managedRoots != lastManagedRoots))
-                }.map(\.id)
-                lastFileRoots = fileRoots
-                lastManagedRoots = managedRoots
-                last = root
-                if !keys.isEmpty { onEvent(["revision": .number(Double(count)), "keys": .array(keys.map(JSONValue.string))]) }
-            }
+        let changes = SettingsChanges((initialRoot, initialFileRoots, initialManagedRoots))
+        let observation = ServiceObservation(.visible, owner: "settings-page.changed", on: work) {
+            (count: settings.loadCount, root: settings.snapshot.root, fileRoots: settings.fileRoot.value(at: ChatSettings.rootsPath),
+             managedRoots: settings.managedChatRoots)
+        } apply: { read in
+            let keys = changes.keys(after: (read.root, read.fileRoots, read.managedRoots))
+            if !keys.isEmpty { onEvent(["revision": .number(Double(read.count)), "keys": .array(keys.map(JSONValue.string))]) }
         }
-        return PageSubscription { task.cancel() }
+        // Each event names only the keys that changed since the last one: a delta. After a drop the
+        // page gets `meta.gap`; SettingsStore then clears every refusal and re-reads every row.
+        return PageSubscription(frozenDelivery: .resync) { observation.cancel() }
     }
 
     /// One event per change of `read`'s value (the stores it reads are observable); the event
-    /// carries the new value.
-    private static func watch(_ read: @escaping @MainActor () -> JSONValue,
-                              onEvent: @escaping @MainActor (JSONValue) -> Void) -> PageSubscription {
-        let task = Task { @MainActor in
-            var last = read()
-            for await value in ObservationStream({ read() }) where value != last {
-                last = value
-                onEvent(value)
-            }
+    /// carries the new value, so while the page is held only the newest one matters (`.latest`).
+    /// The value at the subscription is the page's own read: only later ones are events.
+    private func watch(_ stream: String, _ read: @escaping @MainActor () -> JSONValue,
+                       onEvent: @escaping @MainActor (JSONValue) -> Void) -> PageSubscription {
+        let subscribed = PageStreamStart()
+        let observation = ServiceObservation(.visible, owner: stream, on: work, read: read) { value in
+            if subscribed.isDone { onEvent(value) }
         }
-        return PageSubscription { task.cancel() }
+        subscribed.finish()
+        return PageSubscription(frozenDelivery: .latest) { observation.cancel() }
     }
 
     // MARK: Reads
@@ -323,11 +362,11 @@ final class SettingsPageProvider: PageProvider {
         })
     }
 
-    private func snapshot() -> JSONValue {
+    private func snapshot() async -> JSONValue {
+        var published: [String: JSONValue] = [:]
+        for (name, values) in await domains() { published[name] = .array(values.map(JSONValue.string)) }
         var managed: [String: JSONValue] = [:]
         for (key, source) in settings.managedKeys { managed[key] = Self.managedInfo(source) }
-        var published: [String: JSONValue] = [:]
-        for (name, values) in domains() { published[name] = .array(values.map(JSONValue.string)) }
         return [
             "revision": .number(Double(settings.loadCount)),
             // The page checks no hash yet; the daemon owner will send the export's.
@@ -408,7 +447,7 @@ final class SettingsPageProvider: PageProvider {
     }
 }
 
-/// The value domains the Settings page offers in menus, listed once per launch.
+/// The value domains the Settings page offers in menus.
 @MainActor
 enum SettingsPageDomains {
     /// Installed fixed-pitch families the terminal accepts, sorted.
@@ -419,10 +458,29 @@ enum SettingsPageDomains {
         return families.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
     }()
 
-    /// The sounds in /System/Library/Sounds.
-    static let sounds: [String] = {
-        let urls = (try? FileManager.default.contentsOfDirectory(at: URL(fileURLWithPath: "/System/Library/Sounds"),
-                                                                  includingPropertiesForKeys: nil)) ?? []
+    /// The sounds in /System/Library/Sounds, listed on the files lane while the page's snapshot waits (a
+    /// directory read: never a static initializer on whichever thread reads it first, p02-threads-122).
+    static func sounds(work: BackgroundWork) async -> [String] {
+        let folder = URL(fileURLWithPath: "/System/Library/Sounds")
+        let urls = (try? await work.run(.userVisible, mayBlock: .files) {
+            try FileManager.checked.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)
+        }) ?? []
         return urls.map { $0.deletingPathExtension().lastPathComponent }.sorted()
-    }()
+    }
+}
+
+/// What `cmux.settings.changed` compared last: each read names the schema keys that changed since it.
+private final class SettingsChanges {
+    private var last: (root: JSONValue, fileRoots: JSONValue?, managedRoots: [String])
+
+    init(_ last: (root: JSONValue, fileRoots: JSONValue?, managedRoots: [String])) { self.last = last }
+
+    /// The ids of the keys `read` changed since the last read; `read` becomes the last.
+    func keys(after read: (root: JSONValue, fileRoots: JSONValue?, managedRoots: [String])) -> [String] {
+        defer { last = read }
+        return SettingsSchema.all.filter {
+            $0.storedValue(in: read.root) != $0.storedValue(in: last.root)
+                || ($0.path == ChatSettings.rootsPath && (read.fileRoots != last.fileRoots || read.managedRoots != last.managedRoots))
+        }.map(\.id)
+    }
 }

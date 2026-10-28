@@ -13,7 +13,7 @@ impl Briefs {
     /// The ledger saved at `path` (`Store::briefs_path`), or one in memory only.
     pub(crate) fn open(path: Option<std::path::PathBuf>) -> Self {
         let Some(path) = path else { return Self::default() };
-        let (rows, load_failed) = match std::fs::read(&path) {
+        let (rows, load_failed) = match cmux_blocking::fs::read(&path) {
             Ok(bytes) => match serde_json::from_slice(&bytes) {
                 Ok(rows) => (rows, false),
                 Err(error) => {
@@ -59,11 +59,12 @@ impl Briefs {
     fn save(&self, rows: &BTreeMap<String, Value>) {
         let Some(path) = &self.path else { return };
         if let Some(dir) = path.parent() {
-            let _ = std::fs::create_dir_all(dir);
+            let _ = cmux_blocking::fs::create_dir_all(dir);
         }
         if let Ok(bytes) = serde_json::to_vec(rows) {
             let tmp = path.with_extension("json.tmp");
-            if let Err(error) = std::fs::write(&tmp, bytes).and_then(|_| std::fs::rename(tmp, path))
+            if let Err(error) = cmux_blocking::fs::write(&tmp, bytes)
+                .and_then(|_| cmux_blocking::fs::rename(tmp, path))
             {
                 eprintln!("acpmux: brief persistence warning: {error}");
             }

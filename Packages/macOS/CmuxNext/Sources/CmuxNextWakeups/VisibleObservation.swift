@@ -1,6 +1,7 @@
 import Observation
 
-/// Follows a main-actor expression for a view, only while the view's ``VisibilityNode`` is visible
+/// Follows a main-actor expression for a view, only while the view's ``VisibilityNode`` renders (it is
+/// visible, or a capture vote holds it: ``VisibilityNode/wantsFrames``)
 /// (plans/cmux-next/chrome-parity/p06-scheduler.md, section C). Use it only when `apply` touches
 /// views; an `apply` that writes the model, the daemon, the disk or another owner uses
 /// `ServiceObservation`, which also runs while nothing is on screen.
@@ -16,7 +17,7 @@ import Observation
 ///
 /// Behavior:
 /// 1. `init` reads and applies the current value in the caller's turn. It arms tracking
-///    (`withObservationTracking`, the same path on every macOS) only while the node is visible.
+///    (`withObservationTracking`, the same path on every macOS) only while the node renders.
 /// 2. The first change of anything `read` read marks the observation dirty with the
 ///    scheduler's ``ObservationCauses/currentCause`` (Observation's will-set). Until the cause is
 ///    person, it re-arms the tracking in that turn (one read), so each later change of what it
@@ -28,11 +29,17 @@ import Observation
 ///    (`base/task/sequence_manager/task_queue_selector.h`), held while the node is hidden or frozen.
 ///    A person-caused flush is also queued for the input-response pass, which applies it before
 ///    the commit (``ObservationCauses/flushPersonCaused()``); one the pass did not reach runs in
-///    its `visible` task.
-/// 4. When the node stops being visible, a cancel signal fires the armed tracking, so the
-///    registrar drops it, and a dirty flush is dropped: a hidden view reads nothing. When the node
-///    shows again it reads once and applies the value.
-/// 5. A value whose type is `Equatable` is applied only when it differs from the last one applied.
+///    its `userBlocking` task.
+/// 4. When the node stops rendering (it is hidden and no capture vote holds it), a cancel signal
+///    fires the armed tracking, so the registrar drops it, and a dirty flush is dropped: a hidden
+///    view reads nothing. When the node renders again it reads once and applies the value, by the
+///    node's show order (``VisibilityNode/resolvedShowOrder``, task 213): in the show turn, or as
+///    one userBlocking task posted after the show pass in rank order. A `firstFrame` observation
+///    reads in the show turn whatever the order. The ledger records each show re-read and its time.
+/// 5. While a warm vote holds the hidden node (``VisibilityNode/warmVote(reason:)``), it reads in
+///    idle time with tracking and keeps the value without applying it; a change makes it read again
+///    in idle time. A show while that value is still current applies it with no read.
+/// 6. A value whose type is `Equatable` is applied only when it differs from the last one applied.
 ///
 /// A change must happen on the main actor: a will-set from another thread reaches the main actor
 /// one hop later (``MainDelivery``), and its cause is then the cause current at that hop.
@@ -46,31 +53,29 @@ public final class VisibleObservation<Value> {
 
     private let node: VisibilityNode
     private let work: MainWorkScheduler
-    private let read: @MainActor () -> Value
     private let apply: @MainActor (Value) -> Void
     private let taskOwner: MainTaskOwner
+    /// Reads in the show turn whatever the node's show order (its view must be right in the first frame).
+    private let firstFrame: Bool
+    /// The tracking, its cancel signal and the pending change's cause (shared with ``FrameObservation``).
+    private let tracker: ObservationTracker<Value>
     /// `==` of an Equatable value; nil applies every read.
     private let isEqual: ((Value, Value) -> Bool)?
     /// The last value applied (Equatable values only).
     private var last: Value?
-    /// Written to fire the armed tracking, so the registrar drops it.
-    private let signal = VisibleObservationCancelSignal()
-    /// A tracking is registered and has not fired.
-    private var armed = false
-    /// The armed tracking's generation; a callback of an older one is stale.
-    private var generation: UInt64 = 0
-    /// The highest cause of the changes since the last flush; nil while nothing is pending.
-    private var dirtyCause: ObservationCause?
-    /// The pass's entry for the pending person-caused flush (``ObservationCauses/enqueuePerson(_:)``).
-    private var personTicket: UInt64 = 0
     private var cancelled = false
     private var visibility: VisibilitySubscription?
+    private var warmth: VisibilitySubscription?
+    /// A show waits for its userBlocking task (``VisibilityNode/ShowOrder/afterShow(rank:)``).
+    private var showPending = false
+    /// The value a warm idle read got while the node was hidden; current while the tracking it armed is clean.
+    private var warmValue: Value?
+    private var warmReadPosted = false
     /// The node's queues the flushes run on, by class, built on first use.
-    private var visibleQueue: MainTaskQueue?
-    private var automationQueue: MainTaskQueue?
+    private var queues: [BudgetedWorkClass: MainTaskQueue] = [:]
 
     /// Tracking callbacks received, stale ones included (tests prove a hidden observation has none).
-    package private(set) var trackingCallbacks = 0
+    package var trackingCallbacks: Int { tracker.callbacks }
 
     /// Starts following `read` for a view under `node`; applies its current value before it returns.
     ///
@@ -79,45 +84,47 @@ public final class VisibleObservation<Value> {
     ///   - owner: The observation's name (interned once on the scheduler's board).
     ///   - work: The app's one main-thread scheduler; its ``MainWorkScheduler/causes`` names each
     ///     change's cause.
+    ///   - firstFrame: Read in the show turn whatever the node's show order: the view must be right in
+    ///     the first frame after a show.
     ///   - read: The observed expression; it runs on the main actor with tracking.
     ///   - apply: Updates the view with each new value.
-    public init(_ node: VisibilityNode, owner: String, on work: MainWorkScheduler,
+    public init(_ node: VisibilityNode, owner: String, on work: MainWorkScheduler, firstFrame: Bool = false,
                 read: @escaping @MainActor () -> Value, apply: @escaping @MainActor (Value) -> Void) {
         self.node = node
         self.owner = owner
         self.work = work
-        self.read = read
+        self.firstFrame = firstFrame
         self.apply = apply
-        isEqual = Self.equality()
+        isEqual = ObservationTracker<Value>.equality()
         taskOwner = work.taskOwner(owner)
-        let value = node.isVisible ? track() : read()
+        tracker = ObservationTracker(counts: work.observationOwner(owner), causes: work.causes, read: read)
+        tracker.client = self
+        let value = node.wantsFrames ? tracker.track() : tracker.readUntracked()
         if isEqual != nil { last = value }
         apply(value)
-        visibility = node.subscribe(owner: owner) { [weak self] state in
-            if state.isVisible { self?.show() } else { self?.hide() }
+        visibility = node.subscribeRendering(owner: owner) { [weak self] rendering in
+            if rendering { self?.show() } else { self?.hide() }
         }
+        warmth = node.subscribeWarm(owner: owner) { [weak self] warm in self?.warmChanged(warm) }
+        if node.isWarm, !node.wantsFrames { postWarmRead() }
     }
 
-    // The node holds the subscription and the queues hold no reference to this observation; only
-    // an armed tracking outlives it. A generic main-actor class needs a nonisolated deinit (the
-    // Release optimizer crashes on its isolated one, #23050), so the signal write hops when
-    // released off main.
-    nonisolated deinit {
-        guard armed else { return }
-        let signal = self.signal
-        MainDelivery().run { signal.epoch &+= 1 }
-    }
+    // The node holds the subscription and the queues hold no reference to this observation; the
+    // tracker's deinit drops an armed tracking. Generic: an isolated deinit crashes the -O build
+    // (#23050, guardrail generic-class-deinit).
+    nonisolated deinit {}
 
     /// Stops the observation: no later read or apply. Idempotent.
     public func cancel() {
         guard !cancelled else { return }
-        hide()
         cancelled = true
+        hide()
         last = nil
         visibility?.cancel()
         visibility = nil
-        visibleQueue = nil
-        automationQueue = nil
+        warmth?.cancel()
+        warmth = nil
+        queues.removeAll()
     }
 
     /// Whether ``cancel()`` ran.
@@ -126,126 +133,127 @@ public final class VisibleObservation<Value> {
     // MARK: Visibility
 
     private func show() {
-        guard !cancelled, !armed, dirtyCause == nil else { return }
-        applyIfChanged(track())
+        guard !cancelled else { return }
+        guard !firstFrame, case .afterShow(let rank) = node.resolvedShowOrder else { return showNow() }
+        showPending = true
+        node.postAfterShow(rank: rank) { [weak self] in self?.postQueuedShow() }
+    }
+
+    private func postQueuedShow() {
+        guard !cancelled, showPending else { return }
+        queue(.userBlocking).post(key: "show") { [weak self] in self?.showQueued() }
+    }
+
+    private func showQueued() {
+        guard !cancelled, showPending, node.wantsFrames else { return work.budget.noteRanNothing() }
+        showNow()
+    }
+
+    /// Applies the current value: the warm one when nothing changed since its read, else one re-read.
+    private func showNow() {
+        showPending = false
+        let warm = warmValue
+        warmValue = nil
+        if tracker.isArmed, tracker.dirtyCause == nil, let warm { return applyIfChanged(warm) }
+        tracker.clean()
+        tracker.disarm()
+        let start = work.budget.uptimeNanos()
+        let value = tracker.track()
+        tracker.counts.showReread(nanos: work.budget.uptimeNanos() &- start)
+        applyIfChanged(value)
     }
 
     private func hide() {
-        disarm()
-        dirtyCause = nil
+        // A held show task would run ahead of the next show's rank order: drop it with its queue.
+        if showPending { queues[.userBlocking] = nil }
+        showPending = false
+        warmValue = nil
+        tracker.disarm()
+        tracker.clean()
+        if !cancelled, node.isWarm { postWarmRead() }
     }
 
-    // MARK: Tracking
+    // MARK: Warm
 
-    /// Reads `read` with a fresh one-shot tracking.
-    private func track() -> Value {
-        generation &+= 1
-        armed = true
-        let armedGeneration = generation, signal = self.signal, observed = self.read, causes = work.causes
-        return withObservationTracking {
-            _ = signal.epoch
-            return observed()
-        } onChange: { @Sendable [weak self] in
-            MainDelivery().run { [weak self] in
-                guard let self else {
-                    causes.noteReleasedTrackingFire()
-                    return
-                }
-                self.trackingFired(armedGeneration)
-            }
-        }
+    private func warmChanged(_ warm: Bool) {
+        guard !cancelled, !node.wantsFrames else { return }
+        if warm { return postWarmRead() }
+        warmValue = nil
+        tracker.disarm()
+        tracker.clean()
     }
 
-    /// Fires the armed tracking, so the registrar drops it; its callback is stale.
-    private func disarm() {
-        generation &+= 1
-        guard armed else { return }
-        armed = false
-        signal.epoch &+= 1
+    private func postWarmRead() {
+        guard !warmReadPosted else { return }
+        warmReadPosted = true
+        work.postIdle(owner: taskOwner) { [weak self] _ in self?.warmRead() }
     }
 
-    private func trackingFired(_ generation: UInt64) { // perf-hot: 0.01ms frame-tick (each observed will-set)
-        trackingCallbacks += 1
-        guard !cancelled, armed, generation == self.generation else { return }
-        armed = false
-        let cause = work.causes.currentCause
-        let previous = dirtyCause
-        if previous.map({ cause > $0 }) ?? true {
-            dirtyCause = cause
-            schedule(cause, after: previous)
-        }
-        // Only a higher cause can change the flush now; person is the highest.
-        if dirtyCause != .person { _ = track() }
+    /// Reads with tracking and keeps the value for the show, unless the kept one is still current.
+    private func warmRead() {
+        warmReadPosted = false
+        guard !cancelled, node.isWarm, !node.wantsFrames else { return }
+        if tracker.isArmed, tracker.dirtyCause == nil, warmValue != nil { return }
+        tracker.clean()
+        tracker.disarm()
+        warmValue = tracker.track()
+        tracker.counts.evaluated()
     }
 
-    /// Queues the flush for `cause`, which replaced `previous`: a task on the class's queue when
-    /// the class changed, and the pass's entry for a person cause.
-    private func schedule(_ cause: ObservationCause, after previous: ObservationCause?) {
-        if cause == .person { personTicket = work.causes.enqueuePerson(self) }
-        let workClass = cause.budgetedClass
-        if previous?.budgetedClass == workClass { return }
-        queue(workClass).post(key: "flush") { [weak self] in self?.flushQueued(workClass) }
-    }
+    // MARK: Flush
 
     /// A queued flush task: flushes when the pending flush's class is still `workClass` (a raised
     /// cause has its own task on the higher class's queue).
     private func flushQueued(_ workClass: BudgetedWorkClass) { // perf-hot: 0.05ms frame-tick (one task per dirty observer)
-        guard !cancelled, let cause = dirtyCause, cause.budgetedClass == workClass, node.isVisible else { return }
+        guard !cancelled, let cause = tracker.dirtyCause, cause.budgetedClass == workClass, node.wantsFrames else {
+            return work.budget.noteRanNothing()
+        }
         flushNow()
     }
 
     /// Reads and applies once, with a fresh tracking in place of the re-armed one.
     private func flushNow() {
-        dirtyCause = nil
-        disarm()
-        applyIfChanged(track())
+        showPending = false
+        tracker.clean()
+        tracker.disarm()
+        let value = tracker.track()
+        tracker.counts.evaluated()
+        applyIfChanged(value)
     }
 
     private func applyIfChanged(_ value: Value) {
         if let isEqual, let last, isEqual(last, value) { return }
         if isEqual != nil { last = value }
+        tracker.counts.applied()
         apply(value)
     }
 
     private func queue(_ workClass: BudgetedWorkClass) -> MainTaskQueue {
-        if workClass == .automation {
-            if let automationQueue { return automationQueue }
-            let made = node.queue(.automation, owner: owner, on: work)
-            automationQueue = made
-            return made
-        }
-        if let visibleQueue { return visibleQueue }
-        let made = node.queue(.visible, owner: owner, on: work)
-        visibleQueue = made
+        if let queue = queues[workClass] { return queue }
+        let made = node.queue(workClass, owner: owner, on: work)
+        queues[workClass] = made
         return made
-    }
-
-    /// `==` for an `Equatable` value, nil for any other (no dedupe).
-    private static func equality() -> ((Value, Value) -> Bool)? {
-        guard let type = Value.self as? any Equatable.Type else { return nil }
-        return equality(type)
-    }
-
-    private static func equality<E: Equatable>(_: E.Type) -> (Value, Value) -> Bool {
-        { lhs, rhs in (lhs as? E) == (rhs as? E) }
     }
 }
 
-extension VisibleObservation: CausedObservation {
-    func isPersonPending(ticket: UInt64) -> Bool {
-        !cancelled && dirtyCause == .person && ticket == personTicket
+extension VisibleObservation: ObservationTrackerClient {
+    /// Queues the flush for `cause`: a task on the class's queue when the class changed (the
+    /// tracker queued a person cause for the pass). While the node is hidden, a warm read in idle time.
+    func dirtied(_ cause: ObservationCause, after previous: ObservationCause?) {
+        // Only a warm read arms a tracking while the node is hidden: its value is stale now.
+        guard node.wantsFrames else {
+            warmValue = nil
+            return postWarmRead()
+        }
+        let workClass = cause.budgetedClass
+        if previous?.budgetedClass == workClass { return }
+        queue(workClass).post(key: "flush") { [weak self] in self?.flushQueued(workClass) }
     }
 
-    func flushPersonCaused(ticket: UInt64) -> Bool {
-        guard isPersonPending(ticket: ticket), node.isVisible, !node.isFrozen else { return false }
-        // Its visible task finds nothing pending and returns.
+    func flushPersonCaused() -> Bool {
+        guard !cancelled, node.wantsFrames, !node.isFrozen else { return false }
+        // Its userBlocking task finds nothing pending and returns.
         work.budget.run(.frame, owner: taskOwner) { flushNow() }
         return true
     }
-}
-
-/// Read under every ``VisibleObservation`` tracking; writing it fires (and so removes) that tracking.
-@MainActor @Observable
-final class VisibleObservationCancelSignal {
-    var epoch: UInt64 = 0
 }

@@ -5,7 +5,6 @@ import CmuxNextSettings
 import Darwin
 import Foundation
 import Testing
-import CmuxNextWakeups
 
 /// Markdown table column widths outlive the tab (user 2026-10-20: "i close tab and reopen it and
 /// the custom widths i set are gone"; plans/cmux-next/MARKDOWN-TABLE-WIDTHS-DESIGN.md). The host
@@ -143,7 +142,7 @@ import CmuxNextWakeups
     }
 
     private func tab(_ store: MarkdownTableWidthRepository) -> FilePageProvider {
-        FilePageProvider(kind: .markdown, file: file, host: Host(), runner: BackgroundWork(), libraries: nil, images: NoImages(), tableWidths: store)
+        FilePageProvider(kind: .markdown, file: file, host: Host(), libraries: nil, images: NoImages(), tableWidths: store)
     }
 
     private let context = PageCallContext(page: FilePageKind.markdown.namespace)

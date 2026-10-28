@@ -5,6 +5,7 @@ import CmuxNextFiles
 import Foundation
 import Testing
 import CmuxNextFilesUI
+import CmuxNextWakeups
 
 /// The file explorer's Open With submenu lists the apps that open the file, as Finder does: the
 /// default app first and marked, then the others by name, then Other…. Each row is a registry row:
@@ -17,7 +18,7 @@ struct FileExplorerOpenWithTests {
     static let bbedit = OpenWithApp(url: URL(fileURLWithPath: "/Applications/BBEdit.app"), bundleID: "com.barebones.bbedit", name: "BBEdit")
 
     @Test func theSubmenuListsTheDefaultAppFirstThenTheOthersThenOther() {
-        let menu = FileExplorerOpenWithMenu(registry: ActionRegistry.standard())
+        let menu = FileExplorerOpenWithMenu(registry: ActionRegistry.standard(), mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         let submenu = NSMenu()
         menu.fill(submenu, with: OpenWithList(defaultApp: Self.textEdit, apps: [Self.xcode, Self.textEdit, Self.bbedit]))
         let titles = submenu.items.map { $0.isSeparatorItem ? "-" : $0.title }
@@ -28,7 +29,7 @@ struct FileExplorerOpenWithTests {
         let registry = ActionRegistry.standard()
         var runs: [ActionInvocation] = []
         registry.bind("fileExplorerOpenWith", invoke: { runs.append($0) })
-        let menu = FileExplorerOpenWithMenu(registry: registry)
+        let menu = FileExplorerOpenWithMenu(registry: registry, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         let submenu = NSMenu()
         menu.fill(submenu, with: OpenWithList(defaultApp: Self.textEdit, apps: [Self.xcode]))
         let xcode = try #require(submenu.items.first { $0.title == "Xcode" })
@@ -52,7 +53,7 @@ struct FileExplorerOpenWithTests {
     }
 
     @Test func withNoAppForTheTypeOnlyOtherShows() {
-        let menu = FileExplorerOpenWithMenu(registry: ActionRegistry.standard())
+        let menu = FileExplorerOpenWithMenu(registry: ActionRegistry.standard(), mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         let submenu = NSMenu()
         menu.fill(submenu, with: OpenWithList(defaultApp: nil, apps: []))
         #expect(submenu.items.map(\.title) == [FileExplorerStrings.openWithOther])

@@ -26,8 +26,6 @@ nonisolated enum BuildHomeAdoption {
     /// The longest an app start waits for the adoption: above the CLI's worst case (adoption
     /// lock 30 s, two daemon stops of 45 s, a Chief stop of about 60 s, then the clone).
     static let limit: Duration = .seconds(300)
-    /// Ends the wait after ``limit`` (one launch's one deadline).
-    static let deadline = DemandTimer(owner: "build-home-adoption")
 
     // task-owner: the process; one adoption per launch, every caller awaits this one run. It only awaits:
     // the CLI's spawn and output run on AsyncProcess's queues, never on a pool thread.
@@ -54,46 +52,29 @@ nonisolated enum BuildHomeAdoption {
         return bundleID == nextBundleID
     }
 
-    /// How one adoption wait ended.
-    nonisolated enum Ended: Sendable {
-        /// The CLI exited.
-        case exited(ProcessOutcome)
-        /// It could not start: no bundled CLI, or one that does not run.
-        case notStarted(ProcessFailure)
-        /// ``limit`` passed first: the app goes on, the CLI keeps going and holds the moved homes' daemon
-        /// locks until it ends.
-        case stillRunning
-    }
-
-    /// Runs `cli __adopt-build-homes` and logs each line it prints. Returns at its exit, or after ``limit``.
-    static func adopt(cli: URL, environment: [String: String]) async {
+    /// Runs `cli __adopt-build-homes` and logs each line it prints. Every acpmux start waits for it, so
+    /// it runs at userBlocking. Past ``limit`` the app goes on; the CLI keeps going (it holds the moved
+    /// homes' daemon locks until it ends) and is never stopped half way. Its output drains while it
+    /// runs, so it never blocks on a full pipe, whatever it prints.
+    static func adopt(cli: URL, environment: [String: String], processes: any ProcessRunning = AsyncProcess(),
+                      clock: any Clock<Duration> = ContinuousClock()) async {
+        let request = ProcessRequest(cli, ["__adopt-build-homes"], environment: environment, errorOutput: .merge,
+                                     onCancel: .finish, priority: .userBlocking)
         let started = ContinuousClock.now
-        let ended = FirstOutcome<Ended>()
-        // The child is never stopped: a cancel or the limit ends only the wait (`.finish`), never a half-done move.
-        let request = ProcessRequest(cli, ["__adopt-build-homes"], environment: environment, errorOutput: .merge, onCancel: .finish)
-        // task-owner: the CLI's run, which may outlive the wait (``Ended/stillRunning``); it resolves `ended` once.
-        Task(priority: .userInitiated) {
-            do {
-                ended.resolve(.exited(try await AsyncProcess().run(request)))
-            } catch let failure as ProcessFailure {
-                ended.resolve(.notStarted(failure))
-            } catch {
-                ended.resolve(.notStarted(.launch(String(describing: error))))
-            }
+        let outcome: ProcessOutcome?
+        do {
+            outcome = try await processes.outcome(of: request, waitingAtMost: limit, owner: "build-home-adoption", clock: clock)
+        } catch {
+            logger.error("adoption could not start: \(String(describing: error), privacy: .public)")
+            return
         }
-        deadline.schedule(after: limit) { ended.resolve(.stillRunning) }
-        let result = await ended.value()
-        deadline.cancel()
-        switch result {
-        case .notStarted(let failure):
-            logger.error("adoption skipped: the bundled cmux CLI did not start: \(String(describing: failure), privacy: .public)")
-        case .stillRunning:
+        guard let outcome else {
             logger.error("adoption still runs after \(limit, privacy: .public); the app goes on")
-        case .exited(let outcome):
-            for line in outcome.text.split(separator: "\n") {
-                logger.info("\(line, privacy: .public)")
-            }
-            logger.info("adoption exited \(outcome.status, privacy: .public) after \(ContinuousClock.now - started, privacy: .public)")
+            return
         }
+        for line in outcome.text.split(separator: "\n") {
+            logger.info("\(line, privacy: .public)")
+        }
+        logger.info("adoption exited \(outcome.status, privacy: .public) after \(ContinuousClock.now - started, privacy: .public)")
     }
 }

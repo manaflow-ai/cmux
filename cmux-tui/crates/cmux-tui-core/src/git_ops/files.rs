@@ -16,6 +16,7 @@ use serde_json::{Value, json};
 
 use super::run::run_git;
 use super::{MAX_SMALL_OUTPUT_BYTES, Repository, git_failed, parse};
+use crate::panic_free::JsonFields;
 use crate::resource::ResourceError;
 
 const OPERATION: &str = "git.files.search";
@@ -35,6 +36,8 @@ pub(super) fn search(
     directory: &Path,
     fields: &serde_json::Map<String, Value>,
 ) -> Result<Value, ResourceError> {
+    // git runs to completion here, on a work item (`answer`).
+    crate::request_path::note(crate::request_path::BlockingKind::ChildProcess);
     let query: Vec<char> = fields
         .get("query")
         .and_then(Value::as_str)
@@ -90,9 +93,9 @@ pub(super) fn search(
             json!({"path": entry.path, "matches": utf16_offsets(entry.path, &entry.matches)})
         })
         .collect();
-    reply["results"] = Value::Array(results);
-    reply["truncated"] = json!(cut || total > limit);
-    reply["total_matches"] = json!(u32::try_from(total).unwrap_or(u32::MAX));
+    reply.insert("results", Value::Array(results));
+    reply.insert("truncated", json!(cut || total > limit));
+    reply.insert("total_matches", json!(u32::try_from(total).unwrap_or(u32::MAX)));
     Ok(reply)
 }
 
@@ -201,6 +204,10 @@ impl Scorer {
 
     /// The best alignment of the query in `path`, or `NoMatch` when `path`
     /// does not contain every query character in order (case-insensitively).
+    #[allow(
+        clippy::indexing_slicing,
+        reason = "INVARIANT: each index is a row < rows, a column < columns of rows * columns tables"
+    )]
     pub(super) fn score(&mut self, path: &str) -> Scored {
         let rows = self.wanted.len();
         self.original.clear();

@@ -36,6 +36,7 @@ fn receipted_input_never_reaches_a_legacy_host_without_ack_support() {
         next_request: AtomicU64::new(2),
         viewer_size: Mutex::new(None),
         viewer_size_acks: false,
+        input_flow: false,
         launch_process: None,
         launch_activation_pending: false,
         pty_custody: None,
@@ -169,7 +170,7 @@ fn interactive_input_keeps_fire_and_forget_semantics() {
     let (target_tx, target_rx) = mpsc_channel();
     let target = HostTap::new(target_tx, Arc::new(target_socket), usize::MAX);
 
-    assert!(host.write_input(b"x", 0, &target));
+    assert!(host.write_input(b"x", 0, 0, &target));
     let mut byte = [0u8; 1];
     pty_reader.read_exact(&mut byte).unwrap();
     assert_eq!(&byte, b"x");
@@ -222,7 +223,7 @@ fn host_input_receipt_follows_pty_write_and_flush() {
     let (target_tx, target_rx) = mpsc_channel();
     let target = HostTap::new(target_tx, Arc::new(target_socket), usize::MAX);
     let worker = thread::spawn(move || {
-        assert!(host.write_input(b"x", 42, &target));
+        assert!(host.write_input(b"x", 42, 0, &target));
     });
 
     write_started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
@@ -256,7 +257,7 @@ fn host_input_receipt_requires_successful_flush() {
     let (target_socket, _target_peer) = UnixStream::pair().unwrap();
     let (target_tx, target_rx) = mpsc_channel();
     let target = HostTap::new(target_tx, Arc::new(target_socket), usize::MAX);
-    let worker = thread::spawn(move || host.write_input(b"x", 42, &target));
+    let worker = thread::spawn(move || host.write_input(b"x", 42, 0, &target));
 
     write_started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
     assert!(target_rx.recv_timeout(Duration::from_millis(20)).is_err());
@@ -302,6 +303,7 @@ fn terminate_waits_for_the_authoritative_host_receipt() {
         next_request: AtomicU64::new(2),
         viewer_size: Mutex::new(None),
         viewer_size_acks: false,
+        input_flow: false,
         launch_process: None,
         launch_activation_pending: false,
         pty_custody: None,
@@ -355,6 +357,7 @@ fn clear_history_control_write_failure_after_header_is_ambiguous() {
         next_request: AtomicU64::new(2),
         viewer_size: Mutex::new(None),
         viewer_size_acks: false,
+        input_flow: false,
         launch_process: None,
         launch_activation_pending: false,
         pty_custody: None,
@@ -425,7 +428,7 @@ fn process_nonce_proves_stale_record_even_if_pid_is_live_and_reused() {
         terminal_host_record_liveness(&record_path, &record).unwrap(),
         TerminalHostLiveness::Dead
     );
-    assert!(remove_stale_terminal_host_record(&record_path, &record).unwrap());
+    assert!(remove_stale_terminal_host_record(&record_path, &record, None).unwrap());
     assert!(!record_path.exists());
     let _ = fs::remove_dir_all(record_path.parent().unwrap());
 }
@@ -475,17 +478,14 @@ fn reset_lock_prepares_missing_publication_lock() {
         .open(terminal_host_publication_lock_path(&root))
         .unwrap();
     // SAFETY: flock only observes the advisory lock on this valid test descriptor.
-    assert_ne!(
-        unsafe { libc::flock(publication_lock.as_raw_fd(), libc::LOCK_SH | libc::LOCK_NB) },
-        0,
-        "publication reservation should be blocked while reset holds the lock"
-    );
+    let blocked =
+        unsafe { libc::flock(publication_lock.as_raw_fd(), libc::LOCK_SH | libc::LOCK_NB) };
+    assert_ne!(blocked, 0, "publication reservation should be blocked while reset holds the lock");
     drop(reset_lock);
     // SAFETY: flock only observes the advisory lock on this valid test descriptor.
-    assert_eq!(
-        unsafe { libc::flock(publication_lock.as_raw_fd(), libc::LOCK_SH | libc::LOCK_NB) },
-        0
-    );
+    let acquired =
+        unsafe { libc::flock(publication_lock.as_raw_fd(), libc::LOCK_SH | libc::LOCK_NB) };
+    assert_eq!(acquired, 0);
     // SAFETY: flock only changes the advisory lock on this valid test descriptor.
     let _ = unsafe { libc::flock(publication_lock.as_raw_fd(), libc::LOCK_UN) };
     drop(publication_lock);
@@ -505,7 +505,7 @@ fn dropping_liveness_lease_releases_inherited_descriptor_lock() {
     );
 
     drop(inherited);
-    assert!(remove_stale_terminal_host_record(&record_path, &record).unwrap());
+    assert!(remove_stale_terminal_host_record(&record_path, &record, None).unwrap());
     let _ = fs::remove_dir_all(record_path.parent().unwrap());
 }
 
@@ -525,7 +525,7 @@ fn record_loader_rejects_noncanonical_filenames_and_identity_spellings() {
     let loaded = load_terminal_host_records(root).unwrap();
     assert_eq!(loaded, vec![(record_path.clone(), record.clone())]);
     drop(lease);
-    assert!(remove_stale_terminal_host_record(&record_path, &record).unwrap());
+    assert!(remove_stale_terminal_host_record(&record_path, &record, None).unwrap());
     let _ = fs::remove_dir_all(root);
 }
 
@@ -556,17 +556,17 @@ fn exit_sidecar_round_trips_and_requires_exact_acknowledgement() {
 
     let mut mismatch = exit_record.clone();
     mismatch.exit.exited_at_ms += 1;
-    assert!(!acknowledge_terminal_host_exit_record(&exit_path, &mismatch).unwrap());
+    assert!(!acknowledge_terminal_host_exit_record(&exit_path, &mismatch, None).unwrap());
     assert!(exit_path.exists(), "mismatched ack must retain restart evidence");
-    assert!(acknowledge_terminal_host_exit_record(&exit_path, &exit_record).unwrap());
+    assert!(acknowledge_terminal_host_exit_record(&exit_path, &exit_record, None).unwrap());
     assert!(!exit_path.exists());
     assert!(
-        !acknowledge_terminal_host_exit_record(&exit_path, &exit_record).unwrap(),
+        !acknowledge_terminal_host_exit_record(&exit_path, &exit_record, None).unwrap(),
         "repeated exact ack is an idempotent no-op"
     );
 
     drop(lease);
-    assert!(remove_stale_terminal_host_record(&record_path, &record).unwrap());
+    assert!(remove_stale_terminal_host_record(&record_path, &record, None).unwrap());
     let _ = fs::remove_dir_all(root);
 }
 
@@ -624,9 +624,9 @@ fn exit_sidecar_publication_never_clobbers_a_concurrent_outcome() {
         "exit sidecars must reject fields outside the versioned schema"
     );
 
-    assert!(acknowledge_terminal_host_exit_record(&exit_path, &stored).unwrap());
+    assert!(acknowledge_terminal_host_exit_record(&exit_path, &stored, None).unwrap());
     drop(lease);
-    assert!(remove_stale_terminal_host_record(&record_path, &record).unwrap());
+    assert!(remove_stale_terminal_host_record(&record_path, &record, None).unwrap());
     let _ = fs::remove_dir_all(root);
 }
 
@@ -649,7 +649,7 @@ fn input_ack_capability_requires_version_4_record() {
         );
     }
     drop(lease);
-    assert!(remove_stale_terminal_host_record(&record_path, &record).unwrap());
+    assert!(remove_stale_terminal_host_record(&record_path, &record, None).unwrap());
     fs::remove_dir_all(record_path.parent().unwrap()).unwrap();
 }
 
@@ -685,7 +685,7 @@ fn legacy_record_is_adoptable_shape_but_never_unsafely_reaped() {
             .iter()
             .any(|(_, record)| record.terminal_id == terminal_id)
     );
-    assert!(!remove_stale_terminal_host_record(&legacy_path, &legacy).unwrap());
+    assert!(!remove_stale_terminal_host_record(&legacy_path, &legacy, None).unwrap());
 
     let mut invalid = legacy.clone();
     invalid.supports_input_ack = true;
@@ -693,7 +693,7 @@ fn legacy_record_is_adoptable_shape_but_never_unsafely_reaped() {
 
     fs::remove_file(&legacy_path).unwrap();
     drop(lease);
-    assert!(remove_stale_terminal_host_record(&v2_path, &v2).unwrap());
+    assert!(remove_stale_terminal_host_record(&v2_path, &v2, None).unwrap());
     let _ = fs::remove_dir_all(root);
 }
 
@@ -747,6 +747,6 @@ fn stalled_host_handshake_is_time_bounded() {
     connector.join().unwrap();
     let _ = fs::remove_file(endpoint);
     drop(lease);
-    assert!(remove_stale_terminal_host_record(&record_path, &record).unwrap());
+    assert!(remove_stale_terminal_host_record(&record_path, &record, None).unwrap());
     let _ = fs::remove_dir_all(record_path.parent().unwrap());
 }

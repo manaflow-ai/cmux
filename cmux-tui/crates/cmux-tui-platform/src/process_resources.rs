@@ -99,6 +99,41 @@ pub struct ProcessSample {
     pub memory_bytes: u64,
 }
 
+/// What this process's memory costs the system: Chrome's private footprint
+/// (`CalculatePrivateFootprintKb` in
+/// services/resource_coordinator/memory_instrumentation/queued_request_dispatcher.cc):
+/// macOS `phys_footprint`, Linux `RssAnon + VmSwap`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MemoryFootprint {
+    pub private_footprint_bytes: u64,
+    /// Resident set size, shared pages included.
+    pub resident_bytes: u64,
+}
+
+/// The footprint from a `/proc/<pid>/status` text (`VmRSS`, `RssAnon` and
+/// `VmSwap`, in kB). `None` without `VmRSS` and `RssAnon` (a kernel thread,
+/// or a kernel older than 4.5); a missing `VmSwap` is no swap.
+pub fn parse_proc_status_footprint(status: &str) -> Option<MemoryFootprint> {
+    let field = |name: &str| -> Option<u64> {
+        let value = status.lines().find_map(|line| line.strip_prefix(name)?.strip_prefix(':'))?;
+        let kib: u64 = value.trim().strip_suffix("kB")?.trim().parse().ok()?;
+        Some(kib.saturating_mul(1024))
+    };
+    let anon = field("RssAnon")?;
+    Some(MemoryFootprint {
+        private_footprint_bytes: anon.saturating_add(field("VmSwap").unwrap_or(0)),
+        resident_bytes: field("VmRSS")?,
+    })
+}
+
+/// This process's footprint, read now. `None` where the platform does not
+/// report it (Windows and others for now).
+#[track_caller]
+pub fn own_memory_footprint() -> Option<MemoryFootprint> {
+    note_proc_scan();
+    imp::own_memory_footprint()
+}
+
 /// One line of `/proc/<pid>/stat`, reduced to the fields this module uses.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProcStat {
@@ -145,36 +180,63 @@ pub struct Sampler {
     inner: imp::Sampler,
 }
 
+/// A read of the operating system's process table: one `proc_scan` on a
+/// request thread (`request_path`), noted at the caller of the public method.
+#[track_caller]
+fn note_proc_scan() {
+    crate::request_path::note(crate::request_path::BlockingKind::ProcScan);
+}
+
+/// Whether the per-process lookups ask the kernel. On Linux the sampler
+/// keeps its one `/proc` scan and answers tree and parent lookups from it.
+const LOOKUPS_READ_THE_KERNEL: bool = !cfg!(target_os = "linux");
+
 impl Sampler {
-    /// Read what a request needs up front. On Linux this is one `/proc` scan.
+    /// Read what a request needs up front: on Linux one `/proc` scan, on
+    /// Windows one process snapshot, on macOS this daemon's own path.
+    #[track_caller]
     pub fn new() -> Self {
+        note_proc_scan();
         Self { inner: imp::Sampler::new() }
     }
 
     /// The process tree under `root`, capped at
     /// [`MAX_PROCESSES_PER_TERMINAL`].
+    #[track_caller]
     pub fn tree(&self, root: u32) -> ProcessTree {
+        if LOOKUPS_READ_THE_KERNEL {
+            note_proc_scan();
+        }
         walk_tree(root, MAX_PROCESSES_PER_TERMINAL, |pid| self.inner.children(pid))
     }
 
     /// The parent pid, when the process still exists.
+    #[track_caller]
     pub fn parent(&self, pid: u32) -> Option<u32> {
+        if LOOKUPS_READ_THE_KERNEL {
+            note_proc_scan();
+        }
         self.inner.parent(pid)
     }
 
     /// Name, CPU time and memory, or `None` when the process is gone or the
     /// platform does not report it.
+    #[track_caller]
     pub fn sample(&self, pid: u32) -> Option<ProcessSample> {
+        note_proc_scan();
         self.inner.sample(pid)
     }
 
     /// The process runs this daemon's own executable.
+    #[track_caller]
     pub fn runs_own_executable(&self, pid: u32) -> bool {
+        note_proc_scan();
         self.inner.runs_own_executable(pid)
     }
 }
 
 impl Default for Sampler {
+    #[track_caller]
     fn default() -> Self {
         Self::new()
     }
@@ -185,7 +247,10 @@ mod imp {
     use std::collections::HashMap;
     use std::path::PathBuf;
 
-    use super::{ChildIndex, ProcStat, ProcessSample, parse_proc_stat, parse_statm_resident_pages};
+    use super::{
+        ChildIndex, MemoryFootprint, ProcStat, ProcessSample, parse_proc_stat,
+        parse_proc_status_footprint, parse_statm_resident_pages,
+    };
 
     pub(super) fn monotonic_now_ns() -> u64 {
         // SAFETY: timespec is plain old data; all-zero is valid.
@@ -197,6 +262,11 @@ mod imp {
         let secs = u64::try_from(now.tv_sec).unwrap_or(0);
         let nanos = u64::try_from(now.tv_nsec).unwrap_or(0);
         secs.saturating_mul(1_000_000_000).saturating_add(nanos)
+    }
+
+    pub(super) fn own_memory_footprint() -> Option<MemoryFootprint> {
+        let status = std::fs::read_to_string("/proc/self/status").ok()?;
+        parse_proc_status_footprint(&status)
     }
 
     pub(super) struct Sampler {
@@ -280,7 +350,7 @@ mod imp {
 mod imp {
     use std::os::raw::{c_int, c_void};
 
-    use super::{ProcessSample, executable_basename};
+    use super::{MemoryFootprint, ProcessSample, executable_basename};
 
     /// `struct rusage_info_v4` from `<sys/resource.h>`.
     #[repr(C)]
@@ -319,6 +389,27 @@ mod imp {
         // SAFETY: CLOCK_UPTIME_RAW is a valid clock id; the call has no
         // other preconditions and returns 0 on failure.
         unsafe { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) }
+    }
+
+    pub(super) fn own_memory_footprint() -> Option<MemoryFootprint> {
+        let pid = c_int::try_from(std::process::id()).ok()?;
+        let usage = rusage(pid)?;
+        Some(MemoryFootprint {
+            private_footprint_bytes: usage.phys_footprint,
+            resident_bytes: usage.resident_size,
+        })
+    }
+
+    fn rusage(pid: c_int) -> Option<RusageInfoV4> {
+        let mut usage = std::mem::MaybeUninit::<RusageInfoV4>::zeroed();
+        // SAFETY: `usage` is a writable buffer of sizeof(rusage_info_v4)
+        // bytes, the size the V4 flavor writes.
+        if unsafe { proc_pid_rusage(pid, RUSAGE_INFO_V4, usage.as_mut_ptr().cast()) } != 0 {
+            return None;
+        }
+        // SAFETY: zero-initialized and then filled by the kernel; every
+        // field is a plain integer.
+        Some(unsafe { usage.assume_init() })
     }
 
     pub(super) struct Sampler {
@@ -397,15 +488,7 @@ mod imp {
 
         pub(super) fn sample(&self, pid: u32) -> Option<ProcessSample> {
             let raw_pid = c_int::try_from(pid).ok()?;
-            let mut usage = std::mem::MaybeUninit::<RusageInfoV4>::zeroed();
-            // SAFETY: `usage` is a writable buffer of sizeof(rusage_info_v4)
-            // bytes, the size the V4 flavor writes.
-            if unsafe { proc_pid_rusage(raw_pid, RUSAGE_INFO_V4, usage.as_mut_ptr().cast()) } != 0 {
-                return None;
-            }
-            // SAFETY: zero-initialized and then filled by the kernel; every
-            // field is a plain integer.
-            let usage = unsafe { usage.assume_init() };
+            let usage = rusage(raw_pid)?;
             // CPU times are Mach absolute units (ticks on Apple silicon).
             let ticks = u128::from(usage.user_time) + u128::from(usage.system_time);
             let cpu_ns =
@@ -469,6 +552,10 @@ mod imp {
         u64::try_from(elapsed).unwrap_or(u64::MAX)
     }
 
+    pub(super) fn own_memory_footprint() -> Option<super::MemoryFootprint> {
+        None
+    }
+
     pub(super) struct Sampler {
         processes: HashMap<u32, Entry>,
         children: ChildIndex,
@@ -521,6 +608,10 @@ mod imp {
         u64::try_from(elapsed).unwrap_or(u64::MAX)
     }
 
+    pub(super) fn own_memory_footprint() -> Option<super::MemoryFootprint> {
+        None
+    }
+
     /// Process trees are not read on this platform: every terminal reports
     /// no processes and no host.
     pub(super) struct Sampler;
@@ -552,3 +643,7 @@ mod imp {
 pub const fn reads_process_trees() -> bool {
     cfg!(any(target_os = "linux", target_os = "macos", windows))
 }
+
+#[cfg(test)]
+#[path = "process_resources_tests.rs"]
+mod tests;

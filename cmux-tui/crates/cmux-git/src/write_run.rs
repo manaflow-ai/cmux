@@ -13,11 +13,10 @@
 
 use std::io::{ErrorKind, Read, Write};
 use std::path::Path;
-use std::process::{Child, Command, Stdio};
 use std::thread;
 use std::time::Duration;
 
-use wait_timeout::ChildExt;
+use cmux_process::{Child, Command, Stdio};
 
 use crate::run::{GitFailure, GitOutput, Override, deny_transports, set_overrides};
 
@@ -52,6 +51,63 @@ impl WriteGit<'_> {
         bound: Bound,
         max_stdout: usize,
     ) -> Result<GitOutput, GitFailure> {
+        let mut child = self
+            .command(index, arguments)
+            .spawn()
+            .map_err(|error| GitFailure::Unavailable(error.to_string()))?;
+        // All three are piped by `command`; a missing one is a spawn
+        // failure, not a panic.
+        let (Some(mut input), Some(stdout), Some(stderr)) =
+            (child.stdin.take(), child.stdout.take(), child.stderr.take())
+        else {
+            stop(&mut child);
+            return Err(GitFailure::Unavailable("git pipes are missing".to_string()));
+        };
+        let bytes = stdin.to_vec();
+        // supervise-allow: joined below in this function on every path; a panic ends the input write only.
+        let writer = thread::spawn(move || {
+            let _ = input.write_all(&bytes);
+        });
+        // supervise-allow: joined below in this function on every path; a panic reads as empty output.
+        let stdout = thread::spawn(move || drain(stdout, max_stdout));
+        // supervise-allow: joined below in this function on every path; a panic reads as empty output.
+        let stderr = thread::spawn(move || drain(stderr, MAX_STDERR_BYTES));
+        let waited = match bound {
+            Bound::Deadline(deadline) => child.wait_timeout(deadline),
+            Bound::Unbounded => child.wait().map(Some),
+        };
+        let status = match waited {
+            Ok(Some(status)) => status,
+            Ok(None) => {
+                stop(&mut child);
+                let _ = (writer.join(), stdout.join(), stderr.join());
+                let seconds = match bound {
+                    Bound::Deadline(deadline) => deadline.as_secs(),
+                    Bound::Unbounded => 0,
+                };
+                return Err(GitFailure::Unavailable(format!(
+                    "git did not finish within {seconds} s"
+                )));
+            }
+            Err(error) => {
+                stop(&mut child);
+                let _ = (writer.join(), stdout.join(), stderr.join());
+                return Err(GitFailure::Unavailable(error.to_string()));
+            }
+        };
+        let _ = writer.join();
+        let (stdout, truncated) = stdout.join().unwrap_or_default();
+        let (stderr, _) = stderr.join().unwrap_or_default();
+        if !status.success() {
+            return Err(GitFailure::Exit(String::from_utf8_lossy(&stderr).trim().to_string()));
+        }
+        Ok(GitOutput { stdout, truncated })
+    }
+
+    /// The confined write git [`WriteGit::run`] spawns: in its own process
+    /// group, at [`cmux_threads::HELPER_CHILD`] rather than the class of the
+    /// thread that runs it.
+    fn command(&self, index: Option<&Path>, arguments: &[&std::ffi::OsStr]) -> Command {
         let mut command = Command::new(crate::run::PROGRAM);
         for (name, _) in std::env::vars_os() {
             if name.as_encoded_bytes().starts_with(b"GIT_") {
@@ -86,57 +142,8 @@ impl WriteGit<'_> {
         if let Some(index) = index {
             command.env("GIT_INDEX_FILE", index);
         }
-        #[cfg(unix)]
-        {
-            use std::os::unix::process::CommandExt;
-            command.process_group(0);
-        }
-        let mut child =
-            command.spawn().map_err(|error| GitFailure::Unavailable(error.to_string()))?;
-        // All three are piped above; a missing one is a spawn failure, not a
-        // panic.
-        let (Some(mut input), Some(stdout), Some(stderr)) =
-            (child.stdin.take(), child.stdout.take(), child.stderr.take())
-        else {
-            stop(&mut child);
-            return Err(GitFailure::Unavailable("git pipes are missing".to_string()));
-        };
-        let bytes = stdin.to_vec();
-        let writer = thread::spawn(move || {
-            let _ = input.write_all(&bytes);
-        });
-        let stdout = thread::spawn(move || drain(stdout, max_stdout));
-        let stderr = thread::spawn(move || drain(stderr, MAX_STDERR_BYTES));
-        let waited = match bound {
-            Bound::Deadline(deadline) => child.wait_timeout(deadline),
-            Bound::Unbounded => child.wait().map(Some),
-        };
-        let status = match waited {
-            Ok(Some(status)) => status,
-            Ok(None) => {
-                stop(&mut child);
-                let _ = (writer.join(), stdout.join(), stderr.join());
-                let seconds = match bound {
-                    Bound::Deadline(deadline) => deadline.as_secs(),
-                    Bound::Unbounded => 0,
-                };
-                return Err(GitFailure::Unavailable(format!(
-                    "git did not finish within {seconds} s"
-                )));
-            }
-            Err(error) => {
-                stop(&mut child);
-                let _ = (writer.join(), stdout.join(), stderr.join());
-                return Err(GitFailure::Unavailable(error.to_string()));
-            }
-        };
-        let _ = writer.join();
-        let (stdout, truncated) = stdout.join().unwrap_or_default();
-        let (stderr, _) = stderr.join().unwrap_or_default();
-        if !status.success() {
-            return Err(GitFailure::Exit(String::from_utf8_lossy(&stderr).trim().to_string()));
-        }
-        Ok(GitOutput { stdout, truncated })
+        command.process_group(0).qos_ceiling(cmux_threads::HELPER_CHILD);
+        command
     }
 }
 

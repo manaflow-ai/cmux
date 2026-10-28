@@ -1,3 +1,4 @@
+import CmuxNextWakeups
 import Foundation
 import Testing
 @testable import CmuxNextDaemon
@@ -41,6 +42,7 @@ struct BranchTeardownTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let base = ProcessInfo.processInfo.environment
         let launcher = DaemonLauncher(
+            work: BackgroundWork(label: "test.daemon-launcher"),
             configuration: .init(binary: binary, session: "cnd-bt-\(id)", stateDirectory: root.appendingPathComponent("state")),
             environment: { LoginEnvironment.shared.daemonEnvironment(login: nil, base: base, overrides: [:]) })
         let ensured = try await launcher.ensure()

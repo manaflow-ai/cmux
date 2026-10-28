@@ -109,6 +109,9 @@ pub(super) fn set_size_counts(
         selectors <= 1,
         "bad request: set-size-counts takes at most one of client, lease, view or participant"
     );
+    // Only the view's own lease says it hid or shows again (the app's
+    // `TerminalAttachment.sendHidden`); other selectors set a sizing choice.
+    let by_lease = lease.is_some();
     let participant = if let Some(participant) = participant {
         participant
     } else if let Some(view) = view {
@@ -123,9 +126,12 @@ pub(super) fn set_size_counts(
         mux.terminal_view_participant_id(surface, target.unwrap_or(client))
             .ok_or_else(|| anyhow::anyhow!("surface {surface} is not a terminal"))?
     };
-    let changed = mux
-        .set_terminal_size_counts(surface, &participant, counts)
-        .ok_or_else(|| anyhow::anyhow!("unknown participant {participant}"))?;
+    let changed = if by_lease {
+        mux.set_leased_view_size_counts(surface, &participant, counts)
+    } else {
+        mux.set_terminal_size_counts(surface, &participant, counts)
+    }
+    .ok_or_else(|| anyhow::anyhow!("unknown participant {participant}"))?;
     Ok(json!({"outcome": "applied", "changed": changed, "participant": participant}))
 }
 
@@ -226,12 +232,8 @@ pub(super) fn get_cell_pixels(mux: &Arc<Mux>) -> anyhow::Result<Value> {
     }))
 }
 
-pub(super) fn set_cell_pixels(
-    mux: &Arc<Mux>,
-    width_px: u16,
-    height_px: u16,
-) -> anyhow::Result<Value> {
-    let update = mux.set_cell_pixel_size(width_px, height_px);
+/// The `set-cell-pixels` answer (super::deferred_commands runs the update).
+pub(super) fn cell_pixels_answer(update: crate::CellPixelUpdate) -> Value {
     let resizes = update
         .resizes
         .into_iter()
@@ -255,7 +257,7 @@ pub(super) fn set_cell_pixels(
             })
         })
         .collect::<Vec<_>>();
-    Ok(json!({"resizes": resizes, "failures": failures}))
+    json!({"resizes": resizes, "failures": failures})
 }
 
 pub(super) fn resize_surface(

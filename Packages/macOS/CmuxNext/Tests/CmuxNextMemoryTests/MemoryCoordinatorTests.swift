@@ -248,6 +248,28 @@ import Testing
         withExtendedLifetime(registration) {}
     }
 
+    /// p07-memory-096: a consumer that frees one item per frame (a warm surface) and yields leaves the
+    /// rest of the slice to the consumers after it: a lossy pass ordered last runs on the first frame,
+    /// not after 30 frames of single closes.
+    @Test func aYieldingConsumerLeavesTheRestOfTheSliceToTheNext() {
+        let paced = PacedConsumer(name: "paced", entries: 30, log: log)
+        let lossy = consumer("lossy")
+        let registrations = [
+            MemoryConsumerRegistration(name: paced.name, traits: managedTraits(), consumer: paced, registry: coordinator),
+            register(lossy, managedTraits(retention: .lossy, recreateCost: .expensive)),
+        ]
+        log.clear()
+        source.send(.critical)
+        slicer.fireFrame()
+        #expect(log.releases == ["paced", "lossy"], "the consumer after a yielding one waited for a later frame")
+        #expect(paced.entries == 29, "a yielding consumer freed more than its one item in a slice")
+        let frames = slicer.drain()
+        #expect(frames == 29)
+        #expect(paced.entries == 0)
+        #expect(log.releases.filter { $0 == "lossy" }.count == 1, "a consumer that finished was called again")
+        withExtendedLifetime(registrations) {}
+    }
+
     @Test func aLimitRaisedDuringAReleaseKeepsWhatIsHeld() {
         let big = consumer("big", entries: 100, costPerEntry: .microseconds(500))
         let registration = register(big, managedTraits())

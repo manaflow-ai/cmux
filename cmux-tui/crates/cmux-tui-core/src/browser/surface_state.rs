@@ -236,6 +236,9 @@ impl BrowserSurface {
         if self.dead.swap(true, Ordering::AcqRel) {
             return;
         }
+        if let Some(providers) = &self.provider_waiters {
+            providers.wake_waiters();
+        }
         self.close_taps();
         if let Some(session) = self.session.lock().unwrap().take() {
             session.runtime.close_surface_detached(&session.target_id, &session.session_id);

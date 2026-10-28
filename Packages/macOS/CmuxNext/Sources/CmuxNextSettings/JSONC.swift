@@ -15,7 +15,15 @@ public struct JSONC {
         case rootIsNotObject
         /// An edit named no key (an empty key path).
         case emptyPath
+        /// Objects and arrays nest deeper than ``JSONC/maxDepth`` at `offset`.
+        case tooDeep(offset: Int)
     }
+
+    /// The deepest nesting of objects and arrays a document may have, the root counting as 1:
+    /// Chromium's `kAbsoluteMaxDepth` (base/json/json_common.h), which its parser checks as it
+    /// recurses (base/json/json_parser.cc, `StackMarker`). Every reader of a parsed document
+    /// recurses, so a deeper file is refused here and never runs a settings load out of stack.
+    public static let maxDepth = 200
 
     // MARK: - Reading
 
@@ -26,6 +34,7 @@ public struct JSONC {
         var output: [UInt8] = []
         output.reserveCapacity(bytes.count)
         var index = bytes.starts(with: [0xEF, 0xBB, 0xBF]) ? 3 : 0
+        var depth = 0
         while index < bytes.count {
             let byte = bytes[index]
             if byte == UInt8(ascii: "\"") {
@@ -47,6 +56,12 @@ public struct JSONC {
                     index += 1
                 }
             } else {
+                if byte == UInt8(ascii: "{") || byte == UInt8(ascii: "[") {
+                    depth += 1
+                    guard depth <= maxDepth else { throw Failure.tooDeep(offset: index) }
+                } else if byte == UInt8(ascii: "}") || byte == UInt8(ascii: "]") {
+                    depth = max(depth - 1, 0)
+                }
                 output.append(byte)
                 index += 1
             }
@@ -54,18 +69,23 @@ public struct JSONC {
         return String(decoding: output, as: UTF8.self)
     }
 
-    /// Parses JSONC text. An empty or comment-only document is an empty object.
+    /// Parses JSONC text. An empty or comment-only document is an empty object. Of members whose keys are
+    /// equal strings (U+00E9 and U+0065 U+0301 too), the last in the document wins, as in Chromium's reader
+    /// (base/json/json_parser.cc, `ConsumeDictionary` sets each key in turn); the edits target that member.
     public static func parse(_ source: String) throws -> JSONValue {
         let strict = try strip(source)
         if strict.allSatisfy(\.isWhitespace) { return .object([:]) }
-        return try JSONValue.parse(Data(strict.utf8))
+        return try JSONValue.parse(Data(droppingShadowedMembers(strict).utf8))
     }
 
     // MARK: - Editing
 
     /// `source` with the value at `path` set to `value`, creating
     /// intermediate objects as needed. Everything outside the edited value
-    /// is preserved byte for byte.
+    /// is preserved byte for byte. Of members with equal keys, the last (the
+    /// one ``parse(_:)`` reads) is edited. Throws ``Failure/tooDeep`` rather
+    /// than write a document nested deeper than ``maxDepth``, which no read
+    /// would take back.
     public static func setting(_ value: JSONValue, at path: [String], in source: String) throws -> String {
         guard !path.isEmpty else { throw Failure.emptyPath }
         let bytes = Array(source.utf8)
@@ -73,27 +93,29 @@ public struct JSONC {
             // Empty or comment-only file: write a fresh document after it.
             let document = JSONValue.nest(value, under: path).prettyText()
             let prefix = source.allSatisfy(\.isWhitespace) ? "" : source + (source.hasSuffix("\n") ? "" : "\n")
-            return prefix + document + "\n"
+            return try readable(prefix + document + "\n")
         }
         guard case .object(let object) = root else { throw Failure.rootIsNotObject }
         var edits: [Edit] = []
         setting(value, at: path[...], in: object, bytes: bytes, edits: &edits)
-        return apply(edits, to: bytes)
+        return try readable(apply(edits, to: bytes))
     }
 
-    /// `source` with the member at `path` removed. Unchanged when absent.
+    /// `edited`, once the reader's nesting check (``strip(_:)``) takes it.
+    private static func readable(_ edited: String) throws -> String {
+        _ = try strip(edited)
+        return edited
+    }
+
+    /// `source` with every member at `path` removed (an earlier member with
+    /// the same key would otherwise read in the removed one's place).
+    /// Unchanged when absent.
     public static func removing(_ path: [String], in source: String) throws -> String {
         guard !path.isEmpty else { throw Failure.emptyPath }
-        let bytes = Array(source.utf8)
-        guard let root = try parseRoot(bytes) else { return source }
-        guard case .object(var object) = root else { throw Failure.rootIsNotObject }
-        for key in path.dropLast() {
-            guard let member = object.members.first(where: { $0.key == key }),
-                  case .object(let child) = member.node else { return source }
-            object = child
-        }
-        guard let index = object.members.firstIndex(where: { $0.key == path.last }) else { return source }
-        return apply(removalEdits(memberAt: index, in: object, bytes: bytes), to: bytes)
+        var result = source
+        // wakeup-allow: bounded: each pass removes one member of a finite in-memory document (no IO)
+        while let next = try removingLast(path, in: result) { result = next }
+        return result
     }
 
     // MARK: - Structure
@@ -116,6 +138,7 @@ public struct JSONC {
 
     enum Node {
         case object(ObjectNode)
+        case array([Node])
         case scalar
     }
 
@@ -128,29 +151,34 @@ public struct JSONC {
         var index = bytes.starts(with: [0xEF, 0xBB, 0xBF]) ? 3 : 0
         index = try skipTrivia(bytes, from: index)
         guard index < bytes.count else { return nil }
-        let (node, end) = try parseValue(bytes, at: index)
+        let (node, end) = try parseValue(bytes, at: index, depth: 0)
         guard try skipTrivia(bytes, from: end) == bytes.count else { throw Failure.malformed(offset: end) }
         return node
     }
 
-    private static func parseValue(_ bytes: [UInt8], at start: Int) throws -> (Node, Int) {
+    /// The value at `start`, inside `depth` objects and arrays (``maxDepth`` bounds the recursion).
+    private static func parseValue(_ bytes: [UInt8], at start: Int, depth: Int) throws -> (Node, Int) {
         guard start < bytes.count else { throw Failure.malformed(offset: start) }
         switch bytes[start] {
         case UInt8(ascii: "{"):
-            return try parseObject(bytes, at: start)
+            guard depth < maxDepth else { throw Failure.tooDeep(offset: start) }
+            return try parseObject(bytes, at: start, depth: depth + 1)
         case UInt8(ascii: "["):
+            guard depth < maxDepth else { throw Failure.tooDeep(offset: start) }
+            var items: [Node] = []
             var index = try skipTrivia(bytes, from: start + 1)
-            if index < bytes.count, bytes[index] == UInt8(ascii: "]") { return (.scalar, index + 1) }
-            // wakeup-allow: parser loop over a finite in-memory buffer (no IO); every pass consumes input
+            if index < bytes.count, bytes[index] == UInt8(ascii: "]") { return (.array(items), index + 1) }
+            // wakeup-allow: bounded: parser loop over a finite in-memory buffer (no IO); every pass consumes input
             while true {
-                let (_, end) = try parseValue(bytes, at: index)
+                let (item, end) = try parseValue(bytes, at: index, depth: depth + 1)
+                items.append(item)
                 index = try skipTrivia(bytes, from: end)
                 guard index < bytes.count else { throw Failure.malformed(offset: index) }
                 if bytes[index] == UInt8(ascii: ",") {
                     index = try skipTrivia(bytes, from: index + 1)
-                    if index < bytes.count, bytes[index] == UInt8(ascii: "]") { return (.scalar, index + 1) }
+                    if index < bytes.count, bytes[index] == UInt8(ascii: "]") { return (.array(items), index + 1) }
                 } else if bytes[index] == UInt8(ascii: "]") {
-                    return (.scalar, index + 1)
+                    return (.array(items), index + 1)
                 } else {
                     throw Failure.malformed(offset: index)
                 }
@@ -165,10 +193,11 @@ public struct JSONC {
         }
     }
 
-    private static func parseObject(_ bytes: [UInt8], at open: Int) throws -> (Node, Int) {
+    /// The object at `open`, itself the `depth`th level of nesting.
+    private static func parseObject(_ bytes: [UInt8], at open: Int, depth: Int) throws -> (Node, Int) {
         var members: [Member] = []
         var index = try skipTrivia(bytes, from: open + 1)
-        // wakeup-allow: parser loop over a finite in-memory buffer (no IO); every pass consumes input
+        // wakeup-allow: bounded: parser loop over a finite in-memory buffer (no IO); every pass consumes input
         while true {
             guard index < bytes.count else { throw Failure.malformed(offset: index) }
             if bytes[index] == UInt8(ascii: "}") {
@@ -176,12 +205,17 @@ public struct JSONC {
             }
             guard bytes[index] == UInt8(ascii: "\"") else { throw Failure.malformed(offset: index) }
             let keyEnd = try stringEnd(bytes, from: index)
-            let keyText = String(decoding: bytes[index..<keyEnd], as: UTF8.self)
-            let key = (try? JSONValue.parse(Data(keyText.utf8)))?.stringValue ?? ""
+            // A key the reader does not take (a bad escape) is malformed here too, so no edit or member
+            // match reads it as some other key. Only a key with an escape goes through the reader.
+            let literal = bytes[index..<keyEnd]
+            let decoded: String? = literal.contains(UInt8(ascii: "\\"))
+                ? (try? JSONValue.parse(Data(literal)))?.stringValue
+                : String(decoding: literal.dropFirst().dropLast(), as: UTF8.self)
+            guard let key = decoded else { throw Failure.malformed(offset: index) }
             var cursor = try skipTrivia(bytes, from: keyEnd)
             guard cursor < bytes.count, bytes[cursor] == UInt8(ascii: ":") else { throw Failure.malformed(offset: cursor) }
             cursor = try skipTrivia(bytes, from: cursor + 1)
-            let (node, valueEnd) = try parseValue(bytes, at: cursor)
+            let (node, valueEnd) = try parseValue(bytes, at: cursor, depth: depth)
             var member = Member(key: key, keyStart: index, valueStart: cursor, valueEnd: valueEnd, node: node, commaAfter: nil)
             index = try skipTrivia(bytes, from: valueEnd)
             guard index < bytes.count else { throw Failure.malformed(offset: index) }
@@ -198,7 +232,7 @@ public struct JSONC {
     private static func setting(_ value: JSONValue, at path: ArraySlice<String>, in object: ObjectNode, bytes: [UInt8], edits: inout [Edit]) {
         guard let key = path.first else { return }  // the public entry refuses an empty path
         let rest = path.dropFirst()
-        if let member = object.members.first(where: { $0.key == key }) {
+        if let member = object.members.last(where: { $0.key == key }) {
             if rest.isEmpty {
                 let indent = lineIndent(bytes, at: member.keyStart)
                 edits.append(Edit(range: member.valueStart..<member.valueEnd, text: value.prettyText(baseIndent: indent)))
@@ -237,7 +271,7 @@ public struct JSONC {
         }
     }
 
-    private static func removalEdits(memberAt index: Int, in object: ObjectNode, bytes: [UInt8]) -> [Edit] {
+    static func removalEdits(memberAt index: Int, in object: ObjectNode, bytes: [UInt8]) -> [Edit] {
         let member = object.members[index]
         let start = lineStartIfBlank(bytes, before: member.keyStart)
         if let comma = member.commaAfter {
@@ -252,7 +286,7 @@ public struct JSONC {
         return edits
     }
 
-    private static func apply(_ edits: [Edit], to bytes: [UInt8]) -> String {
+    static func apply(_ edits: [Edit], to bytes: [UInt8]) -> String {
         var result = bytes
         for edit in edits.sorted(by: { $0.range.lowerBound > $1.range.lowerBound }) {
             result.replaceSubrange(edit.range, with: Array(edit.text.utf8))

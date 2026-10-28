@@ -1,4 +1,5 @@
 import CmuxNextDaemon
+import CmuxNextInputModel
 import CmuxNextSettings
 import CmuxNextWakeups
 import Foundation
@@ -25,7 +26,8 @@ final class InputInvariantMonitor {
     static let journalTail = 512
 
     weak var services: AppServices?
-    private let settle = DemandTimer(owner: "InputInvariantMonitor.settle")
+    /// The settle deadline: a background-class task nobody watches (the check is a debug scan).
+    private let settle: MainDeadline
     private let store: DesyncReportStore
     private let tag: String?
     /// A change was noted and its check has not run yet.
@@ -42,9 +44,14 @@ final class InputInvariantMonitor {
     private(set) var reportCount = 0
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.input")
 
-    init(tag: String?, runner: any MayBlockRunner) {
+    /// - Parameters:
+    ///   - tag: The tagged build's name, which names the report folder.
+    ///   - deadlines: The app's deadline placer (`AppServices.mainDeadlines`).
+    ///   - runner: The app's blocking-work lanes (`AppServices.work`): the desync reports are written there.
+    init(tag: String?, deadlines: MainDeadlineScheduler, runner: any MayBlockRunner) {
         self.tag = tag
         store = DesyncReportStore(tag: tag, runner: runner)
+        settle = MainDeadline(owner: "InputInvariantMonitor.settle", workClass: .background, scheduler: deadlines)
     }
 
     var directory: String? { store.directory?.path(percentEncoded: false) }
@@ -52,7 +59,7 @@ final class InputInvariantMonitor {
     /// Input or focus changed; check once it settles.
     func noteChange() {
         #if DEBUG
-        settle.schedule(after: Self.settleDelay) { @MainActor [weak self] in self?.settled() }
+        settle.schedule(after: Self.settleDelay) { [weak self] in self?.settled() }
         #endif
     }
 

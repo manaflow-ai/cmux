@@ -64,7 +64,7 @@ public final class DiffCollapsedFiles {
         try? await runner.runFiles(.userVisible) { () -> [String] in
             guard let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize, size <= 4 * 1024 * 1024,
                   let data = try? Data(blockingContentsOf: url),
-                  let entries = try? JSONDecoder().decode([String].self, from: data) else { return [] }
+                  let entries = try? JSONDecoder().blockingDecode([String].self, from: data) else { return [] }
             return Array(entries.suffix(DiffPrefKey.maximumCollapsedFiles))
         }
     }

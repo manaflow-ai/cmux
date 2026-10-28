@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 public import Observation
 import CmuxNextWakeups
@@ -15,6 +16,7 @@ public final class SidebarLookedStore {
     @ObservationIgnored private let defaults: UserDefaults?
     /// One write after the selection settles: a walk through the workspaces (Cmd-] held) stamps on
     /// every step, and each write JSON-encodes every stamp on the main thread.
+    // timer-class-allow: the static store is made at its first read, with no deadline scheduler seam; one flexible wake per settled selection
     @ObservationIgnored private let saveTimer = DemandTimer(owner: "SidebarLookedStore.save")
     @ObservationIgnored private let saveDelay: Duration
     @ObservationIgnored private var dirty = false
@@ -27,7 +29,7 @@ public final class SidebarLookedStore {
     public init(defaults: UserDefaults?, saveDelay: Duration = .seconds(2)) {
         self.defaults = defaults
         self.saveDelay = saveDelay
-        stamps = defaults?.data(forKey: Self.key).flatMap { try? JSONDecoder().decode([WorkspaceID: Date].self, from: $0) } ?? [:]
+        stamps = defaults?.data(forKey: Self.key).flatMap { try? JSONDecoder().blockingDecode([WorkspaceID: Date].self, from: $0) } ?? [:]
     }
 
     /// The person stopped looking at `id` at `now`.
@@ -53,6 +55,6 @@ public final class SidebarLookedStore {
         guard defaults != nil else { return }
         dirty = true
         // A debounce deadline (the intended delay), cancelled by flush().
-        saveTimer.schedule(after: saveDelay) { @MainActor [weak self] in self?.flush() }
+        saveTimer.scheduleOnMain(after: saveDelay) { [weak self] in self?.flush() }
     }
 }

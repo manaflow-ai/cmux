@@ -14,7 +14,7 @@ extension AgentPaneView {
     public func pushDisplay(_ display: AgentPaneDisplaySetting) {
         guard display != model.display else { return }
         model.display = display
-        deliver([.display(display)], scripts: [])
+        deliver([.display(display)])
     }
 }
 

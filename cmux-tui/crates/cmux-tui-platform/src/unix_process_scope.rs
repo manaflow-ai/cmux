@@ -28,13 +28,14 @@ use std::io;
 use std::mem::size_of;
 #[cfg(target_os = "linux")]
 use std::os::fd::FromRawFd;
-use std::os::fd::{AsRawFd, OwnedFd};
+use std::os::fd::{AsFd, AsRawFd, OwnedFd};
 use std::os::unix::fs::OpenOptionsExt;
-use std::os::unix::process::CommandExt;
-use std::process::Command;
 use std::sync::{Arc, Condvar, Mutex, OnceLock, mpsc};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
+
+use cmux_process::Command;
+use cmux_threads::ThreadQos;
 
 const CLEANUP_DEADLINE: Duration = Duration::from_millis(250);
 const TRACK_INTERVAL: Duration = Duration::from_millis(100);
@@ -192,15 +193,17 @@ impl UnixChildExitSignal {
         })?;
         let (sender, result) = mpsc::sync_channel(1);
         let (action_sender, action_receiver) = mpsc::sync_channel(1);
-        let observer =
-            std::thread::Builder::new().name("cmux-child-exit".into()).spawn(move || {
-                let result = wait_for_child_exit_without_reaping(pid);
-                let observed = result.is_ok();
-                let _ = sender.send(result);
-                if matches!(action_receiver.recv(), Ok(UnixChildExitAction::Reap)) && observed {
-                    reap_child(pid);
-                }
-            })?;
+        // A helper child's exit (hooks, helper commands): Utility, as the
+        // child itself runs (cmux_threads::HELPER_CHILD).
+        // supervise-allow: owned by UnixChildExitSignal, which keeps the handle; a panic drops `sender`, so the waiter's recv ends with an error at once instead of at its deadline.
+        let observer = cmux_threads::spawn("cmux-child-exit", ThreadQos::Utility, move || {
+            let result = wait_for_child_exit_without_reaping(pid);
+            let observed = result.is_ok();
+            let _ = sender.send(result);
+            if matches!(action_receiver.recv(), Ok(UnixChildExitAction::Reap)) && observed {
+                reap_child(pid);
+            }
+        })?;
         Ok(Self { result, action: Some(action_sender), observer: Some(observer) })
     }
 
@@ -334,9 +337,13 @@ impl UnixProcessScope {
 
     /// Build a command whose controlled launcher stops before it executes the
     /// requested program. `bind` registers the stopped root and then releases
-    /// it, so user code cannot detach before scope ownership exists.
+    /// it, so user code cannot detach before scope ownership exists. The
+    /// launcher first takes back the open-file limit cmux started with
+    /// (`cmux_pty::original_open_file_limit`): a spawn without code between
+    /// fork and exec cannot set it.
     pub fn suspended_command(program: impl AsRef<OsStr>) -> Command {
         let program = program.as_ref();
+        let script = launcher_script(cmux_pty::original_open_file_limit());
         #[cfg(target_os = "macos")]
         let command = {
             let mut command = Command::new("/usr/bin/sandbox-exec");
@@ -346,7 +353,7 @@ impl UnixProcessScope {
                     "(version 1) (allow default) (deny process-fork)",
                     "/bin/sh",
                     "-c",
-                    "kill -STOP $$; exec \"$@\"",
+                    &script,
                     "cmux-process-scope",
                 ])
                 .arg(program);
@@ -355,41 +362,33 @@ impl UnixProcessScope {
         #[cfg(not(target_os = "macos"))]
         let command = {
             let mut command = Command::new("/bin/sh");
-            command.args(["-c", "kill -STOP $$; exec \"$@\"", "cmux-process-scope"]).arg(program);
+            command.args(["-c", &script, "cmux-process-scope"]).arg(program);
             command
         };
         command
     }
 
     /// Select this command as the only child that receives the scope
-    /// identities. The file was opened with `O_CLOEXEC`, so unrelated
-    /// concurrent spawns cannot inherit it.
-    pub fn configure(&self, command: &mut Command) {
-        command.env(PROCESS_SCOPE_ENV, &self.marker);
-        let marker_fd = self._marker_fd.as_raw_fd();
+    /// identities: the marker variable, and the marker file at the number it
+    /// has here (the file was opened with `O_CLOEXEC`, so unrelated
+    /// concurrent spawns cannot inherit it). The child leads its own process
+    /// group; on Linux it can never leave it (the kernel fence).
+    ///
+    /// # Errors
+    ///
+    /// When the marker descriptor cannot be duplicated for the spawn.
+    pub fn configure(&self, command: &mut Command) -> io::Result<()> {
+        command.env(PROCESS_SCOPE_ENV, &self.marker).process_group(0);
+        command.inherit_fd(self._marker_fd.as_fd(), self._marker_fd.as_raw_fd())?;
         #[cfg(all(feature = "test-support", target_os = "linux"))]
         let kernel_group_fence = self.kernel_group_fence;
         #[cfg(all(not(feature = "test-support"), target_os = "linux"))]
         let kernel_group_fence = true;
-        // SAFETY: the closure calls only async-signal-safe syscalls between
-        // fork and exec and does not allocate.
-        unsafe {
-            command.pre_exec(move || {
-                if libc::setpgid(0, 0) != 0 {
-                    return Err(io::Error::last_os_error());
-                }
-                let flags = libc::fcntl(marker_fd, libc::F_GETFD);
-                if flags < 0 || libc::fcntl(marker_fd, libc::F_SETFD, flags & !libc::FD_CLOEXEC) < 0
-                {
-                    return Err(io::Error::last_os_error());
-                }
-                #[cfg(target_os = "linux")]
-                if kernel_group_fence {
-                    install_linux_process_group_fence()?;
-                }
-                cmux_pty::restore_open_file_limit_in_child()
-            });
+        #[cfg(target_os = "linux")]
+        if kernel_group_fence {
+            command.process_group_fence();
         }
+        Ok(())
     }
 
     /// Record the exact root identity and start holder discovery while the
@@ -464,6 +463,7 @@ impl UnixProcessScope {
         let pid = libc::pid_t::try_from(root.pid).map_err(|_| {
             io::Error::new(io::ErrorKind::InvalidInput, "process scope root is out of range")
         })?;
+        // SAFETY: kill takes integers only and touches no memory.
         if unsafe { libc::kill(pid, libc::SIGCONT) } != 0 {
             return Err(io::Error::last_os_error());
         }
@@ -530,6 +530,7 @@ impl UnixProcessScope {
             return;
         }
         if let Ok(group) = libc::pid_t::try_from(root.pid) {
+            // SAFETY: kill takes integers only and touches no memory.
             unsafe {
                 libc::kill(-group, libc::SIGKILL);
             }
@@ -548,6 +549,7 @@ impl UnixProcessScope {
             return;
         }
         if let Ok(group) = libc::pid_t::try_from(root.pid) {
+            // SAFETY: kill takes integers only and touches no memory.
             unsafe {
                 libc::kill(-group, libc::SIGKILL);
             }
@@ -562,6 +564,7 @@ impl UnixProcessScope {
             return;
         }
         if let Ok(group) = libc::pid_t::try_from(root.pid) {
+            // SAFETY: kill takes integers only and touches no memory.
             unsafe {
                 libc::kill(-group, libc::SIGKILL);
             }
@@ -574,6 +577,7 @@ fn wait_for_suspended_child(pid: u32) -> io::Result<()> {
         .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "child pid is out of range"))?;
     loop {
         let mut status = 0;
+        // SAFETY: waitpid writes one int status into `status`, a live local.
         let waited = unsafe { libc::waitpid(pid, &mut status, libc::WUNTRACED) };
         if waited == pid {
             if libc::WIFSTOPPED(status) && libc::WSTOPSIG(status) == libc::SIGSTOP {
@@ -593,70 +597,14 @@ fn wait_for_suspended_child(pid: u32) -> io::Result<()> {
     }
 }
 
-#[cfg(target_os = "linux")]
-const fn linux_bpf_statement(code: u32, value: u32) -> libc::sock_filter {
-    libc::sock_filter { code: code as u16, jt: 0, jf: 0, k: value }
-}
-
-#[cfg(target_os = "linux")]
-const fn linux_bpf_jump(code: u32, value: u32, equal: u8, not_equal: u8) -> libc::sock_filter {
-    libc::sock_filter { code: code as u16, jt: equal, jf: not_equal, k: value }
-}
-
-/// Install a kernel-enforced process-group fence before the controlled shell
-/// runs. The filter is inherited across fork and exec and cannot be removed
-/// after `PR_SET_NO_NEW_PRIVS`. It leaves ordinary child creation available,
-/// but rejects the two syscalls that can move a hook or descendant out of the
-/// process group owned by this scope.
-#[cfg(target_os = "linux")]
-fn install_linux_process_group_fence() -> io::Result<()> {
-    const SECCOMP_DATA_NR_OFFSET: u32 = 0;
-    const SECCOMP_DATA_ARCH_OFFSET: u32 = 4;
-    const X32_SYSCALL_BIT: u32 = 0x4000_0000;
-    #[cfg(target_arch = "x86_64")]
-    const AUDIT_ARCH: u32 = 0xc000_003e;
-    #[cfg(target_arch = "aarch64")]
-    const AUDIT_ARCH: u32 = 0xc000_00b7;
-    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
-    compile_error!("cmux-tui process scopes require a Linux seccomp audit architecture");
-
-    let denied = libc::SECCOMP_RET_ERRNO | u32::try_from(libc::EPERM).unwrap_or(1);
-    let mut filter = [
-        linux_bpf_statement(libc::BPF_LD | libc::BPF_W | libc::BPF_ABS, SECCOMP_DATA_ARCH_OFFSET),
-        linux_bpf_jump(libc::BPF_JMP | libc::BPF_JEQ | libc::BPF_K, AUDIT_ARCH, 1, 0),
-        linux_bpf_statement(libc::BPF_RET | libc::BPF_K, libc::SECCOMP_RET_KILL_PROCESS),
-        linux_bpf_statement(libc::BPF_LD | libc::BPF_W | libc::BPF_ABS, SECCOMP_DATA_NR_OFFSET),
-        linux_bpf_statement(libc::BPF_ALU | libc::BPF_AND | libc::BPF_K, !X32_SYSCALL_BIT),
-        linux_bpf_jump(
-            libc::BPF_JMP | libc::BPF_JEQ | libc::BPF_K,
-            u32::try_from(libc::SYS_setsid).unwrap_or(u32::MAX),
-            0,
-            1,
-        ),
-        linux_bpf_statement(libc::BPF_RET | libc::BPF_K, denied),
-        linux_bpf_jump(
-            libc::BPF_JMP | libc::BPF_JEQ | libc::BPF_K,
-            u32::try_from(libc::SYS_setpgid).unwrap_or(u32::MAX),
-            0,
-            1,
-        ),
-        linux_bpf_statement(libc::BPF_RET | libc::BPF_K, denied),
-        linux_bpf_statement(libc::BPF_RET | libc::BPF_K, libc::SECCOMP_RET_ALLOW),
-    ];
-    let program = libc::sock_fprog {
-        len: u16::try_from(filter.len()).unwrap_or(u16::MAX),
-        filter: filter.as_mut_ptr(),
-    };
-    if unsafe { libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) } != 0 {
-        return Err(io::Error::last_os_error());
+/// The launcher's `sh -c` script: the soft open-file limit (when cmux
+/// raised its own), the stop `bind` waits for, then the program.
+fn launcher_script(open_file_limit: Option<u64>) -> String {
+    let stop_and_exec = "kill -STOP $$; exec \"$@\"";
+    match open_file_limit {
+        Some(soft) => format!("ulimit -S -n {soft}; {stop_and_exec}"),
+        None => stop_and_exec.to_owned(),
     }
-    if unsafe {
-        libc::prctl(libc::PR_SET_SECCOMP, libc::SECCOMP_MODE_FILTER, std::ptr::from_ref(&program))
-    } != 0
-    {
-        return Err(io::Error::last_os_error());
-    }
-    Ok(())
 }
 
 impl Drop for UnixProcessScope {
@@ -713,9 +661,13 @@ impl ProcessScopeTracker {
             return Ok(());
         }
         let tracker = self.clone();
-        std::thread::Builder::new()
-            .name("cmux-process-scopes".into())
-            .spawn(move || tracker.run())?;
+        // supervise-allow: the process-wide scope tracker; a panic in a scan clears `started`, so the next registration starts a new tracker that scans every registered scope, and finalize waits only inside its own budget meanwhile.
+        cmux_threads::spawn("cmux-process-scopes", ThreadQos::Utility, move || {
+            let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| tracker.run()));
+            if ran.is_err() {
+                *tracker.started.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = false;
+            }
+        })?;
         *started = true;
         Ok(())
     }
@@ -901,6 +853,8 @@ fn create_file_marker(marker: &str) -> io::Result<(OwnedFd, FileMarker)> {
 
 fn file_marker_for_fd(fd: libc::c_int) -> io::Result<FileMarker> {
     let mut stat = std::mem::MaybeUninit::<libc::stat>::zeroed();
+    // SAFETY: fstat writes one stat into `stat`, a live MaybeUninit<stat>; a closed fd fails with
+    // EBADF.
     if unsafe { libc::fstat(fd, stat.as_mut_ptr()) } != 0 {
         return Err(io::Error::last_os_error());
     }
@@ -921,6 +875,8 @@ fn file_marker_for_fd(fd: libc::c_int) -> io::Result<FileMarker> {
 fn pidfd_open(pid: u32) -> io::Result<OwnedFd> {
     let pid = libc::pid_t::try_from(pid)
         .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "process id is out of range"))?;
+    // SAFETY: pidfd_open takes a pid and a flag word, no pointers, and returns a new descriptor or
+    // -1.
     let fd = unsafe { libc::syscall(libc::SYS_pidfd_open, pid, 0_u32) };
     if fd < 0 {
         return Err(io::Error::last_os_error());
@@ -932,6 +888,8 @@ fn pidfd_open(pid: u32) -> io::Result<OwnedFd> {
 
 #[cfg(target_os = "linux")]
 fn pidfd_send_signal(pidfd: &OwnedFd, signal: libc::c_int) -> io::Result<()> {
+    // SAFETY: `pidfd` owns the descriptor for the call and the siginfo pointer is null, which
+    // pidfd_send_signal accepts as "as if sent by kill".
     let result = unsafe {
         libc::syscall(
             libc::SYS_pidfd_send_signal,
@@ -969,6 +927,7 @@ fn signal_process(identity: ProcessIdentity) {
         return;
     }
     if let Ok(pid) = libc::pid_t::try_from(identity.pid) {
+        // SAFETY: kill takes integers only and touches no memory.
         unsafe {
             libc::kill(pid, libc::SIGKILL);
         }
@@ -1193,6 +1152,8 @@ fn scan_registered_processes(
 ) -> ProcessScanResult {
     let mut result = ProcessScanResult::default();
     const PROC_ALL_PIDS: u32 = 1;
+    // SAFETY: a null buffer with size 0 asks proc_listpids only for the byte count; nothing is
+    // written.
     let bytes = unsafe { libc::proc_listpids(PROC_ALL_PIDS, 0, std::ptr::null_mut(), 0) };
     let Ok(bytes) = usize::try_from(bytes) else {
         result.next = Some(cursor);
@@ -1203,6 +1164,8 @@ fn scan_registered_processes(
         result.next = Some(cursor);
         return result;
     };
+    // SAFETY: `pids` is a live Vec whose byte length is `capacity`, so proc_listpids writes at most
+    // that many bytes into it.
     let written =
         unsafe { libc::proc_listpids(PROC_ALL_PIDS, 0, pids.as_mut_ptr().cast(), capacity) };
     let Ok(written) = usize::try_from(written) else {
@@ -1350,6 +1313,8 @@ fn mac_process_file_markers(
     const PROC_PIDFDVNODEINFO: libc::c_int = 1;
     let empty = || MacFileMarkerScan { markers: Vec::new(), next_fd: None };
     let Ok(pid_int) = libc::c_int::try_from(pid) else { return empty() };
+    // SAFETY: a null buffer with size 0 asks proc_pidinfo only for the byte count; nothing is
+    // written.
     let bytes =
         unsafe { libc::proc_pidinfo(pid_int, libc::PROC_PIDLISTFDS, 0, std::ptr::null_mut(), 0) };
     let Ok(bytes) = usize::try_from(bytes) else { return empty() };
@@ -1359,6 +1324,8 @@ fn mac_process_file_markers(
     else {
         return empty();
     };
+    // SAFETY: `fds` has room for `capacity` bytes (its capacity in proc_fdinfo entries times their
+    // size), so proc_pidinfo writes at most that many bytes into its spare capacity.
     let written = unsafe {
         libc::proc_pidinfo(pid_int, libc::PROC_PIDLISTFDS, 0, fds.as_mut_ptr().cast(), capacity)
     };
@@ -1385,6 +1352,8 @@ fn mac_process_file_markers(
             let Ok(size) = libc::c_int::try_from(size_of::<VnodeFdInfo>()) else {
                 return None;
             };
+            // SAFETY: `info` is a live MaybeUninit<VnodeFdInfo> of `size` bytes, so proc_pidfdinfo
+            // writes at most that many bytes into it.
             let written = unsafe {
                 libc::proc_pidfdinfo(
                     pid_int,
@@ -1416,6 +1385,9 @@ fn mac_process_argument_buffer() -> Option<Vec<u8>> {
     let mut mib = [libc::CTL_KERN, libc::KERN_ARGMAX];
     let mut argmax = 0 as libc::c_int;
     let mut size = size_of::<libc::c_int>();
+    // SAFETY: `mib` holds the two ints whose count is passed, `argmax` is a live c_int and `size`
+    // holds its size, so sysctl writes at most one c_int; the new-value pointer is null with length
+    // 0.
     let result = unsafe {
         libc::sysctl(
             mib.as_mut_ptr(),
@@ -1438,6 +1410,9 @@ fn mac_process_arguments(pid: u32, buffer: &mut [u8]) -> Option<&[u8]> {
     let pid = libc::c_int::try_from(pid).ok()?;
     let mut mib = [libc::CTL_KERN, libc::KERN_PROCARGS2, pid];
     let mut size = buffer.len();
+    // SAFETY: `mib` holds the three ints whose count is passed and `size` is the length of the
+    // live, writable `buffer`, so sysctl writes at most that many bytes; the new-value pointer is
+    // null.
     let result = unsafe {
         libc::sysctl(
             mib.as_mut_ptr(),
@@ -1487,6 +1462,8 @@ fn mac_process_snapshot(pid: u32) -> Option<ProcessSnapshot> {
     let pid_int = libc::c_int::try_from(pid).ok()?;
     let mut info = std::mem::MaybeUninit::<MacBsdInfoWithUniqueId>::zeroed();
     let size = libc::c_int::try_from(size_of::<MacBsdInfoWithUniqueId>()).ok()?;
+    // SAFETY: `info` is a live MaybeUninit<MacBsdInfoWithUniqueId> of `size` bytes, so proc_pidinfo
+    // writes at most that many bytes into it.
     let written = unsafe {
         libc::proc_pidinfo(pid_int, PROC_PIDT_BSDINFOWITHUNIQID, 0, info.as_mut_ptr().cast(), size)
     };
@@ -1514,4 +1491,33 @@ fn scan_registered_processes(
 #[cfg(all(unix, not(any(target_os = "linux", target_os = "macos"))))]
 fn process_identity(pid: u32) -> Option<ProcessIdentity> {
     Some(ProcessIdentity { pid, started: 0 })
+}
+
+#[cfg(test)]
+mod launcher_tests {
+    use std::io::Read;
+
+    use cmux_process::{Command, Stdio};
+
+    use super::{launcher_script, wait_for_suspended_child};
+
+    /// A hook gets the open-file limit cmux started with, not the daemon's
+    /// raised one: its launcher sets it before the stop (no `pre_exec`).
+    #[test]
+    fn the_launcher_gives_the_program_the_original_open_file_limit() {
+        let mut child = Command::new("/bin/sh")
+            .args(["-c", &launcher_script(Some(97)), "cmux-process-scope"])
+            .args(["/bin/sh", "-c", "ulimit -S -n"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        wait_for_suspended_child(child.id()).unwrap();
+        // SAFETY: kill(2) on this test's own stopped child.
+        assert_eq!(unsafe { libc::kill(child.id() as libc::pid_t, libc::SIGCONT) }, 0);
+        let mut limit = String::new();
+        child.stdout.take().unwrap().read_to_string(&mut limit).unwrap();
+        assert!(child.wait().unwrap().success());
+        assert_eq!(limit.trim(), "97");
+    }
 }

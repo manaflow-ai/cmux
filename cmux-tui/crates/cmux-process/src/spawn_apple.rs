@@ -1,7 +1,8 @@
 //! macOS: `posix_spawn` with `POSIX_SPAWN_CLOEXEC_DEFAULT`. The child gets
 //! exactly descriptors 0-2 and the `inherit_fd` ones; every other descriptor
 //! of this process closes at the exec, whatever its close-on-exec flag says
-//! at that moment.
+//! at that moment. `Command::inherit_like_std` and `Command::exec` leave the
+//! flag out and reset only `SIGPIPE`, as std.
 
 use std::collections::BTreeSet;
 use std::ffi::{CString, OsStr, OsString};
@@ -13,14 +14,20 @@ use std::process::{ChildStderr, ChildStdin, ChildStdout};
 
 use crate::child::Child;
 use crate::command::Command;
+use crate::fd::dup_above;
 use crate::stdio::{Kind, Stdio};
 
 // From <spawn.h>; not bound by the pinned libc.
+const POSIX_SPAWN_SETEXEC: libc::c_short = 0x0040;
 const POSIX_SPAWN_SETSID: libc::c_short = 0x0400;
 unsafe extern "C" {
     fn posix_spawn_file_actions_addchdir_np(
         actions: *mut libc::posix_spawn_file_actions_t,
         path: *const libc::c_char,
+    ) -> libc::c_int;
+    fn posix_spawn_file_actions_addfchdir_np(
+        actions: *mut libc::posix_spawn_file_actions_t,
+        fd: libc::c_int,
     ) -> libc::c_int;
     fn posix_spawn_file_actions_addinherit_np(
         actions: *mut libc::posix_spawn_file_actions_t,
@@ -30,13 +37,46 @@ unsafe extern "C" {
 
 /// Spawn `command`; its streams and inherited descriptors are used up.
 pub(crate) fn spawn(command: &mut Command) -> io::Result<Child> {
+    start(command, Start::Child)
+}
+
+/// Replace this process with `command` (`POSIX_SPAWN_SETEXEC`): returns
+/// only the reason it could not.
+pub(crate) fn exec(command: &mut Command) -> io::Error {
+    match start(command, Start::ReplaceThisProcess) {
+        Ok(_) => io::Error::other("posix_spawn with POSIX_SPAWN_SETEXEC returned"),
+        Err(error) => error,
+    }
+}
+
+/// What `posix_spawn` makes of the program.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Start {
+    /// A new child process.
+    Child,
+    /// This process's new image (`POSIX_SPAWN_SETEXEC`, as `execve`).
+    ReplaceThisProcess,
+}
+
+fn start(command: &mut Command, how: Start) -> io::Result<Child> {
     let env = child_env(command);
-    let path = resolve(&command.program, command, &env)?;
-    let argv0 = command.arg0.clone().unwrap_or_else(|| command.program.clone());
-    let argv: Vec<CString> = std::iter::once(&argv0)
-        .chain(&command.args)
-        .map(|arg| c_string(arg))
-        .collect::<io::Result<_>>()?;
+    let program = resolve(&command.program, command, &env)?;
+    let (path, argv) = match command.open_file_limit {
+        None => {
+            let argv0 = command.arg0.clone().unwrap_or_else(|| command.program.clone());
+            (program, std::iter::once(argv0).chain(command.args.iter().cloned()).collect())
+        }
+        Some(soft) => {
+            if command.arg0.is_some() {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "open_file_limit cannot keep an arg0 on macOS",
+                ));
+            }
+            open_file_limit_launcher(soft, program, &command.args)?
+        }
+    };
+    let argv: Vec<CString> = argv.iter().map(|arg| c_string(arg)).collect::<io::Result<_>>()?;
     let envp: Vec<CString> = env
         .iter()
         .map(|(key, value)| {
@@ -48,6 +88,9 @@ pub(crate) fn spawn(command: &mut Command) -> io::Result<Child> {
         .collect::<io::Result<_>>()?;
     let path = c_string(path.as_os_str())?;
     let cwd = command.cwd.as_ref().map(|dir| c_string(dir.as_os_str())).transpose()?;
+    // Open until the spawn returned; the child changes to it before its exec
+    // (close-on-exec, so it is not passed on).
+    let cwd_fd = command.cwd_fd.take();
 
     // The child's descriptor plan: (source, target). Parent ends of pipes
     // go to the Child; the child ends and every source close after the spawn.
@@ -101,27 +144,54 @@ pub(crate) fn spawn(command: &mut Command) -> io::Result<Child> {
         }
     }
 
+    // std's inheritance (`inherit_like_std`, and every exec, as `execve`):
+    // descriptors without close-on-exec pass, ignored signals stay ignored.
+    let like_std = command.inherit_like_std || how == Start::ReplaceThisProcess;
     let mut setup = Setup::new()?;
     let mut flags = libc::POSIX_SPAWN_SETSIGDEF as libc::c_short
-        | libc::POSIX_SPAWN_SETSIGMASK as libc::c_short
-        | libc::POSIX_SPAWN_CLOEXEC_DEFAULT as libc::c_short;
+        | libc::POSIX_SPAWN_SETSIGMASK as libc::c_short;
+    if !like_std {
+        flags |= libc::POSIX_SPAWN_CLOEXEC_DEFAULT as libc::c_short;
+    }
     if command.new_session {
         flags |= POSIX_SPAWN_SETSID;
+    }
+    if how == Start::ReplaceThisProcess {
+        flags |= POSIX_SPAWN_SETEXEC;
     }
     let dev_null = c"/dev/null";
     // SAFETY: every call gets the initialized attr/actions and live strings.
     unsafe {
-        let mut all: libc::sigset_t = std::mem::zeroed();
+        // Reset to default: every signal, or as std only SIGPIPE (which the
+        // Rust runtime ignores).
+        let mut defaults: libc::sigset_t = std::mem::zeroed();
         let mut none: libc::sigset_t = std::mem::zeroed();
-        libc::sigfillset(&mut all);
+        if like_std {
+            libc::sigemptyset(&mut defaults);
+            libc::sigaddset(&mut defaults, libc::SIGPIPE);
+        } else {
+            libc::sigfillset(&mut defaults);
+        }
         libc::sigemptyset(&mut none);
-        check(libc::posix_spawnattr_setsigdefault(&mut setup.attr, &all))?;
+        check(libc::posix_spawnattr_setsigdefault(&mut setup.attr, &defaults))?;
         check(libc::posix_spawnattr_setsigmask(&mut setup.attr, &none))?;
         if let Some(pgid) = command.process_group {
             flags |= libc::POSIX_SPAWN_SETPGROUP as libc::c_short;
             check(libc::posix_spawnattr_setpgroup(&mut setup.attr, pgid))?;
         }
         check(libc::posix_spawnattr_setflags(&mut setup.attr, flags))?;
+        // `Command::qos_ceiling` (`Command::spawn` checked the class).
+        if let Some(qos) = command.qos_ceiling {
+            check(libc::posix_spawnattr_set_qos_class_np(&mut setup.attr, qos.qos_class()))?;
+        }
+        // The directory first: a later dup2 may reuse the number of the
+        // descriptor `cwd_fd` holds.
+        if let Some(dir) = &cwd {
+            check(posix_spawn_file_actions_addchdir_np(&mut setup.actions, dir.as_ptr()))?;
+        }
+        if let Some(dir) = &cwd_fd {
+            check(posix_spawn_file_actions_addfchdir_np(&mut setup.actions, dir.as_raw_fd()))?;
+        }
         for (source, target) in &plan {
             check(match source {
                 Source::DevNull => libc::posix_spawn_file_actions_addopen(
@@ -131,6 +201,8 @@ pub(crate) fn spawn(command: &mut Command) -> io::Result<Child> {
                     if *target == 0 { libc::O_RDONLY } else { libc::O_WRONLY },
                     0,
                 ),
+                // Without CLOEXEC_DEFAULT the descriptor passes as it is (std).
+                Source::Same if like_std => 0,
                 Source::Same => posix_spawn_file_actions_addinherit_np(&mut setup.actions, *target),
                 Source::Open(path) => libc::posix_spawn_file_actions_addopen(
                     &mut setup.actions,
@@ -148,9 +220,6 @@ pub(crate) fn spawn(command: &mut Command) -> io::Result<Child> {
                     *target,
                 ),
             })?;
-        }
-        if let Some(dir) = &cwd {
-            check(posix_spawn_file_actions_addchdir_np(&mut setup.actions, dir.as_ptr()))?;
         }
     }
     let mut argv_ptrs: Vec<*mut libc::c_char> =
@@ -173,6 +242,7 @@ pub(crate) fn spawn(command: &mut Command) -> io::Result<Child> {
         )
     })?;
     drop(plan);
+    drop(cwd_fd);
     let [stdin, stdout, stderr] = parents;
     Ok(Child::from_pid(
         pid,
@@ -226,6 +296,33 @@ impl Drop for Setup {
             libc::posix_spawnattr_destroy(&mut self.attr);
         }
     }
+}
+
+/// `Command::open_file_limit`: the path and argv of `/bin/sh -c 'ulimit -S
+/// -n N; exec "$@"' sh <program> <args>`, which sets the soft limit and
+/// execs the program in the same process. The program was resolved first,
+/// so a missing one still fails the spawn.
+fn open_file_limit_launcher(
+    soft: u64,
+    program: PathBuf,
+    args: &[OsString],
+) -> io::Result<(PathBuf, Vec<OsString>)> {
+    let mut limit = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
+    // SAFETY: `limit` is valid storage for one rlimit.
+    if unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &raw mut limit) } != 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let soft = soft.min(limit.rlim_max);
+    let shell = PathBuf::from("/bin/sh");
+    let mut argv = vec![
+        shell.clone().into_os_string(),
+        OsString::from("-c"),
+        OsString::from(format!("ulimit -S -n {soft}; exec \"$@\"")),
+        OsString::from("sh"),
+        program.into_os_string(),
+    ];
+    argv.extend(args.iter().cloned());
+    Ok((shell, argv))
 }
 
 /// The child's environment: this process's (unless cleared) with the
@@ -292,17 +389,6 @@ fn pipe() -> io::Result<(OwnedFd, OwnedFd)> {
         }
     }
     Ok(ends)
-}
-
-/// A close-on-exec copy of `fd` numbered `floor` or more.
-fn dup_above(fd: &OwnedFd, floor: RawFd) -> io::Result<OwnedFd> {
-    // SAFETY: F_DUPFD_CLOEXEC returns a new descriptor or -1.
-    let copy = unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_DUPFD_CLOEXEC, floor) };
-    if copy < 0 {
-        return Err(io::Error::last_os_error());
-    }
-    // SAFETY: a new descriptor this function owns.
-    Ok(unsafe { OwnedFd::from_raw_fd(copy) })
 }
 
 fn c_string(value: &OsStr) -> io::Result<CString> {

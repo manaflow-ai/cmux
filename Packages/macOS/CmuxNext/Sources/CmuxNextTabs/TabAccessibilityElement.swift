@@ -8,13 +8,15 @@ import os
 /// AppKit calls accessibility on the main thread, but `NSAccessibilityElement`
 /// is not main-actor isolated, so the callbacks check the thread and then
 /// enter the main actor with `assumeIsolated`.
-nonisolated final class TabAccessibilityElement: NSAccessibilityElement, @unchecked Sendable {
-    nonisolated(unsafe) var onPress: (@MainActor () -> Void)?
-    nonisolated(unsafe) var onClose: (@MainActor () -> Void)?
+/// Not Sendable: its owner (a main-actor tab or chip cell) sets the handlers,
+/// and AppKit reads them on the main thread.
+nonisolated final class TabAccessibilityElement: NSAccessibilityElement {
+    var onPress: (@MainActor () -> Void)?
+    var onClose: (@MainActor () -> Void)?
     /// "Mute tab" or "Unmute tab" and its handler while the tab shows a speaker (`updateAccessibility`).
-    nonisolated(unsafe) var audioAction: (name: String, run: @MainActor () -> Void)? // crash-allow: set in updateAccessibility and read in accessibilityCustomActions, both on the main thread only (onMain guard), as onClose
+    var audioAction: (name: String, run: @MainActor () -> Void)?
     /// VoiceOver moved its focus onto (true) or off (false) this element.
-    nonisolated(unsafe) var onFocus: (@MainActor (Bool) -> Void)?
+    var onFocus: (@MainActor (Bool) -> Void)?
     /// The tab's x as a pressable child: its press runs ``onClose``. It is a child while the tab
     /// can close and has room for it (the cell's layout gives it a nonzero frame). The x draws
     /// only on hover, but it is exposed while hidden too: an agent presses it with AXPress, and a
@@ -59,7 +61,7 @@ nonisolated final class TabAccessibilityElement: NSAccessibilityElement, @unchec
         guard !named.isEmpty else { return nil }
         return named.map { action in
             NSAccessibilityCustomAction(name: action.name) {
-                guard Self.onMain("custom action") else { return false }
+                guard TabAccessibilityElement.onMain("custom action") else { return false }
                 MainActor.assumeIsolated { action.run() } // main-proof: guarded by Self.onMain (Thread.isMainThread) above
                 return true
             }

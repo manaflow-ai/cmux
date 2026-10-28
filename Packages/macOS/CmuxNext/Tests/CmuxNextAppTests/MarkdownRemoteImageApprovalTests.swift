@@ -2,9 +2,9 @@
 import CmuxNextDesign
 import CmuxNextPages
 import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 import Testing
-import CmuxNextWakeups
 
 /// A markdown document gets no remote-image resource URL by default. A real click grants only the
 /// current document's unguessable resource prefix; the host still fetches the exact URL through
@@ -38,7 +38,7 @@ import CmuxNextWakeups
     }
 
     @Test func automaticRemoteImagesDefaultOff() {
-        let look = FilePageLook(kind: .markdown, settings: { nil }, runner: BackgroundWork())
+        let look = FilePageLook(kind: .markdown, settings: { nil }, mainWork: linklessMainWork(), work: BackgroundWork(label: "test.file-look"))
         #expect(!look.remoteImages)
     }
 
@@ -49,7 +49,7 @@ import CmuxNextWakeups
         let file = folder.appending(path: "privacy.md")
         try Data("![pixel](https://tracker.example/open.png)\n".utf8).write(to: file)
         let images = Images()
-        let provider = FilePageProvider(kind: .markdown, file: file, host: Host(), runner: BackgroundWork(), libraries: nil, images: images)
+        let provider = FilePageProvider(kind: .markdown, file: file, host: Host(), libraries: nil, images: images)
         defer { provider.close() }
         let page = PageCallContext(page: FilePageKind.markdown.namespace)
         let clicked = PageCallContext(page: FilePageKind.markdown.namespace, userGesture: true)

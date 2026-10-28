@@ -5,7 +5,6 @@ import CmuxNextPages
 import CmuxNextSettings
 import Foundation
 import Testing
-import CmuxNextWakeups
 
 private enum ThreadProbe {
     nonisolated static func isMain() -> Bool { Thread.isMainThread }
@@ -119,7 +118,7 @@ private enum ThreadProbe {
     @Test func concurrentPageAddsPublishTheNewestListLast() async throws {
         let storage = DelayedStorage()
         let repository = MarkdownCommentRepository(storage: storage)
-        let provider = FilePageProvider(kind: .markdown, file: URL(fileURLWithPath: "/repo/README.md"), host: Host(), runner: BackgroundWork(),
+        let provider = FilePageProvider(kind: .markdown, file: URL(fileURLWithPath: "/repo/README.md"), host: Host(),
                                         libraries: nil, images: NoImages(), comments: repository)
         defer { provider.close() }
         var published: [ViewerCommentList] = []

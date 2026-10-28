@@ -260,39 +260,41 @@ fn clear_history_fallback_releases_terminal_before_pty_write() {
 #[cfg(unix)]
 #[test]
 fn clear_history_fallback_write_has_a_deadline_when_pty_input_is_full() {
-    use std::os::fd::{AsRawFd, FromRawFd};
+    use std::io::{Read, Write};
+    use std::os::fd::{AsRawFd, OwnedFd};
 
     let mux = Mux::new_for_test("clear-history-full-input", SurfaceOptions::default());
     let surface =
         Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
     surface.with_terminal(|term| term.vt_write(b"\x1b[?1049h\x1b[>1u"));
 
-    let mut pipe_fds = [0; 2];
-    assert_eq!(unsafe { libc::pipe(pipe_fds.as_mut_ptr()) }, 0);
-    let read_end = unsafe { std::fs::File::from_raw_fd(pipe_fds[0]) };
-    let write_end = unsafe { std::fs::File::from_raw_fd(pipe_fds[1]) };
-    let master_fd = unsafe { libc::dup(write_end.as_raw_fd()) };
-    assert!(master_fd >= 0);
-    let master_file = unsafe { std::fs::File::from_raw_fd(master_fd) };
+    let (read_end, write_end) = std::io::pipe().unwrap();
+    let read_end = std::fs::File::from(OwnedFd::from(read_end));
+    let write_end = std::fs::File::from(OwnedFd::from(write_end));
+    let master_file = write_end.try_clone().unwrap();
 
     let write_fd = write_end.as_raw_fd();
+    // SAFETY: `write_end` owns `write_fd` and outlives the call; F_GETFL touches no memory.
     let original_flags = unsafe { libc::fcntl(write_fd, libc::F_GETFL) };
     assert!(original_flags >= 0);
-    assert_eq!(
-        unsafe { libc::fcntl(write_fd, libc::F_SETFL, original_flags | libc::O_NONBLOCK) },
-        0
-    );
+    // SAFETY: as above; F_SETFL only adds O_NONBLOCK to the flags just read.
+    let set_nonblocking =
+        unsafe { libc::fcntl(write_fd, libc::F_SETFL, original_flags | libc::O_NONBLOCK) };
+    assert_eq!(set_nonblocking, 0);
     let fill = [b'x'; 4096];
     loop {
-        let written = unsafe { libc::write(write_fd, fill.as_ptr().cast(), fill.len()) };
-        if written > 0 {
-            continue;
+        match (&write_end).write(&fill) {
+            Ok(0) => panic!("pipe write returned zero"),
+            Ok(_) => {}
+            Err(error) => {
+                assert_eq!(error.kind(), std::io::ErrorKind::WouldBlock);
+                break;
+            }
         }
-        let error = std::io::Error::last_os_error();
-        assert_eq!(error.kind(), std::io::ErrorKind::WouldBlock);
-        break;
     }
-    assert_eq!(unsafe { libc::fcntl(write_fd, libc::F_SETFL, original_flags) }, 0);
+    // SAFETY: `write_end` still owns `write_fd`; F_SETFL restores the flags read above.
+    let restored = unsafe { libc::fcntl(write_fd, libc::F_SETFL, original_flags) };
+    assert_eq!(restored, 0);
 
     {
         let pty = surface.as_pty().unwrap();
@@ -325,9 +327,7 @@ fn clear_history_fallback_write_has_a_deadline_when_pty_input_is_full() {
     let completed_before_drain = timely.is_ok();
     if !completed_before_drain {
         let mut drain = [0; 4096];
-        assert!(
-            unsafe { libc::read(read_end.as_raw_fd(), drain.as_mut_ptr().cast(), drain.len()) } > 0
-        );
+        assert!((&read_end).read(&mut drain).unwrap() > 0);
     }
     let result = timely.or_else(|_| finished_rx.recv_timeout(Duration::from_secs(1))).unwrap();
 

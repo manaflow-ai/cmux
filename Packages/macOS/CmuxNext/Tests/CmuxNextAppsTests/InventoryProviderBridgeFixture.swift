@@ -1,4 +1,5 @@
 import Foundation
+import CmuxNextWakeups
 import Testing
 @testable import CmuxNextApps
 @testable import CmuxNextDaemon
@@ -8,7 +9,7 @@ import Testing
 final class InventoryProviderBridgeFixture {
     struct Command: DaemonRequest {
         typealias Response = JSONValue
-        static let command = "test-control"
+        static let commandName: DaemonCommandName = "test-control"
         var kind: String
         var count: Int = 0
     }
@@ -26,7 +27,7 @@ final class InventoryProviderBridgeFixture {
         let carrier = DaemonBridge(executable: "/usr/bin/python3", arguments: ["-u", "-c", Self.script, mode])
         connection = DaemonConnection(endpoint: .init(socketPath: "/tmp/cmux-provider-bridge-\(UUID().uuidString).sock", bridge: carrier),
                                       configuration: .init(requiredCapabilities: [], terminalEnvironment: nil))
-        bridge = AgentInventoryProviderBridge { [weak self] in self?.routes ?? [] }
+        bridge = AgentInventoryProviderBridge(on: MainWorkScheduler(budget: MainFrameBudget())) { [weak self] in self?.routes ?? [] }
     }
 
     func start() async throws {

@@ -26,8 +26,10 @@ extension RemoteBrowserPages {
         let carrier = services.remoteLocalhost.browserCarrier(machine: machine, port: runtime.port)
         guard let tab = RemoteBrowserSession.makeTab(record: record, id: BrowserTabID(rawValue: key), profile: profile,
                                                      viewer: "cmux-next", token: runtime.secret, carrier: carrier,
-                                                     machineName: services.machines.machineName(machine) ?? machine),
+                                                     machineName: services.machines.machineName(machine) ?? machine,
+                                                     mainWork: services.mainWork),
               let session = RemoteBrowserSession.session(of: tab) else { return nil }
+        tab.pane.view.pointerFrames = services.remotePointerFrames
         let hosts = services.machineBrowserHosts
         session.onClose = {
             machineKeys.remove(key)
@@ -41,6 +43,8 @@ extension RemoteBrowserPages {
                 answer(String(describing: surface))
             }
         }
+        // A discard stops this runtime; the wake starts the machine's browser again at the page shown.
+        tab.wakeRecord = { page in MachineBrowserRecord(machine: machine, initialURL: page ?? initialURL).url }
         machineKeys.insert(key)
         sessions = sessions.filter { $0.value.value != nil }
         sessions[key] = WeakSession(value: session)

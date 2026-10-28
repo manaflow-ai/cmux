@@ -100,7 +100,7 @@ public final class DiffViewedFiles {
         try? await runner.runFiles(.userVisible) { () -> [Scope] in
             guard let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize, size <= 16 * 1024 * 1024,
                   let data = try? Data(blockingContentsOf: url),
-                  let scopes = try? JSONDecoder().decode([Scope].self, from: data) else { return [] }
+                  let scopes = try? JSONDecoder().blockingDecode([Scope].self, from: data) else { return [] }
             return scopes.sorted { $0.changedAt > $1.changedAt }
         }
     }

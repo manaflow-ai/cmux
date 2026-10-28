@@ -1,4 +1,6 @@
 import CmuxNextCompat
+import CmuxNextDesign
+import CmuxNextWakeups
 import Foundation
 import os
 
@@ -13,69 +15,118 @@ import os
 /// off into a new workspace).
 final class IncognitoWorkspaceLedger {
     private let url: URL
+    /// What the last run left, read once on a launch lane (``startLaunchRead(at:on:)``): the launch
+    /// window's check and the restore read it, so the main thread never touches the file at launch.
+    private let leftovers: LaunchRead<Leftovers>
+    /// The app's blocking-work lanes: every write runs on the files lane, never on the pool.
+    private let work: any MayBlockRunner
     private var written: Set<String>?
-    /// The last run's ids were never read (the lane refused the read: quit began, or the launch was
-    /// cancelled). Writes then keep them in the file, so the next launch still closes them.
-    private var keepsLeftovers = false
     /// The latest write; the next one waits for it, so writes land in order.
     private var lastWrite: Task<Void, Never>?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "incognito")
-    /// The app's blocking-work lanes: the file's read and writes run there.
-    private let runner: any MayBlockRunner
 
-    init(url: URL, runner: any MayBlockRunner) {
-        self.url = url
-        self.runner = runner
+    /// What the launch read found at the ledger's path.
+    nonisolated enum Leftovers: Sendable, Equatable {
+        /// No file: the last run left no incognito workspace (the file exists only while it lists some).
+        case noFile
+        /// The ids the file lists.
+        case ids([String])
+        /// A file that could not be read or decoded, or a read quit dropped: there may be some, ids unknown.
+        case unknown
     }
 
-    /// `<Application Support>/<bundle id>/incognito-workspaces.json`.
-    static func forApplication(bundleIdentifier: String?, runner: any MayBlockRunner) -> IncognitoWorkspaceLedger {
+    init(url: URL, leftovers: LaunchRead<Leftovers>, work: any MayBlockRunner) {
+        self.url = url
+        self.leftovers = leftovers
+        self.work = work
+    }
+
+    /// The ledger at ``standardURL(bundleIdentifier:)``. `leftovers` is the launch read `main` started
+    /// (`AppEnvironment.incognitoLeftovers`); without one (tests that build `AppServices`) it starts on `work`
+    /// now, as `AppServices` is built, so it has ended before the first window asks.
+    static func forApplication(bundleIdentifier: String?, leftovers: LaunchRead<Leftovers>?, work: BackgroundWork) -> IncognitoWorkspaceLedger {
+        let url = standardURL(bundleIdentifier: bundleIdentifier)
+        return IncognitoWorkspaceLedger(url: url, leftovers: leftovers ?? startLaunchRead(at: url, on: work), work: work)
+    }
+
+    /// `<Application Support>/<bundle id>/incognito-workspaces.json` (a path, no disk call).
+    static func standardURL(bundleIdentifier: String?) -> URL {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(filePath: NSTemporaryDirectory())
         let bundle = bundleIdentifier.flatMap { $0.isEmpty ? nil : $0 } ?? "com.cmuxterm.app.next"
-        return IncognitoWorkspaceLedger(url: support.appending(path: bundle).appending(path: "incognito-workspaces.json"), runner: runner)
+        return support.appending(path: bundle).appending(path: "incognito-workspaces.json")
+    }
+
+    /// Reads what the last run left at `url` on `work`'s files lane, at once (`main`, before
+    /// `NSApplication.run`). Quit lets it finish: the restore awaits it. A read quit refuses ends as
+    /// ``Leftovers/unknown``, so the restore never waits forever and the launch window lists no workspace.
+    static func startLaunchRead(at url: URL, on work: BackgroundWork) -> LaunchRead<Leftovers> {
+        LaunchRead(on: work, shutdown: .blockShutdown, dropped: .unknown) { read(url) }
+    }
+
+    /// ``startLaunchRead(at:on:)`` in `sequence`: what is posted to it later (the app: the settings read, whose
+    /// landing builds the launch window) starts only once the leftovers are known.
+    static func startLaunchRead(at url: URL, in sequence: WorkSequence) -> LaunchRead<Leftovers> {
+        LaunchRead(in: sequence, shutdown: .blockShutdown, dropped: .unknown) { read(url) }
     }
 
     nonisolated private struct Document: Codable, Sendable {
         var workspaces: [String]
     }
 
-    /// True when the last run left incognito workspaces: the file exists
-    /// only while it lists some (an existence check, no read).
-    var hasLeftovers: Bool { FileManager.default.fileExists(atPath: url.path) }
-
-    /// The ids the last run left (read on the files lane); none when the read was refused, and then later
-    /// writes keep them in the file.
-    func load() async -> [String] {
-        let url = url
+    /// What the file at `url` lists. Runs on a lane.
+    nonisolated private static func read(_ url: URL) -> Leftovers {
+        let data: Data
         do {
-            return try await runner.runFiles(.userBlocking) { Self.read(url) }
+            // concurrency-allow: called only from the launch read and record's write, on the files lane
+            data = try Data(contentsOf: url)
+        } catch let error as CocoaError where error.code == .fileReadNoSuchFile || error.code == .fileNoSuchFile {
+            return .noFile
         } catch {
-            keepsLeftovers = true
-            return []
+            return .unknown
+        }
+        guard let document = try? JSONDecoder().blockingDecode(Document.self, from: data) else { return .unknown }
+        return .ids(document.workspaces)
+    }
+
+    /// Whether the last run may have left incognito workspaces: what the launch read found, and true while
+    /// it still runs or when the file could not be read, so a launch window never lists workspaces that may
+    /// be incognito. No disk call.
+    var mayHaveLeftovers: Bool {
+        switch leftovers.value {
+        case .noFile: false
+        case .ids(let ids): !ids.isEmpty
+        case .unknown, nil: true
         }
     }
 
-    /// The ids in the file at `url`, none when it is missing or unreadable; on the files lane.
-    nonisolated private static func read(_ url: URL) -> [String] {
-        guard let data = try? Data(blockingContentsOf: url),
-              let document = try? JSONDecoder().decode(Document.self, from: data) else { return [] }
-        return document.workspaces
+    /// The ids the last run left (the launch read's; the caller suspends until it ends). None for a file
+    /// that could not be read: the restore has no id to close.
+    func load() async -> [String] {
+        if case .ids(let ids) = await leftovers.finished() { return ids }
+        return []
     }
 
-    /// Records `ids` when they changed (written off the main thread).
+    /// Records `ids` when they changed, on the files lane. While the launch read has not listed the last
+    /// run's ids (it still runs, or the file could not be read, or quit dropped the read), each write keeps the
+    /// ids the file still lists: they are what closes a crashed run's incognito pages at the next launch.
     func record(_ ids: Set<String>) {
         guard ids != written else { return }
         written = ids
-        let url = url, logger = logger, keepsLeftovers = keepsLeftovers
-        let previous = lastWrite, runner = runner
+        let url = url, logger = logger, work = work
+        let keepsLeftovers: Bool = switch leftovers.value {
+        case .noFile, .ids: false
+        case .unknown, nil: true
+        }
+        let previous = lastWrite
         // task-owner: lastWrite; each write waits for the one before it, so they land in order.
         lastWrite = Task {
             await previous?.value
             do {
                 // The ledger is what closes a crashed run's incognito pages: quit waits for this small write.
-                try await runner.runFiles(.bestEffort, shutdown: .blockShutdown) {
-                    let all = keepsLeftovers ? ids.union(Self.read(url)) : ids
+                try await work.runFiles(.bestEffort, shutdown: .blockShutdown) {
+                    var all = ids
+                    if keepsLeftovers, case .ids(let left) = Self.read(url) { all.formUnion(left) }
                     let data = try? JSONEncoder().encode(Document(workspaces: all.sorted()))
                     if let data, !all.isEmpty {
                         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)

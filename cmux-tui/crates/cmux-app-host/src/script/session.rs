@@ -22,6 +22,10 @@ use crate::protocol::{
     SCRIPT_STEP_MS, ToHost,
 };
 
+/// A script session is automation (`cmux script run`, `cmux script repl`):
+/// its reader and call threads run at Utility.
+const SCRIPT_THREAD_QOS: cmux_threads::ThreadQos = cmux_threads::ThreadQos::Utility;
+
 /// Wall time of one cell when the caller gives none.
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(60);
 /// The longest wall time a caller may ask for.
@@ -233,15 +237,22 @@ impl Shared {
             return;
         }
         let me = self.clone();
-        let spawned =
-            std::thread::Builder::new().name("cmux-script-call".into()).spawn(move || {
-                let (ok, body) = match me.router.call(&name, params, options) {
-                    Ok(body) => (true, body),
-                    Err(body) => (false, body),
-                };
-                me.inflight.fetch_sub(1, Ordering::AcqRel);
-                me.send(&ToHost::Resolve { cb, ok, body });
-            });
+        // supervise-allow: one op call; a panic in the op resolves that call as failed, so its cell gets an answer and the in-flight count drops.
+        let spawned = cmux_threads::spawn("cmux-script-call", SCRIPT_THREAD_QOS, move || {
+            let called = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                me.router.call(&name, params, options)
+            }));
+            let (ok, body) = match called {
+                Ok(Ok(body)) => (true, body),
+                Ok(Err(body)) => (false, body),
+                Err(_) => (
+                    false,
+                    json!({ "code": "operation.failed", "message": "the operation failed", "retryable": false }),
+                ),
+            };
+            me.inflight.fetch_sub(1, Ordering::AcqRel);
+            me.send(&ToHost::Resolve { cb, ok, body });
+        });
         if let Err(error) = spawned {
             self.inflight.fetch_sub(1, Ordering::AcqRel);
             let body = json!({ "code": "operation.failed", "message": format!("no worker thread: {error}"), "retryable": true });
@@ -322,18 +333,17 @@ impl Session {
         });
         let (ready_tx, ready_rx) = mpsc::channel();
         let reader_shared = shared.clone();
-        let spawned =
-            std::thread::Builder::new().name("cmux-script-host".into()).spawn(move || {
-                let mut ready = Some(ready_tx);
+        // supervise-allow: this script session's reader; a panic in it ends the session as the runtime's exit does: the child is killed, waiting cells see a closed channel and the start reports failure.
+        let spawned = cmux_threads::spawn("cmux-script-host", SCRIPT_THREAD_QOS, move || {
+            let mut ready = Some(ready_tx);
+            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 let mut lines = BufReader::new(ours);
                 let mut line = Vec::new();
                 loop {
                     line.clear();
-                    match lines
-                        .by_ref()
-                        .take(MAX_LINE_BYTES as u64 + 1)
-                        .read_until(b'\n', &mut line)
-                    {
+                    let read =
+                        lines.by_ref().take(MAX_LINE_BYTES as u64 + 1).read_until(b'\n', &mut line);
+                    match read {
                         Ok(0) | Err(_) => break,
                         Ok(_) if line.last() != Some(&b'\n') => break,
                         Ok(_) => match serde_json::from_slice::<FromHost>(&line) {
@@ -342,14 +352,15 @@ impl Session {
                         },
                     }
                 }
-                reader_shared.kill();
-                let _ = child.kill();
-                let _ = child.wait();
-                reader_shared.mark_dead();
-                if let Some(ready) = ready.take() {
-                    let _ = ready.send(Err("the script runtime exited".into()));
-                }
-            });
+            }));
+            reader_shared.kill();
+            let _ = child.kill();
+            let _ = child.wait();
+            reader_shared.mark_dead();
+            if let Some(ready) = ready.take() {
+                let _ = ready.send(Err("the script runtime exited".into()));
+            }
+        });
         if let Err(e) = spawned {
             shared.kill();
             // The reader owned the child; end and reap it by pid.

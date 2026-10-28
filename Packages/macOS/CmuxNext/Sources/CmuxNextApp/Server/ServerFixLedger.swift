@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextServerHelper
 import Foundation
 
@@ -62,7 +63,7 @@ actor ServerFixLedger {
 
     func load() -> Contents {
         guard FileManager.default.fileExists(atPath: url.path) else { return .fixes([]) }
-        guard let data = try? Data(contentsOf: url), let file = try? JSONDecoder().decode(File.self, from: data) else {
+        guard let data = try? Data(contentsOf: url), let file = try? JSONDecoder().blockingDecode(File.self, from: data) else {
             return .unknown
         }
         // An id this build does not know may be a fix it cannot name: fail safe.
@@ -78,6 +79,7 @@ actor ServerFixLedger {
         guard load() != .unknown else { return }
         var file = try readKnown()
         if file.fixes[fix.rawValue] == nil {
+            // wall-clock: the ledger file keeps when each fix was applied, Unix ms.
             file.fixes[fix.rawValue] = Int64(Date().timeIntervalSince1970 * 1000)
         }
         try write(file)
@@ -99,7 +101,7 @@ actor ServerFixLedger {
 
     private func readKnown() throws -> File {
         guard FileManager.default.fileExists(atPath: url.path) else { return File() }
-        return try JSONDecoder().decode(File.self, from: Data(contentsOf: url))
+        return try JSONDecoder().blockingDecode(File.self, from: Data(contentsOf: url))
     }
 
     /// A new temp file created 0600 (`O_CREAT | O_EXCL`, so it is never
@@ -111,16 +113,17 @@ actor ServerFixLedger {
                                                 attributes: [.posixPermissions: 0o700])
         let data = try JSONEncoder().encode(file)
         let temp = directory.appendingPathComponent(".\(url.lastPathComponent).\(UUID().uuidString).tmp")
-        let descriptor = open(temp.path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0o600)
+        // SAFETY: open, rename and unlink read the NUL-terminated copies of the paths Swift makes for each call.
+        let descriptor = unsafe open(temp.path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0o600)
         guard descriptor >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
         let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
         do {
             try handle.write(contentsOf: data)
             try handle.synchronize()
             try handle.close()
-            guard rename(temp.path, url.path) == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+            guard unsafe rename(temp.path, url.path) == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
         } catch {
-            unlink(temp.path)
+            unsafe unlink(temp.path)
             throw error
         }
     }

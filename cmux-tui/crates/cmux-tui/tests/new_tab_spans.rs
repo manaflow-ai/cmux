@@ -94,6 +94,12 @@ fn a_new_tab_traces_its_terminal_through_its_first_prompt() {
     let _ = daemon.wait();
     let _ = fs::remove_dir_all(&dir);
 
+    // The trace starts at the line's arrival, so the connection queue's wait
+    // is in it: it ends at `dequeued`, before the pool job starts.
+    let dequeued = mark(&create, "dequeued").expect("the create's trace has dequeued");
+    let job_start = mark(&create, "job.start").expect("the create's trace has job.start");
+    assert_eq!(create["marks"][0][0], "dequeued", "dequeued is the first mark: {create}");
+    assert!(dequeued <= job_start, "job.start {job_start} before dequeued {dequeued}");
     let commit = mark(&create, "commit.start").expect("the create's trace has commit.start");
     mark(&create, "reply.queued").expect("the create's trace has reply.queued");
     let first_output = follow.iter().find_map(|trace| mark(trace, "host.first_output"));

@@ -1,0 +1,23 @@
+{
+  "id": "sidebar-rows-live",
+  "tier": "T1",
+  "description": "Sidebar rows at 1,000 workspaces with 50 ticking terminals (sidebar-rows-perf-live.py): main-thread reply delay and CPU per OSC 7501 tick, then a trackpad scroll with the ticks off and on (event RPC time; the Animation Hitches total and hitch time ratio of each valid recording).",
+  "command": ["scripts/cmux-next/sidebar-rows-perf-live.py", "--repeats", "3"],
+  "session": "stress",
+  "engine": "none",
+  "config": "bench",
+  "metrics": [
+    {"name": "sidebar_rows_live\\.[0-9]+\\.ticks\\.reply_delay", "unit": "ms", "better": "lower"},
+    {"name": "sidebar_rows_live\\.[0-9]+\\.ticks\\.(app_cpu_per_tick|main_per_tick)", "unit": "us", "better": "lower"},
+    {"name": "sidebar_rows_live\\.[0-9]+\\.scroll_(no_ticks|ticking)\\.(event_rpc|hitch_total)", "unit": "ms",
+     "better": "lower"},
+    {"name": "sidebar_rows_live\\.[0-9]+\\.scroll_(no_ticks|ticking)\\.hitch_ratio", "unit": "percent",
+     "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 420,
+  "needs": ["debug:debug.sidebar_rows", "debug:debug.sidebar_wheel", "debug:debug.mouse", "debug:debug.frames",
+            "debug:debug.layout_counters"],
+  "owner": "a590",
+  "component": "Sidebar>Rows"
+}

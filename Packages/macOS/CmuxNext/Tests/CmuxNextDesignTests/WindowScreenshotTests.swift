@@ -4,6 +4,7 @@ import Metal
 import QuartzCore
 import Testing
 import CmuxNextDesignTokens
+import CmuxNextWakeups
 
 /// `cmux window|pane|tab screenshot` reads the app's own window without the
 /// Screen Recording grant (`NSWindow.screenshotImage`). The window here has
@@ -159,7 +160,7 @@ import CmuxNextDesignTokens
     func theScreenshotIsTheCoveredWindowWithItsMetalPixels() async throws {
         let fixture = try fixture()
         defer { fixture.close() }
-        let image = try await settledImage(fixture) { try await fixture.window.screenshotImage() }
+        let image = try await settledImage(fixture) { try await fixture.window.screenshotImage(on: BackgroundWork(label: "test.screenshot")) }
         try expectWindowPixels(image, fixture, path: "screenshotImage")
         let png = try #require(image?.pngData())
         let decoded = try #require(NSBitmapImageRep(data: png))
@@ -171,7 +172,7 @@ import CmuxNextDesignTokens
     func theWindowServerImageShowsMetalPixels() async throws {
         let fixture = try fixture()
         defer { fixture.close() }
-        let image = try await settledImage(fixture) { fixture.window.compositedSnapshot() }
+        let image = try await settledImage(fixture) { await fixture.window.compositedImage(on: BackgroundWork(label: "test.screenshot")) }
         try expectWindowPixels(image, fixture, path: "CGWindowListCreateImage", exactSize: false)
     }
 
@@ -189,7 +190,7 @@ import CmuxNextDesignTokens
         let fixture = try fixture()
         defer { fixture.close() }
         let window = fixture.window
-        let full = try #require(try await settledImage(fixture) { try await window.screenshotImage() })
+        let full = try #require(try await settledImage(fixture) { try await window.screenshotImage(on: BackgroundWork(label: "test.screenshot")) })
         let rect = fixture.metal.convert(fixture.metal.bounds, to: nil)
         let crop = try #require(full.cropped(toWindowRect: rect, windowSize: window.frame.size))
         #expect(crop.width == Int((rect.width * window.backingScaleFactor).rounded()))
@@ -205,6 +206,6 @@ import CmuxNextDesignTokens
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 80, height: 60), styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         defer { window.close() }
-        await #expect(throws: WindowScreenshotFailure.notOnScreen) { try await window.screenshotImage() }
+        await #expect(throws: WindowScreenshotFailure.notOnScreen) { try await window.screenshotImage(on: BackgroundWork(label: "test.screenshot")) }
     }
 }

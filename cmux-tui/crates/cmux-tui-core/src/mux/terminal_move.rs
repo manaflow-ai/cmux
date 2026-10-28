@@ -4,6 +4,7 @@ use super::*;
 
 impl Mux {
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub fn move_terminal_with_mutation(
         &self,
         terminal_id: &str,

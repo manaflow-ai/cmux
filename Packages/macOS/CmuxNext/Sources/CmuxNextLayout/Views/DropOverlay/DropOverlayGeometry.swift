@@ -57,10 +57,14 @@ public nonisolated struct DropOverlayFrame: Equatable, Sendable {
     /// The final frames of the panes the drop resizes or moves, outlined
     /// beside the filled new pane (the final-layout preview, DESIGN.md (c)1).
     public var companions: [CGRect]
+    /// A self-driven style moves to `finalTarget` with additive render-server springs
+    /// (`RenderSpring`, `motion.renderServer`) instead of springs that restart from what shows.
+    public var springsOnRenderServer: Bool
 
     public init(target: CGRect, finalTarget: CGRect? = nil, region: CGRect, zone: DropOverlayZone, bounds: CGRect,
                 cornerRadius: CGFloat, label: String, showsLabel: Bool, refused: Bool = false, animated: Bool = false,
-                fills: Bool = true, companions: [CGRect] = []) {
+                fills: Bool = true, companions: [CGRect] = [], springsOnRenderServer: Bool = false) {
+        self.springsOnRenderServer = springsOnRenderServer
         self.refused = refused
         self.fills = fills
         self.companions = companions

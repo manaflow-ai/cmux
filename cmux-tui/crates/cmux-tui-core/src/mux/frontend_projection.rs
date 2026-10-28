@@ -1,18 +1,22 @@
 //! Frontend projections and registry reads: terminal registry snapshots and pages, workspace registry events, frontend projection get/put, and workspace selector resolution.
 
 use super::*;
+use crate::panic_free::RecoverPoison;
 
 impl Mux {
     /// The terminal registry revision without reading every terminal row:
     /// the registry lock is held for one indexed read.
+    #[track_caller]
     pub fn terminal_registry_revision(&self) -> anyhow::Result<u64> {
         self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner).terminal_revision()
     }
 
+    #[track_caller]
     pub fn terminal_registry_snapshot(&self) -> anyhow::Result<TerminalRegistrySnapshot> {
         self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner).terminal_snapshot()
     }
 
+    #[track_caller]
     pub fn terminal_registry_events_page(
         &self,
         revision: u64,
@@ -29,6 +33,7 @@ impl Mux {
         Ok((snapshot, events))
     }
 
+    #[track_caller]
     pub fn workspace_registry_event(
         &self,
         revision: u64,
@@ -39,12 +44,13 @@ impl Mux {
         Ok(self
             .workspace_registry
             .lock()
-            .unwrap()
+            .recover_poison()
             .events_after(revision - 1)?
             .into_iter()
             .find(|event| event.revision == revision))
     }
 
+    #[track_caller]
     pub fn get_frontend_projection(
         &self,
         frontend: &str,
@@ -58,6 +64,7 @@ impl Mux {
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub fn put_frontend_projection(
         &self,
         mutation: &WorkspaceMutation,
@@ -91,6 +98,7 @@ impl Mux {
         Ok(commit)
     }
 
+    #[track_caller]
     pub(crate) fn resource_put_frontend_projection_selected(
         &self,
         selectors: crate::ResourceSelectors,
@@ -118,7 +126,7 @@ impl Mux {
             .context("frontend projection revision exhausted")?;
         let mut session_selectors = selectors;
         session_selectors.frontend_projection = None;
-        let mut state = self.lock_state_pinned(&registry).unwrap();
+        let mut state = self.lock_state_pinned(&registry).recover_poison();
         let resolved = self
             .resolve_resource_path_in_state(
                 &state,
@@ -181,19 +189,16 @@ impl Mux {
         id: Option<WorkspaceId>,
         key: Option<&str>,
     ) -> anyhow::Result<Option<(WorkspaceId, String)>> {
-        let by_id = id.and_then(|id| state.workspace_by_id(id));
-        let by_key = key.and_then(|key| state.workspace_by_key(key));
+        let by_id = id.and_then(|id| state.workspace_by_id(id).filter(|ws| ws.id == id));
+        let by_key = key.and_then(|key| state.workspace_by_key(key).filter(|ws| ws.key == key));
         let workspace = match (id, key, by_id, by_key) {
             (None, None, _, _) => anyhow::bail!("workspace or key is required"),
-            (Some(id), None, Some(workspace), _) if workspace.id == id => Some(workspace),
-            (Some(_), None, None, _) => None,
-            (None, Some(key), _, Some(workspace)) if workspace.key == key => Some(workspace),
-            (None, Some(_), _, None) => None,
+            (Some(_), None, by_id, _) => by_id,
+            (None, Some(_), _, by_key) => by_key,
             (Some(_), Some(_), Some(by_id), Some(by_key)) if by_id.id == by_key.id => Some(by_id),
             (Some(_), Some(_), _, _) => {
                 anyhow::bail!("workspace id and key do not identify the same workspace")
             }
-            _ => unreachable!("workspace selector cases are exhaustive"),
         };
         Ok(workspace.map(|workspace| (workspace.id, workspace.key.clone())))
     }

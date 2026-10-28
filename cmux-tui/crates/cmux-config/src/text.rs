@@ -103,11 +103,11 @@ impl ThemeSpec {
 }
 
 fn prefixed(text: &str, prefix: &str) -> Option<String> {
-    let head = text.get(..prefix.len())?;
+    let (head, rest) = text.split_at_checked(prefix.len())?;
     if !head.eq_ignore_ascii_case(prefix) {
         return None;
     }
-    let name = trim_whitespaces(&text[prefix.len()..]);
+    let name = trim_whitespaces(rest);
     (!name.is_empty()).then(|| name.to_string())
 }
 
@@ -127,7 +127,7 @@ pub fn quiet_hours_minutes(text: &str) -> Option<i64> {
     };
     let hour: i64 = swift_int(hour)?;
     let minute: i64 = swift_int(minute)?;
-    ((0..=23).contains(&hour) && (0..=59).contains(&minute)).then_some(hour * 60 + minute)
+    ((0..=23).contains(&hour) && (0..=59).contains(&minute)).then(|| hour * 60 + minute)
 }
 
 /// Swift `Int(String)`: optional sign, ASCII digits only.

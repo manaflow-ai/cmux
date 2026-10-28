@@ -36,7 +36,7 @@ public actor RPCStackTokenGate {
             id = UUID()
             task = Task { try await provider() }
             current = (id: id, task: task, waiters: 1, timedOutUntil: nil)
-            Task.detached { [weak self] in
+            Task { [weak self] in
                 _ = await task.result
                 await self?.clear(id: id)
             }

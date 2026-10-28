@@ -57,7 +57,7 @@ extension FileOperator {
                 let keepParent = first.hasDirectoryPath || (try? first.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true
                 return (target, keepParent)
             }
-            try await ditto(["-c", "-k", "--sequesterRsrc"] + (keepParent ? ["--keepParent"] : []) + [first.path, target.path])
+            try await ditto(["-c", "-k", "--sequesterRsrc"] + (keepParent ? ["--keepParent"] : []) + [first.path], archive: target)
             return target
         }
         // ditto archives one source: clone the items (metadata-only on APFS)
@@ -78,7 +78,7 @@ extension FileOperator {
             return (target, staging)
         }
         do {
-            try await ditto(["-c", "-k", "--sequesterRsrc", staging.path, target.path])
+            try await ditto(["-c", "-k", "--sequesterRsrc", staging.path], archive: target)
         } catch {
             work.post(.bestEffort, mayBlock: .bulkFiles) { Self.removeStaging(staging) }
             throw error
@@ -140,14 +140,33 @@ extension FileOperator {
         }
     }
 
-    /// Runs `/usr/bin/ditto` (the tool Finder's Compress uses) and awaits its exit without holding a thread.
+    /// ditto with `archive`, a name nothing had, as its last argument: a run that failed or was stopped
+    /// leaves no partial archive there. The removal runs on the files lane before the error returns; when the
+    /// lane refuses it (the caller was cancelled, or quit began) it is posted instead.
+    private func ditto(_ arguments: [String], archive: URL) async throws {
+        do {
+            try await ditto(arguments + [archive.path])
+        } catch {
+            let removed: Void? = try? await work.run(.userBlocking, mayBlock: .files) { try? FileManager.default.removeItem(at: archive) }
+            if removed == nil { work.post(.bestEffort, mayBlock: .files) { try? FileManager.default.removeItem(at: archive) } }
+            throw error
+        }
+    }
+
+    /// Runs `/usr/bin/ditto` (the tool Finder's Compress uses) to its exit; no thread waits for it.
+    /// The person watches the archive appear, so it runs at userVisible. A cancel stops it (the person
+    /// gave up on the archive); ``compress(_:archiveName:)`` then removes the partial archive, and
+    /// ``expand(_:)`` its staging folder.
     func ditto(_ arguments: [String]) async throws {
+        let request = ProcessRequest(URL(fileURLWithPath: "/usr/bin/ditto"), arguments, errorOutput: .separate, onCancel: .stop,
+                                     priority: .userVisible)
         let outcome: ProcessOutcome
         do {
-            outcome = try await AsyncProcess().run(ProcessRequest(URL(fileURLWithPath: "/usr/bin/ditto"), arguments,
-                                                                  errorOutput: .separate, onCancel: .finish))
-        } catch let failure as ProcessFailure {
-            throw FileBrowserError.failed(String(describing: failure))
+            outcome = try await processes.outcome(of: request)
+        } catch ProcessFailure.launch(let message) {
+            throw FileBrowserError.failed(message)
+        } catch {
+            throw FileBrowserError.failed(error.localizedDescription)
         }
         guard outcome.succeeded else {
             let message = String(decoding: outcome.errorOutput, as: UTF8.self)

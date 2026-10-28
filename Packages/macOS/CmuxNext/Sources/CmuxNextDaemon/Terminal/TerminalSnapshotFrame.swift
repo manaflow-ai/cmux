@@ -57,10 +57,12 @@ public struct TerminalSnapshotFrame: Sendable, Hashable {
 struct DecodedAttachLine: Sendable, Equatable {
     var event: TerminalChannelEvent
     var generation: UInt64?
+    /// The key press an `output` echoes (its `flow`), for the probe's decode mark.
+    var flow: UInt64?
 }
 
-/// The one owner of snapshot order on an attach stream (runs on the reader
-/// thread, in stream order).
+/// The one owner of snapshot order on an attach stream (runs on the attach
+/// connection's decode lane, in stream order).
 ///
 /// - Output tagged with a generation older than the last READY belongs to a
 ///   screen that READY replaced: dropped.
@@ -68,6 +70,10 @@ struct DecodedAttachLine: Sendable, Equatable {
 ///   offset); pages of a replaced READY would land above the wrong screen.
 /// - Everything else passes unchanged, so a byte-replay attach (no
 ///   snapshot, untagged output) is unaffected.
+///
+/// On a stream with attach frames, ``TerminalAttachFrameDecoder`` owns it
+/// for frames and lines alike; frame output carries no generation, and the
+/// decoder drops what a READY replaced by its PTY offset instead.
 struct TerminalSnapshotSequencer: Sendable {
     private(set) var generation: UInt64?
     private var cut: (generation: UInt64, offset: UInt64)?

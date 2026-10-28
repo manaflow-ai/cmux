@@ -1,5 +1,6 @@
 public import CmuxNextControl
 #if DEBUG
+import CmuxNextCompat
 import CmuxNextDevices
 import CmuxNextSettings
 import Foundation
@@ -99,7 +100,7 @@ extension MacScreenPages {
             case "relay_add":
                 guard let path = params["secret_file"]?.stringValue,
                       let data = try? await store.runner.runFiles(.userBlocking, { try Data(blockingContentsOf: URL(filePath: path)) }),
-                      let secret = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
+                      let secret = try? JSONSerialization.blockingJSONObject(with: data) as? [String: String] else {
                     return ["error": "secret_file must name a readable JSON file"]
                 }
                 let urls = params["urls"]?.arrayValue?.compactMap(\.stringValue) ?? params["urls"]?.stringValue.map { [$0] } ?? []
@@ -138,7 +139,7 @@ extension MacScreenPages {
         guard let settings else { return ["error": "no Settings > Devices"] }
         do {
             let data = try JSONSerialization.data(withJSONObject: JSONValue.object(params).foundationObject)
-            let run = try JSONDecoder().decode(MacScreenDevicesSettings.Run.self, from: data)
+            let run = try JSONDecoder().blockingDecode(MacScreenDevicesSettings.Run.self, from: data)
             return Self.json(await settings.run(run))
         } catch {
             return ["error": .string("\(error)")]

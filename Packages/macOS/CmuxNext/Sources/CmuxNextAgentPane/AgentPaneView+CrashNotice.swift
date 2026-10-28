@@ -2,24 +2,12 @@ import AppKit
 import CmuxNextDesign
 import CmuxNextPages
 
-/// A crashed page: reload it, unless it keeps crashing; then the pane says so and waits for the
-/// user (on the old host with its own count, on the page host with the page host's).
+/// A crashed page: the page host reloads it, unless it keeps crashing; then the pane says so and
+/// waits for the user.
 extension AgentPaneView {
-    /// Reloads the page after its web content process crashed, unless it
-    /// keeps crashing; then the pane says so and waits for the user.
-    func webContentProcessDidTerminate() {
-        // The composer that held the session's words is gone.
-        dictation.handle(.cancel)
-        if crashReloads.shouldReload(at: .now) {
-            source.load(into: webView)
-        } else {
-            showCrashNotice()
-        }
-    }
-
-    /// The page host's crash report: the same as ``webContentProcessDidTerminate()``, with the
-    /// reload policy kept by the page host.
+    /// The page host's crash report; `reloading` is false once the page keeps crashing.
     func pageCrashed(reloading: Bool) {
+        // The composer that held the session's words is gone.
         dictation.handle(.cancel)
         if !reloading { showCrashNotice() }
     }
@@ -60,7 +48,6 @@ extension AgentPaneView {
     @objc private func reloadAfterCrashes() {
         crashNotice?.removeFromSuperview()
         crashNotice = nil
-        crashReloads = PageCrashReloads()
-        if let page { page.reloadAfterCrashes() } else { source.load(into: webView) }
+        page.reloadAfterCrashes()
     }
 }

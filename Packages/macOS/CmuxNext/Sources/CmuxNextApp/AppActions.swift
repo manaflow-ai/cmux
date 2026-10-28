@@ -4,13 +4,22 @@ import CmuxNextAgentLanes
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextEnergy
 import CmuxNextSidebarActions
+import CmuxNextWakeups
 import os
 
 /// Binds catalog actions to handlers. Menus, shortcuts, the palette, and
 /// context menus all resolve through the registry (REWRITE.md "Action
 /// contract"), so each behavior is written once here.
 enum AppActions {
+    /// The launch's bindings as the critical `AppActions.bind` step (startup-DESIGN.md row O11): keys work
+    /// from the first frame, and the step's record (`debug.startup`) and `launch.startup_task` signpost
+    /// carry its cost, as Chrome times its startup steps (components/startup_metric_utils/browser/startup_metric_utils.cc).
+    static func bindAtLaunch(_ services: AppServices, on startup: StartupScheduler) {
+        startup.post(.critical, "AppActions.bind", on: .main) { AppActions.bind(services) }
+    }
+
     static func bind(_ services: AppServices) {
         bindApp(services)
         bindWorkspaces(services)
@@ -119,6 +128,7 @@ enum AppActions {
         RemoteBrowserPages.bind(into: registry, context: context)
         ResourceHandlers.bind(into: registry, context: context)
         LinkHandlers.bind(into: registry, context: context)
+        services.energy.driver.bindActions(into: registry)
         IconMenuVisibility.install(registry, context: context)
         TabSelectionTitles(context: context).install(in: registry)
         TopPages.installTabTargetReasons(services)
@@ -129,6 +139,7 @@ enum AppActions {
         DestructiveConfirmation.install(services)
         ActionRouting.install(services)
         ActionRouting.installSidebarUserIntent(services)
+        CreationInputCoordinator.installPersonIntent(services)
         WindowKeyTable.install(services)
         // One owner per action: a second binding silently replaces the first. The check is a test
         // (noActionIsBoundTwice); at runtime a Debug dogfood build must not crash, so only a fault.
@@ -170,8 +181,16 @@ enum AppActions {
         registry.bind("quitEndEverything") { services.quit.requestQuit(.explicit(.endEverything)) }
         registry.bind("newWindow") { services.windows.newWindow(holdingKeysFrom: services.windows.active?.window) }
         registry.bind("newIncognitoWindow") { services.windows.newIncognitoWindow() }
-        registry.bind("closeWindow", isEnabled: { services.windows.active != nil }) {
-            services.windows.active?.window?.performClose(nil)
+        registry.bindEffect("closeWindow", isEnabled: { services.windows.active != nil }) { invocation in
+            let controller: WindowController?
+            if let target = invocation.target, target.kind == .window {
+                controller = services.windows.controllerBuildingIfWaiting(for: target.id)
+                guard controller != nil else { return .refused(RefusalStrings.noWindow(target.id)) }
+            } else {
+                controller = services.windows.active
+            }
+            controller?.performClose(by: invocation.origin)
+            return .done
         }
         registry.bind("toggleFullScreen") { services.windows.active?.window?.toggleFullScreen(nil) }
         registry.bind("toggleSidebar") { services.windows.active?.sidebar.model.toggle() }
@@ -181,7 +200,8 @@ enum AppActions {
             guard let window = services.windows.active else { return }
             if window.sidebar.model.isHidden { window.sidebar.model.toggle() }
             window.sidebar.container.sidebarView.focusList()
-            window.focus.send(.focusTarget(.sidebar(keyboard: true), source: .keyboard))
+            // The run's own input (the person's key, or the CLI): a script's run is not the person's intent.
+            window.focus.send(.focusTarget(.sidebar(keyboard: true), source: .intent))
         }
     }
 }

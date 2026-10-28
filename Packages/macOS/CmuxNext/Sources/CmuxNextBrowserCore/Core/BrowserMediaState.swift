@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// What a page plays now, as Edge's media hub shows it (cx-6qwm.2): the
@@ -113,7 +114,7 @@ public nonisolated struct BrowserMediaState: Hashable, Sendable {
 
     /// ``frameReport(_:)`` from JSON (Chromium's binding payload).
     package static func frameReport(json: String) -> (frame: String, media: BrowserMediaState?)? {
-        guard let data = json.data(using: .utf8), let body = try? JSONSerialization.jsonObject(with: data) else { return nil }
+        guard let data = json.data(using: .utf8), let body = try? JSONSerialization.blockingJSONObject(with: data) else { return nil }
         return frameReport(body)
     }
 }

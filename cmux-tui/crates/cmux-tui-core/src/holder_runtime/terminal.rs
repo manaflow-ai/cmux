@@ -10,7 +10,7 @@ use cmux_pty::ChildKiller;
 
 use super::sink::{AdoptionCuts, Pending, SinkEnd, SnapshottingReader};
 use super::{HolderService, HolderSink};
-use crate::surface::spawn::LocalLaunch;
+use crate::surface::spawn::{LocalEnd, LocalLaunch};
 use crate::terminal_end::TerminalEnd;
 use crate::terminal_host_protocol::{TerminalExit, TerminalExitOutcome};
 
@@ -66,6 +66,20 @@ pub(super) const ADOPT_PROLOGUE_MAX_BYTES: usize = 768 * 1024;
 pub(super) const SNAPSHOT_MAX_BYTES: usize = 128 * 1024;
 
 impl HolderTerminal {
+    /// Size of the ring segment the daemon keeps a copy of (`memory-report`),
+    /// `None` when it keeps none or the segment cannot be read.
+    pub(crate) fn ring_bytes(&self) -> Option<u64> {
+        let ring = self.ring.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let fd = ring.as_ref()?.as_raw_fd();
+        // SAFETY: `stat` is plain old data; all-zero is valid.
+        let mut stat: libc::stat = unsafe { std::mem::zeroed() };
+        // SAFETY: `fd` stays open while `ring` is locked; `stat` is writable.
+        if unsafe { libc::fstat(fd, &raw mut stat) } != 0 {
+            return None;
+        }
+        u64::try_from(stat.st_size).ok()
+    }
+
     /// The daemon exits and leaves the shell to the holder: the reader and
     /// the wait end without recording an end, and the holder hears DETACH
     /// (the link's end is no strike against the terminal's stream).
@@ -73,6 +87,13 @@ impl HolderTerminal {
         self.sink.detach();
         self.service.detach(self.chan);
         self.service.untrack(self.chan);
+    }
+
+    /// Tell the holder its next read of this terminal echoes the key press
+    /// `flow` (WRITE_FLOW, [`HolderService::mark_input_flow`]): the daemon
+    /// writes the bytes itself on its custody master.
+    pub(crate) fn mark_input_flow(&self, flow: u64) -> bool {
+        self.service.mark_input_flow(self.chan, flow)
     }
 
     /// How to replay the screen for a new holder (the surface sets it).
@@ -304,13 +325,13 @@ pub(crate) fn holder_local_launch(
         reader: Box::new(reader),
         writer,
         killer: Box::new(HolderKiller(terminal.clone())),
-        wait: Box::new(move || {
+        end: LocalEnd::Wait(Box::new(move || {
             let end = waited.sink.wait_end();
             if end != SinkEnd::Detached {
                 waited.end();
             }
             terminal_end(end)
-        }),
+        })),
         pid: u32::try_from(terminal.pid).ok(),
         command,
         cwd,
@@ -418,14 +439,33 @@ impl std::fmt::Debug for HolderKiller {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use std::io::Read;
     use std::os::fd::FromRawFd;
 
     use super::*;
 
     /// A raw PTY pair whose master is non-blocking, as the holder leaves it.
-    fn nonblocking_pty() -> (OwnedFd, std::fs::File) {
+    /// A terminal on `service` (a stand-in holder) whose custody master is
+    /// `custody`, its output from offset 0.
+    pub(crate) fn stand_in_terminal(
+        service: Arc<HolderService>,
+        chan: u32,
+        custody: OwnedFd,
+    ) -> Arc<HolderTerminal> {
+        Arc::new(HolderTerminal {
+            chan,
+            id: [0x5a; 16],
+            pid: 0,
+            custody,
+            ring: std::sync::Mutex::new(None),
+            sink: HolderSink::new(0),
+            service,
+            replay: std::sync::Mutex::new(None),
+        })
+    }
+
+    pub(crate) fn nonblocking_pty() -> (OwnedFd, std::fs::File) {
         let (mut master, mut slave) = (-1, -1);
         // SAFETY: out-pointers to live locals; default termios and size.
         let opened = unsafe {
@@ -489,7 +529,9 @@ mod tests {
         });
         let launch = holder_local_launch(&terminal, Vec::new(), None).unwrap();
         sink.exit(ExitStatus::Exited(0), 0);
-        let wait = launch.wait;
+        let LocalEnd::Wait(wait) = launch.end else {
+            panic!("a holder terminal ends through its sink, not a child reaper")
+        };
         let _ = wait();
         assert!(terminal.ring.lock().unwrap().is_none(), "the ended terminal kept its segment");
         terminal.keep_ring(Some(segment()));

@@ -22,18 +22,29 @@ public nonisolated struct VerificationScriptFailure: Error, Sendable, Hashable {
     }
 }
 
-/// The real runner: one `osascript` process per call.
+/// The real runner: one `osascript` process per call through ``AsyncProcess``, which spawns it off
+/// the caller at the caller's priority and reads both pipes without holding a thread. A cancelled
+/// caller stops the script: nobody wants the read any more.
 public nonisolated struct OsascriptRunner: VerificationScriptRunning {
-    public init() {}
+    /// Called with osascript's pid on the thread that spawned it (tests check that thread).
+    private let onLaunch: (@Sendable (Int32) -> Void)?
 
-    /// The child is spawned off the pool and awaited without a thread (``AsyncProcess``); a launch failure
-    /// throws ``ProcessFailure``.
-    public func run(_ arguments: [String]) async throws -> String {
+    public init() {
+        self.init(onLaunch: nil)
+    }
+
+    /// Creates a runner that reports each spawn to `onLaunch` (tests).
+    init(onLaunch: (@Sendable (Int32) -> Void)?) {
+        self.onLaunch = onLaunch
+    }
+
+    @concurrent public func run(_ arguments: [String]) async throws -> String {
         let outcome = try await AsyncProcess().run(ProcessRequest(URL(fileURLWithPath: "/usr/bin/osascript"), arguments,
-                                                                  errorOutput: .separate))
+                                                                  errorOutput: .separate, onLaunch: onLaunch))
         guard outcome.succeeded else {
             throw VerificationScriptFailure(status: outcome.status,
-                                            message: String(decoding: outcome.errorOutput, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines))
+                                            message: String(decoding: outcome.errorOutput, as: UTF8.self)
+                                                .trimmingCharacters(in: .whitespacesAndNewlines))
         }
         return outcome.text
     }

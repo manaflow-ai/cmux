@@ -30,6 +30,8 @@
 //! assert_eq!(&*back, old);
 //! ```
 
+#![forbid(unsafe_code)]
+
 mod change;
 mod compat;
 pub mod coverage;
@@ -39,6 +41,7 @@ pub mod pointer;
 mod schema;
 mod stream;
 mod trie;
+pub mod wire;
 
 pub use change::{Change, Conversion, Direction};
 pub use compat::{Broadcast, Compat, Program};

@@ -1,9 +1,11 @@
 //! Layout resizes: split ratio and viewport pane width commands, with checked, transaction and in-process transaction variants.
 
 use super::*;
+use crate::panic_free::RecoverPoison;
 
 impl Mux {
     /// Set the deepest split ratio in `dir` on the path to `pane`.
+    #[track_caller]
     pub fn set_ratio_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -15,6 +17,7 @@ impl Mux {
     }
 
     /// Set a pane-addressed split ratio while preserving rejection details.
+    #[track_caller]
     pub fn set_ratio_checked_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -39,11 +42,13 @@ impl Mux {
     }
 
     /// Set one split ratio by its stable split-tree node id.
+    #[track_caller]
     pub fn set_split_ratio_as(self: &Arc<Self>, actor: &Actor, split: SplitId, ratio: f32) -> bool {
         self.set_split_ratio_checked_as(actor, split, ratio).is_ok()
     }
 
     /// Set one split ratio while preserving rejection details.
+    #[track_caller]
     pub fn set_split_ratio_checked_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -54,6 +59,7 @@ impl Mux {
     }
 
     /// Set one split ratio as part of a client-scoped resize transaction.
+    #[track_caller]
     pub fn set_split_ratio_in_transaction_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -67,6 +73,7 @@ impl Mux {
     }
 
     /// Set one transactional split ratio while preserving rejection details.
+    #[track_caller]
     pub fn set_split_ratio_in_transaction_checked_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -86,6 +93,7 @@ impl Mux {
 
     /// Set one in-process transactional split ratio without sharing the
     /// control-client ownership namespace.
+    #[track_caller]
     pub fn set_split_ratio_in_process_transaction_checked_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -103,6 +111,7 @@ impl Mux {
         )
     }
 
+    #[track_caller]
     pub(super) fn set_split_ratio_inner(
         self: &Arc<Self>,
         actor: &Actor,
@@ -113,32 +122,36 @@ impl Mux {
     ) -> Result<(), LayoutRatioError> {
         let ratio = clamp_split_ratio(ratio);
         let target = {
-            let state = self.state.lock().unwrap();
+            let state = self.state.lock().recover_poison();
             let Some((workspace_index, screen_index, owner)) =
                 state.split_screens.get(&split).copied()
             else {
                 return Err(LayoutRatioError::UnknownSplit { split });
             };
-            if state
+            let Some(screen) = state
                 .workspaces
                 .get(workspace_index)
                 .and_then(|workspace| workspace.screens.get(screen_index))
-                .is_none_or(|screen| screen.id != owner)
-            {
+                .filter(|screen| screen.id == owner)
+            else {
                 return Err(LayoutRatioError::UnknownSplit { split });
-            }
-            let screen = &state.workspaces[workspace_index].screens[screen_index];
+            };
             if screen.layout_columns.iter().any(|column| column.is_row_split(split)) {
                 return Err(LayoutRatioError::RowSplitCompatReadonly { split });
             }
-            if let Some(index) = screen
+            if let Some((index, column)) = screen
                 .layout_columns
                 .iter()
-                .position(|column| column.id == split)
-                .filter(|index| *index > 0)
+                .enumerate()
+                .find(|(_, column)| column.id == split)
+                .filter(|(index, _)| *index > 0)
             {
-                let width_before =
-                    screen.layout_columns[..index].iter().map(|column| column.width).sum::<f32>();
+                let width_before = screen
+                    .layout_columns
+                    .iter()
+                    .take(index)
+                    .map(|column| column.width)
+                    .sum::<f32>();
                 let width = width_before * (1.0 - ratio) / ratio;
                 if !width.is_finite()
                     || !(MIN_VIEWPORT_PANE_WIDTH..=MAX_VIEWPORT_PANE_WIDTH).contains(&width)
@@ -149,7 +162,7 @@ impl Mux {
                         width,
                     });
                 }
-                if screen.layout_columns[index].width == width {
+                if column.width == width {
                     return Ok(());
                 }
             } else {
@@ -217,6 +230,7 @@ impl Mux {
     }
 
     /// Set the width of the horizontal viewport column containing `pane`.
+    #[track_caller]
     pub fn set_viewport_pane_width_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -227,6 +241,7 @@ impl Mux {
     }
 
     /// Set a viewport column width while preserving rejection details.
+    #[track_caller]
     pub fn set_viewport_pane_width_checked_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -237,6 +252,7 @@ impl Mux {
     }
 
     /// Set a viewport column width as part of a client-scoped resize transaction.
+    #[track_caller]
     pub fn set_viewport_pane_width_in_transaction_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -256,6 +272,7 @@ impl Mux {
     }
 
     /// Set a transactional viewport width while preserving rejection details.
+    #[track_caller]
     pub fn set_viewport_pane_width_in_transaction_checked_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -274,6 +291,7 @@ impl Mux {
 
     /// Set one in-process transactional viewport width without sharing the
     /// control-client ownership namespace.
+    #[track_caller]
     pub fn set_viewport_pane_width_in_process_transaction_checked_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -290,6 +308,7 @@ impl Mux {
         )
     }
 
+    #[track_caller]
     pub(super) fn set_viewport_pane_width_inner(
         self: &Arc<Self>,
         actor: &Actor,
@@ -303,20 +322,21 @@ impl Mux {
             return Err(ViewportWidthError::OutOfRange { width });
         }
         {
-            let state = self.state.lock().unwrap();
-            let Some((workspace_index, screen_index)) = state.screen_of(pane) else {
+            let state = self.state.lock().recover_poison();
+            let Some(screen) = state.screen_of(pane).and_then(|(workspace_index, screen_index)| {
+                state.workspaces.get(workspace_index)?.screens.get(screen_index)
+            }) else {
                 return Err(ViewportWidthError::PaneNotResizable { pane });
             };
-            let screen = &state.workspaces[workspace_index].screens[screen_index];
             if !screen.layout_columns_active() {
                 return Err(ViewportWidthError::PaneNotResizable { pane });
             }
-            let Some(column_index) =
-                screen.layout_columns.iter().position(|column| column.root.contains(pane))
+            let Some(column) =
+                screen.layout_columns.iter().find(|column| column.root.contains(pane))
             else {
                 return Err(ViewportWidthError::PaneNotResizable { pane });
             };
-            if (screen.layout_columns[column_index].width - width).abs() < f32::EPSILON {
+            if (column.width - width).abs() < f32::EPSILON {
                 return Ok(());
             }
         }

@@ -2,8 +2,10 @@ import AppKit
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextBridge
+import CmuxNextCompat
 import CmuxNextSettings
 import CmuxNextFocus
+import CmuxNextWakeups
 
 /// Tab lookups, the dock badge and the pane attention marks.
 extension NotificationCenterService {
@@ -103,7 +105,7 @@ extension NotificationCenterService {
             isSignedIn: { [weak feed] in feed?.isSignedIn ?? false },
             installID: { principal.installID },
             policy: { [weak self] in self?.feedHandoffPolicy() ?? FeedHandoffPolicy(preferences: .init(), mutedWorkspaces: []) },
-            since: Self.handoffSince)
+            since: Self.handoffSince, work: services.work)
     }
 
     /// The first time the driver ran for `install` (ms), kept per Mac: open
@@ -112,6 +114,7 @@ extension NotificationCenterService {
     static func handoffSince(_ install: String) -> UInt64 {
         let key = "feed.handoff.since.\(install)"
         if let stored = UserDefaults.standard.object(forKey: key) as? NSNumber { return stored.uint64Value }
+        // wall-clock: kept in UserDefaults and compared with items' Unix ms.
         let now = UInt64(Date().timeIntervalSince1970 * 1000)
         UserDefaults.standard.set(NSNumber(value: now), forKey: key)
         return now
@@ -233,5 +236,63 @@ extension NotificationCenterService {
         guard newest > (dismissedHighlights[workspace.id] ?? 0) else { return }
         dismissedHighlights[workspace.id] = newest
         note("highlight dismissed workspace=\(workspace.id) through=\(newest)")
+    }
+}
+
+/// What the service follows for the app's lifetime (plans/cmux-next/chrome-parity/p06-scheduler.md,
+/// task 205, the pilot). Each is a ``ServiceObservation``: its apply writes the model, the daemon or
+/// the Dock, so it runs while no window shows, and it flushes once per frame in its class on the
+/// app's scheduler, behind the person's input.
+extension NotificationCenterService {
+    /// The local daemon's arrivals, viewed tabs, finished status runs, ledger texts and unread count.
+    func follow(_ daemon: DaemonService) {
+        let store = daemon.store
+        // A new notification's ring and banner: visible work that no input of the person's caused.
+        observations.append(ServiceObservation(.visible, owner: "notifications.arrivals", on: work) {
+            store.notifications.last?.notification.rawValue ?? 0
+        } apply: { [weak self] newest in
+            guard let self, newest > self.lastSeen else { return }
+            let fresh = store.notifications.filter { $0.notification.rawValue > self.lastSeen }
+            self.lastSeen = newest
+            self.arrivalPasses += 1
+            for notification in fresh { self.arrived(notification) }
+        })
+        observations.append(followViewedProgramStatus(store))
+        observations.append(followStatusRuns(store))
+        observations.append(followNotificationLedger(daemon))
+        observations.append(ServiceObservation(.visible, owner: "notifications.dock-badge", on: work) { [weak self] in
+            self?.currentUnreadCount() ?? 0
+        } apply: { [weak self] count in
+            self?.updateDockBadge(count)
+            self?.dropReadChiefPetNotices()
+        })
+    }
+
+    /// The feed hand-off: the install id comes with the first install token (at launch and at each
+    /// sign-in), and at activation (launch, sign-in, the first install token, a daemon that starts
+    /// serving the capability) one pass rebuilds the queue (B3). The activation input is a trigger:
+    /// a change while active (a daemon restart, a new install id) rebuilds the queue again.
+    func follow(_ feed: FeedService, principal: FeedInstallPrincipal, driver: FeedHandoffDriver) {
+        observations.append(ServiceObservation(.background, owner: "notifications.feed-principal", on: work) { [weak feed] in
+            feed?.isSignedIn ?? false
+        } apply: { signedIn in
+            if signedIn { principal.refresh() }
+        })
+        observations.append(ServiceObservation(.background, owner: "notifications.feed-handoff", on: work) {
+            ObservationTrigger(driver.isActive)
+        } apply: { active in
+            if active.value { driver.run() }
+        })
+    }
+
+    /// Follows `notifications.*` in every loaded snapshot.
+    func follow(_ settings: SettingsController) {
+        observations.append(ServiceObservation(.visible, owner: "notifications.settings", on: work) {
+            settings.snapshot.notifications
+        } apply: { [weak self] prefs in
+            guard let self else { return }
+            if self.preferences != prefs { self.preferences = prefs }
+            self.updateDockBadge(self.currentUnreadCount())
+        })
     }
 }

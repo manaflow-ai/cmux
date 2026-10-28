@@ -43,10 +43,14 @@ pub use unix::connect_control;
 mod unix {
     use super::*;
     use std::collections::HashMap;
+    use std::panic::AssertUnwindSafe;
     use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
     use std::sync::{Arc, Mutex};
+
+    use crate::panic_free::{RecoverPoison as _, filled};
     use std::time::Duration;
 
+    use futures_util::FutureExt as _;
     use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
     use tokio::net::UnixStream;
     use tokio::net::unix::{OwnedReadHalf, OwnedWriteHalf};
@@ -60,9 +64,13 @@ mod unix {
         written: Option<oneshot::Sender<bool>>,
     }
 
+    type SharedEventHandler = Arc<dyn Fn(&Value) + Send + Sync>;
+
     struct Shared {
         pending: Mutex<HashMap<u64, oneshot::Sender<Value>>>,
-        event_handler: Mutex<Option<EventHandler>>,
+        // An Arc, so the reader calls the handler outside this lock and a
+        // handler that panics leaves no lock poisoned.
+        event_handler: Mutex<Option<SharedEventHandler>>,
         close_handler: Mutex<Option<CloseHandler>>,
         closed: AtomicBool,
         deliberate: AtomicBool,
@@ -77,14 +85,13 @@ mod unix {
                 return;
             }
             // Resolve every pending request with "no reply".
-            self.pending.lock().expect("control pending lock").clear();
+            self.pending.lock().recover_poison().clear();
             // Both the writer and a paused reader wait on this state. Keep a
             // broadcast wakeup so either task can observe closure without
             // consuming the other's permit.
             self.closed_notify.notify_waiters();
             if !self.deliberate.load(Ordering::SeqCst)
-                && let Some(handler) =
-                    self.close_handler.lock().expect("control close lock").as_ref()
+                && let Some(handler) = self.close_handler.lock().recover_poison().as_ref()
             {
                 handler();
             }
@@ -154,8 +161,16 @@ mod unix {
         // partial JSON line to the peer.
         let writer = Arc::new(AsyncMutex::new(write_half));
         let (writer_tx, writer_rx) = mpsc::channel(MAX_WRITER_QUEUE);
-        tokio::spawn(write_loop(writer, writer_rx, Arc::clone(&shared)));
-        tokio::spawn(read_loop(read_half, Arc::clone(&shared)));
+        // supervise-allow: this control connection's writer; it ends with the connection, and settle_on_panic closes the connection if it panics (pending requests return None, the close handler fires).
+        tokio::spawn(settle_on_panic(
+            write_loop(writer, writer_rx, Arc::clone(&shared)),
+            Arc::clone(&shared),
+        ));
+        // supervise-allow: this control connection's reader; it ends with the connection, and settle_on_panic closes the connection if it panics (pending requests return None, the close handler fires).
+        tokio::spawn(settle_on_panic(
+            read_loop(read_half, Arc::clone(&shared)),
+            Arc::clone(&shared),
+        ));
         Ok(Arc::new(UnixControl {
             shared,
             writer_tx,
@@ -178,6 +193,15 @@ mod unix {
             Err(format!(
                 "cmux-tui control socket is served by uid {peer_uid}, not uid {expected_uid}"
             ))
+        }
+    }
+
+    /// Runs one of the connection's two tasks. A panic in it (an event
+    /// handler, a bug in a loop) closes the connection as a socket error
+    /// does, so no connection stays open without its reader or writer.
+    async fn settle_on_panic(task: impl Future<Output = ()>, shared: Arc<Shared>) {
+        if AssertUnwindSafe(task).catch_unwind().await.is_err() {
+            shared.settle_closed();
         }
     }
 
@@ -256,14 +280,19 @@ mod unix {
                 Ok(0) | Err(_) => break,
                 Ok(count) => count,
             };
-            buffer.extend_from_slice(&chunk[..count]);
+            buffer.extend_from_slice(filled(&chunk, count));
             if buffer.len() > MAX_CONTROL_LINE_BYTES {
                 // A peer that withholds a newline must not grow relay memory.
                 break;
             }
-            while let Some(newline) = buffer.iter().position(|byte| *byte == b'\n') {
-                let line: Vec<u8> = buffer.drain(..=newline).collect();
-                let Ok(text) = std::str::from_utf8(&line[..line.len() - 1]) else { continue };
+            let Some(last_newline) = buffer.iter().rposition(|byte| *byte == b'\n') else {
+                continue;
+            };
+            // Every complete line; the bytes after the last newline wait for
+            // the next read. The empty piece after that newline is blank.
+            let complete: Vec<u8> = buffer.drain(..=last_newline).collect();
+            for line in complete.split(|byte| *byte == b'\n') {
+                let Ok(text) = std::str::from_utf8(line) else { continue };
                 if text.trim().is_empty() {
                     continue;
                 }
@@ -273,16 +302,14 @@ mod unix {
                     continue;
                 }
                 let id = parsed.get("id").and_then(Value::as_u64);
-                let waiting = id.and_then(|id| {
-                    shared.pending.lock().expect("control pending lock").remove(&id)
-                });
+                let waiting = id.and_then(|id| shared.pending.lock().recover_poison().remove(&id));
                 if let Some(sender) = waiting {
                     let _ = sender.send(parsed);
-                } else if parsed.get("event").and_then(Value::as_str).is_some()
-                    && let Some(handler) =
-                        shared.event_handler.lock().expect("control event lock").as_ref()
-                {
-                    handler(&parsed);
+                } else if parsed.get("event").and_then(Value::as_str).is_some() {
+                    let handler = shared.event_handler.lock().recover_poison().clone();
+                    if let Some(handler) = handler {
+                        handler(&parsed);
+                    }
                 }
                 // Responses to fire-and-forget sends fall through silently.
             }
@@ -330,7 +357,7 @@ mod unix {
                 let id = self.next_id.fetch_add(1, Ordering::SeqCst);
                 let (sender, receiver) = oneshot::channel();
                 {
-                    let mut pending = self.shared.pending.lock().expect("control pending lock");
+                    let mut pending = self.shared.pending.lock().recover_poison();
                     if pending.len() >= MAX_PENDING_REQUESTS {
                         return None;
                     }
@@ -339,19 +366,19 @@ mod unix {
                 let deadline = tokio::time::Instant::now() + Duration::from_millis(self.timeout_ms);
                 let (written, write_result) = oneshot::channel();
                 if !self.enqueue_line(id, &cmd, params, Some(written)) {
-                    self.shared.pending.lock().expect("control pending lock").remove(&id);
+                    self.shared.pending.lock().recover_poison().remove(&id);
                     return None;
                 }
                 let write_ok =
                     matches!(tokio::time::timeout_at(deadline, write_result).await, Ok(Ok(true)));
                 if !write_ok {
-                    self.shared.pending.lock().expect("control pending lock").remove(&id);
+                    self.shared.pending.lock().recover_poison().remove(&id);
                     return None;
                 }
                 if let Ok(Ok(value)) = tokio::time::timeout_at(deadline, receiver).await {
                     Some(value)
                 } else {
-                    self.shared.pending.lock().expect("control pending lock").remove(&id);
+                    self.shared.pending.lock().recover_poison().remove(&id);
                     None
                 }
             })
@@ -366,11 +393,11 @@ mod unix {
         }
 
         fn on_event(&self, handler: EventHandler) {
-            *self.shared.event_handler.lock().expect("control event lock") = Some(handler);
+            *self.shared.event_handler.lock().recover_poison() = Some(Arc::from(handler));
         }
 
         fn on_close(&self, handler: CloseHandler) {
-            *self.shared.close_handler.lock().expect("control close lock") = Some(handler);
+            *self.shared.close_handler.lock().recover_poison() = Some(handler);
         }
 
         fn pause(&self) {
@@ -401,6 +428,7 @@ mod unix {
 mod tests {
     use super::*;
     use serde_json::json;
+    use std::time::Duration;
     use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _};
     use tokio::net::UnixListener;
     use tokio::sync::oneshot;
@@ -462,6 +490,47 @@ mod tests {
         assert_eq!(request.get("cmd").and_then(Value::as_str), Some("probe"));
 
         control.end();
+        let _ = std::fs::remove_file(socket_path);
+    }
+
+    /// A panic on the connection's reader (here, in the event handler)
+    /// closes the connection: the close handler fires and a later request
+    /// returns `None` at once instead of after its whole budget.
+    #[tokio::test]
+    async fn a_reader_panic_closes_the_connection() {
+        let socket_path = std::env::temp_dir()
+            .join(format!("chatmux-relay-control-panic-{}.sock", std::process::id()));
+        let _ = std::fs::remove_file(&socket_path);
+        let listener = UnixListener::bind(&socket_path).expect("bind control test socket");
+        let (event_tx, event_rx) = oneshot::channel::<()>();
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.expect("accept control test socket");
+            event_rx.await.expect("release the event");
+            stream.write_all(b"{\"event\":\"output\"}\n").await.expect("write event line");
+            // Hold the socket open: only the client's reader panic closes it.
+            std::future::pending::<()>().await;
+        });
+
+        let control =
+            connect_control(&socket_path, 60_000).await.expect("connect control test socket");
+        let (closed_tx, mut closed_rx) = tokio::sync::mpsc::channel(1);
+        control.on_close(Box::new(move || {
+            let _ = closed_tx.try_send(());
+        }));
+        control.on_event(Box::new(|_| panic!("event handler failed")));
+        event_tx.send(()).expect("release the event");
+
+        let wait = Duration::from_secs(10);
+        tokio::time::timeout(wait, closed_rx.recv())
+            .await
+            .expect("the close handler fires after the reader panics")
+            .expect("close handler channel");
+        let response = tokio::time::timeout(wait, control.request("probe", json!({})))
+            .await
+            .expect("a request after the close returns at once, not after its budget");
+        assert_eq!(response, None);
+
+        server.abort();
         let _ = std::fs::remove_file(socket_path);
     }
 }

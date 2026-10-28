@@ -1,11 +1,14 @@
 /// The app's startup phases (plans/cmux-next/chrome-parity/p06-scheduler.md, section A,
 /// "Startup phases"): what may run on the main thread while the first window is still coming.
 ///
-/// - ``Phase/launching``: input, frame, visible and automation work run; background work is
-///   held.
+/// - ``Phase/launching``: input, frame, userBlocking, visible and automation work run; background
+///   work is held. Off main, the launch's best-effort fence (``BackgroundWork/LaunchFence``, raised
+///   in `main()` with no cap) holds posted best-effort and idle lane items, while user-visible and
+///   awaited lane work runs at once.
 /// - ``Phase/revealed``: at the first frame (``noteFirstFrame()``), at once for a hidden or
 ///   windowless launch (``noteLaunch(_:)``), or at the reveal deadline (1.5 s) when a window's
-///   first frame never comes. Background work opens.
+///   first frame never comes. Background work opens, and the launch order (`LaunchOrder`) lowers
+///   the best-effort fence here, so its held items start in post order; nothing else lowers it.
 /// - ``Phase/settled``: when every ``Reference`` is done (first frame, first daemon snapshot,
 ///   session restore, the visible page load-idle), or at the failsafe (10 s after launch). Work
 ///   held for the settle (``whenReached(_:_:)``; the idle class, task 005) opens.
@@ -109,6 +112,7 @@ public final class StartupPhase {
         /// The latest settle when a reference never comes.
         public var settleFailsafe: Duration
 
+        /// Deadlines; the defaults are the launch's.
         public init(revealDeadline: Duration = .milliseconds(1_500), settleFailsafe: Duration = .seconds(10)) {
             self.revealDeadline = revealDeadline
             self.settleFailsafe = settleFailsafe
@@ -120,9 +124,13 @@ public final class StartupPhase {
     public struct HeldAwait: Sendable, CustomStringConvertible {
         /// The held class.
         public let work: MainWorkClass
+        /// The awaited work's owner.
         public let owner: String
+        /// The phase when it was awaited.
         public let phase: Phase
+        /// The awaiting file's `#fileID`.
         public let file: String
+        /// The awaiting line.
         public let line: UInt
 
         public var description: String { "\(work) work of \(owner) awaited while \(phase) (\(file):\(line))" }
@@ -161,16 +169,18 @@ public final class StartupPhase {
         self.timing = timing
         self.onHeldAwait = onHeldAwait
         elapsed = StartupPhase.stopwatch(clock)
+        // timer-class-allow: the reveal deadline, an unposted scheduler timer (p06 section A)
         timer = DemandTimer(owner: "StartupPhase", clock: clock, ledger: ledger)
         phase = .launching
         pendingReferences = Set(Reference.allCases)
-        timer.schedule(after: timing.revealDeadline) { @MainActor [weak self] in self?.revealDeadlinePassed() }
+        timer.scheduleOnMain(after: timing.revealDeadline) { [weak self] in self?.revealDeadlinePassed() }
     }
 
     private init(settledWith ledger: WakeupLedger) {
         timing = Timing()
         onHeldAwait = StartupPhase.assertNotHeld
         elapsed = { .zero }
+        // timer-class-allow: the settled phase's timer, never scheduled
         timer = DemandTimer(owner: "StartupPhase", ledger: ledger)
         phase = .settled
         pendingReferences = []
@@ -183,7 +193,7 @@ public final class StartupPhase {
     }
 
     /// Whether `workClass` may run now. Only background waits for the reveal; input, frame,
-    /// visible and automation work are never held.
+    /// userBlocking, visible and automation work are never held.
     public func admits(_ workClass: MainWorkClass) -> Bool { phase >= workClass.startupOpening }
 
     /// Runs `action` now when the phase is `target` or later; else holds it and runs it at the
@@ -259,7 +269,7 @@ public final class StartupPhase {
         if pendingReferences.isEmpty || left <= .zero {
             settle(pendingReferences.isEmpty ? .references : .failsafe)
         } else {
-            timer.schedule(after: left) { @MainActor [weak self] in self?.failsafePassed() }
+            timer.scheduleOnMain(after: left) { [weak self] in self?.failsafePassed() }
         }
     }
 
@@ -281,13 +291,14 @@ public final class StartupPhase {
 }
 
 extension MainWorkClass {
-    /// The startup phase that opens this class: input, frame, visible and automation work run
-    /// while launching, and background waits for the reveal. Exhaustive on purpose: a new class
-    /// (idle opens at ``StartupPhase/Phase/settled``) does not compile until it is mapped here.
+    /// The startup phase that opens this class: input, frame, userBlocking, visible and automation
+    /// work run while launching, background waits for the reveal and idle work for the settle.
+    /// Exhaustive on purpose: a new class does not compile until it is mapped here.
     public var startupOpening: StartupPhase.Phase {
         switch self {
-        case .input, .frame, .visible, .automation: .launching
+        case .input, .frame, .userBlocking, .visible, .automation: .launching
         case .background: .revealed
+        case .idle: .settled
         }
     }
 }

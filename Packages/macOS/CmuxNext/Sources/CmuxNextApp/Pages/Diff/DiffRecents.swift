@@ -110,7 +110,7 @@ final class DiffRecents {
         try? await runner.runFiles(.userVisible) { () -> [DiffRecent] in
             guard let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize, size <= 1024 * 1024,
                   let data = try? Data(blockingContentsOf: url),
-                  let items = try? JSONDecoder().decode([DiffRecent].self, from: data) else { return [] }
+                  let items = try? JSONDecoder().blockingDecode([DiffRecent].self, from: data) else { return [] }
             return items.sorted { $0.openedAt > $1.openedAt }
         }
     }

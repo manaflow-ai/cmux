@@ -2,9 +2,9 @@
 import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
+import CmuxNextWakeups
 import Foundation
 import Testing
-import CmuxNextWakeups
 
 /// cx-hnpxh: `tab.open` with a terminal and `run` types the line into a new terminal tab and runs it,
 /// so a chat page's script (rendered agent output, say) could run one shell line on this Mac without
@@ -21,7 +21,7 @@ struct AgentPaneTabOpenGestureTests {
 
     /// A pane in a tab (a chat, or the New Tab page when `newTab`), with the tabs it opened recorded.
     private final class Rig {
-        let model = AgentPaneModel(runner: BackgroundWork(label: "test.agent-pane"), host: NoHost(), allowsTabConversion: true)
+        let model = AgentPaneModel(host: NoHost(), allowsTabConversion: true)
         var opened: [AgentPaneOpenTab] = []
         var typedAhead: [String] = []
 
@@ -133,21 +133,17 @@ struct AgentPaneTabOpenGestureTests {
     /// replays them past the pane's gesture monitor. The replay judges the person's held Return in
     /// the pane, so the line it submits still runs; a key another process posted grants nothing.
     @Test func aHeldReturnReplayedIntoThePageIsThePersonsGesture() throws {
-        let directory = FileManager.default.temporaryDirectory.appending(path: "held-return-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let file = directory.appending(path: "index.html")
-        try Data("<html><body><input></body></html>".utf8).write(to: file)
-        let model = AgentPaneModel(runner: BackgroundWork(label: "test.agent-pane"), host: NoHost(), allowsTabConversion: true)
+        let file = try #require(AgentPageAppTestRoot.page)
+        let model = AgentPaneModel(host: NoHost(), allowsTabConversion: true)
         model.becomeNewTab(AgentPaneNewTab(kind: .terminal))
-        let view = try #require(AgentPaneView(model: model, source: .bundled(file)))
+        let view = try #require(AgentPaneView(mainThread: .standalone(), model: model, work: BackgroundWork(label: "test.agent-pane"), source: .bundled(file), webUI: .agentTabsTestHost(), gestures: .testing()))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         defer { window.close() }
         view.frame = NSRect(x: 0, y: 0, width: 400, height: 300)
         window.contentView = view
-        try #require(window.makeFirstResponder(view.webView), "the page's field could not take the keyboard")
+        try #require(window.makeFirstResponder(view.focusTarget), "the page's field could not take the keyboard")
         let router = KeyRouter(registry: ActionRegistry.standard())
 
         let posted = try Self.returnKey(source: Int64(getpid()) + 1)

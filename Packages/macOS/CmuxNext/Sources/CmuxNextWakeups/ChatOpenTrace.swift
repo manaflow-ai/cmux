@@ -1,6 +1,85 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 public import AppKit
+import CmuxNextTrace
+#endif
+public import CmuxNextSignposts
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
+/// One stage of an agent chat open, from the action to the chat's content on screen, in either engine: a
+/// ``ChatOpenStages`` instant in every build, and a mark of `debug.chat_open_trace` (``ChatOpenTrace``) in DEBUG
+/// and bench builds.
+public nonisolated enum ChatOpenStage: Int, CaseIterable, Sendable {
+    case action, paneMade, holdBegin, chromiumStart, cefWindowCreate, cefWindowCreated, browserCreated,
+         setupDone, navigationStart, committed, firstContentfulPaint, pagePainted, panePainted,
+         loadingLeave, loadingLeft, holdEnd
+
+    /// The stage's name in `debug.chat_open_trace` results and in its instant's log message.
+    public var name: String {
+        switch self {
+        case .action: "action"
+        case .paneMade: "pane_made"
+        case .holdBegin: "hold_begin"
+        case .chromiumStart: "chromium_start"
+        case .cefWindowCreate: "cef_window_create"
+        case .cefWindowCreated: "cef_window_created"
+        case .browserCreated: "browser_created"
+        case .setupDone: "setup_done"
+        case .navigationStart: "navigation_start"
+        case .committed: "committed"
+        case .firstContentfulPaint: "first_contentful_paint"
+        case .pagePainted: "page_painted"
+        case .panePainted: "pane_painted"
+        case .loadingLeave: "loading_leave"
+        case .loadingLeft: "loading_left"
+        case .holdEnd: "hold_end"
+        }
+    }
+
+    /// The stage's number in bits 8-15 of its ``SignpostName/createTab`` instant's `arg0`: its position + 1, so 0
+    /// stays the stand-in commit's. Fixed: a new stage goes at the end, so older rings decode.
+    public var traceCode: UInt64 { UInt64(rawValue) + 1 }
+}
+
+/// The stages of one chat open, in every build: each is a ``SignpostName/createTab`` instant on the open's scope
+/// (``CreateTabInterval/Scope``), so a recording groups them with the open's `create.tab` pair by its intent id.
+///
+/// The chat's tab store makes one from the open's interval, which waits for the tab's first frame from before the
+/// tab's view exists (`CreateTabTimings.interval(ofTab:)`), and hands it to the pane and its page before the page
+/// loads (`AgentPaneModel.chatOpen`, `PageOpenRequest.chatOpen`); the Chromium page host passes it on to the CEF
+/// window that page gets (`CEFEngine.pagesTabConfiguration(chatOpen:)`). A page or pane made with no open (the prewarmed New Tab page, a restored pane) has none
+/// and writes nothing. The `action` stage is the pair's own begin (the open's intent turn), so no instant repeats it.
+/// Each stage costs one log event (message `kind=chat stage=<name>`) and, while the `create`
+/// category records, one ring record: `arg0` the chat kind's code with the stage's code in bits 8-15, `arg1` the
+/// intent id. A few per open, never per frame.
+public nonisolated struct ChatOpenStages: Sendable {
+    private let scope: CreateTabInterval.Scope
+
+    /// The stages of the open `interval` times.
+    @MainActor
+    public init(_ interval: CreateTabInterval) {
+        scope = interval.scope
+    }
+
+    /// The stages of `interval` when it times a chat open; nil for another kind's open, or none.
+    @MainActor
+    public init?(chat interval: CreateTabInterval?) {
+        guard let interval, interval.kind == .chat else { return nil }
+        self.init(interval)
+    }
+
+    /// The open's intent id (its `create.tab` pair's async id).
+    public var intentID: UInt64 { scope.intentID }
+
+    /// Writes `stage`'s instant, every time it happens.
+    public func mark(_ stage: ChatOpenStage) {
+        let arg0 = CreateTabInterval.Kind.chat.traceCode | stage.traceCode << 8
+        scope.event(.createTab, "kind=chat stage=\(stage.name)", arg0: arg0)
+    }
+}
+
+#if DEBUG || CMUX_BENCH_HOOKS
 /// DEBUG builds: one agent chat open, from the action to the chat's content on screen, stage by
 /// stage, in either engine (`debug.chat_open_trace`; Leo 2026-10-22: "flickers the initial thing
 /// ... then it just goes to black screen for a while").
@@ -33,33 +112,8 @@ public final class ChatOpenTrace {
     /// The frame sampler stops by itself after this, whether or not the trace finished.
     public static let frameCap: TimeInterval = 15
 
-    public enum Mark: Int, CaseIterable, Sendable {
-        case action, paneMade, holdBegin, chromiumStart, cefWindowCreate, cefWindowCreated, browserCreated,
-             setupDone, navigationStart, committed, firstContentfulPaint, pagePainted, panePainted,
-             loadingLeave, loadingLeft, holdEnd
-
-        /// The mark's name in `debug.chat_open_trace` results.
-        public var name: String {
-            switch self {
-            case .action: "action"
-            case .paneMade: "pane_made"
-            case .holdBegin: "hold_begin"
-            case .chromiumStart: "chromium_start"
-            case .cefWindowCreate: "cef_window_create"
-            case .cefWindowCreated: "cef_window_created"
-            case .browserCreated: "browser_created"
-            case .setupDone: "setup_done"
-            case .navigationStart: "navigation_start"
-            case .committed: "committed"
-            case .firstContentfulPaint: "first_contentful_paint"
-            case .pagePainted: "page_painted"
-            case .panePainted: "pane_painted"
-            case .loadingLeave: "loading_leave"
-            case .loadingLeft: "loading_left"
-            case .holdEnd: "hold_end"
-            }
-        }
-    }
+    /// A stage of the traced open (``ChatOpenStage``).
+    public typealias Mark = ChatOpenStage
 
     /// What the bound pane shows in one frame.
     public enum Surface: String, Sendable {
@@ -84,17 +138,22 @@ public final class ChatOpenTrace {
 
     /// One trace.
     public struct Record: Sendable {
+        /// The trace's number, counted from 1 since launch.
         public let id: Int
+        /// Whether it traces the launch's restored chat (armed at startup) rather than an action.
         public let launch: Bool
+        /// Whether it ended on its time limit (``ChatOpenTrace/finish(timedOut:)``), not its last mark.
         public internal(set) var timedOut = false
         /// The engine the bound pane's chat showed in (`cef`, `webkit:…`).
         public internal(set) var engine: String?
         let armedAt: TimeInterval
+        // wall-clock: a screen recording's frames carry wall-clock times; the trace's own times are uptime.
         /// Wall-clock seconds at arming, to line a trace up with a screen recording.
         public let armedWall = Date().timeIntervalSince1970
         var marks = [TimeInterval?](repeating: nil, count: Mark.allCases.count)
         /// Each change of the bound pane's surface: uptime, surface.
         var frames: [(TimeInterval, Surface)] = []
+        /// Frames sampled while it was armed.
         public internal(set) var frameCount = 0
         /// When sampling stopped (finish or ``frameCap``): an empty run still on screen then ends here.
         var endedAt: TimeInterval?
@@ -133,6 +192,7 @@ public final class ChatOpenTrace {
         }
     }
 
+    /// Whether a trace is armed: marks record into it until it finishes.
     public private(set) var isArmed = false
     /// The traced chat's page: the first agent page that marks after arming. Page marks of any
     /// other page are not this open's.
@@ -149,7 +209,7 @@ public final class ChatOpenTrace {
     private var surface: (() -> Surface)?
     private var engine: (() -> String)?
     private var sampler: FrameClient?
-    private var waiter: CheckedContinuation<Void, Never>?
+    private var waiter: OnceContinuation<Void, OnceContinuationError>?
 
     /// Arms a trace; false while one runs. A launch trace has no action: its origin is the arming.
     public func begin(launch: Bool = false) -> Bool {
@@ -246,18 +306,21 @@ public final class ChatOpenTrace {
     /// Waits until the chat shows or `timeout` passes; true when it showed.
     public func waitUntilShown(timeout: Duration) async -> Bool {
         if chatShown { return true }
+        // timer-class-allow: debug trace: the bench command's bound on its wait; a classed deadline would wait behind the chat open it measures
         let deadline = DemandTimer(owner: "chatOpenTrace.wait")
-        deadline.schedule(after: timeout) { @MainActor [weak self] in self?.resume() }
-        await withCheckedContinuation { waiter = $0 }
+        deadline.scheduleOnMain(after: timeout) { [weak self] in self?.resume() }
+        // A second wait replaces the first, whose waiter then ends abandoned: it reads chatShown at once.
+        try? await withOnceContinuation { (continuation: OnceContinuation<Void, OnceContinuationError>) in waiter = continuation }
         deadline.cancel()
         return chatShown
     }
 
     /// Lets `duration` of frames be sampled before the caller finishes the trace.
     public func settle(for duration: Duration) async {
+        // timer-class-allow: debug trace: the bench's sampling window, a bound like the wait's above
         let timer = DemandTimer(owner: "chatOpenTrace.settle")
-        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
-            timer.schedule(after: duration) { @MainActor in done.resume() }
+        try? await withOnceContinuation { (done: OnceContinuation<Void, OnceContinuationError>) in
+            timer.scheduleOnMain(after: duration) { done.resume(returning: ()) }
         }
         withExtendedLifetime(timer) {}
     }
@@ -305,20 +368,16 @@ public final class ChatOpenTrace {
     private func resume() {
         let waiting = waiter
         waiter = nil
-        waiting?.resume()
+        waiting?.resume(returning: ())
     }
 
     static func now() -> TimeInterval { ProcessInfo.processInfo.systemUptime }
 
-    /// The process's start on the ``now()`` clock (now when the kernel does not say).
-    static func processStart() -> TimeInterval {
-        var info = kinfo_proc()
-        var size = MemoryLayout<kinfo_proc>.stride
-        var name: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, getpid()]
-        guard sysctl(&name, 4, &info, &size, nil, 0) == 0 else { return now() }
-        let started = info.kp_proc.p_starttime
-        let startWall = TimeInterval(started.tv_sec) + TimeInterval(started.tv_usec) / 1_000_000
-        return now() - max(Date().timeIntervalSince1970 - startWall, 0)
+    /// The process's start on the ``now()`` clock (now when the kernel does not say): the launch slices' one
+    /// conversion of the kernel's wall-clock start onto the uptime clock (``LaunchClock/processStart()``).
+    static func processStart(_ clock: LaunchClock = LaunchClock()) -> TimeInterval {
+        guard let start = clock.processStart() else { return now() }
+        return TimeInterval(start.uptimeNanos) / 1e9
     }
 }
 

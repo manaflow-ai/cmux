@@ -4,6 +4,7 @@ import CmuxNextMobile
 import CmuxNextPages
 import CmuxNextPhoneAccess
 import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 
 /// Serves the Mobile Pairing page's `cmux.mobilePairing.*` ops from the
@@ -31,6 +32,9 @@ final class MobilePairingPageProvider: PageProvider {
         self.services = services
     }
 
+    /// The person's own steps from the page (Phone Access on or off) that have not answered.
+    private(set) var personCallsInFlight = 0
+
     func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
         guard let services else { throw PageError.closed }
         switch op {
@@ -44,6 +48,8 @@ final class MobilePairingPageProvider: PageProvider {
             guard let settings = services.settings else {
                 throw PageError(code: "cmux.mobilePairing.unavailable", message: MobilePairingStrings.settingsNotLoaded, retryable: true)
             }
+            personCallsInFlight += 1
+            defer { personCallsInFlight -= 1 }
             try await settings.setSetting(at: SessionSettings.allowConnectionsPath, to: .bool(on), by: .user)
             return .object([:])
         default:
@@ -55,18 +61,19 @@ final class MobilePairingPageProvider: PageProvider {
                    onEvent: @escaping @MainActor (JSONValue) -> Void) async throws -> PageSubscription {
         guard stream == Self.changesStream else { throw PageError.unknownOp(stream) }
         guard let services else { throw PageError.closed }
-        // task-owner: lives as long as the page's subscription; event-driven (Observation)
-        let task = Task { @MainActor in
-            var last: String?
-            for await fingerprint in ObservationStream({ Self.fingerprint(services) }) {
-                guard !Task.isCancelled else { return }
-                if fingerprint == last { continue }
-                // The first value is the state the page reads with `status`; only changes are events.
-                if last != nil { onEvent(.object([:])) }
-                last = fingerprint
-            }
+        // The page's router holds events while the page is hidden: a service observation, one
+        // flush per frame. The first value is the state the page reads with `status` (applied in
+        // `init`, before `subscribed` is set); only changes are events.
+        let subscribed = PageStreamStart()
+        let observation = ServiceObservation(.visible, owner: "mobile-pairing.changes", on: services.mainWork) { [weak services] in
+            services.map(Self.fingerprint) ?? ""
+        } apply: { _ in
+            if subscribed.isDone { onEvent(.object([:])) }
         }
-        return PageSubscription { task.cancel() }
+        subscribed.finish()
+        // Each event is an empty "status changed" signal the page answers with one `status` read:
+        // the newest one says all the dropped ones did.
+        return PageSubscription(frozenDelivery: .latest) { observation.cancel() }
     }
 
     /// Everything `status` reads that can change while the page is open.

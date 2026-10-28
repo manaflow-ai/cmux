@@ -29,12 +29,13 @@ fn category_bits_match_the_shared_table() {
         (category::GHOSTTY, 18),
         (category::RESIZE, 19),
         (category::WEBUI, 20),
+        (category::LOG, 21),
     ];
     for (mask, bit) in bits {
         assert_eq!(mask, 1u64 << bit, "category bit {bit}");
     }
     assert_eq!(category::BLACKBOX, 0x1ff, "the black box records bits 0-8");
-    assert_eq!(category::ALL, (1 << 21) - 1, "every category is in ALL");
+    assert_eq!(category::ALL, (1 << 22) - 1, "every category is in ALL");
     assert_eq!(category::BLACKBOX & category::RECORDING, 0);
 }
 
@@ -48,13 +49,16 @@ fn roles_match_the_ring_v1_header_table() {
         (Role::Acpmux, 5),
         (Role::ChromiumHost, 6),
         (Role::Cli, 7),
+        (Role::AgentHost, 8),
+        (Role::AppHost, 9),
+        (Role::BrowserHost, 10),
     ];
     for (role, raw) in roles {
         assert_eq!(role as u16, raw, "{role:?}");
         assert_eq!(Role::from_raw(raw), Some(role));
     }
     assert_eq!(Role::from_raw(0), None);
-    assert_eq!(Role::from_raw(8), None);
+    assert_eq!(Role::from_raw(11), None);
 }
 
 #[test]

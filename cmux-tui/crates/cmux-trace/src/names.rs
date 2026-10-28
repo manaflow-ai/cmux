@@ -92,6 +92,20 @@ pub const CATALOG: &[CatalogName] = &[
     name(72, WEBUI, "webui.scheme"),
     name(73, STALL, "stall.main_turn"),
     name(74, STALL, "stall.render_starved"),
+    name(75, LAUNCH, "launch.startup_task"),
+    name(76, LAUNCH, "launch.startup_complete"),
+    name(77, DAEMON, "daemon.step"),
+    name(78, WEBUI, "webui.agent_pane_step"),
+    name(79, STALL, "stall.ghostty_runtime_phase"),
+    name(80, LAUNCH, "launch.read_done"),
+    name(81, BURST, "burst.event"),
+    name(82, MOTION, "motion.late_commits"),
+    name(83, ACTION, "action.presented_estimate"),
+    name(84, ACTION, "action.presented"),
+    name(85, INPUT, "input.latency"),
+    name(86, CEF, "cef.memory_pressure_vote"),
+    name(87, GHOSTTY, "ghostty.lock_wait"),
+    name(88, LAUNCH, "launch.action_catalog_first_main_access"),
 ];
 
 // `catalog_name` indexes by id: the ids are 1, 2, 3, ... in order. Each text starts with its

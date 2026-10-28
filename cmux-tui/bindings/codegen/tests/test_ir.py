@@ -641,6 +641,11 @@ class IpcMetaTests(unittest.TestCase):
         self.assertIn("$.commands.list-workspaces: IPC attributes need method_id", text)
         self.assertIn("$.events.workspace-created: IPC attributes need priority", text)
 
+    def test_framed_command_requires_durability(self) -> None:
+        document = _framed_document()
+        del document["commands"]["send-text"]["durability"]
+        self.assert_rejected(document, "$.commands.send-text: IPC attributes need durability")
+
     def test_rejects_independent_ordering_on_a_mutating_command(self) -> None:
         document = _framed_document()
         document["commands"]["send-text"]["ordering"] = "independent"
@@ -764,6 +769,23 @@ class IpcMetaTests(unittest.TestCase):
         document = _framed_document()
         document["families"]["core"]["ordinal_base"] = 0
         self.assert_rejected(document, "$.families.core.ordinal_base: unknown key")
+
+    def test_accepts_ids_below_next_ordinal(self) -> None:
+        document = _framed_document()
+        document["families"]["terminal-io"]["next_ordinal"] = 9
+        self.assertEqual(load_ir_document(document).family("terminal-io")["next_ordinal"], 9)
+
+    def test_rejects_an_id_at_or_above_next_ordinal(self) -> None:
+        document = _framed_document()
+        document["families"]["terminal-io"]["next_ordinal"] = 1
+        self.assert_rejected(
+            document, "ordinal 1 of 0x0201 is not below family 'terminal-io' next_ordinal 1"
+        )
+
+    def test_rejects_next_ordinal_out_of_range(self) -> None:
+        document = _framed_document()
+        document["families"]["core"]["next_ordinal"] = 257
+        self.assert_rejected(document, "$.families.core.next_ordinal: must be an integer 0-256")
 
     def test_rejects_max_bytes_on_an_array_of_numbers(self) -> None:
         document = _framed_document()

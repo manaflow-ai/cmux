@@ -31,6 +31,7 @@ enum FilePageHandlers {
         let work = services.work
         services.recoveryDrafts.restoreHandler = { [weak services] draft in
             // task-owner: one restore per launch notice Open; it ends when the tab opens
+            // main-hop-allow: the person's Open on the launch notice, userBlocking (p06 rule 2): it awaits the draft read, then opens the tab on main; post has no userBlocking class (task 208)
             Task { @MainActor in
                 guard let restore = await FilePageRecovery.restore(draft, on: work), let services,
                       let pane = services.windows.active?.focusedPane else { return }
@@ -62,6 +63,8 @@ enum FilePageHandlers {
             let settings = try SettingsHandlers.requireSettings(context)
             let look = services.viewers.editorPages.look
             let writer = SettingWriter(invocation.origin)
+            // task-owner: the action run; a capturing caller awaits it through the registry
+            // main-hop-allow: the action's userBlocking rest (p06 rule 2), tracked for a capturing caller: it awaits the main-actor settings write, then shows its toast; post has no userBlocking class (task 208)
             registry.track(Task { @MainActor in
                 guard let from = look.importedFrom?.name else { return ActionWorkFailure(FilePageStrings.noEditorSettings) }
                 do {
@@ -82,6 +85,8 @@ enum FilePageHandlers {
             let look = services.viewers.editorPages.look
             let current = look.current()["settings"]?["wordWrap"]?.stringValue ?? "off"
             let writer = SettingWriter(invocation.origin)
+            // task-owner: the action run; a capturing caller awaits it through the registry
+            // main-hop-allow: the action's userBlocking rest (p06 rule 2), tracked for a capturing caller: it awaits the main-actor settings write the page's look follows; post has no userBlocking class (task 208)
             registry.track(Task { @MainActor in
                 try? await look.setPreference(key: "editor.wordWrap", value: .string(current == "off" ? "on" : "off"), by: writer)
                 return nil

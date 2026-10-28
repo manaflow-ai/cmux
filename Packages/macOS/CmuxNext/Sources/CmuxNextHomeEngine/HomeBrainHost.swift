@@ -1,14 +1,17 @@
 public import CmuxNextActions
 public import CmuxNextCompat
 import CmuxNextAgentPane
+import CmuxNextWakeups
 public import Foundation
 import os
 
 /// Starts the local mux brain host (plans/cmux-next/home.md section 4) when
 /// Home first opens: a detached process (its own process group, adopted by
 /// launchd) that is a client of the daemon's conversation owner and of acpmux,
-/// and listens on nothing. It outlives the app; its own pid lock keeps one
-/// instance per mux home, so starting it again is harmless.
+/// and listens on nothing. It outlives the app only while it works: once the
+/// app has exited and the host is idle, it stops (`OPTCHAT_OWNER_APP_PID`,
+/// optchat-chief `owner_app.rs`; quit-persistence.md section 8). Its own pid
+/// lock keeps one instance per mux home, so starting it again is harmless.
 ///
 /// The host is the executable named by `CMUX_NEXT_MUX_HOST` (the TypeScript
 /// `mux`, or a local optchat-chief build), else the OptChat Chief that DEV
@@ -37,6 +40,8 @@ public nonisolated struct HomeBrainHost: Sendable {
     /// Starts the app's own acpmux when none runs (the local pane host's prewarm), before a host
     /// that only waits for it launches. Nil: nothing to start.
     public var ensureAppAcpmux: (@Sendable () async -> Void)?
+    /// Runs the launch shell (``AsyncProcess``; tests pass a fake).
+    var processes: any ProcessRunning = AsyncProcess()
 
     /// The OptChat Chief's file name in the app's Contents/Resources/bin.
     static let bundledChiefName = "optchat-chief"
@@ -134,6 +139,9 @@ public nonisolated struct HomeBrainHost: Sendable {
         // (optchat-chief acpmux_daemon::Mode::Supervised). Never OPTCHAT_ACPMUX_SHARED: its last
         // Chief to leave ends every session of the daemon, the person's too.
         if usesAppAcpmux { variables["OPTCHAT_ACPMUX_SUPERVISED"] = "1" }
+        // This app: once it exits, an idle host stops with the acpmux it started (optchat-chief
+        // owner_app.rs); live work keeps it. A host this app reuses follows `ChiefHome.ownerAppFile`.
+        variables[Self.ownerAppPidKey] = String(ProcessInfo.processInfo.processIdentifier)
         // No CMUX_MCP_COMMAND: acpmux gives every agent chat, the Chief's
         // turns included, its own `cmux mcp serve` (one server per turn).
         for key in ["USER", "TMPDIR", "MUX_HARNESS"] {
@@ -150,6 +158,9 @@ public nonisolated struct HomeBrainHost: Sendable {
         return ([Bundle.main.resourceURL?.appendingPathComponent("bin").path].compactMap { $0 } + user
             + ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"]).joined(separator: ":")
     }
+
+    /// The variable that names the app a host serves (optchat-chief `owner_app.rs`).
+    static let ownerAppPidKey = "OPTCHAT_OWNER_APP_PID"
 
     /// Spawns the host through a throwaway shell with job control, so it gets
     /// its own process group and is adopted by launchd when the shell exits.
@@ -246,23 +257,15 @@ public nonisolated struct HomeBrainHost: Sendable {
                 logger.error("mux agent token file could not be written")
                 return nil
             }
-            let shell = Process()
-            shell.executableURL = URL(fileURLWithPath: "/bin/sh")
-            shell.arguments = arguments
-            shell.environment = childEnvironment
             // LAUNCH-NO-TCC-PROMPTS: the host and what it starts without a
             // folder of its own (its acpmux daemon) run in the Chief home,
             // never the app's folder (`/`) or the home folder, where an
             // agent reads Downloads, Documents and Desktop at once.
-            shell.currentDirectoryURL = muxHome
-            shell.standardInput = FileHandle.nullDevice
-            let output = Pipe()
-            shell.standardOutput = output
-            shell.standardError = FileHandle.nullDevice
-            try shell.run()
-            // The shell exits right after the background start; its one line is the pid.
-            // concurrency-allow: one pid line from a shell that exits at once, off the main actor in @concurrent `launch`
-            let printed = String(decoding: output.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+            // The shell exits right after the background start; its one line is the pid. The host is
+            // Home's brain: its answers show on screen, so it runs at userVisible (a child at QoS default, `processQoS`).
+            let shell = ProcessRequest(URL(fileURLWithPath: "/bin/sh"), arguments, environment: childEnvironment,
+                                       directory: muxHome, priority: .userVisible)
+            let printed = try await processes.outcome(of: shell).text
             let pid = pid_t(printed.trimmingCharacters(in: .whitespacesAndNewlines)).flatMap { $0 > 1 ? $0 : nil }
             logger.info("mux host started for \(muxHome.path, privacy: .public) pid \(pid.map(String.init) ?? "?", privacy: .public)")
             return pid

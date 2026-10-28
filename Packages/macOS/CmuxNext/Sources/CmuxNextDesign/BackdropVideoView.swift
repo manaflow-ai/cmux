@@ -1,5 +1,6 @@
 public import AppKit
 public import AVFoundation
+public import CmuxNextCompat
 import CmuxNextWakeups
 public import CmuxNextDesignTokens
 
@@ -7,10 +8,12 @@ public import CmuxNextDesignTokens
 /// `AVPlayerLayer`, filling the window as the art does. It plays only while someone can see it
 /// and the Mac can afford it, and holds its frame otherwise:
 ///
-/// - the window is visible (not occluded, minimized or hidden with the app), the screens are
-///   awake and the session is the active one, and other windows hide less than nearly all of it
+/// - the window's node (``WindowVisibilitySource``) is seen: not occluded, minimized, hidden with
+///   the app or on sleeping screens, or a capture vote holds it (``VisibilityNode/wantsFrames``);
+///   the session is the active one, and other windows hide less than nearly all of it
 ///   (``BackdropCoverage``: AppKit calls a window visible while any pixel of it shows);
-/// - not in Low Power Mode, and the thermal state is below serious;
+/// - not in Low Power Mode, and the thermal state is below serious (the App pushes both from its
+///   energy monitor, ``BackdropVideoPlayers/setEnergy(lowPowerMode:thermal:)``);
 /// - looping motion is allowed (`Motion.animatesLoops`: Reduce Motion or animation speed "off"
 ///   holds the frame it is on; before the first frame the art view below shows the poster).
 ///
@@ -19,24 +22,36 @@ public import CmuxNextDesignTokens
 /// frames out of memory, and the layer stays clear until its first frame is ready, so a new
 /// window never flashes black. The first frame fades in over the poster, and a video no one has
 /// been able to see for a minute gives its decoder back (``BackdropVideoPlayers/releaseAfter``).
+///
+/// Its window's key, main and close notices come through the window's one ``WindowEvents``; the
+/// session's through its players (``BackdropVideoPlayers/follow(deadlines:session:)``); its coverage
+/// samples are a `background` ``MainDeadline`` on the players' scheduler.
 public final class BackdropVideoView: NSView {
     /// The file shown, nil when the wallpaper is no video.
     public private(set) var url: URL?
     /// The layer the shared player draws into.
     public let playerLayer = AVPlayerLayer()
-    /// Tests: pins Reduce Motion, Low Power Mode or visibility for this view instead of the system's.
+    /// Tests: pins Reduce Motion, Low Power Mode or visibility for this view instead of the system's
+    /// (for Low Power Mode, instead of its players' energy inputs).
     public var reduceMotionOverride: Bool? { didSet { update() } }
     public var lowPowerOverride: Bool? { didSet { update() } }
     public var visibleOverride: Bool? { didSet { update() } }
     /// Tests: the windows above this one, in place of the screen's.
     public var windowsAboveOverride: (() -> [BackdropCoverage.Window])?
-    private let players: BackdropVideoPlayers
-    private var observers: [(NotificationCenter, NSObjectProtocol)] = []
+    let players: BackdropVideoPlayers
+    /// Its window's key, main and close notices.
+    private var windowWatch: [EventSubscription] = []
+    private var motionWatch: AppearanceSignals.Subscription? // Reduce Motion, the speed or a motion switch
     private var readyObservation: NSKeyValueObservation?
-    private var screensAsleep = false
-    private var sessionInactive = false
-    private var coverage = BackdropCoverage()
-    private let coverageTimer = DemandTimer(owner: "backdrop-video-coverage")
+    /// Its window's node (``WindowVisibilitySource``); nil out of a window.
+    private var windowNode: VisibilityNode?
+    /// The node's flips and capture votes.
+    private var nodeWatch: [VisibilitySubscription] = []
+    var coverage = BackdropCoverage()
+    /// The next coverage sample, on the players' scheduler (nil until the first, or with none).
+    private var coverageDeadline: MainDeadline?
+    /// The window list a coverage sample waits for: at most one at a time, cancelled when sampling stops.
+    var coverageSample: Task<Void, Never>?
 
     public init(frame frameRect: NSRect, players: BackdropVideoPlayers = .shared) {
         self.players = players
@@ -47,6 +62,7 @@ public final class BackdropVideoView: NSView {
         layer?.addSublayer(playerLayer)
         isHidden = true
         setAccessibilityElement(false)
+        players.register(self)
     }
 
     @available(*, unavailable)
@@ -76,9 +92,11 @@ public final class BackdropVideoView: NSView {
         guard let url, window != nil, playerLayer.player == nil else { return update() }
         playerLayer.opacity = 0
         playerLayer.player = players.attach(url, viewer: ObjectIdentifier(self))
+        // raw-observer-allow: the layer's readiness has no notice; KVO is AVFoundation's only report of it
         readyObservation = playerLayer.observe(\.isReadyForDisplay, options: [.initial, .new]) { [weak self] layer, _ in
             let ready = layer.isReadyForDisplay
-            // AVFoundation may report readiness from its own threads: inline on main, a hop otherwise.
+            // main-hop-allow: AVFoundation reports readiness from its own queue: inline on main (the .initial report,
+            // this turn), else one hop per readiness change (the first frame, a released decoder)
             MainDelivery().run { self?.showFrames(ready) }
         }
         update()
@@ -105,26 +123,41 @@ public final class BackdropVideoView: NSView {
 
     /// Everything ``wantsPlayback`` asks but coverage, which is sampled only while this holds.
     private var seen: Bool {
-        let lowPower = lowPowerOverride ?? ProcessInfo.processInfo.isLowPowerModeEnabled
+        let lowPower = lowPowerOverride ?? players.lowPowerMode
         let reduced = reduceMotionOverride ?? !Motion.panes.animatesLoops
-        let hot = ProcessInfo.processInfo.thermalState.rawValue >= ProcessInfo.ThermalState.serious.rawValue
+        let hot = players.thermalState.rawValue >= ProcessInfo.ThermalState.serious.rawValue
         return onScreen && !lowPower && !hot && !reduced
     }
 
-    /// Shown in a window that is on screen, with the screens awake and the session active.
+    /// Shown in a window whose node is seen (on screen with the screens awake, or captured), with
+    /// the session active.
     private var onScreen: Bool {
-        guard url != nil, !isHidden, let window else { return false }
-        let visible = visibleOverride ?? (window.occlusionState.contains(.visible) && !window.isMiniaturized && !NSApp.isHidden)
-        return visible && !screensAsleep && !sessionInactive
+        guard url != nil, !isHidden, window != nil else { return false }
+        let visible = visibleOverride ?? (windowNode?.wantsFrames ?? false)
+        return visible && !players.sessionInactive
     }
 
     override public func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        for (center, observer) in observers { center.removeObserver(observer) }
-        observers = []
-        guard window != nil else { return detach() }
+        windowWatch = []
+        motionWatch = nil
+        for subscription in nodeWatch { subscription.cancel() }
+        nodeWatch = []
+        windowNode = nil
+        guard let window else { return detach() }
+        follow(WindowVisibilitySource.of(window).node)
         observe()
         attach()
+    }
+
+    /// Plays and holds by `node`: its flips (occlusion, minimize, app hide, screens asleep) and its
+    /// capture votes.
+    private func follow(_ node: VisibilityNode) {
+        windowNode = node
+        nodeWatch = [
+            node.subscribe(owner: "BackdropVideoView") { [weak self] _ in self?.update() },
+            node.subscribeExemption(owner: "BackdropVideoView") { [weak self] in self?.update() },
+        ]
     }
 
     override public var isHidden: Bool {
@@ -146,7 +179,13 @@ public final class BackdropVideoView: NSView {
         CATransaction.commit()
     }
 
-    private func update() {
+    /// Low Power Mode, the thermal state or the session changed (``BackdropVideoPlayers/setEnergy(lowPowerMode:thermal:)``,
+    /// ``BackdropVideoPlayers/follow(deadlines:session:)``).
+    func inputsDidChange() {
+        update()
+    }
+
+    func update() {
         guard let url, playerLayer.player != nil else { return stopCoverage() }
         if seen {
             startCoverage()
@@ -156,40 +195,18 @@ public final class BackdropVideoView: NSView {
         players.setPlaying(wantsPlayback, seen: canBeSeen, url, viewer: ObjectIdentifier(self))
     }
 
-    /// Samples how much of the window other windows hide, and rests or resumes the video on it.
-    public func sampleCoverage() {
-        guard let window else { return }
-        let above = windowsAboveOverride?() ?? BackdropCoverage.windows(above: window.windowNumber)
-        let resting = coverage.resting
-        coverage.sample(BackdropCoverage.covered(Self.screenFrame(window.frame), by: above, ignoring: Self.descendants(of: window)))
-        if coverage.resting != resting { update() }
-    }
-
-    /// The numbers of a window's child windows, theirs, and so on: its overlay panel and page windows.
-    static func descendants(of window: NSWindow) -> Set<Int> {
-        var numbers: Set<Int> = []
-        var pending = window.childWindows ?? []
-        while let child = pending.popLast() {
-            // A child never put on screen has no number yet; 0 would hide every unnumbered window.
-            if child.windowNumber > 0 { numbers.insert(child.windowNumber) }
-            pending += child.childWindows ?? []
-        }
-        return numbers
-    }
-
-    /// A window frame in CGWindowList's space: origin at the top left of the main display.
-    static func screenFrame(_ frame: NSRect) -> CGRect {
-        let top = NSScreen.screens.first?.frame.maxY ?? frame.maxY
-        return CGRect(x: frame.minX, y: top - frame.maxY, width: frame.width, height: frame.height)
-    }
-
     private func startCoverage() {
-        guard !coverageTimer.isScheduled else { return }
+        guard coverageDeadline?.isScheduled != true else { return }
         scheduleCoverage()
     }
 
+    /// The next sample, a `background` deadline: nobody sees the window list it reads.
     private func scheduleCoverage() {
-        coverageTimer.schedule(after: .seconds(BackdropCoverage.interval)) { @MainActor [weak self] in
+        guard let deadlines = players.deadlines else { return }
+        let deadline = coverageDeadline
+            ?? MainDeadline(owner: "BackdropVideoView.coverage", workClass: .background, scheduler: deadlines)
+        coverageDeadline = deadline
+        deadline.schedule(after: .seconds(BackdropCoverage.interval)) { [weak self] in
             self?.coverageFired()
         }
     }
@@ -202,193 +219,29 @@ public final class BackdropVideoView: NSView {
 
     /// Stops sampling; coverage seen before the window was hidden or closed is stale.
     private func stopCoverage() {
-        coverageTimer.cancel()
+        coverageDeadline?.cancel()
+        coverageSample?.cancel()
+        coverageSample = nil
         coverage.reset()
     }
 
+    /// Follows the window's notices (occlusion, minimize, app hide and screen sleep reach it through its window's
+    /// node, follow(_:); the session through its players).
     private func observe() {
-        let app = NotificationCenter.default, workspace = NSWorkspace.shared.notificationCenter
-        var names: [(NotificationCenter, Notification.Name, AnyObject?)] = [
-            (app, NSWindow.didChangeOcclusionStateNotification, window), (app, NSWindow.didMiniaturizeNotification, window),
-            (app, NSWindow.didDeminiaturizeNotification, window), (app, NSWindow.didBecomeMainNotification, window),
-            (app, NSWindow.didBecomeKeyNotification, window), (app, NSApplication.didHideNotification, nil),
-            (app, NSApplication.didUnhideNotification, nil), (app, Notification.Name.NSProcessInfoPowerStateDidChange, nil),
-            (app, ProcessInfo.thermalStateDidChangeNotification, nil), (app, Motion.reduceMotionDidChange, nil),
-            (app, Motion.speedDidChange, nil),
-            (workspace, NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, nil),
+        guard let window else { return }
+        motionWatch = DesignSettings.shared.signals.subscribe([.motion], owner: "BackdropVideoView") { [weak self] in self?.update() }
+        let events = WindowEvents.of(window)
+        windowWatch = [
+            // A window brought to the front shows: play now; the next samples rest it again if needed.
+            events.subscribe(NSWindow.didBecomeMainNotification, owner: "BackdropVideoView") { [weak self] in self?.broughtToFront() },
+            events.subscribe(NSWindow.didBecomeKeyNotification, owner: "BackdropVideoView") { [weak self] in self?.broughtToFront() },
+            // A closed window keeps its views: hand the shared player back now, not when the view goes.
+            events.subscribe(NSWindow.willCloseNotification, owner: "BackdropVideoView") { [weak self] in self?.detach() },
         ]
-        names.append((app, NSWindow.willCloseNotification, window))
-        names += [NSWorkspace.screensDidSleepNotification, NSWorkspace.screensDidWakeNotification,
-                  NSWorkspace.sessionDidResignActiveNotification, NSWorkspace.sessionDidBecomeActiveNotification].map { (workspace, $0, nil) }
-        observers = names.map { center, name, object in
-            (center, center.addObserver(forName: name, object: object, queue: .main) { [weak self] note in
-                let name = note.name
-                // main-proof: the observer runs on the main queue (queue: .main)
-                MainActor.assumeIsolated { self?.note(name) }
-            })
-        }
     }
 
-    private func note(_ name: Notification.Name) {
-        switch name {
-        // A closed window keeps its views: hand the shared player back now, not when the view goes.
-        case NSWindow.willCloseNotification: return detach()
-        // A window brought to the front shows: play now; the next samples rest it again if needed.
-        case NSWindow.didBecomeMainNotification, NSWindow.didBecomeKeyNotification: coverage.reset()
-        case NSWorkspace.screensDidSleepNotification: screensAsleep = true
-        case NSWorkspace.screensDidWakeNotification: screensAsleep = false
-        case NSWorkspace.sessionDidResignActiveNotification: sessionInactive = true
-        case NSWorkspace.sessionDidBecomeActiveNotification: sessionInactive = false
-        default: break
-        }
+    private func broughtToFront() {
+        coverage.reset()
         update()
-    }
-}
-
-/// The looping players behind every video wallpaper, one per file, shared by every window that
-/// shows it. A player runs while any of its windows wants it and pauses when none does. When none
-/// of its windows can even be seen (hidden, covered, the screens asleep) for ``releaseAfter``, it
-/// drops its items, which frees the decoder and its frame buffers, and picks up where it was when
-/// one is seen again: hours behind other windows cost no video memory.
-@MainActor
-public final class BackdropVideoPlayers {
-    public static let shared = BackdropVideoPlayers()
-
-    private struct Entry {
-        let player: AVQueuePlayer
-        /// Nil while released.
-        var looper: AVPlayerLooper?
-        var viewers: Set<ObjectIdentifier>
-        var playing: Set<ObjectIdentifier>
-        /// The viewers someone could see now.
-        var seen: Set<ObjectIdentifier>
-        /// Where a released player picks up.
-        var resumeAt: CMTime = .zero
-        /// A restored item still to be sought to ``resumeAt``, and the wait for it to be ready.
-        var pendingRestore = false
-        var restoring: NSKeyValueObservation?
-        let release: DemandTimer
-    }
-
-    private var entries: [URL: Entry] = [:]
-
-    /// How long a player no one can see keeps its decoder.
-    public var releaseAfter: Duration = .seconds(60)
-
-    private let clock: any Clock<Duration>
-
-    /// `clock` times ``releaseAfter`` (tests step a manual one).
-    public init(clock: any Clock<Duration> = ContinuousClock()) {
-        self.clock = clock
-    }
-
-    /// Players alive now (tests).
-    public var count: Int { entries.count }
-
-    /// Whether `url`'s player has given back its decoder (tests).
-    public func isReleased(_ url: URL) -> Bool { entries[url].map { $0.looper == nil } ?? false }
-
-    /// Whether `url`'s restored player is still waiting to seek back to its frame (tests).
-    public func isRestoring(_ url: URL) -> Bool { entries[url]?.pendingRestore == true }
-
-    func attach(_ url: URL, viewer: ObjectIdentifier) -> AVQueuePlayer {
-        if var entry = entries[url] {
-            entry.viewers.insert(viewer)
-            entries[url] = entry
-            return entry.player
-        }
-        let player = AVQueuePlayer()
-        player.isMuted = true
-        player.volume = 0
-        player.preventsDisplaySleepDuringVideoPlayback = false
-        player.actionAtItemEnd = .advance
-        entries[url] = Entry(player: player, looper: Self.looper(url, player), viewers: [viewer], playing: [], seen: [],
-                             release: DemandTimer(owner: "backdrop-video-release", clock: clock))
-        return player
-    }
-
-    func detach(_ url: URL, viewer: ObjectIdentifier) {
-        guard var entry = entries[url] else { return }
-        entry.viewers.remove(viewer)
-        entry.playing.remove(viewer)
-        entry.seen.remove(viewer)
-        guard entry.viewers.isEmpty else {
-            entries[url] = entry
-            return apply(url)
-        }
-        // Torn down in idlesse's order: pause, stop looping, then drop the items.
-        entry.release.cancel()
-        entry.restoring = nil
-        entry.player.pause()
-        entry.looper?.disableLooping()
-        entry.player.removeAllItems()
-        entries[url] = nil
-    }
-
-    func setPlaying(_ plays: Bool, seen: Bool = true, _ url: URL, viewer: ObjectIdentifier) {
-        guard var entry = entries[url], entry.viewers.contains(viewer) else { return }
-        if plays { entry.playing.insert(viewer) } else { entry.playing.remove(viewer) }
-        if seen { entry.seen.insert(viewer) } else { entry.seen.remove(viewer) }
-        entries[url] = entry
-        apply(url)
-    }
-
-    /// Gives back `url`'s decoder now if no one can see it (the release timer's work; tests).
-    func releaseIfUnseen(_ url: URL) {
-        guard var entry = entries[url], entry.playing.isEmpty, entry.seen.isEmpty, let looper = entry.looper else { return }
-        entry.resumeAt = entry.player.currentTime()
-        entry.pendingRestore = false
-        entry.restoring = nil
-        entry.player.pause()
-        looper.disableLooping()
-        entry.player.removeAllItems()
-        entry.looper = nil
-        entries[url] = entry
-    }
-
-    private func apply(_ url: URL) {
-        guard var entry = entries[url] else { return }
-        if entry.seen.isEmpty, entry.looper != nil {
-            // The minute counts from when the last viewer went out of sight, not from each update.
-            if !entry.release.isScheduled {
-                entry.release.schedule(after: releaseAfter) { @MainActor [weak self] in self?.releaseIfUnseen(url) }
-            }
-        } else {
-            entry.release.cancel()
-        }
-        if entry.looper == nil, !entry.seen.isEmpty || !entry.playing.isEmpty {
-            // Seen again: new items, at the exact frame it held once the first is ready (a seek
-            // sent before then can be dropped, or undone by the looper).
-            entry.looper = Self.looper(url, entry.player)
-            entry.pendingRestore = true
-            // Stored before observing: an item already ready reports inline, on this turn.
-            entries[url] = entry
-            let resumeAt = entry.resumeAt
-            let observation = entry.player.observe(\.currentItem?.status, options: [.initial, .new]) { [weak self] player, _ in
-                guard player.currentItem?.status == .readyToPlay else { return }
-                // AVFoundation may report from its own threads: inline on main, a hop otherwise.
-                MainDelivery().run {
-                    guard let self, let entry = self.entries[url], entry.pendingRestore else { return }
-                    self.entries[url]?.pendingRestore = false
-                    self.entries[url]?.restoring = nil
-                    entry.player.seek(to: resumeAt, toleranceBefore: .zero, toleranceAfter: .zero)
-                }
-            }
-            // Kept only while the seek is still to come (an inline report has already done it).
-            if entries[url]?.pendingRestore == true { entries[url]?.restoring = observation }
-            entry = entries[url] ?? entry
-        }
-        if entry.playing.isEmpty {
-            if entry.player.rate != 0 { entry.player.pause() }
-        } else if entry.player.rate == 0 {
-            entry.player.play()
-        }
-    }
-
-    /// A muted, looping item for `url` on `player`, with a short forward buffer.
-    private static func looper(_ url: URL, _ player: AVQueuePlayer) -> AVPlayerLooper {
-        let item = AVPlayerItem(url: url)
-        item.preferredForwardBufferDuration = 0.5
-        return AVPlayerLooper(player: player, templateItem: item)
     }
 }

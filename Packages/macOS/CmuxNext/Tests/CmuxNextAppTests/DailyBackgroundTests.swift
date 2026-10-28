@@ -35,15 +35,14 @@ import Testing
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         await settings.reload()
         let scope = ThemeScope(level: .room)
-        let terminal = TerminalThemeSetting(backdropScope: scope)
         let center = NotificationCenter()
+        let terminal = TerminalThemeSetting.testing(backdropScope: scope, center: center)
         let calendar = try Self.london()
         terminal.reload = {}
-        terminal.notificationCenter = center
         terminal.now = { Self.today }
         terminal.calendar = { calendar }
         terminal.follow(settings)
-        return Harness(settings: settings, terminal: terminal, center: center, scope: scope, page: SettingsPageProvider(settings: settings),
+        return Harness(settings: settings, terminal: terminal, center: center, scope: scope, page: SettingsPageProvider(settings: settings, on: linklessMainWork()),
                        url: url, calendar: calendar)
     }
 

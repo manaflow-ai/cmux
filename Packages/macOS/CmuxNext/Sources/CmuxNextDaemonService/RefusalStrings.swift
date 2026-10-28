@@ -1,3 +1,4 @@
+import struct CmuxSafeConcurrency.OwnerReference
 import CmuxNextDaemon
 public import CmuxNextLayout
 public import Foundation
@@ -38,6 +39,8 @@ public nonisolated enum RefusalStrings {
     }
     public static var chromiumUnavailable: String { text("handlers.refusal.chromiumUnavailable", "Chromium is not available in this build.") }
     public static var homeNotReady: String { text("handlers.refusal.homeNotReady", "Home is not ready yet.") }
+    /// An action that reached a service after the app's services were gone (``ActionFailure/appClosing``).
+    public static var appClosing: String { text("handlers.refusal.appClosing", "cmux is closing.") }
     /// A promote (new workspace, new window) of a Home tab (`TabPromotion`).
     public static var homeKeepsItsTabs: String { text("handlers.refusal.homeKeepsItsTabs", "Home's tabs stay in Home.") }
     /// The user's close of a permanent docked column (cmux-tui `dock-column-permanent`).
@@ -205,6 +208,9 @@ public nonisolated enum RefusalStrings {
     public static var hibernateVisibleTab: String { text("handlers.refusal.hibernateVisibleTab", "Only a hidden tab can hibernate.") }
     public static var hibernateUnsupported: String {
         text("handlers.refusal.hibernateUnsupported", "This page cannot keep its history when it hibernates.")
+    }
+    public static var hibernateDiscardAttempted: String {
+        text("handlers.refusal.hibernateDiscardAttempted", "This tab could not hibernate. It stays loaded until you show it again.")
     }
     public static var hibernateFormSubmission: String {
         text("handlers.refusal.hibernateFormSubmission", "This page shows the result of a form. It stays loaded so the form is not sent again.")

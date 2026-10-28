@@ -1,4 +1,5 @@
 import AppKit
+import struct CmuxSafeConcurrency.OwnerReference
 import CmuxNextActions
 import CmuxNextDaemon
 import CmuxNextDesign
@@ -13,7 +14,7 @@ struct WindowRecordSaves {
     /// answers after the record is stored (plans/cmux-next/state-ownership.md 3 and 4).
     var tickets: [CommandTicket] = []
     /// The task draining saves, so the quit flush can await it.
-    var drain: Task<Void, Never>?
+    var drain: Task<Void, any Error>?
 }
 
 /// Writes the window records in the daemon's `personal` projection (state-ownership.md 3): tab per
@@ -21,9 +22,12 @@ struct WindowRecordSaves {
 /// an unchanged document writes nothing. Geometry settles for 500 ms first. Owned by `WindowManager`.
 @MainActor
 final class WindowRecordSaver {
-    unowned let manager: WindowManager
-    /// Debounced save of window geometry (architecture.md 1: 500 ms).
-    let geometryTimer = DemandTimer(owner: "WindowManager.geometry")
+    /// The window manager, which owns this as `WindowManager.recordSaver` (p10-stability-091).
+    private let managerReference: OwnerReference<WindowManager>
+    /// The manager; nil (reported) only once it is gone, and then nothing is saved.
+    var manager: WindowManager? { managerReference.resolve() }
+    /// Debounced save of window geometry (architecture.md 1: 500 ms): persistence nobody sees, `background`.
+    let geometryTimer: MainDeadline
     /// The focused pane's save waits for the commit that shows the move (``focusDidSettle(_:pane:)``).
     private var afterCommit: CommitProbe?
     /// A focused-pane save waits for that commit, or for ``afterCommitDeadline``.
@@ -31,39 +35,50 @@ final class WindowRecordSaver {
     /// Tickets of the focus moves that wait for that commit: they join the save that follows it
     /// (not a write already in flight, which does not carry their pane).
     private var focusTickets: [CommandTicket] = []
-    /// The deadline of a focused-pane save whose window shows no commit (occluded, unlit).
-    private let afterCommitTimer = DemandTimer(owner: "WindowRecordSaver.afterCommit")
+    /// The deadline of a focused-pane save whose window shows no commit (occluded, unlit). Nothing shows,
+    /// but an action's reply (`action.run`) waits on that save: `automation`.
+    private let afterCommitTimer: MainDeadline
     static let afterCommitDeadline: Duration = .milliseconds(100)
     /// Coalesced saves of the window records.
     var saves = WindowRecordSaves()
     /// The daemon's window records of this install (`window-records-v1`).
     private let recordMirror = WindowRecordMirror()
     private var selectedTabsCache: [String: (key: SelectedTabsKey, tabs: [String: String])] = [:]
-    private var services: AppServices { manager.services }
+    private var services: AppServices? { manager?.services }
 
-    init(manager: WindowManager) {
-        self.manager = manager
+    /// - Parameters:
+    ///   - manager: The window manager that owns it.
+    ///   - deadlines: The app's one main-thread deadline scheduler.
+    init(manager: WindowManager, deadlines: MainDeadlineScheduler) {
+        managerReference = OwnerReference(manager, invariant: "window-manager-outlives-its-record-saver")
+        geometryTimer = MainDeadline(owner: "WindowManager.geometry", workClass: .background, scheduler: deadlines)
+        afterCommitTimer = MainDeadline(owner: "WindowRecordSaver.afterCommit", workClass: .automation, scheduler: deadlines)
     }
 
     /// A selection, focus, membership or sidebar change: save on the next turn.
     func stateDidChange(_ state: WindowState) {
+        guard let manager else { return }
         guard manager.restored, !manager.isTerminating else { return }
         requestSave()
     }
 
     /// A frame change: save once it has settled for 500 ms.
     func geometryDidChange(_ state: WindowState) {
+        guard let manager else { return }
         guard manager.restored, !manager.isTerminating else { return }
-        geometryTimer.schedule(after: .milliseconds(500)) { @MainActor [weak self] in self?.requestSave() }
+        geometryTimer.schedule(after: .milliseconds(500)) { [weak self] in self?.requestSave() }
     }
 
     func scheduleSave() {
+        guard let manager else { return }
         guard let any = manager.states.values.first else { return }
         stateDidChange(any)
     }
 
     /// Records the window's focused pane when it changed (the focus coordinator settled), and saves.
     func focusDidSettle(_ state: WindowState, pane: String?) {
+        guard let manager else { return }
+        let services = manager.services
         guard state.savedFocusedPane != pane else { return }
         state.savedFocusedPane = pane
         guard manager.restored, !manager.isTerminating else { return }
@@ -77,8 +92,8 @@ final class WindowRecordSaver {
         let probe = afterCommit ?? CommitProbe { [weak self] _, _ in self?.commitShowedFocus() }
         afterCommit = probe
         probe.mark(in: host)
-        // Bounded, cancellable deadline (DemandTimer): a window that commits nothing still saves.
-        afterCommitTimer.schedule(after: Self.afterCommitDeadline) { @MainActor [weak self] in self?.commitShowedFocus() }
+        // Bounded, cancellable deadline: a window that commits nothing still saves.
+        afterCommitTimer.schedule(after: Self.afterCommitDeadline) { [weak self] in self?.commitShowedFocus() }
     }
 
     /// The commit that shows a focus move ran (or its deadline passed): the save it waited for starts.
@@ -94,30 +109,33 @@ final class WindowRecordSaver {
     }
 
     private func requestSave() {
+        guard let services else { return }
         saves.requested = true
         if let ticket = services.daemon.openTicket() { saves.tickets.append(ticket) }
         scheduleDrain()
     }
 
     private func scheduleDrain() {
+        guard let services else { return }
         guard saves.requested, !saves.inFlight, !saves.scheduled else { return }
         saves.scheduled = true
-        // Not part of any action's scope: a projection write keeps a fresh
-        // mutation id (its CAS retries must not replay an earlier write).
-        DaemonCommandScope.$current.withValueInTask(nil) {
-            // task-owner: one coalesced save per main-actor turn; drainSaves ends when no save is requested
-            saves.drain = Task { @MainActor [weak self] in await self?.drainSaves() }
-        }
+        // A detached task (BackgroundWork) inherits no action's scope (`DaemonCommandScope`): a projection write
+        // keeps a fresh mutation id (its CAS retries must not replay an earlier write). `userVisible`: an action's
+        // reply waits on its ticket. The drain reaches main a turn later, so requests of one turn share one write.
+        // task-owner: one coalesced save per main-actor turn; drainSaves ends when no save is requested
+        saves.drain = services.work.task(.userVisible) { [weak self] in await self?.drainSaves() }
     }
 
     /// Writes the records once more after any write in flight, so an older one cannot land after it (quit).
     func flushSaves() async {
         commitShowedFocus()
         requestSave()
-        await saves.drain?.value
+        _ = await saves.drain?.result
     }
 
     private func drainSaves() async {
+        guard let manager else { return }
+        let services = manager.services
         saves.scheduled = false
         guard !saves.inFlight else { return }
         saves.inFlight = true
@@ -140,6 +158,8 @@ final class WindowRecordSaver {
     /// Writes the records; returns why they were not stored, or nil.
     @discardableResult
     func saveNow() async -> (any Error)? {
+        guard let manager else { return ActionFailure.appClosing }
+        let services = manager.services
         guard let windowState = services.daemon.windowState else { return DaemonError.notConnected }
         DebugPaneFocus.noteMainWork("record_saves")
         manager.captureGeometry()
@@ -163,6 +183,7 @@ final class WindowRecordSaver {
 
     /// Mirrors the windows into the daemon's window records (`WindowRecordMirror`).
     private func mirror(_ records: [WindowRecord]) async {
+        guard let services else { return }
         let daemon = services.daemon
         guard daemon.supports(DaemonCapability.windowRecords.rawValue), let connection = daemon.connection,
               let install = try? services.cloud.localDeviceID() else { return }
@@ -174,6 +195,7 @@ final class WindowRecordSaver {
     /// Front first by the registry's recency (`WindowManager.windowDidOrder`): a save never asks the
     /// window server (`NSApp.orderedWindows` is a synchronous query, cx-8w027.25).
     func currentRecords() -> [WindowRecord] {
+        guard let manager else { return [] }
         let value = manager.registry.value
         let states = manager.states
         let order = Dictionary(value.recency.enumerated().map { ($1, $0) }, uniquingKeysWith: min)
@@ -191,6 +213,7 @@ final class WindowRecordSaver {
 
     /// The pane last focused in each workspace the window lists (focus memory, the shown one's pane).
     private func focusedPanes(window: WindowRegistry.Window) -> [String: String] {
+        guard let manager else { return [:] }
         guard let state = manager.states[window.id] else { return [:] }
         let focus = state.focus.state
         var panes = state.focus.rememberedPanes()
@@ -202,6 +225,8 @@ final class WindowRecordSaver {
     /// Remembered tab per pane across the window's workspaces, read again only when an input moved
     /// (its tab memory, its workspaces, a daemon batch): a save after a switch reads no pane.
     private func selectedTabs(window: WindowRegistry.Window) -> [String: String] {
+        guard let manager else { return [:] }
+        let services = manager.services
         guard let state = manager.states[window.id] else { return [:] }
         let key = SelectedTabsKey(selection: state.selection.revision, workspaces: window.workspaceIDs,
                                   batches: services.machines.daemons.map(\.store.appliedSequence))
