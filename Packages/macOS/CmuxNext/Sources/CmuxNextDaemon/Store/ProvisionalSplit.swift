@@ -34,6 +34,18 @@ import Foundation
         return daemonPane(provisional, in: store) == nil
     }
 
+    /// Whether the daemon placed a split's held tab in a pane of its own (Split Browser: the tab
+    /// `new-frontend-browser-tab` made in the target, then `move-tab-to-split`, which mints its own
+    /// pane id, so no daemon pane carries the split's public id): the held tab (``ProvisionalTab/held(_:surface:in:)``)
+    /// is in a pane other than the target, and a screen's layout places that pane. The daemon's pane
+    /// then takes the provisional pane's place in this apply: the split shows nothing and waits for nothing.
+    static func heldTabPlaced(_ intent: PendingIntent, in store: DaemonStore) -> Bool {
+        guard case .splitPane(let target, _, _, let provisional) = intent.kind, provisional.tab != nil, !intent.createdConfirmed,
+              daemonPane(provisional, in: store) == nil, let surface = intent.createdSurface, let tab = store.tabsBySurface[surface],
+              let pane = store.index.pane(holding: tab), pane.handle != target, pane.handle != provisional.handle else { return false }
+        return store.screen(containing: pane.handle)?.layout.paneIDs.contains(pane.handle) == true
+    }
+
     /// A snapshot that holds a pending split's daemon pane counts as its `pane-added`: a split not
     /// replied to yet can see its pane only through a resync snapshot, and must still settle when
     /// an event closes that pane later (``paneGone(_:in:)``).
@@ -55,7 +67,7 @@ import Foundation
         if intent.closeWhenCreated { return CancelledCreation.daemonHolds(intent, in: store) }
         switch intent.kind {
         case .splitPane(_, _, _, let provisional):
-            return !daemonPlaces(provisional, in: store) && !paneGone(intent, in: store)
+            return !daemonPlaces(provisional, in: store) && !paneGone(intent, in: store) && !heldTabPlaced(intent, in: store)
         case .closeTabs(let surfaces):
             return TabCloseOverlay(store: store).daemonHolds(surfaces)
         case .createWorkspace(let provisional, _):

@@ -100,6 +100,23 @@ struct BrowserSplitStandInTests {
         #expect(store.mirrorViolations.isEmpty)
     }
 
+    /// The open's reply names the tab (``ProvisionalTab/held(_:surface:in:)``) when no raw `tab-added`
+    /// was guessed for it (the records got it some other way): it goes out of sight all the same.
+    @Test func theOpensReplyHidesATabTheRecordsAlreadyShow() throws {
+        let store = Self.store()
+        let (tab, provisional, _) = Self.split(store)
+        let transaction = try #require(store.pendingIntents.first?.transaction)
+        store.apply(snapshot: Self.tree([PaneSnapshot(id: Self.source, tabs: [TabSnapshot(surface: SurfaceID(rawValue: 4)), Self.browser(Self.daemonTab)])],
+                                        layout: .leaf(Self.source), revision: 2))
+        #expect(try Self.panes(store).first?.tabs.map(\.surface) == [SurfaceID(rawValue: 4), Self.daemonTab])
+        ProvisionalTab.held(transaction, surface: Self.daemonTab, in: store)
+        let panes = try Self.panes(store)
+        #expect(panes.map(\.handle) == [Self.source, provisional.handle])
+        #expect(panes.first?.tabs.map(\.surface) == [SurfaceID(rawValue: 4)])
+        #expect(panes.last?.tabs.map(\.surface) == [tab.surface])
+        #expect(store.mirrorViolations.isEmpty)
+    }
+
     /// A refused move takes the provisional pane back; the open's tab shows where the daemon left it.
     @Test func aRefusedMoveShowsTheTabInItsTargetPane() throws {
         let store = Self.store()

@@ -140,6 +140,9 @@ final class TabContentCache {
     /// No Chromium page is being created any more (ChromiumWarmup's spare window).
     var onPagesSettled: (@MainActor () -> Void)?
     private var framedStandIns: Set<String> = [] // stand-in tabs whose page waited for their first frame
+    /// A daemon browser tab's surface -> the stand-in tab whose page it takes when it first shows (Split Browser:
+    /// the daemon's pane takes the provisional pane's place in a store apply, `BrowserHandlers.splitBrowser`).
+    var standInSuccessors: [SurfaceID: String] = [:]
     /// Each tab's visibility node, weakly (`node(for:)`).
     private var tabNodes: [String: WeakTabNode] = [:]
     /// `tabNodes` drops its released nodes when it reaches this many entries.
@@ -326,6 +329,8 @@ final class TabContentCache {
         // A close the daemon makes (`cmux tab close`, another client) frees the page too.
         goneTabs.track(key, in: browserTabs.daemon(for: tab).store) { [weak self] in self?.release($0) }
         if let entry = browsers[key] { return entry }
+        // The stand-in's page and chrome move to it, in the apply that shows it: nothing is rebuilt or reloaded.
+        if let standIn = standInSuccessors.removeValue(forKey: tab.surface), moveBrowser(standIn, to: tab), let entry = browsers[key] { return entry }
         if pageRequests.claimCloseOnArrival(tab.surface) {
             // Its page closed before the tab appeared (BrowserPageRequests): the tab closes after this presentation.
             mainWork.post(.visible, owner: "TabContentCache.closeOnArrival") { [weak self] in self?.pageRequests.closeTab(key) }

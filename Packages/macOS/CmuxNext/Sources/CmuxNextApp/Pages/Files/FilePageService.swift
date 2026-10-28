@@ -55,6 +55,8 @@ final class FilePageService: InternalPageProvider {
     let clock: any Clock<Duration>
     private let images: any RemoteImageFetching
     var tabs: [String: Tab] = [:]
+    /// Files still being written (View Metrics): the first page made for one waits for it (``FilePageProvider/ready``).
+    var pendingWrites: [URL: @MainActor () async -> String?] = [:]
     /// Markdown table column widths between opens (the file's extended attribute, then an app-side copy).
     private let tableWidths: (any MarkdownTableWidthStoring)?
     /// Where the markdown tabs keep viewer comments (viewer-comments-DESIGN.md "Comments in the viewer").
@@ -158,18 +160,23 @@ final class FilePageService: InternalPageProvider {
     /// the file (a chat transcript); every other markdown file opens writable. `position` (the code
     /// editor only, a Find result): the cursor goes there, in a new tab after its load
     /// (``revealAt(_:in:)``).
+    /// `ready` (a file still being written off the main thread): a new tab shows at once, its page
+    /// loading, and reads the file once `ready` returns nil; a reason fails the page with it.
     @discardableResult
     func open(_ file: URL, in pane: PaneController, focus: Bool, userChose: Bool = true, readOnly: Bool = false,
               recoveredText: String? = nil, at position: FilePosition? = nil,
-              placed: (@MainActor (SurfaceID) -> Void)? = nil) -> String {
+              placed: (@MainActor (SurfaceID) -> Void)? = nil, ready: (@MainActor () async -> String?)? = nil) -> String {
         guard let services else { return "" }
         let real = file.standardizedFileURL.resolvingSymlinksInPath()
         if userChose { services.viewers.recents.record(real, as: kind.recents) }
         let reveal = kind == .editor ? position : nil
         let tab = Tab(file: real, userChose: userChose, readOnly: readOnly, recoveredText: recoveredText, reveal: reveal)
+        if let ready { pendingWrites[real] = ready } // before the tab shows: its page may be made in this turn
         let key = show(in: pane, focus: focus, placed: placed, tab) { key in
             self.file(key) == real
         }
+        // A page that already showed the file reloads it when it changes (its file watch).
+        if tabs[key]?.provider != nil { pendingWrites[real] = nil }
         if let reveal { revealAt(reveal, in: key) }
         // The user opened a file a tab already shows (perhaps one an agent opened): it is theirs now.
         if userChose {
@@ -328,6 +335,7 @@ final class FilePageService: InternalPageProvider {
                                         host: host, libraries: libraries, images: images, tableWidths: tableWidths,
                                         comments: comments, deadlines: services.mainDeadlines, work: services.work)
         provider.recoveredText = tab.recoveredText
+        provider.ready = tab.file.flatMap { pendingWrites.removeValue(forKey: $0) }
         provider.reveal = tab.reveal
         provider.viewState = tab.viewState
         tab.recoveredText = nil
@@ -414,6 +422,7 @@ final class FilePageService: InternalPageProvider {
 
     func tabClosed(_ key: String) {
         guard let tab = tabs[key] else { return }
+        if let file = tab.file { pendingWrites[file] = nil }
         tabs[key] = nil
         replies.close(key)
         letPageGo(tab, key: key, closing: true)

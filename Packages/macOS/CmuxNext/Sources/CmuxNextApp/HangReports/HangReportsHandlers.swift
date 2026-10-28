@@ -1,4 +1,5 @@
 import CmuxNextActions
+import CmuxNextBrowser
 import CmuxNextControl
 import CmuxNextFeatures
 import CmuxNextWakeups
@@ -9,9 +10,12 @@ import Foundation
 /// cmux file tab of the run's pane (else the active window's focused pane).
 /// `diagnostics.viewMetrics` (palette; feature `metricsView`, p09-observability task 065): every
 /// field histogram since launch (``MetricsSnapshot``, chrome://histograms) written to
-/// `Metrics/metrics.json` in the build's folder on the files lane, then opened the same way.
+/// `Metrics/metrics.json` in the build's folder on the files lane, in a code editor tab that opens in
+/// the run's turn and loads the file once it is written.
 enum HangReportsHandlers {
-    static func bind(into registry: ActionRegistry, context: AppActionContext) {
+    /// `writeMetrics` writes the metrics JSON to a file (blocking: it runs on the files lane); tests make it fail.
+    static func bind(into registry: ActionRegistry, context: AppActionContext,
+                     writeMetrics: @escaping @Sendable (URL) throws -> Void = { try MetricsSnapshot().blockingWrite(to: $0) }) {
         registry.bind("diagnostics.viewHangReport", run: { invocation in
             guard let controller = AppProcessRoot.shared.hangReports, controller.isAvailable else {
                 throw ActionFailure(message: HangReportsStrings.unavailable)
@@ -23,22 +27,29 @@ enum HangReportsHandlers {
         })
         let services = context.services, metricsOn = services.features.isEnabled(.metricsView), launch = services.environment.launch
         registry.bindEffect("diagnostics.viewMetrics", unavailable: { metricsOn ? nil : MetricsSnapshot.featureOffReason }, effect: { invocation in
-            let pane = invocation.target == nil ? services.windows.active?.focusedPane : context.paneController(invocation)
-            let work = services.work
-            // action-wait-allow: the counters are read and the JSON is written off the main thread; the tab opens once the file exists.
-            return .waiting(.fileSystem) { [weak viewers = services.viewers] in
+            let target = invocation.target == nil ? services.windows.active?.focusedPane : context.paneController(invocation)
+            guard let pane = target ?? services.windows.active?.focusedPane else { return .refused(FilePageStrings.noPane) }
+            let file = SidebarSnapshotFile.buildDirectory(launch: launch).appending(path: "Metrics/metrics.json")
+            // The viewer tab opens in this turn, its page loading until the file is written; a failed
+            // write fails the page with its reason, and the registry reports it.
+            let written = OneShot<String?>()
+            services.viewers.editorPages.open(file, in: pane, focus: true, ready: {
+                // Only a closed tab's read is cancelled, so the cancel's reason is never shown.
+                // concurrency-allow: OneShot.wait is an async suspension (a continuation the write resolves), not a blocking wait
+                await written.wait(cancelled: "cancelled")
+            })
+            let work = services.work, write = writeMetrics
+            return .applied(ActionConfirmation(send: {
                 do {
-                    let file = try await work.run(.userBlocking, mayBlock: .files) {
-                        let file = SidebarSnapshotFile.buildDirectory(launch: launch).appending(path: "Metrics/metrics.json")
-                        try MetricsSnapshot().blockingWrite(to: file)
-                        return file
-                    }
-                    _ = viewers?.openFile(file, in: pane, markdown: false)
+                    // The counters are read and the JSON written off the main thread.
+                    try await work.run(.userBlocking, mayBlock: .files) { try write(file) }
+                    written.resolve(nil)
                     return nil
                 } catch {
+                    written.resolve(error.localizedDescription)
                     return ActionWorkFailure(error.localizedDescription)
                 }
-            }
+            }))
         })
     }
 }

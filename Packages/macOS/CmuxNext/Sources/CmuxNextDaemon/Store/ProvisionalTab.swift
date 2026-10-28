@@ -139,7 +139,7 @@ public struct ProvisionalTab: Sendable, Hashable {
         guard store.tab(surface: surface) != nil,
               !store.intentLog.entries.contains(where: { $0.createdSurface == surface }) else { return }
         let waiting = store.intentLog.entries.first { entry in
-            guard entry.createdSurface == nil, case .createTab(let target, let provisional) = entry.kind, target == pane,
+            guard entry.createdSurface == nil, case let (target, provisional)? = browserStandIn(of: entry.kind), target == pane,
                   provisional.kind == .browser, provisional.isFrontendOwned else { return false }
             return provisional.browserEngine == engine
         }
@@ -147,6 +147,32 @@ public struct ProvisionalTab: Sendable, Hashable {
         let daemonTabs = store.pane(pane)?.tabs.filter { !isProvisional(surface: $0.surface) } ?? []
         guard daemonTabs.allSatisfy({ $0.surface.rawValue <= surface.rawValue }) else { return }
         store.intentLog.noteCreated(entry.transaction, surface: surface, confirmed: false)
+    }
+
+    /// The pane and stand-in of a browser create: a new tab's (Cmd-T), or a browser split's, whose
+    /// tab `new-frontend-browser-tab` makes in the target pane before `move-tab-to-split` moves it.
+    private static func browserStandIn(of intent: Intent) -> (PaneID, TabSnapshot)? {
+        switch intent {
+        case .createTab(let target, let provisional): (target, provisional)
+        case .splitPane(let target, _, _, let provisional): provisional.tab.map { (target, $0) }
+        default: nil
+        }
+    }
+
+    /// Split Browser's tab (`new-frontend-browser-tab` in the split's target pane, before
+    /// `move-tab-to-split`) is `surface`: it stays hidden, the split's provisional pane and its
+    /// stand-in showing, wherever the daemon lists it, until the daemon's layout places it in a
+    /// pane of its own; that pane then takes the provisional pane's place in one apply
+    /// (``ProvisionalSplit/heldTabPlaced(_:in:)``). Neither the open nor the move names the split's
+    /// public ids, so the tab is held by its surface. A refused move rejects the intent: the tab
+    /// shows where it is.
+    @MainActor public static func held(_ transaction: ClientTransactionID, surface: SurfaceID, in store: DaemonStore) {
+        guard store.intentLog.contains(transaction) else { return }
+        store.intentLog.noteCreated(transaction, surface: surface, confirmed: false)
+        // The tab may show already (its raw `tab-added` came before the reply and named no create).
+        if store.tabsBySurface[surface] != nil, !store.overlayLifted, store.applyDepth == 0 {
+            store.withOverlayLifted(writer: "split tab held") {}
+        }
     }
 
     /// A terminal tab whose host id a pending terminal create chose (``terminal(_:cwd:)``) is that

@@ -83,6 +83,9 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
     /// A recovered crash draft of the tab's file: the next config carries it once (the markdown and
     /// editor pages load it as an unsaved edit).
     var recoveredText: String?
+    /// The tab's file is still being written (View Metrics): `config` waits for it, the page showing
+    /// its loading state; nil when it is written, else why not (the page fails with it).
+    var ready: (@MainActor () async -> String?)?
     /// Where the editor puts the cursor on the tab's file (a Find result's line and column): the
     /// next config of that file carries it once as `reveal`. The markdown page ignores it.
     var reveal: FilePosition?
@@ -167,6 +170,7 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
         switch op {
         case kind.op("config"):
             guard let file else { return merged(["pick": true], host.look()) }
+            if let ready, let reason = await ready() { throw PageError(code: kind.op("not_found"), message: reason) }
             return try await config(for: file)
         case kind.op("open"):
             return try await open(path(params["path"]))

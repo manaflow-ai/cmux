@@ -161,8 +161,8 @@ enum BrowserHandlers {
     /// chat a person's browser is a tab in the strip.
     ///
     /// Returns what the caller hands the registry (``ActionRegistry/settle(_:of:_:)``, or a bound handler's
-    /// return): the tab open and the split are one waiting effect (`daemonEcho`: nothing shows until the daemon
-    /// answers, debt until a provisional browser split exists), and its failure is reported, not only logged.
+    /// return): the new pane and its stand-in tab show in this turn (a split intent); the tab open and the
+    /// move to the split are the effect's send, and a failure takes the pane back and is reported.
     static func splitBrowser(from pane: PaneController, direction: SplitDirection, url: URL? = nil, profile: String? = nil,
                              byPerson: Bool, context: AppActionContext) throws -> ActionEffect {
         let handle = pane.pane.handle, model = pane.pane
@@ -183,29 +183,51 @@ enum BrowserHandlers {
             return .done
         }
         if let refusal = browserTabs.refusal(in: model) { throw ActionFailure(message: refusal) }
-        // The split goes to the pane's own machine (cx-2cob); `refusal` named a disconnected one.
+        // The split goes to the pane's own machine (cx-2cob; `refusal` named a disconnected one).
         let daemon = context.services.daemon(for: model)
         let connection = try daemon.isLocal ? context.requireConnection() : daemon.connection ?? context.requireConnection()
         // The default engine (never refused: no engine is requested).
         guard case .open(let choice) = browserTabs.resolve(requested: nil, url: url) else { return .done }
-        let intent = pane.workspace?.beginFocusIntent()
+        let content = pane.workspace, intent = content?.beginFocusIntent(), window = content == nil ? nil : pane.view.window
         let address = url?.absoluteString ?? context.services.newTabAddress(for: choice)
-        // action-wait-allow: no provisional browser split exists yet (a tab opened in the source pane, then moved by the daemon's split); its failure is now reported.
-        return .waiting(.daemonEcho) {
+        let target: FocusState.Target = url == nil ? .addressBar : .content
+        // The new pane shows in this turn, holding a stand-in of the tab with its page (its address bar
+        // focused for a New Tab page), as Cmd-D's provisional pane does (PaneHandlers.split).
+        let standIn = ProvisionalTab(), store = daemon.store, transaction = ClientTransactionID.generate()
+        let profileID = browserTabs.isIncognitoPane(model) ? nil : browserTabs.resolveProfile(model, profile)
+        let provisional = ProvisionalPane(holding: standIn.browser(url: address, engine: choice.engine.rawValue, profile: profileID))
+        store.intend(.splitPane(pane: handle, direction: direction, ratio: 0.5, provisional: provisional), transaction: transaction)
+        content?.focus.expect(.tab(standIn.id), target: target, generation: intent)
+        let keys = context.services.keyRouter.creationInputCoordinator.begin(in: window, generation: intent, tab: standIn.id)
+        content?.applyCurrent() // laid out and mounted in this turn: the pane draws in the key's frame
+        let cache = context.services.cache, logger = context.daemon.logger, input = context.services.keyRouter.creationInputCoordinator
+        // The registry sends after this turn: the tab in the source pane (held out of sight,
+        // ProvisionalTab.held), then `move-tab-to-split`; the daemon's pane takes the provisional
+        // pane's place in the apply that places it, and its tab takes the stand-in's page
+        // (TabContentCache.standInSuccessors). A failure takes the pane back and is reported.
+        return .applied(ActionConfirmation(send: {
+            var landed = false, opened: SurfaceID?
+            defer { input.resolve(keys, landed: landed, in: window) }
             do {
                 let surface = try await browserTabs.open(choice, in: model, url: address, profile: profile)
+                opened = surface
+                ProvisionalTab.held(transaction, surface: surface, in: store)
+                cache.standInSuccessors[surface] = standIn.id
+                // The person closed the stand-in first: its close takes the tab (CancelledCreation).
+                guard !store.creations.wasCancelled(transaction) else { return nil }
                 try await connection.split(handle, direction: direction, movingTab: surface)
-                // The new pane takes focus (its address bar the keyboard
-                // for a new-tab page). The daemon may report the tab in the
-                // source pane before the move: land only in the new pane.
-                pane.workspace?.expectFocus(on: surface, target: url == nil ? .addressBar : .content, awayFrom: pane.paneKey,
-                                            generation: intent)
+                if let sequence = await connection.eventSequence() { store.noteSettled(transaction, at: sequence) } else { store.noteSettledAtNextSnapshot(transaction) }
+                content?.expectFocus(on: surface, target: target, awayFrom: pane.paneKey, generation: intent)
+                landed = true
                 return nil
             } catch {
-                context.daemon.logger.error("split-browser failed: \(String(describing: error), privacy: .public)")
+                // The provisional pane goes; a tab the open made stays in the source pane, with the stand-in's page.
+                store.rejectIntent(transaction)
+                if opened == nil { cache.release(standIn.id) }
+                logger.error("split-browser failed: \(String(describing: error), privacy: .public)")
                 return ActionWorkFailure("split-browser", error)
             }
-        }
+        }))
     }
 
     /// A split's browser tab opened in strip pane `strip` instead (`ToolSplitDecision.tab`), focused.

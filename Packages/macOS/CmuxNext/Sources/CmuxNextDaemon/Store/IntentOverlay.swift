@@ -144,6 +144,9 @@ import Foundation
                       ProvisionalSplit.daemonPane(provisional, in: store) != nil else { return nil }
                 return apply(pending.kind, to: store)
             }
+            // A split's held tab the daemon placed in its own pane: that pane takes the
+            // provisional pane's place in this apply, so the two never show side by side.
+            if ProvisionalSplit.heldTabPlaced(pending, in: store) { return nil }
             // A guess: the daemon's tab stays out of sight and the stand-in keeps its place, so
             // a wrong guess never shows a tab under another create (tab-spam-race).
             guard let hidden = CancelledCreation.hideTab(created, in: store) else { return nil }

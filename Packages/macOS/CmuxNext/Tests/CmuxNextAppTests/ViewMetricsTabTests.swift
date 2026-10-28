@@ -18,6 +18,14 @@ struct ViewMetricsTabTests {
         HangReportsHandlers.bind(into: services.registry, context: AppActionContext(services: services))
     }
 
+    /// The same, with a metrics write that always fails.
+    static func bindFailingMetrics(_ services: AppServices) {
+        services.features = FeatureList(registry: FeatureRegistry(), channel: .dev,
+                                        overrides: FeatureOverrides(environmentEnabled: ["metricsView"]))
+        HangReportsHandlers.bind(into: services.registry, context: AppActionContext(services: services),
+                                 writeMetrics: { _ in throw Refused() })
+    }
+
     /// The code editor tab showing the metrics file, if any.
     static func metricsTab(_ services: AppServices) -> String? {
         services.viewers.editorPages.tabs.first { $0.value.file?.path.hasSuffix("Metrics/metrics.json") == true }?.key
@@ -43,6 +51,30 @@ struct ViewMetricsTabTests {
             #expect(Self.metricsTab(services) != nil, "no viewer tab in the action's turn")
             #expect(services.registry.waitingRuns["diagnostics.viewMetrics"] == nil, "the run was counted as showing nothing until the write")
             for task in work { _ = await task.value }
+        }
+    }
+
+    private struct Refused: LocalizedError {
+        var errorDescription: String? { "the test refused the metrics write" }
+    }
+
+    /// A failed write is reported, and the tab's page fails with its reason (its read waits for the write).
+    @Test func aFailedWriteFailsTheTabsPageWithItsReason() async throws {
+        try await PinnedPageTests.withApp { services, _ in
+            Self.bindFailingMetrics(services)
+            let pane = try #require(services.daemon.store.workspaces.first?.screens.first?.panes.first)
+            let (refusal, work) = Self.run(services, on: pane)
+            #expect(refusal == nil, "View Metrics was refused: \(refusal ?? "")")
+            let key = try #require(Self.metricsTab(services), "no viewer tab in the action's turn")
+            var failures: [String] = []
+            for task in work { if let failure = await task.value { failures.append(failure.message) } }
+            #expect(failures.joined(separator: " | ").contains("the test refused the metrics write"), "the failure was not reported: \(failures)")
+            // The tab's page waits for the write: the gate is its provider's, or the service's until the page is made.
+            let pages = services.viewers.editorPages
+            let file = try #require(pages.tabs[key]?.file)
+            let ready = try #require(pages.pendingWrites[file] ?? pages.tabs[key]?.provider?.ready, "the tab's read does not wait for the write")
+            let reason = await ready()
+            #expect(reason?.contains("the test refused the metrics write") == true, "the tab's page would not fail with the write's reason: \(reason ?? "nil")")
         }
     }
 }
