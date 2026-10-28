@@ -30,7 +30,7 @@ let root: Root | undefined;
 let host: HTMLElement;
 let dom: JSDOM;
 
-beforeAll(() => {
+beforeAll(async () => {
   dom = new JSDOM("<!doctype html><div id=root></div>", { pretendToBeVisual: true });
   const { window } = dom;
   Object.assign(scope, {
@@ -60,6 +60,10 @@ beforeAll(() => {
       scope[key] = (window as unknown as Record<string, unknown>)[key];
     }
   host = window.document.getElementById("root")!;
+  // The app preloads this chunk after its first paint. Await the same import, so assertions below
+  // inspect the actual hunk renderer instead of racing its Suspense fallback.
+  const { loadEditDiffHunks } = await import("../src/agent-session/acpmux/conversation/EditDiff");
+  await loadEditDiffHunks();
 });
 
 afterAll(() => {
@@ -224,6 +228,12 @@ function shownChanges() {
   }));
 }
 
+function shownLines() {
+  return [...host.querySelectorAll(".cv-edit-diff__body diffs-container")].map((container) =>
+    [...(container.shadowRoot?.querySelectorAll("[data-line]") ?? [])].map((line) => line.textContent?.trimEnd()),
+  );
+}
+
 for (const grouped of [false, true]) {
   const surface = grouped ? "grouped approval" : "single approval";
   for (const v2 of [false, true]) {
@@ -241,6 +251,8 @@ for (const grouped of [false, true]) {
         v2,
       );
       expect(shownChanges()).toEqual([{ name: "upload.sh", added: "+1", removed: "-0", cut: false }]);
+      expect(shownLines().flat()).toContain("# retried uploads");
+      expect(shownLines().flat()).not.toContain("wrong");
     });
 
     test(`${surface} previews Claude Edit input from an ${envelope}`, async () => {
@@ -254,6 +266,7 @@ for (const grouped of [false, true]) {
         v2,
       );
       expect(shownChanges()).toEqual([{ name: "upload.sh", added: "+2", removed: "-1", cut: false }]);
+      expect(shownLines()).toEqual([["exit 1", "echo done", "exit 0"]]);
     });
   }
 
@@ -272,6 +285,10 @@ for (const grouped of [false, true]) {
       grouped,
     );
     expect(shownChanges()).toEqual([{ name: "upload.sh", added: "+3", removed: "-2", cut: false }]);
+    expect(shownLines()).toEqual([
+      ["attempt=0", "attempt=1"],
+      ["exit 1", "echo done", "exit 0"],
+    ]);
   });
 
   test(`${surface} does not invent a before image for Write or malformed input`, async () => {
