@@ -387,7 +387,7 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   position: absolute;
   left: 16px;
   top: 15px;
-  font: 600 14px/22px ui-monospace, SFMono-Regular, Menlo, monospace;
+  font: 600 var(--text-content, 14px)/var(--text-content--line-height) ui-monospace, SFMono-Regular, Menlo, monospace;
   color: var(--acpmux-shell-accent);
   pointer-events: none;
 }
@@ -396,7 +396,7 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   box-sizing: border-box;
   width: 100%;
   min-height: 45px;
-  max-height: calc(22px * 8 + 23px);
+  max-height: calc(var(--text-content--line-height) * 8 + var(--cmux-control-height, 23px));
   margin: 0;
   padding: 15px 16px 8px 32px;
   border: 0;
@@ -405,7 +405,7 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   resize: none;
   overflow-y: auto;
   overscroll-behavior: contain;
-  font: 14px/22px ui-monospace, SFMono-Regular, Menlo, monospace;
+  font: var(--text-content, 14px)/var(--text-content--line-height) ui-monospace, SFMono-Regular, Menlo, monospace;
   color: var(--agent-text);
   caret-color: var(--acpmux-shell-accent); /* caret-color: the shell mode's accent marks the mode */
 }

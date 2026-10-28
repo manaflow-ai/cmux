@@ -204,6 +204,8 @@ export function chatDisplayVariables(display: ChatDisplay): Record<string, strin
   return {
     "--cv-font": isDefault("font") ? null : FONT_STACKS[display.font],
     "--cv-font-size": isDefault("fontSize") ? null : `${display.fontSize}px`,
+    // Transcript and composer sub-surfaces keep their relative typography when the chat font changes.
+    "--cv-content-scale": isDefault("fontSize") ? null : String(round(display.fontSize / DEFAULT_CHAT_DISPLAY.fontSize)),
     "--cv-line-height": isDefault("fontSize") && isDefault("lineHeight") ? null : `${metrics.lineHeight}px`,
     "--cv-code-size": isDefault("fontSize") && isDefault("codeScale") ? null : `${metrics.inlineCodeSize}px`,
     "--cv-codeblock-size": isDefault("fontSize") && isDefault("codeScale") ? null : `${metrics.blockCodeSize}px`,
