@@ -437,6 +437,16 @@ public final class AgentPaneModel {
             // Preserve the original click's one-use, session/prompt-scoped grant and expiry.
             released = true
             return AgentPaneReply.success(["transferred": true, "promptId": request.retryPromptID, "ticket": ticket])
+        case .btwInline(let question, let sessionId):
+            guard !remoteChat, self.sessionId == sessionId, let socketPath = transport.socketPath else { return Self.unsupported("chat.btw.inline") }
+            do {
+                let result = try await AcpmuxStatusClient.call(socketPath: socketPath, method: "_acpmux/btw",
+                    params: ["sessionId": sessionId, "question": question, "inline": true], deadline: .seconds(120))
+                guard let text = result["text"] as? String, !text.isEmpty else { return Self.unsupported("chat.btw.inline") }
+                return AgentPaneReply.success(["text": text])
+            } catch {
+                return AgentPaneReply.failure(code: "btw_failed", message: "Inline side question failed")
+            }
         case .paneAction, .diffTurn, .preview, .setQuickActions, .tabState, .tabRowTools, .sideChat, .subagentPane, .processTerminal, .chatTab, .offerOpen, .asksOpen, .asksAnswer, .newChatHere: return await respondToHeader(request)
         case .appAction(let id):
             guard newTab?.omnibar.actions.contains(where: { $0.id == id }) == true, let onAppAction else { return Self.unsupported("app.action") }
