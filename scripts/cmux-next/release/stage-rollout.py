@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import argparse
 import datetime
+import functools
 import importlib.util
 import os
 import re
@@ -89,7 +90,7 @@ def item_versions(item: str) -> set[str]:
 
 def element_pattern(name: str) -> re.Pattern[str]:
     """The element, opened and closed or self-closing (the app reads a self-closing one as empty)."""
-    return re.compile(rf"<cmux:{name}\b[^>]*?/>|<cmux:{name}\b[^>]*>\s*([^<]*?)\s*</cmux:{name}\s*>")
+    return re.compile(rf"<cmux:{name}(?=[\s/>])[^>]*?/>|<cmux:{name}(?=[\s>])[^>]*>\s*([^<]*?)\s*</cmux:{name}\s*>")
 
 
 def element_value(item: str, name: str) -> str | None:
@@ -248,6 +249,7 @@ def utc(moment: datetime.datetime) -> datetime.datetime:
 
 # MARK: the crash-free gate
 
+@functools.cache
 def load_health() -> Any:
     path = Path(__file__).resolve().parent.parent / "stability-health.py"
     spec = importlib.util.spec_from_file_location("cmux_stage_rollout_stability_health", path)

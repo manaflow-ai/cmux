@@ -44,9 +44,7 @@ nonisolated public struct UpdateProber: Sendable {
         self.architecture = architecture
     }
 
-    /// `outcome`, except that an update this install's stage does not reach is no update: Sparkle
-    /// picks the newest item first and holds it there (`shouldProceedWithUpdate`), never falling
-    /// back to an older one, so the probe does not either.
+    /// ``outcome(_:currentBuild:system:rollout:)`` with this prober's ``rollout``.
     func outcome(_ items: [AppcastItem], currentBuild: String, system: SystemVersion) -> UpdateProbeOutcome {
         Self.outcome(items, currentBuild: currentBuild, system: system, rollout: rollout)
     }
@@ -59,7 +57,7 @@ nonisolated public struct UpdateProber: Sendable {
                         rollout: StagedRollout?) -> UpdateProbeOutcome {
         let selected = AppcastSelector.select(from: items, currentBuild: currentBuild, system: system)
         guard let rollout else { return selected }
-        let reaches = { (item: AppcastItem) in rollout.offers(version: item.version, rawPercent: item.rolloutPercent) }
+        let reaches = { (item: AppcastItem) in rollout.offers(item) }
         switch selected {
         case .updateAvailable(let item) where !reaches(item):
             return .upToDate(latest: nil)
@@ -72,7 +70,6 @@ nonisolated public struct UpdateProber: Sendable {
             return selected
         }
     }
-
 
     /// Off the main actor: the feed's items an updater allowing `allowedChannels` sees, in feed
     /// order (a ring switch looks for the ring's builds this Mac kept, ``RingReturn``).

@@ -100,6 +100,11 @@ class StageFeedTests(unittest.TestCase):
             self.assertEqual(tool.current_stage(repaired, "300"), tool.Stage(5, later), feed)
             self.assertEqual(repaired.count("rolloutPercent"), 2, "one element, opened and closed")
 
+    def test_a_longer_element_name_is_not_the_percentage(self):
+        staged = tool.stage_feed(FEED, "300", 5, NOW)
+        noted = staged.replace("<cmux:rolloutPercent>", "<cmux:rolloutPercent-note/><cmux:rolloutPercent>")
+        self.assertEqual(tool.current_stage(noted, "300").percent, 5)
+
     def test_the_enclosure_attribute_names_the_build_too(self):
         out = tool.stage_feed(FEED, "200", 0, NOW)
         self.assertEqual(tool.current_stage(out, "200").percent, 0)

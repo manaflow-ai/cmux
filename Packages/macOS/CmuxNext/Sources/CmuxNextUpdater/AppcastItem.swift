@@ -1,3 +1,4 @@
+public import CmuxUpdater
 public import Foundation
 
 /// One `<item>` of a Sparkle appcast: the fields that decide whether this
@@ -56,6 +57,13 @@ nonisolated public struct AppcastItem: Sendable, Equatable {
         if let minimumSystemVersion, system < minimumSystemVersion { return false }
         if let maximumSystemVersion, system > maximumSystemVersion { return false }
         return true
+    }
+}
+
+extension StagedRollout {
+    /// Whether this install's stage reaches `item` (the probe's and the ring return's one rule).
+    public func offers(_ item: AppcastItem) -> Bool {
+        offers(version: item.version, rawPercent: item.rolloutPercent)
     }
 }
 

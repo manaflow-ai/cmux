@@ -35,7 +35,7 @@ nonisolated public enum RingReturn: Equatable, Sendable {
             return .none
         }
         // A build the ring holds for this install (halted, or not yet at its stage) is no way back.
-        let held = Set(offered.filter { rollout?.offers(version: $0.version, rawPercent: $0.rolloutPercent) == false }.map(\.version))
+        let held = Set(offered.filter { rollout?.offers($0) == false }.map(\.version))
         guard let target = kept.first(where: { onRing.contains($0.build) && !held.contains($0.build)
                                              && AppcastSelector.isOlder($0.build, than: installedBuild) })
         else { return .waits }
