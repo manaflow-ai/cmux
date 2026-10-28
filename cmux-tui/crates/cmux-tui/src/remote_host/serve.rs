@@ -52,9 +52,9 @@ impl Host {
         let result = config::ensure_dir().and_then(|dir| {
             let path = dir.join(ACTIVE_FILE);
             let tmp = dir.join(format!(".{ACTIVE_FILE}.{}", std::process::id()));
-            std::fs::write(&tmp, serde_json::to_vec(&list)?)?;
+            cmux_blocking::fs::write(&tmp, serde_json::to_vec(&list)?)?;
             cmux_tui_core::platform::restrict_file(&tmp)?;
-            std::fs::rename(&tmp, &path)?;
+            cmux_blocking::fs::rename(&tmp, &path)?;
             Ok(())
         });
         if let Err(e) = result {
@@ -180,16 +180,23 @@ pub(crate) fn run(exe: PathBuf) -> anyhow::Result<()> {
         );
     }
     ready("ready");
-    let host = &host;
-    std::thread::scope(|scope| {
-        let threads: Vec<_> = listeners
-            .iter()
-            .map(|listener| scope.spawn(move || accept_loop(host, listener)))
-            .collect();
-        for thread in threads {
-            let _ = thread.join();
-        }
-    });
+    let mut threads = Vec::new();
+    for listener in listeners {
+        let host = Arc::clone(&host);
+        threads.push(
+            cmux_threads::spawn(
+                "remote-host-accept",
+                cmux_threads::ThreadQos::UserInitiated,
+                move || {
+                    accept_loop(&host, &listener);
+                },
+            )
+            .context("cannot start a listener thread")?,
+        );
+    }
+    for thread in threads {
+        let _ = thread.join();
+    }
     Err(anyhow!("every listener stopped"))
 }
 
@@ -204,11 +211,18 @@ fn accept_loop(host: &Arc<Host>, listener: &TcpListener) {
                 };
                 let host = Arc::clone(host);
                 // supervise-allow: one connection's server or reader; Pending bounds how many wait, and a panic ends that connection only.
-                std::thread::spawn(move || {
-                    if let Err(e) = serve_one(&host, stream, peer, pending) {
-                        eprintln!("cmux host: {peer}: {e:#}");
-                    }
-                });
+                let started = cmux_threads::spawn(
+                    "remote-host-conn",
+                    cmux_threads::ThreadQos::UserInitiated,
+                    move || {
+                        if let Err(e) = serve_one(&host, stream, peer, pending) {
+                            eprintln!("cmux host: {peer}: {e:#}");
+                        }
+                    },
+                );
+                if let Err(e) = started {
+                    eprintln!("cmux host: {peer}: cannot start its thread: {e}");
+                }
             }
             Err(e) => eprintln!("cmux host: accept failed: {e}"),
         }
@@ -382,11 +396,23 @@ pub(crate) fn ensure_session(exe: &Path, session: &str) -> anyhow::Result<PathBu
         bail!("`daemon ensure` started without its output pipe");
     };
     // supervise-allow: one connection's server or reader; Pending bounds how many wait, and a panic ends that connection only.
-    let reader = std::thread::spawn(move || {
-        let mut buf = Vec::new();
-        let _ = (&mut stdout).take(1024 * 1024).read_to_end(&mut buf);
-        buf
-    });
+    let reader = cmux_threads::spawn(
+        "remote-host-ensure-out",
+        cmux_threads::caller_qos(cmux_threads::ThreadQos::Utility),
+        move || {
+            let mut buf = Vec::new();
+            let _ = (&mut stdout).take(1024 * 1024).read_to_end(&mut buf);
+            buf
+        },
+    );
+    let reader = match reader {
+        Ok(reader) => reader,
+        Err(e) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(e).context("cannot read `daemon ensure`");
+        }
+    };
     let status = match child.wait_timeout(ENSURE_BOUND)? {
         Some(status) => status,
         None => {
@@ -395,7 +421,7 @@ pub(crate) fn ensure_session(exe: &Path, session: &str) -> anyhow::Result<PathBu
             bail!("`daemon ensure` did not finish within {}s", ENSURE_BOUND.as_secs());
         }
     };
-    let out = reader.join().unwrap_or_default();
+    let out = crate::blocking::thread::join(reader).unwrap_or_default();
     if !status.success() {
         bail!("`daemon ensure` failed: {}", String::from_utf8_lossy(&out).trim());
     }
@@ -443,18 +469,20 @@ fn splice(tcp: TcpStream, daemon: DaemonStream) -> io::Result<()> {
     tcp.set_nodelay(true)?;
     let mut tcp_read = tcp.try_clone()?;
     let mut daemon_write = daemon.try_clone_box()?;
-    let mut daemon_read = daemon;
-    let mut tcp_write = tcp;
-    std::thread::scope(|scope| {
-        let up = scope.spawn(move || {
+    let up = cmux_threads::spawn(
+        "remote-host-splice-up",
+        cmux_threads::caller_qos(cmux_threads::ThreadQos::UserInitiated),
+        move || {
             let _ = io::copy(&mut tcp_read, &mut daemon_write);
             let _ = daemon_write.shutdown(Shutdown::Write);
-        });
-        let _ = copy_flush(&mut daemon_read, &mut tcp_write);
-        let _ = tcp_write.shutdown(Shutdown::Both);
-        let _ = daemon_read.shutdown(Shutdown::Both);
-        let _ = up.join();
-    });
+        },
+    )?;
+    let mut daemon_read = daemon;
+    let mut tcp_write = tcp;
+    let _ = copy_flush(&mut daemon_read, &mut tcp_write);
+    let _ = tcp_write.shutdown(Shutdown::Both);
+    let _ = daemon_read.shutdown(Shutdown::Both);
+    let _ = up.join();
     Ok(())
 }
 

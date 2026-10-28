@@ -22,6 +22,10 @@
 //! `ChannelPosix::WriteOutgoingMessagesWithWritev` (mojo/core/channel_posix.cc)
 //! writes its queued messages. A chunk ends its batch, so the one-chunk bound
 //! above holds for the batched writer too.
+//!
+//! On an idle connection a producer writes its item inline, without waking
+//! the writer thread (task 140, server/inline_write.rs); what the socket
+//! did not take leaves first in the writer's next batch.
 
 use super::BACKPRESSURE_RECHECK;
 use super::BudgetedText;
@@ -64,19 +68,26 @@ use lanes::{LaneTurns, RegularOutbound, StreamLanes};
 pub(super) use queued_sink::websocket_server_frame_header;
 pub(super) use queued_sink::{QueuedSink, SinkControl, SynchronizedTcpStream};
 
+#[path = "inline_write.rs"]
+mod inline_write;
+pub(super) use inline_write::InlineSocket;
+use inline_write::WriterState;
+
 #[cfg(test)]
 #[path = "bounded_outbound_tests.rs"]
 mod tests;
 
 #[path = "outbound_batch.rs"]
 mod batch;
-pub(super) use batch::write_counted_batch;
+pub(super) use batch::write_counted_turn;
 #[cfg(test)]
 pub(super) use batch::write_line_outbound_item;
 
 pub(super) struct BoundedOutbound {
     pub(super) state: Mutex<BoundedOutboundState>,
     pub(super) changed: Condvar,
+    /// Where producers write inline when nothing waits; `None` for none.
+    inline: Option<InlineSocket>,
 }
 
 impl Default for BoundedOutbound {
@@ -100,6 +111,7 @@ pub(super) struct BoundedOutboundState {
     stream_items: usize,
     pub(super) regular_bytes: usize,
     pub(super) closed: bool,
+    writer: WriterState,
     /// Client-minted stream ids held until their terminal is queued
     /// (attach-streams-v1): freeing one is part of queuing its terminal.
     pub(super) client_streams: ClientStreams,
@@ -192,7 +204,11 @@ pub(super) fn claim_connection(
 impl BoundedOutbound {
     /// A queue whose stream frames longer than `chunk_bytes` leave in chunks.
     pub(super) fn with_chunk_bytes(chunk_bytes: usize) -> Self {
-        Self { state: Mutex::new(BoundedOutboundState::new(chunk_bytes)), changed: Condvar::new() }
+        Self {
+            state: Mutex::new(BoundedOutboundState::new(chunk_bytes)),
+            changed: Condvar::new(),
+            inline: None,
+        }
     }
 
     pub(super) fn push_regular(
@@ -230,10 +246,11 @@ impl BoundedOutbound {
 
     fn push_stream_item(&self, message: RegularOutbound, initial: bool) -> std::io::Result<()> {
         let mut state = self.state.lock().recover_poison();
+        let wire_bytes = message.frame.map_or(message.text.len() + 1, |header| header.frame_len());
+        let inline = self.inline_ready(&state, wire_bytes);
         let result = Self::push_regular_locked(&mut state, message, initial);
-        drop(state);
-        self.changed.notify_all();
-        result
+        let finished = self.finish_push(state, inline && result.is_ok());
+        result.and(finished)
     }
 
     pub(super) fn push_regular_backpressured(
@@ -255,11 +272,11 @@ impl BoundedOutbound {
             let pending =
                 state.stream_usage.get(&stream.id).map(|usage| usage.messages).unwrap_or_default();
             if pending < OUTBOUND_BACKPRESSURED_STREAM_CAPACITY {
+                let inline = self.inline_ready(&state, text.len() + 1);
                 let message = RegularOutbound::line(text, stream);
                 let result = Self::push_regular_locked(&mut state, message, false);
-                drop(state);
-                self.changed.notify_all();
-                return result;
+                let finished = self.finish_push(state, inline && result.is_ok());
+                return result.and(finished);
             }
             let (next, _) = self.changed.wait_timeout(state, BACKPRESSURE_RECHECK).recover_poison();
             state = next;
@@ -376,9 +393,9 @@ impl BoundedOutbound {
 
     pub(super) fn push_control(&self, text: Arc<BudgetedText>) -> std::io::Result<()> {
         let mut state = self.state.lock().recover_poison();
+        let inline = self.inline_ready(&state, text.len() + 1);
         Self::push_control_locked(&mut state, text)?;
-        self.changed.notify_one();
-        Ok(())
+        self.finish_push(state, inline)
     }
 
     pub(super) fn flush_control(&self, timeout: Duration) -> std::io::Result<()> {
@@ -570,11 +587,10 @@ impl BoundedOutbound {
         text: Arc<BudgetedText>,
     ) -> std::io::Result<()> {
         let mut state = self.state.lock().recover_poison();
+        let inline = self.inline_ready(&state, header.frame_len());
         Self::admit_control_locked(&mut state, text.len())?;
         state.enqueue_control(ControlOutbound::Frame(header, text));
-        drop(state);
-        self.changed.notify_one();
-        Ok(())
+        self.finish_push(state, inline)
     }
 
     pub(super) fn push_control_locked(
@@ -680,6 +696,7 @@ impl BoundedOutbound {
     pub(super) fn abort(&self) {
         let mut state = self.state.lock().recover_poison();
         state.closed = true;
+        state.drop_rest();
         state.clear_streams();
         state.control.clear();
         state.control_messages = 0;

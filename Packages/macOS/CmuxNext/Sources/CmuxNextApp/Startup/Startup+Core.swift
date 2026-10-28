@@ -21,6 +21,9 @@ extension AppDelegate {
                                    watchdog: control.watchdog, features: features)
         AppProcessRoot.shared.adopt(services)
         self.services = services
+        // Before any window mounts a pane; the ring and host takeover are stand-ins until 131 and 150 land.
+        services.crashRecovery.relaunchReattach(features: services.features).apply(steps: .unavailable,
+            discardSavedFrames: { services.terminalLaunchFrames.discardLaunchRead() }, mark: { DebugTimings.markLaunch($0) })
         controlSocket = AppControl.beginBind(features: services.features, settingsRead: settingsRead, launch: environment.launch,
                                              work: launchReads.work, mainWork: mainWork)  // On a lane
         TooltipPresenter.shared.follow(appEvents: services.appEvents, deadlines: .on(services.mainDeadlines))  // the app's one observer and wake-up queue
@@ -62,7 +65,7 @@ extension AppDelegate {
     func registerDaemon(services: AppServices) {
         HandlerCoverage.verifyAtLaunch(services.registry)  // every handler is bound by now; Debug builds only
         order.startup.post(.critical, "WindowActivation.activateApp", on: .main) { WindowActivation.activateApp() }
-        launchSettle.install(daemon: services.daemon, warmup: services.agentPageWarmup, on: services.mainWork)
+        launchSettle.install(daemon: services.daemon, warmup: services.agentPageWarmup, windows: services.windows, on: services.mainWork)
         launchSettle.dropLaunchReads(frames: services.terminalLaunchFrames, pages: services.launchImages, features: services.features, images: launchImageHold)
         if services.features.isEnabled(.hiddenPollPause) {  // before the local daemon's first connect
             let presence = DaemonPresenceFeed(windows: services.appVisibility.shownWindows)

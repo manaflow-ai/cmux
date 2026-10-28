@@ -71,7 +71,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: folder) }
         try Data().write(to: folder.appending(path: "old"))
         let watcher = OwnerHopFolderFeed()
-        let model = FileBrowserModel(folder: folder, work: linklessMainWork(), watcher: watcher)
+        let model = FileBrowserModel(folder: folder, work: linklessMainWork(), watcher: watcher, lanes: BackgroundWork(label: "test.files-model"))
         await model.reload()
         #expect(model.entries.map(\.name) == ["old"])
 

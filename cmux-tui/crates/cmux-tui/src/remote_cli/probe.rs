@@ -2,7 +2,6 @@
 //! it orders against another build's probe.
 
 use std::collections::BTreeSet;
-use std::fs;
 use std::io::{self, Read as _};
 
 use anyhow::{Context as _, anyhow};
@@ -55,7 +54,7 @@ pub(super) fn run_update_need(args: &[String]) -> anyhow::Result<()> {
         io::stdin().read_to_string(&mut text).context("read the probe JSON from stdin")?;
         text
     } else {
-        fs::read_to_string(source).with_context(|| format!("read {source}"))?
+        cmux_blocking::fs::read_to_string(source).with_context(|| format!("read {source}"))?
     };
     let probe: Value = serde_json::from_str(&text).context("the probe is not JSON")?;
     let object = probe.as_object().ok_or_else(|| anyhow!("the probe is not a JSON object"))?;

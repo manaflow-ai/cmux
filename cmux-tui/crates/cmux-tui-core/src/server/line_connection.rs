@@ -228,7 +228,12 @@ pub(super) fn serve_connection(
     if write_half.set_write_timeout(Some(STREAM_WRITE_TIMEOUT)).is_err() {
         return ConnectionEnd::Dropped;
     }
-    let outbound = Arc::new(BoundedOutbound::with_chunk_bytes(mux.bulk_frame_max()));
+    // Producers write inline to their own handle of the socket while nothing
+    // waits for the writer thread; none when it cannot be cloned.
+    let inline = stream.try_clone_box().ok().and_then(|socket| {
+        InlineSocket::new(socket, mux.bulk_frame_max(), mux.ipc_stats().clone())
+    });
+    let outbound = Arc::new(BoundedOutbound::with_inline(mux.bulk_frame_max(), inline));
     let writer = MessageWriter::new_with_render_service(
         QueuedSink { outbound: outbound.clone(), control: Some(SinkControl::Unix(control)) },
         render_service,
@@ -248,16 +253,20 @@ pub(super) fn serve_connection(
         let _end = WriterEnd { writer: writer_close, socket: writer_socket };
         let _hang_watch =
             cmux_hang_watch::register_thread(cmux_hang_watch::ThreadKind::Io, "mux-line-out");
-        // Every ready item up to 256 KiB leaves in one writev.
+        // Every ready item up to 256 KiB leaves in one writev;
+        // on an idle connection producers write inline instead.
         let mut batch = Vec::new();
-        // mq14-allow: the writer's idle wait for its own queue (BoundedOutbound::recv_batch).
-        while writer_outbound.recv_batch(&mut batch) {
+        // mq14-allow: the writer's idle wait for its own queue (BoundedOutbound::recv_turn).
+        while let Some(mut turn) = writer_outbound.recv_turn(&mut batch) {
             // Each batch's write is a 100 ms hang scope; the wait above is not.
             let _batch = writer_hangs.item(WatchKind::LineOut);
             // One scope per write, as long as the socket's write timeout:
             // the queue wait above is outside it.
             let write = cmux_hang_watch::watch(STREAM_WRITE_TIMEOUT);
-            let written = write_counted_batch(&mut *write_half, &writer_ipc, &batch);
+            // What an inline write left goes first.
+            let rest = turn.rest.take();
+            let written =
+                write_counted_turn(&mut *write_half, &writer_ipc, rest.as_deref(), &batch);
             drop(write);
             // The written texts go now, not when the next item arrives.
             batch.clear();

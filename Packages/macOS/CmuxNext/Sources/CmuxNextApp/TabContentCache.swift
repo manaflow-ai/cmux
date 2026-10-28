@@ -276,7 +276,7 @@ final class TabContentCache {
         let io = DaemonTerminalIO(target: target, resizes: resizes, visible: render, gate: gate, createIntent: create?.intentID ?? 0, creatingInput: gate.flatMap { gate in daemon.creatingInput(tab.terminalID) { gate.isResolved } },
                                   burstTrace: pageRequests.services?.burstTrace, policyBlocked: daemon.policyBlock.check,
                                   hangWatch: daemon.hangWatch, screenChanged: pageRequests.services?.terminalScreenChanged,
-                                  streamFocus: streamFocus, endpoint: { try await daemon.endpoint() })
+                                  streamFocus: streamFocus, connection: { try await daemon.machineConnection() })
         let session = makeSession(io: io, tab: tab, daemon: daemon); session.traceCreate(create, surface: tab.surface.rawValue)
         let entry = TerminalEntry(validity: validity, session: session, io: io, themeKey: TerminalThemeKey(machine: daemon.machineID, tab: tab),
                                   store: daemon.store, surface: tab.surface, gate: gate, mainWork: mainWork)

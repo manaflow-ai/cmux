@@ -59,7 +59,8 @@ final class HomeService {
             host?.ensureAppAcpmux = { try? await local.prewarm() }
             return host
         },
-        mint: { connection in try await ConversationClient(connection).agentToken(for: HomeService.mux.id) })
+        mint: { connection in try await ConversationClient(connection).agentToken(for: HomeService.mux.id) },
+        runner: work)
     @ObservationIgnored private(set) var sessions: [String: HomeConversationSession] = [:]
     @ObservationIgnored private let servicesReference: OwnerReference<AppServices>
     /// The services' schedulers and the app's launch read of this owner's list, taken at init: the lazy parts made

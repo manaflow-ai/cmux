@@ -197,14 +197,14 @@ pub(super) fn ensure_lock(state: &LinkState) -> anyhow::Result<std::fs::File> {
     // send fails and the file drops.
     let (sender, receiver) = std::sync::mpsc::sync_channel(1);
     // supervise-allow: one-shot helper whose result comes back on a channel; a panic drops the sender, so the caller's wait ends with an error.
-    std::thread::Builder::new().name("cmux-link-lock".into()).spawn(move || {
+    cmux_threads::spawn("cmux-link-lock", cmux_threads::ThreadQos::Utility, move || {
         // SAFETY: flock on a descriptor this thread owns.
         let locked =
             unsafe { libc::flock(std::os::fd::AsRawFd::as_raw_fd(&file), libc::LOCK_EX) } == 0;
         let answer = if locked { Ok(file) } else { Err(std::io::Error::last_os_error()) };
         let _ = sender.send(answer);
     })?;
-    match receiver.recv_timeout(LOCK_BUDGET) {
+    match crate::blocking::sync::recv_timeout(&receiver, LOCK_BUDGET) {
         Ok(Ok(file)) => Ok(file),
         Ok(Err(error)) => Err(error).context("lock the link state directory"),
         Err(_) => bail!(
@@ -379,13 +379,11 @@ const READY_FD: RawFd = 3;
 fn start(state: &LinkState, flags: &Flags) -> anyhow::Result<Option<Value>> {
     use std::os::fd::AsFd as _;
     use std::os::unix::fs::OpenOptionsExt as _;
-    let log = std::fs::OpenOptions::new()
-        .create(true)
-        .write(true)
-        .truncate(true)
-        .mode(0o600)
-        .open(state.log_path())
-        .with_context(|| format!("open {}", state.log_path().display()))?;
+    let log = crate::blocking::fs::open_with(
+        std::fs::OpenOptions::new().create(true).write(true).truncate(true).mode(0o600),
+        state.log_path(),
+    )
+    .with_context(|| format!("open {}", state.log_path().display()))?;
     let log_err = log.try_clone()?;
     let mut fds = [0 as RawFd; 2];
     // SAFETY: fds has room for the two descriptors pipe writes.
@@ -425,12 +423,12 @@ fn start(state: &LinkState, flags: &Flags) -> anyhow::Result<Option<Value>> {
     drop(writer);
     let (sender, receiver) = std::sync::mpsc::sync_channel(1);
     // supervise-allow: one-shot helper whose result comes back on a channel; a panic drops the sender, so the caller's wait ends with an error.
-    std::thread::Builder::new().name("cmux-link-ready".into()).spawn(move || {
+    cmux_threads::spawn("cmux-link-ready", cmux_threads::ThreadQos::UserInitiated, move || {
         let mut line = String::new();
         let read = BufReader::new(reader.take(64 * 1024)).read_line(&mut line);
         let _ = sender.send(read.ok().filter(|n| *n > 0).map(|_| line));
     })?;
-    let line = receiver.recv_timeout(START_BUDGET).map_err(|_| {
+    let line = crate::blocking::sync::recv_timeout(&receiver, START_BUDGET).map_err(|_| {
         anyhow!(
             "the link was not ready within {START_BUDGET:?}; see {}",
             state.log_path().display()

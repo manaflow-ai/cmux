@@ -1,6 +1,7 @@
 //! Workspace rename: revision-checked, provider-managed and selector paths.
 
 use super::*;
+use std::sync::PoisonError;
 
 impl Mux {
     #[track_caller]
@@ -130,7 +131,7 @@ impl Mux {
     ) -> anyhow::Result<Option<(WorkspaceId, String, u64)>> {
         let authority = self.authorize_workspace_lifecycle_mutation(authorization, "rename")?;
         let resolved = {
-            let state = self.state.lock().unwrap();
+            let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
             Self::require_workspace_revision(&state, expected_revision)?;
             Self::resolve_workspace_selector(&state, id, key)?
         };
@@ -172,28 +173,25 @@ impl Mux {
             "name": name,
         });
         if let Some(name_fingerprint) = name_authority.fingerprint() {
-            fingerprint["name_authority"] = name_fingerprint;
+            set_field(&mut fingerprint, "name_authority", name_fingerprint)?;
         }
         let notifications = self.tree_decorations();
-        let mut registry = self.workspace_registry.lock().unwrap();
+        let mut registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(commit) = registry.replay(mutation, &fingerprint)? {
             return workspace_mutation_result(&commit);
         }
         let (renamed, result) = {
-            let mut state = self.lock_state_pinned(&registry).unwrap();
+            let mut state =
+                self.lock_state_pinned(&registry).unwrap_or_else(PoisonError::into_inner);
             Self::require_workspace_revision(&state, expected_revision)?;
             let index = resolve_workspace_index(&state, target, requested_key)?;
-            let workspace_id = state.workspaces[index].id;
-            let key = state.workspaces[index].key.clone();
-            let changed = state.workspaces[index].name != name;
+            let workspace_id = state.workspace_at(index)?.id;
+            let key = state.workspace_at(index)?.key.clone();
+            let changed = state.workspace_at(index)?.name != name;
             let mut desired = self.registry_projection(&state);
-            name_authority.apply_workspace(
-                &mut desired[index],
-                name.clone(),
-                registry.generation(),
-            )?;
-            let (name_source, name_revision) =
-                (desired[index].name_source, desired[index].name_revision);
+            let renamed = desired.get_mut(index).ok_or(StaleTopology::Workspace { index })?;
+            name_authority.apply_workspace(renamed, name.clone(), registry.generation())?;
+            let (name_source, name_revision) = (renamed.name_source, renamed.name_revision);
             let desired_active_workspace =
                 state.workspaces.get(state.active_workspace).map(|workspace| &workspace.public_id);
             let intent = registry.prepare_workspace_commit(
@@ -243,9 +241,9 @@ impl Mux {
                 )?
                 .into_workspace()?;
             let commit = receipt.commit;
-            state.workspaces[index].name = name;
-            state.workspaces[index].name_source = name_source;
-            state.workspaces[index].name_revision = name_revision;
+            state.workspace_at_mut(index)?.name = name;
+            state.workspace_at_mut(index)?.name_source = name_source;
+            state.workspace_at_mut(index)?.name_revision = name_revision;
             // A replayed receipt carries the original, possibly older,
             // revision: never move the in-memory revisions back.
             state.workspace_revision = state.workspace_revision.max(commit.revision);
@@ -253,13 +251,12 @@ impl Mux {
                 state.resource_revision = state.resource_revision.max(resource_revision);
             }
             let workspace_revision = commit.revision;
-            let entity = crate::server::tree_entity_json(
+            let entity = committed_tree_entity(
                 &state,
                 &notifications,
                 TreeDeltaKind::WorkspaceRenamed,
                 workspace_id,
-            )
-            .expect("renamed workspace is present in tree snapshot");
+            );
             (
                 TreeDelta {
                     kind: TreeDeltaKind::WorkspaceRenamed,
@@ -292,13 +289,14 @@ impl Mux {
         name: String,
         name_authority: &crate::resource_name::WorkspaceNameUpdate,
     ) -> anyhow::Result<ResourceMutationPlan> {
-        let workspace = &state.workspaces[index];
+        let workspace = state.workspace_at(index)?;
         let changed = workspace.name != name;
         let active_screen =
             workspace.screens.get(workspace.active_screen).map(|screen| screen.public_id.clone());
         let mut desired = self.registry_projection(state);
-        name_authority.apply_workspace(&mut desired[index], name.clone(), registry.generation())?;
-        let durable = desired[index].clone();
+        let renamed = desired.get_mut(index).ok_or(StaleTopology::Workspace { index })?;
+        name_authority.apply_workspace(renamed, name.clone(), registry.generation())?;
+        let durable = renamed.clone();
         let (name_source, name_revision) = (durable.name_source, durable.name_revision);
         let result = serde_json::json!({
             "workspace": target.as_str(),
@@ -326,7 +324,7 @@ impl Mux {
             result.clone(),
             deltas,
             move |state| {
-                let workspace = &mut state.workspaces[index];
+                let workspace = state.planned_workspace_mut(index);
                 workspace.name = name;
                 workspace.name_source = name_source;
                 workspace.name_revision = name_revision;

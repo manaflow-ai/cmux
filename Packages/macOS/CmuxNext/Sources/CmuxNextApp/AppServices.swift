@@ -59,7 +59,7 @@ final class AppServices {
     /// The app's theme store (the one ``ThemeScope/app`` roots on), handed to the App's theme owners.
     let themeStore = ThemeScope.app.store
     /// The recovery-draft backstop of unsaved documents (R96).
-    private(set) lazy var recoveryDrafts = RecoveryDraftStore(directory: RecoveryDraftFiles.defaultDirectory, deadlines: mainDeadlines)
+    private(set) lazy var recoveryDrafts = RecoveryDraftStore(directory: RecoveryDraftFiles.defaultDirectory, deadlines: mainDeadlines, work: work)
     /// The quit hook's unsaved-document participants; drafts go to ``recoveryDrafts``.
     private(set) lazy var quitUnsaved = QuitUnsavedRegistry(deadlines: .on(mainDeadlines), drafts: recoveryDrafts)  // each save's limit is a userBlocking deadline
     /// The open files' quit documents, shared by the markdown and editor pages.
@@ -460,7 +460,8 @@ final class AppServices {
     /// Samples the footprints into `memoryHistograms` once an hour (startHibernationMeasurements starts it).
     private(set) lazy var memoryFootprints = MemoryFootprintEmitter(
         histograms: memoryHistograms, webContentPIDs: { [weak self] in if let self { AppMemoryModel.liveWebContentPIDs(self) } else { [] } },
-        sample: { await AppMemoryModel.processes(webContentPIDs: $0) }, deadlines: mainDeadlines)
+        sample: { [parent = cache.chromium.source.helperParent] in await AppMemoryModel.processes(webContentPIDs: $0, helperParent: parent.pid) },
+        deadlines: mainDeadlines)
     /// The New Tab page on the app's one preload slot, which it installs on `webUI` (instant open).
     private(set) lazy var newTabSpares = NewTabPreload.app(self)
     /// The app's one preload slot (p13-webui.md 3.D), made here only and installed on `webUI`: New Tab and
@@ -589,8 +590,9 @@ final class AppServices {
     let chiefMascotPicks = ChiefMascotPicks(defaults: .standard, defaultChief: HomeChiefAvatars.defaultChief)
     /// Debug Settings: tunable overrides and their window (DEV and NIGHTLY).
     private(set) lazy var debugSettings = DebugSettingsService(services: self)
-    /// Debug menu > Toggle Action Latency HUD (DEV and NIGHTLY): the newest runs of `actionBudget`.
-    private(set) lazy var actionLatencyHUD = ActionLatencyHUD(monitor: actionBudget)
+    let inputLatencyFeed = InputLatencySlotFeed()  // each closed input slot: the latency tracker publishes, the HUD reads
+    /// Debug menu > Toggle Action Latency HUD (DEV and NIGHTLY): the newest runs of `actionBudget` and inputs.
+    private(set) lazy var actionLatencyHUD = ActionLatencyHUD(monitor: actionBudget, inputs: inputLatencyFeed)
     /// Quit: origin, the keep-or-end sheet and the end of the local sessions.
     private(set) lazy var quit = QuitCoordinator(services: self)
     /// Background mode (cx-ghagp): no window open means no Dock icon or Cmd-Tab entry, and a menu bar item instead.
@@ -617,7 +619,7 @@ final class AppServices {
     private(set) lazy var terminalColors = TerminalColorSync(machines: machines, on: mainWork) {  // first read by the daemon start (`startLocalDaemon`), before it connects
         GhosttyRuntime.shared.themeColors.map(TerminalDefaultColors.init)
     }
-    private(set) lazy var themes: ThemeCoordinator = ThemeCoordinator(services: self, terminalThemes: .forApplication(bundleIdentifier: environment.launch.bundleID))  // room, workspace and terminal themes; built by its start (`Themes.start`)
+    private(set) lazy var themes: ThemeCoordinator = ThemeCoordinator(services: self, terminalThemes: .forApplication(bundleIdentifier: environment.launch.bundleID, runner: work))  // room, workspace and terminal themes; built by its start (`Themes.start`)
     /// Browser tabs of remote machines reach that machine's localhost.
     var remoteLocalhost: RemoteLocalhostService { madeRemoteLocalhost ?? RemoteLocalhostService.made(for: self) }  // on first use
     var madeRemoteLocalhost: RemoteLocalhostService?

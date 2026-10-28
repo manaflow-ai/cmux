@@ -36,7 +36,8 @@ struct DebugWebUIWiringTests {
 
     /// The test process runs no Chromium helper: the argv listing finds none.
     @Test func theHelperListingFindsNoHelperOutsideTheApp() {
-        #expect(AppControl.webUIHelpers().isEmpty)
+        #expect(AppControl.webUIHelpers(of: getpid()).isEmpty)
+        #expect(AppControl.webUIHelpers(of: nil).isEmpty, "host mode with no host attached lists none")
     }
 }
 #endif

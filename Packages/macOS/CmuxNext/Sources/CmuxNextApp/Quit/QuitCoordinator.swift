@@ -249,11 +249,12 @@ final class QuitCoordinator {
                 // A Chief home whose acpmux is the attached daemon (`CMUX_NEXT_ACPMUX_ATTACH`) ends nothing there.
                 if !QuitAgents.isAttached(acpmux, to: services.home.chief.home.acpmuxHome) {
                     await ChiefHostStop.endChiefSessions(home: services.home.chief.home,
-                                                         bundledBin: Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true))
+                                                         bundledBin: Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true),
+                                                         runner: services.work)
                 }
                 await services.home.chief.shutdownForEndSessions()
                 let keep = ChiefHostStop.appAcpmuxEndKeep(chiefUsesAppAcpmux: services.home.chief.home.usesAppAcpmux)
-                return await QuitAgents.end(acpmux, keep: keep, waitForShutdown: attempts.isRetry())
+                return await QuitAgents.end(acpmux, runner: services.work, keep: keep, waitForShutdown: attempts.isRetry())
             },
             // Drafts typed after the save step (while "Some sessions did not end" waited) reach disk
             // before the engines stop: nothing the user asked for comes after that (QuitSteps).

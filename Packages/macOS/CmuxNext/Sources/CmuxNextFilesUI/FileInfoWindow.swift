@@ -26,8 +26,8 @@ final class FileInfoWindow: NSObject, NSWindowDelegate {
     }()
 
     /// Makes the window for `url`; `icons` gives its icon (now when kept, else from the system lane); `mainWork`
-    /// runs its fills; `onClose` runs when it closes.
-    init(url: URL, icons: FileIconProvider, mainWork: MainWorkScheduler, reader: FileInfoReader = FileInfoReader(),
+    /// runs its fills; `reader` reads its facts on the app's lanes; `onClose` runs when it closes.
+    init(url: URL, icons: FileIconProvider, mainWork: MainWorkScheduler, reader: FileInfoReader,
          onClose: @escaping () -> Void) {
         self.url = url
         self.reader = reader

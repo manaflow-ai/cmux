@@ -412,7 +412,7 @@ public final class CEFEngine: BrowserEngine {
                       hostResizeFence: runtimeSource.fencesHostResizes, hostPopupMenus: runtimeSource.drawsHostPopupMenus,
                       hostSuggestions: runtimeSource.drawsHostSuggestions, hostChoosers: runtimeSource.drawsHostChoosers,
                       hostFileDialogs: runtimeSource.hostFileDialogs, hostLocks: runtimeSource.handlesHostLocks,
-                      hostAppEvents: runtimeSource.appEvents)
+                      hostAppEvents: runtimeSource.appEvents, helperParent: runtimeSource.helperParent)
         if runtimeSource.watchesHostHangs {
             runtime.watchHostHangs(reports: { [weak runtimeSource] hang in runtimeSource?.onHostHang?(hang) })
         }

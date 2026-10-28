@@ -221,12 +221,11 @@ fn run(inner: &Arc<PumpInner>) {
 
 /// What the next item of a view's source did.
 pub(crate) enum Step {
-    /// An item was sent (or skipped): look again.
+    /// An item was sent (or skipped): look again. An item is never bulk
+    /// work: a source that has some (a snapshot viewer's READY encode and
+    /// history chunks) runs it on a utility sequence and sends its result
+    /// here, so no view's turn holds a worker the echo path shares.
     Sent,
-    /// A bulk item was sent (a READY, a history or images chunk): the turn
-    /// yields, so a view holds a worker the echo path shares for at most
-    /// one such item at a time.
-    Bulk,
     /// The source holds nothing now.
     Empty,
     /// The view ends.
@@ -401,7 +400,6 @@ impl<S: ViewSource> ViewDrain<S> {
             }
             match source.next(&mut self.out, timer) {
                 Step::Sent => {}
-                Step::Bulk => return Turn::Yield,
                 Step::Empty => return Turn::Idle,
                 Step::End => return Turn::Done,
             }

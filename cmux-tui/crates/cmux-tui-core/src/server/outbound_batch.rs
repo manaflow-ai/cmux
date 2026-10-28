@@ -8,9 +8,8 @@
 //! than the chunk size (BULK_FRAME_MAX), so a reply queued while a 32 MiB
 //! snapshot leaves waits for at most one chunk of it, as with single pops.
 
-use super::{BoundedOutbound, OutboundItem};
+use super::{BoundedOutbound, BoundedOutboundState, OutboundItem};
 use crate::diagnostics::IpcStats;
-use crate::panic_free::RecoverPoison;
 use cmux_ipc::HEADER_LEN;
 use std::io::{ErrorKind, IoSlice, Write};
 
@@ -27,35 +26,34 @@ pub(super) const WRITE_BATCH_BYTES: usize = 256 * 1024;
 pub(super) const WRITE_BATCH_ITEMS: usize = 512;
 
 impl BoundedOutbound {
-    /// Waits for the next item, then takes it and every item ready behind
-    /// it in write order into `batch`, until the batch holds
-    /// [`WRITE_BATCH_BYTES`] or [`WRITE_BATCH_ITEMS`]. A flush or a chunk
-    /// ends a batch. `false` once the queue is closed and empty. The wait is
-    /// an idle wait, so a writer that disallows blocking may take it.
+    /// One writer turn's batch ([`BoundedOutbound::recv_turn`]) of a queue
+    /// with no inline socket, so no rest: `false` once the queue is closed
+    /// and empty.
+    #[cfg(test)]
     pub(in crate::server) fn recv_batch(&self, batch: &mut Vec<OutboundItem>) -> bool {
-        batch.clear();
-        let mut state = self.state.lock().recover_poison();
-        loop {
-            if let Some(first) = state.pop() {
-                let mut bytes = first.wire_len();
-                let mut ends = first.ends_batch();
-                batch.push(first);
-                while !ends && bytes < WRITE_BATCH_BYTES && batch.len() < WRITE_BATCH_ITEMS {
-                    let Some(item) = state.pop() else { break };
-                    bytes += item.wire_len();
-                    ends = item.ends_batch();
-                    batch.push(item);
-                }
-                drop(state);
-                self.changed.notify_all();
-                return true;
-            }
-            if state.closed {
-                return false;
-            }
-            // The writer's idle wait for its own queue (p02-threads 308).
-            state = self.changed.idle().wait(state).recover_poison();
+        self.recv_turn(batch)
+            .map(|turn| assert!(turn.rest.is_none(), "a test batch dropped a rest"))
+            .is_some()
+    }
+}
+
+impl BoundedOutboundState {
+    /// Takes the next item and every item ready behind it in write order
+    /// into `batch`, until the batch holds [`WRITE_BATCH_BYTES`] or
+    /// [`WRITE_BATCH_ITEMS`]; a flush or a chunk ends it. False when nothing
+    /// was ready.
+    pub(super) fn take_batch(&mut self, batch: &mut Vec<OutboundItem>) -> bool {
+        let Some(first) = self.pop() else { return false };
+        let mut bytes = first.wire_len();
+        let mut ends = first.ends_batch();
+        batch.push(first);
+        while !ends && bytes < WRITE_BATCH_BYTES && batch.len() < WRITE_BATCH_ITEMS {
+            let Some(item) = self.pop() else { break };
+            bytes += item.wire_len();
+            ends = item.ends_batch();
+            batch.push(item);
         }
+        true
     }
 }
 
@@ -92,7 +90,7 @@ pub(in crate::server) fn write_line_outbound_item<W: Write + ?Sized>(
     write_line_outbound_batch(writer, std::slice::from_ref(&item))
 }
 
-/// Writes one batch of [`BoundedOutbound::recv_batch`], counting each of its
+/// Writes one batch of [`BoundedOutbound::recv_turn`], counting each of its
 /// messages and each write call in `ipc` (`server-stats` `ipc`).
 pub(in crate::server) fn write_counted_batch<W: Write + ?Sized>(
     writer: &mut W,
@@ -109,6 +107,21 @@ pub(in crate::server) fn write_counted_batch<W: Write + ?Sized>(
         }
     }
     write_line_outbound_batch(&mut ipc.counted(writer), items)
+}
+
+/// Writes one writer turn ([`BoundedOutbound::recv_turn`]): the rest an
+/// inline write left, its message counted when that write began it, then
+/// the batch ([`write_counted_batch`]).
+pub(in crate::server) fn write_counted_turn<W: Write + ?Sized>(
+    writer: &mut W,
+    ipc: &IpcStats,
+    rest: Option<&[u8]>,
+    items: &[OutboundItem],
+) -> std::io::Result<()> {
+    if let Some(rest) = rest {
+        ipc.counted(&mut *writer).write_all(rest)?;
+    }
+    write_counted_batch(writer, ipc, items)
 }
 
 /// Writes `items` in order: the items between flushes as one gathered write

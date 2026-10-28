@@ -114,7 +114,7 @@ pub(super) fn capture_status_output(
             exited = true;
             continue;
         }
-        std::thread::sleep(STATUS_POLL_TICK);
+        cmux_blocking::thread::sleep(STATUS_POLL_TICK);
     }
     // A status command must not outlive its collection: descendants that
     // detached from the exited command (for example `cmd &`) would
@@ -202,7 +202,7 @@ pub(super) fn capture_status_output(
             child_reaped = kill_status_command_group(&mut child);
             break;
         }
-        std::thread::sleep(STATUS_POLL_TICK);
+        cmux_threads::checked::sync::sleep(STATUS_POLL_TICK);
     }
     drop(job);
     // A file read never blocks on writers, so lingering descendants cannot
@@ -383,7 +383,7 @@ pub(super) fn kill_status_command_group(child: &mut cmux_process::Child) -> bool
     loop {
         match child.try_wait() {
             Ok(None) if Instant::now() < deadline => {
-                std::thread::sleep(Duration::from_millis(10));
+                cmux_blocking::thread::sleep(Duration::from_millis(10));
             }
             Ok(None) => return false,
             _ => return true,

@@ -254,7 +254,7 @@ import Testing
     /// between the model read and the helper list is in it, so it is no unattributed row.
     @Test func appSampleReadsTheFramedRenderersOnMainAfterTheHelpers() async {
         let threads = Threads()
-        let processes = await AppMemoryModel.processes(Self.snapshot(), rendererClientsWithFrames: {
+        let processes = await AppMemoryModel.processes(Self.snapshot(), helperParent: getpid(), rendererClientsWithFrames: {
             threads.note()
             return [5]
         })

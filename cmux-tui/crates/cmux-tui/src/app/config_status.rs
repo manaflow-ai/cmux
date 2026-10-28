@@ -105,7 +105,7 @@ impl App {
         self.retiring_status_workers.retain(|handle| !handle.is_finished());
         while self.retiring_status_workers.len() > MAX_RETIRING_STATUS_WORKERS {
             let handle = self.retiring_status_workers.remove(0);
-            let _ = handle.join();
+            let _ = crate::blocking::thread::join(handle);
         }
         // A fresh map per generation: a stopped worker mid-command can only
         // write into its own orphaned map, never under an index that now
@@ -129,7 +129,9 @@ impl App {
             let events = self.app_events.clone();
             let worker_stop = stop.clone();
             // supervise-allow: owned by App.status_command_workers and stopped with them; a panic ends that one segment's refresh only.
-            match std::thread::Builder::new().name(format!("status-segment-{index}")).spawn(
+            match cmux_threads::spawn(
+                format!("status-segment-{index}"),
+                cmux_threads::ThreadQos::Utility,
                 move || {
                     run_status_segment_loop(StatusSegmentWorker {
                         index,

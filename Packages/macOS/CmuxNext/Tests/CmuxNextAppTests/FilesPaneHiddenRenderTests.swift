@@ -19,7 +19,7 @@ struct FilesPaneHiddenRenderTests {
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let mainWork = MainWorkScheduler(budget: MainFrameBudget())
-        let model = FileBrowserModel(folder: folder, work: mainWork, viewMode: .list)
+        let model = FileBrowserModel(folder: folder, work: mainWork, viewMode: .list, lanes: BackgroundWork(label: "test.files-pane"))
         let pane = FilesPaneView(model: model, sidebar: SidebarModel(home: folder, defaults: defaults, volumes: { [] }),
                                  icons: FileIconProvider(queries: nil), home: folder, mainWork: mainWork) { _ in }
         defer { pane.stop() }

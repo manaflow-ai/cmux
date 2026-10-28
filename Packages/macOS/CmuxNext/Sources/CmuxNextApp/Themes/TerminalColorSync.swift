@@ -70,12 +70,19 @@ extension AppServices {
     func startLocalDaemon(after launch: LaunchRead<DaemonLaunchStart>) -> DaemonPrompts {
         let prompts = DaemonPrompts.start(self)
         terminalColors.apply()
-        if features.isEnabled(.drainCauseSplit) { daemon.store.drainTailScheduler = mainWork }
+        installDrainTail()
         let now = launch.valueNow(orPostTo: mainWork, class: .visible, owner: "daemon.startLocal") { [weak self] landed in
             self?.startLocalDaemon(landed)
         }
         if let now { startLocalDaemon(now) } else { daemon.launchSnapshot.expectTake() }
         return prompts
+    }
+
+    /// With feature `drainCauseSplit` on, the local store's drain applies program and agent changes past the
+    /// person's last one in budgeted tasks of `mainWork` (`DrainTail`); off, every frame drain
+    /// applies its whole batch. Before the store's first connection, which reads it when it starts.
+    func installDrainTail() {
+        daemon.store.drainTailScheduler = features.isEnabled(.drainCauseSplit) ? mainWork : nil
     }
 
     private func startLocalDaemon(_ landed: DaemonLaunchStart) {

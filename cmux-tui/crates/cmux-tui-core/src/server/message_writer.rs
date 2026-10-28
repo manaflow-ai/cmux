@@ -9,6 +9,11 @@
 //! request's reply is a frame in that same FIFO (`send_reply`). Every other
 //! stream rides a lane (`StreamLane`): input streams before the control FIFO,
 //! bulk and background streams after it (server/outbound_lanes.rs).
+//!
+//! On an idle local connection a send writes its message on the calling
+//! thread with a send that never waits, and the connection's writer thread
+//! sees only what the socket did not take
+//! (server/inline_write.rs).
 
 use super::AttachWireShape;
 use super::BudgetedText;
@@ -462,6 +467,24 @@ impl MessageWriter {
             .render_service
             .serialize_for(value, stream.client_stream)
             .and_then(|text| self.sink.send_stream(text, stream));
+        if result.as_ref().is_err_and(|error| error.kind() != std::io::ErrorKind::WouldBlock) {
+            stream.close();
+        }
+        result
+    }
+
+    /// [`Self::send_stream`] of a value already encoded with
+    /// [`Self::encode`], off the thread that hands it over (a snapshot
+    /// viewer's bulk work encodes its READY and chunks on a utility worker).
+    pub(super) fn send_encoded_stream(
+        &self,
+        encoded: std::io::Result<Arc<BudgetedText>>,
+        stream: &OutboundStream,
+    ) -> std::io::Result<()> {
+        if !self.is_open() {
+            return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
+        }
+        let result = encoded.and_then(|text| self.sink.send_stream(text, stream));
         if result.as_ref().is_err_and(|error| error.kind() != std::io::ErrorKind::WouldBlock) {
             stream.close();
         }
