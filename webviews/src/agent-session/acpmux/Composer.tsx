@@ -1683,7 +1683,9 @@ export function Composer({
         </p>
       )}
       {!remote.note && authBlock && (
-        <p className="acpmux-composer-remote-note acpmux-composer-trust-note" role="alert">{authBlock}</p>
+        <p className="acpmux-composer-remote-note acpmux-composer-trust-note" role="alert">
+          {authBlock}
+        </p>
       )}
       {!remote.note && !authBlock && blocked?.reason && !blocked.shownAbove && (
         <p className="acpmux-composer-remote-note acpmux-composer-trust-note" role="note">
@@ -2005,15 +2007,15 @@ export function Composer({
                     ? authBlock
                     : blocked?.reason
                       ? t(blocked.reason)
-                    : t(
-                        !snapshot.isWorking
-                          ? "composer.sendTooltip"
-                          : steersAlways
-                            ? "composer.steerTooltip"
-                            : returnSteers
-                              ? "composer.queueLaterTooltip"
-                              : "composer.queueTooltip",
-                      )
+                      : t(
+                          !snapshot.isWorking
+                            ? "composer.sendTooltip"
+                            : steersAlways
+                              ? "composer.steerTooltip"
+                              : returnSteers
+                                ? "composer.queueLaterTooltip"
+                                : "composer.queueTooltip",
+                        )
               }
             >
               <ArrowUpIcon />

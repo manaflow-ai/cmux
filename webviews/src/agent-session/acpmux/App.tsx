@@ -54,7 +54,15 @@ import {
 import { WaitingMessagesCard } from "./conversation/WaitingMessagesCard";
 import { groupWaitingTurn } from "./conversation/waitingMessages";
 import { AcpmuxDirectClient, type AcpmuxHostConfig, harnessBlock, type HarnessBlock, isTrustRefusal } from "./direct";
-import { authBlocksSend, authText, readSessionAuth, type SessionAuth } from "./sessionAuth";
+import {
+  authBlocksSend,
+  authText,
+  isAuthPreflightPending,
+  sessionLogin,
+  useRouteAuthSwitch,
+  useSessionAuth,
+  UNKNOWN_AUTH,
+} from "./sessionAuth";
 import { postNative } from "./native";
 import { NativeError } from "./nativeError";
 import { errorMessage } from "./transportErrors";
@@ -4841,64 +4849,59 @@ function AcpmuxPane() {
       live = false;
     };
   }, [connected, rulesLocal, snapshot.sessionId, turnWorking]);
-  // This verdict belongs to this chat or the exact prospective New Tab harness/host/route.
-  // Host-wide harness health is never authority for a routed or running chat.
-  const [authRoute, setAuthRoute] = useState<string | null | undefined>();
-  const [routeChanging, setRouteChanging] = useState(false);
-  const [authRead, setAuthRead] = useState<{ key: string; value: SessionAuth }>();
-  const authHarness = snapshot.summary?.harness ?? heldPick(snapshot).harness;
-  const authSession = snapshot.sessionId;
-  const authHost = snapshot.summary?.peer;
-  const authKey = JSON.stringify([authSession, authHarness, authHost, authRoute]);
-  useEffect(() => {
-    setAuthRoute(undefined);
-    setRouteChanging(false);
-    setAuthRead(undefined);
-  }, [authSession]);
-  useEffect(() => {
+  // A page without a session checks its own selected target (NewTabScreen); never a guessed one here.
+  const [authRouteVersion, setAuthRouteVersion] = useState(0);
+  const setChatRoute = useCallback(async (sessionId: string, routeId: string) => {
     const client = directClient.current;
-    if (!connected || !client || (!authSession && !authHarness)) {
-      setAuthRead(undefined);
-      return;
-    }
-    let live = true;
-    const query = authSession
-      ? { sessionId: authSession }
-      : { target: { harness: authHarness!, ...(authHost ? { host: authHost } : {}),
-          ...(authRoute ? { routeId: authRoute } : {}) } };
-    void client.sessionAuth(query, healthRecheck > 0 || authRoute !== undefined)
-      .then((reply) => {
-        if (!live) return;
-        const value = readSessionAuth(reply);
-        // The response may be from a prior selected chat despite the transport resolving now.
-        if (authSession && value.fromSessionId && value.fromSessionId !== authSession) return;
-        setAuthRead({ key: authKey, value });
-        setRouteChanging(false);
-      })
-      // Older daemons lack sessionAuth: unknown is nonblocking, never a guessed sign-out.
-      .catch(() => {
-        if (!live) return;
-        setAuthRead({ key: authKey, value: readSessionAuth(undefined) });
-        setRouteChanging(false);
-      });
-    return () => { live = false; };
-  }, [connected, authSession, authHarness, authHost, authRoute, authKey, healthRecheck, snapshot.isWorking]);
-  const sessionAuth = authRead?.key === authKey ? authRead.value : undefined;
-  const authBlock = routeChanging ? "Checking account…" : authBlocksSend(sessionAuth) ? authText(sessionAuth) : undefined;
+    if (!client) throw new Error("acpmux.notConnected");
+    await client.setChatRoute(sessionId, routeId);
+  }, []);
+  const { routeChanging, routeAuthPending, settleRoute, switchRoute } = useRouteAuthSwitch(
+    setChatRoute,
+    useCallback(() => setAuthRouteVersion((version) => version + 1), []),
+  );
+  const readAuth = useCallback<NonNullable<SignIn["readSessionAuth"]>>(
+    (query, refresh) =>
+      connected && directClient.current
+        ? directClient.current.sessionAuth(query, refresh)
+        : Promise.resolve(UNKNOWN_AUTH),
+    [connected],
+  );
+  const authEpoch = authRouteVersion;
+  const authObservation = snapshot.isWorking ? 1 : 0;
+  const {
+    auth: sessionAuth,
+    pending: authPending,
+    recheck: recheckSession,
+  } = useSessionAuth(
+    snapshot.sessionId ? { sessionId: snapshot.sessionId } : undefined,
+    readAuth,
+    authEpoch,
+    healthRecheck,
+    authObservation,
+  );
+  useEffect(() => {
+    settleRoute(snapshot.sessionId, authPending);
+  }, [authPending, settleRoute, snapshot.sessionId]);
+  const authBlock = isAuthPreflightPending(routeChanging, routeAuthPending, snapshot.sessionId, authPending)
+    ? t("harnesses.checking")
+    : authBlocksSend(sessionAuth)
+      ? authText(sessionAuth, t)
+      : undefined;
   const signIn = useMemo<SignIn>(
     () => ({
       signedOut,
       sessionAuth,
-      recheckSession: recheckHealth,
-      loginSession: () => {
-        const command = sessionAuth?.login?.command;
-        if (sessionAuth?.login?.kind !== "terminal" || !command) return;
+      recheckSession,
+      readSessionAuth: readAuth,
+      authEpoch,
+      authRefresh: healthRecheck,
+      authObservation,
+      loginSession: (auth = sessionAuth) => {
         healthStale.current = true;
-        void callNative("tab.open", {
-          kind: "terminal", text: command,
-          ...(snapshot.summary?.cwd ? { cwd: snapshot.summary.cwd } : {}),
-          run: true,
-        }).catch(() => undefined);
+        void sessionLogin(auth, (params) => callNative("tab.open", params), snapshot.summary?.cwd).catch(
+          () => undefined,
+        );
       },
       logIn: (_harness, login) => {
         healthStale.current = true;
@@ -4910,7 +4913,16 @@ function AcpmuxPane() {
         }).catch(() => undefined);
       },
     }),
-    [signedOut, sessionAuth, recheckHealth, snapshot.summary?.cwd],
+    [
+      signedOut,
+      sessionAuth,
+      recheckSession,
+      readAuth,
+      authEpoch,
+      healthRecheck,
+      authObservation,
+      snapshot.summary?.cwd,
+    ],
   );
   // The composer's Account menu: this Mac's acpmux routes for the chat (acpmux refuses them to Web
   // and peer connections), read when the menu opens.
@@ -4923,22 +4935,10 @@ function AcpmuxPane() {
               if (!client) throw new Error("acpmux.notConnected");
               return readChatAccounts(await client.routes(sessionId));
             },
-            set: async (sessionId, routeId) => {
-              const client = directClient.current;
-              if (!client) throw new Error("acpmux.notConnected");
-              setRouteChanging(true);
-              setAuthRead(undefined);
-              try {
-                await client.setChatRoute(sessionId, routeId);
-                setAuthRoute(routeId);
-              } catch (error) {
-                setRouteChanging(false);
-                throw error;
-              }
-            },
+            set: switchRoute,
           }
         : undefined,
-    [connected, healthLocal],
+    [connected, healthLocal, switchRoute],
   );
   const loginCommand = chatLoginCommand(catalog, snapshot.summary?.harness, harnessHealth);
   // A new chat centers its composer under the hero.

@@ -1,4 +1,4 @@
-import { authText, type SessionAuth } from "./sessionAuth";
+import { authText, canSessionLogin, type SessionAuth } from "./sessionAuth";
 import React, { Fragment, useContext, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { AgentMark, hasAgentMark } from "../shared/AgentMark";
 import type { ChatAccountList, ChatAccounts } from "./chatAccounts";
@@ -622,22 +622,20 @@ export function QuickModelMenu({
           <span className="ui-submenu-chevron" aria-hidden="true" />
         </MenuItem>
       )}
-      {!query && auth && authText(auth.verdict) && (
+      {!query && auth && authText(auth.verdict, t) && (
         <>
           <MenuSeparator />
           <MenuItem disabled className="acpmux-quick-item acpmux-quick-note">
-            <span className="acpmux-menu-label">{authText(auth.verdict)}</span>
+            <span className="acpmux-menu-label">{authText(auth.verdict, t)}</span>
           </MenuItem>
-          {(auth.verdict.state === "signedOut" || auth.verdict.state === "expired"
-            || auth.verdict.state === "routeAuthNeeded") && auth.verdict.login?.kind === "terminal"
-            && auth.verdict.login.command && auth.onLogin && (
+          {canSessionLogin(auth.verdict) && auth.onLogin && (
             <MenuItem className="acpmux-quick-item" onSelect={() => auth.onLogin?.()}>
-              <span className="acpmux-menu-label">Sign in…</span>
+              <span className="acpmux-menu-label">{t("harness.logIn")}</span>
             </MenuItem>
           )}
           {auth.onRefresh && (
             <MenuItem className="acpmux-quick-item" onSelect={() => auth.onRefresh?.()}>
-              <span className="acpmux-menu-label">Check again</span>
+              <span className="acpmux-menu-label">{t("harnesses.checkAgain")}</span>
             </MenuItem>
           )}
         </>
