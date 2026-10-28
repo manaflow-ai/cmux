@@ -304,6 +304,38 @@ class ResourceApiTests(unittest.TestCase):
                     connection.recv(), {"value": "still within deadline"}
                 )
 
+    def test_dispatch_keeps_deadline_after_platform_lock_slice(self) -> None:
+        def handler(connection, _index):
+            for request in frames(connection):
+                send_frame(connection, request)
+
+        for bounded in (False, True):
+            with self.subTest(bounded=bounded), UnixJsonServer(handler) as server:
+                with JsonLineConnection(server.path, timeout=1) as connection:
+                    lock = connection._send_lock
+                    lock.acquire()
+
+                    def acquire(timeout):
+                        acquired = lock.acquire(timeout=timeout)
+                        if not acquired:
+                            lock.release()
+                        return acquired
+
+                    with patch.object(connection, "_send_lock") as send_lock, patch(
+                        "cmux.transport.threading.TIMEOUT_MAX", 0.001
+                    ):
+                        send_lock.acquire.side_effect = acquire
+                        send_lock.release.side_effect = lock.release
+                        if bounded:
+                            self.assertTrue(connection.send_bounded_if(
+                                {"value": "bounded"}, 1, lambda: True
+                            ))
+                        else:
+                            connection.send({"value": "ordinary"}, timeout=1)
+                    self.assertEqual(connection.recv(), {
+                        "value": "bounded" if bounded else "ordinary"
+                    })
+
     def test_expired_socket_readiness_does_not_dispatch(self) -> None:
         def handler(connection, _index):
             for request in frames(connection):
