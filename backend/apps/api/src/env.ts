@@ -144,6 +144,8 @@ export interface Env {
   readonly CLOUD_ALLOWED_TEAMS?: string
   /** Var: "on" = Cloud machine limits follow the team's paid plan (cloud-entitlements.ts); anything else = off (stub plan only). Production stays off until go-live. */
   readonly CLOUD_PLAN_ENTITLEMENTS?: string
+  /** Var: "on" = PlatformMachines (platform-machines.ts) answers bound Workers; anything else refuses every call. Development only today. */
+  readonly PLATFORM_MACHINES?: string
   /**
    * Secret: link-token signing keys (LINK-TOKEN-FORMAT) as JSON {active: kid, keys: {kid: private Ed25519 JWK}}, at most 2 kids.
    * Per environment; never logged, never in a response, error, event or storage. Without it bind and link_token refuse.
