@@ -369,10 +369,7 @@ fn the_terminal_holder_feature_and_its_env_alias_pick_the_model() {
         ),
         (
             "the alias's opt-out",
-            [
-                ("CMUX_TUI_TERMINAL_HOST_MODEL", Path::new("hosts")),
-                ("CMUX_ENABLE_FEATURES", unset),
-            ],
+            [("CMUX_TUI_TERMINAL_HOST_MODEL", Path::new("hosts")), ("CMUX_ENABLE_FEATURES", unset)],
             false,
         ),
         (
@@ -812,6 +809,116 @@ fn a_restart_after_clear_history_does_not_bring_the_history_back() {
     let restored = running_surface(&daemon.socket, &terminal_id);
     screen_contains(&daemon.socket, restored, "after-clear");
     assert!(!old(&daemon.socket, restored), "the restart brought the cleared history back");
+}
+
+/// Crash-loop protection (cp/daemon-holder-crash-loop): one terminal whose
+/// output keeps killing the holder must not stall every terminal. The
+/// debug-only hook `CMUX_HOLDER_TEST_STALL_READ` makes a holder stall inside
+/// the PTY read that takes the needle, and `CMUX_HOLDER_HANG_LIMIT_MS` makes
+/// the holder's hang watch abort it 300 ms into that stalled pass: a holder
+/// crash with that terminal's read in flight. The poison terminal prints the
+/// needle (inside an OSC the screen ignores) every 300 ms, so every new
+/// holder crashes on it again. After the crash loop the daemon moves it to a
+/// terminal host of its own on its custody master: the same shell runs, its
+/// screen is intact, and the two bystanders stay on the holder and echo.
+#[test]
+fn a_terminal_in_flight_at_repeated_holder_crashes_moves_to_its_own_host() {
+    const NEEDLE: &str = "cmux-holder-test-stall-needle";
+    let mut daemon = Daemon::start_with_env(&[
+        ("CMUX_HOLDER_HANG_LIMIT_MS", Path::new("300")),
+        ("CMUX_HOLDER_TEST_STALL_READ", Path::new(NEEDLE)),
+    ]);
+    let mut bystanders = Vec::new();
+    for index in 0..2 {
+        let created = request(
+            &daemon.socket,
+            json!({"cmd": "run", "argv": ["/bin/cat"], "new_workspace": true,
+                "name": format!("bystander-{index}"), "cols": 80, "rows": 24}),
+        );
+        let surface = created["surface"].as_u64().unwrap();
+        daemon.track(surface);
+        send(&daemon.socket, surface, &format!("bystander-{index}"));
+        screen_contains(&daemon.socket, surface, &format!("bystander-{index}"));
+        let terminal_id = created["terminal_id"].as_str().unwrap().to_string();
+        bystanders.push((terminal_id, shell_pid(&daemon.socket, surface)));
+    }
+    // The needle never shows: it is the body of an OSC no terminal knows.
+    let script = format!(
+        "stty -echo; printf 'keep-poison-screen\\n'; read go; \
+         while :; do printf '\\033]7777;{NEEDLE}\\007'; sleep 0.3; done"
+    );
+    let created = request(
+        &daemon.socket,
+        json!({"cmd": "run", "argv": ["/bin/sh", "-c", script], "new_workspace": true,
+            "name": "poison", "cols": 80, "rows": 24}),
+    );
+    let poison = created["surface"].as_u64().unwrap();
+    let poison_id = created["terminal_id"].as_str().unwrap().to_string();
+    daemon.track(poison);
+    let poison_shell = shell_pid(&daemon.socket, poison);
+    screen_contains(&daemon.socket, poison, "keep-poison-screen");
+    send(&daemon.socket, poison, "go");
+
+    // The crash loop ends with the poison terminal on a host of its own.
+    let deadline = Instant::now() + Duration::from_secs(60);
+    let host_pid = loop {
+        if let Some(host_pid) = live_host_of(&daemon.dir, &poison_id) {
+            break host_pid;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the poison terminal never moved to its own host: {:?}",
+            host_records(&daemon.dir)
+        );
+        std::thread::sleep(Duration::from_millis(100));
+    };
+    daemon.cleanup.push(host_pid);
+    assert!(alive(poison_shell), "the poison terminal's shell died");
+    let surface = running_surface(&daemon.socket, &poison_id);
+    assert_eq!(shell_pid(&daemon.socket, surface), poison_shell, "a new shell was started");
+    let screen = screen_contains(&daemon.socket, surface, "keep-poison-screen");
+    assert!(!screen.contains(NEEDLE), "the needle reached the screen:\n{screen}");
+
+    // The bystanders stay on the holder: no host of their own, same shells,
+    // and they echo through the holder that runs now.
+    let records = host_records(&daemon.dir);
+    assert_eq!(records.len(), 1, "only the poison terminal has a host: {records:?}");
+    for (index, (terminal_id, shell)) in bystanders.iter().enumerate() {
+        assert!(alive(*shell), "bystander {index}: its shell died");
+        assert!(live_host_of(&daemon.dir, terminal_id).is_none(), "bystander {index} has a host");
+        let surface = running_surface(&daemon.socket, terminal_id);
+        send(&daemon.socket, surface, &format!("after-{index}"));
+        let screen = screen_contains(&daemon.socket, surface, &format!("after-{index}"));
+        assert!(screen.contains(&format!("bystander-{index}")), "bystander {index} was reset");
+    }
+    // The holder that runs now ends with the test.
+    probe_holder(&mut daemon, "probe-after-quarantine");
+}
+
+/// Every terminal-host record under the daemon's state: (terminal id, host pid).
+fn host_records(dir: &Path) -> Vec<(String, i32)> {
+    walk(&dir.join("state"))
+        .into_iter()
+        .filter(|path| {
+            path.parent().is_some_and(|dir| dir.to_string_lossy().contains("terminal-hosts"))
+                && path.extension().is_some_and(|ext| ext == "json")
+        })
+        .filter_map(|path| {
+            let record: Value = serde_json::from_slice(&fs::read(&path).ok()?).ok()?;
+            Some((
+                record["terminal_id"].as_str()?.to_string(),
+                i32::try_from(record["host_pid"].as_i64()?).ok()?,
+            ))
+        })
+        .collect()
+}
+
+/// The pid of the live terminal host that serves `terminal_id`, if any.
+fn live_host_of(dir: &Path, terminal_id: &str) -> Option<i32> {
+    host_records(dir).into_iter().find_map(|(id, pid)| {
+        (id == terminal_id && alive(pid) && command_line(pid).contains("__terminal-host"))
+            .then_some(pid)
+    })
 }
 
 /// A new terminal's shell is the current holder's child: its parent is the
