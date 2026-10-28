@@ -522,6 +522,9 @@ ensure_tree_publisher() {
   fi
   echo "warning: tree $key has no active trusted publisher; re-run after feat-cmux-next publishes it or use a local build (CMUX_NEXT_TUI_BIN=<path>)" >&2
   await_outside_publisher "$key" "$sha"
+  # Not every active run could be compared (and the wait, if any, found none):
+  # unknown, never a SHA and never "no publisher".
+  [[ "$current" == unknown && "$tree_publisher_action" == none ]] && tree_publisher_action=unknown
   return 0
 }
 

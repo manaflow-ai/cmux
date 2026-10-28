@@ -200,4 +200,11 @@ exec "$real_git" "\$@"
 SHIM
 probe
 [[ "$status" == 0 && "$state" == failed ]] || fail "(e) a read run with another tree must leave failed, got '$state' (exit $status)" "$out"
+# (f) The same exhausted budget with CMUX_TUI_TREE_DISPATCH=1 (ensure_tree_publisher):
+# deferred, and "unknown" is never taken for a publisher commit.
+fresh_job
+runs_json > "$TMP/runs.json"
+probe CMUX_TUI_TREE_RUN_FETCH_SECONDS=0 CMUX_TUI_TREE_DISPATCH=1
+[[ "$status" == 0 && "$state" == deferred ]] || fail "(f) the dispatch path must defer on an exhausted budget, got '$state' (exit $status)" "$out"
+! grep -qF "commit:unknown" <<<"$out" && ! grep -qF "runs for unknown" <<<"$out" || fail "(f) unknown was taken for a commit" "$out"
 printf 'pin-cmux-tui run-fetch tests: ok\n'
