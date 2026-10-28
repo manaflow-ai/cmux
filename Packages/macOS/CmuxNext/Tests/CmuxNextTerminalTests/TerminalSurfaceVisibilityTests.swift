@@ -1,4 +1,5 @@
 import AppKit
+@testable import CmuxNextDesign
 @testable import CmuxNextTerminal
 import CmuxNextWakeups
 import Testing
@@ -103,6 +104,47 @@ struct TerminalSurfaceVisibilityTests {
         tab.set(.visible)
         #expect(reports.grids.count == before + 1)
         #expect(surface.windowNode.deferredCount == 0)
+    }
+
+    // MARK: A replay's surface swap into a parked tab (v2.2.5-opt: a terminal beside Home stayed paused "hidden")
+
+    /// v2.2.5-opt launch smoke (handoff/v224-gate-triage.md): a terminal tab's surface stayed paused `hidden` and
+    /// drew nothing, though AppKit did not hide it. A replay swaps the surface (`TerminalSession.swapSurface`): the
+    /// fresh surface goes into the session's host view. When that host is parked (`PaneContentView.retire` hid
+    /// it: the tab is not shown), the fresh surface joins a hidden view; the pane then shows the tab again by
+    /// unhiding the host (`install`). The fresh surface must draw.
+    @Test func aSurfaceSwappedInWhileItsTabIsParkedDrawsWhenTheTabShows() throws {
+        _ = NSApplication.shared
+        GhosttyRuntime.startedForTests()
+        let drawsWhenOccluded = WindowDrawPolicy.drawsWhenOccluded
+        WindowDrawPolicy.drawsWhenOccluded = true
+        defer { WindowDrawPolicy.drawsWhenOccluded = drawsWhenOccluded }
+        let io = ScriptedTerminalIO()
+        let session = TerminalSession(io: io, mainWork: MainWorkScheduler(budget: MainFrameBudget()),
+                                      node: VisibilityNode(root: "tab", own: .visible))
+        defer {
+            io.finish()
+            session.close()
+        }
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600), styleMask: [.borderless],
+                              backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        let contentHost = NSView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+        window.contentView = contentHost
+        session.view.frame = contentHost.bounds
+        contentHost.addSubview(session.view)
+        let first = session.surfaceView
+        try #require(first.pause == nil, "the first surface does not draw: \(String(describing: first.pause))")
+
+        session.view.isHidden = true // PaneContentView.retire: the tab is parked
+        session.swapSurface() // a replay into a surface with content
+        let fresh = session.surfaceView
+        try #require(fresh !== first && fresh.window === window)
+        session.view.isHidden = false // PaneContentView.install: the tab shows again
+
+        #expect(!fresh.isHiddenOrHasHiddenAncestor)
+        #expect(fresh.pause == nil, "the swapped-in surface stayed paused \(String(describing: fresh.pause)) in a shown tab")
+        #expect(fresh.isShown, "the swapped-in surface is not shown in a shown tab")
     }
 }
 

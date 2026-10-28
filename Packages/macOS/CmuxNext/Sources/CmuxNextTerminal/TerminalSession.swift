@@ -459,8 +459,9 @@ public final class TerminalSession {
     }
 
     /// Ghostty has no reset API, so a new replay goes into a new surface
-    /// that takes the old one's place (cmux-tui-contract.md 3.2).
-    private func swapSurface() {
+    /// that takes the old one's place (cmux-tui-contract.md 3.2). Internal so a test can swap the surface
+    /// the way a replay does, without a daemon (TerminalSurfaceVisibilityTests).
+    func swapSurface() {
         let old = surfaceView
         applyWaitingActions() // the old surface's held pwd and progress: the fresh one starts from the model
         old.clipboardRequests.cancelPendingWrite()
