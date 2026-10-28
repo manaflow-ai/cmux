@@ -205,6 +205,8 @@ def run_round(name, app, opts, roots):
         report_extra = opts.extra_switch
     else:
         report_extra = None
+    if opts.features:
+        env["CMUX_ENABLE_FEATURES"] = opts.features
     bench = BenchApp(app, out=out, env=env)
     report = {"round": name, "extra_switch": report_extra}
     try:
@@ -335,6 +337,7 @@ def main():
                         help="warm: the root as it is; newcopy: a new copy of the bundle at a new path (an update's new"
                              " binary, same root); fresh: no Chromium root; warm2: again")
     parser.add_argument("--trace", action="store_true", help="Chromium's own trace over CDP (Debug builds only)")
+    parser.add_argument("--features", default="", help="CMUX_ENABLE_FEATURES for every round")
     parser.add_argument("--extra-switch", default="", help="a Chromium switch for every round (Debug builds: CMUX_NEXT_CEF_EXTRA_SWITCHES)")
     parser.add_argument("--settle", type=float, default=20)
     parser.add_argument("--window", type=float, default=60)
