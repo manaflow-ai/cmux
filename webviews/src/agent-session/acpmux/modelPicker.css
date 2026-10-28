@@ -443,4 +443,4 @@
 /* Search and selectable rows share one inset and row height, without list-wrapper padding. */
 .acpmux-mp-search { box-sizing: border-box; height: var(--ui-row-height); padding-inline: var(--ui-row-padding-inline); }
 .acpmux-mp-models { padding: 0; }
-.acpmux-mp-row { padding-inline: var(--ui-row-padding-inline); }
+/* Model rows get their base inset from `modelRow`; keep its pr-8/pr-14 trailing variants intact. */
