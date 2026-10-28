@@ -48,7 +48,7 @@ struct RunawayPaneTreeTerminator: Sendable {
         census initialCensus: RunawaySessionCensus,
         selector: RunawaySessionSelector,
         shouldTerminate: @Sendable (RunawaySessionCensus) async -> Bool = { _ in true },
-        shouldEscalate: @Sendable () async -> Bool = { true }
+        shouldEscalate: @Sendable (RunawaySessionCensus) async -> Bool = { _ in true }
     ) async -> Bool {
         guard !processGroupIDs.isEmpty,
               let beforeTerm = await snapshotProvider().runawaySessionCensus() else { return false }
@@ -69,7 +69,7 @@ struct RunawayPaneTreeTerminator: Sendable {
         // A group whose members all exited frees its ID; one that reappears
         // under it is another job and must not get SIGKILL.
         let liveGroups = census.continuingProcessGroupIDs(signallable, since: beforeTerm)
-        guard await shouldEscalate(), !Task.isCancelled else { return true }
+        guard await shouldEscalate(census), !Task.isCancelled else { return true }
         for processGroupID in signalled where liveGroups.contains(processGroupID) {
             _ = signalProcessGroup(processGroupID, SIGKILL)
         }

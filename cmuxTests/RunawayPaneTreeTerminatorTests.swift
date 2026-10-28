@@ -35,15 +35,19 @@ private final class TerminationSignals: @unchecked Sendable {
 
 private actor TerminationCensus {
     let snapshot: CmuxTopProcessSnapshot
+    let recovered: CmuxTopProcessSnapshot?
     private var reads = 0
     private(set) var authorized = true
 
-    init(_ snapshot: CmuxTopProcessSnapshot) { self.snapshot = snapshot }
+    init(_ snapshot: CmuxTopProcessSnapshot, recovered: CmuxTopProcessSnapshot? = nil) {
+        self.snapshot = snapshot
+        self.recovered = recovered
+    }
 
     func read(revokeOnSecondRead: Bool = false) -> CmuxTopProcessSnapshot {
         reads += 1
         if revokeOnSecondRead && reads == 2 { authorized = false }
-        return snapshot
+        return reads > 2 ? (recovered ?? snapshot) : snapshot
     }
 }
 
@@ -57,7 +61,7 @@ struct RunawayPaneTreeTerminatorTests {
     private let tty: Int64 = 0x1600_0003
     private let selector = RunawaySessionSelector(appProcessID: 50, appProcessGroupID: 50, thresholdBytes: 30)
 
-    private func snapshot(started: Int64 = 1_000, complete: Bool = true) -> CmuxTopProcessSnapshot {
+    private func snapshot(started: Int64 = 1_000, complete: Bool = true, jobBytes: Int64 = 10) -> CmuxTopProcessSnapshot {
         let processes = [(100, 50, "login"), (200, 100, "zsh"), (300, 200, "node")].map { pid, parent, name in
             CmuxTopProcessInfo(
                 pid: pid,
@@ -67,7 +71,7 @@ struct RunawayPaneTreeTerminatorTests {
                 parentPID: parent, name: name, path: nil, ttyDevice: tty,
                 cmuxWorkspaceID: nil, cmuxSurfaceID: nil, cmuxAttributionReason: nil,
                 processGroupID: pid, terminalProcessGroupID: 300, cpuPercent: 0,
-                memoryBytes: 10, memorySource: .physicalFootprint,
+                memoryBytes: pid == 300 ? jobBytes : 10, memorySource: .physicalFootprint,
                 residentBytes: 10, residentMemorySource: .residentSize, virtualBytes: 0, threadCount: 1
             )
         }
@@ -130,7 +134,7 @@ struct RunawayPaneTreeTerminatorTests {
         )
         let stopped = await terminator.terminate(
             processGroupIDs: [300], ttyDevice: tty, census: initial, selector: selector,
-            shouldEscalate: { await source.authorized }
+            shouldEscalate: { _ in await source.authorized }
         )
         #expect(stopped)
         #expect(signals.recorded == [SIGTERM])
@@ -234,5 +238,27 @@ struct RunawayPaneTreeTerminatorTests {
         )
         #expect(targets.isEmpty)
         #expect(signals.recorded.isEmpty)
+    }
+
+    @Test
+    func automaticEscalationStopsWhenThePaneRecovers() async throws {
+        let source = TerminationCensus(snapshot(), recovered: snapshot(jobBytes: 0))
+        let aggregate = MemoryPressureAggregatePolicy.default.evaluate(sample: MemoryPressureAggregateSample(
+            source: .coalition, aggregateBytes: 30, physicalMemoryBytes: 32, availableMemoryBytes: 1,
+            processCount: 3, missingProcessCount: 0, missingReason: nil, sampledAt: Date()
+        ))
+        let signals = TerminationSignals()
+        let device = tty
+        let targets = await RunawayPaneTreeMemoryPressureResponder.evaluate(
+            descriptors: [PaneMemoryDescriptor(
+                workspaceId: UUID(), panelId: UUID(), workspaceTitle: "work", paneTitle: "job",
+                ttyName: "/dev/ttys003", foregroundPID: 300
+            )],
+            selector: selector, knownAggregate: aggregate, sampledAt: Date(), snapshotProvider: { await source.read() },
+            aggregateProvider: { _ in aggregate }, signalProcessGroup: signals.send,
+            waitForGraceDeadline: { true }, ttyDevice: { _ in device }
+        )
+        #expect(targets.count == 1)
+        #expect(signals.recorded == [SIGTERM], "The job released memory; unrelated aggregate pressure must not force-kill it")
     }
 }

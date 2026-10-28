@@ -357,7 +357,7 @@ final class RunawayPaneWarningCenter {
             census: census,
             selector: selector,
             shouldTerminate: { _ in await isPaneLive() },
-            shouldEscalate: isPaneLive
+            shouldEscalate: { _ in await isPaneLive() }
         )
     }
 }

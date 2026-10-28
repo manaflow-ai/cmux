@@ -228,6 +228,14 @@ final class RunawayPaneTreeMemoryPressureResponder: MemoryPressureResponder {
         var actedOn: [RunawayPaneTreeTarget] = []
         for target in targets {
             guard await shouldTerminate(), !Task.isCancelled else { break }
+            let stillRunaway: @Sendable (RunawaySessionCensus) async -> Bool = { currentCensus in
+                let current = await aggregateProvider(.now)
+                guard authorizesTermination(current), let bytes = current.aggregateBytes,
+                      let selection = selector.selection(
+                        ttyDevice: target.selection.ttyDevice, in: currentCensus, aggregateBytes: bytes
+                      ) else { return false }
+                return Set(target.selection.processGroupIDs).isSubset(of: selection.processGroupIDs)
+            }
             let didSignal = await terminator.terminate(
                 processGroupIDs: target.selection.processGroupIDs,
                 ttyDevice: target.selection.ttyDevice,
@@ -236,17 +244,12 @@ final class RunawayPaneTreeMemoryPressureResponder: MemoryPressureResponder {
                 shouldTerminate: { currentCensus in
                     // The monitor's aggregate may be cached. A new critical
                     // sample and the revalidated pane must authorize this action.
-                    let current = await aggregateProvider(.now)
-                    guard authorizesTermination(current), let bytes = current.aggregateBytes,
-                          let selection = selector.selection(
-                            ttyDevice: target.selection.ttyDevice, in: currentCensus, aggregateBytes: bytes
-                          ), Set(target.selection.processGroupIDs).isSubset(of: selection.processGroupIDs) else { return false }
+                    guard await stillRunaway(currentCensus) else { return false }
                     guard await shouldTerminate() else { return false }
                     return await isTargetLive(target)
                 },
-                shouldEscalate: {
-                    let current = await aggregateProvider(.now)
-                    guard authorizesTermination(current) else { return false }
+                shouldEscalate: { currentCensus in
+                    guard await stillRunaway(currentCensus) else { return false }
                     guard await shouldEscalate() else { return false }
                     return await isTargetLive(target)
                 }
