@@ -96,6 +96,8 @@ final class AgentTabStore {
         set { resolvedLocalHost = newValue }
     }
     var views: [String: AgentPaneView] = [:]
+    /// The machine link each pane's composer strip shows, and the reconnect a chat's use of a down machine runs.
+    let machineLink = AgentPaneMachineLink()
     /// Agent tabs whose view waits for the launch's first pane content (`deferAtLaunch`).
     var launchDeferred: Set<String> = []
     /// The tabs' pages from the last quit, drawn at launch (`AgentPaneLaunchImages`).
@@ -456,10 +458,18 @@ final class AgentTabStore {
         model.onEditNewTab = { [weak self] edit in self?.pageHandler(provisional)?.edit(edit) }
         model.onJump = { [weak self] target, id in self?.newTabPage(provisional)?.handler.jump(target, id) }
         model.onEditShortcut = { [weak self] kind in self?.newTabPage(provisional)?.handler.editShortcut(kind) }
+        model.machineLink = machineLink
         model.onRunAction = { [weak self] id, arguments in
             guard let self else { return false }
-            // On this tab's pane: the New Tab page opens beside the tab that asked.
-            let target = ActionTargetRef(kind: .tab, id: resolve(provisional))
+            // On this tab's pane: the New Tab page opens beside the tab that asked. Reconnect runs
+            // on the machine this tab's chat runs on, resolved here: the page never names a machine.
+            let target: ActionTargetRef
+            if id == "machine.reconnect" {
+                guard let daemon = daemonForTab(resolve(provisional)), !daemon.isLocal else { return false }
+                target = ActionTargetRef(kind: .machine, id: daemon.machineID)
+            } else {
+                target = ActionTargetRef(kind: .tab, id: resolve(provisional))
+            }
             return actionRegistry?.perform(ActionID(rawValue: id), invocation: ActionInvocation(target: target, arguments: arguments.mapValues(ActionValue.string), origin: .user)) ?? false
         }
         wireHeader(model, key: provisional)
