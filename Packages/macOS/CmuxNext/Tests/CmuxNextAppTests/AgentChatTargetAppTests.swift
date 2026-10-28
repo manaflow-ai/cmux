@@ -37,7 +37,8 @@ struct AgentChatTargetAppTests {
             WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 1), key: WorkspaceKey(rawValue: "chat-target-ws"), name: "chat target", screens: [screen]),
             WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 2), key: WorkspaceKey(rawValue: "parked-ws"), name: "parked", screens: [parkedScreen]),
         ])
-        tree.personal = PersonalState(workspaces: [PersonalWorkspace(sessionID: "s-local", workspaceKey: WorkspaceKey(rawValue: "chat-target-ws"), index: 0)])
+        tree.personal = PersonalState(workspaces: [PersonalWorkspace(sessionID: "s-local", workspaceKey: WorkspaceKey(rawValue: "chat-target-ws"), index: 0),
+                                                   PersonalWorkspace(sessionID: "s-local", workspaceKey: WorkspaceKey(rawValue: "parked-ws"), index: 1)])
         return tree
     }
 
