@@ -143,7 +143,13 @@ public final class DisplayClock {
         self.isVisible = isVisible ?? { window in DisplayClock.systemIsVisible(window) }
         // Injected links (tests) are not a real display's: with no injected probe they count as awake, so the
         // host's own display sleeping never changes a test.
-        self.isAsleep = isAsleep ?? (makeLink != nil ? { _ in false } : { display in DisplayClock.systemIsAsleep(display) })
+        if let isAsleep {
+            self.isAsleep = isAsleep
+        } else if makeLink != nil {
+            self.isAsleep = { _ in false }
+        } else {
+            self.isAsleep = { display in DisplayClock.systemIsAsleep(display) }
+        }
         self.clock = clock
         self.ledger = ledger
         self.mediaTime = mediaTime
