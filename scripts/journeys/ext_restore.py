@@ -28,7 +28,9 @@ Conditions (inside `expect.all`; evidence kind app):
                                            or the first frame already drew live content); a "Restoring..."
                                            pill was never over an empty pane
   restore_live      {within_ms}            every visible terminal pane was live (attach live, link connected,
-                                           its screen replayed) within WITHIN_MS of the process start
+                                           its screen replayed) within WITHIN_MS of the app's `main_start` (the
+                                           process start is in the detail: before main_start a capture slot's
+                                           clone can wait 2-3 s on amfid, a cost of the slot's ad-hoc signature)
   restore_hidden_lazy {max}                the app attached at most MAX terminal views when restore settled
                                            (`debug.surfaces` live_terminals): hidden workspaces do not attach
 """
@@ -168,13 +170,18 @@ def step_restore_relaunch(journey, step):
             if row["attach"] == "live" and row["link"] == "connected" and row["replayed"] and row["pane"] not in first_live:
                 first_live[row["pane"]] = sample["t"]
     live_ms = {pane: round((t - start) * 1000, 1) for pane, t in first_live.items()} if start else {}
+    # The time before `main_start` is the system's (dyld, and in a capture slot amfid checking the clone's ad-hoc
+    # signed frameworks: 2-3 s in about half the launches, 2026-10-27, cmux17 log `amfid ... Sparkle.framework not
+    # valid`), not the app's: `live` is judged from the app's own start, and the process start is kept beside it.
+    main_start = marks.get("main_start")
+    live_app_ms = {pane: round(ms - main_start, 1) for pane, ms in live_ms.items()} if main_start is not None else {}
     journey.restore = {
         "samples": len(sampler.samples), "blank_pane_samples": blank, "pill_over_blank": pill_over_blank,
         "first_window_frame_committed": marks.get("first_window_frame_committed"),
         "launch_frame_shown": marks.get("terminal.launch_frame_shown"),
         "first_terminal_frame": marks.get("first_terminal_frame"),
         "sidebar_rows_shown": marks.get("sidebar_rows_shown"),
-        "live_ms": live_ms, "visible_terminals": len({r["pane"] for s in sampler.samples for r in s["panes"] if r["kind"] == "terminal"}),
+        "live_ms": live_ms, "main_start": main_start, "live_from_main_ms": live_app_ms, "visible_terminals": len({r["pane"] for s in sampler.samples for r in s["panes"] if r["kind"] == "terminal"}),
         "live_terminals": settled.get("live_terminals"),
         "socket_ms": round((zero - start) * 1000, 1) if zero and start else None,
         "trace": [[round((s["t"] - start) * 1000, 1) if start else None,
@@ -220,9 +227,11 @@ def cond_restore_no_blank(journey, want, cache):
 def cond_restore_live(journey, want, cache):
     r = _restore(journey)
     within = float(want["within_ms"] if isinstance(want, dict) else want)
-    worst = max(r["live_ms"].values()) if r["live_ms"] else None
-    ok = bool(r["live_ms"]) and len(r["live_ms"]) >= r["visible_terminals"] and worst <= within
-    return ok, {"live_ms": r["live_ms"], "worst_ms": worst, "within_ms": within, "visible_terminals": r["visible_terminals"]}
+    live = r["live_from_main_ms"]
+    worst = max(live.values()) if live else None
+    ok = bool(live) and len(live) >= r["visible_terminals"] and worst <= within
+    return ok, {"live_from_main_ms": live, "worst_ms": worst, "within_ms": within, "main_start": r["main_start"],
+                "live_from_process_start_ms": r["live_ms"], "visible_terminals": r["visible_terminals"]}
 
 
 def cond_restore_hidden_lazy(journey, want, cache):
