@@ -180,12 +180,12 @@ fn show_after_report_off_delivers_the_bare_report() {
 }
 
 #[test]
-fn an_inbound_report_is_a_note_on_its_originating_run_after_that_turn_ends() {
+fn an_inbound_report_has_a_completed_record_after_its_originating_turn_ends() {
     let mut h = Harness::new(report_script());
     h.connect();
     h.say("user_local", "Please coordinate the work.");
     h.settle();
-    let origin = h.owner.lock().unwrap().runs.last().unwrap()["id"].clone();
+    let origin = h.owner.lock().unwrap().runs.last().unwrap().clone();
     delivered_report(&mut h);
     let owner = h.owner.lock().unwrap();
     let notes: Vec<_> = owner
@@ -204,13 +204,61 @@ fn an_inbound_report_is_a_note_on_its_originating_run_after_that_turn_ends() {
     );
     for (conversation, run, step) in notes {
         assert_eq!(conversation, CONV);
-        assert_eq!(run["id"], origin);
+        assert_eq!(
+            run["id"],
+            optchat_chief::run::report_run_id(origin["id"].as_str().unwrap())
+        );
+        assert_ne!(run["id"], origin["id"]);
+        assert_eq!(run["answers"], origin["answers"]);
         assert_eq!(step["text"], format!("[a1] {REPORT}"));
+        assert_eq!(
+            run["status"], "done",
+            "a missing report record must not start a run"
+        );
         assert!(
-            run.get("status").is_none(),
-            "appending must not restart a finished run"
+            run.get("turn").is_none(),
+            "reports must not replace the reply's tool run"
         );
     }
+}
+
+#[test]
+fn a_report_append_retries_after_an_ambiguous_failure_without_duplicate_steps() {
+    let mut h = Harness::new(report_script());
+    h.owner
+        .lock()
+        .unwrap()
+        .run_append_rejects
+        .push_back(Some("connection reset after commit".into()));
+    h.connect();
+    h.say("user_local", "Please coordinate the work.");
+    h.settle();
+    let _ = delivered_report(&mut h);
+    assert!(!h.brain.state().pending_reports.is_empty());
+
+    // A daemon reconnect flushes the durable outbox. The fake records both
+    // the ambiguous first attempt and its replay; the owner would upsert the
+    // stable run/step ids rather than create a second visible row.
+    h.connect();
+    assert!(h.brain.state().pending_reports.is_empty());
+    let owner = h.owner.lock().unwrap();
+    let mut ids = Vec::new();
+    for (_, _, steps) in &owner.run_steps {
+        ids.extend(
+            steps
+                .iter()
+                .filter_map(|step| step["id"].as_str().map(str::to_owned)),
+        );
+    }
+    assert!(!ids.is_empty());
+    ids.sort();
+    ids.dedup();
+    assert_eq!(ids.len(), 1, "the report has one stable note id");
+    assert_eq!(
+        owner.run_steps.len(),
+        2,
+        "one failed attempt and one replay"
+    );
 }
 
 #[test]
@@ -270,7 +318,11 @@ fn a_followup_report_stays_with_the_new_assignment_in_another_conversation() {
             .skip(old_notes)
             .any(|(conversation, run, steps)| {
                 conversation == "conv_followup"
-                    && run["id"] == turn
+                    && run["id"] == optchat_chief::run::report_run_id(&turn)
+                    && run["status"] == "done"
+                    && run["answers"]
+                        .as_array()
+                        .is_some_and(|answers| answers.contains(&json!(question.id)))
                     && steps.iter().any(|step| {
                         step["kind"] == "note" && step["text"] == format!("[a1] {REPORT}")
                     })

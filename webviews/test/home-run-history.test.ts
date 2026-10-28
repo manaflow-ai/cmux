@@ -176,10 +176,10 @@ test("cloud run pages forward the cursor and keep a skewed second agent paginabl
     answers: [],
   });
   const byAgent: Record<string, ReturnType<typeof raw>[]> = {
-    // Three rows from one agent share the first page's boundary. The adapter must return all
-    // three because the next owner cursor is strict and cannot ask for the remainder of a tie.
+    // Rows from both agents share the first page's boundary. The adapter must return all of them
+    // because the next owner cursor is strict and cannot ask for the remainder of a tie.
     agent_a: [raw("a3", "agent_a", 30), raw("a2", "agent_a", 30), raw("a1", "agent_a", 30), raw("a0", "agent_a", 20)],
-    agent_b: [raw("b3", "agent_b", 25), raw("b2", "agent_b", 15), raw("b1", "agent_b", 5)],
+    agent_b: [raw("b3", "agent_b", 30), raw("b2", "agent_b", 25), raw("b1", "agent_b", 15)],
   };
   const socket = {
     async request<T>(command: string, params: Record<string, unknown> = {}): Promise<T> {
@@ -217,14 +217,15 @@ test("cloud run pages forward the cursor and keep a skewed second agent paginabl
     conversation: "cloud-conv",
     limit: 2,
   });
-  expect(first.runs.map((entry) => entry.id)).toEqual(["a3", "a2", "a1"]);
+  expect(first.runs.map((entry) => entry.id)).toEqual(["a3", "a2", "a1", "b3"]);
   expect(first.hasMore).toBe(true);
+  const firstCursor = Math.min(...first.runs.map((entry) => entry.startedAt));
   const second = await home.call<{ runs: Run[]; hasMore: boolean }>(HomeOps.runs, {
     conversation: "cloud-conv",
     limit: 2,
-    beforeStartedAt: 25,
+    beforeStartedAt: firstCursor,
   });
-  expect(second.runs.map((entry) => entry.id)).toEqual(["b3", "a0"]);
+  expect(second.runs.map((entry) => entry.id)).toEqual(["b2", "a0"]);
   expect(
     requests
       .filter((request) => request.command === "cloud-conversation-runs")
@@ -233,6 +234,259 @@ test("cloud run pages forward the cursor and keep a skewed second agent paginabl
   expect(
     requests
       .filter((request) => request.command === "cloud-conversation-runs")
-      .every((request) => request.params.before_started_at === undefined || request.params.before_started_at === 25),
+      .every(
+        (request) => request.params.before_started_at === undefined || request.params.before_started_at === firstCursor,
+      ),
   ).toBe(true);
+});
+
+test("cloud pages expose the endpoint limit for more than 100 timestamp ties", async () => {
+  const raw = (id: string, started: number) => ({
+    id,
+    conversation: "cloud-ties",
+    author: "agent_a",
+    status: "done",
+    started_at: started,
+    updated_at: started,
+    rev: 1,
+    step_count: 0,
+    answers: [],
+  });
+  const tieIds = Array.from({ length: 101 }, (_, index) => `tie-${index}`);
+  const runs = [...tieIds.map((id) => raw(id, 30)), raw("older", 20)];
+  const requests: Record<string, unknown>[] = [];
+  const socket = {
+    async request<T>(command: string, params: Record<string, unknown> = {}): Promise<T> {
+      requests.push({ command, ...params });
+      if (command === "identify") return { capabilities: ["cloud-conversation-runs-v1"] } as T;
+      if (command !== "cloud-conversation-runs") return {} as T;
+      const before = typeof params.before_started_at === "number" ? params.before_started_at : Number.MAX_SAFE_INTEGER;
+      const available = runs.filter((entry) => entry.started_at < before);
+      const limit = Number(params.limit);
+      return { runs: available.slice(0, limit), has_more: available.length > limit } as T;
+    },
+  };
+  const home = new DaemonHomeClient(socket as never);
+  const cloud = (
+    home as unknown as {
+      cloud: {
+        known: Set<string>;
+        entries: Map<string, Record<string, unknown>>;
+        heads: Map<string, Record<string, unknown>>;
+      };
+    }
+  ).cloud;
+  cloud.known.add("cloud-ties");
+  cloud.entries.set("cloud-ties", {
+    conversation: "cloud-ties",
+    kind: "group",
+    title: "Cloud ties",
+  });
+  cloud.heads.set("cloud-ties", {
+    id: "cloud-ties",
+    participants: [{ id: "agent_a", kind: "agent", display_name: "A" }],
+  });
+
+  const first = await home.call<{ runs: Run[]; hasMore: boolean }>(HomeOps.runs, {
+    conversation: "cloud-ties",
+    limit: 2,
+  });
+  const cursor = Math.min(...first.runs.map((entry) => entry.startedAt));
+  const second = await home.call<{ runs: Run[]; hasMore: boolean }>(HomeOps.runs, {
+    conversation: "cloud-ties",
+    limit: 2,
+    beforeStartedAt: cursor,
+  });
+  // The Cloud endpoint caps each owner page at 100 and exposes only a timestamp cursor. A tie
+  // larger than that page cannot be completed by a strict `before_started_at` request; document
+  // the bounded behavior until the Cloud protocol gains a composite cursor.
+  expect(first.runs.filter((entry) => entry.startedAt === 30)).toHaveLength(100);
+  expect(first.hasMore).toBe(true);
+  expect(second.runs.map((entry) => entry.id)).toEqual(["older"]);
+  expect(requests.some((request) => request.before_started_at === cursor)).toBe(true);
+});
+
+test("run step reads stay serial, cache complete runs, and stop cancels queued reads", async () => {
+  const step = (runId: string) => ({
+    id: `${runId}:step`,
+    seq: 1,
+    rev: 1,
+    at: 2,
+    kind: "note" as const,
+    text: `${runId} report`,
+    attachments: [],
+    links: [],
+  });
+  const makeRun = (id: string): Run => ({
+    id,
+    conversation: "chief-conv",
+    author: "chief",
+    status: "done",
+    startedAt: 1,
+    updatedAt: 1,
+    rev: 1,
+    stepCount: 1,
+    answers: [],
+  });
+  const deferred = () => {
+    let resolve!: () => void;
+    const promise = new Promise<void>((done) => {
+      resolve = done;
+    });
+    return { promise, resolve };
+  };
+  const runReadClient = (firstRead: ReturnType<typeof deferred>) => {
+    let runCalls = 0;
+    let active = 0;
+    let maximum = 0;
+    const started = deferred();
+    const api = {
+      async call<R>(op: string, raw: unknown): Promise<R> {
+        if (op !== HomeOps.run) {
+          if (op === HomeOps.inbox) return { me, conversations: [], rev: 0 } as R;
+          if (op === HomeOps.attachmentSupport) return { local: false, cloud: false } as R;
+          return {} as R;
+        }
+        const params = (raw ?? {}) as Record<string, unknown>;
+        runCalls += 1;
+        active += 1;
+        maximum = Math.max(maximum, active);
+        if (runCalls === 1) started.resolve();
+        try {
+          if (runCalls === 1) await firstRead.promise;
+          const run = makeRun(String(params.run));
+          return { run, steps: [step(run.id)], hasMore: false } as R;
+        } finally {
+          active -= 1;
+        }
+      },
+      async subscribe<E>(_stream: string, _onEvent: (data: E, seq: number) => void): Promise<() => void> {
+        return () => {};
+      },
+      handle: () => () => {},
+    };
+    return {
+      api,
+      calls: () => ({ runCalls, maximum }),
+      started: started.promise,
+    };
+  };
+
+  const firstRead = deferred();
+  const firstClient = runReadClient(firstRead);
+  const store = new HomeChannelsStore(firstClient.api as never);
+  const reads = [makeRun("run-a"), makeRun("run-b"), makeRun("run-c")].map((run) => store.loadRunSteps(run));
+  await firstClient.started;
+  expect(firstClient.calls()).toEqual({ runCalls: 1, maximum: 1 });
+  firstRead.resolve();
+  await Promise.all(reads);
+  expect(firstClient.calls()).toEqual({ runCalls: 3, maximum: 1 });
+  await store.loadRunSteps(makeRun("run-a"));
+  expect(firstClient.calls()).toEqual({ runCalls: 3, maximum: 1 });
+
+  const cancelledRead = deferred();
+  const cancelledClient = runReadClient(cancelledRead);
+  const cancelledStore = new HomeChannelsStore(cancelledClient.api as never);
+  const unsubscribe = cancelledStore.subscribe(() => {});
+  await cancelledStore.start();
+  const existing = cancelledStore.loadRunSteps(makeRun("run-existing"));
+  await cancelledClient.started;
+  const queued = cancelledStore.loadRunSteps(makeRun("run-queued"));
+  expect(cancelledClient.calls()).toEqual({ runCalls: 1, maximum: 1 });
+  unsubscribe();
+  // Reopening the same conversation queues a fresh read even while its old lifetime is draining.
+  const reopenStop = cancelledStore.subscribe(() => {});
+  await cancelledStore.start();
+  const reopened = cancelledStore.loadRunSteps(makeRun("run-existing"));
+  cancelledRead.resolve();
+  await Promise.all([existing, queued, reopened]);
+  expect(cancelledClient.calls()).toEqual({ runCalls: 2, maximum: 1 });
+  expect(cancelledStore.runs.get("chief-conv", "chief", "run-existing")?.complete).toBe(true);
+  expect(cancelledStore.runs.get("chief-conv", "chief", "run-queued")).toBeUndefined();
+  reopenStop();
+});
+
+test("run step history reads past ten pages and stops on a nonadvancing cursor", async () => {
+  const baseRun: Run = {
+    id: "long-run",
+    conversation: "chief-conv",
+    author: "chief",
+    status: "done",
+    startedAt: 1,
+    updatedAt: 1,
+    rev: 1,
+    stepCount: 11,
+    answers: [],
+  };
+  const pageRequests: { afterRev: number; afterSeq: number }[] = [];
+  const api = {
+    async call<R>(op: string, raw: unknown): Promise<R> {
+      if (op !== HomeOps.run) return {} as R;
+      const params = (raw ?? {}) as Record<string, unknown>;
+      const page = pageRequests.length + 1;
+      pageRequests.push({ afterRev: Number(params.afterRev), afterSeq: Number(params.afterSeq) });
+      const step = {
+        id: `long-step-${page}`,
+        seq: page,
+        rev: page,
+        at: page,
+        kind: "note" as const,
+        text: `step ${page}`,
+        attachments: [],
+        links: [],
+      };
+      return {
+        run: { ...baseRun, rev: page },
+        steps: [step],
+        hasMore: page < 11,
+      } as R;
+    },
+  };
+  const store = new HomeChannelsStore(api as never);
+  await store.loadRunSteps(baseRun);
+  expect(pageRequests).toHaveLength(11);
+  expect(pageRequests).toEqual(Array.from({ length: 11 }, (_, index) => ({ afterRev: index, afterSeq: index })));
+  expect(store.runs.get("chief-conv", "chief", "long-run")).toMatchObject({
+    complete: true,
+    steps: expect.arrayContaining([expect.objectContaining({ id: "long-step-11" })]),
+  });
+
+  const stuckRequests: { afterRev: number; afterSeq: number }[] = [];
+  const stuckRun: Run = { ...baseRun, id: "stuck-run", stepCount: 1 };
+  let stuckRevision = 1;
+  const stuckApi = {
+    async call<R>(op: string, raw: unknown): Promise<R> {
+      if (op !== HomeOps.run) return {} as R;
+      const params = (raw ?? {}) as Record<string, unknown>;
+      stuckRequests.push({ afterRev: Number(params.afterRev), afterSeq: Number(params.afterSeq) });
+      return {
+        run: { ...stuckRun, rev: stuckRevision },
+        steps: [
+          {
+            id: "stuck-step",
+            seq: 1,
+            rev: stuckRevision,
+            at: 1,
+            kind: "note" as const,
+            text: "stuck",
+            attachments: [],
+            links: [],
+          },
+        ],
+        hasMore: true,
+      } as R;
+    },
+  };
+  const stuckStore = new HomeChannelsStore(stuckApi as never);
+  await stuckStore.loadRunSteps(stuckRun);
+  expect(stuckRequests).toEqual([
+    { afterRev: 0, afterSeq: 0 },
+    { afterRev: 1, afterSeq: 1 },
+  ]);
+  expect(stuckStore.runs.get("chief-conv", "chief", "stuck-run")?.complete).toBe(false);
+  await stuckStore.loadRunSteps(stuckRun);
+  expect(stuckRequests).toHaveLength(2);
+  stuckRevision = 2;
+  await stuckStore.loadRunSteps({ ...stuckRun, rev: stuckRevision });
+  expect(stuckRequests).toHaveLength(4);
 });

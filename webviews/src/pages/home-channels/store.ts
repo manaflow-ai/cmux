@@ -145,6 +145,8 @@ export class HomeChannelsStore {
   readonly live = new LiveBook();
   /** Runs whose steps are being read now (one read at a time per run). */
   private readonly loadingRuns = new Set<string>();
+  /** Serialize historical step reads, including reads requested by mounted run cards. */
+  private runReadTail: Promise<void> = Promise.resolve();
   /** Runs whose step read failed, with the run revision it failed at: read again only after the
    * run changed (a missing run or an owner without runs is not asked in a loop). */
   private readonly failedRuns = new Map<string, number>();
@@ -448,6 +450,7 @@ export class HomeChannelsStore {
   private async reloadPage(id: string): Promise<void> {
     if (!this.client) return;
     const generation = ++this.generation;
+    this.failedRuns.clear();
     try {
       const page = await this.client.call<HomePage>(HomeOps.page, { conversation: id, tail: PAGE });
       if (generation !== this.generation || this.snapshot.selected !== id) return;
@@ -1048,6 +1051,8 @@ export class HomeChannelsStore {
    * without runs answers nothing: the page shows no run cards. */
   private async loadRuns(conversation: string, messages: readonly HomeMessage[], newest: boolean): Promise<void> {
     if (!this.client) return;
+    const generation = this.generation;
+    const life = this.life;
     const agents = new Set(
       (this.snapshot.conversations.get(conversation)?.participants ?? [])
         .filter((participant) => participant.kind === "agent")
@@ -1055,8 +1060,8 @@ export class HomeChannelsStore {
     );
     const turns = RunBook.turns(messages, agents);
     try {
-      const reads: Promise<HomeRunList>[] = [];
-      if (turns.length > 0) reads.push(this.client.call<HomeRunList>(HomeOps.runs, { conversation, turns }));
+      const direct =
+        turns.length > 0 ? (await this.client.call<HomeRunList>(HomeOps.runs, { conversation, turns })).runs : [];
       // `turns` only finds runs that posted a reply. Silent turns (including a tell/report turn)
       // are selected by their `answers` message id, so walk the owner's run-history cursor until
       // the oldest message in this window is covered. The owner returns newest-first pages and
@@ -1074,6 +1079,7 @@ export class HomeChannelsStore {
         page += 1;
         if (beforeStartedAt !== undefined) params.beforeStartedAt = beforeStartedAt;
         const list = await this.client.call<HomeRunList>(HomeOps.runs, params);
+        if (generation !== this.generation || life !== this.life) return;
         history.push(...list.runs);
         const oldestRun = list.runs.reduce<number | undefined>(
           (oldest, run) => (oldest === undefined ? run.startedAt : Math.min(oldest, run.startedAt)),
@@ -1085,10 +1091,14 @@ export class HomeChannelsStore {
         if (beforeStartedAt !== undefined && oldestRun >= beforeStartedAt) break;
         beforeStartedAt = oldestRun;
       }
-      const lists = await Promise.all(reads);
-      const direct = lists.flatMap((list) => list.runs);
+      if (generation !== this.generation || life !== this.life) return;
       const byKey = new Map<string, HomeRun>();
-      for (const run of [...direct, ...history]) byKey.set(`${run.author}\0${run.id}`, run);
+      for (const run of [...history, ...direct]) {
+        const key = `${run.author}\0${run.id}`;
+        const held = byKey.get(key);
+        if (!held || run.rev > held.rev || (run.rev === held.rev && run.stepCount >= held.stepCount))
+          byKey.set(key, run);
+      }
       const runs = [...byKey.values()];
       // Message rows also survive completed and silent turns, including after a reload. Avoid
       // fetching every historical run's tool log: only runs answering a loaded question, direct
@@ -1105,7 +1115,12 @@ export class HomeChannelsStore {
         return relevant;
       });
       this.runs.setRuns(relevantRuns);
-      for (const run of relevantRuns) void this.loadRunSteps(run);
+      for (const run of relevantRuns) {
+        if (generation !== this.generation || life !== this.life) return;
+        // A summary can contribute activity state without any row in the loaded transcript.
+        if (run.answers.some((answer) => messageIds.has(answer)) || directKeys.has(`${run.author}\0${run.id}`))
+          await this.loadRunSteps(run);
+      }
     } catch {
       // Runs are display only; a host or owner without them shows plain messages.
     }
@@ -1114,17 +1129,30 @@ export class HomeChannelsStore {
   /** Reads every step of a run from its owner (pages of steps by revision). */
   loadRunSteps = async (run: HomeRun): Promise<void> => {
     const key = `${run.conversation}\0${run.author}\0${run.id}`;
-    if (!this.client || this.loadingRuns.has(key)) return;
+    const readKey = `${this.generation}\0${this.life}\0${key}`;
+    if (!this.client || this.loadingRuns.has(readKey)) return;
     const failed = this.failedRuns.get(key);
     if (failed !== undefined && failed >= run.rev) return;
-    this.loadingRuns.add(key);
+    const held = this.runs.get(run.conversation, run.author, run.id);
+    if (held?.complete && held.run.rev >= run.rev && held.run.stepCount >= run.stepCount) return;
+    const generation = this.generation;
+    const life = this.life;
+    const previous = this.runReadTail;
+    let release!: () => void;
+    this.runReadTail = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    this.loadingRuns.add(readKey);
     try {
+      await previous;
+      if (generation !== this.generation || life !== this.life) return;
       // The local owner pages by revision; a Cloud brain (keyed by its Chief) by seq.
       let afterRev = 0;
       let afterSeq = 0;
       const steps: HomeRunStep[] = [];
       let latest = run;
-      for (let page = 0; page < 10; page += 1) {
+      let complete = false;
+      for (;;) {
         const read = await this.client.call<HomeRunPage>(HomeOps.run, {
           conversation: run.conversation,
           run: run.id,
@@ -1132,19 +1160,31 @@ export class HomeChannelsStore {
           afterRev,
           afterSeq,
         });
+        if (generation !== this.generation || life !== this.life) return;
         latest = read.run;
         steps.push(...read.steps);
-        afterRev = Math.max(afterRev, ...read.steps.map((step) => step.rev));
-        afterSeq = Math.max(afterSeq, ...read.steps.map((step) => step.seq));
-        if (!read.hasMore || read.steps.length === 0) break;
+        const nextRev = Math.max(afterRev, ...read.steps.map((step) => step.rev));
+        const nextSeq = Math.max(afterSeq, ...read.steps.map((step) => step.seq));
+        const advanced = nextRev > afterRev || nextSeq > afterSeq;
+        afterRev = nextRev;
+        afterSeq = nextSeq;
+        if (!read.hasMore) {
+          complete = true;
+          break;
+        }
+        // An owner that claims another page but returns no new cursor must not spin forever. Keep
+        // this partial read retryable so a later event can advance the owner's revision/sequence.
+        if (read.steps.length === 0 || !advanced) break;
       }
-      this.runs.setSteps(latest, steps, true);
-      this.failedRuns.delete(key);
+      if (complete) this.failedRuns.delete(key);
+      else this.failedRuns.set(key, latest.rev);
+      this.runs.setSteps(latest, steps, complete);
     } catch {
       // Display only: the card keeps the summary and the steps events brought.
-      this.failedRuns.set(key, run.rev);
+      if (generation === this.generation && life === this.life) this.failedRuns.set(key, run.rev);
     } finally {
-      this.loadingRuns.delete(key);
+      this.loadingRuns.delete(readKey);
+      release();
     }
   };
 
@@ -1153,7 +1193,13 @@ export class HomeChannelsStore {
   }
 
   private set(patch: Partial<HomeSnapshot>): void {
-    this.snapshot = { ...this.snapshot, ...patch };
+    const previous = this.snapshot;
+    this.snapshot = { ...previous, ...patch };
+    if (
+      previous.messages !== this.snapshot.messages ||
+      previous.threadView?.messages !== this.snapshot.threadView?.messages
+    )
+      this.runs.setLoadedMessages([...this.snapshot.messages, ...(this.snapshot.threadView?.messages ?? [])]);
     if (patch.pending) this.carry.entries = patch.pending;
     for (const listener of this.listeners) listener();
   }

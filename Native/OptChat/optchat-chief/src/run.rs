@@ -1023,6 +1023,12 @@ pub fn chunks(steps: Vec<Value>) -> Vec<Vec<Value>> {
     out
 }
 
+/// A dedicated completed record for reports from one assignment. It never shares the original
+/// turn's id, so a late report cannot revive a pruned turn or finish an active one.
+pub fn report_run_id(assignment: &str) -> String {
+    step_id("reports", assignment)
+}
+
 /// A report as bounded note steps. The generation keeps follow-up replies distinct;
 /// re-reading the same report upserts the same ids, including after a host restart.
 pub fn report_notes(

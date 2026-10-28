@@ -49,8 +49,13 @@ export class RunBook {
   private readonly byTurn = new Map<string, string>();
   /** Reply keys (`conversation\0turn\0author`) of the agent messages the page has seen. */
   private readonly replied = new Set<string>();
+  /** Message ids in the timeline/thread cache. Anchored runs stay available while these are held. */
+  private loadedMessages = new Set<string>();
+  private loadedReplies = new Set<string>();
   /** `conversation\0message` to the keys of the runs that work on that message. */
   private readonly byAnswer = new Map<string, Set<string>>();
+  /** The one answer row currently chosen for each run (a report must not render twice). */
+  private readonly runAnswers = new Map<string, string | undefined>();
   private readonly listeners = new Set<() => void>();
   private version = 0;
 
@@ -108,6 +113,20 @@ export class RunBook {
       this.replied.add(key);
       changed = changed || this.byTurn.has(key);
     }
+    if (changed) this.bump();
+  }
+
+  /** Replace the actual retained timeline and thread window, never the ever-seen history. */
+  setLoadedMessages(messages: readonly HomeMessage[]): void {
+    this.loadedMessages = new Set(messages.map((message) => `${message.conversation}\0${message.id}`));
+    this.loadedReplies = new Set(
+      messages
+        .filter((message) => message.clientMessageId)
+        .map((message) => `${message.conversation}\0${message.clientMessageId}\0${message.author}`),
+    );
+    let changed = false;
+    for (const [key, entry] of this.runs) changed = this.indexAnswer(key, entry.run) || changed;
+    changed = this.evict() || changed;
     if (changed) this.bump();
   }
 
@@ -176,28 +195,52 @@ export class RunBook {
     };
     this.runs.set(key, entry);
     if (entry.run.turn) this.byTurn.set(`${entry.run.conversation}\0${entry.run.turn}\0${entry.run.author}`, key);
-    const asked = entry.run.answers[0];
-    if (asked) {
-      const answer = `${entry.run.conversation}\0${asked}`;
-      const keys = this.byAnswer.get(answer) ?? new Set<string>();
-      keys.add(key);
-      this.byAnswer.set(answer, keys);
-    }
+    this.indexAnswer(key, entry.run);
     if (this.runs.size > MAX_RUNS) this.evict();
     return true;
   }
 
-  /** Drops the oldest finished runs past MAX_RUNS (they are read again when shown). */
-  private evict(): void {
-    const finished = [...this.runs.entries()]
-      .filter(([, entry]) => entry.run.status !== "running")
-      .sort((a, b) => a[1].run.updatedAt - b[1].run.updatedAt);
-    for (const [key, entry] of finished.slice(0, this.runs.size - MAX_RUNS)) {
-      this.runs.delete(key);
-      if (entry.run.turn) this.byTurn.delete(`${entry.run.conversation}\0${entry.run.turn}\0${entry.run.author}`);
-      const asked = entry.run.answers[0];
-      if (asked) this.byAnswer.get(`${entry.run.conversation}\0${asked}`)?.delete(key);
+  /** One loaded question anchors the run even when the first answer is outside the window. */
+  private indexAnswer(key: string, run: HomeRun): boolean {
+    const asked = run.answers.find((id) => this.loadedMessages.has(`${run.conversation}\0${id}`)) ?? run.answers[0];
+    const answer = asked ? `${run.conversation}\0${asked}` : undefined;
+    const previous = this.runAnswers.get(key);
+    if (previous === answer) return false;
+    if (previous) {
+      const keys = this.byAnswer.get(previous);
+      keys?.delete(key);
+      if (!keys?.size) this.byAnswer.delete(previous);
     }
+    this.runAnswers.set(key, answer);
+    if (answer) {
+      const keys = this.byAnswer.get(answer) ?? new Set<string>();
+      keys.add(key);
+      this.byAnswer.set(answer, keys);
+    }
+    return true;
+  }
+
+  /** Keep loaded questions/replies; bound the finished records without a retained transcript row. */
+  private evict(): boolean {
+    const unshown = [...this.runs.entries()]
+      .filter(([, { run }]) => run.status !== "running")
+      .filter(([, { run }]) => !run.answers.some((id) => this.loadedMessages.has(`${run.conversation}\0${id}`)))
+      .filter(([, { run }]) => !this.loadedReplies.has(turnKey(run) ?? ""))
+      .sort((a, b) => a[1].run.updatedAt - b[1].run.updatedAt);
+    const removed = unshown.slice(0, Math.max(0, unshown.length - MAX_RUNS));
+    for (const [key, entry] of removed) {
+      this.runs.delete(key);
+      const reply = turnKey(entry.run);
+      if (reply && this.byTurn.get(reply) === key) this.byTurn.delete(reply);
+      const answer = this.runAnswers.get(key);
+      if (answer) {
+        const keys = this.byAnswer.get(answer);
+        keys?.delete(key);
+        if (!keys?.size) this.byAnswer.delete(answer);
+      }
+      this.runAnswers.delete(key);
+    }
+    return removed.length > 0;
   }
 
   clear(): void {
@@ -205,6 +248,9 @@ export class RunBook {
     this.byTurn.clear();
     this.replied.clear();
     this.byAnswer.clear();
+    this.runAnswers.clear();
+    this.loadedMessages.clear();
+    this.loadedReplies.clear();
     this.bump();
   }
 

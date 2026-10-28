@@ -17,7 +17,7 @@ use serde_json::{Value, json};
 use super::children::{ended_replies, report_of};
 use super::{Brain, Queued, Source};
 use crate::fold::TurnFold;
-use crate::state::{SpawnRecord, SpawnRef, SubRecord, SubStatus};
+use crate::state::{PendingReport, SpawnRecord, SpawnRef, SubRecord, SubStatus};
 use crate::subagents::{PROMPT_PREFIX, SpawnPlan};
 
 /// Characters of a task kept for `control status`.
@@ -1579,9 +1579,11 @@ impl Brain {
         }
     }
 
-    /// Display reports on arrival, including quiet reports, without waiting for another Chief turn.
+    /// Display reports on arrival without changing the Chief turn's status. A separate completed
+    /// report record stays anchored to the assignment's question even if its original run was pruned.
     /// The owner upserts stable step ids, so a redelivery updates the same row.
     fn show_reports(&mut self, spawn: &str) {
+        let replayed = self.flush_pending_reports();
         let Some(record) = self.state.spawns.get(spawn) else {
             return;
         };
@@ -1605,14 +1607,13 @@ impl Brain {
                 } else {
                     &sub.answers
                 };
-                let mut run = match &turn {
-                    Some(turn) => json!({"id": turn, "status": "done"}),
-                    None => json!({"id": format!("reports:{spawn}"), "status": "done",
-                        "started_at": record.started_ms, "answers": answers}),
-                };
-                if turn.is_none()
-                    && let Some((root, _)) = self.reply_thread(&conversation, answers)
-                {
+                let mut run = json!({
+                    "id": crate::run::report_run_id(turn.as_deref().unwrap_or(spawn)),
+                    "status": "done",
+                    "started_at": record.started_ms.max(sub.run_ms),
+                    "answers": answers.iter().take(16).collect::<Vec<_>>(),
+                });
+                if let Some((root, _)) = self.reply_thread(&conversation, answers) {
                     run["thread_root"] = json!(root);
                 }
                 let steps = crate::run::report_notes(
@@ -1622,6 +1623,16 @@ impl Brain {
                     sub.floor,
                     sub.report.as_deref().unwrap_or(""),
                 );
+                let report_id = run["id"].as_str().unwrap_or_default();
+                if replayed.contains(report_id)
+                    || self
+                        .state
+                        .pending_reports
+                        .iter()
+                        .any(|pending| pending.run["id"].as_str() == Some(report_id))
+                {
+                    return None;
+                }
                 Some((conversation, run, steps))
             })
             .collect();
@@ -1629,17 +1640,63 @@ impl Brain {
             return;
         };
         for (conversation, run, steps) in reports {
-            for steps in crate::run::chunks(steps) {
-                if let Err(e) = daemon.run_append(&conversation, run.clone(), steps)
-                    && !self.run_failed
-                {
-                    self.run_failed = true;
+            let pending = PendingReport {
+                conversation: conversation.clone(),
+                run: run.clone(),
+                steps: steps.clone(),
+            };
+            let mut complete = true;
+            for chunk in crate::run::chunks(steps) {
+                if let Err(e) = daemon.run_append(&conversation, run.clone(), chunk) {
+                    complete = false;
                     (self.log)(&format!(
-                        "appending an agent report failed: {e}; later failures are not logged"
+                        "appending an agent report failed; retaining it for reconnect: {e}"
                     ));
+                    break;
                 }
             }
+            if !complete
+                && !self
+                    .state
+                    .pending_reports
+                    .iter()
+                    .any(|old| old.run["id"] == run["id"])
+            {
+                self.state.pending_reports.push(pending);
+            }
         }
+        self.save();
+    }
+
+    pub(super) fn flush_pending_reports(&mut self) -> std::collections::HashSet<String> {
+        let Some(daemon) = self.daemon.as_mut() else {
+            return std::collections::HashSet::new();
+        };
+        let pending = std::mem::take(&mut self.state.pending_reports);
+        let mut keep = Vec::new();
+        let mut done = std::collections::HashSet::new();
+        for report in pending {
+            let mut complete = true;
+            for chunk in crate::run::chunks(report.steps.clone()) {
+                if let Err(e) = daemon.run_append(&report.conversation, report.run.clone(), chunk) {
+                    complete = false;
+                    (self.log)(&format!(
+                        "replaying an agent report failed; retaining it: {e}"
+                    ));
+                    break;
+                }
+            }
+            if complete {
+                if let Some(id) = report.run["id"].as_str() {
+                    done.insert(id.to_owned());
+                }
+            } else {
+                keep.push(report);
+            }
+        }
+        self.state.pending_reports = keep;
+        self.save();
+        done
     }
 
     /// The report reached the log (as `user`): the trace's `spawn.report`.

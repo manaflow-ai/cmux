@@ -9,6 +9,7 @@ import { JSDOM } from "jsdom";
 import { RunCard } from "../src/pages/home-channels/RunCard";
 import { RunSheet } from "../src/pages/home-channels/RunSheet";
 import table from "../src/pages/home-channels/generated/strings.json";
+import paneTable from "../src/pages/home-channels/generated/pane-strings.json";
 import { createStrings } from "../src/pages/shared/i18n";
 
 let dom: JSDOM | undefined;
@@ -18,6 +19,8 @@ const saved = new Map<string, unknown>();
 
 function installDom(): HTMLElement {
   dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", { pretendToBeVisual: true });
+  saved.set("__cmuxPaneStrings", scope.__cmuxPaneStrings);
+  scope.__cmuxPaneStrings = paneTable;
   for (const key of ["window", "document", "navigator", "HTMLElement", "Element", "Node", "IS_REACT_ACT_ENVIRONMENT"])
     saved.set(key, scope[key]);
   Object.assign(scope, {
@@ -139,6 +142,7 @@ test("a folded Chief run keeps outgoing messages and incoming reports visible", 
   );
   expect(container.querySelector(".lg-run-toggle")?.getAttribute("aria-expanded")).toBe("false");
   expect(container.querySelectorAll(".cv-agentmsg").length).toBe(2);
+  expect(container.textContent).not.toContain("message.");
   expect(container.textContent).toContain("Verified the result.");
   const message = container.querySelector('[data-direction="sent"]')!;
   await act(async () => (message.querySelector(".cv-agentmsg__toggle") as HTMLElement).click());
@@ -199,3 +203,100 @@ test("a newer run summary invalidates loaded steps so missed reports can be rest
   book.setRuns([{ ...run, rev: 2, stepCount: 1 } as never]);
   expect(book.get("c1", "chief", "r1")?.complete).toBe(false);
 });
+
+const reportStep = {
+  id: "report:a1:1:0",
+  seq: 1,
+  rev: 1,
+  at: 1,
+  kind: "note" as const,
+  text: "[a1] Verified.",
+  attachments: [],
+  links: [],
+};
+
+test("a multi-answer report follows one loaded question as the history window changes", async () => {
+  const { RunBook } = await import("../src/pages/home-channels/runs");
+  const book = new RunBook();
+  const first = { id: "q1", conversation: "c1" } as never;
+  const second = { id: "q2", conversation: "c1" } as never;
+  const { turn: _turn, ...silent } = run;
+  const report = { ...silent, answers: ["q1", "q2"], stepCount: 1 } as never;
+  book.setLoadedMessages([second]);
+  book.setSteps(report, [reportStep], true);
+  expect(book.liveFor(second).map((entry) => entry.run.id)).toEqual(["r1"]);
+  expect(book.liveFor(first)).toHaveLength(0);
+  book.setLoadedMessages([first, second]);
+  expect([...book.liveFor(first), ...book.liveFor(second)]).toHaveLength(1);
+  book.setLoadedMessages([second]);
+  expect(book.liveFor(second)).toHaveLength(1);
+  expect(book.liveFor(first)).toHaveLength(0);
+});
+
+test("loaded questions and replies keep reports through newer summaries until their window leaves", async () => {
+  const { RunBook } = await import("../src/pages/home-channels/runs");
+  const book = new RunBook();
+  const question = { id: "question", conversation: "c1" } as never;
+  const reply = { id: "reply", conversation: "c1", author: "chief", clientMessageId: "t1" } as never;
+  book.setLoadedMessages([question, reply]);
+  book.setSteps(
+    { ...run, id: "report", turn: undefined, answers: ["question"], stepCount: 1 } as never,
+    [reportStep],
+    true,
+  );
+  book.setSteps({ ...run, stepCount: 1 } as never, [reportStep], true);
+  book.setRuns(
+    Array.from({ length: 450 }, (_, index) => ({
+      ...run,
+      id: `newer-${index}`,
+      turn: `turn-${index}`,
+      updatedAt: 100_000 + index,
+    })) as never,
+  );
+  expect(book.liveFor(question).map((entry) => entry.run.id)).toEqual(["report"]);
+  expect(book.forReply(reply)?.steps).toEqual([reportStep]);
+  expect(book.get("c1", "chief", "newer-0")).toBeUndefined();
+  expect(book.get("c1", "chief", "newer-449")).toBeDefined();
+  book.setLoadedMessages([]);
+  expect(book.get("c1", "chief", "report")).toBeUndefined();
+  expect(book.forReply(reply)).toBeUndefined();
+});
+
+for (const [reason, expected] of [
+  ["a1 was cancelled", "message.notDeliveredStopped"],
+  ["a1's cloud VM was deleted", "message.notDeliveredNoAgent"],
+]) {
+  test(`a folded refused tell shows its localized reason: ${reason}`, async () => {
+    const container = installDom();
+    const paneStrings = createStrings(paneTable, ["en"]);
+    await render(
+      container,
+      <RunCard
+        entry={{
+          run: { ...run, stepCount: 1 } as never,
+          complete: true,
+          steps: [
+            {
+              ...reportStep,
+              id: `refused:${reason}`,
+              kind: "tool",
+              status: "done",
+              tool: {
+                name: "mcp__optchat__tell",
+                input: { id: "a1", message: "Check it." },
+                output: `outcome: refused. ${reason}`,
+                files: [],
+              },
+            },
+          ],
+        }}
+        strings={strings}
+        onOpen={() => {}}
+        onLoad={() => {}}
+      />,
+    );
+    expect(container.querySelector(".lg-run-toggle")?.getAttribute("aria-expanded")).toBe("false");
+    expect(container.querySelector('[data-delivery="failed"]')?.textContent).toContain(paneStrings.t(expected));
+    expect(container.textContent).not.toContain("message.");
+  });
+}

@@ -558,6 +558,23 @@ export class MockHomeProvider implements PageClient {
     if (teammates) addTeammates(this.data);
     if (runMode !== "none") {
       const done = sampleRun(runMode === "messages");
+      if (runMode === "messages") {
+        const reports = done.steps.filter((step) => step.kind === "note");
+        done.steps = done.steps.filter((step) => step.kind !== "note");
+        done.run.stepCount = done.steps.length;
+        const reportRun: HomeRun = {
+          id: `reports:${RUN_TURN}`,
+          conversation: done.run.conversation,
+          author: done.run.author,
+          status: "done",
+          startedAt: done.run.startedAt,
+          updatedAt: done.run.updatedAt,
+          rev: 1,
+          stepCount: reports.length,
+          answers: done.run.answers,
+        };
+        this.runs.set(reportRun.id, { run: reportRun, steps: reports });
+      }
       this.runs.set(done.run.id, done);
       const list = this.data.messages.get("c-chief") ?? [];
       const reply = list.find((m) => m.id === "c-chief-m4");

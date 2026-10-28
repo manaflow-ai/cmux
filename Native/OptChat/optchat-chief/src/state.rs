@@ -127,6 +127,9 @@ pub struct HostState {
     /// cleared when its note is logged.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub resumes: Vec<Resume>,
+    /// Completed report projections whose owner append was interrupted.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pending_reports: Vec<PendingReport>,
     /// The view up to and including the last turn's marked block, by size
     /// and hash (`optchat_core::mark_piece`): saved with that turn's
     /// messages, so the first turn after a restart still marks within the
@@ -157,6 +160,13 @@ pub struct HostState {
     /// first. At most [`WAKES_KEPT`].
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub wakes: Vec<Wake>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PendingReport {
+    pub conversation: String,
+    pub run: Value,
+    pub steps: Vec<Value>,
 }
 
 /// How many pending wakes `HostState::wakes` keeps.

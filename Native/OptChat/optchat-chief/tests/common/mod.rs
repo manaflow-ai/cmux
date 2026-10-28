@@ -120,6 +120,8 @@ pub struct Owner {
     pub drafts: Vec<(String, optchat_chief::draft::Draft)>,
     /// Rejections for the next `message.send` ops, in order (None: accept).
     pub rejects: VecDeque<Option<String>>,
+    /// Rejections for report appends, after recording the attempted write.
+    pub run_append_rejects: VecDeque<Option<String>>,
     pub reconnects: usize,
     /// When set, `message.send` keys are remembered as the real owner does:
     /// a reused key with the same text replays (posts nothing), with other
@@ -443,6 +445,9 @@ impl ConversationPort for FakeDaemon {
         owner
             .run_steps
             .push((conversation.to_owned(), run.clone(), steps));
+        if let Some(reason) = owner.run_append_rejects.pop_front().flatten() {
+            return Err(OpError::Transport(reason));
+        }
         owner.runs.push(run);
         Ok(())
     }
