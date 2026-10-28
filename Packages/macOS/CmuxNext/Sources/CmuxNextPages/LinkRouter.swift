@@ -34,7 +34,11 @@ public final class LinkRouter {
     public var recorded: [String] = []
     #endif
 
-    public init() {}
+    private let openSystemURL: (URL) -> Void
+
+    public init(openSystemURL: @escaping (URL) -> Void = { NSWorkspace.shared.openInBackground($0) }) {
+        self.openSystemURL = openSystemURL
+    }
 
     /// Shift-Command on a click: open the link in the browser the setting does not pick.
     public static func isOtherTarget(_ flags: NSEvent.ModifierFlags) -> Bool {
@@ -91,8 +95,7 @@ public final class LinkRouter {
             return
         }
         if recordsInstead("system:" + url.absoluteString) { return }
-        // Never the blocking open: a click handler may hold a renderer lock.
-        NSWorkspace.shared.open(url, configuration: NSWorkspace.OpenConfiguration())
+        openSystemURL(url)
     }
 
     /// Opens `file` (or a web link) with the app at `app`.
