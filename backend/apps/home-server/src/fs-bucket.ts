@@ -8,13 +8,22 @@ interface StoredMeta {
   readonly etag: string
   readonly size: number
   readonly contentType?: string
+  readonly customMetadata?: Record<string, string>
   readonly uploaded: number
 }
 
 interface MultipartMeta {
   readonly key: string
   readonly contentType?: string
+  readonly customMetadata?: Record<string, string>
 }
+
+type ObjectOptions = { httpMetadata?: { contentType?: string }; customMetadata?: Record<string, string> }
+/** The metadata an object or upload keeps from its options (R2: `httpMetadata.contentType` and `customMetadata`). */
+const metadataOf = (options: ObjectOptions) => ({
+  ...(options.httpMetadata?.contentType ? { contentType: options.httpMetadata.contentType } : {}),
+  ...(options.customMetadata && Object.keys(options.customMetadata).length ? { customMetadata: { ...options.customMetadata } } : {})
+})
 
 /** A stored object as R2 returns it, with a body when it was a `get`. */
 export interface FsObject {
@@ -24,14 +33,19 @@ export interface FsObject {
   readonly httpEtag: string
   readonly uploaded: Date
   readonly httpMetadata: { contentType?: string }
+  readonly customMetadata: Record<string, string>
   readonly range?: { offset: number; length: number }
   readonly body?: ReadableStream<Uint8Array>
   writeHttpMetadata(headers: Headers): void
 }
 
-/** Keys are paths under the root; `..` and absolute paths are refused. */
+/** Open multipart uploads live here, under the root but outside the key space. */
+const MULTIPART_DIR = ".multipart"
+
+/** Keys are paths under the root; `..`, absolute paths and the internal multipart directory are refused. */
 const safeKey = (key: string) => {
-  if (!key || key.startsWith("/") || key.split("/").some((p) => p === ".." || p === "")) throw new Error("invalid object key")
+  const parts = typeof key === "string" ? key.split("/") : []
+  if (!key || key.startsWith("/") || parts[0] === MULTIPART_DIR || parts.some((p) => p === ".." || p === "")) throw new Error("invalid object key")
   return key
 }
 
@@ -115,6 +129,7 @@ export class FsBucket {
       httpEtag: `"${meta.etag}"`,
       uploaded: new Date(meta.uploaded),
       httpMetadata: meta.contentType ? { contentType: meta.contentType } : {},
+      customMetadata: { ...meta.customMetadata },
       ...(range ? { range } : {}),
       ...(body ? { body } : {}),
       writeHttpMetadata: (h) => {
@@ -124,12 +139,15 @@ export class FsBucket {
   }
 
   private multipartPath(uploadId: string) {
-    return join(this.root, ".multipart", checkUploadId(uploadId))
+    return join(this.root, MULTIPART_DIR, checkUploadId(uploadId))
   }
 
-  /** A stored part is `<id>.part.<n>`, with its etag in `<id>.part.<n>.json` once it is whole. */
+  /**
+   * An upload is its record `<id>.json` plus its own parts directory `<id>/`, so closing it touches
+   * only its own parts. A stored part is `<id>/part.<n>`, with its etag in `<id>/part.<n>.json` once it is whole.
+   */
   private partPath(uploadId: string, partNumber: number) {
-    return `${this.multipartPath(uploadId)}.part.${partNumber}`
+    return join(this.multipartPath(uploadId), `part.${partNumber}`)
   }
 
   private multipartMetaPath(uploadId: string) {
@@ -151,7 +169,7 @@ export class FsBucket {
     return meta
   }
 
-  async put(key: string, value: unknown, options: { httpMetadata?: { contentType?: string }; onlyIf?: { etagDoesNotMatch?: string } } = {}): Promise<FsObject | null> {
+  async put(key: string, value: unknown, options: ObjectOptions & { onlyIf?: { etagDoesNotMatch?: string } } = {}): Promise<FsObject | null> {
     const file = this.path(key)
     if (options.onlyIf?.etagDoesNotMatch === "*" && existsSync(file)) return null
     mkdirSync(dirname(file), { recursive: true })
@@ -161,17 +179,17 @@ export class FsBucket {
       rmSync(tmp, { force: true })
       throw error
     }
-    const meta: StoredMeta = { ...stored, ...(options.httpMetadata?.contentType ? { contentType: options.httpMetadata.contentType } : {}), uploaded: Date.now() }
+    const meta: StoredMeta = { ...stored, ...metadataOf(options), uploaded: Date.now() }
     renameSync(tmp, file)
     writeFileSync(`${file}.meta.json`, JSON.stringify(meta))
     return this.object(key, meta)
   }
 
-  async createMultipartUpload(key: string, options: { httpMetadata?: { contentType?: string } } = {}): Promise<FsMultipartUpload> {
+  async createMultipartUpload(key: string, options: ObjectOptions = {}): Promise<FsMultipartUpload> {
     safeKey(key)
     const uploadId = Array.from(randomBytes(16), (byte) => byte.toString(16).padStart(2, "0")).join("")
-    mkdirSync(join(this.root, ".multipart"), { recursive: true })
-    writeFileSync(this.multipartMetaPath(uploadId), JSON.stringify({ key, ...(options.httpMetadata?.contentType ? { contentType: options.httpMetadata.contentType } : {}) } satisfies MultipartMeta))
+    mkdirSync(join(this.root, MULTIPART_DIR), { recursive: true })
+    writeFileSync(this.multipartMetaPath(uploadId), JSON.stringify({ key, ...metadataOf(options) } satisfies MultipartMeta))
     return new FsMultipartUpload(this, uploadId, key)
   }
 
@@ -227,19 +245,22 @@ export class FsBucket {
       throw error
     }
     const etag = hash.digest("hex")
-    const stored: StoredMeta = { etag, size, ...(meta.contentType ? { contentType: meta.contentType } : {}), uploaded: Date.now() }
+    // The object keeps the upload's metadata, as R2 does (a caller recognises its own completed upload by it).
+    const stored: StoredMeta = { etag, size, ...(meta.contentType ? { contentType: meta.contentType } : {}), ...(meta.customMetadata ? { customMetadata: meta.customMetadata } : {}), uploaded: Date.now() }
     writeFileSync(`${output}.meta.json`, JSON.stringify(stored))
     await this.abortMultipart(key, uploadId)
     return this.object(meta.key, stored)
   }
 
   async uploadMultipartPart(key: string, uploadId: string, partNumber: number, value: unknown): Promise<{ partNumber: number; etag: string }> {
-    if (!isPartNumber(partNumber)) throw new Error("invalid multipart part")
+    // The upload first, as R2 does: a forged, crossed or closed upload is NoSuchUpload whatever the number.
     this.openMultipart(key, uploadId)
+    if (!isPartNumber(partNumber)) throw new FsBucketError("InvalidPart", "a part number must be an integer from 1 to 10,000")
     const partPath = this.partPath(uploadId, partNumber)
     // The part streams to a temp file and replaces any earlier upload of that number only once
     // whole; its etag record is written last, so completion never trusts a half-written part.
     const tmp = `${partPath}.tmp-${process.pid}-${Math.random().toString(36).slice(2)}`
+    mkdirSync(dirname(partPath), { recursive: true })
     try {
       const { etag, size } = await writeStream(tmp, bodyStream(value))
       rmSync(`${partPath}.json`, { force: true })
@@ -255,11 +276,8 @@ export class FsBucket {
   /** Aborting an upload that already closed is a no-op; one minted for another key is refused. */
   async abortMultipart(key: string, uploadId: string): Promise<void> {
     if (!this.readMultipart(key, uploadId)) return
-    const dir = join(this.root, ".multipart")
     // Parts first, then the record, so a crash midway leaves an upload that can still be aborted.
-    for (const name of readdirSync(dir, { withFileTypes: true })) {
-      if (name.isFile() && name.name.startsWith(uploadId + ".part.")) rmSync(join(dir, name.name), { force: true })
-    }
+    rmSync(this.multipartPath(uploadId), { recursive: true, force: true })
     rmSync(this.multipartMetaPath(uploadId), { force: true })
   }
 
@@ -300,6 +318,8 @@ export class FsBucket {
     const walk = (dir: string) => {
       if (!existsSync(dir)) return
       for (const name of readdirSync(dir)) {
+        // Open uploads and their parts are not objects; skip the directory rather than walk it.
+        if (dir === this.root && name === MULTIPART_DIR) continue
         const p = join(dir, name)
         if (statSync(p).isDirectory()) walk(p)
         else if (!name.endsWith(".meta.json") && !name.includes(".tmp-")) {
