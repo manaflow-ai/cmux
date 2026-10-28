@@ -31,8 +31,16 @@ import Testing
         max(abs(a.0 - b.0), abs(a.1 - b.1), abs(a.2 - b.2))
     }
 
-    /// Draws `pv` as the transcript draws it, on the transcript background, at 2x in sRGB.
+    /// Draws `pv` as the transcript draws it, on the transcript background, at 2x in sRGB. The drawing snaps
+    /// to the bitmap's 2x pixels (`Fixture.withRenderScale(2)`, as a view scopes its own scale): outside a scope
+    /// it snaps to the process fallback, which any Home pane in the same test process sets to its screen's
+    /// scale. On a 1x CI mini the outline then snapped half a point left of `box.minX + 0.5` and that pixel read
+    /// the background (24, 24, 24) in the full run, though the outline was drawn.
     private func render(_ pv: ThreadPreview) -> (Bitmap, CGRect) {
+        Fixture.withRenderScale(2) { renderAt2x(pv) }
+    }
+
+    private func renderAt2x(_ pv: ThreadPreview) -> (Bitmap, CGRect) {
         let w = Int(Self.canvas.width * 2), h = Int(Self.canvas.height * 2)
         var data = [UInt8](repeating: 0, count: w * h * 4)
         let rightEdge = Metrics(width: Self.width).rightEdge
@@ -59,8 +67,10 @@ import Testing
     }
 
     private func preview(_ text: String, outgoing: Bool, count: Int = 3) -> ThreadPreview {
-        ThreadPreview.make(root: PartRef(messageId: "root", partIndex: 0), part: .text(text, runs: []), count: count,
-                           outgoing: outgoing, width: Self.width)
+        Fixture.withRenderScale(2) {
+            ThreadPreview.make(root: PartRef(messageId: "root", partIndex: 0), part: .text(text, runs: []), count: count,
+                               outgoing: outgoing, width: Self.width)
+        }
     }
 
     static let short = "find an iPhone duo i can pick up from store asap"
