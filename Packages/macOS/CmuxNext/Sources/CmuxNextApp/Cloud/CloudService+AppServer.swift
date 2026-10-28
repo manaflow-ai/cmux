@@ -31,20 +31,18 @@ extension CloudService {
     func appServerCreate(name: String?, startedByPerson: Bool, askedBy: String?, creation: CloudMachineCreation?, request: CloudMachineRequest,
                          onSent: @escaping @MainActor @Sendable () async -> Void) async throws -> CloudMachine {
         let approvals = CloudApprovalAnswer(call: sessionCall())
-        let ops = appOps
         let pinned = creation?.request ?? request
+        let identity = installIdentity
+        let currentTeam: @Sendable () async throws -> String = { MacInstallIdentity.team(ofToken: try await identity.installToken()) ?? "" }
         // The team the relay's create bills: the install token's team claim, captured now. A Retry
         // stays with the first send's team, and is refused if the token now bills another one.
-        let team = try Self.appServerTeam(current: MacInstallIdentity.team(ofToken: try await installIdentity.installToken()) ?? "", request: pinned)
+        let team = try Self.appServerTeam(current: try await currentTeam(), request: pinned)
         let sent: @MainActor @Sendable () async -> Void = { [weak creation] in
             creation?.markRequestSent(team: team)
             await onSent()
         }
         let flow = CloudMachineCreateFlow(
-            run: { op, args, key, origin in
-                await sent()
-                return try await ops(op, args, key, origin)
-            },
+            run: Self.pinnedRun(team: team, currentTeam: currentTeam, sent: sent, ops: appOps),
             confirm: { [weak self] prompt in await self?.confirmCreate?(prompt) ?? false },
             approve: { request, params in
                 try await approvals.approve(request: request, op: "cloud.machine.create", params: try JSONEncoder().encode(params), team: team)
@@ -68,6 +66,19 @@ extension CloudService {
         guard request.wasSent, let first = request.team else { return current }
         guard first == current else { throw ActionFailure(message: CloudStrings.createRetryOtherTeam) }
         return first
+    }
+
+    /// The relay call of a create pinned to `team`: every call, the first and each same-key retry
+    /// after an approval, checks the install token still bills `team` right before it goes out, and
+    /// is refused, unsent, if the install switched teams meanwhile (during the confirmation or a
+    /// retry's backoff). Only a call that passes marks the request sent.
+    nonisolated static func pinnedRun(team: String, currentTeam: @escaping @Sendable () async throws -> String,
+                                      sent: @escaping @MainActor @Sendable () async -> Void, ops: @escaping CloudAppOp) -> CloudAppOp {
+        { op, args, key, origin in
+            guard try await currentTeam() == team else { throw ActionFailure(message: CloudStrings.createRetryOtherTeam) }
+            await sent()
+            return try await ops(op, args, key, origin)
+        }
     }
 
     /// POSTs to the API Worker as the signed-in person (Stack session), the

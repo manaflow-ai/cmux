@@ -89,6 +89,42 @@ import Testing
         }
     }
 
+    /// The flow's relay call pinned to team_a (``CloudService/pinnedRun(team:currentTeam:sent:ops:)``), over `backend`.
+    func pinnedFlow(_ backend: Backend, sends: Sends) -> CloudMachineCreateFlow {
+        CloudMachineCreateFlow(run: CloudService.pinnedRun(team: "team_a", currentTeam: { await MainActor.run { backend.team } },
+                                                           sent: { sends.count += 1 },
+                                                           ops: { _, _, key, _ in try await MainActor.run { try backend.call(key) } }),
+                               confirm: { _ in true }, approve: { _, _ in }, pause: { _ in })
+    }
+
+    @MainActor final class Sends { var count = 0 }
+
+    @Test func aTeamSwitchBeforeTheFirstSendSendsNothing() async throws {
+        let backend = Backend(), sends = Sends()
+        backend.team = "team_b"
+        await #expect(throws: ActionFailure(message: CloudStrings.createRetryOtherTeam)) {
+            _ = try await pinnedFlow(backend, sends: sends).create(name: nil, startedByPerson: false, key: "k1")
+        }
+        #expect(backend.keys.isEmpty, "a call went out to the other team")
+        #expect(sends.count == 0, "the request was marked sent")
+    }
+
+    @Test func aTeamSwitchDuringApprovalRetriesStopsTheRetries() async throws {
+        let backend = Backend(), sends = Sends()
+        backend.pending = 3
+        let flow = CloudMachineCreateFlow(run: CloudService.pinnedRun(team: "team_a", currentTeam: { await MainActor.run { backend.team } },
+                                                                      sent: { sends.count += 1 },
+                                                                      ops: { _, _, key, _ in try await MainActor.run { try backend.call(key) } }),
+                                          confirm: { _ in true }, approve: { _, _ in },
+                                          // The install switches teams during the first retry's backoff.
+                                          pause: { _ in await MainActor.run { backend.team = "team_b" } })
+        await #expect(throws: ActionFailure(message: CloudStrings.createRetryOtherTeam)) {
+            _ = try await flow.create(name: nil, startedByPerson: false, key: "k1")
+        }
+        #expect(backend.keys == ["k1", "k1"], "a retry went out after the switch: \(backend.keys)")
+        #expect(backend.machines.isEmpty)
+    }
+
     @Test func theCreationKeepsItsKeyAndTeamAcrossARestart() {
         let creation = CloudMachineCreation(windowID: nil)
         let key = creation.request.idempotencyKey
