@@ -27,6 +27,11 @@
 # CMUX_WEB_TEST_FILES: optional newline-separated test files (relative to webviews/) to run instead
 # of every file, for focused runs (scripts/ci/car_guards.py). A name the git index does not list
 # is an error, so a stale selection never passes by running nothing.
+# Arguments (`bun run test [PATH|FILTER]...` from webviews/, which runs this script): each is a test
+# file or a directory (relative to where you run it), or else a substring of test file names, as a
+# bare `bun test FILTER` takes it. They select files the way CMUX_WEB_TEST_FILES does, still one
+# process per file: a single `bun test` over many files leaks globals from file to file and fails
+# tests that pass alone and in CI. An argument that selects no test file is an error.
 # CMUX_WEB_TEST_RESULTS: optional file to write each file's and failed test's result into
 # (webviews_test_results.py), for webviews-tests-new-reds.sh.
 # CMUX_WEB_TEST_RAW_LOG_DIR: optional artifact directory for complete per-attempt logs. The public
@@ -171,6 +176,22 @@ if [ "${1:-}" = --one ]; then
 fi
 
 self="$(cd "$(dirname "$0")" && pwd -P)/$(basename "$0")"
+# Selection arguments, made absolute when they name a path, so the cd below keeps their meaning.
+selection=()
+for arg in "$@"; do
+  case "$arg" in
+    -*)
+      echo "error: run-webviews-tests.sh takes test files, directories or name filters, not bun options ($arg);" \
+        "for bun options on one file, run \`bun test FILE $arg\`" >&2
+      exit 2
+      ;;
+  esac
+  if [ -e "$arg" ]; then
+    selection+=("$(cd "$(dirname "$arg")" && pwd -P)/$(basename "$arg")")
+  else
+    selection+=("$arg")
+  fi
+done
 case "$(git rev-parse --show-prefix)" in
   webviews/*) ;;
   *)
@@ -208,19 +229,37 @@ trap 'rm -rf "$results"' EXIT
 # bun test's default file names, from the git index so the list is the same everywhere.
 git ls-files -z -- '*.test.ts' '*.test.tsx' '*.test.js' '*.test.jsx' '*.test.mjs' \
   '*_test.ts' '*_test.tsx' '*.spec.ts' '*.spec.tsx' '*_spec.ts' '*_spec.tsx' > "$results/files"
-if [ -n "${CMUX_WEB_TEST_FILES:-}" ]; then
-  python3 - "$results/files" <<'PY'
+if [ -n "${CMUX_WEB_TEST_FILES:-}" ] || [ "${#selection[@]}" -gt 0 ]; then
+  python3 - "$results/files" ${selection[@]+"${selection[@]}"} <<'PY'
 import os
 import pathlib
 import sys
 
 path = pathlib.Path(sys.argv[1])
 listed = [item.decode() for item in path.read_bytes().split(b"\0") if item]
-wanted = [line.strip() for line in os.environ["CMUX_WEB_TEST_FILES"].splitlines() if line.strip()]
+wanted = [line.strip() for line in os.environ.get("CMUX_WEB_TEST_FILES", "").splitlines() if line.strip()]
 missing = [name for name in wanted if name not in listed]
 if missing:
     sys.exit("error: CMUX_WEB_TEST_FILES names files that are not webviews test files: " + ", ".join(missing))
-keep = [name for name in listed if name in set(wanted)]
+selected = set(wanted)
+unmatched = []
+for arg in sys.argv[2:]:
+    if os.path.isabs(arg):
+        # A file or directory: the test files at or under it.
+        rel = os.path.relpath(arg)
+        if rel == ".":
+            found = listed
+        else:
+            found = [name for name in listed if name == rel or name.startswith(rel.rstrip("/") + "/")]
+    else:
+        # Not a path: a substring of the file names, as `bun test FILTER` matches them.
+        found = [name for name in listed if arg in name]
+    if not found:
+        unmatched.append(arg)
+    selected.update(found)
+if unmatched:
+    sys.exit("error: no webviews test file matches " + ", ".join(unmatched))
+keep = [name for name in listed if name in selected]
 path.write_bytes(b"".join(name.encode() + b"\0" for name in keep))
 PY
 fi
