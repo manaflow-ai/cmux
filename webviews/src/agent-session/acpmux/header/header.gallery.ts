@@ -46,6 +46,17 @@ const sessionInfo =
     );
   };
 
+const standaloneHeight =
+  (height: number): Play =>
+  async (ctx) => {
+    const { setTabRow } = await import("./tabRow");
+    setTabRow({ height: 0, trailingInset: 0 });
+    await ctx.waitFor(() => ctx.document.querySelector(".acpmux-header:not([data-tab-row])"));
+    ctx.document
+      .querySelector<HTMLElement>(".acpmux-shell")!
+      .style.setProperty("--acpmux-header-height", `${height}px`);
+  };
+
 export default agentPaneEntry({
   id: "agent-pane.header",
   title: "Header",
@@ -56,6 +67,21 @@ export default agentPaneEntry({
     "agent-session/acpmux/header/ChatHeaderStatus.tsx#ChatHeaderInlineStatus",
   ],
   variants: {
+    "standalone-compact": {
+      note: "Chosen: a 28px row around the 24px controls, with 2px above and below. No machine/folder label or extra band.",
+      snapshot: chat(finished),
+      play: standaloneHeight(28),
+    },
+    "standalone-roomy": {
+      note: "Alternative: 32px row. More vertical padding without increasing the actual button targets.",
+      snapshot: chat(finished),
+      play: standaloneHeight(32),
+    },
+    "standalone-tight": {
+      note: "Alternative: 24px row. Fits the controls exactly, but leaves no vertical breathing room around their targets.",
+      snapshot: chat(finished),
+      play: standaloneHeight(24),
+    },
     quiet: {
       note: "Connected after a turn: tools only, no title, status or repeated machine and folder label.",
       snapshot: chat(finished),
