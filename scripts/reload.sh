@@ -1183,7 +1183,8 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --release)
-      BUILD_CONFIGURATION="Release" BENCH_HOOKS=0 BLOCKING_CHECKS=0 PGO_PROFILE=0 BUILD_CONFIG_NAME="release" SANITIZER=""
+      # scratch (bench-restore, never lands): the fleet's --release builds the bench configuration (debug socket).
+      BUILD_CONFIGURATION="Release" BENCH_HOOKS=1 BLOCKING_CHECKS=0 PGO_PROFILE=0 BUILD_CONFIG_NAME="bench" SANITIZER=""
       shift
       ;;
     --config|--config=*)
