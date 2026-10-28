@@ -33,6 +33,7 @@ int main(void) {
     array = CFArrayCreate(0, 0, 0, 0); CFArrayGetCount(array);
     CFArrayGetValueAtIndex(array, 0); CFArrayGetValues(array, (CFRange){0, 0}, 0);
     CFDataRef data = CFDataCreate(0, 0, 0); CFDataGetBytePtr(data); CFDataGetLength(data);
+    CFStringCreateExternalRepresentation(0, text, kCFStringEncodingUTF8, 0);
     CFRetain(data); CFErrorCopyDescription(error); CFErrorGetCode(error);
     SecItemCopyMatching(dict, &result); SecItemDelete(dict); SecPKCS12Import(data, dict, &array);
     SecIdentityCopyCertificate(0, &cert); SecIdentityCopyPrivateKey(0, &key);

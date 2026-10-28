@@ -16,6 +16,7 @@ exports:
                        '_SecTrustCopyCertificateChain',
                        '_kSecClass',
                        '_kSecClassIdentity',
+                       '_kSecReturnRef',
                        '_kSecImportExportPassphrase',
                        '_kSecKeyAlgorithmECDSASignatureDigestX962SHA256',
                        '_kSecKeyAlgorithmECDSASignatureDigestX962SHA384',

@@ -47,4 +47,5 @@ extern CFDictionaryRef CFDictionaryCreate(CFAllocatorRef, const void **, const v
 extern CFStringRef CFErrorCopyDescription(CFErrorRef);
 extern CFIndex CFErrorGetCode(CFErrorRef);
 extern CFStringRef CFStringCreateWithCString(CFAllocatorRef, const char *, CFStringEncoding);
+extern CFDataRef CFStringCreateExternalRepresentation(CFAllocatorRef, CFStringRef, CFStringEncoding, UInt8);
 extern const char *CFStringGetCStringPtr(CFStringRef, CFStringEncoding);

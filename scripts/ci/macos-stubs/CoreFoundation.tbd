@@ -46,6 +46,7 @@ exports:
                        '_CFStringCreateWithBytes',
                        '_CFStringCreateWithBytesNoCopy',
                        '_CFStringCreateWithCString',
+                       '_CFStringCreateExternalRepresentation',
                        '_CFStringGetBytes',
                        '_CFStringGetCString',
                        '_CFStringGetCStringPtr',
