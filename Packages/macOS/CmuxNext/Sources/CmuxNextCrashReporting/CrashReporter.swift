@@ -174,7 +174,13 @@ public final class CrashReporter: Sendable {
             recorder?.install(on: options, prepare: prepare)
             #endif
         }
-        options.beforeBreadcrumb = { breadcrumb in scrubber.scrub(breadcrumb) }
+        // No `beforeBreadcrumb`: a breadcrumb is kept as it came, in the scope's bounded list (`maxBreadcrumbs`), and
+        // scrubbed only when an event that carries it is sent (`prepare` above scrubs copies of `event.breadcrumbs`;
+        // a previous run's crash event goes through it too). Sentry records a URLSession breadcrumb synchronously in
+        // the thread that changed the task: the omnibar cancels the previous suggest request on main in the key's
+        // turn, and the 13 secret regexes ran there, 8-20 ms per address-bar key (first-5s bench, 2026-10-28).
+        // Chrome does its diagnostics work off the UI thread; ``deliver(_:)`` sends this reporter's own events
+        // off main.
         options.beforeSendSpan = { span in scrubber.scrub(span) }
         return options
     }
@@ -327,11 +333,24 @@ public final class CrashReporter: Sendable {
     /// telemetry. `message` must hold no user content: it is sent as is.
     public func recordFailure(_ name: String, message: String) {
         guard isStarted else { return }
-        SentrySDK.capture(message: "\(name): \(message)") { scope in
-            scope.setTag(value: name, key: "failure")
-            scope.setLevel(.warning)
+        deliver {
+            SentrySDK.capture(message: "\(name): \(message)") { scope in
+                scope.setTag(value: name, key: "failure")
+                scope.setLevel(.warning)
+            }
         }
     }
+
+    /// The reporter's own sends from any thread, main included (``recordFailure(_:message:)``,
+    /// ``captureNonFatal(_:type:fingerprint:tags:extra:)``): `SentrySDK.capture` runs `beforeSend` (the scrub of
+    /// the event and of every breadcrumb it carries) in the caller's thread, so the send goes to a utility queue,
+    /// in order. The other reporters already send from their own threads (the watchdog's, the hang and lag-spike
+    /// queues, the crash forwarder's).
+    func deliver(_ send: @escaping @Sendable () -> Void) {
+        deliveryQueue.async(execute: send)
+    }
+
+    private let deliveryQueue = DispatchQueue(label: "com.cmuxterm.app.next.crash-reporting.delivery", qos: .utility)
 
     /// Sends a handled, non-fatal error event (a guard that caught a
     /// problem before it crashed the app). One issue per `fingerprint`.
@@ -339,17 +358,20 @@ public final class CrashReporter: Sendable {
     public func captureNonFatal(_ message: String, type: String, fingerprint: [String], tags: [String: String] = [:],
                                 extra: [String: String] = [:]) {
         guard isStarted else { return }
-        let event = Event(level: .error)
-        let exception = Exception(value: message, type: type)
-        let mechanism = Mechanism(type: "cmux_guard")
-        mechanism.handled = true
-        exception.mechanism = mechanism
-        event.exceptions = [exception]
-        event.message = SentryMessage(formatted: message)
-        event.fingerprint = fingerprint
-        event.tags = tags
-        event.extra = extra
-        SentrySDK.capture(event: event)
+        // The event is built in the send (`Event` is not Sendable).
+        deliver {
+            let event = Event(level: .error)
+            let exception = Exception(value: message, type: type)
+            let mechanism = Mechanism(type: "cmux_guard")
+            mechanism.handled = true
+            exception.mechanism = mechanism
+            event.exceptions = [exception]
+            event.message = SentryMessage(formatted: message)
+            event.fingerprint = fingerprint
+            event.tags = tags
+            event.extra = extra
+            SentrySDK.capture(event: event)
+        }
     }
 
     /// Sends one app hang from the main-thread watchdog (``AppHangReporter``).

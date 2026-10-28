@@ -47,4 +47,14 @@ import Testing
         #expect(crumb.message?.contains("abcdef0123456789zz") == false)
         #expect((crumb.data?["url"] as? String)?.contains("hunter2") == false)
     }
+
+    /// The reporter's own sends (a failure, a non-fatal guard) run `SentrySDK.capture`, so `beforeSend` and its
+    /// breadcrumb scrub, on the delivery queue: called from main, the send runs off main.
+    @Test @MainActor func aSendFromMainRunsOffMain() async {
+        #expect(Thread.isMainThread)
+        let offMain = await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
+            CrashReporter(policy: Self.policy, hangTracking: .watchdog).deliver { done.resume(returning: !Thread.isMainThread) }
+        }
+        #expect(offMain, "the send ran on the main thread")
+    }
 }
