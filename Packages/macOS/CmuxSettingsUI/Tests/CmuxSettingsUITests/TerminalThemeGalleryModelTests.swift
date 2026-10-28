@@ -121,6 +121,69 @@ struct TerminalThemeGalleryModelTests {
         #expect(try file.managedThemeValue() == "light:Dracula,dark:Dracula")
     }
 
+    @Test("Browsing past the other side's theme keeps the pair for later picks")
+    func pairSurvivesPickingOtherSidesTheme() throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (model, file, _) = try makeModel(
+            existingConfig: nil,
+            currentThemeValue: "light:Builtin Light,dark:Builtin Dark",
+            prefersDark: true
+        )
+
+        model.select("Builtin Light")
+        #expect(model.selection == CmuxTerminalThemePair(light: "Builtin Light", dark: "Builtin Light"))
+
+        model.select("Nord")
+
+        #expect(model.selection == CmuxTerminalThemePair(light: "Builtin Light", dark: "Nord"))
+        #expect(try file.managedThemeValue() == "light:Builtin Light,dark:Nord")
+    }
+
+    @Test("Picking the theme on screen from a pair writes nothing")
+    func pickingThemeInUseFromPairIsNoOp() throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (model, file, log) = try makeModel(
+            existingConfig: nil,
+            currentThemeValue: "light:Builtin Light,dark:Builtin Dark",
+            prefersDark: true
+        )
+
+        model.select("Builtin Dark")
+
+        #expect(try file.readContents() == nil)
+        #expect(log.phases.isEmpty)
+        #expect(!model.hasPendingChange)
+    }
+
+    @Test("Names that differ only in case are one theme, so a pick sets both sides")
+    func caseOnlyDifferenceIsOneTheme() throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (model, file, _) = try makeModel(
+            existingConfig: nil,
+            currentThemeValue: "light:Nord,dark:nord",
+            prefersDark: true
+        )
+
+        model.select("Dracula")
+
+        #expect(try file.managedThemeValue() == "light:Dracula,dark:Dracula")
+    }
+
+    @Test("A one-sided theme value is not a pair, so a pick sets both sides")
+    func oneSidedValueIsNotAPair() throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (model, file, _) = try makeModel(
+            existingConfig: nil,
+            currentThemeValue: "light:Nord",
+            prefersDark: true
+        )
+
+        model.select("Dracula")
+
+        #expect(model.selection == CmuxTerminalThemePair(light: "Dracula", dark: "Dracula"))
+        #expect(try file.managedThemeValue() == "light:Dracula,dark:Dracula")
+    }
+
     @Test("Changing the app appearance moves the highlight to the side now shown")
     func appearanceChangeFollowsThemeInUse() throws {
         defer { try? FileManager.default.removeItem(at: root) }
