@@ -179,6 +179,21 @@ struct ColumnCloseScrollMotionTests {
 
     // MARK: Rows
 
+    /// With the default choice (fade) closing the focused last row of an overflowing column, and closing the last row
+    /// so the rest fit, are one layout each: the row camera rests in the close's turn and nothing asks for frames.
+    @Test(arguments: [[400, 400, 400, 400], [500, 500, 500]])
+    func closingTheLastRowLandsTheRowsWithTheCloseByDefault(heights: [Int]) throws {
+        let last = PaneID("p\(heights.count)"), kept = PaneID("p\(heights.count - 1)")
+        let strip = Strip(Self.rows(heights), focused: last, arrival: nil)
+        #expect((strip.screen.rowScrolls["c1"]?.state.spring.value ?? 0) > 100, "the rows scroll to the end")
+        strip.close(to: Self.rows(Array(heights.dropLast())), focus: kept)
+        if let rows = strip.screen.rowScrolls["c1"] {
+            #expect(abs(rows.state.spring.value - rows.state.spring.target) < 0.01, "the row camera did not rest with the close")
+        }
+        #expect(strip.shown(kept).maxY <= strip.screen.bounds.maxY + 0.5, "\(kept) rests outside the column")
+        #expect(!strip.step(), "the close asked for display frames")
+    }
+
     /// Closing the focused last row of a column whose rows still overflow: the rows above shift
     /// down into view on the close spring from the close's own frame, and rest at the new end.
     @Test func closingTheLastRowShiftsTheRowsOnTheCloseSpringFromItsFirstFrame() throws {

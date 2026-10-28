@@ -317,8 +317,10 @@ final class ScreenContentView: NSView {
             && PaneArrival.departing(paneFrames.keys, to: baseGeometry.panes.keys)
         // Its camera (the strip's or a row column's, pulled back after the last column or row closed) goes to rest in
         // the same pass (``syncScroll``): no frame shows the closed pane's slot as a hole.
+        // A close that lands while panes still spring is in flight: they spring on, and so does the camera (as the plan).
         closedAtOnce = splits && closesAtOnce && structural && arrivals.isEmpty
             && PaneArrival.departing(paneFrames.keys, to: baseGeometry.panes.keys)
+            && !paneFrames.values.contains { $0.rect != $0.targetRect }
         // An unzoom: the other panes come back in place under the zoomed one, which springs back to its slot.
         let returning = animate && structural && unzooming
         // A zoom: the zoomed pane covers the other panes, which stay as they are under it (`PaneZoomMotion`).
