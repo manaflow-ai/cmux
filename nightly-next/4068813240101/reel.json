@@ -1,0 +1,395 @@
+{
+  "version": 1,
+  "build": "4068813240101",
+  "notes": "notes/4068813240101.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 23745,
+      "title": "test(next): composer chip keyboard focus is the pill, no ring",
+      "author": "lawrencecchen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26846,
+      "title": "backend: keep temporary Freestyle guest exec failures retryable",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25316,
+      "title": "test(next): the Computer chip's picker is a searchable popover",
+      "author": "lawrencecchen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26071,
+      "title": "test(next): Retry's model menu matches the composer menu's text size",
+      "author": "lawrencecchen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26021,
+      "title": "fix(optchat): release host lock explicitly on drop",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26839,
+      "title": "fix(cmux-next STRESS): each agent chat opens in its measured pane, not in a chat dock",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26841,
+      "title": "fix(measure): holder-dogfood runs closeTab, history.reopen and terminalPaste by id, and waits past the reap grace",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26562,
+      "title": "fix(picker): snap narrow harness strip to whole items",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26615,
+      "title": "fix(next): size model picker to available content",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26836,
+      "title": "backend: freeze the clock in the egress per-minute admission test",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26536,
+      "title": "Project picker: pin actions beneath search and keep scrollbars inside menus",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26803,
+      "title": "ci(next): a stale action export fails a change only when the change left it stale",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26829,
+      "title": "test(webviews): measure popup gap in grid layout",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24927,
+      "title": "tests: react-apps-check aggregate gate waits on the base check",
+      "author": "lawrencecchen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26834,
+      "title": "fix(gallery): follow failed attachment tile",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26749,
+      "title": "agent chat: several waiting messages from other sessions draw as one card",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26778,
+      "title": "test(next agent pane): transcript step and stop tests wait for the page's push",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26808,
+      "title": "backend: Effect 4.0.0-rc.117 to stable 4.0.5",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26767,
+      "title": "backend: projection compare cron in production (Vitess dual write)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26376,
+      "title": "Agent chat: centralize agent-message bodies and recorded sends",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26810,
+      "title": "ci(cmux-tui): resume a stalled published-binary read from a fresh URL",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26828,
+      "title": "test(next): restore New Tab gallery interactions",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26699,
+      "title": "acpmux: _acpmux/session/auth answers a chat's sign-in from its own turns",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26758,
+      "title": "cmux daemon: bind a link share's guest to the shared chat",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26821,
+      "title": "gallery health: drop 4 now-rendering states from the broken allowlist",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26739,
+      "title": "fix(cmux-next): tighten question choice rows",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26802,
+      "title": "New Tab: keep the input steady when entering a shell command",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26743,
+      "title": "test(cmux NEXT): refusal copy tests follow #24795's copy",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26781,
+      "title": "ci: bound cmux-tui tree-preflight's fallback owner election",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26174,
+      "title": "acpmux: an idle harness ends only when nothing but its MCP servers runs under it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26707,
+      "title": "acpmux: other sessions' messages steered into one step go in as one input",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26812,
+      "title": "gallery health: a play that throws is a broken state, whatever it threw",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26750,
+      "title": "cmux daemon: link shares for a guest (create, list, revoke, kick, redeem)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26551,
+      "title": "Picker: anchor the model control below every composer",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26794,
+      "title": "Gallery: rewrite media only for changed stylesheets",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26773,
+      "title": "test(cmux-next): pin the process-wide Reduce Transparency, Reduce Motion and chrome style six suites read",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26797,
+      "title": "ci: seed the Ghostty Zig packages with curl before zig fetches them",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26756,
+      "title": "acpmux: a peer reads connected only after its handshake, and a request queued on a dropped or stalled link fails as not sent",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26798,
+      "title": "ci(cmux-next): a build-fleet app compile with no verdict fails, never green",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26793,
+      "title": "ci(base-red): a webviews test file the wrapper timed out, or a Bun panic, is never a base red",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26776,
+      "title": "backend: bench-cloud-env names FreestyleCloudProvider after the provider move",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26751,
+      "title": "backend: team VM and hand sandbox providers behind providers/; DriverError in the contract",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26804,
+      "title": "fix: preserve GitHub integration callback team scope",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26774,
+      "title": "test(sidebar): SidebarBottomInsetTests follows the 4 pt bottom margin (f2f5f98c133)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26787,
+      "title": "cmux NEXT: debug seed_rows can walk the subagent tray through its life",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26777,
+      "title": "cloud open-desktop: a description for action describe and MCP (fixes CloudActionDescriptionTests on base)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26479,
+      "title": "acpmux: a shared, paced full session list for every client (3 stale clients 82% -> 4% of a core)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26805,
+      "title": "ci: base_red_excuse reads 100 base runs, so DEV daily bursts cannot hide the tip Swift suite",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26800,
+      "title": "ci: mark nightly tree-commits once the tree is published, not daemon-tested",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26516,
+      "title": "Picker: share click and Cmd-Ctrl-M entry path",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26782,
+      "title": "ci: cache the Ghostty Zig packages; skip the download when they are on the machine",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26748,
+      "title": "backend/db: skip junk teams in the Postgres to Vitess copy, verify and compare cron",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26735,
+      "title": "fix(next): make waiting question cards keyboard navigable",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26496,
+      "title": "Audit: add gallery geometry evidence validator",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26523,
+      "title": "fix(next): let composer content follow the chat font size",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26658,
+      "title": "acpmux: a failed turn says auth.signed_out or auth.expired, and health keeps an expired sign-in",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26721,
+      "title": "Picker: match search and model row spacing (from closed #26533)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26469,
+      "title": "feat(acpmux): own embedded tailnet lifecycle controls",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26555,
+      "title": "composer: keep Fast mode in the picker",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26761,
+      "title": "backend: fix base reds (typecheck import, fake provider guestExec capability)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26693,
+      "title": "ci(base-red): judge a red test job per test; a crash or cut-short run is never a base red",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26759,
+      "title": "agent-chat: a dropped WebSocket clears ready until the next hello",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26687,
+      "title": "ci(next): check generated files on the package build swift-test or daemon-test already runs",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26762,
+      "title": "ci: probe the two unanswered super-call selectors, clearing a base red",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
