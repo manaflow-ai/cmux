@@ -8,6 +8,7 @@ workflows and on copies of them mutated the ways a bad change would.
 """
 from __future__ import annotations
 
+import re
 import sys
 import unittest
 from pathlib import Path
@@ -134,19 +135,24 @@ class Workflows(unittest.TestCase):
         for name, read, allow in SITES:
             text = (WORKFLOWS / name).read_text(encoding="utf-8")
             runs_on = read(text)
-            self.assertIn("'blacksmith-32vcpu-ubuntu-2404'", runs_on, f"{name}: the mutation needs a target")
+            # Any Blacksmith Linux literal, whatever its size, is the target: the last one is the final fallback.
+            targets = re.findall(r"'blacksmith-[0-9]+vcpu-ubuntu-[0-9]{4}(?:-arm)?'", runs_on)
+            self.assertTrue(targets, f"{name}: the mutation needs a Blacksmith Linux literal")
+            target = targets[-1]
             for bad in ("ubuntu-latest", "ubuntu-24.04", "macos-26", PERSONAL_WORKSTATION_LABEL):
-                mutated = text.replace(runs_on, runs_on.replace("'blacksmith-32vcpu-ubuntu-2404'", f"'{bad}'"))
+                head, _, tail = runs_on.rpartition(target)
+                mutated = text.replace(runs_on, f"{head}'{bad}'{tail}")
                 with self.subTest(workflow=name, label=bad):
                     self.assertNotEqual(mutated, text)
                     self.assertIn(bad, disallowed_labels(read(mutated), variables=allow))
 
-    def test_the_lint_runner_fails_without_its_32vcpu_guard(self):
+    def test_the_lint_runner_fails_without_its_linux_runner_guard(self):
         # LINUX_RUNNER can hold the overflow switch's hosted ubuntu-24.04; only the guard keeps it out.
         text = (WORKFLOWS / "cmux-tui.yml").read_text(encoding="utf-8")
         runs_on = lint_runner(text)
-        guard = "contains(vars.LINUX_RUNNER, '32vcpu') && "
-        self.assertIn(guard, runs_on)
+        match = re.search(r"contains\(vars\.LINUX_RUNNER, '[^']*'\) && ", runs_on)
+        self.assertIsNotNone(match, runs_on)
+        guard = match.group(0)
         mutated = text.replace(runs_on, runs_on.replace(guard, ""))
         self.assertIn("ubuntu-24.04", disallowed_labels(lint_runner(mutated), variables={"LINUX_RUNNER": linux_runner_values()}))
 
