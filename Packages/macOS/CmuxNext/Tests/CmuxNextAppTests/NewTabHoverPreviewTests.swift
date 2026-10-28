@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextApp
 @testable import CmuxNextBridge
 @testable import CmuxNextBrowser
+import CmuxNextCompat
 @testable import CmuxNextDaemon
 import CmuxNextTabs
 import Foundation
@@ -39,22 +40,22 @@ import Testing
         // A page with content: its picture is the preview, a flat capture (not painted yet) is none.
         page.load(try #require(URL(string: "data:text/html,<h1>cmux</h1>")))
         try await Self.until { page.state.url?.scheme == "data" }
-        services.cache.pageThumbnails.insert(try Self.striped(), for: key)
+        services.cache.pageThumbnails.insert(PurgeablePicture(resident: try Self.striped()), for: key)
         #expect(await previews.previewImage(for: TabID(key), maxPixelSize: size) != nil, "a page's picture was not its preview")
-        services.cache.pageThumbnails.insert(try Self.flat(), for: key)
+        services.cache.pageThumbnails.insert(PurgeablePicture(resident: try Self.flat()), for: key)
         #expect(await previews.previewImage(for: TabID(key), maxPixelSize: size) == nil, "a flat black capture was the preview")
 
         // The blank page (WebKit's New Tab page): no preview, not even the picture of the page before.
-        services.cache.pageThumbnails.insert(try Self.striped(), for: key)
+        services.cache.pageThumbnails.insert(PurgeablePicture(resident: try Self.striped()), for: key)
         page.load(try #require(URL(string: BrowserNewTabPage.blankURL)))
         try await Self.until { BrowserNewTabPage.isNewTabPage(page.state.url) }
         #expect(await previews.previewImage(for: TabID(key), maxPixelSize: size) == nil, "the New Tab page had a preview")
 
         // A terminal (#22653): a dark screen with lines of output shows, a flat capture (a shell
         // showing only its prompt over a see-through background) is none, as a flat page is.
-        services.cache.previews.insert(try Self.terminalOutput(), for: "terminal")
+        services.cache.previews.insert(PurgeablePicture(resident: try Self.terminalOutput()), for: "terminal")
         #expect(await previews.previewImage(for: TabID("terminal"), maxPixelSize: size) != nil, "a terminal's output was not its preview")
-        services.cache.previews.insert(try Self.flat(), for: "terminal")
+        services.cache.previews.insert(PurgeablePicture(resident: try Self.flat()), for: "terminal")
         #expect(await previews.previewImage(for: TabID("terminal"), maxPixelSize: size) == nil, "a flat terminal capture was the preview")
     }
 
@@ -73,7 +74,7 @@ import Testing
         let key = "page"
         services.cache.install(page, for: key)
         defer { services.cache.browsers[key] = nil }
-        services.cache.pageThumbnails.insert(try Self.striped(), for: key)
+        services.cache.pageThumbnails.insert(PurgeablePicture(resident: try Self.striped()), for: key)
         let committed = page.allocateNavigationID()
         page.apply(.started(committed, url: shown))
         page.apply(.committed(committed, url: shown))

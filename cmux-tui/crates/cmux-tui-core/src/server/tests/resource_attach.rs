@@ -239,6 +239,17 @@ fn terminal_resource_attach_acknowledges_before_styled_snapshot_and_cancels() {
         item["item"]["render"]["rows"].as_array().unwrap().len(),
         item["item"]["render"]["size"]["rows"].as_u64().unwrap() as usize
     );
+    // p04-input-084, p05-ipc-080: the stream worker that sent the snapshot
+    // is registered as a control stream (user-initiated): it waits for its
+    // attach to commit, so it is not an echo path thread.
+    let workers: Vec<_> = cmux_threads::snapshot()
+        .into_iter()
+        .filter(|row| row.name == "mux-resource-terminal-attach")
+        .map(|row| row.declared)
+        .collect();
+    assert!(!workers.is_empty(), "the attach worker is registered while it runs");
+    let control = crate::thread_qos::ThreadType::Interactive.qos();
+    assert!(workers.iter().all(|qos| *qos == control), "{workers:?}");
 
     let resize = resource_request(
         "terminal-attach-resize",

@@ -533,6 +533,14 @@ impl StopWait<'_> {
             };
             let mut connection = BufReader::new(stream);
             let mut id = 0_u64;
+            // A restoring owner parks a connection unread, so its reads time
+            // out until the restore ends; it drops a parked connection only
+            // at its park cap (`server/restoring.rs`). A connection closed
+            // before any of its reads timed out was read by a serving owner
+            // that ended it without an answer (its request thread died): the
+            // lifecycle exchange reports that at once, and the stop does not
+            // reconnect for its whole bound.
+            let mut parked = false;
             loop {
                 id += 1;
                 let request = IdentifyRequest::default().line(format!("stop-wait-{id}"));
@@ -555,10 +563,11 @@ impl StopWait<'_> {
                             }
                             _ => return Ok(()),
                         },
-                        Err(ExchangeError::Timeout) => {}
-                        Err(ExchangeError::Closed | ExchangeError::Transport) => {
+                        Err(ExchangeError::Timeout) => parked = true,
+                        Err(ExchangeError::Closed | ExchangeError::Transport) if parked => {
                             continue 'connect;
                         }
+                        Err(ExchangeError::Closed | ExchangeError::Transport) => return Ok(()),
                         // A refused or malformed identify: the lifecycle
                         // exchange reports it with its own codes.
                         Err(_) => return Ok(()),
@@ -1077,6 +1086,57 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     use super::*;
+
+    /// A socket whose owner accepts and at once closes every connection (a
+    /// daemon whose request thread died: it reads `identify` and ends the
+    /// connection without a reply). That is no owner that parks its
+    /// connections while it restores (those stay open until 32 newer ones
+    /// arrive), so `server stop` must report it at once, not reconnect for
+    /// its whole restore wait: the suite's tests whose fixture ran `server
+    /// stop` on such a daemon waited the 120 s nextest timeout.
+    #[test]
+    fn stop_wait_does_not_wait_out_an_owner_that_closes_every_connection() {
+        let dir = std::env::temp_dir().join(format!("cmux-stop-wait-close-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let socket = dir.join("s.sock");
+        let listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let stop_accepting = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let accepting = stop_accepting.clone();
+        let owner = std::thread::spawn(move || {
+            while !accepting.load(std::sync::atomic::Ordering::Acquire) {
+                match listener.accept() {
+                    Ok((mut stream, _)) => {
+                        stream.set_nonblocking(false).unwrap();
+                        let mut line = [0u8; 256];
+                        let _ = stream.read(&mut line);
+                        drop(stream);
+                    }
+                    Err(_) => std::thread::sleep(Duration::from_millis(5)),
+                }
+            }
+        });
+        let stop = StopWait {
+            socket: &socket,
+            socket_is_derived: false,
+            session: Some("close-every-connection"),
+            limit: Duration::from_secs(30),
+            retry_flags: (false, true),
+            output: OutputMode::Quiet,
+        };
+        let started = Instant::now();
+        let waited = stop.wait_for_restore();
+        let elapsed = started.elapsed();
+        stop_accepting.store(true, std::sync::atomic::Ordering::Release);
+        owner.join().unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(waited, Ok(()), "the lifecycle exchange reports the owner");
+        assert!(
+            elapsed < Duration::from_secs(5),
+            "the stop waited {elapsed:?} for an owner that closes"
+        );
+    }
 
     #[test]
     fn rejects_invalid_session_names_before_socket_resolution() {

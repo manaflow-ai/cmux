@@ -25,11 +25,12 @@ Rules, each a table below:
   spawns       SPAWNS_TERMINAL (the daemon commands that may start a
                terminal host); it must hold every Swift
                `TerminalSpawningRequest` command
-  clients      sdk for every command; macos for the ipc-census Q1 names and
-               the MACOS_CALL_SITES names and the raw `"cmd": "<name>"`
+  clients      sdk for every command; macos for the ipc-census Q1 names, the
+               `static let commandName: DaemonCommandName` names, the
+               MACOS_CALL_SITES names and the raw `"cmd": "<name>"`
                lines the Swift app writes, cli for the Q14 names and
-               CLI_CALL_HELPER_SENDS; ios is
-               kept when set by hand
+               CLI_CALL_HELPER_SENDS, ios for the cases of the
+               iOS client's command table (IOS_COMMAND_TABLE)
 
 Stdlib only, plus the schema validator in cmux-tui/bindings/codegen.
 """
@@ -51,6 +52,8 @@ ROOT = Path(__file__).resolve().parents[2]
 SCHEMA = ROOT / "cmux-tui/spec/sdk-schema.json"
 CENSUS = ROOT / "scripts/cmux-next/ipc-census.py"
 SWIFT_SOURCES = "Packages/macOS/CmuxNext/Sources"
+# The iOS cmux-tui client names every command it sends in this enum (p05-ipc-048).
+IOS_COMMAND_TABLE = "Packages/iOS/CmuxMobileSSH/Sources/CmuxMobileSSH/CmuxTUI/CmuxTUICommand.swift"
 
 sys.path.insert(0, str(ROOT / "cmux-tui/bindings"))
 from codegen.ipc_meta import STREAM_TARGET_FIELDS, IpcMetaValidator, family_kind  # noqa: E402
@@ -72,6 +75,7 @@ FAMILIES: dict[str, tuple[int, str, tuple[str, ...]]] = {
         "debug-daemon-locks", "server-threads", "server-blocking",
         "subscribe-activity", "ws-listen", "page-credential", "pairing-response",
         "set-default-colors", "set-window-title", "clear-window-title", "trace-*",
+        "memory-report",
     )),
     "clients": (0x02, "Connected clients and their focus.", (
         "set-client-info", "list-clients", "detach-client", "client-focus", "report-focus",
@@ -80,7 +84,8 @@ FAMILIES: dict[str, tuple[int, str, tuple[str, ...]]] = {
     "terminal-io": (0x03, "Terminal input, output streams, screen reads and terminal requests to the frontend.", (
         "send", "send-key", "paste-image", "read-screen", "read-scrollback", "wait-for", "copy",
         "clear-history", "vt-state", "scroll-surface", "snapshot-request", "terminal-history",
-        "terminal-read-range", "terminal-events", "attach-surface", "cancel-stream", "subscribe",
+        "terminal-read-range", "terminal-events", "attach-surface", "cancel-stream",
+        "set-stream-priority", "subscribe",
         "mint-terminal-renderer", "mint-terminal-renderer-by-terminal", "get-cell-pixels",
         "set-cell-pixels", "url-open", "url-open-*", "terminal-clipboard-*",
     )),
@@ -160,6 +165,7 @@ EVENT_FAMILIES: dict[str, tuple[int, str, tuple[str, ...]]] = {
     "terminal-stream-events": (0xC0, "Content of an attach stream: output, render state, frames and sizes.", (
         "output", "render-delta", "render-state", "frame", "browser-state", "vt-state", "resized",
         "colors-changed", "detached", "overflow", "scroll-changed", "size-state", "stream-end",
+        "input-failed",
     )),
     "mux-events": (0xC1, "The mux tree: workspaces, screens, panes, tabs, surfaces and their state.", (
         "layout-changed", "tree-changed", "empty", "pane-*", "tab-*", "screen-*", "workspace-*",
@@ -171,6 +177,7 @@ EVENT_FAMILIES: dict[str, tuple[int, str, tuple[str, ...]]] = {
     "daemon-events": (0xC2, "Clients, daemon lifetime, settings, pairing and machine state.", (
         "client-*", "daemon-shutdown", "config-reload-requested", "keybindings-changed",
         "settings-changed", "pairing-*", "machine-usage-changed", "activity-changed",
+        "server-diagnostic-site",
     )),
     "agent-events": (0xC3, "Agents and the agent inventory.", ("agent-*",)),
     "personal-events": (0xC4, "Personal profiles, bookmarks and history.", (
@@ -203,6 +210,8 @@ COMMAND_PRIORITY: dict[str, tuple[str, ...]] = {
         "send", "send-key", "paste-image", "browser-key", "browser-key-press", "browser-mouse",
         "browser-mouse-guarded", "browser-wheel", "browser-wheel-guarded", "browser-insert-text",
         "resize-attached-view", "scroll-surface",
+        # Focus and visibility of an attach stream (p05-ipc-142): a tab switch is the person's.
+        "set-stream-priority",
         "agent-session-prompt", "agent-session-cancel", "agent-session-permission",
     ),
     "bulk": (
@@ -222,7 +231,7 @@ COMMAND_PRIORITY: dict[str, tuple[str, ...]] = {
     ),
     "background": (
         "server-stats", "debug-daemon-locks", "server-threads", "server-blocking", "machine-usage",
-        "terminal-resources", "agent-inventory-refresh",
+        "terminal-resources", "agent-inventory-refresh", "memory-report",
     ),
 }
 
@@ -262,7 +271,9 @@ RELEASES_SLOT: dict[str, str] = {
 EVENT_PRIORITY: dict[str, tuple[str, ...]] = {
     "input": ("output", "render-delta", "render-state", "frame"),
     "bulk": ("surface-output", "loopback-data", "loopback-eof"),
-    "background": ("machine-usage-changed", "activity-changed", "agent-inventory-changed"),
+    "background": (
+        "machine-usage-changed", "activity-changed", "agent-inventory-changed", "server-diagnostic-site",
+    ),
 }
 
 # Ordering --------------------------------------------------------------------
@@ -296,6 +307,7 @@ READ_ONLY = (
     "cloud-conversation-snapshot", "cloud-conversation-history",
     "cloud-conversation-thread", "cloud-conversation-runs", "cloud-conversation-run",
     "cloud-participant-avatar-get", "cloud-attachment-read", "feed-local-list", "trace-status",
+    "memory-report",
     "agent-cli-intents-list", "agent-cli-update-job-resolve",
     "agent-session-events", "agent-session-media",
     "loopback-status", "browser-runtime-status",
@@ -342,6 +354,8 @@ MEMORY = (
     "snapshot-request",
     # Ends one attach stream of this connection and removes its view.
     "cancel-stream",
+    # The lane and sequence priority of one attach stream of this connection.
+    "set-stream-priority",
     # Agent chat attachments and what they send to acpmux, which keeps the
     # session and the folder trust itself; children also records the chats
     # the tab may file. agent-session-start binds the tab, a journaled write.
@@ -530,6 +544,39 @@ def cli_call_helper_names() -> set[str]:
     return set(CLI_CALL_HELPER_SENDS)
 
 
+_CLIENT_USE = re.compile(r"\bcmux_ipc::client::(?:\{([^}]*)\}|(\w+))")
+
+
+def _pascal(name: str) -> str:
+    """The Rust type stem cmux-ipc's build.rs gives a command (build-support/client_requests.rs)."""
+
+    return "".join(part[:1].upper() + part[1:] for part in re.split(r"[-_.]", name))
+
+
+def cli_typed_request_names(commands: Iterable[str]) -> set[str]:
+    """Wire names of the generated `<Command>Request` types (cmux_ipc::client) the
+    Rust CLI imports. A command the CLI sends through its typed request has no
+    `"cmd"` literal for census Q14 to see, so without this the migrated commands
+    would lose `cli`, and with it the very types the CLI imports."""
+
+    by_type = {f"{_pascal(name)}Request": name for name in commands}
+    listed = subprocess.run(
+        ["git", "ls-files", "-z", "--", "*.rs"],
+        cwd=CLI_SRC, capture_output=True, check=True,
+    ).stdout.decode().split("\0")
+    names: set[str] = set()
+    for relative in filter(None, listed):
+        try:
+            text = (CLI_SRC / relative).read_text(encoding="utf-8")
+        except (OSError, UnicodeError) as error:
+            raise AssignError(f"cannot read {relative}: {error}") from error
+        for group, single in _CLIENT_USE.findall(text):
+            for ident in re.findall(r"\w+", group or single):
+                if ident in by_type:
+                    names.add(by_type[ident])
+    return names
+
+
 def _match_brace(text: str, open_: int) -> int:
     depth = 0
     for index in range(open_, len(text)):
@@ -561,9 +608,57 @@ def swift_line_commands() -> set[str]:
     }
 
 
+_IOS_CASE = re.compile(r'^\s*case\s+(\w+)(?:\s*=\s*"([^"]*)")?\s*$', re.MULTILINE)
+
+
+def ios_command_names() -> set[str]:
+    """The wire names of IOS_COMMAND_TABLE's cases: a case's raw value, else its name.
+
+    The table holds one case per line, so a line that starts with `case` and is not one
+    simple case (a list, an associated value) is refused rather than misread.
+    """
+
+    try:
+        text = (ROOT / IOS_COMMAND_TABLE).read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as error:
+        raise AssignError(f"IOS_COMMAND_TABLE: cannot read {IOS_COMMAND_TABLE}: {error}") from error
+    lines = [line for line in text.splitlines() if line.strip().startswith("case ")]
+    found = [_IOS_CASE.match(line) for line in lines]
+    if not found or not all(found):
+        bad = [line.strip() for line, match in zip(lines, found) if not match]
+        raise AssignError(f"IOS_COMMAND_TABLE: {IOS_COMMAND_TABLE} must list one simple case per line: {bad}")
+    return {match.group(2) or match.group(1) for match in found if match}
+
+
+_TYPED_COMMAND = re.compile(r'static\s+(?:let|var)\s+commandName(?:\s*:\s*DaemonCommandName)?\s*=\s*"([a-z][a-z0-9-]*)"')
+
+
+def swift_typed_commands() -> set[str]:
+    """Wire names of the Swift request types that declare
+    `static let commandName: DaemonCommandName = "<name>"`. Census Q1 counts only
+    the older hand-written `static let command = "<name>"` form it queues for
+    migration, so the migrated types are read here."""
+
+    listed = subprocess.run(
+        ["git", "ls-files", "-z", "--", f"{SWIFT_SOURCES}/*.swift"],
+        cwd=ROOT, capture_output=True, check=True,
+    ).stdout.decode().split("\0")
+    names: set[str] = set()
+    for relative in filter(None, listed):
+        if relative.endswith(".generated.swift"):
+            continue
+        try:
+            text = (ROOT / relative).read_text(encoding="utf-8")
+        except (OSError, UnicodeError) as error:
+            raise AssignError(f"cannot read {relative}: {error}") from error
+        names.update(_TYPED_COMMAND.findall(text))
+    return names
+
+
 _SPAWNING = re.compile(r"\b(?:struct|extension)\s+(\w+)\s*:[^{]*\bTerminalSpawningRequest\b")
 _STRUCT = re.compile(r"\bstruct\s+(\w+)\b[^{]*\{")
-_COMMAND = re.compile(r'static\s+(?:let|var)\s+command(?:\s*:\s*String)?\s*=\s*"([^"]+)"')
+# `static let commandName: DaemonCommandName = "..."`, or the older `static let command = "..."`.
+_COMMAND = re.compile(r'static\s+(?:let|var)\s+command(?:Name)?(?:\s*:\s*\w+)?\s*=\s*"([^"]+)"')
 
 
 def swift_spawning_commands() -> set[str]:
@@ -592,14 +687,26 @@ def swift_spawning_commands() -> set[str]:
 # Assignment ------------------------------------------------------------------------
 
 
+def _schema_commands() -> list[str]:
+    """The command names of the committed schema, to resolve the CLI's request types."""
+
+    try:
+        return list(json.loads(SCHEMA.read_text(encoding="utf-8"))["commands"])
+    except (OSError, UnicodeError, ValueError, KeyError) as error:
+        raise AssignError(f"cannot read the commands of {SCHEMA}: {error}") from error
+
+
 @dataclass
 class Sources:
     """The name sets read outside the schema, loaded only when a command needs them."""
 
     macos: Callable[[], set[str]] = (
-        lambda: census_names("Q1") | swift_call_site_names() | swift_line_commands()
+        lambda: census_names("Q1") | swift_typed_commands() | swift_call_site_names() | swift_line_commands()
     )
-    cli: Callable[[], set[str]] = lambda: census_names("Q14") | cli_call_helper_names()
+    cli: Callable[[], set[str]] = lambda: (
+        census_names("Q14") | cli_call_helper_names() | cli_typed_request_names(_schema_commands())
+    )
+    ios: Callable[[], set[str]] = ios_command_names
     swift_spawning: Callable[[], set[str]] = swift_spawning_commands
 
 
@@ -608,17 +715,26 @@ class Assigner:
         self.document = document
         self.changes: list[str] = []
         self.sources = sources or Sources()
-        self._clients: tuple[set[str], set[str]] | None = None
+        self._clients: tuple[set[str], set[str], set[str]] | None = None
 
-    def clients_of(self, name: str, current: Any) -> list[str]:
-        """The census clients of a command, plus `ios` when the schema already lists it."""
+    def clients_of(self, name: str) -> list[str]:
+        """The clients whose sources send the command, and `sdk` for every command."""
 
-        if self._clients is None:
-            self._clients = (self.sources.macos(), self.sources.cli())
-        macos, cli = self._clients
-        ios = isinstance(current, list) and "ios" in current
-        members = (("macos", name in macos), ("ios", ios), ("cli", name in cli), ("sdk", True))
+        macos, ios, cli = self.client_sources()
+        members = (("macos", name in macos), ("ios", name in ios), ("cli", name in cli), ("sdk", True))
         return [client for client, member in members if member]
+
+    def client_sources(self) -> tuple[set[str], set[str], set[str]]:
+        if self._clients is None:
+            self._clients = (self.sources.macos(), self.sources.ios(), self.sources.cli())
+        return self._clients
+
+    def check_ios(self) -> None:
+        """Every name in the iOS client's command table is a schema command."""
+
+        unknown = sorted(self.client_sources()[1] - set(self.document["commands"]))
+        if unknown:
+            raise AssignError(f"{IOS_COMMAND_TABLE} names {', '.join(unknown)}, which sdk-schema.json does not declare")
 
     def check_spawning(self) -> None:
         """SPAWNS_TERMINAL holds every command the Swift client gives the spawn timeout."""
@@ -706,7 +822,7 @@ class Assigner:
             else:
                 self.set_missing("commands", name, entry, "stream_scoped", True)
         self.follow("commands", name, entry, "spawns_terminal", True if name in SPAWNS_TERMINAL else None)
-        self.follow("commands", name, entry, "clients", self.clients_of(name, entry.get("clients")))
+        self.follow("commands", name, entry, "clients", self.clients_of(name))
 
     def follow(self, section: str, name: str, entry: dict[str, Any], key: str, value: Any) -> None:
         """Set an attribute that follows a source outside the schema; None removes it."""
@@ -723,6 +839,7 @@ class Assigner:
     def run(self) -> dict[str, Any]:
         self.check_tables()
         self.check_spawning()
+        self.check_ios()
         table = self.families()
         self.wire_ids("commands", "method_id", table, FAMILIES)
         self.wire_ids("events", "event_id", table, EVENT_FAMILIES)

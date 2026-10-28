@@ -36,7 +36,7 @@ final class MacScreenCardView: MacScreenThemedView {
     init(model: MacScreenPaneModel, actions: MacScreenChromeActions, node: VisibilityNode, on mainWork: MainWorkScheduler) {
         self.model = model
         self.actions = actions
-        super.init(frame: .zero)
+        super.init(frame: .zero, node: node)
         setAccessibilityElement(false)
         background.setAccessibilityElement(true)
         background.setAccessibilityRole(.group)

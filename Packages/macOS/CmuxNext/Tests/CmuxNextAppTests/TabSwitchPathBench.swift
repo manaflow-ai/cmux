@@ -3,6 +3,7 @@ import CmuxNextBridge
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import Foundation
 import QuartzCore
 import Testing
@@ -12,7 +13,8 @@ import Testing
 /// pane's layout, the window's display and the Core Animation commit. Prints
 /// `TAB-SWITCH-PATH n=<count> apply p50/p90 <ms> turn p50/p90 <ms> snapshots/switch <x> moves <n>`.
 /// The checks are behavioral, at every tab count: a warm switch maps no strip (`structure()`), moves
-/// no content view between superviews or windows, and leaves exactly the selected tab's view shown.
+/// no content view between superviews or windows, and leaves exactly the selected tab's view shown. With
+/// CMUX_PERF_RESULT_DIR every switch's apply and turn times are result-v1 (lab story swift-tab-switch-path).
 @MainActor @Suite(.serialized, .timeLimit(.minutes(4)))
 struct TabSwitchPathBench {
     final class Provider: InternalPageProvider {
@@ -100,6 +102,10 @@ struct TabSwitchPathBench {
             }
         }
         let switches = apply.count
+        if let results = try PerfResultWriter() {
+            try results.record("swift.tab_switch_path.\(count).apply", unit: .ms, samples: apply)
+            try results.record("swift.tab_switch_path.\(count).turn", unit: .ms, samples: turn)
+        }
         let snapshots = Double(DebugLayoutCounters.paneSnapshots - snapshotsBefore) / Double(switches)
         let moves = probes.map(\.moves).reduce(0, +) - movesBefore
         let shown = views.filter { !$0.isHidden && $0.superview != nil && !$0.isHiddenOrHasHiddenAncestor }.count

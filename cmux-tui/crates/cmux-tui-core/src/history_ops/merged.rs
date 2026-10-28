@@ -25,6 +25,7 @@ use serde_json::{Map, Value, json};
 use super::pages::{self, run, wire};
 use super::{closed, commands, hidden_doc, journal_feed, sources, store_failed, trail};
 use crate::Mux;
+use crate::panic_free::JsonFields;
 use crate::resource::ResourceError;
 use crate::workspace_registry::Actor;
 
@@ -325,7 +326,7 @@ pub(super) fn list(
         .collect::<Vec<_>>();
     let mut reply = json!({"entries": rows, "revision": mux.history.revision().to_string()});
     if !pending.is_empty() {
-        reply["pending_kinds"] = json!(pending);
+        reply.insert("pending_kinds", json!(pending));
     }
     Ok(reply)
 }
@@ -409,8 +410,8 @@ fn remove(
         changed.extend(changed_pages(&value));
     }
     if others > 0 {
-        let before = value["removed"].as_u64().unwrap_or(0);
-        value["removed"] = json!(before + others);
+        let before = value.field("removed").as_u64().unwrap_or(0);
+        value.insert("removed", json!(before + others));
     }
     // Agent entries are hidden; so is an older journal command id
     // (`command:<machine>/<terminal>/<start ms>`).
@@ -433,8 +434,8 @@ fn remove(
             }
         })
         .map_err(|error| failed(OPERATION, &error))?;
-        let pages = value["removed"].as_u64().unwrap_or(0);
-        value["removed"] = json!(pages + hides.len() as u64);
+        let pages = value.field("removed").as_u64().unwrap_or(0);
+        value.insert("removed", json!(pages + hides.len() as u64));
         for (_, kind) in &hides {
             if !changed.contains(kind) {
                 changed.push(*kind);
@@ -442,8 +443,8 @@ fn remove(
         }
     }
     if deleted > 0 {
-        let before = value["removed"].as_u64().unwrap_or(0);
-        value["removed"] = json!(before + deleted);
+        let before = value.field("removed").as_u64().unwrap_or(0);
+        value.insert("removed", json!(before + deleted));
         changed.push(HistoryKind::Closed);
     }
     Ok((value, changed))
@@ -496,8 +497,8 @@ fn clear(
         others += commands::delete(mux, selection).map_err(|error| failed(OPERATION, &error))?;
     }
     if others > 0 {
-        let before = value["removed"].as_u64().unwrap_or(0);
-        value["removed"] = json!(before + others);
+        let before = value.field("removed").as_u64().unwrap_or(0);
+        value.insert("removed", json!(before + others));
     }
     let hidden: Vec<HistoryKind> =
         [HistoryKind::Agent].into_iter().filter(|kind| profile.is_none() && wants(*kind)).collect();
@@ -511,8 +512,8 @@ fn clear(
         changed.extend(hidden);
     }
     if deleted > 0 {
-        let before = value["removed"].as_u64().unwrap_or(0);
-        value["removed"] = json!(before + deleted);
+        let before = value.field("removed").as_u64().unwrap_or(0);
+        value.insert("removed", json!(before + deleted));
         changed.push(HistoryKind::Closed);
     }
     Ok((value, changed))

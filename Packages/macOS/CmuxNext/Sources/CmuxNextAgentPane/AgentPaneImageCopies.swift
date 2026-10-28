@@ -1,6 +1,7 @@
 import AppKit
 import CryptoKit
 import Foundation
+import CmuxNextCompat
 
 /// The image viewer's Show in Finder and Open in Browser Pane (cx-ncc.39). The viewer holds each
 /// image as a `data:` URL, so the host keeps a copy as a file named for the image with its type's
@@ -190,7 +191,7 @@ extension AgentPaneImageCopies {
         var info = stat()
         // SAFETY: fstat writes one struct stat into `info`, a local.
         guard unsafe fstat(descriptor, &info) == 0, info.st_mode & S_IFMT == S_IFREG, info.st_size <= limit,
-              let data = try? handle.read(upToCount: limit + 1), data.count <= limit else { return nil }
+              let data = try? handle.blockingRead(upToCount: limit + 1), data.count <= limit else { return nil }
         return data
     }
 
@@ -202,6 +203,8 @@ extension AgentPaneImageCopies {
             guard let action = item.action, let target = item.target as? NSObject else { continue }
             let rebuilt = AgentPaneMenuAction { [weak item] in
                 // task-owner: one rebuild of a local SVG off the main actor; ends when the row acts
+                // main-hop-allow: the person's menu row, userBlocking (p06 rule 2): rebuild runs off main; its one resume
+                // performs the row's action on its NSMenuItem, which is main-only and not Sendable
                 Task { @MainActor in
                     guard await rebuild(file, to: copy) else { return NSSound.beep() }
                     _ = target.perform(action, with: item)

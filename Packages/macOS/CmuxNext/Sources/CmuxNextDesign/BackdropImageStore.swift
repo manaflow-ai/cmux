@@ -5,6 +5,7 @@ import CoreImage
 import ImageIO
 import UniformTypeIdentifiers
 public import CmuxNextDesignTokens
+public import CmuxNextAppearance
 
 /// Backdrop images decoded, textured and cached once per process, shared by every window, and
 /// kept on disk for the next launch.
@@ -261,10 +262,10 @@ public final class BackdropImageStore {
         let folder = file.deletingLastPathComponent()
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let partial = folder.appendingPathComponent(UUID().uuidString + ".partial")
-        guard let destination = CGImageDestinationCreateWithURL(partial as CFURL, UTType.jpeg.identifier as CFString, 1, nil)
+        guard let destination = blockingImageDestination(url: partial as CFURL, type: UTType.jpeg.identifier as CFString, count: 1)
         else { return }
         CGImageDestinationAddImage(destination, image, [kCGImageDestinationLossyCompressionQuality: 0.9] as CFDictionary)
-        guard CGImageDestinationFinalize(destination) else {
+        guard blockingImageDestinationFinalize(destination) else {
             try? FileManager.default.removeItem(at: partial)
             return
         }

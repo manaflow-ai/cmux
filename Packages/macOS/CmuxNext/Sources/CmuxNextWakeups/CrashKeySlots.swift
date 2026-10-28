@@ -110,6 +110,7 @@ public final class CrashKeySlots: Sendable {
         /// What the thread runs (`HangWatch.ThreadKind`'s raw value; 0 when the registration has none).
         public var kind: UInt8
 
+        /// A hung-thread entry for the thread with Mach port `port`, running `kind`.
         public init(port: UInt32, kind: UInt8) {
             self.port = port
             self.kind = kind
@@ -126,13 +127,18 @@ public final class CrashKeySlots: Sendable {
 
     /// The keys' values at one moment: a fixed-size value (no array), so taking one allocates nothing.
     public struct Snapshot: Sendable, Equatable {
+        /// The ``Key/actionID`` value.
         public var actionID: UInt64 = 0
+        /// The ``Key/paneKind`` value.
         public var paneKind: UInt64 = 0
+        /// The ``Key/cefState`` value.
         public var cefState: UInt64 = 0
+        /// The ``Key/daemonEpoch`` value.
         public var daemonEpoch: UInt64 = 0
         /// The hung-thread entries' packed words, in entry order (0: empty).
         var hung: (UInt64, UInt64, UInt64, UInt64, UInt64, UInt64, UInt64, UInt64) = (0, 0, 0, 0, 0, 0, 0, 0)
 
+        /// A snapshot with every key 0 and no hung thread.
         public init() {}
 
         /// The value of `key`.

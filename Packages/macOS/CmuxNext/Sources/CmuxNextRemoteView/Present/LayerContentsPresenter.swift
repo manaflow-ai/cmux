@@ -1,11 +1,12 @@
 import AppKit
+import CmuxNextWakeups
 import CoreVideo
 import IOSurface
 
 /// Variant A: the decoded IOSurface becomes the layer's contents. Zero copy;
 /// the window server converts NV12 to RGB when it composites. A frame posts
-/// to the mailbox; the first post schedules one main-actor drain that shows
-/// the newest frame.
+/// to the mailbox; the first post queues one visible-class drain on the app's
+/// scheduler that shows the newest frame.
 @MainActor
 final class LayerContentsPresenter: RemoteFramePresenter {
     let kind = RemotePresenterKind.layerContents
@@ -15,8 +16,12 @@ final class LayerContentsPresenter: RemoteFramePresenter {
     private nonisolated let mailbox = LatestFrameMailbox<RemoteDecodedFrame>()
     private var frameSize: CGSize = .zero
     private(set) var shownFrame: RemoteDecodedFrame?
+    private nonisolated let mainWork: MainWorkScheduler
+    private nonisolated let showOwner: MainTaskOwner
 
-    init() {
+    init(mainWork: MainWorkScheduler) {
+        self.mainWork = mainWork
+        showOwner = mainWork.board.owner(RemoteFramePresenters.showOwner)
         layer.contentsGravity = .topLeft
         layer.isOpaque = true
         layer.actions = RemoteLayerActions.none
@@ -24,7 +29,8 @@ final class LayerContentsPresenter: RemoteFramePresenter {
 
     nonisolated func present(_ frame: RemoteDecodedFrame) {
         guard mailbox.post(frame) else { return }
-        Task { @MainActor [weak self] in self?.drain() }
+        // node-free: the pane's frame gate closes when it hides, so a hidden pane posts nothing.
+        mainWork.postFromAnyThread(.visible, owner: showOwner) { [weak self] in self?.drain() }
     }
 
     nonisolated var discardedFrames: Int { mailbox.discardedCount }

@@ -1,7 +1,7 @@
 import CmuxNextCompat
 import CmuxNextMemory
 
-/// The memory coordinator a page host pool registers with in a test: the app's coordinator over a
+/// The memory coordinator a page host (its preload slot) registers with in a test: the app's coordinator over a
 /// pressure source the test drives (``send(_:)``), in the app's default Memory Saver mode (medium),
 /// with release slices the test runs (``runSlices()``). Keep it for the test's length.
 @MainActor

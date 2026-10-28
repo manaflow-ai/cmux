@@ -280,6 +280,7 @@ final class PaletteContentView: NSView {
         )
     }
 
+    // visibility-walk-allow: colors only (the glass's theme, two rule fills, the stage shadow, the editor's caret and selection), no layout
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         // Colors only: `layout()` reads no appearance.

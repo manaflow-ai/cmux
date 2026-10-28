@@ -159,7 +159,7 @@ impl LocalOutput {
         let terminal_notifications;
         let finished_commands;
         let generation = {
-            let mut term = pty.term.lock().unwrap();
+            let mut term = pty.term.lock().recover_poison();
             if let Some(update) = journal_update.as_mut()
                 && !update.activate()
             {
@@ -169,8 +169,13 @@ impl LocalOutput {
             let before = terminal_scroll_position(&term);
             let color_revision = term.color_revision();
             let color_reapply_revision = term.color_reapply_revision();
-            let cursor_activity =
-                term.cursor_activity().expect("valid local terminals expose cursor activity");
+            #[allow(
+                clippy::expect_used,
+                reason = "INVARIANT: a live local terminal always reports cursor activity"
+            )]
+            let cursor_activity = term
+                .cursor_activity()
+                .expect("INVARIANT: valid local terminals expose cursor activity");
             let normalized =
                 crate::prompt_mode_reset::write_output(&mut term, output, &mut self.shell_marks);
             #[cfg(unix)]
@@ -181,10 +186,15 @@ impl LocalOutput {
             finished_commands = pty.observe_shell_marks(&mut term, || {
                 mux.upgrade().is_some_and(|mux| mux.terminal_command_history_enabled())
             });
-            let cursor_changed =
-                term.cursor_activity().expect("valid local terminals expose cursor activity")
-                    != cursor_activity;
-            pty.mouse_encoders.lock().unwrap().sync_from_terminal(&term);
+            #[allow(
+                clippy::expect_used,
+                reason = "INVARIANT: a live local terminal always reports cursor activity"
+            )]
+            let cursor_changed = term
+                .cursor_activity()
+                .expect("INVARIANT: valid local terminals expose cursor activity")
+                != cursor_activity;
+            pty.mouse_encoders.lock().recover_poison().sync_from_terminal(&term);
             let after = terminal_scroll_position(&term);
             let has_attach_taps = pty.broadcast_attach_output_flow(normalized.as_ref(), flow);
             if has_attach_taps && (term.color_revision() != color_revision || cursor_changed) {
@@ -197,7 +207,7 @@ impl LocalOutput {
                 // A program that rewrites the same title (a spinner's
                 // resting frame, a prompt redraw) announces nothing.
                 let title = crate::terminal_title::read(&term);
-                let mut stored = pty.title.lock().unwrap();
+                let mut stored = pty.title.lock().recover_poison();
                 if *stored != title {
                     *stored = title.clone();
                     title_update = Some(title);
@@ -281,6 +291,23 @@ impl LocalOutput {
         result
     }
 
+    /// Queue the event-bus `scroll-changed` of a viewport move a resize made
+    /// under this parser, for the reader to publish after the output events
+    /// already queued, and wake the reader. The resize sent it to render taps.
+    #[cfg(unix)]
+    pub(super) fn queue_scroll_changed(&mut self, generation: u64, position: (u64, bool)) {
+        self.pending.push(ParsedOutput {
+            generation,
+            title_update: None,
+            scroll_changed: Some(position),
+            terminal_notifications: Vec::new(),
+            finished_commands: Vec::new(),
+        });
+        if let Some(wake) = self.wake.as_ref() {
+            wake.kick();
+        }
+    }
+
     pub(super) fn take_pending(&mut self) -> Vec<ParsedOutput> {
         std::mem::take(&mut self.pending)
     }
@@ -333,10 +360,8 @@ impl OutputPublisher {
             {
                 mux.emit_terminal_scroll(surface.id, offset, at_bottom);
             }
-            if !terminal_notifications.is_empty()
-                && let Some(mux) = mux.upgrade()
-            {
-                will_block(|| mux.post_terminal_notifications(surface.id, terminal_notifications));
+            if !terminal_notifications.is_empty() {
+                surface.post_output_notifications(terminal_notifications);
             }
             if !finished_commands.is_empty()
                 && let Some(mux) = mux.upgrade()

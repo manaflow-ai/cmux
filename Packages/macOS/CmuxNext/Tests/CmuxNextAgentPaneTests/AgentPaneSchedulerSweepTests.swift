@@ -134,8 +134,8 @@ import Testing
         let work = MainWorkScheduler.testing(performTurn: { _ in }) { _ in Link() }
         let model = AgentPaneModel(host: MockAgentPaneHost(), deadlines: MainDeadlineScheduler(work: work))
         let file = try #require(AgentPageTestRoot.page)
-        let view = try #require(AgentPaneView(model: model, work: BackgroundWork(label: "test.agent-pane.more"), source: .bundled(file),
-                                              webUI: .agentPaneTestHost(), gestures: .testing()))
+        let view = try #require(AgentPaneView(mainThread: .standalone(on: work), model: model, work: BackgroundWork(label: "test.agent-pane.more"),
+                                              source: .bundled(file), webUI: .agentPaneTestHost(), gestures: .testing()))
         defer { view.close() }
         let more: [String: Any] = ["text": "Done.", "forkSeq": 3, "popUp": ["left": 10, "top": 20, "right": 34, "bottom": 44]]
         view.receiveContextMenuReport(more)

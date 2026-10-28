@@ -585,14 +585,15 @@ fn blocking_wait_cannot_overtake_input_queued_behind_a_clear_barrier() {
             }),
         ),
     ] {
-        state.requests.push_back(PendingSurfaceRequest {
+        state.requests.push_back(SequencedItem::Request(PendingSurfaceRequest {
             request: Request { id: Some(json!(id)), cmd },
             arrival: RequestArrival::now(),
             cause: crate::event_cause::EventCause::Program,
             frame_call: None,
             retained_bytes: 0,
             _bytes_permit: admission.try_reserve_bytes(0).unwrap(),
-        });
+            stream_barrier: None,
+        }));
     }
 
     assert_eq!(
@@ -626,14 +627,15 @@ fn guarded_browser_pointer_input_overtakes_an_unrelated_clear_barrier() {
         let admission = Arc::new(ServerSurfaceOperationAdmission::default());
         let mut state = ConnectionSurfaceState::default();
         state.active_clear_surfaces.insert(1);
-        state.requests.push_back(PendingSurfaceRequest {
+        state.requests.push_back(SequencedItem::Request(PendingSurfaceRequest {
             request: Request { id: Some(json!(1)), cmd },
             arrival: RequestArrival::now(),
             cause: crate::event_cause::EventCause::Program,
             frame_call: None,
             retained_bytes: 0,
             _bytes_permit: admission.try_reserve_bytes(0).unwrap(),
-        });
+            stream_barrier: None,
+        }));
 
         assert_eq!(
             ConnectionSurfaceScheduler::next_runnable_index(&state),
@@ -777,10 +779,10 @@ fn independent_muxes_do_not_share_surface_operation_admission() {
     let first = ConnectionSurfaceScheduler::new(first_mux.surface_operation_admission.clone());
     let second = ConnectionSurfaceScheduler::new(second_mux.surface_operation_admission.clone());
     let permits = (0..SERVER_SURFACE_WORKER_CAPACITY)
-        .map(|_| first.admission.try_reserve_worker().unwrap())
+        .map(|_| first.admission.try_reserve_worker(WorkerClass::Automation).unwrap())
         .collect::<Vec<_>>();
 
-    let isolated = second.admission.try_reserve_worker();
+    let isolated = second.admission.try_reserve_worker(WorkerClass::Automation);
     drop(permits);
 
     assert!(
@@ -790,27 +792,27 @@ fn independent_muxes_do_not_share_surface_operation_admission() {
 }
 
 #[test]
-fn scheduler_retains_connection_permit_until_dispatcher_exit() {
+fn scheduler_retains_connection_permit_until_its_running_request_ends() {
     let active = Arc::new(crate::diagnostics::ConnectionStats::default());
     let permit = claim_connection(&active).unwrap();
     let scheduler = Arc::new(ConnectionSurfaceScheduler::new_with_connection_permit(
         Arc::new(ServerSurfaceOperationAdmission::default()),
         permit,
     ));
-    scheduler.state.lock().unwrap().dispatcher_started = true;
+    // A request is running on the connection's control sequence.
+    scheduler.state.lock().unwrap().pump_scheduled = true;
     let (release_tx, release_rx) = std::sync::mpsc::channel();
     let worker_scheduler = scheduler.clone();
-    let dispatcher = std::thread::spawn(move || {
+    let _pump = std::thread::spawn(move || {
         release_rx.recv().unwrap();
-        worker_scheduler.finish_dispatcher();
+        worker_scheduler.finish_pump();
     });
-    *scheduler.dispatcher.lock().unwrap() = Some(dispatcher);
 
     assert!(!scheduler.close_and_wait(Duration::from_millis(25)));
     assert_eq!(
         active.active(),
         1,
-        "timed-out shutdown released admission while its dispatcher was live"
+        "timed-out shutdown released admission while its request was running"
     );
 
     release_tx.send(()).unwrap();
@@ -1129,8 +1131,8 @@ fn sequence_depth_records_the_arrival_a_full_sequence_refuses() {
     let mux = test_mux();
     let scheduler =
         Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
-    // No dispatcher drains the sequence, so every request stays in it.
-    scheduler.state.lock().unwrap().dispatcher_started = true;
+    // A pump that never runs holds the sequence, so every request stays in it.
+    scheduler.state.lock().unwrap().pump_scheduled = true;
     let (writer, outbound) = captured_writer();
     for id in 0..CONNECTION_SURFACE_QUEUE_CAPACITY {
         let mut ping = Some(Request { id: Some(json!(id)), cmd: Command::Ping });
@@ -1146,5 +1148,5 @@ fn sequence_depth_records_the_arrival_a_full_sequence_refuses() {
     assert_eq!(depth.count, arrivals);
     assert_eq!(depth.max, arrivals, "the refused arrival met a full sequence");
     scheduler.close();
-    scheduler.finish_dispatcher();
+    scheduler.finish_pump();
 }

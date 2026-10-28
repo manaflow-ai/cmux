@@ -7,9 +7,12 @@ public struct ReleaseAttachedViewSizeRequest: DaemonRequest {
     public static let commandName: DaemonCommandName = "release-attached-view-size"
     public var surface: SurfaceID
     public var lease: String
-    public init(surface: SurfaceID, lease: String) {
+    /// The view's attach stream (`attach-streams-v1`); the daemon checks that `lease` is its view.
+    public var stream: UInt16?
+    public init(surface: SurfaceID, lease: String, stream: UInt16? = nil) {
         self.surface = surface
         self.lease = lease
+        self.stream = stream
     }
 }
 
@@ -37,9 +40,12 @@ public struct DetachAttachedViewRequest: DaemonRequest {
     public static let commandName: DaemonCommandName = "detach-attached-view"
     public var surface: SurfaceID
     public var lease: String
-    public init(surface: SurfaceID, lease: String) {
+    /// The view's attach stream (`attach-streams-v1`); the daemon checks that `lease` is its view.
+    public var stream: UInt16?
+    public init(surface: SurfaceID, lease: String, stream: UInt16? = nil) {
         self.surface = surface
         self.lease = lease
+        self.stream = stream
     }
 }
 

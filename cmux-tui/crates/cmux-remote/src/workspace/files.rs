@@ -268,7 +268,7 @@ pub(crate) async fn stat(
         let unix_root = root.unix_root();
         let resolved = resolved.clone();
         let is_root = resolved == root.canonical_root();
-        tokio::task::spawn_blocking(move || {
+        cmux_blocking::spawn_blocking(move || {
             prepare_unix_stat(unix_root, resolved, is_root, follow_symlinks)
         })
         .await
@@ -277,17 +277,7 @@ pub(crate) async fn stat(
     #[cfg(unix)]
     {
         let (state, content_hash) = match prepared {
-            PreparedUnixStat::Root { directory, before } => {
-                let after = directory.metadata()?;
-                if !metadata_stable(&before, &after) {
-                    return Err(RpcError::new(
-                        "file-changed",
-                        "workspace root changed while it was being inspected",
-                    ));
-                }
-                directory.verify_identity("stat")?;
-                (RawEntryState::from_metadata(&before), None)
-            }
+            PreparedUnixStat::Root { state } => (state, None),
             PreparedUnixStat::Entry { target, before, file } => {
                 let content_hash = if let Some(file) = file {
                     let mut file = tokio::fs::File::from_std(file);
@@ -310,7 +300,7 @@ pub(crate) async fn stat(
                 } else {
                     None
                 };
-                let checked = tokio::task::spawn_blocking(move || {
+                let checked = cmux_blocking::spawn_blocking(move || {
                     let after = stat_entry(&target, "stat")?.ok_or_else(|| {
                         RpcError::new(
                             "file-changed",
@@ -402,7 +392,7 @@ pub(crate) async fn read_file(
     let (mut file, target) = {
         let unix_root = root.unix_root();
         let resolved = resolved.clone();
-        let (file, target) = tokio::task::spawn_blocking(move || {
+        let (file, target) = cmux_blocking::spawn_blocking(move || {
             let target = unix_root.target_for_canonical_path(&resolved)?;
             let file = open_regular_entry(&target, "read")?;
             Ok::<_, RpcError>((file, target))
@@ -460,7 +450,7 @@ pub(crate) async fn read_file(
         return Err(RpcError::new("file-changed", "file changed while it was being read"));
     }
     #[cfg(unix)]
-    tokio::task::spawn_blocking(move || target.verify_parent_identity())
+    cmux_blocking::spawn_blocking(move || target.verify_parent_identity())
         .await
         .map_err(blocking_task_error)??;
 
@@ -581,7 +571,7 @@ async fn snapshot_directory(
     let directory = {
         let unix_root = root.unix_root();
         let resolved = resolved.clone();
-        tokio::task::spawn_blocking(move || {
+        cmux_blocking::spawn_blocking(move || {
             unix_root.pinned_directory_for_canonical_path(&resolved)
         })
         .await
@@ -603,7 +593,7 @@ async fn snapshot_directory(
     #[cfg(unix)]
     {
         let normalized = normalized.to_owned();
-        tokio::task::spawn_blocking(move || {
+        cmux_blocking::spawn_blocking(move || {
             snapshot_unix_directory(directory, &normalized, include_hidden)
         })
         .await
@@ -784,7 +774,7 @@ pub(crate) async fn search(
             let unix_root = context.root.unix_root();
             let canonical = entry.path.clone();
             let is_root = canonical == context.root.canonical_root();
-            let prepared = tokio::task::spawn_blocking(move || {
+            let prepared = cmux_blocking::spawn_blocking(move || {
                 prepare_unix_search_entry(unix_root, canonical, is_root)
             })
             .await
@@ -823,7 +813,7 @@ pub(crate) async fn search(
                         MAX_SEARCH_FILE_BYTES as usize,
                     )
                     .await?;
-                    tokio::task::spawn_blocking(move || target.verify_parent_identity())
+                    cmux_blocking::spawn_blocking(move || target.verify_parent_identity())
                         .await
                         .map_err(blocking_task_error)??;
                     if bytes.contains(&0) {
@@ -991,7 +981,7 @@ async fn initialize_search(
             let unix_root = root.unix_root();
             let canonical = resolved.clone();
             let is_root = canonical == root.canonical_root();
-            let supported = tokio::task::spawn_blocking(move || {
+            let supported = cmux_blocking::spawn_blocking(move || {
                 prepare_unix_search_entry(unix_root, canonical, is_root)
                     .map(|entry| !matches!(entry, PreparedUnixSearchEntry::Other))
             })
@@ -1052,7 +1042,7 @@ pub(crate) async fn read_file_snapshot(
     {
         let root = root.unix_root();
         let path = path.to_owned();
-        tokio::task::spawn_blocking(move || {
+        cmux_blocking::spawn_blocking(move || {
             let target = root.resolve_target(&path, false)?;
             let mut file = open_regular_entry(&target, "read")?;
             let (contents, metadata) =
@@ -1166,7 +1156,7 @@ pub(crate) async fn write_bytes_locked_with_mode_and_outcome(
         let root_handle = root.unix_root();
         let prepared_path = path.to_owned();
         let prepared_precondition = precondition.clone();
-        let prepared = tokio::task::spawn_blocking(move || {
+        let prepared = cmux_blocking::spawn_blocking(move || {
             prepare_unix_write(
                 root_handle,
                 prepared_path,
@@ -1179,7 +1169,7 @@ pub(crate) async fn write_bytes_locked_with_mode_and_outcome(
         .map_err(|error| MutationFailure::unchanged(blocking_task_error(error)))?
         .map_err(MutationFailure::unchanged)?;
         let bytes = bytes.to_vec();
-        let (result, progress) = tokio::task::spawn_blocking(move || {
+        let (result, progress) = cmux_blocking::spawn_blocking(move || {
             let mut progress = MutationProgress::unchanged();
             let result = commit_unix_write(prepared, &bytes, &mut progress);
             (result, progress)
@@ -1305,13 +1295,13 @@ pub(crate) async fn remove_file_precondition_locked_with_outcome(
         let root_handle = root.unix_root();
         let prepared_path = path.to_owned();
         let prepared_precondition = precondition.clone();
-        let prepared = tokio::task::spawn_blocking(move || {
+        let prepared = cmux_blocking::spawn_blocking(move || {
             prepare_unix_remove(root_handle, prepared_path, prepared_precondition)
         })
         .await
         .map_err(|error| MutationFailure::unchanged(blocking_task_error(error)))?
         .map_err(MutationFailure::unchanged)?;
-        let (result, progress) = tokio::task::spawn_blocking(move || {
+        let (result, progress) = cmux_blocking::spawn_blocking(move || {
             let mut progress = MutationProgress::unchanged();
             let result = commit_unix_remove(prepared, &mut progress);
             (result, progress)
@@ -1459,7 +1449,7 @@ impl RawEntryState {
 
 #[cfg(unix)]
 enum PreparedUnixStat {
-    Root { directory: UnixWorkspaceDirectory, before: std::fs::Metadata },
+    Root { state: RawEntryState },
     Entry { target: UnixWorkspaceTarget, before: RawEntryState, file: Option<File> },
 }
 
@@ -1473,7 +1463,15 @@ fn prepare_unix_stat(
     if is_root {
         let directory = root.pinned_directory_for_canonical_path(&resolved)?;
         let before = directory.metadata()?;
-        return Ok(PreparedUnixStat::Root { directory, before });
+        let after = directory.metadata()?;
+        if !metadata_stable(&before, &after) {
+            return Err(RpcError::new(
+                "file-changed",
+                "workspace root changed while it was being inspected",
+            ));
+        }
+        directory.verify_identity("stat")?;
+        return Ok(PreparedUnixStat::Root { state: RawEntryState::from_metadata(&before) });
     }
 
     let target = root.target_for_canonical_path(&resolved)?;
@@ -1568,7 +1566,7 @@ async fn scan_unix_search_directory(
         return Ok(());
     }
     let remaining = MAX_SEARCH_ENTRIES.saturating_sub(continuation.entry_count);
-    let (names, truncated) = tokio::task::spawn_blocking(move || {
+    let (names, truncated) = cmux_blocking::spawn_blocking(move || {
         let names = read_directory_names(&directory, remaining)?;
         directory.verify_identity("search")?;
         Ok::<_, RpcError>(names)
@@ -1944,11 +1942,13 @@ fn commit_unix_write(
             .write_all(bytes)
             .map_err(|error| io_error("write-temporary", &temporary_path, error))?;
         temporary.flush().map_err(|error| io_error("flush-temporary", &temporary_path, error))?;
-        temporary.sync_all().map_err(|error| io_error("sync-temporary", &temporary_path, error))?;
+        cmux_threads::checked::fs::sync_all(&temporary)
+            .map_err(|error| io_error("sync-temporary", &temporary_path, error))?;
         temporary
             .set_permissions(std::fs::Permissions::from_mode(staged_mode))
             .map_err(|error| io_error("set-permissions", &temporary_path, error))?;
-        temporary.sync_all().map_err(|error| io_error("sync-temporary", &temporary_path, error))?;
+        cmux_threads::checked::fs::sync_all(&temporary)
+            .map_err(|error| io_error("sync-temporary", &temporary_path, error))?;
         let temporary_metadata = temporary
             .metadata()
             .map_err(|error| io_error("stat-temporary", &temporary_path, error))?;
@@ -2147,9 +2147,7 @@ fn commit_content_hash_write(
             .staged_file
             .set_permissions(std::fs::Permissions::from_mode(final_mode))
             .map_err(|error| io_error("set-permissions", &temporary_path, error))?;
-        write
-            .staged_file
-            .sync_all()
+        cmux_threads::checked::fs::sync_all(write.staged_file)
             .map_err(|error| io_error("sync-temporary", &temporary_path, error))?;
         write
             .staged_file

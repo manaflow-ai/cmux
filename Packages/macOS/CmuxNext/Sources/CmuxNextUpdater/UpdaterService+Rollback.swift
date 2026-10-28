@@ -10,10 +10,14 @@ nonisolated public struct RollbackInputs: Sendable {
     public var kept: [KeptVersion]
     /// The newest schema each store holds; nil when they could not be read.
     public var stored: [String: Int]?
+    /// The running bundle's Developer ID team (a signature check of the bundle on disk); nil when it
+    /// has none or is not validly signed.
+    public var runningTeam: String?
 
-    public init(kept: [KeptVersion], stored: [String: Int]?) {
+    public init(kept: [KeptVersion], stored: [String: Int]?, runningTeam: String? = nil) {
         self.kept = kept
         self.stored = stored
+        self.runningTeam = runningTeam
     }
 }
 
@@ -89,20 +93,22 @@ extension UpdaterService {
     public func rollbackInputs(stateDirectories: [URL?]) async -> RollbackInputs {
         let store = keptVersions
         let bundle = Bundle.main.bundleURL
-        // A directory listing and a read of each kept bundle's Info.plist: file I/O on the files lane. The
-        // probes are awaited child processes (no thread waits).
-        var kept = (try? await work.run(.userVisible, mayBlock: .files) { store.list() }) ?? []
+        // A directory listing, a read of each kept bundle's Info.plist and the signature checks of the kept
+        // and the running bundles: file I/O on the files lane, never on main. The probes are awaited child
+        // processes (no thread waits).
+        let listed = try? await work.run(.userVisible, mayBlock: .files) { (store.list(), UpdateDropBack.signingTeam(of: bundle)) }
+        var kept = listed?.0 ?? []
         for index in kept.indices where kept[index].storeSchemas == nil {
             kept[index].storeSchemas = await StoreSchemaProbe(bundle: kept[index].bundle).readable()
         }
-        return RollbackInputs(kept: kept, stored: await StoreSchemaProbe(bundle: bundle).stored(stateDirectories: stateDirectories))
+        return RollbackInputs(kept: kept, stored: await StoreSchemaProbe(bundle: bundle).stored(stateDirectories: stateDirectories),
+                              runningTeam: listed?.1)
     }
 
     /// Whether a rollback to `build` (nil: the newest kept) would run.
     public func rollbackDecision(to build: String?, inputs: RollbackInputs) -> Result<KeptVersion, RollbackRefusal> {
         guard let stored = inputs.stored else { return .failure(.storesUnknown) }
-        return RollbackDecision.decide(kept: inputs.kept, build: build, stored: stored,
-                                       teamID: UpdateDropBack.signingTeam(of: Bundle.main.bundleURL))
+        return RollbackDecision.decide(kept: inputs.kept, build: build, stored: stored, teamID: inputs.runningTeam)
     }
 }
 

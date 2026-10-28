@@ -9,28 +9,53 @@ final class MainDeadlineRig {
     let deadlines: MainDeadlineScheduler
     private let timer: HandFiredWakeUpTimer
     private let uptime: RigUptime
-    private let queue: MainWakeUpQueue
+    /// The rig's wake-up queue: a page's keyed waits (`MockBrowserEngine(waitDeadlines:)`) put their timeouts on it.
+    let queue: MainWakeUpQueue
     /// The rig's scheduler: its posted work runs at ``frame()``.
     let work: MainWorkScheduler
     private let budgetClock: RigUptime
-    private let keeper: FrameClient
+    /// Keeps the rig's own scheduler's link; nil when the deadlines post on a test's scheduler (``init(posting:)``).
+    private let keeper: FrameClient?
     private var frames: Double = 0
 
     /// - Parameter startup: The scheduler's launch phases; a test of work the launch holds passes a launching one.
-    init(startup: StartupPhase = .settled()) {
+    /// - Parameter input: The person's pending input the budget's yields read; a test of work that yields to it passes one it sets.
+    /// - Parameter framed: Whether frames run (a kept frame client): posted work then runs at ``frame()``. False runs
+    ///   it on the next main run loop turn, as an idle app does, for a test whose replies come back off main.
+    /// - Parameter runsTurns: Whether posted work's next-turn runs happen (the main run loop's). False drops them, so a
+    ///   framed rig runs posted work only at ``frame()``: a test queues work from two sources and runs it in one frame.
+    init(startup: StartupPhase = .settled(), input: any InputPendingSource = NoInputPending(), framed: Bool = true,
+         runsTurns: Bool = true) {
         let timer = HandFiredWakeUpTimer(), uptime = RigUptime(0), budgetClock = RigUptime(1_000_000_000)
         self.timer = timer
         self.uptime = uptime
         self.budgetClock = budgetClock
         let queue = MainWakeUpQueue(energy: EnergyPolicySource(), ledger: WakeupLedger(uptime: { 0 }), uptime: { uptime.now }) { _ in timer }
-        let work = MainWorkScheduler.testing(budget: MainFrameBudget(uptimeNanos: { budgetClock.now }), ledger: WakeupLedger(),
-                                             startup: startup) { _ in RigLink() }
+        // A typed closure, not `runsTurns ? nil : { _ in }`: Swift 6.3's type checker crashes on that ternary.
+        let dropTurn: MainWorkScheduler.TurnPerformer = { _ in }
+        let heldTurns: MainWorkScheduler.TurnPerformer? = runsTurns ? nil : dropTurn
+        let work = MainWorkScheduler.testing(budget: MainFrameBudget(input: input, uptimeNanos: { budgetClock.now }), ledger: WakeupLedger(),
+                                             startup: startup, performTurn: heldTurns) { _ in RigLink() }
         self.queue = queue
         self.work = work
         deadlines = MainDeadlineScheduler(work: work, queue: queue)
         let keeper = FrameClient(owner: "test.keeper", isAnimation: false, on: work.frames) { _ in true }
         self.keeper = keeper
-        keeper.activate()
+        if framed { keeper.activate() }
+    }
+
+    /// A rig whose deadlines post on `work`, a scheduler the test runs itself (its frames, its turns): ``fire()``
+    /// fires the queue and runs nothing else.
+    init(posting work: MainWorkScheduler) {
+        let timer = HandFiredWakeUpTimer(), uptime = RigUptime(0)
+        self.timer = timer
+        self.uptime = uptime
+        budgetClock = RigUptime(1_000_000_000)
+        let queue = MainWakeUpQueue(energy: EnergyPolicySource(), ledger: WakeupLedger(uptime: { 0 }), uptime: { uptime.now }) { _ in timer }
+        self.queue = queue
+        self.work = work
+        deadlines = MainDeadlineScheduler(work: work, queue: queue)
+        keeper = nil
     }
 
     /// Seconds of uptime since the rig began.
@@ -39,11 +64,16 @@ final class MainDeadlineRig {
     /// Moves the uptime on without firing anything.
     func advance(by duration: Duration) { uptime.now += duration.nanosecondCount }
 
-    /// Moves the uptime to the armed wake, fires the queue and runs the posted actions in one frame.
-    func fireAndRun() {
+    /// Moves the uptime to the armed wake and fires the queue: the deadlines due post their actions on ``work``.
+    func fire() {
         if let date = timer.armedDate { uptime.now = max(uptime.now, date) }
         timer.armedDate = nil
         queue.fire()
+    }
+
+    /// Moves the uptime to the armed wake, fires the queue and runs the posted actions in one frame.
+    func fireAndRun() {
+        fire()
         frame()
     }
 

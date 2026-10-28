@@ -72,6 +72,13 @@ export default appsPageEntry({
       hash: "#/discover?layout=grid",
       data: base,
     },
+    "loading-saver": {
+      note: "Energy Saver (data-cmux-energy): the loading skeleton holds still.",
+      mode: "loading",
+      hash: "#/discover?layout=grid",
+      data: base,
+      webTheme: { energy: "saver" },
+    },
     installed: {
       note: "Installed apps with an update, grants and log controls.",
       hash: "#/installed",

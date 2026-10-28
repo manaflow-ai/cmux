@@ -1,3 +1,4 @@
+import CmuxNextCompat
 @testable import CmuxNextTerminal
 import IOSurface
 import Testing

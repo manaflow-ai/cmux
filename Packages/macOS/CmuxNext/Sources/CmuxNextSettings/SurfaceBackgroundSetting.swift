@@ -1,4 +1,4 @@
-public import CmuxNextDesign
+public import CmuxNextDesignTokens
 
 /// `appearance.surfaces.<surface>.color` and `.opacity` in cmux.json
 /// (Lawrence R55, plans/cmux-next/surface-backgrounds.md): one color and one

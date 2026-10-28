@@ -605,11 +605,34 @@
         {"at": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Quit/QuitAgents.swift:16", "kind": "use", "cond": "", "release": true}
       ]
     },
+    "CMUX_NEXT_ARM_CENSUS": {
+      "class": "benchOnly",
+      "auto": true,
+      "sites": [
+        {"at": "Packages/macOS/CmuxNext/Sources/CmuxNextWakeups/ArmCensus.swift:28", "kind": "constant", "cond": "DEBUG || CMUX_BENCH_HOOKS", "release": false},
+        {"at": "Packages/macOS/CmuxNext/Sources/CmuxNextWakeups/ArmCensus.swift:141", "kind": "via environmentKey", "cond": "DEBUG || CMUX_BENCH_HOOKS", "release": false}
+      ]
+    },
     "CMUX_NEXT_BENCH_CEF_SWITCHES": {
       "class": "benchOnly",
       "auto": true,
       "sites": [
         {"at": "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFSwitches.swift:272", "kind": "use", "cond": "DEBUG || CMUX_BENCH_HOOKS", "release": false}
+      ]
+    },
+    "CMUX_NEXT_BENCH_LAUNCH_STALL_MS": {
+      "class": "benchOnly",
+      "auto": true,
+      "sites": [
+        {"at": "Packages/macOS/CmuxNext/Sources/CmuxNextControl/Diagnostics/BenchLaunchStall.swift:10", "kind": "constant", "cond": "DEBUG || CMUX_BENCH_HOOKS", "release": false},
+        {"at": "Packages/macOS/CmuxNext/Sources/CmuxNextControl/Diagnostics/BenchLaunchStall.swift:17", "kind": "via variable", "cond": "DEBUG || CMUX_BENCH_HOOKS", "release": false}
+      ]
+    },
+    "CMUX_NEXT_BENCH_REAL_KEYCHAIN": {
+      "class": "benchOnly",
+      "note": "=1 gives a development bundle Chromium's real login keychain instead of its mock one (chromium-host-bench.py --modes tcc, p01-process-089); read only in DEBUG or CMUX_BENCH_HOOKS builds, never in Release.",
+      "sites": [
+        {"at": "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFSwitches.swift:351", "kind": "use", "cond": "DEBUG || CMUX_BENCH_HOOKS", "release": false}
       ]
     },
     "CMUX_NEXT_BENCH_SHIPPING_DRAW": {
@@ -991,6 +1014,14 @@
         {"at": "Packages/macOS/CmuxNext/Sources/CmuxNextLaunch/LaunchMarkSink.swift:23", "kind": "via environmentKey", "cond": "", "release": true}
       ]
     },
+    "CMUX_NEXT_MAIN_JOB_CENSUS": {
+      "class": "benchOnly",
+      "auto": true,
+      "sites": [
+        {"at": "Packages/macOS/CmuxNext/Sources/CmuxNextLaunch/MainJobCensus.swift:35", "kind": "constant", "cond": "DEBUG || CMUX_BENCH_HOOKS", "release": false},
+        {"at": "Packages/macOS/CmuxNext/Sources/CmuxNextLaunch/MainJobCensus.swift:76", "kind": "via environmentKey", "cond": "DEBUG || CMUX_BENCH_HOOKS", "release": false}
+      ]
+    },
     "CMUX_NEXT_MAIN_TASK_DIAGNOSTICS": {
       "class": "diagnostics",
       "note": "Task budget diagnostics: one cross-thread wake per main task while set; no bench runs with it.",
@@ -1256,6 +1287,13 @@
         {"at": "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Launch/DaemonDiagnosticKnobs.swift:21", "kind": "use", "cond": "", "release": true}
       ]
     },
+    "CMUX_NEXT_TUI_HOST_EXE_DIR": {
+      "class": "releaseConfig",
+      "note": "Forwarded to the daemon as CMUX_TUI_HOST_EXE_DIR (the root of its host and holder copies); the crash forwarder reads the same root.",
+      "sites": [
+        {"at": "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Launch/DaemonDiagnosticKnobs.swift:24", "kind": "use", "cond": "", "release": true}
+      ]
+    },
     "CMUX_NEXT_TUI_TERMINAL_HOST_MODEL": {
       "class": "releasePerfPath",
       "note": "Forwarded to the daemon as CMUX_TUI_TERMINAL_HOST_MODEL (terminal holder mode).",
@@ -1494,6 +1532,15 @@
       "note": "Forwarded to the daemon from CMUX_NEXT_TUI_DEBUG_SPANS.",
       "sites": [
         {"at": "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Launch/DaemonDiagnosticKnobs.swift:21", "kind": "use", "cond": "", "release": true}
+      ]
+    },
+    "CMUX_TUI_HOST_EXE_DIR": {
+      "class": "childEnv",
+      "note": "The daemon's host-exe root, set from CMUX_NEXT_TUI_HOST_EXE_DIR; the crash forwarder reads it from that daemon environment, not the app's.",
+      "sites": [
+        {"at": "Packages/macOS/CmuxNext/Sources/CmuxNextCrashReporting/SystemCrashReport.swift:158", "kind": "constant", "cond": "", "release": true},
+        {"at": "Packages/macOS/CmuxNext/Sources/CmuxNextCrashReporting/SystemCrashReport.swift:179", "kind": "via hostExeRootVariable", "cond": "", "release": true},
+        {"at": "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Launch/DaemonDiagnosticKnobs.swift:24", "kind": "use", "cond": "", "release": true}
       ]
     },
     "CMUX_TUI_HOST_NOFILE_SOFT": {

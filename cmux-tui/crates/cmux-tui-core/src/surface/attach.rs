@@ -16,7 +16,7 @@ impl Surface {
         let Some(pty) = self.as_pty() else {
             return Err(ghostty_vt::Error::InvalidValue);
         };
-        let mut term = pty.term.lock().unwrap();
+        let mut term = pty.term.lock().recover_poison();
         let dead = pty.dead.load(Ordering::Acquire);
         let exited = dead
             && pty.host_connection_state.load(Ordering::Acquire)
@@ -46,9 +46,9 @@ impl Surface {
         if exited || pty.dead.load(Ordering::Acquire) {
             drop(tap);
         } else {
-            let mut taps = pty.taps.lock().unwrap();
+            let mut taps = pty.taps.lock().recover_poison();
             if taps.is_empty() {
-                *pty.last_attach_colors.lock().unwrap() =
+                *pty.last_attach_colors.lock().recover_poison() =
                     Some(Box::new(TerminalColors::from_pty_output(&term, defaults)));
             }
             taps.push(tap);
@@ -73,7 +73,7 @@ impl Surface {
         let Some(pty) = self.as_pty() else {
             return Err(ghostty_vt::Error::InvalidValue);
         };
-        let mut term = pty.term.lock().unwrap();
+        let mut term = pty.term.lock().recover_poison();
         let dead = pty.dead.load(Ordering::Acquire);
         let exited = dead
             && pty.host_connection_state.load(Ordering::Acquire)
@@ -95,12 +95,22 @@ impl Surface {
         let _ = pty.build_frame_locked(&mut term, generation, false)?;
         let (tap, stream) = RenderTap::pair(&pty.render);
         let (initial, registered) = {
-            let mut render = pty.render.lock().unwrap();
+            let mut render = pty.render.lock().recover_poison();
             let initial = if exited {
                 render.final_attach_initial(&term)?
             } else {
                 render.build_attach_initial(&term)?
             };
+            // `render-state` carries no viewport position, and a client
+            // starts at the live bottom. A viewport scrolled back when the
+            // snapshot was taken is announced as the stream's first event,
+            // under the same terminal lock, so no later move can land between
+            // them (spec/render.md "Stream Ordering"). An exited terminal's
+            // stream gets it too: the dropped tap still delivers it before the
+            // stream ends.
+            if let (offset, false) = terminal_scroll_position(&term) {
+                tap.send(RenderAttachFrame::ScrollChanged { offset, at_bottom: false });
+            }
             let registered = if exited || pty.dead.load(Ordering::Acquire) {
                 drop(tap);
                 false

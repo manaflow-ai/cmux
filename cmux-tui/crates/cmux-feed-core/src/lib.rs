@@ -4,6 +4,8 @@
 //! loads the items, applies an op to a copy, writes the changed rows in its
 //! own commit, and installs the copy only after that commit succeeds.
 
+#![forbid(unsafe_code)]
+
 mod model;
 mod reduce;
 

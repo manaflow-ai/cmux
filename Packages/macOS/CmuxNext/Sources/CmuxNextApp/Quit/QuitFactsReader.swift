@@ -29,7 +29,7 @@ enum QuitFactsReader {
         let kept = keptSurfaces, incognito = incognitoSurfaces
         let remote = !services.machines.remoteDaemons.isEmpty
         // The agent census runs beside the terminal reads, under the same deadline.
-        async let agents = QuitAgents.facts(QuitAgents.environment(services))
+        async let agents = QuitAgents.facts(await QuitAgents.resolvedEnvironment(services))
         guard let connection = local.connection, !(kept.isEmpty && incognito.isEmpty) else {
             return QuitFacts(terminals: kept.count, programs: [], incognitoPrograms: [], remoteSessions: remote,
                              agents: await agents)

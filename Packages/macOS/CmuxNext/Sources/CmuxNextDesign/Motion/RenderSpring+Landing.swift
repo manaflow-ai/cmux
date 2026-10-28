@@ -81,16 +81,16 @@ extension RenderSpring {
         /// spring serial, kept on the layer as an associated object (it lives as long as the layer).
         /// Calls on one value meet only on its layer, so this is the call order the completions keep.
         final class Table {
-            /// The associated-object key: one byte allocated once, never freed.
-            private static let key = UnsafeRawPointer(UnsafeMutableRawPointer.allocate(byteCount: 1, alignment: 1))
+            /// Each layer's table.
+            private static let tables = ObjectAssociation<Table>()
             private var newest: [(keyPath: String, landing: Landing)] = []
             private var serial = 0
 
             /// The table of `layer`, made on first use.
             static func on(_ layer: CALayer) -> Table {
-                if let table = objc_getAssociatedObject(layer, key) as? Table { return table }
+                if let table = tables.value(on: layer) { return table }
                 let table = Table()
-                objc_setAssociatedObject(layer, key, table, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+                tables.set(table, on: layer)
                 return table
             }
 

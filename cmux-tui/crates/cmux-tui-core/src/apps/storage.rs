@@ -59,6 +59,19 @@ impl Storage {
         Ok(Self { db })
     }
 
+    /// Frees the database's unused page cache (`mux/sqlite_trim.rs`).
+    #[track_caller]
+    pub fn release_memory(&self) -> Result<(), StorageError> {
+        note(BlockingKind::Sqlite);
+        self.db.release_memory().map_err(failed)
+    }
+
+    /// The bytes the database's page cache holds now.
+    #[cfg(test)]
+    pub(crate) fn cache_used_bytes(&self) -> Option<u64> {
+        cmux_history::page_cache::cache_used_bytes(&self.db)
+    }
+
     fn ensure(&self, app: &str) -> Result<String, StorageError> {
         let table = table(app);
         self.db
@@ -175,6 +188,36 @@ mod tests {
         assert_eq!(s.call("cmux/b", "app.storage.get", &json!({ "key": "k" })).unwrap(), json!(2));
         s.call("cmux/b", "app.storage.delete", &json!({ "key": "k" })).unwrap();
         assert_eq!(s.call("cmux/b", "app.storage.keys", &json!({})).unwrap(), json!([]));
+    }
+
+    /// A file database's page cache, filled by 1,000 values of 1 KiB, goes
+    /// near 0 after a release; the values read again.
+    #[test]
+    fn sqlite_trim_storage_release_frees_its_page_cache() {
+        let dir = std::env::temp_dir()
+            .join(format!("cmux-apps-storage-trim-{}", crate::workspace_registry::new_uuid_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let s = Storage::open(Some(&dir.join("apps-storage.sqlite"))).unwrap();
+        let value = "x".repeat(1024);
+        for key in 0..1000 {
+            s.call("cmux/a", "app.storage.set", &json!({ "key": key.to_string(), "value": value }))
+                .unwrap();
+        }
+        assert_eq!(
+            s.call("cmux/a", "app.storage.keys", &json!({})).unwrap().as_array().unwrap().len(),
+            1000
+        );
+        let filled = s.cache_used_bytes().unwrap();
+        assert!(filled > 500_000, "the writes filled {filled} bytes");
+        s.release_memory().unwrap();
+        let trimmed = s.cache_used_bytes().unwrap();
+        assert!(trimmed < 64 * 1024, "release left {trimmed} of {filled} bytes");
+        assert_eq!(
+            s.call("cmux/a", "app.storage.get", &json!({ "key": "7" })).unwrap(),
+            json!(value)
+        );
+        drop(s);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// A storage op on a thread that disallows blocking is recorded at the

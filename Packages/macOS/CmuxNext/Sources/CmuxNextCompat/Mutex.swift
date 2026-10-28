@@ -1,25 +1,32 @@
-internal import CmuxSafeConcurrency
-#if DEBUG || CMUX_BLOCKING_CHECKS
+public import CmuxSafeConcurrency
+#if (DEBUG || CMUX_BLOCKING_CHECKS) && canImport(Darwin)
 internal import Darwin
 #endif
 
 /// A value that only one thread at a time can read or change, with the API of
 /// `Synchronization.Mutex` (macOS 15) so that cmux-next runs on macOS 14
 /// (plans/cmux-next/macos-floor.md). It is CmuxSafeConcurrency's portable `Mutex`
-/// (`os_unfair_lock`, the lock the system type uses on Darwin) with the
-/// main-thread blocking detector watching its waits. Import this module instead
-/// of `Synchronization`; call sites do not change.
+/// (`os_unfair_lock`, the lock the system type uses on Darwin; on Linux a pthread
+/// mutex, as Chromium's base/synchronization/lock_impl_posix.cc) with the
+/// main-thread blocking detector watching its waits on both. Import this module
+/// instead of `Synchronization`; call sites do not change.
 public struct Mutex<Value: ~Copyable>: ~Copyable {
     private let base: CmuxSafeConcurrency.Mutex<Value>
 
     /// Makes a mutex that holds `initialValue`.
-    public init(_ initialValue: consuming sending Value) {
-        base = CmuxSafeConcurrency.Mutex(initialValue)
+    ///
+    /// - Parameter rank: Its place in cmux-next's lock order (``MutexRank``, the table in
+    ///   MutexRank+CmuxNext.swift): in Debug builds a `withLock` that takes it while this thread holds a
+    ///   ranked mutex at the same or a later order stops the process, naming both locks. Nil (the default)
+    ///   checks nothing. Release builds drop it.
+    public init(_ initialValue: consuming sending Value, rank: CmuxSafeConcurrency.MutexRank? = nil) {
+        base = CmuxSafeConcurrency.Mutex(initialValue, rank: rank)
     }
 
     /// Runs `body` with exclusive access to the value and returns its result.
     /// Do not call `withLock` on the same mutex from inside `body`: the lock
-    /// is not recursive.
+    /// is not recursive. A ranked mutex taken out of order stops the process
+    /// in Debug (``MutexRank``).
     ///
     /// In Debug and bench-checks builds (Nightly to come) a wait for the lock longer than
     /// ``BlockingKind/lockWaitLimitNanos`` on the main thread, or in a `BackgroundWork` lane item (a

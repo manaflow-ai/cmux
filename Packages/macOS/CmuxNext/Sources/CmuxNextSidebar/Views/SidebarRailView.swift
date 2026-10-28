@@ -20,7 +20,6 @@ public final class SidebarRailView: NSView {
     private var observation: VisibleObservation<[[SidebarRailMark]]>?
     /// The rail's place in the visibility tree: its window's node, hidden with the rail.
     let visibility = ViewVisibility("sidebar.rail")
-    private var trackingArea: NSTrackingArea?
     /// The ticks drawn now, in this view's (flipped) coordinates.
     private(set) var railLayout = SidebarRailLayout(groups: [], top: 0, available: 0)
     private var marks: [[SidebarRailMark]] = []
@@ -46,6 +45,7 @@ public final class SidebarRailView: NSView {
         setAccessibilityRole(.group)
         setAccessibilityLabel(Strings.railLabel)
         setAccessibilityIdentifier("sidebar.rail")
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect], owner: self))
     }
 
     @available(*, unavailable)
@@ -153,14 +153,6 @@ public final class SidebarRailView: NSView {
     }
 
     // MARK: Pointer
-
-    override public func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let trackingArea { removeTrackingArea(trackingArea) }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect], owner: self)
-        addTrackingArea(area)
-        trackingArea = area
-    }
 
     /// The windows' frame-aligned pointer input (feature `pointerFrameHover`): the cards follow a frame
     /// interval's first move at once and the rest once at its frame, at the latest point. Nil: each move.

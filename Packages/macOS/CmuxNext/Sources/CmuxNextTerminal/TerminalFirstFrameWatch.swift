@@ -41,7 +41,9 @@ public final class TerminalFirstFrameWatch {
         self.shown = shown
         self.closed = closed
         guard !check() else { return }
-        let frames = FrameClient(owner: "TerminalFirstFrameWatch", isAnimation: false, scheduler: scheduler) { [weak self] _ in
+        // Motion rate: the `create.tab` interval ends on that frame; most tabs tick once or twice.
+        // frame-client: reads the surface view's presented frame until the first one shows (view state, on main)
+        let frames = FrameClient(owner: "TerminalFirstFrameWatch", isAnimation: false, rate: .motion, scheduler: scheduler) { [weak self] _ in
             self?.check() == false
         }
         self.frames = frames

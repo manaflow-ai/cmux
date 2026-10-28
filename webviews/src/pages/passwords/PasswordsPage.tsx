@@ -183,7 +183,7 @@ export function PasswordsPage({ store, strings }: { store: PasswordsStore; strin
         </div>
       </header>
       {notice}
-      <div className="pw-scroll">
+      <div className="pw-scroll" data-page-scroll="list">
         {disconnected ? (
           <p className="pw-empty pw-disconnected">{t("passwords.page.disconnected")}</p>
         ) : snap.loading ? (

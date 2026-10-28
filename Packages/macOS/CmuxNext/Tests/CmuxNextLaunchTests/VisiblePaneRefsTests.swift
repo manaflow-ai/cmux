@@ -363,7 +363,7 @@ private final class PaneRefsFixture {
         self.recorder = recorder
         self.bound = bound
         self.shown = shown
-        refs = VisiblePaneRefs(hold: { name in recorder.hold(name) }, phase: phase, bound: bound)
+        refs = VisiblePaneRefs(hold: { name in recorder.hold(name) }, mainWork: MainWorkScheduler(budget: MainFrameBudget()), phase: phase, bound: bound)
         refs.whenShown { [shown] in shown.releaseCounts.append(recorder.releaseCount) }
     }
 }
@@ -394,7 +394,7 @@ private final class CompletionFixture {
         self.phaseClock = phaseClock
         self.boundClock = boundClock
         self.startup = startup
-        refs = VisiblePaneRefs(startup: startup, phase: phase,
+        refs = VisiblePaneRefs(startup: startup, mainWork: mainWork, phase: phase,
                                bound: DemandTimer(owner: "test.bound", clock: boundClock, ledger: WakeupLedger()))
         if revealed { phase.noteFirstFrame() }
         phase.markDone(.firstSnapshot)

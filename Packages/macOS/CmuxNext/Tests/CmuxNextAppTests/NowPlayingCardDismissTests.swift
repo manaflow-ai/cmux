@@ -5,6 +5,7 @@ import CmuxNextDesign
 @testable import CmuxNextNowPlaying
 @testable import CmuxNextSettings
 @testable import CmuxNextSidebar
+import CmuxNextWakeups
 import Foundation
 import Observation
 import Testing
@@ -35,7 +36,7 @@ import Testing
         let sidebar: SidebarView
         let window: NSWindow
         let url: URL
-        let feed: Task<Void, Never>
+        let feed: ServiceObservation<NowPlayingFollowed>
         var card: SidebarNowPlayingCardView { sidebar.nowPlayingCardView }
         var cardIsShown: Bool { !card.isHidden && !card.frame.isEmpty }
 
@@ -110,9 +111,9 @@ import Testing
         window.contentView = sidebar
         sidebar.frame = NSRect(x: 0, y: 0, width: width, height: 640)
         window.orderFrontRegardless()
-        let feed = model.followNowPlaying(source, dismissal: services.cache.pageRequests.nowPlayingCard) { [weak services] in
+        let feed = model.followNowPlaying(source, dismissal: services.cache.pageRequests.nowPlayingCard, enabled: { [weak services] in
             services?.settings?.snapshot.nowPlaying.enabled ?? false
-        }
+        }, on: linklessMainWork())
         let h = Harness(services: services, source: source, model: model, sidebar: sidebar, window: window, url: url, feed: feed)
         await h.until { h.cardIsShown }
         return h

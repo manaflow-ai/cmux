@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Darwin
 import QuartzCore
 import Testing
@@ -11,7 +12,8 @@ import CmuxNextWakeupsTestSupport
 /// the pointer reached it (50 ms p50, 158 ms p95 at 120 Hz). Every row the pointer crosses slides
 /// the open card to that row (`HoverCardPanel.present(sliding:)`), and each slide rebuilt the card
 /// on the main thread before the row's hover fill could draw. A retarget is one pointer move plus
-/// the frame that draws it; it must fit inside half a 60 Hz frame however long the history is.
+/// the frame that draws it; it must fit inside half a 60 Hz frame however long the history is. With
+/// CMUX_PERF_RESULT_DIR each step's CPU is result-v1 (lab story swift-sidebar-hover-retarget).
 @MainActor @Suite(.serialized)
 struct SidebarHoverCardRetargetBenchTests {
     /// Rows of the history each fake workspace has (the reader's limit is 100).
@@ -148,6 +150,7 @@ struct SidebarHoverCardRetargetBenchTests {
         let (ms, shown) = try await Self.sweep(rig)
         try await Self.tearDown(rig)
         calibration.checkpoint()
+        try PerfResultWriter()?.record("swift.sidebar_hover_retarget.step_cpu", unit: .ms, samples: ms)
         let p50 = Self.percentile(ms, 0.5), p95 = Self.percentile(ms, 0.95)
         print(String(format: "HOVER-RETARGET-BENCH steps=%d cpu_ms p50 %.2f p95 %.2f max %.2f | cards %d | %@",
                      ms.count, p50, p95, ms.max() ?? 0, shown.count, calibration.summary))
@@ -177,6 +180,10 @@ struct SidebarHoverCardRetargetBenchTests {
                           themeAnchor: built.themeAnchor, sliding: true, applyTheme: built.applyTheme)
             Self.drawFrame(rig)
             present.append(Self.threadCPUms() - start)
+        }
+        if let results = try PerfResultWriter() {
+            try results.record("swift.sidebar_hover_retarget.body_cpu", unit: .ms, samples: body)
+            try results.record("swift.sidebar_hover_retarget.present_cpu", unit: .ms, samples: present)
         }
         print(String(format: "HOVER-RETARGET-BREAKDOWN body p50 %.2f p95 %.2f | present+frame p50 %.2f p95 %.2f",
                      Self.percentile(body, 0.5), Self.percentile(body, 0.95),

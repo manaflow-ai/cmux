@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDevices
 @testable import CmuxNextMacScreen
+import CmuxNextWakeups
 import CmuxScreenKit
 import Foundation
 import Testing
@@ -49,16 +50,16 @@ struct MacScreenAppKitViewTests {
 
     private func makePages() -> MacScreenPages {
         let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-\(UUID().uuidString)/mac-screen.json")
-        return MacScreenPages(store: MacScreenStore(file: file, removeLinkPairings: {}), mainWork: linklessMainWork())
+        return MacScreenPages(store: MacScreenStore(file: file, removeLinkPairings: {}), deadlines: linklessDeadlines(), appEvents: AppEvents(center: NotificationCenter()))
     }
 
     @Test func noSurfaceBuildsAHostingView() throws {
         let pages = makePages()
         pages.prepare("home", record: MacScreenRecord(macID: nil), byPerson: true)
         let home = pages.makeView(for: "home")
-        let pane = MacScreenPane(hubDevice: MacScreenHubViewer(deviceID: viewDeviceID) { nil }, name: "Studio", preferences: ScreenPreferences(),
+        let pane = MacScreenPane(hubDevice: MacScreenHubViewer(deviceID: viewDeviceID, deadlines: linklessDeadlines()) { nil }, name: "Studio", preferences: ScreenPreferences(),
                                  node: shownNode(), on: linklessMainWork())
-        let prompt = MacScreenApprovalPrompt(mainWork: linklessMainWork())
+        let prompt = MacScreenApprovalPrompt(deadlines: linklessDeadlines())
         prompt.present = { _ in }
         prompt.update([SessionRequest(id: "s1", viewerId: "v1", viewerName: "Laptop", scope: .view)])
         let approval = MacScreenApprovalView(prompt: prompt)
@@ -91,7 +92,7 @@ struct MacScreenAppKitViewTests {
     }
 
     @Test func connectCardButtonsAskTheHubAndTheCardFollows() async throws {
-        let pane = MacScreenPane(hubDevice: MacScreenHubViewer(deviceID: viewDeviceID) { nil }, name: "Studio", preferences: ScreenPreferences(),
+        let pane = MacScreenPane(hubDevice: MacScreenHubViewer(deviceID: viewDeviceID, deadlines: linklessDeadlines()) { nil }, name: "Studio", preferences: ScreenPreferences(),
                                  node: shownNode(), on: linklessMainWork())
         let window = window(pane.view)
         #expect(pane.model.card == .hubConnect)
@@ -115,7 +116,7 @@ struct MacScreenAppKitViewTests {
     }
 
     @Test func toolbarShowsTheNameAndHidesStreamControlsBeforeASession() async throws {
-        let pane = MacScreenPane(hubDevice: MacScreenHubViewer(deviceID: viewDeviceID) { nil }, name: "Studio", preferences: ScreenPreferences(),
+        let pane = MacScreenPane(hubDevice: MacScreenHubViewer(deviceID: viewDeviceID, deadlines: linklessDeadlines()) { nil }, name: "Studio", preferences: ScreenPreferences(),
                                  node: shownNode(), on: linklessMainWork())
         let window = window(pane.view)
         let toolbar = pane.view.chrome.toolbar
@@ -130,7 +131,7 @@ struct MacScreenAppKitViewTests {
     }
 
     @Test func approvalShowsTheRequestAndItsFourAnswers() throws {
-        let prompt = MacScreenApprovalPrompt(mainWork: linklessMainWork())
+        let prompt = MacScreenApprovalPrompt(deadlines: linklessDeadlines())
         prompt.present = { _ in }
         let fingerprint = String(repeating: "ab", count: 32)
         prompt.update([SessionRequest(id: "s1", viewerId: "v1", viewerName: "Laptop", viewerKeyFingerprint: fingerprint, scope: .full)])

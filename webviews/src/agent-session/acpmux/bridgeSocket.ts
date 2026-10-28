@@ -19,6 +19,11 @@ const CONNECTING = 0;
 const OPEN = 1;
 const CLOSED = 3;
 
+/// The close reason of a connection the host let go while the page was frozen (Swift
+/// `AgentPaneTransport.pageFrozenCloseReason`): the daemon is still there, so the page opens again on
+/// the same client and resumes after the last event it has (direct.ts `reopenAfterFreeze`).
+export const PAGE_FROZEN_CLOSE_REASON = "cmux.page-frozen";
+
 /// Host codes after which the connection is gone; others refuse one frame only.
 const FATAL = new Set(["transport.closed", "transport.stale_connection"]);
 

@@ -17,9 +17,15 @@ import os
 @MainActor
 final class MobileHostApproverSync {
     private let environment: AcpmuxEnvironment
+    /// The app's main-thread scheduler: each line and close of the connection is one automation task (acpmux's
+    /// replies, which a phone's approval waits on).
+    private let mainWork: MainWorkScheduler
+    /// The owner of the connection's tasks (its lines, its close, a refused proof), interned once.
+    private let lineOwner: MainTaskOwner
     private var connection: AcpmuxCheckedLine?
     private var proven = false
-    private var reconnect: Task<Void, Never>?
+    /// The backoff wait after a lost, refused or absent socket.
+    private let reconnect: MainDeadline
     private var backoff = Backoff(initial: .milliseconds(500), maximum: .seconds(30))
     /// The last `approvers_set` params; nil until the first update.
     private var params: [String: Any]?
@@ -39,14 +45,20 @@ final class MobileHostApproverSync {
         hasApprovers || workspaceRoots?.isEmpty == false || rootsClearPending || newChatPicks != nil || picksClearPending
     }
     private var nextID = 10
+    /// Connections tried so far, the backoff's included (tests, diagnostics).
+    private(set) var connectAttempts = 0
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.iphone.approvers")
 
-    init(environment: AcpmuxEnvironment) {
+    /// - Parameter deadlines: The app's one deadline placer; its scheduler runs the connection's replies.
+    init(environment: AcpmuxEnvironment, deadlines: MainDeadlineScheduler) {
         self.environment = environment
+        mainWork = deadlines.work
+        lineOwner = deadlines.work.board.owner("iphone-approvers.line")
+        reconnect = MainDeadline(owner: "iphone-approvers.reconnect", workClass: .automation, scheduler: deadlines)
     }
 
+    // A released deadline never fires (its wake holds it weakly), so only the connection ends here.
     nonisolated deinit {
-        reconnect?.cancel()
         connection?.cancel()
     }
 
@@ -55,7 +67,7 @@ final class MobileHostApproverSync {
         self.params = params
         if proven {
             send()
-        } else if connection == nil, reconnect == nil, needed {
+        } else if connection == nil, !reconnect.isScheduled, needed {
             connect()
         }
     }
@@ -69,7 +81,7 @@ final class MobileHostApproverSync {
         workspaceRoots = roots
         if proven {
             sendRoots()
-        } else if connection == nil, reconnect == nil, needed {
+        } else if connection == nil, !reconnect.isScheduled, needed {
             connect()
         }
     }
@@ -84,7 +96,7 @@ final class MobileHostApproverSync {
         newChatPicks = params
         if proven {
             sendPicks()
-        } else if connection == nil, reconnect == nil, needed {
+        } else if connection == nil, !reconnect.isScheduled, needed {
             connect()
         }
     }
@@ -92,27 +104,29 @@ final class MobileHostApproverSync {
     /// Stops syncing (sign-out, iPhone connections off). acpmux keeps what it has
     /// until ``update(_:)`` sends an empty list or the daemon restarts.
     func stop() {
-        reconnect?.cancel()
-        reconnect = nil
+        reconnect.cancel()
         connection?.cancel()
         connection = nil
         proven = false
     }
 
     private func connect() {
-        reconnect = nil
+        connectAttempts += 1
+        reconnect.cancel()
         guard FileManager.default.fileExists(atPath: environment.socketPath) else { return scheduleReconnect() }
         let line = AcpmuxCheckedLine(environment: environment)
         connection = line
         proven = false
+        // The line's queue delivers each line and the close in order; each is one task, in that order.
+        let mainWork = mainWork, owner = lineOwner
         line.start(send: Self.frame(id: 1, method: "initialize", params: [
             "protocolVersion": 1, "clientInfo": ["name": "cmux-next-iphone-approvers", "version": "1"],
             "clientCapabilities": [String: Any](),
-        ]), onLine: { [weak self] data in Task { @MainActor in self?.handle(data, on: line) } },
-           onClose: { [weak self] in Task { @MainActor in self?.lost(line) } })
+        ]), onLine: { [weak self] data in mainWork.postFromAnyThread(.automation, owner: owner) { [weak self] in self?.handle(data, on: line) } },
+           onClose: { [weak self] in mainWork.postFromAnyThread(.automation, owner: owner) { [weak self] in self?.lost(line) } })
     }
 
-    private static func frame(id: Int, method: String, params: [String: Any]) -> Data {
+    private nonisolated static func frame(id: Int, method: String, params: [String: Any]) -> Data {
         var data = (try? JSONSerialization.data(withJSONObject: ["jsonrpc": "2.0", "id": id, "method": method,
                                                                  "params": params])) ?? Data()
         data.append(0x0A)
@@ -127,13 +141,16 @@ final class MobileHostApproverSync {
         case 1:
             let meta = ((message["result"] as? [String: Any])?["_meta"] as? [String: Any])?["acpmux"] as? [String: Any]
             let challenge = meta?["personChallenge"] as? [String: Any]
-            guard let nonce = challenge?["nonce"] as? String, let connectionID = challenge?["connection"] as? String,
-                  let proof = line.personProof(nonce: nonce, connection: connectionID) else {
-                logger.error("no person challenge or no key for this daemon; retrying")
-                line.cancel()
-                return lost(line)
+            guard let nonce = challenge?["nonce"] as? String, let connectionID = challenge?["connection"] as? String else {
+                return refused(line)
             }
-            line.send(Self.frame(id: 2, method: "_acpmux/person_prove", params: ["proof": proof]))
+            // The proof is made and sent on the line's queue; a refusal comes back here, as the line's own lines do.
+            let mainWork = mainWork, owner = lineOwner
+            line.sendPersonProof(nonce: nonce, connection: connectionID, request: { proof in
+                Self.frame(id: 2, method: "_acpmux/person_prove", params: ["proof": proof])
+            }, refused: { [weak self] in
+                mainWork.postFromAnyThread(.automation, owner: owner) { [weak self] in self?.refused(line) }
+            })
         case 2:
             guard (message["result"] as? [String: Any])?["person"] as? Bool == true else {
                 logger.error("acpmux refused the person proof; retrying")
@@ -151,6 +168,14 @@ final class MobileHostApproverSync {
                 logger.info("acpmux took \(count, privacy: .public) approvers or workspace folders")
             }
         }
+    }
+
+    /// No person proof for `line` (no challenge, or no key for this daemon): ends it and retries later.
+    private func refused(_ line: AcpmuxCheckedLine) {
+        guard connection === line else { return }
+        logger.error("no person challenge or no key for this daemon; retrying")
+        line.cancel()
+        lost(line)
     }
 
     private func send() {
@@ -182,15 +207,8 @@ final class MobileHostApproverSync {
         if needed { scheduleReconnect() }
     }
 
+    /// One backoff wait after a lost, refused or absent socket, then a new connection.
     private func scheduleReconnect() {
-        reconnect?.cancel()
-        // task-owner: MobileHostApproverSync.reconnect: one backoff wait after a lost, refused or absent socket.
-        reconnect = Task { [weak self] in
-            guard var backoff = self?.backoff else { return }
-            // concurrency-allow: Backoff.wait is an async sleep after a failure, not a blocking wait.
-            do { try await backoff.wait(owner: "iphone-approvers.reconnect") } catch { return }
-            self?.backoff = backoff
-            self?.connect()
-        }
+        reconnect.schedule(after: backoff.next()) { [weak self] in self?.connect() }
     }
 }

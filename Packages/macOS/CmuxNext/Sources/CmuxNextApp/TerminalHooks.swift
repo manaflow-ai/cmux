@@ -18,8 +18,9 @@ struct TerminalHooks {
         // encodes it with the program's keyboard modes. A refused key falls back; one that may have
         // arrived (a timeout) does not, so it never reaches the program twice.
         TerminalKeyEquivalent.sendToProgram = { [weak services] session, chord, fallback in
-            guard let services, let key = services.cache.tabKey(for: session),
-                  let (tab, pane) = services.locateTab(key), tab.kind == .pty else { return false }
+            // view-observation-allow: no observation; locateTab is the MachineTabIndex's one lookup (p06-scheduler-051)
+            guard let services, let key = services.cache.tabKey(for: session), let (tab, pane) = services.locateTab(key),
+                  tab.kind == .pty else { return false }
             let surface = tab.surface
             services.daemon(for: pane).send("send-key", onFailure: { failure in if !failure.mayHaveApplied { fallback() } }) { try await $0.sendKeys(surface, [chord]) }
             return true

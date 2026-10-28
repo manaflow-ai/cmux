@@ -41,4 +41,38 @@ import Testing
         #expect(harvest.events.map(\.message) == ["it failed", "it broke"])
         #expect(log.delivered == 2, "the log store decoded \(log.delivered) entries for 2 errors and faults")
     }
+
+    @Test func aReadStoppedAtItsBoundSaysMoreIsWaiting() async throws {
+        let launch = Date(timeIntervalSince1970: 1_000)
+        let records = (1...OSLogErrorSource.maxEvents + 1).map {
+            OSLogRecord(date: launch + Double($0) / 1000, level: .error, subsystem: "com.cmuxterm.app", category: "acp",
+                        message: "failure \($0)")
+        }
+        let source = OSLogErrorSource(processID: 7, launchDate: launch, reader: FakeLog(records: records))
+
+        let first = try await source.collect(after: nil)
+        #expect(first.events.count == OSLogErrorSource.maxEvents)
+        #expect(first.more, "a read stopped at maxEvents did not say more is waiting")
+        let rest = try await source.collect(after: first.cursor)
+        #expect(rest.events.map(\.message) == ["failure \(OSLogErrorSource.maxEvents + 1)"])
+        #expect(!rest.more, "a read to the end said more is waiting")
+    }
+
+    /// p10-stability-095: a damaged cursor in `cursors.json` (`7:1e300`) trapped in `Int64(_:)` when no newer
+    /// entry came. Any cursor that is not this launch's whole milliseconds starts the harvest at launch; a whole
+    /// one, however far ahead, comes back unchanged.
+    @Test func aDamagedCursorStartsAtLaunch() async throws {
+        let launch = Date(timeIntervalSince1970: 1_000)
+        let log = FakeLog(records: [OSLogRecord(date: launch + 5, level: .error, subsystem: "com.cmuxterm.app", category: "acp",
+                                                message: "it failed")])
+        let source = OSLogErrorSource(processID: 7, launchDate: launch, reader: log)
+        for cursor in ["7:1e300", "7:-1e300", "7:nan", "7:inf", "7:1005000.5", "7:", "7:x", "x:1", "8:1003000", "7:1:2"] {
+            let harvest = try await source.collect(after: cursor)
+            #expect(harvest.events.map(\.message) == ["it failed"], "cursor \(cursor)")
+            #expect(harvest.cursor == "7:1005000", "cursor \(cursor)")
+        }
+        let ahead = try await source.collect(after: "7:\(Int64.max)")
+        #expect(ahead.events.isEmpty)
+        #expect(ahead.cursor == "7:\(Int64.max)")
+    }
 }

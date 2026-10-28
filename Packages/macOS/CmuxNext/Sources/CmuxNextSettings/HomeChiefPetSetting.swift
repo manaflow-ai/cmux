@@ -1,4 +1,5 @@
 public import CmuxNextActions
+public import CmuxNextWakeups
 
 /// `home.chiefPetEnabled` in cmux.json: the Chief pet, a small Chief that floats over every app,
 /// pops up agent events and takes a quick reply (CmuxNextFloating's `ChiefPetController`). Off by
@@ -131,11 +132,14 @@ public nonisolated struct HomeSettingActions {
     public nonisolated init() {}
 
     /// `summonChiefPet`: the pet with its reply box open (Message the Chief), the App's `ChiefPetController.summon`.
+    /// Returns the Channels fact's observation on `mainWork`, which the caller holds for the registry's life.
     @MainActor public func bind(into registry: ActionRegistry, settings: @escaping @MainActor () -> SettingsController?,
-                                unavailable: String, summonChiefPet: @escaping @MainActor (_ petOn: Bool) -> Void) {
-        HomeChannelsSetting().bind(into: registry, settings: settings, unavailable: unavailable)
+                                unavailable: String, mainWork: MainWorkScheduler,
+                                summonChiefPet: @escaping @MainActor (_ petOn: Bool) -> Void) -> AnyObject {
+        let channels = HomeChannelsSetting().bind(into: registry, settings: settings, unavailable: unavailable, mainWork: mainWork)
         let toggles = ChiefPetToggles()
         HomeChiefPetSetting().bind(into: registry, settings: settings, unavailable: unavailable, toggles: toggles)
         HomeChiefPetSetting().bindMessage(into: registry, settings: settings, unavailable: unavailable, toggles: toggles, summon: summonChiefPet)
+        return channels
     }
 }

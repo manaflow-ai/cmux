@@ -1,3 +1,4 @@
+public import CmuxNextCompat
 public import CmuxNextDaemon
 import CmuxNextIPC
 public import Foundation
@@ -14,18 +15,22 @@ public nonisolated struct HomeChiefHarnesses: Sendable {
     /// The default Chief's mux home (each other Chief's brain home is under it).
     private let muxHome: URL
     private let list: List
+    /// The lanes the brains' engine.json files are read on.
+    private let lanes: any MayBlockRunner
 
     /// - Parameters:
     ///   - muxHome: the default Chief's mux home (`HomeBrainHost.muxHome(tag:)`).
+    ///   - files: the lanes the engine files are read on (the app's `work`).
     ///   - list: the owner's Chief records.
-    public init(muxHome: URL, list: @escaping List) {
+    public init(muxHome: URL, files: any MayBlockRunner, list: @escaping List) {
         self.muxHome = muxHome
+        self.lanes = files
         self.list = list
     }
 
     /// The reader over `connection`, the app's connection to this Mac's Chief owner (nil: files only).
-    public init(muxHome: URL, connection: DaemonConnection?) {
-        self.init(muxHome: muxHome, list: {
+    public init(muxHome: URL, files: any MayBlockRunner, connection: DaemonConnection?) {
+        self.init(muxHome: muxHome, files: files, list: {
             guard let connection else { return nil }
             return try? await ResourceOperationClient(connection: connection).read(V2ChiefProfileListRequest(),
                                                                                    as: JSONValue.self)
@@ -43,7 +48,7 @@ public nonisolated struct HomeChiefHarnesses: Sendable {
     }
 
     /// The effective harness of each Chief in `chiefs` (participant ids) that has one; a
-    /// Chief on the brain's own default is left out. Reads files off the main actor.
+    /// Chief on the brain's own default is left out. Reads files on the files lane (`.userVisible`: the badges show).
     public func read(chiefs: Set<String>) async -> [String: String] {
         await readWithDeleted(chiefs: chiefs).harnesses
     }
@@ -55,13 +60,14 @@ public nonisolated struct HomeChiefHarnesses: Sendable {
         let records = Self.recordHarnesses(listed)
         // brainHome is main-actor isolated: the paths are made here, the files read off it.
         let homes = await Self.brainHomes(muxHome: muxHome, chiefs: chiefs)
-        let saved = await Task.detached { () -> [String: String] in
+        // Dropped (cancelled, or the app is quitting): the records' engines show.
+        let saved = (try? await lanes.runFiles(.userVisible) { () -> [String: String] in
             var saved: [String: String] = [:]
             for (chief, home) in homes {
                 saved[chief] = HomeChiefFiles(muxHome: home).engineHarness()
             }
             return saved
-        }.value
+        }) ?? [:]
         var harnesses: [String: String] = [:]
         for chief in chiefs {
             if let harness = saved[chief] ?? records[chief] { harnesses[chief] = harness }

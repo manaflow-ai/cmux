@@ -4,6 +4,7 @@ import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextInput
+import CmuxNextLayout
 import CmuxNextTabs
 import QuartzCore
 
@@ -69,10 +70,20 @@ extension TabDragSession {
         var presentation: Presentation = .none
         /// The drag's input tap intercept; cancelled when the drag ends.
         var input: InputSubscription?
-        /// The drag's moves on the ghost window's coalescer (feature `pointerFrameDrags`); nil: every move hit-tests.
+        /// The drag's moves on the ghost window's coalescer (feature `pointerFrameDrags`): a frame interval's first
+        /// move and the frame's latest hit-test. Nil while it is off: every move hit-tests.
         var moves: PointerFrameConsumer?
         /// Resamples the drag's moves for the ghost (feature `resampledDrags`); nil: drawn at the real pointer.
         var resampler: DragResampler?
+        /// Hit tests run during this drag (debug.tab_drag and tests: at most two per frame with ``moves``).
+        var hitTests = 0
+        /// A delivery of ``moves`` hit-tested since the last ghost frame: that frame's scroll step or dwell does not
+        /// hit-test again (the next delivery or frame does).
+        var movedSinceFrame = false
+        /// The edge auto-scroll the pointer asks for and the layout it scrolls, resolved at each hit test;
+        /// nil outside every edge band.
+        var autoscroll: TabDragAutoscroll?
+        weak var autoscrollLayout: LayoutRootView?
         var link: FrameClient?
         /// Every surface that answered during this drag, told once at the end.
         var touched: [ObjectIdentifier: any TabDropTargetProviding] = [:]

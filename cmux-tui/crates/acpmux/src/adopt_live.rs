@@ -185,6 +185,7 @@ fn codex_holder(_home: &Path, _id: &str) -> Option<LiveUse> {
 
 /// The process table (`ps`); empty when it cannot be read.
 pub fn processes() -> Vec<Proc> {
+    crate::daemon::hang_watch::will_block();
     std::process::Command::new("ps")
         .args(["-axww", "-o", "pid=,ppid=,command="])
         .output()

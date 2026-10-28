@@ -392,6 +392,8 @@ STRESS, on macOS 26 and 27 minis. VM timing is not perf evidence.
 - MQ-global-input-state: `rg -n 'NSEvent\.(modifierFlags|mouseLocation|pressedMouseButtons)'
   Packages/macOS/CmuxNext/Sources`. 39 hits (checked). Task 095, then one task per package.
 - MQ-cursor-rects: `rg -n 'func resetCursorRects' Packages/macOS/CmuxNext/Sources`. 17 hits (checked). Task 090.
+  Allowed: a hit with `// cursor-rects-allow: <reason>` on the line above (`rg -n -B1 'func resetCursorRects'
+  Packages/macOS/CmuxNext/Sources | rg -c 'cursor-rects-allow'` equals the hit count). After 090: 5 hits, all allowed.
 - MQ-daemon-input-qos: `for n in mux-conn mux-control-dispatch terminal-host-client-input terminal-host-pty
   terminal-host-parser terminal-host-client holder-link mux-attach-out mux-render-attach-out
   mux-resource-terminal-attach mux-line-out mux-pty-input remote-input-writer relay-input; do rg -n "\"$n" cmux-tui/crates
@@ -442,6 +444,15 @@ STRESS, on macOS 26 and 27 minis. VM timing is not perf evidence.
 11. Old benches (typing-frame-bench.py, home-perf.py, strip-scroll-check.py, sidebar-scroll-floor.swift) and new ones
     can drift. 070 and 072 reuse their HID posters and parsers through one shared module; 075 records that old and
     new rows agree within noise on the base sha.
+12. Notice to PL-typing from p05-ipc-032 (2026-10-26): the typing path's `send` line changes type. p05-ipc-032
+    replaces the hand-written `SendInputRequest` (CmuxNextDaemon/Requests/TerminalIO/Input.swift) with the type
+    CmuxNextWireGen's RequestEmitter generates. Its nullable members `surface`, `text`, `bytes` and `flow` become
+    `FieldUpdate`, so `TerminalAttachment.swift` (the `sendNoReply` of `SendInputRequest`, key-press path) passes
+    `.set(surface)`, `.set(data)` and `flow.map(FieldUpdate.set) ?? .unchanged`; a nil maps to `.unchanged`, which leaves the key
+    out as today. The bytes stay the same and two tests pin them: `TerminalIORequestWireGoldenTests`
+    (CmuxNextDaemonTests, over cmux-tui/spec/fixtures/terminal-io-requests/lines.json) and the daemon's echo test
+    `server::cmd_terminal_io::wire_tests::every_echo_line_writes_its_input_bytes_to_the_pty` (cmux-tui-core).
+    p05-ipc-032 waits on p05-ipc-025 (DaemonRequest in a leaf target) and on RequestEmitter output in the build.
 
 ## 8. Task table
 
@@ -1638,6 +1649,12 @@ Paths: `S/` = `Packages/macOS/CmuxNext/Sources/`, `T/` = `Packages/macOS/CmuxNex
   edges, ignores unknown histograms; no new timer.
 - Test phase: UNIT(CEFHistogramReaderTests); GUI DC1 chromium-page and agent-pane rows next to the cmux slots.
 - Size M. Depends: 002, 007.
+- Deviation (as built): Browser.getHistograms reads the browser process's StatisticsRecorder and takes no
+  target, so it cannot split browser pages from agent pane pages. The rows have target `chromiumProcess`
+  (both together), not `chromiumPage`/`agentPane`. GUI DC1 compares one surface at a time: a bench sends input
+  to that surface alone between `debug.input reset` and the read. A split needs a per-renderer read (a
+  PL-cef-layer fork item), not this reader. Row stages are Chromium's top-level breakdown in pipeline order;
+  `TotalLatency*` variants and dotted sub-stages are only in `histograms`.
 
 #### p04-input-092 cmux web pages: passive listeners, rAF-coalesced moves, key-to-paint probe
 - Files: `webviews/src/ui/frameInput.ts`, `webviews/src/ui/frameInput.test.ts`, `webviews/src/pages/markdown/tables.ts`,

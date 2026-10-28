@@ -29,17 +29,36 @@ nonisolated struct TerminalEventRouter: Sendable {
     /// Swaps in a fresh surface for a replay on the main actor and queues the replay on its lane;
     /// returns that lane (nil: the session is gone).
     let replace: @Sendable (TerminalIOEvent) async -> TerminalOutputLane??
+    /// Names the lane the IO's reader may feed live output to (p04-input-083): the live surface's once
+    /// it has content, after each event (nil: the IO keeps every chunk on its events).
+    let outputLane: TerminalOutputLaneNamer?
 
     init(lane: TerminalOutputLane?, mailbox: TerminalEventMailbox, input: TerminalInputSink,
+         outputLane: TerminalOutputLaneNamer? = nil,
          replace: @escaping @Sendable (TerminalIOEvent) async -> TerminalOutputLane??) {
         self.lane = lane
         self.mailbox = mailbox
         self.input = input
+        self.outputLane = outputLane
         self.replace = replace
     }
 
-    /// Routes `event`. False once the session is gone.
+    /// Routes `event`, then names the lane live output may go to straight from the IO's reader: the
+    /// live surface's once it has content, so the first content's bookkeeping always comes through
+    /// here. False once the session is gone.
     mutating func route(_ event: TerminalIOEvent) async -> Bool {
+        // Every earlier event is queued on the lane or posted to the mailbox, in stream order: live
+        // output may go straight to the lane again.
+        if case .outputResume(let resume) = event {
+            resume.resume()
+            return true
+        }
+        let alive = await routeInOrder(event)
+        if alive { outputLane?.name(hasContent ? lane : nil) }
+        return alive
+    }
+
+    private mutating func routeInOrder(_ event: TerminalIOEvent) async -> Bool {
         if let lane, await lane.takeOffMain(event) {
             if case .output = event { contentQueued() }
             return true
@@ -69,6 +88,8 @@ nonisolated struct TerminalEventRouter: Sendable {
             mailbox.post { $0.setSizedFor(sizedFor) }
         case .output, .inputEcho:
             break // no lane: nothing to parse into
+        case .outputResume(let resume):
+            resume.resume() // route(_:) takes it first
         }
         return true
     }
@@ -120,14 +141,14 @@ nonisolated struct TerminalEventRouter: Sendable {
             restoreQueued = true
             lane.restoreLocalHistory(data, expectedRows: local.historyRows, digest: local.digest, grid: grid) { result in
                 switch result {
-                case Int32(GHOSTTY_SURFACE_LOCAL_HISTORY_RESTORED.rawValue):
+                case GHOSTTY_SURFACE_LOCAL_HISTORY_RESTORED.code:
                     content.set()
                     mailbox.post {
                         $0.localSnapshots += 1
                         $0.readyRestores += 1
                         $0.contentQueued = true
                     }
-                case Int32(GHOSTTY_SURFACE_LOCAL_HISTORY_MISMATCH.rawValue):
+                case GHOSTTY_SURFACE_LOCAL_HISTORY_MISMATCH.code:
                     content.set()
                     input.resync()
                     mailbox.post {
@@ -182,4 +203,42 @@ nonisolated final class TerminalRestoredContent: Sendable {
     var value: Bool { restored.load(ordering: .acquiring) }
 
     func set() { restored.store(true, ordering: .releasing) }
+}
+
+/// The lane a session's IO feeds live output to from its reader thread (``TerminalIO/setOutputLane(_:)``):
+/// named by the events loop off the main actor, cleared for good by the session's close on the main
+/// actor. The IO hears of each change once, in the order they were made, and never of a lane after close.
+nonisolated final class TerminalOutputLaneNamer: Sendable {
+    private struct State {
+        var named: TerminalEchoLane?
+        var closed = false
+    }
+
+    private let io: any TerminalIO
+    private let state = Mutex(State())
+
+    init(io: any TerminalIO) {
+        self.io = io
+    }
+
+    /// Names `lane` (nil: none) to the IO, if it changed and the session is not closed.
+    func name(_ lane: TerminalOutputLane?) {
+        state.withLock { state in
+            guard !state.closed, !(state.named?.names(lane) ?? (lane == nil)) else { return }
+            state.named = lane.map(TerminalEchoLane.init(lane:))
+            // Under the lock, so a close racing the loop can never be overtaken by a later name.
+            // setOutputLane never blocks and never calls back here.
+            io.setOutputLane(state.named)
+        }
+    }
+
+    /// Names no lane, once, and ignores every later ``name(_:)``.
+    func close() {
+        state.withLock { state in
+            guard !state.closed else { return }
+            state.closed = true
+            state.named = nil
+            io.setOutputLane(nil)
+        }
+    }
 }

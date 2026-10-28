@@ -10,10 +10,13 @@
 // second socket there for the local conversations (a credential bound to this page, single use, so
 // every reconnect loads again).
 // Then the page runs on the daemon's real conversations. A dropped connection reconnects with capped backoff and the same
-// credential; each connection gets a fresh store (spec transports.md "Reconnect").
+// credential; each connection gets a fresh store (spec transports.md "Reconnect"). The backoff
+// rests while the page is hidden and tries once on show (retryBackoff.ts, p13-webui-069).
 import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import { DaemonSocket, type DaemonAuth } from "../shared/daemonSocket";
 import type { Strings } from "../shared/i18n";
+import type { PagePollSeams } from "../shared/pagePoll";
+import { RetryBackoff } from "../shared/retryBackoff";
 
 const storageKey = (url: string) => `cmux.daemon.credential:${url}`;
 
@@ -69,10 +72,13 @@ export function DaemonGate({
   source,
   strings,
   children,
+  seams,
 }: {
   source: DaemonSource;
   strings: Strings;
   children: (daemon: DaemonSocket, pages?: string, owner?: DaemonSocket) => ReactNode;
+  /** The page's lifecycle and timers for the backoff, or a test's fakes. */
+  seams?: PagePollSeams;
 }) {
   const { t, format } = strings;
   const url = source.kind === "url" ? source.url : "";
@@ -82,11 +88,18 @@ export function DaemonGate({
       : { kind: "form" },
   );
   const [credential, setCredential] = useState("");
+  const [backoff] = useState(
+    () =>
+      new RetryBackoff({
+        ...seams,
+        firstMs: BACKOFF_MIN_MS,
+        maxMs: BACKOFF_MAX_MS,
+        jitter: () => 0.5 + Math.random() / 2,
+      }),
+  );
   const live = useRef({
     mounted: true,
-    attempt: 0,
     generation: 0,
-    timer: 0 as ReturnType<typeof setTimeout> | 0,
     daemon: null as DaemonSocket | null,
     owner: null as DaemonSocket | null,
   });
@@ -140,7 +153,7 @@ export function DaemonGate({
           return daemon.close();
         }
         if (remember) sessionStorage.setItem(storageKey(endpoint), remember);
-        live.current.attempt = 0;
+        backoff.reset();
         live.current.daemon = daemon;
         live.current.owner = owner ?? null;
         const generation = ++live.current.generation;
@@ -201,10 +214,7 @@ export function DaemonGate({
   const retry = (note?: string) => {
     if (!live.current.mounted || live.current.daemon) return;
     setPhase({ kind: "connecting", note });
-    const step = live.current.attempt++;
-    const delay = Math.min(BACKOFF_MAX_MS, BACKOFF_MIN_MS * 2 ** step) * (0.5 + Math.random() / 2);
-    clearTimeout(live.current.timer);
-    live.current.timer = setTimeout(resume, delay);
+    backoff.schedule(resume);
   };
 
   // The first connect: a credential this tab (or the host) already holds reconnects at once.
@@ -215,7 +225,7 @@ export function DaemonGate({
     resume();
     return () => {
       state.mounted = false;
-      clearTimeout(state.timer);
+      backoff.cancel();
       state.daemon?.close();
       state.owner?.close();
       state.daemon = null;

@@ -7,10 +7,10 @@ import CoreGraphics
 /// and height (never its key or the viewport width), so equal content
 /// shares one bitmap and a resize redraws only rows whose wrap changed.
 ///
-/// Drawing never runs on the main actor. A miss starts one detached render
-/// job per key (`RowArt.render`, a pure function of value types); when it
-/// ends, the main actor only stores the image and hands it to the rows that
-/// asked for it. Until then a row shows its layers without the bitmap (the
+/// Drawing never runs on the main actor. A miss starts one render job per
+/// key whose drawing (`RowArt.render`, a pure function of value types) runs
+/// on the shared pool (`draw`, `@concurrent`); when it ends, the main actor
+/// only stores the image and hands it to the rows that asked for it. Until then a row shows its layers without the bitmap (the
 /// outgoing fill is its own layer), as the prototype did during a fast
 /// scroll. `prefetch` draws rows near the viewport before they scroll in.
 ///
@@ -189,11 +189,17 @@ final class RowBitmaps { // memory: consumer via HomeRenderMemoryConsumer (CmuxN
         let palette = self.palette
         let scale = self.scale
         // task-owner: kept in `jobs` until it installs; cancelled on a palette change or a hide.
-        let task = Task.detached(priority: .userInitiated) { [weak self] in
-            let image = RowArt.render(spec, palette: palette, size: size, scale: scale)
-            await self?.finish(key, job: id, image)
+        let task = Task(priority: .userInitiated) { [weak self] in
+            let image = await Self.draw(spec, palette: palette, size: size, scale: scale)
+            self?.finish(key, job: id, image)
         }
         jobs[key] = Job(id: id, task: task)
+    }
+
+    /// Draws one row bitmap off the main actor: CPU work only (no file, lock or wait), so the shared pool runs it.
+    @concurrent
+    private nonisolated static func draw(_ spec: RowSpec, palette: HomePalette, size: CGSize, scale: CGFloat) async -> CGImage? {
+        RowArt.render(spec, palette: palette, size: size, scale: scale)
     }
 
     private func finish(_ key: Key, job id: Int, _ image: CGImage?) {

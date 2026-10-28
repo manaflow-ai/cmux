@@ -24,7 +24,6 @@
 //! starts workers. It keeps a handle to every live worker for
 //! [`Supervisor::shutdown`].
 
-use std::any::Any;
 use std::collections::{HashMap, VecDeque};
 use std::fmt;
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -35,7 +34,7 @@ use std::sync::{Arc, Mutex, OnceLock, PoisonError, RwLock};
 use std::thread::Thread;
 use std::time::{Duration, Instant};
 
-use crate::Fields;
+use crate::{Fields, payload_text};
 
 /// Exit status of a process ended by a fatal supervised failure (`EX_SOFTWARE`).
 pub const SUPERVISED_FATAL_EXIT_CODE: i32 = 70;
@@ -768,14 +767,6 @@ fn run_caught<O: WorkerOutcome>(body: impl FnOnce() -> O) -> Option<Failure> {
         Ok(outcome) => outcome.into_failure(),
         Err(payload) => Some(Failure::Panicked { message: payload_text(&*payload) }),
     }
-}
-
-pub(crate) fn payload_text(payload: &(dyn Any + Send)) -> String {
-    payload
-        .downcast_ref::<&str>()
-        .map(|text| (*text).to_string())
-        .or_else(|| payload.downcast_ref::<String>().cloned())
-        .unwrap_or_else(|| "non-text panic payload".to_string())
 }
 
 #[cfg(test)]

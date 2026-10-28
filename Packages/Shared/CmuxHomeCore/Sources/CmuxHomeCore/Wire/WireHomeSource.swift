@@ -409,9 +409,10 @@ public actor WireHomeSource: HomeSource {
 
     /// The UTF-16 range of `length` characters from character `start` of `text`.
     static func utf16Range(in text: String, characterStart start: Int, length: Int) -> Range<Int>? {
-        guard start >= 0, start + length <= text.count else { return nil }
-        let lower = text.index(text.startIndex, offsetBy: start)
-        let upper = text.index(lower, offsetBy: length)
+        guard start >= 0, length >= 0,
+              let lower = text.index(text.startIndex, offsetBy: start, limitedBy: text.endIndex),
+              let upper = text.index(lower, offsetBy: length, limitedBy: text.endIndex)
+        else { return nil }
         let from = text.utf16.distance(from: text.utf16.startIndex, to: lower)
         return from..<(from + text.utf16.distance(from: lower, to: upper))
     }

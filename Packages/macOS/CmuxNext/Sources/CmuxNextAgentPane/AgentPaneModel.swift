@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextCompat
+public import CmuxNextPages
 public import CmuxNextSettings
 public import CmuxNextWakeups
 public import Foundation
@@ -29,15 +30,13 @@ public final class AgentPaneModel {
 
     /// Called when the page switches to or creates a session, so the App can keep it with the tab.
     @ObservationIgnored public var onSessionChange: ((String) -> Void)?
-    /// Called when acpmux reports the agent the pane's session runs (its `session/new` or
-    /// `_acpmux/attach` reply; ``AcpmuxPaneSessions/harness(of:)``), so the App records the
-    /// harness on the tab (cx-w4bbw). Only for the session the pane shows.
-    @ObservationIgnored public var onSessionHarness: ((_ session: String) -> Void)?
     @ObservationIgnored public var onUnsentDraft: ((String) -> Void)? // a new chat's typed text, until it has a session
     /// Reports each settled scroll and returns the native display settings to the page.
     @ObservationIgnored public var onFramePacing: (([Double]) -> [String: Any])?
     /// Applies the page's adaptive rendering decision.
     @ObservationIgnored public var onRenderRate: ((Bool) -> Void)?
+    /// Receives each key-to-paint histogram the page's probe posts (``AgentPaneView/keyToPaintReport``).
+    @ObservationIgnored public var onKeyToPaint: ((AgentPaneKeyToPaint) -> Void)?
     /// The new tab page this pane shows until it has a session (cleared then), nil for a plain chat.
     public private(set) var newTab: AgentPaneNewTab? { didSet { if (oldValue == nil) != (newTab == nil) { onNewTabChange?() } } }
     @ObservationIgnored var onNewTabChange: (() -> Void)? // it became or left a New Tab page (the view's bar on top)
@@ -108,6 +107,8 @@ public final class AgentPaneModel {
     /// The agent chat open that made this pane (its `create.tab` stages, ``ChatOpenStages``); nil for a pane made
     /// with no open (a restored one, the prewarmed New Tab page). Its page is made with it.
     @ObservationIgnored public var chatOpen: ChatOpenStages?
+    /// Who asks for its page (``PageOpenOrigin/launchRestore``: the launch restored the tab, p08-startup-041).
+    @ObservationIgnored public var pageOrigin: PageOpenOrigin = .user
     /// The last quit's state of this chat while the launch still reads it (``AgentPaneRelaunchWake/hand(_:to:)``):
     /// the page's first `ready` awaits it into ``pendingWake``.
     @ObservationIgnored public var wakeSource: (@MainActor () async -> AgentPaneWakeState?)?
@@ -228,12 +229,21 @@ public final class AgentPaneModel {
             guard let onConfirmHarness = self?.onConfirmHarness else { return answer(false) }
             onConfirmHarness(prompt, answer)
         }
-        transport.sessions.onHarness { [weak self] session, _ in
-            // task-owner: one hop to the main actor per reply that names a session's harness
-            Task { @MainActor in
-                guard let self, session == self.sessionId else { return }
-                self.onSessionHarness?(session)
-            }
+    }
+
+    /// Calls `handler` when acpmux reports the agent the pane's session runs (its `session/new` or
+    /// `_acpmux/attach` reply; ``AcpmuxPaneSessions/harness(of:)``), so the App records the harness on
+    /// the tab (cx-w4bbw). Only for the session the pane shows. The reply is read on the socket's
+    /// queue; each report reaches the main actor as one `visible` task on `mainWork` (the tab's mark
+    /// shows it, and the daemon, not the person, caused it).
+    public func followSessionHarness(on mainWork: MainWorkScheduler, _ handler: @escaping @MainActor @Sendable (_ session: String) -> Void) {
+        let owner = mainWork.board.owner("AgentPaneModel.sessionHarness")
+        let report: @MainActor @Sendable (String) -> Void = { [weak self] session in
+            guard let self, session == self.sessionId else { return }
+            handler(session)
+        }
+        transport.sessions.onHarness { session, _ in
+            mainWork.postFromAnyThread(.visible, owner: owner) { report(session) }
         }
     }
 
@@ -267,7 +277,7 @@ public final class AgentPaneModel {
     public func respond(to request: AgentPaneRequest) async -> [String: Any] {
         switch request {
         // Boot traffic, and a request the host refused (it changed nothing), leave it untouched.
-        case .ready, .reconnect, .uiPointerReport, .framePacing, .renderRate, .checkpointAvailability, .painted, .newTabInputReady, .newTabContext, .newTabWarm, .unsupported,
+        case .ready, .reconnect, .uiPointerReport, .framePacing, .renderRate, .keyToPaint, .checkpointAvailability, .painted, .newTabInputReady, .newTabContext, .newTabWarm, .unsupported,
              .transportOpen, .transportSend, .transportClose, .transportGesture, .transportGestureRelease, .chatsPage, .quickFloatingState, .quickContext,
              .tabRowTools, .projectIcon, .environment(.list): break
         case .reply(let reply) where reply.isPassive: break
@@ -291,6 +301,9 @@ public final class AgentPaneModel {
             return AgentPaneReply.success(onFramePacing?(intervals) ?? [:])
         case .renderRate(let full):
             onRenderRate?(full)
+            return AgentPaneReply.success()
+        case .keyToPaint(let report):
+            onKeyToPaint?(report)
             return AgentPaneReply.success()
         case .painted(let fromKeptTail):
             AgentPaneLaunchTimings.shared.mark(newTab != nil ? "agent_pane.newtab_painted" : "agent_pane.painted")

@@ -31,11 +31,18 @@ extension HomeStore {
         viewCache.setScrollAnchor(anchor, for: id)
     }
 
-    /// The cache's conversations and sends in `rows` now, before `start()` connects: a view built
-    /// before the store starts (the Home list at launch) draws its first frame complete. Idempotent.
-    public func primeFromCache() {
-        guard !stopped else { return }
-        restoreCache()
+    /// The cache's conversations and sends in `rows` now, before `start()` connects, from `snapshot`:
+    /// a ``HomeCache/load()`` made on another thread (the Mac's launch read), so a view built before the
+    /// store starts (the Home list at launch) draws its first frame complete and no file is read here.
+    /// Once per store: a later `start()` does not read the cache again. A draft, attachment list or scroll
+    /// anchor set before it is kept over the snapshot's; a store made with `waitsForPrime` writes nothing
+    /// before it, so the file is never replaced by a store that has not shown it.
+    ///
+    /// - Parameter snapshot: What the cache held; nil when it held nothing (the store starts empty).
+    public func primeFromCache(_ snapshot: HomeCacheSnapshot?) {
+        guard !stopped, !cacheRestored else { return }
+        cacheRestored = true
+        restore(snapshot)
     }
 
     /// Writes the coalesced cache batch now and waits until it is on disk (the app's quit save
@@ -44,13 +51,18 @@ extension HomeStore {
         await viewCache.flush()
     }
 
-    /// Shows what the cache holds before the owner answers. Once per store: the Home list calls it
-    /// before its first frame (``primeFromCache()``), `start()` again.
+    /// Shows what the cache holds before the owner answers: `start()` reads it, unless the store was
+    /// primed with a snapshot (``primeFromCache(_:)``) and reads nothing. Once per store.
     func restoreCache() {
         guard !cacheRestored else { return }
         cacheRestored = true
-        guard let snapshot = cache?.load() else { return }
-        viewCache.restore(snapshot) {
+        restore(cache?.load())
+    }
+
+    /// Seeds the mirror, the log and the client's view state from `snapshot` (nil: the cache held
+    /// nothing). The callers mark the cache restored first (once per store).
+    private func restore(_ snapshot: HomeCacheSnapshot?) {
+        viewCache.restore(snapshot) { snapshot in
             mirror.seed(snapshot)
             seeded = Set(mirror.conversations.keys)
             me = mirror.me

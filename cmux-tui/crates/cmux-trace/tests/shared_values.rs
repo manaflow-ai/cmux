@@ -49,13 +49,16 @@ fn roles_match_the_ring_v1_header_table() {
         (Role::Acpmux, 5),
         (Role::ChromiumHost, 6),
         (Role::Cli, 7),
+        (Role::AgentHost, 8),
+        (Role::AppHost, 9),
+        (Role::BrowserHost, 10),
     ];
     for (role, raw) in roles {
         assert_eq!(role as u16, raw, "{role:?}");
         assert_eq!(Role::from_raw(raw), Some(role));
     }
     assert_eq!(Role::from_raw(0), None);
-    assert_eq!(Role::from_raw(8), None);
+    assert_eq!(Role::from_raw(11), None);
 }
 
 #[test]

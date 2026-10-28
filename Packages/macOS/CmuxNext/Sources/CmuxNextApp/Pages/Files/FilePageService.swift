@@ -1,3 +1,4 @@
+import struct CmuxSafeConcurrency.OwnerReference
 import AppKit
 import CmuxNextActions
 import CmuxNextBridge
@@ -48,8 +49,9 @@ final class FilePageService: InternalPageProvider {
     }
 
     let kind: FilePageKind
-    // crash-allow: AppServices owns this service for the app's whole life (ViewerService's lazy page services), so it outlives it.
-    unowned let services: AppServices
+    private let servicesReference: OwnerReference<AppServices>
+    /// The app's services, which own this; nil (reported) only once they are gone.
+    var services: AppServices? { servicesReference.resolve() }
     let clock: any Clock<Duration>
     private let images: any RemoteImageFetching
     var tabs: [String: Tab] = [:]
@@ -57,15 +59,27 @@ final class FilePageService: InternalPageProvider {
     private let tableWidths: (any MarkdownTableWidthStoring)?
     /// Where the markdown tabs keep viewer comments (viewer-comments-DESIGN.md "Comments in the viewer").
     private let comments: (any MarkdownCommentStoring)?
-    private(set) lazy var look = FilePageLook(kind: kind, settings: { [weak services] in services?.settings })
+    private(set) lazy var look = FilePageLook(kind: kind, settings: { [servicesReference] in servicesReference.resolve()?.settings },
+                                              mainWork: mainWork, work: work)
     /// The documents of the R96 quit hook (one per file, shared with the other file page).
     let documents: FileQuitDocuments
     /// Files whose draft is over the store's limit and that already said so.
     var warnedTooLarge: Set<String> = []
     /// Pages saving or reporting their last edits after their tab closed or was discarded.
-    var flushing: [Task<Void, Never>] = []
+    var flushing: [UUID: Task<Void, Never>] = [:]
+    /// Replies to the tabs' async calls (a selection read, an open), each on its tab's node queue: held
+    /// while the tab is hidden, dropped when it closes.
+    private(set) lazy var replies = PageTabReplies(owner: "\(kind.namespace).page-reply", on: mainWork) { [servicesReference] key in
+        servicesReference.resolve().map { $0.cache.node(for: $0.pages.stripTab(ofKey: key)) }
+    }
     /// The local live links of the Markdown Share menu, started on the first link.
-    private(set) lazy var liveShare = MarkdownLiveShareServer(clock: clock, work: services.work)
+    private(set) lazy var liveShare = MarkdownLiveShareServer(work: work, deadlines: mainDeadlines)
+    /// The app's background work (``AppServices/work``), which the live share server runs on.
+    private let work: BackgroundWork
+    /// The app's main-thread work scheduler (``AppServices/mainWork``), read when the service is made.
+    private let mainWork: MainWorkScheduler
+    /// The app's main-thread deadlines (``AppServices/mainDeadlines``), which the live share server's timers use.
+    private let mainDeadlines: MainDeadlineScheduler
 
     /// The file pages draw at the display's full rate, as the diff and agent pages do.
     static let engineOptions = PageEngineOptions(fullFrameRate: true)
@@ -75,7 +89,10 @@ final class FilePageService: InternalPageProvider {
     init(services: AppServices, kind: FilePageKind, clock: any Clock<Duration> = ContinuousClock(),
          images: (any RemoteImageFetching)? = nil, documents: FileQuitDocuments? = nil,
          tableWidths: (any MarkdownTableWidthStoring)? = nil) {
-        self.services = services
+        servicesReference = OwnerReference(services: services)
+        work = services.work
+        mainWork = services.mainWork
+        mainDeadlines = services.mainDeadlines
         self.tableWidths = kind == .markdown
             ? tableWidths ?? MarkdownTableWidthRepository(fallback: MarkdownTableWidthRepository.defaultFallbackDirectory())
             : nil
@@ -145,6 +162,7 @@ final class FilePageService: InternalPageProvider {
     func open(_ file: URL, in pane: PaneController, focus: Bool, userChose: Bool = true, readOnly: Bool = false,
               recoveredText: String? = nil, at position: FilePosition? = nil,
               placed: (@MainActor (SurfaceID) -> Void)? = nil) -> String {
+        guard let services else { return "" }
         let real = file.standardizedFileURL.resolvingSymlinksInPath()
         if userChose { services.viewers.recents.record(real, as: kind.recents) }
         let reveal = kind == .editor ? position : nil
@@ -207,6 +225,7 @@ final class FilePageService: InternalPageProvider {
     /// tab that already shows the file, or a local tab no move can take, shows where it is.
     private func show(in pane: PaneController, focus: Bool, placed: (@MainActor (SurfaceID) -> Void)? = nil, _ tab: Tab,
                       matching: (String) -> Bool) -> String {
+        guard let services else { return "" }
         let window = services.windowController(showing: pane)
         let revealsExisting = focus || placed != nil
         for candidate in window?.content?.panes.values.map({ $0 }) ?? [pane] {
@@ -242,6 +261,7 @@ final class FilePageService: InternalPageProvider {
     }
 
     private func reveal(_ key: String, in pane: PaneController) {
+        guard let services else { return }
         pane.select(services.pages.stripID(showing: key, in: pane) ?? StripTabID(key))
         pane.focusContent()
     }
@@ -256,11 +276,12 @@ final class FilePageService: InternalPageProvider {
         if let previous = tabs[key]?.file, previous != url { left(previous, tab: key) }
         tabs[key]?.file = url
         tabs[key]?.bar?.show(url)
-        if let pane = services.paneController(showingTab: key) { pane.apply(pane.snapshot()) }
+        if let pane = services?.paneController(showingTab: key) { pane.apply(pane.snapshot()) }
     }
 
     fileprivate func pane(of key: String) -> PaneController? {
-        services.paneController(showingTab: key) ?? services.windows.active?.focusedPane
+        guard let services else { return nil }
+        return services.paneController(showingTab: key) ?? services.windows.active?.focusedPane
     }
 
     // MARK: Host services for the tabs
@@ -270,6 +291,7 @@ final class FilePageService: InternalPageProvider {
     private(set) lazy var openConfirmation = FileOpenConfirmation()
 
     func isRecent(_ path: String) -> Bool {
+        guard let services else { return false }
         let recents = services.viewers.recents
         return recents.paths(.markdown).contains(path) || recents.paths(.file).contains(path)
     }
@@ -277,6 +299,7 @@ final class FilePageService: InternalPageProvider {
     /// A web link clicked in the page: the link setting (``LinkRouter``, cmux browser or the default
     /// browser) and, in cmux, beside the page's pane (``LinkOpener``).
     func openExternal(_ url: URL, from key: String) {
+        guard let services else { return }
         switch url.scheme?.lowercased() {
         case "http", "https":
             guard LinkRouter.shared.target(for: url) == .cmuxBrowser else { return LinkRouter.shared.open(url, in: .system) }
@@ -288,20 +311,22 @@ final class FilePageService: InternalPageProvider {
 
     /// A file link clicked in the page opens beside the page's pane (``LinkOpener``).
     func openFile(_ url: URL, from key: String) {
+        guard let services else { return }
         services.linkOpener.openFile(url, from: pane(of: key), markdown: FilePageKind.isMarkdown(url))
     }
 
     // MARK: InternalPageProvider
 
     func makeView(for key: String, in window: WindowController?) -> NSView {
+        guard let services else { return NSView() }
         // A store tab with no route (an empty tab, an older daemon) shows the empty state.
         var tab = tabs[key] ?? Tab(file: nil)
         let host = FilePageTabHost(service: self, key: key)
         let libraries = Bundle.main.resourceURL.map(PageDescriptor.markdownLibraries(inAppResources:))
         if tab.access != nil, tab.recoveredText == nil { tab.recoveredText = unsavedText(of: tab.file) }
         let provider = FilePageProvider(kind: kind, file: tab.file, userChose: tab.userChose, readOnly: tab.readOnly, access: tab.access,
-                                        host: host, clock: clock, libraries: libraries, images: images, tableWidths: tableWidths,
-                                        comments: comments)
+                                        host: host, libraries: libraries, images: images, tableWidths: tableWidths,
+                                        comments: comments, deadlines: services.mainDeadlines, work: services.work)
         provider.recoveredText = tab.recoveredText
         provider.reveal = tab.reveal
         provider.viewState = tab.viewState
@@ -336,6 +361,7 @@ final class FilePageService: InternalPageProvider {
     /// The Markdown omnibar above a markdown tab's page (plans/cmux-next/markdown-omnibar-DESIGN.md):
     /// the browser's omnibar row showing the file's path, its git state and the Share menu.
     func makeTopBar(for key: String) -> NSView? {
+        guard let services else { return nil }
         guard kind == .markdown, let tab = tabs[key], let page = tab.page else { return nil }
         let actions = MarkdownOmnibarActions(
             open: { [weak self] url, disposition in self?.omnibarOpen(url, disposition: disposition, from: key) },
@@ -367,10 +393,10 @@ final class FilePageService: InternalPageProvider {
         provider.userChose(file)
         // A tab showing a file keeps its history: the page opens the typed one as the next entry.
         if provider.file != nil, page.send(command: MarkdownPageCommand.open, arguments: ["text": .string(file.path)]) { return }
-        // task-owner: one open of the typed file; ends when the tab shows it or refuses it
-        Task {
-            guard (try? await provider.open(url)) != nil else { return NSSound.beep() }
-            page.reload()
+        // The open, then the reload (or the refusal's beep) as a reply on the tab's queue.
+        replies.reply(for: key) { (try? await provider.open(url)) != nil } apply: { [weak page] opened in
+            guard opened else { return NSSound.beep() }
+            page?.reload()
         }
     }
 
@@ -389,6 +415,7 @@ final class FilePageService: InternalPageProvider {
     func tabClosed(_ key: String) {
         guard let tab = tabs[key] else { return }
         tabs[key] = nil
+        replies.close(key)
         letPageGo(tab, key: key, closing: true)
     }
 
@@ -408,7 +435,10 @@ final class FilePageService: InternalPageProvider {
         // answers. Past the timeout the page closes, which fails the pending call. A document no
         // other tab shows then leaves the quit hook; edits that did not save are dropped with it
         // (a close without saving removes the draft). A discarded tab keeps them for its next page.
-        let clock = clock, provider = tab.provider, op = kind.op("flush"), documents = documents, holder = holder(key)
+        // The call goes through the page's router (main-actor isolated, so Sendable); the page view is not
+        // Sendable and only the main-actor teardown holds it.
+        let clock = clock, timeout = Self.flushTimeout, provider = tab.provider, op = kind.op("flush"), documents = documents,
+            holder = holder(key), router = page.router
         // Each closure is assigned on its own: in a `?:` the literals get no @Sendable from the
         // annotation, so they would be non-Sendable values converted afterwards.
         let finish: @MainActor @Sendable () -> Void
@@ -417,23 +447,17 @@ final class FilePageService: InternalPageProvider {
         } else {
             finish = { [weak self] in self?.settleDiscard(key, file: file) }
         }
-        let flush = Task { @MainActor in
-            let deadline = Task { @MainActor in
-                // wakeup-allow: bounded one flush wait on tab close, cancelled when the page answers
-                do { try await clock.sleep(for: Self.flushTimeout, tolerance: WakeLeeway.window(delay: Self.flushTimeout).tolerance) } catch { return }
-                page.close()
-            }
-            _ = try? await page.router.callPage(op, params: .object([:]))
-            deadline.cancel()
+        let id = UUID()
+        // The page's answer or the timeout, whichever comes first (a flexible, no-sooner request deadline); closing
+        // the page then fails a call still pending. The teardown is a reply with no tab: the tab closed or was
+        // discarded, and its page goes whether or not anything shows. It leaves `flushing` when it ran.
+        flushing[id] = replies.reply(for: nil) {
+            _ = await Deadline(timeout, clock: clock).value("files.flush") { try? await router.callPage(op, params: .object([:])) }
+        } apply: { [weak self] _ in
             page.close()
             provider?.close()
             finish()
-        }
-        flushing.append(flush)
-        // task-owner: drops the finished flush from `flushing`
-        Task { [weak self] in
-            await flush.value
-            self?.flushing.removeAll { $0 == flush }
+            self?.flushing[id] = nil
         }
     }
 

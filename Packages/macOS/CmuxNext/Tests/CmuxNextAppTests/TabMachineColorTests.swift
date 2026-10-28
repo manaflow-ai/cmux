@@ -29,7 +29,7 @@ struct TabMachineColorTests {
         #expect(badge == "huge-blue" && sidebar == "lab", "the badge shows the destination, the sidebar the label")
         #expect(machines.tabColorName(id, badge: badge) == "lab", "a terminal tab on the host")
         // A remote-localhost browser tab badges the machine's localhost with the same short name.
-        let localhost = RemoteLocalhostService(machines: machines, environment: [:])
+        let localhost = RemoteLocalhostService(machines: machines, mainWork: MainWorkScheduler(budget: MainFrameBudget()), environment: [:])
         let browser = localhost.machineName(of: try #require(machines.anyDaemon(machine: id)))
         #expect(machines.tabColorName(id, badge: browser) == "lab", "a browser tab seeing the host's localhost")
     }

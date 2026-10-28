@@ -261,7 +261,7 @@ async fn folder_answered(
     web: bool,
 ) -> Result<(), RpcError> {
     let asked = cwd.clone();
-    let read = tokio::task::spawn_blocking(move || {
+    let read = crate::daemon::spawn_blocking(move || {
         if web {
             crate::trust::web_session_level(&paths, &cwd, &family)
         } else {
@@ -289,7 +289,7 @@ pub(super) async fn answer(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Va
     let level = params.get("level").and_then(Value::as_str).map(str::to_owned);
     let setting = m == method::ACP_TRUST_SET;
     let gate = hub.trust_gate();
-    let reply = tokio::task::spawn_blocking(move || {
+    let reply = crate::daemon::spawn_blocking(move || {
         let paths = gate
             .or_else(crate::trust::Paths::current)
             .ok_or_else(|| crate::trust::Failure::Record("no home directory".into()))?;

@@ -106,8 +106,13 @@ await requireBrowserLane("running-wave-loops.test.ts", async () => {
     }
   });
 
-  test("the motion gate, static indicators, Reduce Motion and a hidden page stop it", async () => {
-    for (const payload of [{ motion: "off" }, { motion: "reduced" }, { statusIndicators: "static" }]) {
+  test("the motion gate, Energy Saver, static indicators, Reduce Motion and a hidden page stop it", async () => {
+    for (const payload of [
+      { motion: "off" },
+      { motion: "reduced" },
+      { energy: "saver" },
+      { statusIndicators: "static" },
+    ]) {
       const p = await page("no-preference");
       expect((await waves(p)).length).toBe(2);
       await setTheme(p, payload);

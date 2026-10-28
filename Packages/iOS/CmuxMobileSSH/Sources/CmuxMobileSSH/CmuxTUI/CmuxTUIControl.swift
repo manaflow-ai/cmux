@@ -124,7 +124,7 @@ public actor CmuxTUIControl {
 
     /// Every workspace with its PTY terminals.
     public func listWorkspaces() async throws -> [CmuxTUIWorkspace] {
-        try await request("list-workspaces", as: CmuxTUITreeWire.self).model
+        try await request(.listWorkspaces, as: CmuxTUITreeWire.self).model
     }
 
     /// Creates a workspace, optionally with one terminal sized to the phone.
@@ -138,7 +138,7 @@ public actor CmuxTUIControl {
     ) async throws -> CmuxTUICreatedWorkspace {
         var params: [String: CmuxTUIWireValue] = [:]
         if let name { params["name"] = .string(name) }
-        let created = try await request("create-workspace", params, as: CmuxTUIWorkspaceMutationWire.self)
+        let created = try await request(.createWorkspace, params, as: CmuxTUIWorkspaceMutationWire.self)
         var result = CmuxTUICreatedWorkspace(workspace: created.workspace, key: created.key, terminal: nil)
         if withTerminal {
             result.terminal = try await createTerminal(inWorkspace: created.key, cols: cols, rows: rows, cwd: cwd, command: command)
@@ -164,12 +164,12 @@ public actor CmuxTUIControl {
         if let cwd { params["cwd"] = .string(cwd) }
         if let command { params["command"] = .string(command) }
         if let name { params["name"] = .string(name) }
-        return try await request("create-terminal", params, as: CmuxTUICreateTerminalWire.self).model
+        return try await request(.createTerminal, params, as: CmuxTUICreateTerminalWire.self).model
     }
 
     /// Renames the workspace with stable `key`.
     public func renameWorkspace(key: String, name: String) async throws {
-        _ = try await request("rename-workspace", ["key": .string(key), "name": .string(name)], as: CmuxTUIWorkspaceMutationWire.self)
+        _ = try await request(.renameWorkspace, ["key": .string(key), "name": .string(name)], as: CmuxTUIWorkspaceMutationWire.self)
     }
 
     /// Closes a workspace. `close-workspace` only removes views, leaving the
@@ -182,7 +182,7 @@ public actor CmuxTUIControl {
                 try await closeTerminal(resourceID: resourceID)
             }
         }
-        _ = try await request("close-workspace", ["key": .string(key)], as: CmuxTUIWorkspaceMutationWire.self)
+        _ = try await request(.closeWorkspace, ["key": .string(key)], as: CmuxTUIWorkspaceMutationWire.self)
     }
 
     /// Terminates and tombstones a terminal (resource API `terminal.close`).
@@ -210,13 +210,13 @@ public actor CmuxTUIControl {
         attachments[surface] = continuation
         do {
             let result = try await request(
-                "attach-surface",
+                .attachSurface,
                 ["surface": .int(surface), "mode": .string("bytes"), "cols": .int(cols), "rows": .int(rows)],
                 as: CmuxTUIAttachResultWire.self
             )
             if claimGeometry {
                 try await request(
-                    "set-client-sizing",
+                    .setClientSizing,
                     ["surface": .int(surface), "enabled": .bool(true), "exclusive": .bool(true)],
                     as: CmuxTUIEmpty.self
                 )
@@ -230,7 +230,7 @@ public actor CmuxTUIControl {
 
     /// Writes raw bytes to a surface's PTY input.
     public func send(_ bytes: Data, to surface: Int) async throws {
-        try await request("send", ["surface": .int(surface), "bytes": .string(bytes.base64EncodedString())], as: CmuxTUIEmpty.self)
+        try await request(.send, ["surface": .int(surface), "bytes": .string(bytes.base64EncodedString())], as: CmuxTUIEmpty.self)
     }
 
     /// Reports the phone's grid for an attachment. With geometry authority
@@ -240,10 +240,10 @@ public actor CmuxTUIControl {
         if let lease = attachment.lease {
             var params = size
             params["lease"] = .string(lease)
-            let result = try await request("resize-attached-view", params, as: CmuxTUIOutcomeWire.self)
+            let result = try await request(.resizeAttachedView, params, as: CmuxTUIOutcomeWire.self)
             return result.outcome.flatMap(CmuxTUIResizeOutcome.init(rawValue:)) ?? .passive
         }
-        let result = try await request("resize-surface", size, as: CmuxTUIOutcomeWire.self)
+        let result = try await request(.resizeSurface, size, as: CmuxTUIOutcomeWire.self)
         return result.accepted == true ? .applied : .passive
     }
 
@@ -258,7 +258,7 @@ public actor CmuxTUIControl {
         if let lease, serverSupports("view-attachment-detach-v1") {
             // The response is a cleanup fence: no frames for this stream follow it.
             _ = try await request(
-                "detach-attached-view",
+                .detachAttachedView,
                 ["surface": .int(surface), "lease": .string(lease)],
                 as: CmuxTUIOutcomeWire.self
             )
@@ -293,7 +293,7 @@ public actor CmuxTUIControl {
             params["rows"] = .int(max(1, rows))
         }
         do {
-            let result = try await request("attach-surface", params, as: CmuxTUIAttachResultWire.self)
+            let result = try await request(.attachSurface, params, as: CmuxTUIAttachResultWire.self)
             return CmuxTUIBrowserAttachment(control: self, surface: surface, lease: result.lease, events: stream)
         } catch {
             finishBrowserAttachment(surface, with: nil)
@@ -310,7 +310,7 @@ public actor CmuxTUIControl {
     /// Tells the server the bitmap carrying pointer `token` is on screen,
     /// which authorizes guarded pointer input against it.
     public func presentBrowserFrame(surface: Int, token: UInt64) async throws {
-        try await request("browser-frame-presented", ["surface": .int(surface), "frame_seq": .uint(token)], as: CmuxTUIEmpty.self)
+        try await request(.browserFramePresented, ["surface": .int(surface), "frame_seq": .uint(token)], as: CmuxTUIEmpty.self)
     }
 
     /// Sends a guarded mouse event at page CSS-pixel coordinates.
@@ -332,13 +332,13 @@ public actor CmuxTUIControl {
         ]
         if let button { params["button"] = .string(button) }
         if let clickCount { params["click_count"] = .int(clickCount) }
-        try await request("browser-mouse-guarded", params, as: CmuxTUIEmpty.self)
+        try await request(.browserMouseGuarded, params, as: CmuxTUIEmpty.self)
     }
 
     /// Sends a guarded vertical wheel event (positive `deltaY` scrolls down).
     public func browserWheel(surface: Int, x: Double, y: Double, deltaY: Double, token: UInt64) async throws {
         try await request(
-            "browser-wheel-guarded",
+            .browserWheelGuarded,
             ["surface": .int(surface), "x_px": .double(x), "y_px": .double(y), "delta_y_px": .double(deltaY), "frame_seq": .uint(token)],
             as: CmuxTUIEmpty.self
         )
@@ -346,7 +346,7 @@ public actor CmuxTUIControl {
 
     /// Inserts committed text at the page's focused element.
     public func browserInsertText(surface: Int, text: String) async throws {
-        try await request("browser-insert-text", ["surface": .int(surface), "text": .string(text)], as: CmuxTUIEmpty.self)
+        try await request(.browserInsertText, ["surface": .int(surface), "text": .string(text)], as: CmuxTUIEmpty.self)
     }
 
     /// Presses and releases one key.
@@ -359,16 +359,16 @@ public actor CmuxTUIControl {
             "modifiers": .int(key.modifiers),
         ]
         if let text = key.text { params["text"] = .string(text) }
-        try await request("browser-key-press", params, as: CmuxTUIEmpty.self)
+        try await request(.browserKeyPress, params, as: CmuxTUIEmpty.self)
     }
 
     /// Navigates to a URL (normalized by the browser runtime).
     public func browserNavigate(surface: Int, url: String) async throws {
-        try await request("browser-navigate", ["surface": .int(surface), "url": .string(url)], as: CmuxTUIEmpty.self)
+        try await request(.browserNavigate, ["surface": .int(surface), "url": .string(url)], as: CmuxTUIEmpty.self)
     }
 
     public func browser(_ navigation: CmuxTUIBrowserNavigation, surface: Int) async throws {
-        try await request(navigation.rawValue, ["surface": .int(surface)], as: CmuxTUIEmpty.self)
+        try await request(navigation.command, ["surface": .int(surface)], as: CmuxTUIEmpty.self)
     }
 
     /// Reports this view's cell grid for a browser. Returns whether the
@@ -376,7 +376,7 @@ public actor CmuxTUIControl {
     @discardableResult
     public func resizeBrowser(surface: Int, cols: Int, rows: Int) async throws -> Bool {
         let result = try await request(
-            "resize-surface",
+            .resizeSurface,
             ["surface": .int(surface), "cols": .int(max(1, cols)), "rows": .int(max(1, rows))],
             as: CmuxTUIOutcomeWire.self
         )
@@ -386,7 +386,7 @@ public actor CmuxTUIControl {
     /// The session's cell size in pixels. A browser's CSS viewport is its
     /// cell grid times this size; use it to turn a pixel viewport into cells.
     public func cellPixels() async throws -> (width: Int, height: Int) {
-        let result = try await request("get-cell-pixels", as: CmuxTUICellPixelsWire.self)
+        let result = try await request(.getCellPixels, as: CmuxTUICellPixelsWire.self)
         return (max(1, result.width_px), max(1, result.height_px))
     }
 
@@ -397,7 +397,7 @@ public actor CmuxTUIControl {
         subscription?.finish()
         subscription = continuation
         do {
-            try await request("subscribe", as: CmuxTUIEmpty.self)
+            try await request(.subscribe, as: CmuxTUIEmpty.self)
         } catch {
             continuation.finish()
             subscription = nil
@@ -409,17 +409,17 @@ public actor CmuxTUIControl {
     // MARK: - Requests
 
     @discardableResult
-    func request<T: Decodable>(_ command: String, _ params: [String: CmuxTUIWireValue] = [:], as type: T.Type) async throws -> T {
+    func request<T: Decodable>(_ command: CmuxTUICommand, _ params: [String: CmuxTUIWireValue] = [:], as type: T.Type) async throws -> T {
         var object = params
-        object["cmd"] = .string(command)
+        object["cmd"] = .string(command.rawValue)
         let line = try await roundTrip(object)
         let response = try CmuxTUIRawResponse<T>(cmuxTUILine: line)
         guard response.ok else {
-            throw CmuxTUIError.commandFailed(command: command, message: response.error ?? "unknown error", code: response.error_code)
+            throw CmuxTUIError.commandFailed(command: command.rawValue, message: response.error ?? "unknown error", code: response.error_code)
         }
         if let data = response.data { return data }
         if let empty = CmuxTUIEmpty() as? T { return empty }
-        throw CmuxTUIError.malformedResponse("\(command): missing data")
+        throw CmuxTUIError.malformedResponse("\(command.rawValue): missing data")
     }
 
     func requestV2<T: Decodable>(
@@ -486,7 +486,7 @@ public actor CmuxTUIControl {
     // MARK: - Handshake
 
     private func handshake(clientName: String) async throws {
-        let identify = try await request("identify", as: CmuxTUIIdentifyWire.self)
+        let identify = try await request(.identify, as: CmuxTUIIdentifyWire.self)
         let info = CmuxTUIServerInfo(
             app: identify.app,
             version: identify.version,
@@ -506,7 +506,7 @@ public actor CmuxTUIControl {
         serverInfo = info
         let offered = Self.clientCapabilities.filter(info.capabilities.contains)
         try await request(
-            "set-client-info",
+            .setClientInfo,
             ["name": .string(clientName), "kind": .string("ios"), "capabilities": .strings(offered)],
             as: CmuxTUIEmpty.self
         )
@@ -696,7 +696,7 @@ extension CmuxTUIControl {
         var params: [String: CmuxTUIWireValue] = ["surface": .int(surface)]
         // An omitted `idle_close_seconds` clears the policy.
         if let seconds { params["idle_close_seconds"] = .int(seconds) }
-        try await request("set-terminal-idle-policy", params, as: CmuxTUIEmpty.self)
+        try await request(.setTerminalIdlePolicy, params, as: CmuxTUIEmpty.self)
         return true
     }
 }

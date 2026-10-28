@@ -14,8 +14,11 @@ struct AccessTokenLifetime: Sendable, Equatable {
         var base64 = String(segments[1])
             .replacingOccurrences(of: "-", with: "+")
             .replacingOccurrences(of: "_", with: "/")
-        let remainder = base64.count % 4
-        if remainder > 0 { base64 += String(repeating: "=", count: 4 - remainder) }
+        switch base64.utf8.count % 4 {
+        case 2: base64 += "=="
+        case 3: base64 += "="
+        default: break // complete, or a remainder of 1 that no padding makes valid
+        }
         guard let data = Data(base64Encoded: base64),
               let claims = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let exp = (claims["exp"] as? NSNumber)?.doubleValue else { return nil }

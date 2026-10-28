@@ -10,11 +10,10 @@ use std::io;
 use std::os::fd::RawFd;
 
 /// What one child does before its exec, in this order: (macOS) set its QoS
-/// class, leave the session, change to its directory, set its open-file
-/// limit, reset its signals and mark every descriptor close-on-exec
-/// ([`DescriptorSweep`]), open its stdin path and make it the controlling
-/// terminal, place its inherited descriptors, install its process-group
-/// fence.
+/// class, leave the session, change to its directory, reset its signals and
+/// mark every descriptor close-on-exec ([`DescriptorSweep`]), open its stdin
+/// path and make it the controlling terminal, place its inherited
+/// descriptors, set its open-file limit, install its process-group fence.
 pub(crate) struct ChildSetup {
     pub(crate) new_session: bool,
     pub(crate) cwd_fd: Option<RawFd>,
@@ -61,9 +60,6 @@ impl ChildSetup {
                 return Err(io::Error::last_os_error());
             }
         }
-        if let Some(soft) = self.open_file_limit {
-            set_open_file_limit(soft)?;
-        }
         if let Some(sweep) = &self.sweep {
             reset_signals()?;
             // Before the descriptors below are placed: those must stay open.
@@ -104,6 +100,15 @@ impl ChildSetup {
                     return Err(io::Error::last_os_error());
                 }
             }
+        }
+        // Last, after every open and dup2 above: a soft limit at or below a
+        // descriptor already open is allowed and keeps it open, but each
+        // open and dup2 gets a number below the limit or fails (EMFILE,
+        // EBADF). The daemon raised its own limit and gives its shells the
+        // original one (macOS 256), and it can hold a descriptor at every
+        // number below that: set before them, the open of the slave failed.
+        if let Some(soft) = self.open_file_limit {
+            set_open_file_limit(soft)?;
         }
         if self.process_group_fence {
             install_process_group_fence()?;

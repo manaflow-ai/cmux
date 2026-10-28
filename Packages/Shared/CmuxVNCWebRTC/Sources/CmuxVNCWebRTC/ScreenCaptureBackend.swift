@@ -12,13 +12,17 @@ import ScreenCaptureKit
 /// this Mac's own keyboard and mouse. Needs Screen Recording and
 /// Accessibility for the host app.
 // Threads: SCStream's sample and error callbacks on the serial `queue`, start/select/stop on the host session's tasks,
-// the display-change callback on the main thread. Not a Mutex<State>: SCDisplay and SCStream are not Sendable, so a
-// checked Mutex could not hand a display or a stream out to the async capture calls that need them after the lock is
-// released; `lock` returns them and those calls run unlocked.
-// crash-allow: every mutable field is read and written only under `lock` (threads and why not a Mutex: above).
+// the display-change callback on the main thread. The lock is CmuxSafeConcurrency's `PlatformLock` beside the fields
+// (the lock under its Mutex, for a type that keeps its state beside the lock), not a Mutex<State>: SCDisplay and
+// SCStream are not Sendable, so a value inside a Mutex<State> could not be handed out to the async capture calls that
+// need it after the lock is released; `lock` returns them and those calls run unlocked.
+// crash-allow: every mutable field is read and written only inside `lock.withLock` (threads and lock shape: above).
 public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput, SCStreamDelegate, @unchecked Sendable {
-    private let lock = NSLock()
-    private let queue = DispatchQueue(label: "cmux.screen.capture", qos: .userInteractive)
+    // concurrency-allow: held only to read or swap fields and to register the display callback, never across a capture call or a wait.
+    private let lock = PlatformLock()
+    // User-initiated, not user-interactive: no local frame waits on it, a viewer on another device does
+    // (plans/cmux-next/threading-model.md, closed list).
+    private let queue = DispatchQueue(label: "cmux.screen.capture", qos: .userInitiated)
     private let log: @Sendable (String) -> Void
     private var displays: [SCDisplay] = []
     private var current = 0

@@ -1,0 +1,17 @@
+{
+  "appearance": {
+    "tabBarBackground": "retired"
+  },
+  "updates": {
+    "quietHours": "retired"
+  },
+  "tabs": {
+    "newTabKind": "retired",
+    "hiddenButtons": "retired",
+    "tabBar": {
+      "terminal": "retired",
+      "browser": "retired",
+      "agent": "retired"
+    }
+  }
+}

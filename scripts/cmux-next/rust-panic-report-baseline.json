@@ -1,0 +1,510 @@
+{
+ "_doc": "Report-only per-crate counts of the lab clippy run (rust_panic_ratchet.py --report-flags with CLIPPY_CONF_DIR=cmux-tui/lab/clippy) and of INVARIANT: allowances. Read only by --tracked-report; CI never reads it, so a count here is never a gate.",
+ "rows": [
+  "undocumented_unsafe_blocks",
+  "large_futures",
+  "await_holding_invalid_type",
+  "invariant_allows"
+ ],
+ "platform": "linux-x86_64",
+ "totals": {
+  "undocumented_unsafe_blocks": 509,
+  "large_futures": 78,
+  "await_holding_invalid_type": 0,
+  "invariant_allows": 0
+ },
+ "crates": {
+  "acpmux": {
+   "undocumented_unsafe_blocks": 31,
+   "large_futures": 70,
+   "await_holding_invalid_type": 0,
+   "invariant_allows": 0
+  },
+  "bindings-rust": {
+   "undocumented_unsafe_blocks": 11,
+   "large_futures": 0,
+   "await_holding_invalid_type": 0,
+   "invariant_allows": 0
+  },
+  "bindings-rust-daemon-client": {
+   "undocumented_unsafe_blocks": 0,
+   "large_futures": 0,
+   "await_holding_invalid_type": 0,
+   "invariant_allows": 0
+  },
+  "bindings-rust-sidebar": {
+   "undocumented_unsafe_blocks": 0,
+   "large_futures": 0,
+   "await_holding_invalid_type": 0,
+   "invariant_allows": 0
+  },
+  "chatmux-relay": {
+   "undocumented_unsafe_blocks": 68,
+   "large_futures": 3,
+   "await_holding_invalid_type": 0,
+   "invariant_allows": 0
+  },
+  "cmux-agent-pane-policy": {
+   "undocumented_unsafe_blocks": 0,
+   "large_futures": 0,
+   "await_holding_invalid_type": 0,
+   "invariant_allows": 0
+  },
+  "cmux-api-compat": {
+   "undocumented_unsafe_blocks": 0,
+   "large_futures": 0,
+   "await_holding_invalid_type": 0,
+   "invariant_allows": 0
+  },
+  "cmux-app-host": {
+   "undocumented_unsafe_blocks": 1,
+   "large_futures": 0,
+   "await_holding_invalid_type": 0,
+   "invariant_allows": 0
+  },
+  "cmux-app-manifest": {
+   "undocumented_unsafe_blocks": 0,
+   "large_futures": 0,
+   "await_holding_invalid_type": 0,
+   "invariant_allows": 0
+  },
+  "cmux-blocking": {
+   "undocumented_unsafe_blocks": 0,
+   "large_futures": 0,
+   "await_holding_invalid_type": 0,
+   "invariant_allows": 0
+  },
+  "cmux-browser-host": {
+   "undocumented_unsafe_blocks": 3,
+   "large_futures": 0,
+   "await_holding_invalid_type": 0,
+   "invariant_allows": 0
+  },
+  "cmux-build-identity": {
+   "undocumented_unsafe_blocks": 0,
+   "large_futures": 0,
+   "await_holding_invalid_type": 0,
+   "invariant_allows": 0
+  },
+  "cmux-chat-index": {
+   "undocumented_unsafe_blocks": 0,
+   "large_futures": 0,
+   "await_holding_invalid_type": 0,
+   "invariant_allows": 0
+  },
+  "cmux-chief": {
+   "undocumented_unsafe_blocks": 0,
+   "large_futures": 0,
+   "await_holding_invalid_type": 0,
+   "invariant_allows": 0
+  },
+  "cmux-cloud-cli": {
+   "undocumented_unsafe_blocks": 0,
+   "large_futures": 0,
+   "await_holding_invalid_type": 0,
+   "invariant_allows": 0
+  },
+  "cmux-cloud-wire": {
+   "undocumented_unsafe_blocks": 0,
+   "large_futures": 0,
+   "await_holding_invalid_type": 0,
+   "invariant_allows": 0
+  },
+  "cmux-coderouter": {
+   "undocumented_unsafe_blocks": 1,
+   "large_futures": 0,
+   "await_holding_invalid_type": 0,
+   "invariant_allows": 0
+  },
+  "cmux-config": {
+   "undocumented_unsafe_blocks": 0,
+   "large_futures": 0,
+   "await_holding_invalid_type": 0,
+   "invariant_allows": 0
+  },
+  "cmux-conversation": {
+   "undocumented_unsafe_blocks": 0,
+   "large_futures": 0,
+   "await_holding_invalid_type": 0,
+   "invariant_allows": 0
+  },
+  "cmux-encode": {
+   "undocumented_unsafe_blocks": 0,
+   "large_futures": 0,
+   "await_holding_invalid_type": 0,
+   "invariant_allows": 0
+  },
+  "cmux-features": {
+   "undocumented_unsafe_blocks": 0,
+   "large_futures": 0,
+   "await_holding_invalid_type": 0,
+   "invariant_allows": 0
+  },
+  "cmux-feed-core": {
+   "undocumented_unsafe_blocks": 0,
+   "large_futures": 0,
+   "await_holding_invalid_type": 0,
+   "invariant_allows": 0
+  },
+  "cmux-flow-trace": {
+   "undocumented_unsafe_blocks": 0,
+   "large_futures": 0,
+   "await_holding_invalid_type": 0,
+   "invariant_allows": 0
+  },
+  "cmux-focus-core": {
+   "undocumented_unsafe_blocks": 0,
+   "large_futures": 0,
+   "await_holding_invalid_type": 0,
+   "invariant_allows": 0
+  },
+  "cmux-git": {
+   "undocumented_unsafe_blocks": 0,
+   "large_futures": 0,
+   "await_holding_invalid_type": 0,
+   "invariant_allows": 0
+  },
+  "cmux-hang-watch": {
+   "undocumented_unsafe_blocks": 0,
+   "large_futures": 0,
+   "await_holding_invalid_type": 0,
+   "invariant_allows": 0
+  },
+  "cmux-history": {
+   "undocumented_unsafe_blocks": 0,
+   "large_futures": 0,
+   "await_holding_invalid_type": 0,
+   "invariant_allows": 0
+  },
+  "cmux-holder": {
+   "undocumented_unsafe_blocks": 0,
+   "large_futures": 0,
+   "await_holding_invalid_type": 0,
+   "invariant_allows": 0
+  },
+  "cmux-host": {
+   "undocumented_unsafe_blocks": 3,
+   "large_futures": 0,
+   "await_holding_invalid_type": 0,
+   "invariant_allows": 0
+  },
+  "cmux-ipc": {
+   "undocumented_unsafe_blocks": 0,
+   "large_futures": 0,
+   "await_holding_invalid_type": 0,
+   "invariant_allows": 0
+  },
+  "cmux-kitty-media": {
+   "undocumented_unsafe_blocks": 0,
+   "large_futures": 0,
+   "await_holding_invalid_type": 0,
+   "invariant_allows": 0
+  },
+  "cmux-layout-reducer": {
+   "undocumented_unsafe_blocks": 0,
+   "large_futures": 0,
+   "await_holding_invalid_type": 0,
+   "invariant_allows": 0
+  },
+  "cmux-link": {
+   "undocumented_unsafe_blocks": 0,
+   "large_futures": 0,
+   "await_holding_invalid_type": 0,
+   "invariant_allows": 0
+  },
+  "cmux-local-auth": {
+   "undocumented_unsafe_blocks": 0,
+   "large_futures": 0,
+   "await_holding_invalid_type": 0,
+   "invariant_allows": 0
+  },
+  "cmux-lock-rank": {
+   "undocumented_unsafe_blocks": 0,
+   "large_futures": 0,
+   "await_holding_invalid_type": 0,
+   "invariant_allows": 0
+  },
+  "cmux-memory": {
+   "undocumented_unsafe_blocks": 0,
+   "large_futures": 0,
+   "await_holding_invalid_type": 0,
+   "invariant_allows": 0
+  },
+  "cmux-mobile-core": {
+   "undocumented_unsafe_blocks": 0,
+   "large_futures": 0,
+   "await_holding_invalid_type": 0,
+   "invariant_allows": 0
+  },
+  "cmux-mobile-ffi": {
+   "undocumented_unsafe_blocks": 0,
+   "large_futures": 0,
+   "await_holding_invalid_type": 0,
+   "invariant_allows": 0
+  },
+  "cmux-motion": {
+   "undocumented_unsafe_blocks": 0,
+   "large_futures": 0,
+   "await_holding_invalid_type": 0,
+   "invariant_allows": 0
+  },
+  "cmux-mux2": {
+   "undocumented_unsafe_blocks": 0,
+   "large_futures": 0,
+   "await_holding_invalid_type": 0,
+   "invariant_allows": 0
+  },
+  "cmux-palette-ranker": {
+   "undocumented_unsafe_blocks": 2,
+   "large_futures": 0,
+   "await_holding_invalid_type": 0,
+   "invariant_allows": 0
+  },
+  "cmux-pane-protocol": {
+   "undocumented_unsafe_blocks": 0,
+   "large_futures": 0,
+   "await_holding_invalid_type": 0,
+   "invariant_allows": 0
+  },
+  "cmux-panic-log": {
+   "undocumented_unsafe_blocks": 0,
+   "large_futures": 0,
+   "await_holding_invalid_type": 0,
+   "invariant_allows": 0
+  },
+  "cmux-process": {
+   "undocumented_unsafe_blocks": 0,
+   "large_futures": 0,
+   "await_holding_invalid_type": 0,
+   "invariant_allows": 0
+  },
+  "cmux-pty": {
+   "undocumented_unsafe_blocks": 23,
+   "large_futures": 0,
+   "await_holding_invalid_type": 0,
+   "invariant_allows": 0
+  },
+  "cmux-rd-core": {
+   "undocumented_unsafe_blocks": 0,
+   "large_futures": 0,
+   "await_holding_invalid_type": 0,
+   "invariant_allows": 0
+  },
+  "cmux-rd-engine": {
+   "undocumented_unsafe_blocks": 0,
+   "large_futures": 0,
+   "await_holding_invalid_type": 0,
+   "invariant_allows": 0
+  },
+  "cmux-rd-proto": {
+   "undocumented_unsafe_blocks": 0,
+   "large_futures": 0,
+   "await_holding_invalid_type": 0,
+   "invariant_allows": 0
+  },
+  "cmux-relay": {
+   "undocumented_unsafe_blocks": 0,
+   "large_futures": 0,
+   "await_holding_invalid_type": 0,
+   "invariant_allows": 0
+  },
+  "cmux-remote": {
+   "undocumented_unsafe_blocks": 22,
+   "large_futures": 0,
+   "await_holding_invalid_type": 0,
+   "invariant_allows": 0
+  },
+  "cmux-remote-browser": {
+   "undocumented_unsafe_blocks": 0,
+   "large_futures": 0,
+   "await_holding_invalid_type": 0,
+   "invariant_allows": 0
+  },
+  "cmux-remote-protocol": {
+   "undocumented_unsafe_blocks": 0,
+   "large_futures": 0,
+   "await_holding_invalid_type": 0,
+   "invariant_allows": 0
+  },
+  "cmux-remote-transcript": {
+   "undocumented_unsafe_blocks": 0,
+   "large_futures": 0,
+   "await_holding_invalid_type": 0,
+   "invariant_allows": 0
+  },
+  "cmux-server": {
+   "undocumented_unsafe_blocks": 0,
+   "large_futures": 0,
+   "await_holding_invalid_type": 0,
+   "invariant_allows": 0
+  },
+  "cmux-server-core": {
+   "undocumented_unsafe_blocks": 0,
+   "large_futures": 0,
+   "await_holding_invalid_type": 0,
+   "invariant_allows": 0
+  },
+  "cmux-tasks": {
+   "undocumented_unsafe_blocks": 0,
+   "large_futures": 0,
+   "await_holding_invalid_type": 0,
+   "invariant_allows": 0
+  },
+  "cmux-tasks-core": {
+   "undocumented_unsafe_blocks": 0,
+   "large_futures": 0,
+   "await_holding_invalid_type": 0,
+   "invariant_allows": 0
+  },
+  "cmux-terminal-client": {
+   "undocumented_unsafe_blocks": 19,
+   "large_futures": 0,
+   "await_holding_invalid_type": 0,
+   "invariant_allows": 0
+  },
+  "cmux-terminal-iface": {
+   "undocumented_unsafe_blocks": 0,
+   "large_futures": 0,
+   "await_holding_invalid_type": 0,
+   "invariant_allows": 0
+  },
+  "cmux-terminal-sizing": {
+   "undocumented_unsafe_blocks": 0,
+   "large_futures": 0,
+   "await_holding_invalid_type": 0,
+   "invariant_allows": 0
+  },
+  "cmux-theme-tokens": {
+   "undocumented_unsafe_blocks": 0,
+   "large_futures": 0,
+   "await_holding_invalid_type": 0,
+   "invariant_allows": 0
+  },
+  "cmux-threads": {
+   "undocumented_unsafe_blocks": 0,
+   "large_futures": 0,
+   "await_holding_invalid_type": 0,
+   "invariant_allows": 0
+  },
+  "cmux-trace": {
+   "undocumented_unsafe_blocks": 0,
+   "large_futures": 0,
+   "await_holding_invalid_type": 0,
+   "invariant_allows": 0
+  },
+  "cmux-transport": {
+   "undocumented_unsafe_blocks": 0,
+   "large_futures": 0,
+   "await_holding_invalid_type": 0,
+   "invariant_allows": 0
+  },
+  "cmux-tui": {
+   "undocumented_unsafe_blocks": 78,
+   "large_futures": 5,
+   "await_holding_invalid_type": 0,
+   "invariant_allows": 0
+  },
+  "cmux-tui-cdp": {
+   "undocumented_unsafe_blocks": 0,
+   "large_futures": 0,
+   "await_holding_invalid_type": 0,
+   "invariant_allows": 0
+  },
+  "cmux-tui-cloud-conversations": {
+   "undocumented_unsafe_blocks": 0,
+   "large_futures": 0,
+   "await_holding_invalid_type": 0,
+   "invariant_allows": 0
+  },
+  "cmux-tui-core": {
+   "undocumented_unsafe_blocks": 16,
+   "large_futures": 0,
+   "await_holding_invalid_type": 0,
+   "invariant_allows": 0
+  },
+  "cmux-tui-hooks": {
+   "undocumented_unsafe_blocks": 3,
+   "large_futures": 0,
+   "await_holding_invalid_type": 0,
+   "invariant_allows": 0
+  },
+  "cmux-tui-image-paste": {
+   "undocumented_unsafe_blocks": 20,
+   "large_futures": 0,
+   "await_holding_invalid_type": 0,
+   "invariant_allows": 0
+  },
+  "cmux-tui-machine-agent-protocol": {
+   "undocumented_unsafe_blocks": 0,
+   "large_futures": 0,
+   "await_holding_invalid_type": 0,
+   "invariant_allows": 0
+  },
+  "cmux-tui-machine-protocol": {
+   "undocumented_unsafe_blocks": 0,
+   "large_futures": 0,
+   "await_holding_invalid_type": 0,
+   "invariant_allows": 0
+  },
+  "cmux-tui-platform": {
+   "undocumented_unsafe_blocks": 9,
+   "large_futures": 0,
+   "await_holding_invalid_type": 0,
+   "invariant_allows": 0
+  },
+  "cmux-tui-remote-access": {
+   "undocumented_unsafe_blocks": 0,
+   "large_futures": 0,
+   "await_holding_invalid_type": 0,
+   "invariant_allows": 0
+  },
+  "cmux-tui-util": {
+   "undocumented_unsafe_blocks": 0,
+   "large_futures": 0,
+   "await_holding_invalid_type": 0,
+   "invariant_allows": 0
+  },
+  "cmux-unix-socket": {
+   "undocumented_unsafe_blocks": 0,
+   "large_futures": 0,
+   "await_holding_invalid_type": 0,
+   "invariant_allows": 0
+  },
+  "cmux-wake": {
+   "undocumented_unsafe_blocks": 0,
+   "large_futures": 0,
+   "await_holding_invalid_type": 0,
+   "invariant_allows": 0
+  },
+  "cmux-weft": {
+   "undocumented_unsafe_blocks": 0,
+   "large_futures": 0,
+   "await_holding_invalid_type": 0,
+   "invariant_allows": 0
+  },
+  "cmux-wg": {
+   "undocumented_unsafe_blocks": 0,
+   "large_futures": 0,
+   "await_holding_invalid_type": 0,
+   "invariant_allows": 0
+  },
+  "cmux-worktree-care": {
+   "undocumented_unsafe_blocks": 0,
+   "large_futures": 0,
+   "await_holding_invalid_type": 0,
+   "invariant_allows": 0
+  },
+  "ghostty-vt": {
+   "undocumented_unsafe_blocks": 199,
+   "large_futures": 0,
+   "await_holding_invalid_type": 0,
+   "invariant_allows": 0
+  },
+  "ghostty-vt-sys": {
+   "undocumented_unsafe_blocks": 0,
+   "large_futures": 0,
+   "await_holding_invalid_type": 0,
+   "invariant_allows": 0
+  }
+ }
+}

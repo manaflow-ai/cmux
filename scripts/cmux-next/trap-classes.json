@@ -1,0 +1,46 @@
+{
+ "_doc": "Data of the trap classifier (crash_ratchet.py --classify and rust_panic_ratchet.py --classify, p10-stability-205, Q21). TrapClassifier.classify's docstring has the rules and their order; this file holds their data. paths: [{glob, class (input|invariant), reason}], matched by fnmatch on the repo-relative path (* also matches /), the first match decides. entries: {lang: {name: regex}} matched on a function's signature (from `func`/`init`/`fn` to its body's `{`): a decode entry point (Q14). byte_reads: {lang: {name: regex}} matched on a function's body or the hit's line: the code reads peer or file bytes. A function that matches either, and every function of the same file it calls by name, is input-reachable.",
+ "paths": [
+  {
+   "glob": "cmux-tui/crates/cmux-rd-proto/src/*",
+   "class": "input",
+   "reason": "the cmux.rd/1 wire formats: every type here is decoded from a peer's datagrams (lib.rs: 'Wire formats of the cmux remote desktop protocol'); an operand is a peer's bytes unless a mark says otherwise"
+  },
+  {
+   "glob": "cmux-tui/crates/cmux-tui-machine-protocol/src/*",
+   "class": "input",
+   "reason": "versioned wire types read from external machine providers over newline-delimited JSON"
+  },
+  {
+   "glob": "*/fuzz/*",
+   "class": "input",
+   "reason": "a fuzz target exists to feed outside bytes to a decoder"
+  }
+ ],
+ "entries": {
+  "swift": {
+   "decode_or_parse_func": "^func\\s+(?:decode|parse)\\w*",
+   "decodable_init": "^init\\s*[?!]?\\s*\\(\\s*from\\s+decoder\\s*:",
+   "byte_parameter": "^(?:func|init)\\b[^{]*\\(\\s*[^)]*:\\s*(?:inout\\s+)?(?:Data|\\[UInt8\\]|ArraySlice<UInt8>|UnsafeRawBufferPointer|UnsafeBufferPointer<UInt8>)\\b"
+  },
+  "rust": {
+   "q14_decode_fn": "^fn\\s+(?:decode|parse|from_bytes|read_frame|from_slice)\\w*",
+   "from_str_or_reader": "^fn\\s+(?:from_str|from_reader|deserialize)\\b",
+   "byte_slice_parameter": "^fn\\s+\\w+\\s*(?:<[^>]*>)?\\s*\\([^{]*:\\s*&\\s*(?:'\\w+\\s+)?(?:mut\\s+)?\\[u8\\]"
+  }
+ },
+ "byte_reads": {
+  "swift": {
+   "json_or_plist_decode": "\\b(?:JSONDecoder|JSONSerialization|PropertyListDecoder|PropertyListSerialization)\\b",
+   "raw_bytes": "\\b(?:loadUnaligned|withUnsafeBytes)\\b|\\.load\\(\\s*fromByteOffset",
+   "file_read": "\\b(?:Data|String|NSData|NSString)\\(\\s*contentsOf(?:File)?:|\\.(?:readDataToEndOfFile|readData\\(\\s*ofLength|readToEnd|read\\(\\s*upToCount)\\b",
+   "socket_read": "\\b(?:recv|recvfrom|recvmsg|read)\\(\\s*\\w+\\s*,"
+  },
+  "rust": {
+   "serde_decode": "\\b(?:serde_json|toml|postcard|bincode|rmp_serde|ciborium|serde_yaml)::(?:from_\\w+|deserialize\\w*)\\b",
+   "file_read": "\\bfs::(?:read|read_to_string)\\s*\\(",
+   "stream_read": "\\.(?:read_exact|read_to_end|read_to_string|read_line|read_buf)\\s*\\(|\\.read\\s*\\(\\s*&mut\\b|\\brecv_from\\s*\\(",
+   "byte_decode": "\\b(?:u8|u16|u32|u64|u128|i8|i16|i32|i64|i128|f32|f64)::from_(?:le|be|ne)_bytes\\b|\\bstr::from_utf8\\b|\\bString::from_utf8\\b"
+  }
+ }
+}

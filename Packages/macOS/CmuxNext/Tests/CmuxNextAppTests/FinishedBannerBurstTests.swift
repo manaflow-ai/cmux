@@ -84,15 +84,17 @@ struct FinishedBannerBurstTests {
         #expect(harness.showing == ["Claude finished", "Claude finished"])
     }
 
-    @Test func aFinishAfterTheWindowGetsItsOwnBanner() async throws {
+    /// p06-scheduler-339 (R-timer, event first): the window arms no timer; the next finish after it
+    /// finds it over on the clock alone.
+    @Test func aFinishAfterTheWindowGetsItsOwnBanner() throws {
         let harness = Harness()
         try harness.deliver(5, surface: 1, title: "Claude finished")
-        try await harness.clock.waitForSleeper()
-        harness.clock.advance(by: .seconds(11))
+        #expect(harness.clock.sleeperCount == 0, "the burst window armed a timer")
         let workspace = try #require(harness.service.locate(surface: SurfaceID(rawValue: 1), in: harness.store)).workspace.id
-        for _ in 0..<1000 where harness.service.finishedBursts.isOpen(workspace: workspace) {
-            await Task.yield()
-        }
+        harness.clock.advance(by: FinishedBannerBursts.window - .seconds(1))
+        #expect(harness.service.finishedBursts.isOpen(workspace: workspace), "the window ended early")
+        harness.clock.advance(by: .seconds(2))
+        #expect(!harness.service.finishedBursts.isOpen(workspace: workspace), "the window outlived its end")
         try harness.deliver(6, surface: 2, title: "Codex finished")
         #expect(harness.showing == ["Claude finished", "Codex finished"], "the window closed: no digest")
     }

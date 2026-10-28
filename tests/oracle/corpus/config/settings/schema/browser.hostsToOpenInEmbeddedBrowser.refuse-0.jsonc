@@ -1,0 +1,5 @@
+{
+  "browser": {
+    "hostsToOpenInEmbeddedBrowser": "localhost"
+  }
+}

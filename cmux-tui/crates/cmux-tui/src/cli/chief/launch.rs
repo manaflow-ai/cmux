@@ -253,6 +253,7 @@ fn spawn_brain(brain: &Path, home: &ChiefHome, socket: &Path, user: &str) -> std
     let mut child = command.spawn()?;
     let pid = child.id();
     // Reap it if it exits while this CLI still runs (a second brain exits 0).
+    // supervise-allow: reaps one Chief brain child for this CLI run; it ends when the child exits, and a panic leaves only that child to init.
     let _ = std::thread::Builder::new().name("chief-brain-reaper".into()).spawn(move || {
         let _ = child.wait();
     });

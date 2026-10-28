@@ -1,0 +1,9 @@
+{
+  "appearance": {
+    "surfaces": {
+      "agentPane": {
+        "opacity": 2
+      }
+    }
+  }
+}

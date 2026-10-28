@@ -3,6 +3,7 @@ import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextDiff
 import CmuxNextSettings
+import CmuxNextWakeups
 import Observation
 
 /// The cmux.json keys every agent page shows, followed for ``AgentTabs``: `labs.previewFeatures`, `agentPane.needsYou.enabled`,
@@ -27,11 +28,14 @@ final class AgentPanePageSettings {
     private var reasoningSliderObservation: Task<Void, Never>?
     private var sidebarPreviewVariantObservation: Task<Void, Never>?
     private var diffColorsObservation: Task<Void, Never>?
+    /// Debug Settings' composer look (``AgentPaneComposerSetting/followLook(on:_:)``), replaced by each follow.
+    private var lookFollow: AnyObject?
     /// Where the composer's Hide or Show Context Usage writes (``setComposer(_:_:)``).
     private weak var settings: SettingsController?
 
-    /// Follows both keys in `settings`; `push` runs after each change, to reach the open views.
-    func follow(_ settings: SettingsController, push: @escaping () -> Void) {
+    /// Follows both keys in `settings`; `push` runs after each change, to reach the open views. `mainWork` is the
+    /// app's scheduler, which Debug Settings' composer look follows on.
+    func follow(_ settings: SettingsController, on mainWork: MainWorkScheduler, push: @escaping () -> Void) {
         for task in [previewObservation, editedFilesObservation, zoomObservation, composerObservation, reasoningSliderObservation, sidebarPreviewVariantObservation, diffColorsObservation, displayObservation] { task?.cancel() }  // a new controller replaces, never adds
         self.settings = settings
         // `sessions.promptSuggestions`: the pages, and the next acpmux daemon this app starts.
@@ -65,7 +69,7 @@ final class AgentPanePageSettings {
                 push()
             }
         }
-        AgentPaneComposerSetting.followLook(push) // Debug Settings' plain footer look
+        lookFollow = AgentPaneComposerSetting.followLook(on: mainWork, push) // Debug Settings' plain footer look
         // task-owner: lives as long as the tabs; event-driven (Observation)
         diffColorsObservation = Task { [weak self] in
             for await value in ObservationStream({ settings.fileRoot[DiffPrefKey.section]?["colors"] }) {

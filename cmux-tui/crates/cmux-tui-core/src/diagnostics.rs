@@ -10,8 +10,10 @@
 
 use std::collections::HashMap;
 use std::panic::Location;
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
+
+use cmux_trace::metrics::MetricsStore;
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
@@ -26,14 +28,19 @@ mod ipc;
 pub(crate) use ipc::note_json_parse;
 pub use ipc::{
     CountedWrite, IpcKindSnapshot, IpcParseSnapshot, IpcParsesSnapshot, IpcSnapshot, IpcStats,
-    IpcStreamsSnapshot, IpcTransport, IpcWritesSnapshot, JsonParseScope, OpenStream,
-    WRITE_STALL_THRESHOLD,
+    IpcStreamsSnapshot, IpcTransport, IpcWritesSnapshot, JsonParseHandoff, JsonParseScope,
+    OpenStream, WRITE_STALL_THRESHOLD,
 };
 mod owner_panic_log;
 #[cfg(debug_assertions)]
 pub use owner_panic_log::spawn_owner_hang_test;
-pub use owner_panic_log::{owner_hang_log_path, owner_panic_log_path};
+pub use owner_panic_log::{
+    HelperPanicLog, owner_hang_log_path, owner_log_dir, owner_panic_log_path,
+};
+mod diagnostic_sites;
+pub use diagnostic_sites::{DiagnosticSite, DiagnosticSites, MAX_DIAGNOSTIC_SITES};
 mod slow_requests;
+pub use cmux_tui_util::hang_watch::{HangRecord, HangsSnapshot};
 pub use slow_requests::{SlowRequest, SlowRequestFrame, SlowRequestsSnapshot};
 mod method_latency;
 pub use method_latency::{MethodLatencySnapshot, MethodLatencyStats, MethodName, MethodSample};
@@ -50,6 +57,8 @@ pub(crate) use daemon_locks::{LockSlot, lock_clock, timed_acquire};
 pub(crate) use daemon_locks::{lock_clock_reads, on_contended_lock};
 #[cfg(test)]
 mod bucket_golden_tests;
+mod persist;
+pub use persist::{DAEMON_CATALOG, DaemonMetrics, daemon_header, metrics_dir};
 mod write_path;
 pub(crate) use write_path::writer_took_registry_lock;
 pub use write_path::{WritePathSnapshot, WritePathStats};
@@ -70,11 +79,17 @@ const TOP_SITES: usize = 8;
 /// Log-linear histogram over `u64` samples. Each power of two is split into
 /// four linear sub-buckets, so any percentile it reports is the upper bound
 /// of a bucket at most 25% above the true sample.
+///
+/// [`Self::persist_into`] moves its counts into a histogram of the process's
+/// metrics file (`persist.rs`): records then go there and snapshots read
+/// them back, so `server-stats` and a reader of the file see the same memory.
 pub struct LogLinearHistogram {
     buckets: Box<[AtomicU64]>,
     count: AtomicU64,
     sum: AtomicU64,
     max: AtomicU64,
+    /// Set once by [`Self::persist_into`]; one acquire load per record.
+    persisted: OnceLock<persist::PersistedSlot>,
 }
 
 impl Default for LogLinearHistogram {
@@ -90,6 +105,7 @@ impl LogLinearHistogram {
             count: AtomicU64::new(0),
             sum: AtomicU64::new(0),
             max: AtomicU64::new(0),
+            persisted: OnceLock::new(),
         }
     }
 
@@ -115,41 +131,59 @@ impl LogLinearHistogram {
         ((1u64 << octave) - 1) + (sub + 1) * width
     }
 
+    #[allow(
+        clippy::indexing_slicing,
+        reason = "INVARIANT: bucket_index maps every u64 below BUCKETS (u64::MAX is 63 * 4 + 3)"
+    )]
     pub fn record(&self, value: u64) {
+        self.max.fetch_max(value, Ordering::Relaxed);
+        if let Some(slot) = self.persisted.get() {
+            slot.record(value);
+            return;
+        }
         self.buckets[Self::bucket_index(value)].fetch_add(1, Ordering::Relaxed);
         self.count.fetch_add(1, Ordering::Relaxed);
         let _ = self.sum.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |sum| {
             Some(sum.saturating_add(value))
         });
-        self.max.fetch_max(value, Ordering::Relaxed);
+    }
+
+    /// Records into histogram `index` of `store` from now on and adds the
+    /// counts recorded so far into it (a record racing the move may be lost,
+    /// as in the Swift store's adoption). False when it was persisted already,
+    /// or `index` is not a log-linear histogram of `store`.
+    pub fn persist_into(&self, store: &Arc<MetricsStore>, index: usize) -> bool {
+        let Some(slot) = persist::PersistedSlot::new(store, index) else { return false };
+        if self.persisted.set(slot).is_err() {
+            return false;
+        }
+        if let Some(slot) = self.persisted.get() {
+            for (bucket, counter) in self.buckets.iter().enumerate() {
+                let samples = counter.swap(0, Ordering::Relaxed);
+                if samples != 0 {
+                    slot.add_heap_bucket(bucket, samples);
+                }
+            }
+            let sum = self.sum.swap(0, Ordering::Relaxed);
+            slot.add_heap_sum(sum);
+            self.count.store(0, Ordering::Relaxed);
+        }
+        true
     }
 
     pub fn record_duration(&self, duration: Duration) {
         self.record(u64::try_from(duration.as_micros()).unwrap_or(u64::MAX));
     }
 
-    /// The bucket counts and their sum, read once.
-    fn counts(&self) -> (Vec<u64>, u64) {
-        let counts: Vec<u64> = self.buckets.iter().map(|b| b.load(Ordering::Relaxed)).collect();
-        let count = counts.iter().sum();
-        (counts, count)
-    }
-
-    /// The upper bound of the bucket that holds the sample of rank
-    /// `ceil(count * fraction)`; 0 for no samples.
-    fn percentile(counts: &[u64], count: u64, fraction: f64) -> u64 {
-        if count == 0 {
-            return 0;
+    /// The bucket counts, their sum and the samples' sum, read once: from the
+    /// metrics file once persisted.
+    fn counts(&self) -> Counts {
+        if let Some(slot) = self.persisted.get() {
+            return slot.counts(self.max.load(Ordering::Relaxed));
         }
-        let rank = ((count as f64) * fraction).ceil().max(1.0) as u64;
-        let mut seen = 0;
-        for (index, bucket) in counts.iter().enumerate() {
-            seen += bucket;
-            if seen >= rank {
-                return Self::bucket_upper_bound(index);
-            }
-        }
-        Self::bucket_upper_bound(BUCKETS - 1)
+        let buckets: Vec<u64> = self.buckets.iter().map(|b| b.load(Ordering::Relaxed)).collect();
+        let count = buckets.iter().sum();
+        Counts { buckets, count, sum: self.sum.load(Ordering::Relaxed), file_layout: None, max: 0 }
     }
 
     pub fn snapshot(&self) -> HistogramSnapshot {
@@ -158,28 +192,66 @@ impl LogLinearHistogram {
 
     /// [`Self::snapshot`] and the p95 from the same bucket counts.
     pub fn snapshot_with_p95(&self) -> (HistogramSnapshot, u64) {
-        let (counts, count) = self.counts();
+        let counts = self.counts();
         let snapshot = HistogramSnapshot {
-            count,
-            mean: self.sum.load(Ordering::Relaxed).checked_div(count).unwrap_or(0),
+            count: counts.count,
+            mean: counts.sum.checked_div(counts.count).unwrap_or(0),
             max: self.max.load(Ordering::Relaxed),
-            p50: Self::percentile(&counts, count, 0.50),
-            p90: Self::percentile(&counts, count, 0.90),
-            p99: Self::percentile(&counts, count, 0.99),
+            p50: counts.percentile(0.50),
+            p90: counts.percentile(0.90),
+            p99: counts.percentile(0.99),
         };
-        (snapshot, Self::percentile(&counts, count, 0.95))
+        (snapshot, counts.percentile(0.95))
     }
 
     /// p50, p95, p99 and max, the distribution every perf claim gives
     /// (bucket upper bounds, as [`Self::snapshot`]).
     pub fn percentiles(&self) -> PercentilesSnapshot {
-        let (counts, count) = self.counts();
+        let counts = self.counts();
         PercentilesSnapshot {
-            count,
-            p50: Self::percentile(&counts, count, 0.50),
-            p95: Self::percentile(&counts, count, 0.95),
-            p99: Self::percentile(&counts, count, 0.99),
+            count: counts.count,
+            p50: counts.percentile(0.50),
+            p95: counts.percentile(0.95),
+            p99: counts.percentile(0.99),
             max: self.max.load(Ordering::Relaxed),
+        }
+    }
+}
+
+/// A histogram's buckets read at one moment.
+struct Counts {
+    buckets: Vec<u64>,
+    count: u64,
+    sum: u64,
+    /// The metrics file's layout of `buckets`; None for the heap's 256
+    /// log-linear buckets.
+    file_layout: Option<cmux_trace::metrics::Layout>,
+    /// The largest sample: the file's overflow bucket has no upper bound.
+    max: u64,
+}
+
+impl Counts {
+    /// The upper bound of the bucket that holds the sample of rank
+    /// `ceil(count * fraction)`; 0 for no samples.
+    fn percentile(&self, fraction: f64) -> u64 {
+        if self.count == 0 {
+            return 0;
+        }
+        let rank = ((self.count as f64) * fraction).ceil().max(1.0) as u64;
+        let mut seen = 0;
+        for (index, bucket) in self.buckets.iter().enumerate() {
+            seen += bucket;
+            if seen >= rank {
+                return self.upper_bound(index);
+            }
+        }
+        self.upper_bound(self.buckets.len().saturating_sub(1))
+    }
+
+    fn upper_bound(&self, index: usize) -> u64 {
+        match self.file_layout {
+            None => LogLinearHistogram::bucket_upper_bound(index),
+            Some(layout) => layout.bucket_upper_bound(index).unwrap_or(self.max),
         }
     }
 }
@@ -749,6 +821,11 @@ pub struct ServerStatsSnapshot {
     /// when the request names `ipc_methods` in `include`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ipc_methods: Option<Vec<MethodLatencySnapshot>>,
+    /// Watched scopes of every kind (requests, journal commits, holder-link
+    /// frames, echo items) busy past 250 ms: the count since daemon start
+    /// and the newest records; present only when the request names `hangs`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hangs: Option<HangsSnapshot>,
 }
 
 pub const SERVER_STATS_SCHEMA: u32 = 1;

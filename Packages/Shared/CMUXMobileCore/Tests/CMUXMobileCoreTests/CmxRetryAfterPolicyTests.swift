@@ -89,6 +89,28 @@ import Testing
         #expect(completedChunks == [86_400, 86_400, 1])
         #expect(time.now == 172_801)
     }
+
+    @Test func eachRetryAfterChunkAsksForTenPercentToleranceCappedAtOneSecond() async throws {
+        let clock = WakeRecordingClock(.firesAtOnce)
+        try await CmxRetryAfterPolicy().sleep(seconds: 86_405) {
+            try await CmxRetryAfterPolicy.toleratedSleep(seconds: $0, on: clock)
+        }
+        #expect(await clock.nextWakes(2) == [
+            .init(wait: .seconds(86_400), tolerance: .seconds(1)),
+            .init(wait: .seconds(5), tolerance: .milliseconds(500)),
+        ])
+    }
+
+    @Test func theGateCooldownWaitAsksForTolerance() async throws {
+        let clock = WakeRecordingClock(.neverFires)
+        let gate = CmxRetryAfterGate(now: { 0 }, clock: clock)
+        await gate.extend(by: 5)
+        let waiting = Task { try await gate.wait() }
+        let wakes = await clock.nextWakes(1)
+        waiting.cancel()
+        await #expect(throws: CancellationError.self) { try await waiting.value }
+        #expect(wakes == [.init(wait: .seconds(5), tolerance: .milliseconds(500))])
+    }
 }
 
 private final class RetryAfterTestTime: @unchecked Sendable {

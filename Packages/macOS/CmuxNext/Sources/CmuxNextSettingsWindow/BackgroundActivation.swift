@@ -1,0 +1,99 @@
+public import AppKit
+public import CmuxNextActions
+import CmuxNextDesign
+public import CmuxNextWakeups
+
+/// Background mode (Leo 2026-10-13, cx-ghagp): with no cmux window open the
+/// app keeps running, since terminals and agents live in their daemons, as a
+/// menu bar app. The activation policy drops to accessory (no Dock icon, not
+/// in Cmd-Tab) and a menu bar item takes the Dock icon's place: Show cmux,
+/// New Window, Settings, Quit. Any window opening (Dock reopen from Finder or
+/// Spotlight, the menu bar item, a notification, the CLI, a URL, Settings)
+/// makes the app regular again before the window is ordered in, then
+/// activates it, so the window comes up in front with the keys and the menu
+/// bar. Panels (About, Start Agent, sign-in sheets) show without leaving the
+/// mode, like any menu bar app's.
+///
+/// The App's window manager owns one and supplies `mayEnter`: these are the
+/// process's own services (`AppProcessRoot`), so services a test builds leave
+/// the test process alone; no window is open; cmux is not quitting; and
+/// `app.hideDockIconWithoutWindows` is on (false keeps the old behavior:
+/// regular with no window).
+///
+/// Both later steps (the settle after a window change, the activation after a reopen) are the rest of
+/// the person's own window action, so each is one `userBlocking` task on the app's scheduler, on the
+/// next turn (Chrome's kUserBlocking, content/browser/scheduler/browser_task_queues.h).
+@MainActor
+public final class BackgroundActivation {
+    private let registry: ActionRegistry
+    private let icon: NSImage
+    private let mainWork: MainWorkScheduler
+    private let mayEnter: @MainActor () -> Bool
+    /// The menu bar item while in background mode.
+    private var item: NSStatusItem?
+    private var settlePending = false
+
+    /// `icon` is the menu bar item's image; its accessibility label is the app's name. `mainWork` is
+    /// the app's main-thread scheduler, where the settle and the activation after a reopen run.
+    public init(registry: ActionRegistry, icon: NSImage, mainWork: MainWorkScheduler, mayEnter: @escaping @MainActor () -> Bool) {
+        self.registry = registry
+        self.icon = icon
+        self.mainWork = mainWork
+        self.mayEnter = mayEnter
+        icon.accessibilityDescription = NSRunningApplication.current.localizedName
+    }
+
+    /// In background mode: accessory, with the menu bar item.
+    public var isBackground: Bool { item != nil }
+
+    /// A window closed: once nothing replaces it this turn (a tear-off, the
+    /// launch window handing over), no open window means background mode.
+    public func windowsDidChange() {
+        guard !settlePending else { return }
+        settlePending = true
+        mainWork.post(.userBlocking, owner: "BackgroundActivation.settle") { [weak self] in self?.settle() }
+    }
+
+    /// A shell window is about to be ordered in: leave background mode first,
+    /// so it comes in with the Dock icon and the menu bar. `activates` false
+    /// for a window opened behind (automation without view change).
+    public func windowWillAppear(activates: Bool) {
+        guard isBackground else { return }
+        hideItem()
+        guard NSApp.activationPolicy() == .accessory else { return }
+        let wasActive = NSApp.isActive
+        NSApp.setActivationPolicy(.regular)
+        guard activates, !WindowPlacement.noActivate else { return }
+        guard wasActive else { return WindowActivation.activateApp() }
+        // Active while accessory (a Finder or Spotlight reopen activates the
+        // app first): AppKit keeps showing no menu bar for an app made regular
+        // while active, until it is activated again.
+        NSApp.deactivate()
+        mainWork.post(.userBlocking, owner: "BackgroundActivation.reactivate") { WindowActivation.activateApp() }
+    }
+
+    private func settle() {
+        settlePending = false
+        guard !isBackground, mayEnter(), NSApp.activationPolicy() == .regular else { return }
+        NSApp.setActivationPolicy(.accessory)
+        showItem()
+    }
+
+    private func showItem() {
+        let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        statusItem.button?.image = icon
+        let menu = NSMenu()
+        for id: ActionID in ["showMainWindow", "newWindow", "openSettings"] {
+            if let entry = registry.makeMenuItem(for: id) { menu.addItem(entry) }
+        }
+        menu.addItem(.separator())
+        if let quit = registry.makeMenuItem(for: "quit") { menu.addItem(quit) }
+        statusItem.menu = menu
+        item = statusItem
+    }
+
+    private func hideItem() {
+        if let item { NSStatusBar.system.removeStatusItem(item) }
+        item = nil
+    }
+}

@@ -139,7 +139,7 @@ import Testing
                                            infoFeedURL: "https://files-next.cmux.com/nightly-next/appcast-arm64.xml", hasPublicKey: false)
         let defaults = UserDefaults(suiteName: "UpdateLoadingIndicatorTests.\(UUID().uuidString)")!
         let updater = UpdaterService(identity: identity, policy: ManagedUpdatePolicy { false }, defaults: defaults,
-                                     enableSparkle: false, recordsUpdates: false, work: BackgroundWork(label: "test.updater"))
+                                     enableSparkle: false, recordsUpdates: false, work: BackgroundWork(label: "test.updater"), deadlines: MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget())))
         updater.announcementsFetch = false
         updater.send(.checkRequested)
         for phase in Self.attemptPhases {
@@ -210,7 +210,7 @@ import Testing
         let defaults = UserDefaults(suiteName: "UpdateLoadingIndicatorTests.\(UUID().uuidString)")!
         let updater = UpdaterService(identity: identity, policy: ManagedUpdatePolicy { false }, prober: UpdateProber(fetcher: NoFeed()),
                                      defaults: defaults, enableSparkle: false, recordsUpdates: false,
-                                     work: BackgroundWork(label: "test.updater"))
+                                     work: BackgroundWork(label: "test.updater"), deadlines: MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget())))
         updater.announcementsFetch = false
         return updater
     }

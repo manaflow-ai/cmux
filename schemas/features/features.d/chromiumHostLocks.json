@@ -1,0 +1,13 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "chromiumHostLocks",
+  "owner": "PL-cef-layer",
+  "description": "In host mode, a Chromium page's pointer lock and keyboard lock are cmux's: the focused page hides and holds cmux's cursor and, in its fullscreen, gets cmux's shortcuts (Ghostty's split keys and Quit aside); Escape ends the locks and the fullscreen. Needs a Chromium fork at API 31.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "labs",
+  "process": "app",
+  "params": [],
+  "stories": [],
+  "sticky": false,
+  "runtimeMutable": false
+}

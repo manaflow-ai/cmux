@@ -6,6 +6,7 @@ import CmuxNextAgentPane
 import CmuxNextApps
 import CmuxNextDaemon
 import CmuxNextSidebar
+import CmuxNextWakeups
 
 /// Sidebar section actions (plans/cmux-next/sidebar-sections.md 6): each
 /// turns into one layout op for `SidebarLayoutService`. Right-click menus
@@ -37,7 +38,8 @@ enum SidebarSectionHandlers {
         let services = context.services
         ChiefSidebar.shared.bind(into: registry, host: .init(conversation: { TopHomePageView.chief(services.home) }, chiefHost: { services.agentTabs.chiefHost },
             tab: { services.agentTabs.tab(showing: $0, host: $1) }, reveal: { services.revealTab($0) },
-            openWorkspace: { try AgentSessionWorkspace.open(session: $0, name: nil, cwd: nil, host: $1, services: services) }))
+            openWorkspace: { try AgentSessionWorkspace.open(session: $0, name: nil, cwd: nil, host: $1, services: services) }),
+            mainWork: services.mainWork)
         RemoteMachinesSidebar.shared.bind(host: .init(
             peers: {
                 guard let socket = await AgentLaneStore.shared.socketPath else { return nil }
@@ -54,7 +56,7 @@ enum SidebarSectionHandlers {
                 if services.agentTabs.tab(showing: lane.id) == nil, let tab = AgentPriorityChats.app.remoteTab(showing: lane.id),
                    services.revealTab(tab) { return }
                 services.agentActivityPage.jump(to: lane)
-            }))
+            }), deadlines: services.mainDeadlines)
         SettingsAppFeatures.sidebarItems = storeItems(chief: SettingsAppFeatures.sidebarItems, document: { layout.document }, registry: registry)
         // Item adds and removes are undo steps (P4) through the one pin path,
         // named as the menu showed them.

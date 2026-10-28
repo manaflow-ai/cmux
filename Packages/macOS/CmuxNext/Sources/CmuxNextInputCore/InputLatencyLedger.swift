@@ -26,7 +26,8 @@ public struct InputLatencyBatch: Sendable, Equatable {
 /// presentation source x display: the total latency (Chrome `EventLatency.<Type>.TotalLatency`) and, per
 /// stage, the time since the stage the input reached just before it (Chrome's EventLatency stage
 /// breakdowns, cc/metrics/compositor_frame_reporter.cc). Scroll frames also go through Chrome's
-/// scroll jank formula (``ScrollJankTracker``).
+/// scroll jank formula (``ScrollJankTracker``), and key and pointer slots pair into INP-style
+/// interactions (``InteractionLatency``).
 ///
 /// Follows cc's `EventMetrics` rules (cc/metrics/event_metrics.h): a slot whose input caused no
 /// frame update is dropped, except keys (Chrome keeps `EventLatency.KeyPressed`); a stage the
@@ -96,6 +97,8 @@ public struct InputLatencyLedger: Sendable, Equatable {
     public private(set) var slotsDropped: UInt64 = 0
     /// Chrome's scroll jank counts over the scroll frames of person input.
     public private(set) var scrollJank = ScrollJankTracker()
+    /// The person's interactions (cmux's INP): every key and pointer slot, a frame update or not.
+    public private(set) var interactions = InteractionLatency()
 
     /// A scroll frame being gathered: scroll update slots with the same presented time are one
     /// frame, even when a batch boundary falls between them.
@@ -125,13 +128,13 @@ public struct InputLatencyLedger: Sendable, Equatable {
         lastDroppedTotal = baseline
     }
 
-    /// Moves the counts out and returns them as a ledger of counts only: the rows, the slot counters
-    /// and the scroll jank counts and histograms start again at zero. What is in progress stays:
-    /// the scroll frame being gathered, the scroll in progress, the fixed window not yet full and
-    /// the producer's drop baseline, so the next frame of an ongoing scroll is judged against the
-    /// frame before the take. A report's delta, as UMA uploads histogram deltas while the
-    /// recorders keep their state (base/metrics/histogram_snapshot_manager.cc,
-    /// cc/metrics/scroll_jank_dropped_frame_tracker.cc).
+    /// Moves the counts out and returns them as a ledger of counts only: the rows, the slot counters,
+    /// the scroll jank counts and histograms and the closed interactions start again at zero. What
+    /// is in progress stays: the scroll frame being gathered, the scroll in progress, the fixed
+    /// window not yet full, the key and click not yet released and the producer's drop baseline,
+    /// so the next frame of an ongoing scroll is judged against the frame before the take. A
+    /// report's delta, as UMA uploads histogram deltas while the recorders keep their state
+    /// (base/metrics/histogram_snapshot_manager.cc, cc/metrics/scroll_jank_dropped_frame_tracker.cc).
     public mutating func takeCounts() -> InputLatencyLedger {
         var counts = InputLatencyLedger()
         counts.rows = rows
@@ -139,6 +142,7 @@ public struct InputLatencyLedger: Sendable, Equatable {
         counts.slotsWithoutFrameUpdate = slotsWithoutFrameUpdate
         counts.slotsDropped = slotsDropped
         counts.scrollJank = scrollJank.takeCounts()
+        counts.interactions = interactions.takeCounts()
         rows = [:]
         slotsReceived = 0
         slotsWithoutFrameUpdate = 0
@@ -146,14 +150,16 @@ public struct InputLatencyLedger: Sendable, Equatable {
         return counts
     }
 
-    /// Adds the counts of `other` (rows, slot counters, scroll jank counts and histograms); its
-    /// scroll in progress and drop baseline are not counts and are left out.
+    /// Adds the counts of `other` (rows, slot counters, scroll jank counts and histograms, closed
+    /// interactions); its scroll and interactions in progress and drop baseline are not counts and
+    /// are left out.
     public mutating func add(_ other: InputLatencyLedger) {
         for (key, row) in other.rows { rows[key, default: Row()].add(row) }
         slotsReceived &+= other.slotsReceived
         slotsWithoutFrameUpdate &+= other.slotsWithoutFrameUpdate
         slotsDropped &+= other.slotsDropped
         scrollJank.addCounts(other.scrollJank)
+        interactions.addCounts(other.interactions)
     }
 
     /// Counts `count` slots lost before the ledger saw them.
@@ -175,6 +181,8 @@ public struct InputLatencyLedger: Sendable, Equatable {
         // Scroll begins seldom update a frame, so the scroll's life is read before the drop below;
         // only a slot that updated a frame adds a scroll frame.
         if slot.entrypoint == .person { trackScroll(slot, vsyncNanos: vsyncNanos) }
+        // A key or click that changed nothing on screen is still an interaction (INP counts it).
+        interactions.record(slot)
         guard slot.causedFrameUpdate || slot.kind.isKey else {
             slotsWithoutFrameUpdate &+= 1
             return
@@ -286,7 +294,8 @@ public struct InputLatencyLedger: Sendable, Equatable {
                 delayedFrames: scrollJank.delayedFrames,
                 skippedFrames: scrollJank.skippedFrames,
                 histograms: scrollJank.histograms.snapshot
-            )
+            ),
+            interactions: InputLatencySnapshot.Interactions(interactions.summary)
         )
     }
 

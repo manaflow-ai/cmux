@@ -1297,6 +1297,35 @@
         "required": true
       }
     },
+    "event:input-failed": {
+      "/bytes": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/event": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"input-failed\""
+        ]
+      },
+      "/reason": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "attach_failed",
+          "daemon_handoff",
+          "not_a_terminal",
+          "overflow",
+          "terminal_ended",
+          "write_failed"
+        ]
+      },
+      "/stream": {
+        "ty": "uint16",
+        "required": true
+      }
+    },
     "event:keybindings-changed": {
       "/cause": {
         "ty": "enum",
@@ -4060,6 +4089,50 @@
       "/surface": {
         "ty": "uint64",
         "required": true
+      }
+    },
+    "event:server-diagnostic-site": {
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
+      "/crate": {
+        "ty": "string"
+      },
+      "/event": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"server-diagnostic-site\""
+        ]
+      },
+      "/family": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "blocking",
+          "hang",
+          "inversion"
+        ]
+      },
+      "/file_hash": {
+        "ty": "string"
+      },
+      "/kind": {
+        "ty": "string",
+        "required": true
+      },
+      "/lane_sync": {
+        "ty": "boolean"
+      },
+      "/line": {
+        "ty": "uint32"
+      },
+      "/method": {
+        "ty": "string"
       }
     },
     "event:settings-changed": {
@@ -8680,6 +8753,20 @@
       }
     },
     "request:client-hello": {
+      "/features": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/features/hash": {
+        "ty": "string"
+      },
+      "/features/values": {
+        "ty": "map",
+        "required": true
+      },
+      "/features/values/*": {
+        "ty": "boolean"
+      },
       "/install_id": {
         "ty": "string"
       },
@@ -10883,6 +10970,7 @@
         "required": true
       }
     },
+    "request:memory-report": {},
     "request:mint-terminal-renderer": {
       "/surface": {
         "ty": "uint64",
@@ -13051,6 +13139,21 @@
       "/transaction": {
         "ty": "uint64",
         "nullable": true
+      }
+    },
+    "request:set-stream-priority": {
+      "/priority": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "focused",
+          "hidden",
+          "visible"
+        ]
+      },
+      "/stream": {
+        "ty": "uint16",
+        "required": true
       }
     },
     "request:set-tab-pinned": {
@@ -15499,6 +15602,39 @@
     },
     "response:client-hello": {
       "/data/connection_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/features": {
+        "ty": "object"
+      },
+      "/data/features/applied": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/features/applied/*": {
+        "ty": "string"
+      },
+      "/data/features/hash": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/features/pending": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/features/pending/*": {
+        "ty": "object"
+      },
+      "/data/features/pending/*/app": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/features/pending/*/daemon": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/features/pending/*/name": {
         "ty": "string",
         "required": true
       },
@@ -20036,6 +20172,13 @@
           "1"
         ]
       },
+      "/data/framed_methods": {
+        "ty": "array",
+        "nullable": true
+      },
+      "/data/framed_methods/*": {
+        "ty": "uint16"
+      },
       "/data/generation": {
         "ty": "string",
         "required": true
@@ -20093,6 +20236,10 @@
       "/data/registry_id": {
         "ty": "string",
         "required": true
+      },
+      "/data/sdk_schema_digest": {
+        "ty": "string",
+        "nullable": true
       },
       "/data/session": {
         "ty": "string",
@@ -21111,6 +21258,12 @@
       }
     },
     "response:mark-workspaces-provider-managed": {},
+    "response:memory-report": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
     "response:mint-terminal-renderer": {
       "/data/endpoint": {
         "ty": "string",
@@ -22726,6 +22879,32 @@
       },
       "/data/dispatch_queue_us/p99": {
         "ty": "uint64",
+        "required": true
+      },
+      "/data/hangs": {
+        "ty": "object"
+      },
+      "/data/hangs/over_250ms": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/hangs/records": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/hangs/records/*": {
+        "ty": "object"
+      },
+      "/data/hangs/records/*/duration_ms": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/hangs/records/*/sequence": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/hangs/records/*/span": {
+        "ty": "string",
         "required": true
       },
       "/data/ipc": {
@@ -24915,6 +25094,20 @@
       }
     },
     "response:set-split-ratio": {},
+    "response:set-stream-priority": {
+      "/data/outcome": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "applied",
+          "ended"
+        ]
+      },
+      "/data/stream": {
+        "ty": "uint16",
+        "required": true
+      }
+    },
     "response:set-tab-pinned": {
       "/data": {
         "ty": "json",

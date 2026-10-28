@@ -1,4 +1,4 @@
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 import AppKit
 
 /// A Chromium tab's docked DevTools for live checks (`debug.cef.devtools_layout`):

@@ -105,6 +105,7 @@ extension TerminalSession {
             },
             surfaceInHost: surface.superview === view,
             inWindow: surface.window != nil,
+            // visibility-walk-allow: debug.terminal reports AppKit's own hidden state once per request, the ground truth a test checks the nodes against
             hidden: surface.isHiddenOrHasHiddenAncestor,
             viewSize: surface.bounds.size,
             layerSize: surface.layer?.bounds.size ?? .zero,

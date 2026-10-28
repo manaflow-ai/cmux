@@ -96,6 +96,11 @@ public final class MainDeadlineScheduler {
     /// Now, on the queue's clock (uptime ns).
     var now: UInt64 { wakeups.now }
 
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// The queue's ledger's arm census, which each deadline tells of its launch arms (p08-startup-085).
+    var armCensus: ArmCensus { wakeups.ledger.armCensus }
+    #endif
+
     /// The rule `alignment` gives a deadline due at `due` now.
     func rule(_ alignment: TimerAlignment, due: UInt64, repeating: Bool) -> TimerAlignment.Wake.Rule {
         let now = self.now

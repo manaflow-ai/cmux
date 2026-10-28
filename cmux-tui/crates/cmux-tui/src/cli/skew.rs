@@ -278,8 +278,7 @@ fn remote_skew(daemon: &DaemonBuild, own_build: &str, socket: &Path) -> String {
 fn tunnel_ssh_destination(socket: &Path) -> Option<String> {
     let record = crate::remote_runtime::tunnel_route_record(socket);
     let metadata = std::fs::symlink_metadata(&record).ok()?;
-    // SAFETY: geteuid has no preconditions.
-    let uid = unsafe { libc::geteuid() };
+    let uid = cmux_tui_core::platform::effective_uid();
     if !metadata.file_type().is_file() || metadata.uid() != uid || metadata.mode() & 0o022 != 0 {
         return None;
     }
@@ -326,8 +325,7 @@ fn reexec_with(
         return Err(None);
     };
     let guard = std::env::var(GUARD_ENV).ok();
-    // SAFETY: geteuid has no preconditions.
-    let uid = unsafe { libc::geteuid() };
+    let uid = cmux_tui_core::platform::effective_uid();
     let exe = std::env::current_exe().and_then(std::fs::canonicalize).unwrap_or_default();
     let own = Own {
         build_id: own_build_id(),

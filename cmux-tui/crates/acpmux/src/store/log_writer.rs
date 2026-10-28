@@ -3,7 +3,7 @@
 //!
 //! An append used to write its line in place, under one lock for every session's log, on the
 //! thread that read the agent's output (a tokio worker): one `write(2)` per streamed token. When
-//! more sessions wrote than the store keeps open (`OPEN_LOGS`), each append that opened a log
+//! more sessions wrote than the store keeps open (`open_logs_for`), each append that opened a log
 //! first closed the least recently written one with `sync_data`, an F_FULLFSYNC on macOS
 //! (20-50 ms), still under that lock, so every chat's next token waited for it.
 //!
@@ -14,14 +14,20 @@
 //! log (`settle`) first waits for that session's queued lines, so readers see every append made
 //! before the read. `progress` tells an agent host's reader what is on disk, so a host entry is
 //! acknowledged only once its record is written (`agent_host` keeps it until then).
+//!
+//! The thread is hang-watched (`daemon/hang_watch.rs`): each session's write is one item of
+//! [`WRITE_ITEM`], never the wait for the next one.
 
-use super::{OPEN_LOGS, open_private_append};
+use super::open_private_append;
+use crate::daemon::hang_watch::{SyncThread, WRITE_ITEM};
 use anyhow::Result;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs::File;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
+
+use crate::supervised::{Fatal, OwnedThread, ShutdownBehavior, Supervisor};
 
 /// What of one session's log is on disk: every record up to `written` is, and `queued` is the
 /// last record handed to the writer. Nothing is pending when they are equal.
@@ -59,10 +65,12 @@ struct State {
     stop: bool,
 }
 
-/// The open logs, at most [`OPEN_LOGS`], and every log written since the last flush.
+/// The open logs, at most `open_logs`, and every log written since the last flush.
 struct Files {
     root: PathBuf,
     segment_bytes: u64,
+    /// The most logs held open (`super::open_logs_for`).
+    open_logs: usize,
     open: HashMap<String, Segment>,
     /// Counts writes; a segment's `used` is the count at its last one.
     clock: u64,
@@ -86,11 +94,17 @@ struct Shared {
 
 pub(super) struct LogWriter {
     shared: Arc<Shared>,
-    thread: Mutex<Option<std::thread::JoinHandle<()>>>,
+    thread: Mutex<Option<OwnedThread>>,
 }
 
 impl LogWriter {
-    pub(super) fn start(root: PathBuf, segment_bytes: u64) -> Self {
+    /// Starts the writer thread under `supervisor`, holding at most `open_logs` logs open.
+    pub(super) fn start(
+        root: PathBuf,
+        segment_bytes: u64,
+        open_logs: usize,
+        supervisor: &Supervisor,
+    ) -> Self {
         let shared = Arc::new(Shared {
             state: Mutex::new(State::default()),
             work: Condvar::new(),
@@ -98,21 +112,26 @@ impl LogWriter {
             files: Mutex::new(Files {
                 root,
                 segment_bytes,
+                open_logs: open_logs.max(1),
                 open: HashMap::new(),
                 clock: 0,
                 dirty: HashSet::new(),
             }),
         });
         let worker = shared.clone();
-        let thread = std::thread::Builder::new()
-            .name("acpmux-log-writer".into())
-            .spawn(move || run(&worker))
-            .map_err(|e| {
-                tracing::error!(
-                    "the event log writer did not start; logs are written in place: {e}"
-                )
-            })
-            .ok();
+        // A panic in the thread leaves its queue half-written and every `flush` waiting:
+        // Fatal. Continue on shutdown: the owner's drop writes what is queued and joins it.
+        let thread = crate::supervised::owned_thread(
+            supervisor,
+            THREAD,
+            Fatal,
+            ShutdownBehavior::Continue,
+            move || run(&worker),
+        )
+        .map_err(|e| {
+            tracing::error!("the event log writer did not start; logs are written in place: {e}")
+        })
+        .ok();
         Self { shared, thread: Mutex::new(thread) }
     }
 
@@ -212,7 +231,7 @@ impl Drop for LogWriter {
         lock(&self.shared.state).stop = true;
         self.shared.work.notify_one();
         if let Some(thread) = lock(&self.thread).take() {
-            let _ = thread.join();
+            thread.join();
         }
     }
 }
@@ -221,7 +240,11 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|e| e.into_inner())
 }
 
+/// The writer thread's name, also its name in a hang record.
+const THREAD: &str = "acpmux-log-writer";
+
 fn run(shared: &Shared) {
+    let watched = SyncThread::register(THREAD, WRITE_ITEM);
     let mut state = lock(&shared.state);
     loop {
         let Some(id) = state.order.pop_front() else {
@@ -234,7 +257,10 @@ fn run(shared: &Shared) {
         let Some(q) = state.queued.remove(&id) else { continue };
         state.writing = Some(id.clone());
         drop(state);
-        let result = lock(&shared.files).write(&id, &q.lines);
+        let result = {
+            let _item = watched.item();
+            lock(&shared.files).write(&id, &q.lines)
+        };
         state = lock(&shared.state);
         state.writing = None;
         if let Some(progress) = state.progress.get(&id) {
@@ -260,10 +286,10 @@ fn run(shared: &Shared) {
 
 impl Files {
     /// Appends `bytes` to session `id`'s newest segment, opening it (and closing the least
-    /// recently written log past [`OPEN_LOGS`]) or starting the next segment when it is full.
+    /// recently written log past `open_logs`) or starting the next segment when it is full.
     fn write(&mut self, id: &str, bytes: &[u8]) -> Result<()> {
         if !self.open.contains_key(id)
-            && self.open.len() >= OPEN_LOGS
+            && self.open.len() >= self.open_logs
             && let Some(oldest) =
                 self.open.iter().min_by_key(|(_, w)| w.used).map(|(k, _)| k.clone())
         {
@@ -365,8 +391,13 @@ mod tests {
     #[test]
     fn appends_to_more_logs_than_stay_open_are_all_written_in_order() {
         let dir = root("many");
-        let writer = LogWriter::start(dir.clone(), 1 << 20);
-        let sessions = OPEN_LOGS + 16;
+        let writer = LogWriter::start(
+            dir.clone(),
+            1 << 20,
+            super::super::OPEN_LOGS,
+            &crate::supervised::embedded(),
+        );
+        let sessions = super::super::OPEN_LOGS + 16;
         for seq in 1..=5 {
             for s in 0..sessions {
                 writer.append(&format!("s{s}"), line(seq), seq).unwrap();
@@ -379,7 +410,7 @@ mod tests {
             assert_eq!(log_text(&dir, &id), want, "{id}");
             assert!(writer.progress(&id).borrow().covers(5));
         }
-        assert!(lock(&writer.shared.files).open.len() <= OPEN_LOGS);
+        assert!(lock(&writer.shared.files).open.len() <= super::super::OPEN_LOGS);
         writer.flush().unwrap();
         assert!(lock(&writer.shared.files).dirty.is_empty());
         let _ = std::fs::remove_dir_all(&dir);
@@ -388,7 +419,12 @@ mod tests {
     #[test]
     fn progress_covers_a_record_only_once_it_is_written() {
         let dir = root("progress");
-        let writer = LogWriter::start(dir.clone(), 1 << 20);
+        let writer = LogWriter::start(
+            dir.clone(),
+            1 << 20,
+            super::super::OPEN_LOGS,
+            &crate::supervised::embedded(),
+        );
         let rx = writer.progress("s");
         assert!(rx.borrow().covers(0), "nothing appended: nothing pending");
         // Hold the files so the thread cannot write yet.
@@ -406,7 +442,12 @@ mod tests {
     #[test]
     fn a_forgotten_session_writes_nothing_more() {
         let dir = root("forget");
-        let writer = LogWriter::start(dir.clone(), 1 << 20);
+        let writer = LogWriter::start(
+            dir.clone(),
+            1 << 20,
+            super::super::OPEN_LOGS,
+            &crate::supervised::embedded(),
+        );
         writer.append("s", line(1), 1).unwrap();
         writer.settle("s");
         let files = lock(&writer.shared.files);
@@ -416,6 +457,31 @@ mod tests {
         std::fs::remove_dir_all(dir.join("s")).unwrap();
         writer.flush().unwrap();
         assert!(!dir.join("s").exists(), "a write after the forget brought the log back");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 100 chats that stream at once keep their logs open under the daemon's raised limit: no
+    /// record closes another chat's log to open its own (p07-memory-064).
+    #[test]
+    fn a_hundred_chats_written_in_turn_keep_their_logs_open() {
+        let dir = root("hundred");
+        let writer = LogWriter::start(
+            dir.clone(),
+            64 * 1024,
+            super::super::open_logs_for(10_240),
+            &crate::supervised::embedded(),
+        );
+        for seq in 1..=3 {
+            for chat in 0..100 {
+                writer.append(&format!("chat-{chat:03}"), line(seq), seq).unwrap();
+            }
+        }
+        for chat in 0..100 {
+            writer.settle(&format!("chat-{chat:03}"));
+        }
+        assert_eq!(lock(&writer.shared.files).open.len(), 100);
+        let want: String = (1..=3).map(|seq| String::from_utf8(line(seq)).unwrap()).collect();
+        assert_eq!(log_text(&dir, "chat-042"), want);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

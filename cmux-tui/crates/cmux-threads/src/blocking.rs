@@ -37,13 +37,19 @@
 //! run with it set leaves the MQ-13 list of every process it started, the ones
 //! that panicked or were killed included;
 //! `cmux-tui/scripts/daemon-blocking-sweep.py` runs the suites and groups it.
+//!
+//! The first violation at each site also goes to the process's first-sighting
+//! feed ([`take_first_sites`]), which the daemon pushes to the app's hang
+//! reports as `server-diagnostic-site` events.
 
 use std::cell::Cell;
 use std::panic::Location;
 
+mod feed;
 mod report;
 mod sites;
 
+pub use feed::{FirstSite, note_hang_site, take_first_sites};
 pub use report::{REPORT_ENV, ReportError, report_path, set_report_dir};
 
 use sites::{SiteTable, note_violation};
@@ -356,6 +362,9 @@ pub fn scoped_blocking_call<R>(kind: BlockingKind, f: impl FnOnce() -> R) -> R {
 fn violation(kind: BlockingKind, location: &'static Location<'static>) -> bool {
     let lane_sync = !STATE.with(Cell::get).disallowed();
     let first_at_site = note_violation(&SITES, report::site_report(), kind, location, lane_sync);
+    if first_at_site {
+        send_first_site(kind, location, lane_sync);
+    }
     // Chrome's DCHECK: fails only in Panic mode, and Release compiles it out.
     debug_assert!(
         lane_sync || mode() == BlockingMode::Record || std::thread::panicking(),
@@ -374,7 +383,21 @@ fn violation(kind: BlockingKind, location: &'static Location<'static>) -> bool {
 #[cold]
 #[inline(never)]
 pub(crate) fn note_priority_inversion(location: &'static Location<'static>) {
-    note_violation(&SITES, report::site_report(), BlockingKind::PriorityInversion, location, false);
+    let kind = BlockingKind::PriorityInversion;
+    if note_violation(&SITES, report::site_report(), kind, location, false) {
+        send_first_site(kind, location, false);
+    }
+}
+
+/// The table's first violation at `location`, to the first-sighting feed.
+fn send_first_site(kind: BlockingKind, location: &'static Location<'static>, lane_sync: bool) {
+    feed::send(FirstSite::Blocking {
+        file: location.file(),
+        line: location.line(),
+        column: location.column(),
+        kind,
+        lane_sync,
+    });
 }
 
 /// Records a [`BlockingKind::LockWait`] site at `location` when the current

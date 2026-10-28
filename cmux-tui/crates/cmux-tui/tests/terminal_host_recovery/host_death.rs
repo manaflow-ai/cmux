@@ -396,7 +396,7 @@ fn host_death_keeps_tab_under_running_daemon() {
         terminal_host_record_liveness(&record_path, &record).unwrap(),
         TerminalHostLiveness::Dead
     );
-    let _ = remove_stale_terminal_host_record(&record_path, &record);
+    let _ = remove_stale_terminal_host_record(&record_path, &record, None);
 }
 
 #[path = "stray_signals.rs"]

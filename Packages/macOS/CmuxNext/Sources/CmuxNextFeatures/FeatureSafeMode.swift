@@ -220,6 +220,20 @@ public nonisolated final class FeatureSafeMode: Sendable {
         }
     }
 
+    /// The remote param values this launch applies (``FeatureParamList``'s
+    /// `remote`), by ``state``'s level: the last document's, the last known
+    /// good one's, or none. A param is no kill switch, so none survives `noRemote`.
+    public func remoteParams(
+        latest: [String: [String: String]],
+        lastKnownGood: [String: [String: String]]
+    ) -> [String: [String: String]] {
+        switch state.level {
+        case .regular: latest
+        case .lastKnownGood: lastKnownGood
+        case .noRemote: [:]
+        }
+    }
+
     /// A fetch of the flags document is starting: counts it as failed until
     /// ``recordFetchSucceeded(promotingActiveDocument:)`` (Chrome's
     /// `RecordFetchStarted`, which assumes the fetch fails).

@@ -81,9 +81,9 @@ extension NSView {
         guard let layer, bounds.width > 0, bounds.height > 0 else { return nil }
         let scale = window?.backingScaleFactor ?? 2
         let width = Int(bounds.width * scale), height = Int(bounds.height * scale)
-        guard let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
-                                      space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
-                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        guard let context = CGContext.pixelOwningBitmap(width: width, height: height,
+                                                        space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
+                                                        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
         context.scaleBy(x: scale, y: scale)
         if layer.contentsAreFlipped() {
             context.translateBy(x: 0, y: bounds.height)

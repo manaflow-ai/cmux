@@ -19,6 +19,11 @@ package final class BrowserScriptOpeners {
         links.append((WeakBrowserTab(page: child), WeakBrowserTab(page: opener)))
     }
 
+    /// Whether no link has both its pages alive: there is no opener group, and ``openers(key:)`` is empty.
+    package var isEmpty: Bool {
+        !links.contains { $0.child.page != nil && $0.opener.page != nil }
+    }
+
     /// Each linked child's opener, by the key `key` gives each page (nil: the page is no tab now).
     package func openers(key: (any BrowserTab) -> String?) -> [String: String] {
         links.reduce(into: [:]) { openers, link in

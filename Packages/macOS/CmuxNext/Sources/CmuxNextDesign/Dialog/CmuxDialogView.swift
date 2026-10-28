@@ -10,11 +10,13 @@ public import CmuxNextDesignTokens
 /// its answer.
 @MainActor
 public final class CmuxDialogView: NSView {
-    public let spec: CmuxDialogSpec
+    public private(set) var spec: CmuxDialogSpec
     /// Called once per press with the button id; the center ends the dialog.
     var onPress: ((String) -> Void)?
     private(set) var buttonViews: [CmuxDialogButtonView] = []
     private var inputs: [String: NSControl] = [:]
+    /// Each input's row in the stack (the control, or the box around a text field).
+    private var inputRows: [String: NSView] = [:]
     /// Text fields, choices, check boxes, then buttons: the focus order.
     private(set) var focusables: [NSView] = []
     private let stack = NSStackView()
@@ -28,11 +30,53 @@ public final class CmuxDialogView: NSView {
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
         setAccessibilitySubrole(.dialog)
+        setAccessibilityModal(true)
+        describe()
+    }
+
+    private func describe() {
         setAccessibilityLabel(spec.title)
         setAccessibilityHelp(([spec.origin.map(CmuxDialogStrings.from)].compactMap { $0 } + spec.lines).joined(separator: "\n"))
-        setAccessibilityModal(true)
         if let identifier = spec.identifier { setAccessibilityIdentifier(identifier) }
         identifier = NSUserInterfaceItemIdentifier(spec.identifier ?? "cmux.dialog")
+    }
+
+    /// Shows `spec` in this panel in place of the current one (a chooser's rows changed), as Chrome's
+    /// device chooser updates its table in its open bubble (chrome/browser/ui/views/device_chooser_content_view.cc):
+    /// the panel stays, a field with the same id keeps its control (an open pop-up menu stays open), and
+    /// the keyboard stays on the control with the same id. The fields show `spec`'s values.
+    public func update(_ spec: CmuxDialogSpec) {
+        guard spec != self.spec else { return }
+        let hadKeyboard = containsKeyboard
+        let focused = focusedIndex.flatMap { focusKey(focusables[$0]) }
+        let reusable = inputs
+        let reusableRows = inputRows
+        let old = stack.arrangedSubviews
+        // Out of the stack's order but still in the window, so a kept control keeps the keyboard.
+        for view in old { stack.removeArrangedSubview(view) }
+        self.spec = spec
+        buttonViews = []
+        inputs = [:]
+        inputRows = [:]
+        focusables = []
+        buildContents(reusing: reusable, rows: reusableRows)
+        let kept = Set(stack.arrangedSubviews.map { ObjectIdentifier($0) })
+        for view in old where !kept.contains(ObjectIdentifier(view)) { view.removeFromSuperview() }
+        describe()
+        guard hadKeyboard else { return }
+        if let focused, let target = focusables.first(where: { focusKey($0) == focused }) {
+            // A kept text field's editor keeps its caret and selection.
+            let responder = window?.firstResponder as? NSView
+            if responder.map({ $0 === target || $0.isDescendant(of: target) }) != true { window?.makeFirstResponder(target) }
+        } else {
+            focusInitial()
+        }
+    }
+
+    /// A focusable control's stable name: its field's id or its button's id.
+    private func focusKey(_ view: NSView) -> String? {
+        if let button = view as? CmuxDialogButtonView { return "button.\(button.button.id)" }
+        return inputs.first { $0.value === view }.map { "field.\($0.key)" }
     }
 
     @available(*, unavailable)
@@ -169,8 +213,13 @@ public final class CmuxDialogView: NSView {
         let padding = CmuxDialogMetrics.padding
         stack.edgeInsets = NSEdgeInsets(top: padding, left: padding, bottom: padding, right: padding)
         stack.translatesAutoresizingMaskIntoConstraints = false
-        let contentWidth = CmuxDialogMetrics.width - padding * 2
+        buildContents(reusing: [:], rows: [:])
+        layoutSurface(NSView())
+    }
 
+    /// The stack's rows for `spec`; a field whose id is in `reusable` keeps that control (and its row).
+    private func buildContents(reusing reusable: [String: NSControl], rows: [String: NSView]) {
+        let contentWidth = CmuxDialogMetrics.width - CmuxDialogMetrics.padding * 2
         if let data = spec.icon, let image = blockingNSImage(data) {
             let icon = NSImageView(image: image)
             icon.translatesAutoresizingMaskIntoConstraints = false
@@ -186,7 +235,7 @@ public final class CmuxDialogView: NSView {
             stack.addArrangedSubview(label(line, font: Typography.body, role: .secondary, width: contentWidth))
         }
         for field in spec.fields {
-            for view in fieldViews(field, width: contentWidth) { stack.addArrangedSubview(view) }
+            for view in fieldViews(field, width: contentWidth, reusing: reusable, rows: rows) { stack.addArrangedSubview(view) }
         }
         let row = NSStackView()
         row.orientation = .horizontal
@@ -202,8 +251,9 @@ public final class CmuxDialogView: NSView {
         row.widthAnchor.constraint(equalToConstant: contentWidth).isActive = true
         focusables += buttonViews
         chainKeyViews()
+    }
 
-        let content = NSView()
+    private func layoutSurface(_ content: NSView) {
         content.addSubview(stack)
         let surface = Glass.makeOverlayPanel(content: content, tone: .neutralGlass(.dialog))
         addSubview(surface)
@@ -244,23 +294,43 @@ public final class CmuxDialogView: NSView {
         return label
     }
 
-    private func fieldViews(_ field: CmuxDialogField, width: CGFloat) -> [NSView] {
+    private func fieldViews(_ field: CmuxDialogField, width: CGFloat, reusing reusable: [String: NSControl],
+                            rows: [String: NSView]) -> [NSView] {
         switch field {
         case .text(let id, let caption, let initial, let placeholder, let secure):
-            let input: NSTextField = secure ? ThemedSecureTextField(string: initial) : ThemedTextField(string: initial)
-            input.font = Typography.body
+            let row: NSView
+            let input: NSTextField
+            if let kept = reusable[id] as? NSTextField, (kept is NSSecureTextField) == secure, let keptRow = rows[id] {
+                input = kept
+                row = keptRow
+                // The same text keeps the caret where it is.
+                if input.stringValue != initial { input.stringValue = initial }
+            } else {
+                input = secure ? ThemedSecureTextField(string: initial) : ThemedTextField(string: initial)
+                input.font = Typography.body
+                input.delegate = self
+                input.identifier = NSUserInterfaceItemIdentifier("cmux.dialog.field.\(id)")
+                let box = ThemedFieldBox(field: input, height: CmuxDialogMetrics.fieldHeight)
+                box.widthAnchor.constraint(equalToConstant: width).isActive = true
+                row = box
+            }
             input.placeholderString = placeholder
-            input.delegate = self
-            input.identifier = NSUserInterfaceItemIdentifier("cmux.dialog.field.\(id)")
             input.setAccessibilityLabel(caption ?? placeholder ?? spec.title)
-            register(input, id: id)
-            let box = ThemedFieldBox(field: input, height: CmuxDialogMetrics.fieldHeight)
-            box.widthAnchor.constraint(equalToConstant: width).isActive = true
-            return captioned(caption, box, width: width)
+            register(input, id: id, row: row)
+            return captioned(caption, row, width: width)
         case .choice(let id, let caption, let options, let selected):
-            let popup = ThemedPopUpButton(frame: .zero, pullsDown: false)
-            // A disabled option lists greyed out and is never the selection.
-            popup.autoenablesItems = false
+            let popup: NSPopUpButton
+            if let kept = reusable[id] as? ThemedPopUpButton {
+                popup = kept
+                popup.removeAllItems()
+            } else {
+                popup = ThemedPopUpButton(frame: .zero, pullsDown: false)
+                // A disabled option lists greyed out and is never the selection.
+                popup.autoenablesItems = false
+                popup.identifier = NSUserInterfaceItemIdentifier("cmux.dialog.field.\(id)")
+                popup.translatesAutoresizingMaskIntoConstraints = false
+                popup.widthAnchor.constraint(equalToConstant: width).isActive = true
+            }
             for option in options {
                 popup.addItem(withTitle: option.label)
                 popup.lastItem?.representedObject = option.value
@@ -268,18 +338,21 @@ public final class CmuxDialogView: NSView {
                 if option.value == selected, option.isEnabled { popup.select(popup.lastItem) }
             }
             if popup.selectedItem?.isEnabled != true, let first = popup.itemArray.first(where: \.isEnabled) { popup.select(first) }
-            popup.identifier = NSUserInterfaceItemIdentifier("cmux.dialog.field.\(id)")
             popup.setAccessibilityLabel(caption ?? spec.title)
-            popup.translatesAutoresizingMaskIntoConstraints = false
-            popup.widthAnchor.constraint(equalToConstant: width).isActive = true
-            register(popup, id: id)
+            register(popup, id: id, row: popup)
             return captioned(caption, popup, width: width)
         case .check(let id, let title, let on):
-            let check = ThemedCheckbox(checkboxWithTitle: title, target: nil, action: nil)
+            let check: NSButton
+            if let kept = reusable[id] as? ThemedCheckbox {
+                check = kept
+                check.title = title
+            } else {
+                check = ThemedCheckbox(checkboxWithTitle: title, target: nil, action: nil)
+                check.font = Typography.body
+                check.identifier = NSUserInterfaceItemIdentifier("cmux.dialog.field.\(id)")
+            }
             check.state = on ? .on : .off
-            check.font = Typography.body
-            check.identifier = NSUserInterfaceItemIdentifier("cmux.dialog.field.\(id)")
-            register(check, id: id)
+            register(check, id: id, row: check)
             return [check]
         case .preview(let text):
             let preview = label(text, font: .monospacedSystemFont(ofSize: Typography.body.pointSize, weight: .regular),
@@ -290,8 +363,9 @@ public final class CmuxDialogView: NSView {
         }
     }
 
-    private func register(_ control: NSControl, id: String) {
+    private func register(_ control: NSControl, id: String, row: NSView) {
         inputs[id] = control
+        inputRows[id] = row
         focusables.append(control)
     }
 

@@ -1,4 +1,4 @@
-public import CmuxNextDesign
+public import CmuxNextDesignTokens
 
 /// `ui.animations.newTab` (bool, default true: a new tab grows in at its slot;
 /// Lawrence 2026-10-14) and `ui.animations.newWorkspace` (bool, default true: a new row opens

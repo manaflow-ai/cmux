@@ -16,6 +16,32 @@
 # repeats its thread and lock rules: an opted-in crate sees the same thread
 # hits in the lab as in CI. Keep the two in step.
 #
+# The same file serves the report-only lints of the panic ratchet (task 114):
+#
+#   cd cmux-tui && CLIPPY_CONF_DIR="$PWD/lab/clippy" cargo clippy --workspace --lib --bins --locked \
+#     --message-format=json -- --cap-lints warn $(python3 ../scripts/cmux-next/rust_panic_ratchet.py --report-flags) \
+#     > lab.jsonl
+#   python3 ../scripts/cmux-next/rust_panic_ratchet.py --clippy-json lab.jsonl --tracked-report md
+#
+# `--cap-lints warn` again keeps cmux-mux2 and cmux-app-host, which deny
+# clippy::disallowed_methods, from stopping that run on the longer list; the
+# ratchet reads only its own lints, so those hits never count there. The two
+# keys right below are lab only: in cmux-tui/clippy.toml they would reach the
+# `clippy -D warnings` CI run. A lint moves to the workspace file only in a
+# commit that brings every hit of it to 0. test_rust_panic_ratchet_report.py
+# checks that this file keeps every workspace rule.
+
+# await_holding_invalid_type. A std MutexGuard is already await_holding_lock; a
+# RankedGuard wraps one, so clippy does not see the lock inside it.
+await-holding-invalid-types = [
+  { path = "cmux_tui_core::lock_rank::RankedGuard", reason = "a RankedMutex guard held across .await blocks every task that wants the lock, and its thread-local rank record can resume on another thread" },
+]
+
+# large_futures: a future at or above this many bytes is moved by value through
+# every wrapper and await, and a few nested ones overflow a 2 MiB tokio worker
+# stack. Box::pin it at the call site.
+future-size-threshold = 16384
+
 # The blocking rules are Chrome's ScopedBlockingCall: base/files/file_util_posix.cc
 # and base/process/launch_posix.cc open one (base/threading/scoped_blocking_call.h)
 # before each blocking syscall. Each rule names the cmux-blocking wrapper that

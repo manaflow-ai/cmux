@@ -39,11 +39,7 @@ public struct MobileEventLaneScope: Sendable {
         let mark = marker(surfaceID: surface)
         var scoped = Data(capacity: block.count + mark.count * 4)
         var reader = WireByteReader(block)
-        while true {
-            var header = reader
-            guard let length = header.bigEndian(UInt32.self),
-                  let payloadLength = Int(exactly: length),
-                  let frame = reader.bytes(MobileSyncFrameCodec.headerByteCount + payloadLength) else { break }
+        while let frame = Self.wholeFrame(from: &reader) {
             scoped.append(mark)
             scoped.append(frame)
         }
@@ -70,5 +66,14 @@ public struct MobileEventLaneScope: Sendable {
             return false
         }
         return surface == scope
+    }
+
+    /// The next whole frame (header and payload) read from `reader`, or nil
+    /// (nothing consumed) when only a partial frame or nothing remains.
+    private static func wholeFrame(from reader: inout WireByteReader) -> Data? {
+        var header = reader
+        guard let length = header.bigEndian(UInt32.self),
+              let payloadLength = Int(exactly: length) else { return nil }
+        return reader.bytes(MobileSyncFrameCodec.headerByteCount + payloadLength)
     }
 }

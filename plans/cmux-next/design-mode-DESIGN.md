@@ -102,7 +102,7 @@ remembers what was sent per tab, so a snapshot that only moved the scroll positi
    target becomes "the chat the user last typed in" across Home and agent tabs. Coordinate with
    a290 (Home attachments open in Files) and a285 (non-image files reach agents): both own the
    attachment intake; this work only adds a source.
-- Home composer files: one folder per card under `$TMPDIR/cmux-design-mode`, removed once Home copied them into its blob cache (`attachmentsReady`), the rest at quit and at launch.
+- Home composer files: one folder per card under this launch's own `$TMPDIR/cmux-design-mode/<launch>`, removed once Home copied them into its blob cache (`attachmentsReady`), the rest at quit; the next launch removes the folders of earlier launches on a files lane, never its own.
 4. **Design variations** (landed): `design-variations.py DIR --open` writes the gallery and shows it
    right of the Home chat (`cmux browser right navigate`). A pick (`BrowserDesignModeDelivery`) is
    sent to the shown Home chat at once through a304's `home.sendMessage` ("Picked design variation

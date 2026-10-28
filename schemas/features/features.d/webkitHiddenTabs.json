@@ -1,0 +1,14 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "webkitHiddenTabs",
+  "owner": "Performance Lead",
+  "description": "A WebKit browser tab that the content lifecycle hides is hidden to WebKit through its web view, so the page reports hidden and WebKit throttles it; tabs that play audible or Picture in Picture media or capture the camera or microphone stay visible.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "perfPath",
+  "expires": "2026-12-20",
+  "process": "app",
+  "params": [],
+  "stories": ["idle-tabs-webkit", "tab-switch-repeat"],
+  "sticky": false,
+  "runtimeMutable": false
+}

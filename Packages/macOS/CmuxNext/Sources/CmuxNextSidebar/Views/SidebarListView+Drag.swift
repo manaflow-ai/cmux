@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextWakeups
 import CmuxNextDesign
+import CmuxNextInput
 import QuartzCore
 // Internal drag reorder: lift, in-place slot (R77), drop, cancel, auto-scroll.
 extension SidebarListViewComponents {
@@ -263,6 +264,7 @@ extension SidebarListViewComponents {
 
     func cancelDrag() {
         guard let drag else { return }
+        dragMoves.cancel()
         autoscroll.stop()
         SidebarListPinDrop.end(self)
         self.drag = nil

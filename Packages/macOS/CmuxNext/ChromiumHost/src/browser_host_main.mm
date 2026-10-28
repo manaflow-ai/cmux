@@ -9,7 +9,10 @@
 // browser_main_loop.cc), it runs CefRunMessageLoop itself: no external pump.
 //
 // Launched by cmux with the control socket on fd 3:
-//   <host> --framework=<CEF framework dir>
+//   <host> --framework=<CEF framework dir> [--input-doorbell=<name>]
+// With --input-doorbell, fd 5 holds the input ring (chromium_host_input_ring.h): keys, clicks,
+// pointer moves and wheel ticks, dispatched on Chromium's user-input queue and acked there
+// (host_input.h, task p01-process-042).
 // Order on the wire: each side's HELLO (the host's after the fork
 // capabilities' MIRRORs); cmux's queued preinit ops, applied in order; INITIALIZE, which runs
 // cmux_shim_initialize (CefInitialize) with an event_fn that forwards each
@@ -29,9 +32,16 @@
 // fits them to its own message loop and adds TimerSlackMac (host_switches.h).
 //
 // App Nap: no window of the host is on screen, so macOS may nap it. The host
-// holds a user-initiated activity while cmux shows one of its pages and lets
-// App Nap apply when every page is hidden (host_page_activity.h, task
-// p14-energy-128).
+// holds a user-initiated activity while cmux shows one of its pages, latency
+// critical too while cmux is the active app, and lets App Nap apply when cmux
+// is hidden or every page is (host_page_activity.h, tasks p14-energy-128 and
+// p01-process-222). Its main thread runs user-interactive.
+//
+// Hangs: each turn of the main run loop is a hang watch scope
+// (host_hang_watcher.h, task p01-process-084). A turn of 250 ms or more goes
+// to cmux's hang reports, one still running at 10 s gets a dump without
+// crashing, and the input a turn dispatched is acked at its end, so cmux
+// shows "Chromium is busy" when the UI thread takes no input for 2 s.
 
 #import <AppKit/AppKit.h>
 #import <QuartzCore/QuartzCore.h>
@@ -39,6 +49,7 @@
 #include <objc/runtime.h>
 #include <dlfcn.h>
 #include <fcntl.h>
+#include <pthread.h>
 #include <signal.h>
 #include <sys/stat.h>
 #include <time.h>
@@ -64,6 +75,8 @@
 #include "chromium_host_wire.h"
 #include "cmux_cef_shim.h"
 #include "host_dispatch.h"
+#include "host_hang_watcher.h"
+#include "host_input.h"
 #include "host_page_activity.h"
 #include "host_switches.h"
 #include "host_user_input.h"
@@ -224,6 +237,31 @@ std::string Arg(const std::vector<std::string>& args, const std::string& name) {
   return std::string();
 }
 
+// The Crashpad database in the host's data folder (`--root-cache`); ChromiumHostConfiguration.crashDatabase
+// names the same folder for cmux, which reads the dumps.
+constexpr char kCrashDatabase[] = "Crashpad";
+
+// Puts this host's crash dumps (its own and its helpers') into `<root cache>/Crashpad`. CEF starts Chromium's
+// Crashpad handler in CefInitialize when the app bundle holds crash_reporter.cfg (embed-cef.sh puts it there with
+// the host; no ServerURL, so no dump leaves this Mac), as Chrome does in components/crash/core/app/crashpad_mac.mm,
+// and takes the database folder from BREAKPAD_DUMP_LOCATION (CefCrashReporterClient::GetCrashDumpLocation).
+// Before any other thread starts: setenv races a thread that reads the environment.
+void SetCrashDumpLocation(const std::string& root_cache) {
+  if (root_cache.empty()) return;
+  const std::string database = root_cache + "/" + kCrashDatabase;
+  @autoreleasepool {
+    NSError* error = nil;
+    if (![NSFileManager.defaultManager createDirectoryAtPath:@(database.c_str())
+                                 withIntermediateDirectories:YES
+                                                  attributes:@{NSFilePosixPermissions : @0700}
+                                                       error:&error]) {
+      fprintf(stderr, "cmux-chromium-host: no crash dump folder: %s\n", error.localizedDescription.UTF8String ?: "");
+      return;
+    }
+  }
+  setenv("BREAKPAD_DUMP_LOCATION", database.c_str(), 1);
+}
+
 // A kWheel frame to its page (task p04-input-063), with its scroll phase,
 // momentum phase and precise flag through the fork's wheel call, so
 // Chromium's MouseWheelPhaseHandler latches the gesture and hands the
@@ -234,7 +272,7 @@ std::string Arg(const std::vector<std::string>& args, const std::string& name) {
 // is not sent there, as WebMouseWheelEventBuilder's note on zero-tick wheels
 // asks. UI thread.
 void SendWheel(cmux_host::HostContext& host, cmux_host::WheelPixelCarry& carry, const cmux_host::Header& frame) {
-  const int browser_id = host.Browser(cmux_host::BrowserOf(frame));
+  const int browser_id = host.Browser(cmux_host::input_ring::BrowserOf(frame));
   const cmux_host::Wheel wheel = cmux_host::WheelOf(frame);
   if (cmux_shim_browser_send_wheel(browser_id, wheel.x, wheel.y, wheel.dx, wheel.dy, wheel.precise ? 1 : 0,
                                    wheel.phase, wheel.momentum_phase, wheel.modifiers)) {
@@ -257,13 +295,17 @@ void SendWheel(cmux_host::HostContext& host, cmux_host::WheelPixelCarry& carry, 
 // time as the event time Chromium sees (EventTimeOf, task p04-input-065).
 // A page's geometry moves its page view only when it changed, in this order,
 // so a click after a resize hits the resized page (HostContext::PlaceFrame,
-// task 053); wheels go to Chromium here; task p01-process-042 adds the other
-// kinds with the ring's reader, and until it starts the reader no frame comes.
+// task 053); wheels go to Chromium here, keys, clicks, moves and Edit
+// commands through DispatchInputFrame (host_input.mm, task p01-process-042).
 void DispatchInput(cmux_host::HostContext& host, cmux_host::WheelPixelCarry& carry,
                    cmux_host::SetEventTimeFn set_event_time, const cmux_host::Header& frame) {
   if (host.PlaceFrame(frame)) return;
   const cmux_host::ScopedEventTime event_time(set_event_time, cmux_host::EventTimeOf(frame, UptimeNowNs()));
-  if (frame.kind == cmux_host::kWheel) SendWheel(host, carry, frame);
+  if (frame.kind == cmux_host::kWheel) {
+    SendWheel(host, carry, frame);
+    return;
+  }
+  cmux_host::DispatchInputFrame(host.Browser(cmux_host::input_ring::BrowserOf(frame)), frame);
 }
 
 }  // namespace
@@ -427,35 +469,108 @@ void ObserveActivation() {
 // The activity that keeps App Nap off the host (PageShowActivity's hold): as
 // Chrome's AppNapActivity (content/common/mac/app_nap_activity.mm), user
 // initiated with idle system sleep allowed, so a shown page draws at the
-// display's rate and the Mac may still sleep. Main thread.
+// display's rate and the Mac may still sleep; latency critical too while cmux
+// is the active app. A change of level begins the new activity before it ends
+// the old one, so App Nap never applies between. Main thread.
 class AppNapActivity {
  public:
   AppNapActivity() = default;
   AppNapActivity(const AppNapActivity&) = delete;
   AppNapActivity& operator=(const AppNapActivity&) = delete;
-  ~AppNapActivity() { Hold(false); }
+  ~AppNapActivity() { Hold(cmux_host::ActivityLevel::kNone); }
 
-  void Hold(bool held) {
-    if (held == (token_ != nil)) return;
+  void Hold(cmux_host::ActivityLevel level) {
+    if (level == level_) return;
     @autoreleasepool {
-      if (held) {
-        token_ = [[NSProcessInfo.processInfo beginActivityWithOptions:NSActivityUserInitiatedAllowingIdleSystemSleep
-                                                                reason:@"cmux shows a Chromium page"] retain];
-      } else {
-        [NSProcessInfo.processInfo endActivity:token_];
-        [token_ release];
-        token_ = nil;
+      id<NSObject> previous = token_;
+      token_ = nil;
+      if (level != cmux_host::ActivityLevel::kNone) {
+        NSActivityOptions options = NSActivityUserInitiatedAllowingIdleSystemSleep;
+        if (level == cmux_host::ActivityLevel::kActive) options |= NSActivityLatencyCritical;
+        NSString* reason = level == cmux_host::ActivityLevel::kActive ? @"cmux is the active app"
+                                                                       : @"cmux shows a Chromium page";
+        token_ = [[NSProcessInfo.processInfo beginActivityWithOptions:options reason:reason] retain];
       }
+      if (previous) {
+        [NSProcessInfo.processInfo endActivity:previous];
+        [previous release];
+      }
+      level_ = level;
     }
   }
 
  private:
   id<NSObject> token_ = nil;
+  cmux_host::ActivityLevel level_ = cmux_host::ActivityLevel::kNone;
+};
+
+// cmux's active and hidden state, from macOS: NSWorkspace posts every app's
+// activate, deactivate, hide and unhide, and the host keeps those of its
+// parent (cmux, which spawned it). The parent's NSRunningApplication gives the
+// state at the start; after that each notification names the change itself,
+// since the running application's own properties update later. Main thread;
+// the observers end with this object.
+class ParentAppObserver {
+ public:
+  explicit ParentAppObserver(cmux_host::PageShowActivity& activity) : activity_(activity) {
+    @autoreleasepool {
+      NSRunningApplication* parent = [NSRunningApplication runningApplicationWithProcessIdentifier:getppid()];
+      // A parent that is gone (the host now belongs to launchd) is neither active nor hidden.
+      if (parent && parent.processIdentifier != getpid() && parent.processIdentifier > 1) {
+        active_ = parent.active;
+        hidden_ = parent.hidden;
+      }
+      Observe(NSWorkspaceDidActivateApplicationNotification, &active_, true);
+      Observe(NSWorkspaceDidDeactivateApplicationNotification, &active_, false);
+      Observe(NSWorkspaceDidHideApplicationNotification, &hidden_, true);
+      Observe(NSWorkspaceDidUnhideApplicationNotification, &hidden_, false);
+      activity_.SetApp(active_, hidden_);
+    }
+  }
+  ParentAppObserver(const ParentAppObserver&) = delete;
+  ParentAppObserver& operator=(const ParentAppObserver&) = delete;
+  ~ParentAppObserver() {
+    @autoreleasepool {
+      NSNotificationCenter* center = NSWorkspace.sharedWorkspace.notificationCenter;
+      for (id<NSObject> token : tokens_) {
+        [center removeObserver:token];
+        [token release];
+      }
+    }
+  }
+
+ private:
+  // On `name` for the parent, `*field` becomes `value`.
+  void Observe(NSNotificationName name, bool* field, bool value) {
+    id<NSObject> token = [NSWorkspace.sharedWorkspace.notificationCenter
+        addObserverForName:name
+                    object:nil
+                     queue:NSOperationQueue.mainQueue
+                usingBlock:^(NSNotification* note) {
+                  NSRunningApplication* app = note.userInfo[NSWorkspaceApplicationKey];
+                  if (app.processIdentifier != getppid()) return;
+                  *field = value;
+                  activity_.SetApp(active_, hidden_);
+                }];
+    tokens_.push_back([token retain]);
+  }
+
+  cmux_host::PageShowActivity& activity_;
+  bool active_ = false;
+  bool hidden_ = false;
+  std::vector<id<NSObject>> tokens_;
 };
 
 }  // namespace
 
 int main(int argc, char* argv[]) {
+  // The host's main thread is Chromium's UI thread, which draws and takes
+  // input for the page a person looks at: user-interactive, as Chrome's
+  // display-critical threads (base/threading/platform_thread_apple.mm). cmux
+  // spawns the host with no QoS clamp (ChromiumHostLauncher.priority).
+  if (const int qos = pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0); qos != 0) {
+    fprintf(stderr, "cmux-chromium-host: main thread QoS not set: %d\n", qos);
+  }
   signal(SIGPIPE, SIG_IGN);
   std::vector<std::string> args(argv + 1, argv + argc);
   struct stat control_stat;
@@ -465,6 +580,18 @@ int main(int argc, char* argv[]) {
   }
   const std::string framework = Arg(args, "framework");
   const std::string binary = framework + "/Chromium Embedded Framework";
+  SetCrashDumpLocation(Arg(args, "root-cache"));
+  // The input ring and its doorbell, checked in before the HELLO, when cmux passed them.
+  const std::string doorbell_name = Arg(args, "input-doorbell");
+  void* ring = nullptr;
+  cmux_host::input_ring::MachDoorbell doorbell;
+  if (!doorbell_name.empty()) {
+    ring = cmux_host::input_ring::MapRegion(cmux_host::input_ring::kRingFd);
+    if (ring == nullptr || !doorbell.CheckIn(doorbell_name.c_str())) {
+      fprintf(stderr, "cmux-chromium-host: the input ring or its doorbell %s cannot be used\n", doorbell_name.c_str());
+      return cmux_host::kExitNoWire;
+    }
+  }
 
   @autoreleasepool {
     [ChromiumHostApplication sharedApplication];
@@ -472,9 +599,13 @@ int main(int argc, char* argv[]) {
     ObserveActivation();
   }
   // Held from here, through Chromium's start, until the first shown page
-  // count after initialize (HostContext::Resume).
+  // count after initialize (HostContext::Resume); then while cmux is active
+  // or shows a page. Each change of level goes to the host log.
   AppNapActivity app_nap;
-  cmux_host::PageShowActivity page_activity([&app_nap](bool held) { app_nap.Hold(held); });
+  cmux_host::PageShowActivity page_activity([&app_nap](const cmux_host::ActivityState& state) {
+    app_nap.Hold(state.level);
+    fputs(cmux_host::ActivityLogLine(state).c_str(), stderr);
+  });
   // One thread so far: the framework's allocator and static initializers run
   // before any other thread exists. cmux_shim_load also binds the fork API.
   char error[512] = {0};
@@ -524,32 +655,80 @@ int main(int argc, char* argv[]) {
   // cmux_shim_load bound the fork's cmux_cef_set_energy_saver (p14-energy-029) when it has
   // it; without it the HELLO lists no saver and kOpEnergySaver changes nothing.
   if (cmux_shim::fork_api().set_energy_saver) host.SetEnergySaver(&cmux_shim_set_energy_saver);
+  // The fork's lock delegate (API 31, task 227): cmux locks its own cursor and keys for the page
+  // (host_locks.h, task 229); without it the HELLO lists no locks and cmux asks for none.
+  if (cmux_shim::fork_api().set_lock_handler) host.SetLockHandler(&cmux_shim_set_lock_handler);
   host.SetPageShowActivity(&page_activity);
-  // Main thread only, like `host`. The input ring (task 041) attaches its
-  // dispatch here (AttachInput) and hands each frame to AddInput; until then
-  // no frame comes and cmux stamps no ordered op with an input seq.
+  // After the framework load, which must run before any other thread exists:
+  // NSWorkspace's notifications may start one.
+  ParentAppObserver parent_app(page_activity);
+  // The UI thread's turns from here on, and its watcher thread; the HELLO
+  // says the host acks dispatched input and reports its hangs.
+  cmux_host::hang::HostHangWatch hang_watch(
+      [&channel](const cmux_host::control::Message& message) { return channel && channel->Send(message); });
+  host.SetHangWatch(true);
+  // Main thread only, like `host`. Ring frames (task 041) go in through
+  // `ordered_input` and are dispatched (DispatchInput), then acked, only when
+  // the stream lets them run (task 042 on 092's barrier): each paced move or
+  // wheel tick by kOpInputAck (host_input.h), and each ordered input frame by
+  // the hang watch at the end of its turn (the host's ack is its dispatch,
+  // p01-process.md 3.1); a kPing's or kStats' seq is its request id and is
+  // never acked.
   cmux_host::WheelPixelCarry wheel_carry;
   cmux_host::control::OrderedStream ordered(
       [&host](std::vector<cmux_host::control::Message> messages) { host.OnMessages(std::move(messages)); });
-  ordered.AttachInput([&host, &wheel_carry, set_event_time = fork_input.set_input_event_time](
-                          const cmux_host::Header& frame) { DispatchInput(host, wheel_carry, set_event_time, frame); });
+  cmux_host::OrderedInput ordered_input(
+      ordered,
+      [&host, &wheel_carry, &hang_watch, set_event_time = fork_input.set_input_event_time](
+          const cmux_host::Header& frame) {
+        DispatchInput(host, wheel_carry, set_event_time, frame);
+        hang_watch.FrameDispatched(frame);
+      },
+      [&channel](cmux_host::control::Message acks) {
+        if (channel) channel->Send(acks);
+      },
+      [&host_main](const char* what) { host_main.BadMessage(what ? what : "the ordered input stream"); });
   // The host's one input queue (host_user_input.h): Chromium's user-input
   // queue, or CefPostTask(TID_UI) on a fork without it, chosen here once; the
-  // main run loop until CefInitialize returned. HostInput's Post when task
-  // p01-process-042 starts the ring's reader:
-  // `[&input_tasks](std::function<void()> task) { input_tasks.Post(std::move(task)); }`.
+  // main run loop until CefInitialize returned. HostInput's Post (below).
   cmux_host::InputTasks input_tasks(UserInputQueue(fork_input.post_user_input_task), &PostDefaultUITask,
                                     &PostToMain);
-  auto check = [&host_main, &ordered](cmux_host::control::OrderedStream::Result result) {
-    if (result == cmux_host::control::OrderedStream::Result::kMalformed) host_main.BadMessage(ordered.what());
+  using HostInput = cmux_host::input_ring::HostInput<cmux_host::input_ring::MachDoorbell>;
+  std::unique_ptr<HostInput> input;
+  // Each control batch or the input's opening may let held frames run, and a
+  // batch the stream took in part is offered again (the rest waited in the
+  // ring meanwhile).
+  auto after = [&ordered_input, &input](cmux_host::control::OrderedStream::Result result) {
+    ordered_input.After(result);
+    if (input) input->Retry();
   };
   // The reader thread starts here, after the framework load.
   channel = std::make_unique<cmux_host::control::Channel>(
       kControlFd, &PostToMain,
-      [&ordered, &check](std::vector<cmux_host::control::Message> messages) {
-        check(ordered.AddControl(std::move(messages)));
+      [&ordered, &after](std::vector<cmux_host::control::Message> messages) {
+        after(ordered.AddControl(std::move(messages)));
       },
       [&host_main](cmux_host::control::End) { host_main.Quit(); });
+
+  // The input reader starts here too, after the framework load. Frames that
+  // come before initialize wait in the stream (input opens after Resume). Its
+  // batches go through InputTasks: the main run loop until CefInitialize
+  // returned, then the queue chosen at start; a refused batch is dropped and
+  // keeps the BatchGate shut until Stop (host_user_input.h).
+  if (ring != nullptr) {
+    input = std::make_unique<HostInput>(ring, doorbell);
+    input->Start(
+        [&input_tasks](std::function<void()> task) { input_tasks.Post(std::move(task)); },
+        [&ordered_input](const HostInput::Frames& frames, size_t from) { return ordered_input.Take(frames, from); },
+        [&host_main](cmux_host::input_ring::Reader::End end) {
+          if (end == cmux_host::input_ring::Reader::End::kBroken) {
+            host_main.BadMessage("input ring: a position or a frame no writer makes");
+            return;
+          }
+          fprintf(stderr, "cmux-chromium-host: the input doorbell failed; no input can arrive\n");
+          host_main.Quit();
+        });
+  }
   // Chromium's ack of each wheel goes to cmux's swipe navigation (WHEEL_ACK, task p01-process-234).
   host.SetWheelAckHandler(fork_input.set_wheel_ack_handler);
   host.Attach();
@@ -573,12 +752,19 @@ int main(int argc, char* argv[]) {
     for (const std::string& entry : host_switches) switches.push_back(entry.c_str());
     switches.push_back(nullptr);
     auto c_str = [](const std::optional<std::string>& value) { return value ? value->c_str() : nullptr; };
+    // cmux's runtime sends no paths in host mode (CEFRuntimeBoot.chromiumPaths): the app's
+    // bundle and helper come from the spawn's arguments (ChromiumHostConfiguration), so
+    // Chromium never takes this small host bundle as its main bundle.
+    const std::string main_bundle =
+        request.main_bundle_path.empty() ? Arg(args, "main-bundle") : request.main_bundle_path;
+    const std::string subprocess = request.subprocess_path.empty() ? Arg(args, "subprocess") : request.subprocess_path;
+    const std::string log_file = cmux_host::HostLogFile(request.log_file, Arg(args, "log-file"));
     // The framework this host loaded at start; cmux names the same directory.
     // No schedule_fn: the shim then runs without an external pump, and
     // CefRunMessageLoop below is the loop.
-    const int ok = cmux_shim_initialize(framework.c_str(), request.main_bundle_path.c_str(),
-                                        request.subprocess_path.c_str(), request.root_cache_path.c_str(),
-                                        c_str(request.log_file), request.log_severity, c_str(request.locale),
+    const int ok = cmux_shim_initialize(framework.c_str(), main_bundle.c_str(),
+                                        subprocess.c_str(), request.root_cache_path.c_str(),
+                                        log_file.empty() ? nullptr : log_file.c_str(), request.log_severity, c_str(request.locale),
                                         c_str(request.accept_languages), switches.data(), &host, nullptr,
                                         &cmux_host::HostContext::OnShimEvent, nullptr);
     if (!ok) {
@@ -586,18 +772,30 @@ int main(int argc, char* argv[]) {
       channel->Close();
       return cmux_host::kExitInitialize;
     }
+    // One line of the host's own after Chromium's start, so a crashed host's log tail (ChromiumHostSupervisor) says it
+    // got past CefInitialize and on which fork, even when Chromium logged nothing at cmux's severity (warnings and up).
+    if (!log_file.empty()) {
+      if (FILE* log = fopen(log_file.c_str(), "a")) {
+        fprintf(log, "cmux-chromium-host: Chromium started, pid %d, fork API %d\n", getpid(), fork_api);
+        fclose(log);
+      }
+    }
     host_main.set_running();
     input_tasks.Start();
-    PostToMain([&host, &ordered, &check] {
+    PostToMain([&host, &ordered, &after] {
       host.Resume();
-      check(ordered.OpenInput());  // the messages that waited for initialize ran first
+      after(ordered.OpenInput());  // the messages that waited for initialize ran first
     });
     CefRunMessageLoop();
+    if (input) input->Stop();  // no batch runs after this, so none reaches a shut down Chromium
+    hang_watch.Stop();         // before Chromium shuts down: no dump of its shutdown
     channel->Close();
     cmux_shim_shutdown();
     status = host_main.exit_status();
   } else {
     channel->Close();
   }
+  input.reset();
+  cmux_host::input_ring::UnmapRegion(ring);
   return status;
 }

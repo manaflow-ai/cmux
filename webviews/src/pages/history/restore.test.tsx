@@ -7,16 +7,19 @@ const restoreDom = installDom();
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { BridgePageClient, RESTORE_NAME, type ReplyHandler } from "../shared/pageClient";
+import { PAGE_STATE_VERSION } from "../shared/pageState";
 import { createStrings } from "../shared/i18n";
 import table from "./generated/strings.json";
 import { HistoryPage } from "./HistoryPage";
-import { HistoryStore, restoredQuery } from "./store";
+import { HISTORY_PAGE, HistoryStore, restoredQuery } from "./store";
 
 afterAll(() => restoreDom());
 
 const handler: ReplyHandler = { postMessage: async () => ({ t: "ok", id: 0, value: null }) };
 
-function restoredClient(state: unknown): BridgePageClient {
+/** The client of a restored History document whose old one saved `inputs` (pageState.ts). */
+function restoredClient(inputs: unknown): BridgePageClient {
+  const state = { v: PAGE_STATE_VERSION, page: HISTORY_PAGE, entryRoute: "", route: "", scroll: {}, inputs };
   return new BridgePageClient(handler, { [RESTORE_NAME]: { wasDiscarded: true, state } });
 }
 

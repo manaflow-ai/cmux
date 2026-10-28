@@ -49,8 +49,13 @@ public nonisolated struct ManagedPreferences: Sendable, Equatable {
         ManagedPolicyKey("MinimumVersion", type: .string, help: "Oldest cmux version allowed to sign in, for example 1.2.0."),
         ManagedPolicyKey("AllowedSignInMethods", type: .stringArray(["sso", "password", "oauth"]), help: "Sign-in methods the app offers."),
         ManagedPolicyKey("DisableAutoUpdate", type: .boolean, help: "Turn off automatic updates (also honored in the legacy com.cmuxterm.app domain)."),
-        ManagedPolicyKey("DisableTelemetry", type: .boolean, help: "Turn off anonymous telemetry, crash reports included, whatever the user chose (also honored in the legacy com.cmuxterm.app domain).")
+        ManagedPolicyKey("DisableTelemetry", type: .boolean, help: "Turn off anonymous telemetry, crash reports included, whatever the user chose (also honored in the legacy com.cmuxterm.app domain)."),
+        ManagedPolicyKey(disableRemoteFeatureFlagsKey, type: .boolean,
+                         help: "Turn off remote feature flags: cmux neither fetches the signed feature document published with its release notes nor applies a stored one.")
     ]
+
+    /// The policy key that turns remote feature flags off (CmuxNextUpdater `FlagsFetchPolicy`).
+    public static let disableRemoteFeatureFlagsKey = "DisableRemoteFeatureFlags"
 
     /// Whether `key` names a cmux.json setting (as opposed to a policy key).
     public static func isSettingKey(_ key: String) -> Bool {

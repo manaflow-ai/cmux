@@ -16,7 +16,7 @@ struct FeatureFlagsActionTests {
         let services = AppServices(environment: AppEnvironment.current([:]))
         AppActions.bind(services)
         #expect(services.registry.unavailableReason(for: "help.featureFlags") == nil, "Feature Flags is still greyed out")
-        let anchor = try #require(SettingsAnchor(key: FeatureFlagsPage.settingKey))
+        let anchor = try #require(SettingsAnchor(key: FeatureFlagsPage.settingKey, availability: SettingsAvailability()))
         #expect(anchor.section == .advanced)
         // Without a loaded cmux.json the run says why instead of doing nothing.
         services.settings = nil

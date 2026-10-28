@@ -119,7 +119,7 @@ impl Meter {
             return None;
         }
         let claim = Claim(self.clone());
-        Some(tokio::task::spawn_blocking(move || claim.0.take_sample(Instant::now())))
+        Some(crate::daemon::spawn_blocking(move || claim.0.take_sample(Instant::now())))
     }
 
     /// For a turn's acceptance, which must not wait: the last verdict while it is

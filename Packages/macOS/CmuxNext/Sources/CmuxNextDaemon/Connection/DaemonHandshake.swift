@@ -1,6 +1,7 @@
 import os
 
-/// Validates one transport before its immutable ready session is admitted.
+/// Validates one transport before its immutable ready session is admitted, and hands it the framed IPC
+/// grants its handshake got (``WireNegotiation``): typed requests go as REQUEST frames only after this.
 struct DaemonHandshake {
     let configuration: DaemonConnectionConfiguration
     let logger: Logger
@@ -25,6 +26,12 @@ struct DaemonHandshake {
             throw DaemonError.missingCapabilities(missing)
         }
         _ = try (replies[1].get(), replies[2].get())
+        let granted = handshake.granted
+        transport.adopt(granted)
+        if configuration.wireUpgrades.asksAny {
+            let grants = granted.grants, framed = granted.framing?.served.count ?? 0
+            logger.info("daemon wire grants: frames \(grants.frames, privacy: .public) (\(framed, privacy: .public) methods), streams \(grants.streams, privacy: .public)")
+        }
         return (identity, handshake.userOriginAllowed)
     }
 

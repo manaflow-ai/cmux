@@ -217,6 +217,7 @@ public final class PageRouter {
                 // The current state, after the subscribe reply that names `sub` reaches the page.
                 let connected = connected
                 // task-owner: one event delivery after the reply; ends with the router
+                // main-hop-allow: the event must reach the page after the subscribe reply that names sub, which the caller sends when this call returns; the job only orders one delivery behind it
                 Task { @MainActor [weak self] in self?.deliver(sub: sub, ["connected": .bool(connected)]) }
             }
             return sub
@@ -260,6 +261,7 @@ public final class PageRouter {
             return sub
         }
         // task-owner: one flush after the reply; ends with the router
+        // main-hop-allow: the held events must reach the page after the subscribe reply that names sub, which the caller sends when this call returns; the job only orders their delivery behind it
         Task { @MainActor [weak self] in
             for data in early.release() { self?.deliver(sub: sub, data, publicationID: provider.eventDeliveryID) }
         }

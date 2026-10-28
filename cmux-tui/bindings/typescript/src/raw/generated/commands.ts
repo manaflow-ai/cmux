@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR df10717146553dfa363854f65845a400d363319d750b9f1e04386389220171be. */
+/* cmux-tui mux protocol 12, IR 974986b7d253aacd825bed6d8efd6c978efd265af55140e73b402e8a32e4e3bc. */
 
 
 import type * as T from "./types.js";
@@ -834,6 +834,7 @@ export type ClientFocusResult = {
 /** Protocol v12; authority: local-admin. */
 export interface ClientHelloRequest extends CmuxRequestBase {
   cmd: "client-hello";
+  "features"?: (T.ClientHelloFeatures) | null;
   "install_id"?: string;
   "page"?: (string) | null;
   "proof"?: string;
@@ -2167,6 +2168,12 @@ export interface MarkWorkspacesProviderManagedRequest extends CmuxRequestBase {
 }
 export type MarkWorkspacesProviderManagedResult = T.EmptyResult;
 
+/** Protocol v12; authority: local-admin. */
+export interface MemoryReportRequest extends CmuxRequestBase {
+  cmd: "memory-report";
+}
+export type MemoryReportResult = T.JsonValue;
+
 /** Protocol v9; authority: frontend. */
 export interface MintTerminalRendererRequest extends CmuxRequestBase {
   cmd: "mint-terminal-renderer";
@@ -3217,6 +3224,13 @@ export interface SetSplitRatioRequest extends CmuxRequestBase {
 }
 export type SetSplitRatioResult = T.EmptyResult;
 
+/** Protocol v12; authority: frontend. */
+export interface SetStreamPriorityRequest extends CmuxRequestBase {
+  cmd: "set-stream-priority";
+  "priority": "focused" | "visible" | "hidden";
+  "stream": number;
+}
+
 /** Protocol v12; authority: control. */
 export interface SetTabPinnedRequest extends CmuxRequestBase {
   cmd: "set-tab-pinned";
@@ -3873,6 +3887,7 @@ export type CmuxRequest =
   | MachineListeningTcpRequest
   | MachineUsageRequest
   | MarkWorkspacesProviderManagedRequest
+  | MemoryReportRequest
   | MintTerminalRendererRequest
   | MintTerminalRendererByTerminalRequest
   | MoveBookmarkRequest
@@ -3975,6 +3990,7 @@ export type CmuxRequest =
   | SetSizeCountsRequest
   | SetSizePolicyRequest
   | SetSplitRatioRequest
+  | SetStreamPriorityRequest
   | SetTabPinnedRequest
   | SetTerminalCommandHistoryRequest
   | SetTerminalIdlePolicyRequest
@@ -5723,6 +5739,14 @@ export interface CmuxCommandDefinitionMap {
     capability: "provider-managed-workspace-authority-v2";
     stream: null;
   };
+  "memory-report": {
+    request: MemoryReportRequest;
+    result: MemoryReportResult;
+    authority: "local-admin";
+    since: 12;
+    capability: null;
+    stream: null;
+  };
   "mint-terminal-renderer": {
     request: MintTerminalRendererRequest;
     result: T.MintTerminalRendererResult;
@@ -6537,6 +6561,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 8;
     capability: null;
+    stream: null;
+  };
+  "set-stream-priority": {
+    request: SetStreamPriorityRequest;
+    result: T.SetStreamPriorityResult;
+    authority: "frontend";
+    since: 12;
+    capability: "attach-streams-v1";
     stream: null;
   };
   "set-tab-pinned": {

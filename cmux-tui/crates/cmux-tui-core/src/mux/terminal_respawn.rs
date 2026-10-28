@@ -506,7 +506,7 @@ impl Mux {
             if plan.user_restart {
                 wait_for_old_hosts(&root, &plan.terminal_id);
             }
-            remove_dead_host_records(&root, &plan.terminal_id);
+            remove_dead_host_records(&root, &plan.terminal_id, self.host_panic_log().as_ref());
             // Another thread (startup reconciliation, an adoption thread)
             // may be between removing the old record and its endpoint: the
             // launch below would refuse the endpoint, or that removal would
@@ -648,12 +648,18 @@ impl Mux {
 /// host can publish its own. A live record is left alone (the launch then
 /// fails and the loss stands).
 #[cfg(any(unix, windows))]
-fn remove_dead_host_records(root: &Path, terminal_id: &str) {
+fn remove_dead_host_records(
+    root: &Path,
+    terminal_id: &str,
+    panic_log: Option<&crate::terminal_host_runtime::HostPanicLog>,
+) {
     let Ok(records) = crate::terminal_host_runtime::load_terminal_host_records(root) else {
         return;
     };
     for (path, record) in records.iter().filter(|(_, record)| record.terminal_id == terminal_id) {
-        let _ = crate::terminal_host_runtime::remove_stale_terminal_host_record(path, record);
+        let _ = crate::terminal_host_runtime::remove_stale_terminal_host_record(
+            path, record, panic_log,
+        );
     }
 }
 

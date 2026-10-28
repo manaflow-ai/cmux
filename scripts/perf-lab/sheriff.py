@@ -16,6 +16,13 @@ the good side of the alert's step. Two batches are too few for a change-point se
 MIN_SEGMENT_SIZE = 6 points), so a batch counts as recovered when its median is nearer the alert's
 median_before than its median_after.
 
+A field crash signature (stability.py: one group per new top Sentry crash signature, keyed in the store's
+field_signatures table) has no series and no commit range. Pinpoint never bisects it, and the perf SLO report leaves
+it out. Its `fixed` is judged from the field, as ClusterFuzz closes a crash bug once newer builds stop reproducing it
+(src/clusterfuzz/_internal/cron/cleanup.py, mark_issue_as_closed_if_testcase_is_fixed): the FIELD_CLEAN_RELEASES
+newest cmux NEXT releases with sessions after the signature's last release, as stability.py last read them from Sentry.
+A crash has no bisect to run, so a field group may also go triaged -> assigned directly.
+
 The acting session is the caller's own agent session from its environment (CMUX_AGENT_SESSION, else
 CLAUDE_CODE_SESSION_ID, else CODEX_THREAD_ID), never an argument. `accepted` needs a reason and the
 Performance Lead's session, which the lab host names in the file `perf-lead-session` beside the store.
@@ -74,6 +81,9 @@ TRANSITIONS: dict[str, frozenset[str]] = {
 BACKWARD = frozenset({("bisecting", "triaged"), ("culprit", "bisecting")})
 REASON_REQUIRED = frozenset({"assigned", "flag-off", "accepted", "invalid", "lab-drift"})
 RECOVERY_BATCHES = 2
+# A field crash signature: the extra moves it may make, and the clean releases its `fixed` needs.
+FIELD_TRANSITIONS: dict[str, frozenset[str]] = {"triaged": frozenset({"assigned"})}
+FIELD_CLEAN_RELEASES = 3
 TAKE_LEASE = timedelta(hours=2)
 SESSION_ENVS = ("CMUX_AGENT_SESSION", "CLAUDE_CODE_SESSION_ID", "CODEX_THREAD_ID")
 LEAD_FILE = "perf-lead-session"
@@ -172,6 +182,7 @@ class Group:
     age_hours: float
     holder: str | None
     stories: tuple[str, ...]
+    signature: str | None = None  # `sentry:<id>` for a field crash signature's group
 
 
 @dataclass(frozen=True)
@@ -188,12 +199,25 @@ class AlertRecovery:
 
 
 @dataclass(frozen=True)
+class FieldRecovery:
+    signature: str
+    last_release: str | None
+    clean_releases: tuple[str, ...]
+    checked_at: str | None
+    recovered: bool
+    why: str
+
+
+@dataclass(frozen=True)
 class Recovery:
     group_id: int
     recovered: bool
     alerts: tuple[AlertRecovery, ...]
+    field: FieldRecovery | None = None
 
     def explain(self) -> str:
+        if self.field is not None:
+            return self.field.why
         if not self.alerts:
             return f"group {self.group_id} has no regression alert to judge recovery on"
         return "; ".join(f"{a.story}/{a.metric}: {a.why}" for a in self.alerts if not a.recovered)
@@ -249,6 +273,9 @@ class Sheriff:
             raise NoSuchGroup(f"no alert group {group_id}")
         return row
 
+    def _field_row(self, group_id: int) -> sqlite3.Row | None:
+        return self._db.execute("SELECT * FROM field_signatures WHERE group_id = ?", (group_id,)).fetchone()
+
     def history(self, group_id: int) -> list[HistoryEntry]:
         self._group_row(group_id)
         rows = self._db.execute(
@@ -282,12 +309,14 @@ class Sheriff:
             stories = tuple(story for (story,) in self._db.execute(
                 "SELECT DISTINCT s.story FROM alerts a JOIN series s ON s.id = a.series_id "
                 "WHERE a.group_id = ? ORDER BY s.story", (row["id"],)))
+            field_row = self._field_row(row["id"])
             result.append(Group(
                 id=row["id"], state=row["state"], start_pos=row["start_pos"], end_pos=row["end_pos"],
                 culprit_sha=row["culprit_sha"], culprit_verified=bool(row["culprit_verified"]),
                 issue_number=row["issue_number"], reason=row["reason"], created_at=row["created_at"],
                 updated_at=row["updated_at"], age_hours=_hours(now - _parse(row["created_at"])),
-                holder=self._holder(row, now), stories=stories))
+                holder=self._holder(row, now), stories=stories,
+                signature=None if field_row is None else f"{field_row['source']}:{field_row['signature']}"))
         return result
 
     def _append(self, group_id: int, from_state: str, to_state: str, actor: str, reason: str | None,
@@ -332,8 +361,11 @@ class Sheriff:
             raise IllegalTransition(f"unknown state {to_state!r}; states are {', '.join(STATES)}")
         row = self._group_row(group_id)
         from_state = row["state"]
-        if to_state not in TRANSITIONS.get(from_state, frozenset()):
-            allowed = ", ".join(sorted(TRANSITIONS.get(from_state, ()))) or "nothing (closed)"
+        moves = TRANSITIONS.get(from_state, frozenset())
+        if self._field_row(group_id) is not None:
+            moves |= FIELD_TRANSITIONS.get(from_state, frozenset())
+        if to_state not in moves:
+            allowed = ", ".join(sorted(moves)) or "nothing (closed)"
             raise IllegalTransition(f"group {group_id}: {from_state} -> {to_state} is not allowed; "
                                     f"{from_state} goes to {allowed}")
         if reason is None and (to_state in REASON_REQUIRED or (from_state, to_state) in BACKWARD):
@@ -361,7 +393,8 @@ class Sheriff:
         if to_state == "fixed":
             recovery = self._recovery(group_id)
             if not recovery.recovered:
-                raise NotRecovered(f"group {group_id} stays {from_state}: the series has not recovered "
+                judged = "field signature" if recovery.field else "series"
+                raise NotRecovered(f"group {group_id} stays {from_state}: the {judged} has not recovered "
                                    f"({recovery.explain()})")
         closing_reason = reason if to_state in TERMINAL else row["reason"]
         if to_state in TERMINAL:
@@ -381,6 +414,10 @@ class Sheriff:
         return self._recovery(group_id)
 
     def _recovery(self, group_id: int) -> Recovery:
+        field_row = self._field_row(group_id)
+        if field_row is not None:
+            judged = field_recovery(field_row)
+            return Recovery(group_id, judged.recovered, (), judged)
         alerts = self._db.execute(
             """SELECT a.id, a.rule, a.end_pos, a.median_before, a.median_after, s.series_key, s.story,
                       s.metric, s.better
@@ -420,14 +457,17 @@ class Sheriff:
         return _parse(row["applied_at"])
 
     def slo(self, since: datetime) -> dict[str, object]:
-        """The sheriff SLO report over groups created at or after `since`."""
+        """The sheriff SLO report over the perf groups created at or after `since`; field crash signatures are not
+        perf regressions and are left out."""
         now = self._now()
         triage = {"met": [], "missed": [], "pending": []}
         culprit = {"reached": [], "overdue": [], "pending": []}
         fix = {"met": [], "missed": [], "pending": []}
         stale, culprit_hours = [], []
-        groups = self._db.execute("SELECT id, state, created_at FROM alert_groups WHERE created_at >= ? "
-                                  "ORDER BY created_at, id", (_stamp(since),)).fetchall()
+        groups = self._db.execute(
+            "SELECT id, state, created_at FROM alert_groups g WHERE created_at >= ? AND NOT EXISTS "
+            "(SELECT 1 FROM field_signatures f WHERE f.group_id = g.id) ORDER BY created_at, id",
+            (_stamp(since),)).fetchall()
         for row in groups:
             gid, state, created = row["id"], row["state"], _parse(row["created_at"])
             moves = self.history(gid)
@@ -484,6 +524,30 @@ class Sheriff:
             "stale": stale,
             "pass": all(checks.values()),
         }
+
+
+def field_recovery(row: Mapping[str, object]) -> FieldRecovery:
+    """A field signature's recovery from its field_signatures row: FIELD_CLEAN_RELEASES newer releases without it."""
+    signature = f"{row['source']}:{row['signature']}"
+    try:
+        clean = json.loads(str(row["clean_releases_json"]))
+    except json.JSONDecodeError:
+        clean = None
+    if not isinstance(clean, list) or not all(isinstance(name, str) for name in clean):
+        return FieldRecovery(signature, row["last_release"], (), row["checked_at"], False,
+                             f"{signature}: the stored clean releases are not a list of names")
+    clean_releases = tuple(clean)
+    if row["checked_at"] is None:
+        why = f"{signature}: no field read yet (lab.py stability --db)"
+    elif row["last_release"] is None:
+        why = f"{signature}: no cmux NEXT release Sentry last saw it in"
+    elif len(clean_releases) < FIELD_CLEAN_RELEASES:
+        why = (f"{signature}: {len(clean_releases)} of {FIELD_CLEAN_RELEASES} releases with sessions after "
+               f"{row['last_release']} ({row['checked_at']})")
+    else:
+        return FieldRecovery(signature, row["last_release"], clean_releases, row["checked_at"], True,
+                             f"{signature}: not seen in {len(clean_releases)} releases after {row['last_release']}")
+    return FieldRecovery(signature, row["last_release"], clean_releases, row["checked_at"], False, why)
 
 
 def caller_session(environ: Mapping[str, str]) -> str | None:

@@ -87,6 +87,8 @@ public final class AgentPaneView: NSView {
     private var appearanceSignals = DesignSettings.shared.signals
     /// The chat's tab in the visibility tree, held while it follows it.
     private(set) var visibilityNode: VisibilityNode?
+    /// The app's main-thread scheduling: the pane's posts, deadlines and notices go through it.
+    let mainThread: AgentPaneMainThread
     /// Hands this pane the person's key presses and clicks that go to it (``AgentPaneUserGestures``),
     /// through one input tap subscription per window, while the pane is in one.
     let gestureRouter: AgentPaneGestureRouter
@@ -104,6 +106,8 @@ public final class AgentPaneView: NSView {
     /// Bounded reports from the app-owned webview UI picker.
     /// Receives a bounded element report while the debug UI pointer is active.
     public var uiPointerReport: (@MainActor (JSONValue) -> Void)?
+    /// Receives the page's key-to-paint histograms while ``setKeyToPaintProbe(_:)`` has the probe on.
+    public var keyToPaintReport: ((AgentPaneKeyToPaint) -> Void)?
     /// The pane's first frame until its page paints (`AgentPaneView+Loading`).
     public let loadingView: AgentPaneLoadingView
     public private(set) lazy var redraw = AgentPageRedraw(page: page) // a chat shown again draws first
@@ -118,6 +122,7 @@ public final class AgentPaneView: NSView {
     /// Nil when `source` is nil and the bundled page is missing, or when the page host refuses the page.
     ///
     /// - Parameters:
+    ///   - mainThread: The app's main-thread scheduling (``AgentPaneMainThread``); tests pass a standalone one.
     ///   - model: Answers the page's host requests.
     ///   - work: The app's blocking-work lanes (`AppServices.work`), for the reads of a file drag; tests pass
     ///     their own `BackgroundWork`.
@@ -134,26 +139,26 @@ public final class AgentPaneView: NSView {
     ///     its page a gesture, and its dictation's hold-to-talk hears the key-up.
     ///   - chatStores: The app's chat stores (where each chat rested, its unsent chips); the default keeps nothing.
     ///   - chromiumChat: Whether the page may show in Chromium: feature `agentChromium` now (tests: its default, on).
-    public init?(model: AgentPaneModel, work: any MayBlockRunner, source: AgentPaneSource? = nil, renderRate: AgentPaneRenderRate = .capped,
+    public init?(mainThread: AgentPaneMainThread, model: AgentPaneModel, work: any MayBlockRunner, source: AgentPaneSource? = nil, renderRate: AgentPaneRenderRate = .capped,
                  webUI: WebUIHost, openPanel: MadeAheadOpenPanel? = nil, warmup: AgentPageWarmup? = nil, gestures: AgentPaneGestureRouter,
                  chatStores: AgentPaneChatStores = .keepsNothing, chromiumChat: Bool = true) {
         guard let source = source ?? Self.bundledPage.map({ AgentPaneSource.bundled($0) }) else { return nil }
         gestureRouter = gestures
         self.openPanel = openPanel
         (self.model, self.source, self.renderRate, self.warmup) = (model, source, renderRate, warmup)
-        self.work = work
+        (self.work, self.mainThread) = (work, mainThread)
         loadingView = AgentPaneLoadingView(deadlines: model.deadlines)
         warmup?.agentPageMade()
-        let provider = AgentPageProvider(chatStores: chatStores) { [weak model] _ in model }
+        let provider = AgentPageProvider(chatStores: chatStores, mainWork: mainThread.mainWork) { [weak model] _ in model }
         // Needs you reads the pane's own acpmux (a Chief chat's is the Chief home's), never another.
         provider.pendingAsksSocket = { [weak model] in model?.pendingAsksSocket }
         guard let page = AgentPanePageHost.makePage(root: source.directory, provider: provider, renderRate: renderRate, webUI: webUI,
-                                                    chatOpen: model.chatOpen, chromiumChat: chromiumChat)
+                                                    chatOpen: model.chatOpen, chromiumChat: chromiumChat, origin: model.pageOrigin)
         else { return nil }
         self.page = page
         pageEvents = provider
         inputReadiness = page.inputReadiness
-        dictation = AgentPaneDictation(input: gestures.input, send: { [weak provider] update in
+        dictation = AgentPaneDictation(input: gestures.input, mainThread: mainThread, send: { [weak provider] update in
             if let event = AgentPageEvent.dictation(update), provider?.publish(event) == false {
                 // The page host reports bounded replay backpressure; reconnecting the acpmux
                 // transport resyncs the chat while the provider's replay state restores chrome.
@@ -183,6 +188,7 @@ public final class AgentPaneView: NSView {
             return await AgentPaneFilePicker(openPanel: openPanel).pickAttachments(window: window)
         }
         model.onFramePacing = { [weak self] _ in self?.framePacingSettings() ?? [:] }
+        model.onKeyToPaint = { [weak self] report in self?.keyToPaintReport?(report) }
         model.onRenderRate = { [weak self] full in
             guard let self, self.renderRate == .adaptive else { return }
             self.rendersAtFullRate = full

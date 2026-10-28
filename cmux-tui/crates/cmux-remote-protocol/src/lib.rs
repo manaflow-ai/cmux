@@ -19,6 +19,7 @@
         clippy::exit
     )
 )]
+#![forbid(unsafe_code)]
 
 mod frame;
 mod relay;

@@ -1,0 +1,10 @@
+{
+    "sidebar": {
+        "groupHeader": {
+            "unreadCount": false
+        }
+    },
+    "editor": {
+        "wordBasedSuggestions": true
+    }
+}

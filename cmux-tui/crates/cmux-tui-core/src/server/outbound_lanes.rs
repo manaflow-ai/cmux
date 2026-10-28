@@ -18,12 +18,15 @@
 //! snapshot. A JSON line is written whole. `BoundedOutboundState`'s queueing
 //! and pop order live here; its budgets stay in server/bounded_outbound.rs.
 
+use super::super::OUTBOUND_BACKPRESSURED_STREAM_CAPACITY;
 use super::BoundedOutbound;
 use super::BoundedOutboundState;
 use super::BudgetedText;
+use super::ClientStreams;
 use super::ControlOutbound;
 use super::OutboundItem;
 use super::OutboundStream;
+use super::SpaceWoken;
 use cmux_ipc::lane_writer::{BULK_FRAME_MAX, STARVATION_BOUND, STREAM_CREDIT};
 use cmux_ipc::{
     Aux, BadMessage, CallFlags, FrameHeader, FrameKind, Lane, MAX_FRAME_PAYLOAD, StreamLane,
@@ -253,7 +256,7 @@ impl StreamLanes {
     /// Queues `message` on its stream's FIFO; returns the lane when it was
     /// empty before (a lane that may have become ready).
     pub(super) fn push(&mut self, message: RegularOutbound) -> Option<Lane> {
-        let (id, lane) = (message.stream.id, message.stream.lane);
+        let (id, lane) = (message.stream.id, message.stream.lane());
         let fifo = self.streams.entry(id).or_default();
         let was_empty = fifo.is_empty();
         fifo.push_back(message);
@@ -264,6 +267,25 @@ impl StreamLanes {
         let lane_was_empty = ring.order.is_empty();
         ring.order.push_back(id);
         lane_was_empty.then_some(lane.lane())
+    }
+
+    /// Moves `stream`'s place in turn from `from`'s ring to the back of
+    /// `to`'s; its FIFO stays as it is. Returns `to`'s lane when it got its
+    /// first ready stream.
+    pub(super) fn move_stream(
+        &mut self,
+        stream: u64,
+        from: StreamLane,
+        to: StreamLane,
+    ) -> Option<Lane> {
+        if from == to || !self.ring(from).order.contains(&stream) {
+            return None;
+        }
+        self.ring(from).remove(stream);
+        let ring = self.ring(to);
+        let was_empty = ring.order.is_empty();
+        ring.order.push_back(stream);
+        was_empty.then_some(to.lane())
     }
 
     /// Drops what `stream` has queued.
@@ -414,7 +436,9 @@ impl BoundedOutboundState {
             stream_items: 0,
             regular_bytes: 0,
             closed: false,
-            client_streams: Default::default(),
+            client_streams: ClientStreams::default(),
+            space_woken: SpaceWoken::default(),
+            room_waiters: Vec::new(),
         }
     }
 
@@ -440,8 +464,17 @@ impl BoundedOutboundState {
         self.control.push_back(item);
     }
 
-    /// The next item in write order.
+    /// The next item in write order. Any item that leaves frees budget, so
+    /// it wakes the room waiters of ordered terminals.
     pub(super) fn pop(&mut self) -> Option<OutboundItem> {
+        let item = self.pop_next();
+        if item.is_some() {
+            self.space_woken.room.append(&mut self.room_waiters);
+        }
+        item
+    }
+
+    fn pop_next(&mut self) -> Option<OutboundItem> {
         if let Some(message) = self.initial.pop_front() {
             self.record_stream_pop(&message);
             return Some(message.whole_item());
@@ -505,14 +538,34 @@ impl BoundedOutboundState {
         let bytes = message.text.len();
         self.stream_items = self.stream_items.saturating_sub(1);
         self.regular_bytes = self.regular_bytes.saturating_sub(bytes);
-        let remove = self.stream_usage.get_mut(&message.stream.id).is_some_and(|usage| {
-            usage.messages = usage.messages.saturating_sub(1);
-            usage.bytes = usage.bytes.saturating_sub(bytes);
-            usage.messages == 0
-        });
+        let Some(usage) = self.stream_usage.get_mut(&message.stream.id) else { return };
+        let was_full = usage.messages >= OUTBOUND_BACKPRESSURED_STREAM_CAPACITY;
+        usage.messages = usage.messages.saturating_sub(1);
+        usage.bytes = usage.bytes.saturating_sub(bytes);
+        let remove = usage.messages == 0;
+        // A producer that stopped at the cap is woken once the lock is
+        // released (`BoundedOutbound::recv`).
+        if was_full && message.stream.space_hook.is_set() {
+            self.space_woken.streams.push(message.stream.clone());
+        }
         if remove {
             self.stream_usage.remove(&message.stream.id);
         }
+    }
+
+    /// The streams that got room since the last call, to wake outside the
+    /// lock.
+    pub(super) fn take_space_woken(&mut self) -> SpaceWoken {
+        std::mem::take(&mut self.space_woken)
+    }
+
+    /// Whether `stream` holds fewer queued items than its backpressure cap.
+    /// A closed connection or stream answers true: the send reports why.
+    pub(super) fn has_backpressure_room(&self, stream: &OutboundStream) -> bool {
+        self.closed
+            || !stream.is_open()
+            || self.stream_usage.get(&stream.id).map_or(0, |usage| usage.messages)
+                < OUTBOUND_BACKPRESSURED_STREAM_CAPACITY
     }
 
     /// Closes every stream and drops its items; replies, terminals and
@@ -525,6 +578,7 @@ impl BoundedOutboundState {
         self.lanes.clear();
         self.control.retain(|item| !matches!(item, ControlOutbound::Stream(_)));
         self.stream_usage.clear();
+        self.client_streams.clear();
         self.stream_items = 0;
         self.regular_bytes = 0;
     }

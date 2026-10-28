@@ -243,8 +243,8 @@ class GeneratedClientMixin:
     def client_focus(self, client_id: str) -> ClientFocusResult:
         return self._invoke_command('client-focus', ClientFocusRequest(client_id=client_id))
 
-    def client_hello(self, *, install_id: Union[str, MissingType] = MISSING, page: Union[str, None, MissingType] = MISSING, proof: Union[str, MissingType] = MISSING, role: Union[str, MissingType] = MISSING) -> ClientHelloResult:
-        return self._invoke_command('client-hello', ClientHelloRequest(install_id=install_id, page=page, proof=proof, role=role))
+    def client_hello(self, *, features: Union[ClientHelloFeatures, None, MissingType] = MISSING, install_id: Union[str, MissingType] = MISSING, page: Union[str, None, MissingType] = MISSING, proof: Union[str, MissingType] = MISSING, role: Union[str, MissingType] = MISSING) -> ClientHelloResult:
+        return self._invoke_command('client-hello', ClientHelloRequest(features=features, install_id=install_id, page=page, proof=proof, role=role))
 
     def close_pane(self, pane: Id, *, end_terminals: Union[bool, MissingType] = MISSING) -> EmptyResult:
         return self._invoke_command('close-pane', ClosePaneRequest(pane=pane, end_terminals=end_terminals))
@@ -519,26 +519,26 @@ class GeneratedClientMixin:
     def forget_session(self, session_id: str, *, force: Union[bool, MissingType] = MISSING) -> JsonValue:
         return self._invoke_command('forget-session', ForgetSessionRequest(session_id=session_id, force=force))
 
-    def fs.delete(self, paths: List[str], *, permanent: Union[bool, MissingType] = MISSING) -> Fs.deleteResult:
-        return self._invoke_command('fs.delete', Fs.deleteRequest(paths=paths, permanent=permanent))
+    def fs_delete(self, paths: List[str], *, permanent: Union[bool, MissingType] = MISSING) -> FsDeleteResult:
+        return self._invoke_command('fs.delete', FsDeleteRequest(paths=paths, permanent=permanent))
 
-    def fs.list(self, *, cursor: Union[str, None, MissingType] = MISSING, filter: Union[FsFilter, MissingType] = MISSING, limit: Union[int, MissingType] = MISSING, listing: Union[str, None, MissingType] = MISSING, path: Union[str, None, MissingType] = MISSING, sort: Union[FsSort, MissingType] = MISSING) -> FsPage:
-        return self._invoke_command('fs.list', Fs.listRequest(cursor=cursor, filter=filter, limit=limit, listing=listing, path=path, sort=sort))
+    def fs_list(self, *, cursor: Union[str, None, MissingType] = MISSING, filter: Union[FsFilter, MissingType] = MISSING, limit: Union[int, MissingType] = MISSING, listing: Union[str, None, MissingType] = MISSING, path: Union[str, None, MissingType] = MISSING, sort: Union[FsSort, MissingType] = MISSING) -> FsPage:
+        return self._invoke_command('fs.list', FsListRequest(cursor=cursor, filter=filter, limit=limit, listing=listing, path=path, sort=sort))
 
-    def fs.mkdir(self, name: str, path: str) -> FsEntryResult:
-        return self._invoke_command('fs.mkdir', Fs.mkdirRequest(name=name, path=path))
+    def fs_mkdir(self, name: str, path: str) -> FsEntryResult:
+        return self._invoke_command('fs.mkdir', FsMkdirRequest(name=name, path=path))
 
-    def fs.read(self, max_bytes: int, path: str, *, offset: Union[int, MissingType] = MISSING) -> FsReadResult:
-        return self._invoke_command('fs.read', Fs.readRequest(max_bytes=max_bytes, path=path, offset=offset))
+    def fs_read(self, max_bytes: int, path: str, *, offset: Union[int, MissingType] = MISSING) -> FsReadResult:
+        return self._invoke_command('fs.read', FsReadRequest(max_bytes=max_bytes, path=path, offset=offset))
 
-    def fs.rename(self, name: str, path: str) -> FsEntryResult:
-        return self._invoke_command('fs.rename', Fs.renameRequest(name=name, path=path))
+    def fs_rename(self, name: str, path: str) -> FsEntryResult:
+        return self._invoke_command('fs.rename', FsRenameRequest(name=name, path=path))
 
-    def fs.stat(self, path: str) -> FsStatResult:
-        return self._invoke_command('fs.stat', Fs.statRequest(path=path))
+    def fs_stat(self, path: str) -> FsStatResult:
+        return self._invoke_command('fs.stat', FsStatRequest(path=path))
 
-    def fs.write(self, mode: str, path: str, *, bytes_base64: Union[Base64, None, MissingType] = MISSING, expected: Union[str, None, MissingType] = MISSING, permissions: Union[int, None, MissingType] = MISSING, text: Union[str, None, MissingType] = MISSING) -> FsEntryResult:
-        return self._invoke_command('fs.write', Fs.writeRequest(mode=mode, path=path, bytes_base64=bytes_base64, expected=expected, permissions=permissions, text=text))
+    def fs_write(self, mode: str, path: str, *, bytes_base64: Union[Base64, None, MissingType] = MISSING, expected: Union[str, None, MissingType] = MISSING, permissions: Union[int, None, MissingType] = MISSING, text: Union[str, None, MissingType] = MISSING) -> FsEntryResult:
+        return self._invoke_command('fs.write', FsWriteRequest(mode=mode, path=path, bytes_base64=bytes_base64, expected=expected, permissions=permissions, text=text))
 
     def get_blob(self, blob: str) -> JsonValue:
         return self._invoke_command('get-blob', GetBlobRequest(blob=blob))
@@ -647,6 +647,9 @@ class GeneratedClientMixin:
 
     def mark_workspaces_provider_managed(self, authority: str) -> EmptyResult:
         return self._invoke_command('mark-workspaces-provider-managed', MarkWorkspacesProviderManagedRequest(authority=authority))
+
+    def memory_report(self) -> Any:
+        return self._invoke_command('memory-report', MemoryReportRequest())
 
     def mint_terminal_renderer(self, surface: Id, *, ttl_ms: Union[int, MissingType] = MISSING) -> MintTerminalRendererResult:
         return self._invoke_command('mint-terminal-renderer', MintTerminalRendererRequest(surface=surface, ttl_ms=ttl_ms))
@@ -953,6 +956,9 @@ class GeneratedClientMixin:
 
     def set_split_ratio(self, split: Id, ratio: float, *, transaction: Union[int, None, MissingType] = MISSING) -> EmptyResult:
         return self._invoke_command('set-split-ratio', SetSplitRatioRequest(split=split, ratio=ratio, transaction=transaction))
+
+    def set_stream_priority(self, priority: Literal['focused', 'visible', 'hidden'], stream: int) -> SetStreamPriorityResult:
+        return self._invoke_command('set-stream-priority', SetStreamPriorityRequest(priority=priority, stream=stream))
 
     def set_tab_pinned(self, surface: Id, pinned: bool) -> JsonValue:
         return self._invoke_command('set-tab-pinned', SetTabPinnedRequest(surface=surface, pinned=pinned))
@@ -1271,13 +1277,13 @@ GeneratedClientMixin.feed_local_read.__cmux_command__ = COMMANDS['feed-local-rea
 GeneratedClientMixin.focus_direction.__cmux_command__ = COMMANDS['focus-direction']
 GeneratedClientMixin.focus_pane.__cmux_command__ = COMMANDS['focus-pane']
 GeneratedClientMixin.forget_session.__cmux_command__ = COMMANDS['forget-session']
-GeneratedClientMixin.fs.delete.__cmux_command__ = COMMANDS['fs.delete']
-GeneratedClientMixin.fs.list.__cmux_command__ = COMMANDS['fs.list']
-GeneratedClientMixin.fs.mkdir.__cmux_command__ = COMMANDS['fs.mkdir']
-GeneratedClientMixin.fs.read.__cmux_command__ = COMMANDS['fs.read']
-GeneratedClientMixin.fs.rename.__cmux_command__ = COMMANDS['fs.rename']
-GeneratedClientMixin.fs.stat.__cmux_command__ = COMMANDS['fs.stat']
-GeneratedClientMixin.fs.write.__cmux_command__ = COMMANDS['fs.write']
+GeneratedClientMixin.fs_delete.__cmux_command__ = COMMANDS['fs.delete']
+GeneratedClientMixin.fs_list.__cmux_command__ = COMMANDS['fs.list']
+GeneratedClientMixin.fs_mkdir.__cmux_command__ = COMMANDS['fs.mkdir']
+GeneratedClientMixin.fs_read.__cmux_command__ = COMMANDS['fs.read']
+GeneratedClientMixin.fs_rename.__cmux_command__ = COMMANDS['fs.rename']
+GeneratedClientMixin.fs_stat.__cmux_command__ = COMMANDS['fs.stat']
+GeneratedClientMixin.fs_write.__cmux_command__ = COMMANDS['fs.write']
 GeneratedClientMixin.get_blob.__cmux_command__ = COMMANDS['get-blob']
 GeneratedClientMixin.get_browser_provider.__cmux_command__ = COMMANDS['get-browser-provider']
 GeneratedClientMixin.get_cell_pixels.__cmux_command__ = COMMANDS['get-cell-pixels']
@@ -1314,6 +1320,7 @@ GeneratedClientMixin.machine_catalog_publish.__cmux_command__ = COMMANDS['machin
 GeneratedClientMixin.machine_listening_tcp.__cmux_command__ = COMMANDS['machine-listening-tcp']
 GeneratedClientMixin.machine_usage.__cmux_command__ = COMMANDS['machine-usage']
 GeneratedClientMixin.mark_workspaces_provider_managed.__cmux_command__ = COMMANDS['mark-workspaces-provider-managed']
+GeneratedClientMixin.memory_report.__cmux_command__ = COMMANDS['memory-report']
 GeneratedClientMixin.mint_terminal_renderer.__cmux_command__ = COMMANDS['mint-terminal-renderer']
 GeneratedClientMixin.mint_terminal_renderer_by_terminal.__cmux_command__ = COMMANDS['mint-terminal-renderer-by-terminal']
 GeneratedClientMixin.move_bookmark.__cmux_command__ = COMMANDS['move-bookmark']
@@ -1416,6 +1423,7 @@ GeneratedClientMixin.set_session_icon.__cmux_command__ = COMMANDS['set-session-i
 GeneratedClientMixin.set_size_counts.__cmux_command__ = COMMANDS['set-size-counts']
 GeneratedClientMixin.set_size_policy.__cmux_command__ = COMMANDS['set-size-policy']
 GeneratedClientMixin.set_split_ratio.__cmux_command__ = COMMANDS['set-split-ratio']
+GeneratedClientMixin.set_stream_priority.__cmux_command__ = COMMANDS['set-stream-priority']
 GeneratedClientMixin.set_tab_pinned.__cmux_command__ = COMMANDS['set-tab-pinned']
 GeneratedClientMixin.set_terminal_command_history.__cmux_command__ = COMMANDS['set-terminal-command-history']
 GeneratedClientMixin.set_terminal_idle_policy.__cmux_command__ = COMMANDS['set-terminal-idle-policy']

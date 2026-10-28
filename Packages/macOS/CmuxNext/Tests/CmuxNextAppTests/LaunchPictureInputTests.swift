@@ -218,7 +218,7 @@ struct LaunchPictureInputTests {
         services.cache.terminals[tab]?.session.view.removeFromSuperview()
         services.cache.terminals[tab] = TerminalEntry(validity: "test", session: session, io: io,
                                                       themeKey: TerminalThemeKey(machine: services.daemon.machineID, tab: tabModel),
-                                                      store: store, surface: tabModel.surface)
+                                                      store: store, surface: tabModel.surface, mainWork: services.mainWork)
         try Self.focusTerminal(of: controller, workspace: "live-ws", pane: pane.paneKey, tab: tab)
         let router = services.keyRouter, keys = router.launchPictureKeys
         let target = LaunchPictureKeys.Target(window: controller.state.id, pane: pane.paneKey, tab: tab)

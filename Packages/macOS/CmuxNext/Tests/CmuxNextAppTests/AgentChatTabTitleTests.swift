@@ -2,6 +2,7 @@ import CmuxNextAgentLanes
 import CmuxNextAgentPane
 import CmuxNextBridge
 @testable import CmuxNextDaemon
+import CmuxNextWakeups
 import Foundation
 import Testing
 @testable import CmuxNextApp
@@ -33,7 +34,7 @@ struct AgentChatTabTitleTests {
                 "fresh": ["harness": "claude-sr", "name": "claude-sr-3"],
             ])
         let turns = AgentTurnStateStore()
-        let feed = AgentTurnStateFeed(socketPath: acpmux.path, turns: turns)
+        let feed = AgentTurnStateFeed(socketPath: acpmux.path, turns: turns, deadlines: MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget())))
         feed.start(localHost: Self.host)
         // The watch's first page carries the titles; a chat's mute is known (false) before it lands.
         try await until { AgentChatTabTitle.untitled(Self.chat("titled"), turns: turns) != AgentPaneModel.tabTitle }

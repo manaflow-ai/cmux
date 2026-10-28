@@ -8,6 +8,9 @@ public import AppKit
 /// a click the host passes on can reach it, and `ChildWindowPolicy` allows
 /// it. AppKit moves a child window with its parent (drags, Spaces).
 ///
+/// It is page content on either page surface (`PageSurface`): with pages in the window's view tree
+/// (the Chromium Host) it is the only child window that is.
+///
 /// Borderless, transparent and non-activating; it never becomes key or
 /// main, so keys stay with the window's first responder. It is shown only
 /// by adding it as a child of a visible window (`addChildWindow`), never by

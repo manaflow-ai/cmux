@@ -135,7 +135,8 @@ struct AgentPaneHiddenHoldTests {
         try await server.start()
         defer { server.stop() }
         let calls = Calls()
-        let pacer = AgentPaneFramePacer(frames: AgentPaneHiddenPacingTests.Ticks(), fallback: SoonDeadline(), isHidden: { true })
+        let pacer = AgentPaneFramePacer(frames: AgentPaneHiddenPacingTests.Ticks(), fallback: SoonDeadline(),
+                                        nextTurn: { work in Task { @MainActor in work() } }, isHidden: { true })
         let transport = AgentPaneTransport(pacer: pacer)
         transport.deliver = { event, done in
             calls.deliver(event.frames)

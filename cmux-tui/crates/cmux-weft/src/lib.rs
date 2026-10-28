@@ -25,6 +25,7 @@
         clippy::unimplemented
     )
 )]
+#![forbid(unsafe_code)]
 
 pub mod admin;
 pub mod b64;

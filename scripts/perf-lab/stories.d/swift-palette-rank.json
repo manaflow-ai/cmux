@@ -1,0 +1,18 @@
+{
+  "id": "swift-palette-rank",
+  "tier": "builder",
+  "description": "PaletteBenchmarkTests: thread CPU per Command Palette query to rank 2,000 items with frecency, one sample per iteration of five short queries.",
+  "command": ["scripts/perf-lab/stories/swift_benches.py", "run", "--story", "swift-palette-rank", "--filter", "PaletteBenchmarkTests"],
+  "session": "light",
+  "engine": "none",
+  "config": "release",
+  "metrics": [
+    {"name": "swift\\.palette\\.rank_2000", "unit": "ms", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 900,
+  "needs": ["file:Packages/macOS/CmuxNext/Tests/CmuxNextPaletteTests/PaletteBenchmarkTests.swift", "file:Packages/macOS/CmuxNext/Tests/CmuxNextTestSupport/PerfResultWriter.swift"],
+  "owner": "Performance Lead",
+  "component": "Palette>Rank",
+  "hot_paths": ["palette-key"]
+}

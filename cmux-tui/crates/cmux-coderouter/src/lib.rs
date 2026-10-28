@@ -322,6 +322,7 @@ pub fn install_panic_hook() {
     }));
 }
 fn disable_core_dumps() {
+    // SAFETY: setrlimit only reads the rlimit, a temporary that lives across the call.
     #[cfg(unix)]
     unsafe {
         let _ = libc::setrlimit(libc::RLIMIT_CORE, &libc::rlimit { rlim_cur: 0, rlim_max: 0 });
@@ -347,29 +348,44 @@ pub type AdminConnections = tokio::sync::mpsc::Receiver<std::io::Result<AdminCon
 /// do), also while it still waits on router.lock.
 #[cfg(unix)]
 pub async fn serve(home: impl AsRef<Path>) -> anyhow::Result<()> {
-    serve_with_admin(home, |socket_path| {
-        let admin = UnixListener::bind(socket_path)?;
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(socket_path, std::fs::Permissions::from_mode(0o600))?;
-        }
-        let (tx, rx) = tokio::sync::mpsc::channel(16);
-        tokio::spawn(async move {
-            loop {
-                let accepted = admin.accept().await.map(|(stream, _)| {
-                    let peer = free_tier::ProviderPeer::of_unix(&stream);
-                    let (read, write) = stream.into_split();
-                    (Box::new(read) as _, Box::new(write) as _, peer)
-                });
-                let failed = accepted.is_err();
-                if tx.send(accepted).await.is_err() || failed {
-                    break;
-                }
+    serve_with_admin(home, bind_unix_admin).await
+}
+
+/// [`serve`]'s admin socket: a unix socket only this user may connect to,
+/// each accepted connection handed to the router with its peer.
+#[cfg(unix)]
+fn bind_unix_admin(socket_path: &Path) -> anyhow::Result<AdminConnections> {
+    let admin = UnixListener::bind(socket_path)?;
+    {
+        use std::os::unix::fs::PermissionsExt;
+        // `bind_admin` is sync: the chmod is a counted ScopedBlockingCall.
+        cmux_blocking::scoped_blocking_call(
+            "fs::set_permissions",
+            cmux_blocking::BlockingKind::Fs,
+            || {
+                cmux_threads::checked::fs::set_permissions(
+                    socket_path,
+                    std::fs::Permissions::from_mode(0o600),
+                )
+            },
+        )?;
+    }
+    let (tx, rx) = tokio::sync::mpsc::channel(16);
+    // supervise-allow: its end, a panic included, drops `tx`; admin_loop then sees the channel close and stops the router with an error (fatal by construction).
+    tokio::spawn(async move {
+        loop {
+            let accepted = admin.accept().await.map(|(stream, _)| {
+                let peer = free_tier::ProviderPeer::of_unix(&stream);
+                let (read, write) = stream.into_split();
+                (Box::new(read) as _, Box::new(write) as _, peer)
+            });
+            let failed = accepted.is_err();
+            if tx.send(accepted).await.is_err() || failed {
+                break;
             }
-        });
-        Ok(rx)
-    })
-    .await
+        }
+    });
+    Ok(rx)
 }
 
 /// The router with its admin socket bound by `bind_admin` (given the socket
@@ -425,9 +441,10 @@ fn watch_owners(fifo: std::path::PathBuf) -> tokio::sync::oneshot::Receiver<()> 
         // the first check below find no writer (a blocking open would wait
         // for one forever). Any failure: no owner can be watched, so the
         // router stops as it would without one.
-        let Ok(mut owners) =
-            std::fs::OpenOptions::new().read(true).custom_flags(libc::O_NONBLOCK).open(&fifo)
-        else {
+        let Ok(mut owners) = cmux_threads::checked::fs::open_with(
+            std::fs::OpenOptions::new().read(true).custom_flags(libc::O_NONBLOCK),
+            &fifo,
+        ) else {
             return;
         };
         let fd = owners.as_raw_fd();
@@ -463,6 +480,7 @@ fn watch_owners(fifo: std::path::PathBuf) -> tokio::sync::oneshot::Receiver<()> 
             }
         }
     };
+    // supervise-allow: its end, a panic included, drops `gone`; owners_gone then resolves and the router stops (fatal by construction).
     let spawned =
         cmux_threads::spawn("router-owners", cmux_threads::ThreadQos::Utility, move || {
             watch();
@@ -500,16 +518,20 @@ async fn serve_owned(
     // One router per home: a second one waits here until the first exits
     // (`shutdown`, or its last owner gone), so it never takes the
     // socket from a router that still holds a bearer.
-    let lock = std::fs::OpenOptions::new()
+    let lock = tokio::fs::OpenOptions::new()
         .create(true)
         .truncate(false)
         .write(true)
-        .open(router_dir.join("router.lock"))?;
+        .open(router_dir.join("router.lock"))
+        .await?
+        .into_std()
+        .await;
     // Bounded: a router that never lets go (hung) must not collect waiters.
     // The wait runs on a plain thread, not the blocking pool: a router that
     // stops during it (no owner left) returns from main without waiting
     // for that thread.
     let (locked, lock_rx) = tokio::sync::oneshot::channel();
+    // supervise-allow: one flock; a panic drops `locked`, so the await below fails and the router does not start.
     cmux_threads::spawn("router-lock", cmux_threads::ThreadQos::Utility, move || {
         let _ = locked.send(fs4::FileExt::lock(&lock).map(|()| lock));
     })?;
@@ -523,8 +545,9 @@ async fn serve_owned(
     // gets an answer.
     let store: Arc<dyn InstallSecretStore> = Arc::new(RandomInstallSecretStore::new("default")?);
     let _ = INSTALL_SECRET_KIND.set(INSTALL_SECRET_EPHEMERAL);
-    // `<home>/router/router.sock`, or a short path for a long home (admin_socket.rs).
-    let socket_path = admin_socket_path(home);
+    // `<home>/router/router.sock`, or a short path for a long home
+    // (admin_socket.rs), whose private folder is made and checked on disk.
+    let socket_path = admin_socket::admin_socket_path_async(home).await?;
     let _ = tokio::fs::remove_file(&socket_path).await;
     let admin = bind_admin(&socket_path)?;
     let bind_address: SocketAddr = "127.0.0.1:0".parse()?;
@@ -598,13 +621,16 @@ async fn admin_loop(
     port: u16,
     stop: Arc<tokio::sync::Notify>,
 ) -> anyhow::Result<()> {
+    // The loop owns its connections; a panic ends that connection only.
+    let mut connections = tokio::task::JoinSet::new();
     while let Some(accepted) = admin.recv().await {
+        while connections.try_join_next().is_some() {}
         let connection = accepted?;
         let keys = keys.clone();
         let upstream = upstream.clone();
         let free = free.clone();
         let stop = stop.clone();
-        tokio::spawn(async move {
+        connections.spawn(async move {
             let _ = admin_connection(connection, keys, upstream, free, port, stop).await;
         });
     }
@@ -941,3 +967,6 @@ mod relay_error_tests {
         assert!(FORWARD_RESPONSE_HEADERS.contains(&"x-should-retry"));
     }
 }
+
+#[cfg(all(test, unix))]
+mod serve_tests;

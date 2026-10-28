@@ -1,6 +1,6 @@
 import AppKit
 import CmuxNextActions
-import CmuxNextAgentPane
+@testable import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextBridge
 import CmuxNextCompat
@@ -152,6 +152,84 @@ struct AgentPageHibernationLifecycleTests {
         #expect(rig.tabs.existingView("tab_a") != nil, "a chat waiting on the person was let go")
         #expect(rig.lifecycle.state(of: "tab_a") == .frozen, "a chat waiting on the person may freeze")
         #expect(rig.tabs.existingView("tab_b") == nil)
+    }
+
+    /// p13-webui-080: an idle chat that freezes lets its acpmux connection go, and its thaw (a turn started)
+    /// hands its page the close it reconnects on. A chat waiting on the person keeps its connection, and so
+    /// does one whose hide read did not answer.
+    @Test func aFrozenIdleChatClosesItsConnectionAndItsThawHandsOnTheClose() async throws {
+        let rig = Rig(wake: AgentPaneWakeState())
+        let idle = try rig.chat("tab_idle", session: "s-idle")
+        let asking = try rig.chat("tab_asking", session: "s-asking")
+        _ = try rig.chat("tab_last", session: "s-last")
+        for pane in [idle, asking] { Self.connect(pane) }
+        rig.turns.setState(.needsInput, session: "s-asking")
+        await rig.showThenHide("tab_idle", at: 0)
+        await rig.showThenHide("tab_asking", at: 0)
+        await rig.showThenHide("tab_last", at: 1)
+
+        rig.pass(at: 12)
+        #expect(rig.lifecycle.state(of: "tab_idle") == .frozen)
+        #expect(rig.lifecycle.state(of: "tab_asking") == .frozen)
+        #expect(idle.model.transport.closedForFreeze == 1, "a frozen idle chat kept its acpmux connection")
+        #expect(asking.model.transport.closedForFreeze == nil, "a frozen chat waiting on the person lost its connection")
+
+        // A turn starts on the idle chat: it thaws in that turn and its page gets the close, once.
+        var closes: [String] = []
+        idle.model.transport.deliver = { event, done in
+            if let closed = event.closed { closes.append(closed.reason) }
+            done()
+        }
+        rig.turns.setState(.working, session: "s-idle")
+        await rig.settle { closes.count == 1 }
+        #expect(rig.lifecycle.state(of: "tab_idle") == .hidden)
+        #expect(closes == [AgentPaneTransport.pageFrozenCloseReason], "the thawed chat's page did not get the freeze's close")
+        #expect(idle.model.transport.connection == nil)
+
+        // No answer to the hide read: what the page holds is unknown, so its connection stays.
+        rig.hibernation.wakeState = { _ in nil }
+        let unread = try rig.chat("tab_unread", session: "s-unread")
+        Self.connect(unread)
+        await rig.showThenHide("tab_unread", at: 20)
+        _ = try rig.chat("tab_after", session: "s-after")
+        await rig.showThenHide("tab_after", at: 21)
+        rig.pass(at: 40)
+        #expect(rig.lifecycle.state(of: "tab_unread") == .frozen)
+        #expect(unread.model.transport.closedForFreeze == nil, "a chat that did not answer its hide read lost its connection")
+    }
+
+    /// A chat that froze while it waited on the person keeps its connection; once the question goes away
+    /// with no turn running (the turn ended elsewhere), the still frozen page lets the connection go.
+    @Test func aFrozenChatWhoseQuestionWentAwayClosesItsConnection() async throws {
+        let rig = Rig(wake: AgentPaneWakeState())
+        let asking = try rig.chat("tab_asking", session: "s-asking")
+        _ = try rig.chat("tab_last", session: "s-last")
+        Self.connect(asking)
+        rig.turns.setState(.needsInput, session: "s-asking")
+        await rig.showThenHide("tab_asking", at: 0)
+        await rig.showThenHide("tab_last", at: 1)
+        rig.pass(at: 12)
+        #expect(rig.lifecycle.state(of: "tab_asking") == .frozen)
+        #expect(asking.model.transport.closedForFreeze == nil, "a frozen chat waiting on the person lost its connection")
+
+        // Handed on at once (the observation would hand on the same).
+        rig.turns.setState(.done, session: "s-asking")
+        rig.hibernation.refreshTurnReasons()
+        #expect(rig.lifecycle.state(of: "tab_asking") == .frozen)
+        #expect(asking.model.transport.closedForFreeze == 1, "a frozen idle chat kept its acpmux connection")
+    }
+
+    /// Gives `pane` a connection 1 whose socket never connects. Its wake reaches the transport as an open
+    /// socket's does (``AgentPaneTransport/open(_:)``), so the close reaches the pacer.
+    static func connect(_ pane: AgentPaneView) {
+        let transport = pane.model.transport
+        transport.socket = AcpmuxPaneSocket(request: URLRequest(url: URL(string: "ws://127.0.0.1")!), limits: transport.limits,
+                                            options: transport.permissionOptions, sessions: transport.sessions,
+                                            ids: AcpmuxRequestIds()) { [weak transport] in
+            // task-owner: one wake for the pacer, as the transport's own socket gives
+            Task { @MainActor [weak transport] in transport?.arrived(1) }
+        }
+        transport.current = 1
     }
 
     /// An untouched hidden New Tab page goes at 300 s, not before, and its tab shows the New Tab page

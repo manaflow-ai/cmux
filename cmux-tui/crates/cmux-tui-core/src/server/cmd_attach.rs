@@ -2,6 +2,10 @@
 //! browser attach with view leases and initial replay), reattach-view,
 //! detach-client and detach-attached-view. Each function is one `Command`
 //! arm of `handle_command_with_cancellation`.
+//!
+//! A legacy view's output runs on threads of its own; a view on a
+//! client-minted attach stream runs as a drain on the daemon-wide sequenced
+//! pool and holds no thread (stream_attach_out.rs, p05-ipc-079).
 
 use super::size_state_for_client;
 use crate::panic_free::RecoverPoison;
@@ -20,6 +24,7 @@ use super::TERMINAL_COLOR_OVERRIDES_CAPABILITY;
 use super::TERMINAL_PENDING_SEQUENCE_CAPABILITY;
 use super::VtStateMessage;
 use super::WatchKind;
+use super::attach_lifecycle::AttachCommit;
 use super::attach_overflow_json;
 use super::attach_response;
 use super::attach_streams::ClientStreamId;
@@ -60,6 +65,10 @@ use crate::surface::AttachLifecycle;
 use serde_json::Value;
 use serde_json::json;
 use std::sync::Arc;
+
+#[path = "stream_attach_out.rs"]
+mod stream_attach_out;
+use stream_attach_out::StreamView;
 
 /// How long a sized terminal attach waits for its hosted PTY's resize before
 /// it builds the replay anyway (then a `resized` replay follows, as before).
@@ -224,6 +233,14 @@ pub(super) fn attach_surface(
         }
     };
     let surface = get_surface(mux, surface_id)?;
+    // A framed attach on stream S opens S: its queued INPUT and requests go
+    // to this surface once the attach succeeds (server/pending_streams.rs).
+    if let Some(stream) = writer.frame_call().and_then(|call| call.opens()) {
+        anyhow::ensure!(
+            stream.target(surface_id),
+            "stream_ended: the stream ended before it opened"
+        );
+    }
     anyhow::ensure!(
         !mux.is_frontend_browser_surface(&surface),
         "surface {surface_id} is a frontend-rendered browser and has no daemon stream"
@@ -343,6 +360,19 @@ fn attach_view(
             rollback_failed_attach(mux, client, surface_id, outbound_stream.id, size_rollback);
             return Err(error.into());
         }
+        if outbound_stream.client_stream.is_some() {
+            let commit = AttachCommit { lifecycle, changed: client_changed, size_rollback };
+            StreamView {
+                mux,
+                client,
+                surface: surface_id,
+                writer,
+                stream: &outbound_stream,
+                commit,
+            }
+            .start_render(attach)?;
+            return Ok(attach_response(mux, surface_id, client, lease));
+        }
         let worker_writer = writer.clone();
         let worker_mux = mux.clone();
         let worker_lifecycle = lifecycle.clone();
@@ -353,7 +383,9 @@ fn attach_view(
             let mux = worker_mux;
             let lifecycle = worker_lifecycle;
             let outbound_stream = worker_stream;
-            if waits::recv(&worker_committed).is_err() {
+            // The writer's first item is the attach's go: until the attach
+            // commits it is idle and holds no one's work (p02-threads 308).
+            if waits::idle_recv(&worker_committed).is_err() {
                 return;
             }
             let mut state = RenderClientState::new(writer.render_service.clone(), &attach.initial);
@@ -457,6 +489,19 @@ fn attach_view(
             rollback_failed_attach(mux, client, surface_id, outbound_stream.id, size_rollback);
             return Err(error.into());
         }
+        if outbound_stream.client_stream.is_some() {
+            let commit = AttachCommit { lifecycle, changed: client_changed, size_rollback };
+            StreamView {
+                mux,
+                client,
+                surface: surface_id,
+                writer,
+                stream: &outbound_stream,
+                commit,
+            }
+            .start_browser(frames)?;
+            return Ok(attach_response(mux, surface_id, client, lease));
+        }
         if let Err(error) = spawn_attach_notification_stream(
             mux.clone(),
             surface_id,
@@ -478,7 +523,9 @@ fn attach_view(
             let mux = worker_mux;
             let lifecycle = worker_lifecycle;
             let outbound_stream = worker_stream;
-            if waits::recv(&worker_committed).is_err() {
+            // The writer's first item is the attach's go: until the attach
+            // commits it is idle and holds no one's work (p02-threads 308).
+            if waits::idle_recv(&worker_committed).is_err() {
                 return;
             }
             let hangs = mux.echo_watch();
@@ -599,6 +646,12 @@ fn attach_view(
         rollback_failed_attach(mux, client, surface_id, outbound_stream.id, size_rollback);
         return Err(error.into());
     }
+    if outbound_stream.client_stream.is_some() {
+        let commit = AttachCommit { lifecycle, changed: client_changed, size_rollback };
+        StreamView { mux, client, surface: surface_id, writer, stream: &outbound_stream, commit }
+            .start_bytes(attach, shape)?;
+        return Ok(attach_response(mux, surface_id, client, lease));
+    }
     if let Err(error) = spawn_attach_notification_stream(
         mux.clone(),
         surface_id,
@@ -618,7 +671,9 @@ fn attach_view(
         let writer = worker_writer;
         let mux = worker_mux;
         let outbound_stream = worker_stream;
-        if waits::recv(&worker_committed).is_err() {
+        // The writer's first item is the attach's go: until the attach
+        // commits it is idle and holds no one's work (p02-threads 308).
+        if waits::idle_recv(&worker_committed).is_err() {
             return;
         }
         let hangs = mux.echo_watch();

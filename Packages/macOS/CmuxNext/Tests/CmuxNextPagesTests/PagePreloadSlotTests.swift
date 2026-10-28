@@ -375,7 +375,7 @@ struct PagePreloadSlotTests {
         }
         let slot = makeSlot()
         let emptied = Tally()
-        slot.onEmptied = { key in
+        slot.observeEmptied { key in
             emptied.count += 1
             emptied.keys.append(key)
         }
@@ -489,7 +489,7 @@ struct PagePreloadSlotTests {
         #expect(slot.phase == .parked)
     }
 
-    /// The claim's main-thread time with fakes, as PageHostPoolClaimReadyBenchmark measured the pool's
+    /// The claim's main-thread time with fakes, as PagePreloadClaimReadyBenchmark (PageHostPoolClaimReadyBenchmark before) measures the
     /// claim: <= 4 ms at p99 (D4: main-thread work in the key's turn).
     @Test func claimTakesAtMostFourMillisecondsAtP99() throws {
         let slot = makeSlot()

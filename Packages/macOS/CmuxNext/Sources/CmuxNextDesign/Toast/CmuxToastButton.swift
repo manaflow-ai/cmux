@@ -87,6 +87,8 @@ public final class CmuxToastButton: NSButton {
         changeHover { $0.pressed = false }
     }
 
+    // visibility-walk-allow: a toast's button is in a window only while its toast shows, so only a shown button
+    // restyles
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         hover.refresh(animated: false)

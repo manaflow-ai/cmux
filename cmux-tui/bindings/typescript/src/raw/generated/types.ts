@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR df10717146553dfa363854f65845a400d363319d750b9f1e04386389220171be. */
+/* cmux-tui mux protocol 12, IR 974986b7d253aacd825bed6d8efd6c978efd265af55140e73b402e8a32e4e3bc. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -447,6 +447,23 @@ export type CellPixelSurface = {
   "width_px": number;
 };
 
+export type ClientHelloFeaturePending = {
+  "app": boolean;
+  "daemon": boolean;
+  "name": string;
+};
+
+export type ClientHelloFeatureReport = {
+  "applied": Array<string>;
+  "hash": string;
+  "pending": Array<ClientHelloFeaturePending>;
+};
+
+export type ClientHelloFeatures = {
+  "hash"?: string;
+  "values": Record<string, boolean>;
+};
+
 export type ClientHelloPageOperations = {
   "confirm": Array<string>;
   "gesture": Array<string>;
@@ -455,6 +472,7 @@ export type ClientHelloPageOperations = {
 
 export type ClientHelloResult = {
   "connection_id": string;
+  "features"?: ClientHelloFeatureReport;
   "install_id"?: string;
   "nonce"?: string;
   "page"?: string;
@@ -934,6 +952,7 @@ export type IdentifyResult = {
   "cli_path"?: (string) | null;
   "crate_version"?: (string) | null;
   "daemon_handoff": 1;
+  "framed_methods"?: (Array<number>) | null;
   "generation": string;
   "ghostty_commit"?: (string) | null;
   "install"?: (string) | null;
@@ -947,6 +966,7 @@ export type IdentifyResult = {
   "pid": number;
   "protocol": number;
   "registry_id": string;
+  "sdk_schema_digest"?: (string) | null;
   "session": string;
   "session_id"?: string;
   "terminal_revision": bigint;
@@ -1427,6 +1447,17 @@ export type ServerStatsConnections = {
   "refused": bigint;
 };
 
+export type ServerStatsHangRecord = {
+  "duration_ms": bigint;
+  "sequence": bigint;
+  "span": string;
+};
+
+export type ServerStatsHangs = {
+  "over_250ms": bigint;
+  "records": Array<ServerStatsHangRecord>;
+};
+
 export type ServerStatsHistogram = {
   "count": bigint;
   "max": bigint;
@@ -1628,6 +1659,7 @@ export type ServerStatsResourceProjection = {
 export type ServerStatsResult = {
   "connections": ServerStatsConnections;
   "dispatch_queue_us"?: ServerStatsHistogram;
+  "hangs"?: ServerStatsHangs;
   "ipc"?: ServerStatsIpc;
   "ipc_methods"?: Array<ServerStatsMethodLatency>;
   "journal_writer": (ServerStatsJournalWriter) | null;
@@ -1697,6 +1729,11 @@ export type SetSizeCountsResult = {
 
 export type SetSizePolicyResult = {
   "state"?: SizeState;
+};
+
+export type SetStreamPriorityResult = {
+  "outcome": "applied" | "ended";
+  "stream": number;
 };
 
 export type SetTerminalIdlePolicyResult = {

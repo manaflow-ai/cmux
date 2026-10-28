@@ -76,12 +76,13 @@ impl WatcherOwner {
             .try_acquire_owned()
             .map_err(|_| "watch teardown capacity exhausted".to_owned())?;
         let (shutdown, wait) = sync_channel(1);
+        // supervise-allow: one watcher's teardown; it ends when its owner drops, and holds only that watcher and its slot permit.
         std::thread::Builder::new()
             .name("cmux-watch-teardown".to_owned())
             .spawn(move || {
                 let _teardown_permit = teardown_permit;
                 let watcher = watcher;
-                let _ = wait.recv();
+                let _ = cmux_blocking::sync::recv(&wait);
                 drop(watcher);
             })
             .map_err(|error| format!("could not start watcher teardown: {error}"))?;
@@ -291,21 +292,15 @@ impl WatchRegistry {
                     let slot = state
                         .entry(watch_id.clone())
                         .or_insert_with(|| WatchSlot { active: None, opening: None });
-                    let previous = slot.opening.replace(Opening {
-                        generation,
-                        live: Arc::clone(&opening_live),
-                        cancellation: opening_cancellation.clone(),
-                        abort: None,
-                    });
-                    // Spawn while the state lock is held, then install the
-                    // abort handle before another caller can close/replace
-                    // this slot. Tokio guarantees `spawn` does not poll the
-                    // future synchronously as part of this call.
+                    // Spawn while the state lock is held, then reserve the
+                    // slot with the abort handle before another caller can
+                    // close/replace it. Tokio guarantees `spawn` does not
+                    // poll the future synchronously as part of this call.
                     let context = OpenContext {
                         watch_id: watch_id.clone(),
                         generation,
                         live: Arc::clone(&opening_live),
-                        cancellation: opening_cancellation,
+                        cancellation: opening_cancellation.clone(),
                         sessions: Arc::clone(&sessions),
                         outbound,
                     };
@@ -316,8 +311,12 @@ impl WatchRegistry {
                         setup_slots,
                         teardown_slots,
                     ));
-                    slot.opening.as_mut().expect("opening was just reserved").abort =
-                        Some(task.abort_handle());
+                    let previous = slot.opening.replace(Opening {
+                        generation,
+                        live: Arc::clone(&opening_live),
+                        cancellation: opening_cancellation,
+                        abort: Some(task.abort_handle()),
+                    });
                     Reservation::Accepted { previous }
                 }
             }
@@ -363,7 +362,7 @@ async fn setup_watch(
             .map_err(|error| SetupFailure::Failed(format!("watch setup lane closed: {error}")))?,
     };
     let blocking_cancellation = cancellation.clone();
-    let setup = tokio::task::spawn_blocking(move || {
+    let setup = cmux_blocking::spawn_blocking(move || {
         let _permit = permit;
         if blocking_cancellation.is_cancelled() {
             return Err(SetupFailure::Cancelled);
@@ -458,6 +457,7 @@ fn commit_open(
                 opening.generation == generation && !opening.cancellation.is_cancelled()
             })
             && outbound.try_critical_text_with_token(opened, Some(Arc::clone(&live))).is_ok()
+            && let Some(run_prepared) = prepared.take()
         {
             let (start_tx, start_rx) = oneshot::channel();
             let run_id = watch_id.clone();
@@ -467,7 +467,6 @@ fn commit_open(
             let run_setup_slots = setup_slots;
             let run_cancellation = cancellation.clone();
             let run_live = Arc::clone(&live);
-            let run_prepared = prepared.take().expect("prepared watch present");
             let task = tokio::spawn(async move {
                 // Install the active slot before allowing the runner to poll.
                 // This closes the fast-exit race where cleanup could otherwise
@@ -665,7 +664,7 @@ fn watch_root_with_capabilities(
         Some(raw) => scope.resolve(raw, false)?,
         None => scope.existing_workdir()?,
     };
-    if root.is_dir() {
+    if cmux_blocking::fs::metadata(&root).is_ok_and(|metadata| metadata.is_dir()) {
         Ok(root)
     } else {
         Err(Refusal::new(
@@ -694,8 +693,9 @@ async fn run_watch(
         overflowed,
         overflow_notify,
         latched_error,
-        mut matcher,
+        matcher,
     } = prepared;
+    let mut matcher = Arc::new(matcher);
     'watch: loop {
         let notified = overflow_notify.notified();
         let first = tokio::select! {
@@ -713,32 +713,25 @@ async fn run_watch(
         if cancellation.is_cancelled() {
             break 'watch;
         }
-        let mut fatal: Option<notify::Error> = None;
         let mut overflow = overflowed.swap(false, Ordering::AcqRel);
         // Include drops that happened while the quiet-window drain was
         // collecting this burst. A later burst must not hide this loss.
         overflow |= overflowed.swap(false, Ordering::AcqRel);
-        let mut changes: Vec<wire::FsWatchChange> = Vec::new();
-        let mut change_index: HashMap<String, usize> = HashMap::new();
-        let mut saw_ignore_file = false;
-        for event in burst {
-            match event {
-                Ok(event) => {
-                    if event.need_rescan() {
-                        overflow = true;
-                    }
-                    collect_changes(
-                        root,
-                        &matcher,
-                        &event,
-                        &mut changes,
-                        &mut change_index,
-                        &mut saw_ignore_file,
-                    );
-                }
-                Err(error) => fatal = Some(error),
-            }
-        }
+        // Classifying a change stats its path: a blocking thread does it.
+        let classify = {
+            let (root, matcher) = (root.to_owned(), Arc::clone(&matcher));
+            cmux_blocking::spawn_blocking(move || classify_burst(&root, &matcher, burst))
+        };
+        let classified = tokio::select! {
+            biased;
+            _ = cancellation.cancelled() => break 'watch,
+            result = classify => result,
+        };
+        let Ok(ClassifiedBurst { mut changes, rescan, saw_ignore_file, fatal }) = classified else {
+            report_watch_failure(watch_id, outbound, &cancellation, &live).await;
+            break 'watch;
+        };
+        overflow |= rescan;
         if changes.len() > WATCH_MAX_CHANGES {
             changes.truncate(WATCH_MAX_CHANGES);
             overflow = true;
@@ -781,7 +774,7 @@ async fn run_watch(
             if let Some(updated) =
                 rebuild_ignore_matcher(root, Arc::clone(&setup_slots), &cancellation).await
             {
-                matcher = updated;
+                matcher = Arc::new(updated);
             } else if cancellation.is_cancelled() {
                 break 'watch;
             }
@@ -823,7 +816,7 @@ async fn rebuild_ignore_matcher(
     };
     let root = root.to_owned();
     let blocking_cancellation = cancellation.clone();
-    let task = tokio::task::spawn_blocking(move || {
+    let task = cmux_blocking::spawn_blocking(move || {
         let _permit = permit;
         if blocking_cancellation.is_cancelled() { None } else { Some(build_ignore_matcher(&root)) }
     });
@@ -879,7 +872,7 @@ fn try_enqueue_notify_event<T>(
 fn build_ignore_matcher(root: &Path) -> ignore::gitignore::Gitignore {
     let mut builder = ignore::gitignore::GitignoreBuilder::new(root);
     let exclude = root.join(".git/info/exclude");
-    if exclude.is_file() {
+    if cmux_blocking::fs::metadata(&exclude).is_ok_and(|metadata| metadata.is_file()) {
         let _ = builder.add(exclude);
     }
     let mut walker = ignore::WalkBuilder::new(root);
@@ -913,13 +906,17 @@ fn relative_watch_path(root: &Path, path: &Path) -> Option<String> {
     if text.is_empty() { None } else { Some(text) }
 }
 
-fn record(
+pub(crate) fn record(
     changes: &mut Vec<wire::FsWatchChange>,
     change_index: &mut HashMap<String, usize>,
     change: wire::FsWatchChange,
 ) {
     match change_index.get(&change.path) {
         Some(&index) => {
+            #[allow(
+                clippy::indexing_slicing,
+                reason = "INVARIANT: change_index holds only indices `record` pushed into this burst's `changes`, which it never shortens"
+            )]
             let existing = &mut changes[index];
             // Merge within one burst: created-then-modified stays created;
             // anything ending deleted is deleted; a rename target wins.
@@ -940,6 +937,43 @@ fn record(
     }
 }
 
+/// One debounced burst of notify events, classified.
+struct ClassifiedBurst {
+    changes: Vec<wire::FsWatchChange>,
+    /// An event asked for a rescan: the client must refresh the tree.
+    rescan: bool,
+    saw_ignore_file: bool,
+    /// The last error notify reported in the burst.
+    fatal: Option<notify::Error>,
+}
+
+fn classify_burst(
+    root: &Path,
+    matcher: &ignore::gitignore::Gitignore,
+    burst: Vec<Result<notify::Event, notify::Error>>,
+) -> ClassifiedBurst {
+    let mut classified =
+        ClassifiedBurst { changes: Vec::new(), rescan: false, saw_ignore_file: false, fatal: None };
+    let mut change_index: HashMap<String, usize> = HashMap::new();
+    for event in burst {
+        match event {
+            Ok(event) => {
+                classified.rescan |= event.need_rescan();
+                collect_changes(
+                    root,
+                    matcher,
+                    &event,
+                    &mut classified.changes,
+                    &mut change_index,
+                    &mut classified.saw_ignore_file,
+                );
+            }
+            Err(error) => classified.fatal = Some(error),
+        }
+    }
+    classified
+}
+
 fn collect_changes(
     root: &Path,
     matcher: &ignore::gitignore::Gitignore,
@@ -955,7 +989,7 @@ fn collect_changes(
         if name == ".gitignore" || name == ".ignore" {
             return true;
         }
-        let is_dir = path.is_dir();
+        let is_dir = cmux_blocking::fs::metadata(path).is_ok_and(|metadata| metadata.is_dir());
         !matcher.matched_path_or_any_parents(relative, is_dir).is_ignore()
     };
     let mut push = |path: &Path, kind: wire::FsWatchChangeKind, old: Option<&Path>| {
@@ -981,7 +1015,9 @@ fn collect_changes(
             }
         }
         EventKind::Modify(ModifyKind::Name(RenameMode::Both)) if event.paths.len() == 2 => {
-            push(&event.paths[1], wire::FsWatchChangeKind::Renamed, Some(&event.paths[0]));
+            if let [from, to] = event.paths.as_slice() {
+                push(to, wire::FsWatchChangeKind::Renamed, Some(from));
+            }
         }
         EventKind::Modify(ModifyKind::Name(RenameMode::From)) => {
             for path in &event.paths {
@@ -997,7 +1033,7 @@ fn collect_changes(
             // FSEvents reports both halves of a rename as Name(Any) with
             // one path each: probe the disk to tell which half this is.
             for path in &event.paths {
-                let kind = if path.symlink_metadata().is_ok() {
+                let kind = if cmux_blocking::fs::symlink_metadata(path).is_ok() {
                     wire::FsWatchChangeKind::Created
                 } else {
                     wire::FsWatchChangeKind::Deleted

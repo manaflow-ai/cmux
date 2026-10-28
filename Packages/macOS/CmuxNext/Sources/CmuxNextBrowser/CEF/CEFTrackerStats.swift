@@ -23,11 +23,14 @@ public nonisolated struct CEFTrackerStats: Equatable, Sendable {
     /// pages that draw in a cmux window's layer tree. Live: a hosted view
     /// leaving its window (DevTools closed, a pane closed) is no longer counted.
     public var hostedPages = 0
+    /// The hosted page views ``hostedPages`` counts that layer hosting made, by the kind of their page window
+    /// (`CEFLayerHosting.Widget.name`: `page`, `devtools`, `popup`, `popup_window`); a kind with none is absent.
+    public var hostedPagesByWidget: [String: Int] = [:]
     /// Layer hosting requests that left the page on its own window: the fork
     /// refused (no page window yet), or nothing could show its context.
     public var hostingRefused = 0
-    /// New DevTools and popup page windows the feature `cefLayerHosting` left in their own window
-    /// (`CEFLayerHosting.Hosting.widgetFallback`, until p03-rendering-056).
+    /// New DevTools and popup page windows the feature `cefLayerHosting` left in their own window: the fork
+    /// hosts no page window of their kind (`CEFLayerHosting.Hosting.widgetFallback`, `CEFLayerHosting.Fork.hostedWidgets`).
     public var hostingWidgetFallbacks = 0
     /// New pane page windows the feature `cefLayerHosting` left in their own window: the app makes not
     /// every Track A call for the fork (`CEFLayerHosting.Hosting.missingTrackA`).

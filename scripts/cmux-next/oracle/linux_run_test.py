@@ -29,16 +29,39 @@ sys.path.insert(0, str(HERE))
 import oracle  # noqa: E402
 
 STUB_CARGO = """#!/bin/sh
-# cargo build --locked --profile P [--features F] -p cmux-tui -j N
-profile=""
+# cargo build --locked --profile P [--features F] [--target T] -p cmux-tui -j N
+profile="" out="$CARGO_TARGET_DIR"
 while [ $# -gt 0 ]; do
-  case "$1" in --profile) profile="$2"; shift 2 ;; *) shift ;; esac
+  case "$1" in --profile) profile="$2"; shift 2 ;; --target) out="$CARGO_TARGET_DIR/$2"; shift 2 ;; *) shift ;; esac
 done
+if [ -n "${RUSTFLAGS:-}" ]; then
+  echo "rustflags $RUSTFLAGS out=$out" >> "$ORACLE_TEST_LOG"
+fi
 echo "cargo $(git -C .. rev-parse HEAD) $CARGO_TARGET_DIR changed=$(git -C .. diff --name-only | tr '\\n' ,)" >> "$ORACLE_TEST_LOG"
 sleep 0.5
-mkdir -p "$CARGO_TARGET_DIR/$profile"
-printf '#!/bin/sh\\necho stub\\n' > "$CARGO_TARGET_DIR/$profile/cmux-tui"
-chmod +x "$CARGO_TARGET_DIR/$profile/cmux-tui"
+mkdir -p "$out/$profile"
+printf '#!/bin/sh\\necho stub\\n' > "$out/$profile/cmux-tui"
+chmod +x "$out/$profile/cmux-tui"
+"""
+
+# rustc --version | -vV | --print sysroot; the sysroot's llvm tools are stubs too.
+STUB_RUSTC = """#!/bin/sh
+case "$1" in
+  -vV) printf 'rustc 0.0.0-stub\\nhost: x86_64-unknown-linux-gnu\\n' ;;
+  --print) echo "$ORACLE_TEST_SYSROOT" ;;
+  *) echo rustc 0.0.0-stub ;;
+esac
+"""
+
+# llvm-profdata merge -sparse --failure-mode=all -o OUT INPUT...: OUT lists the inputs' contents.
+STUB_PROFDATA = """#!/bin/sh
+out=""
+[ "$1" = merge ] && shift
+while [ $# -gt 0 ]; do
+  case "$1" in -o) out="$2"; shift 2 ;; -*) shift ;; *) break ;; esac
+done
+echo "profdata $out" >> "$ORACLE_TEST_LOG"
+cat "$@" > "$out"
 """
 
 STUB_ORACLE = """#!/usr/bin/env python3
@@ -48,6 +71,13 @@ log = os.environ["ORACLE_TEST_LOG"]
 if args[0] == "run":
     out = args[args.index("--out") + 1]
     os.makedirs(out, exist_ok=True)
+    profile = os.environ.get("LLVM_PROFILE_FILE")
+    if profile:
+        # What an instrumented case process does at exit: its counters go to the pool the pattern names.
+        with open(profile.replace("%8m", "0"), "w") as handle:
+            handle.write("counters " + args[args.index("--suite") + 1] + "\\n")
+        with open(log, "a") as handle:
+            handle.write("profile " + profile + "\\n")
     code = int(os.environ.get("ORACLE_TEST_RUN_EXIT", "0"))
     with open(os.path.join(out, "receipt.json"), "w") as handle:
         json.dump({"ok": code == 0, "args": args}, handle)
@@ -56,6 +86,29 @@ if args[0] == "run":
     time.sleep(0.3)
     sys.exit(code)
 print("diff " + " ".join(args))
+"""
+
+# walks_scale.py run --binary BIN --sha SHA --work DIR --commit-dir DIR [OPTIONS]: ORACLE_TEST_WALKS picks
+# the outcome: clean (exit 0), failures (one minimized walk, exit 1), unminimized (no report, exit 3).
+STUB_WALKS = """#!/usr/bin/env python3
+import json, os, sys
+args = sys.argv[1:]
+with open(os.environ["ORACLE_TEST_LOG"], "a") as handle:
+    handle.write("walks " + " ".join(args) + "\\n")
+work, commit = args[args.index("--work") + 1], args[args.index("--commit-dir") + 1]
+mode = os.environ.get("ORACLE_TEST_WALKS", "clean")
+os.makedirs(work)
+def write(path, value):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as handle:
+        json.dump(value, handle)
+if mode != "clean":
+    write(os.path.join(commit, "holder-walk-3.json"), {"id": "holder-walk-3", "suite": "walks"})
+if mode == "unminimized":
+    write(os.path.join(work, "unminimized.json"), {"failures": [{"seed": "walk-4"}]})
+    sys.exit(3)
+write(os.path.join(work, "receipt.json"), {"ok": mode == "clean", "args": args})
+sys.exit(0 if mode == "clean" else 1)
 """
 
 
@@ -83,11 +136,18 @@ class LinuxRunCase(unittest.TestCase):
         for name in ("linux_run.sh", "runnerd.py", "patch_mutants.py", "baselines.py"):
             shutil.copy(HERE / name, oracle_dir / name)
         (oracle_dir / "oracle.py").write_text(STUB_ORACLE)
+        (oracle_dir / "walks_scale.py").write_text(STUB_WALKS)
         (repo / "cmux-tui").mkdir()
         (repo / "cmux-tui" / "Cargo.toml").write_text("[workspace]\n\n[profile.oracle]\ninherits = \"release\"\n")
         lib = repo / "cmux-tui" / "crates" / "core" / "src" / "lib.rs"
         lib.parent.mkdir(parents=True)
         lib.write_text("pub fn index(i: usize) -> usize {\n    i\n}\n")
+        # A cmux-tui tag from before ghostty-next builds its VT library from the ghostty submodule (p15-oracle-208).
+        git("submodule", "add", "-q", str(ghostty), "ghostty", cwd=repo)
+        git("add", "-A", cwd=repo)
+        git("commit", "-q", "-m", "tag", cwd=repo)
+        cls.tag_sha = git("rev-parse", "HEAD", cwd=repo)
+        git("rm", "-q", "ghostty", cwd=repo)
         git("submodule", "add", "-q", str(ghostty), "ghostty-next", cwd=repo)
         git("add", "-A", cwd=repo)
         git("commit", "-q", "-m", "base", cwd=repo)
@@ -113,9 +173,16 @@ class LinuxRunCase(unittest.TestCase):
         bin_dir = cls.bin_dir = base / "bin"
         bin_dir.mkdir()
         (bin_dir / "cargo").write_text(STUB_CARGO)
-        (bin_dir / "rustc").write_text("#!/bin/sh\necho rustc 0.0.0-stub\n")
+        (bin_dir / "rustc").write_text(STUB_RUSTC)
         for name in ("cargo", "rustc"):
             (bin_dir / name).chmod(0o755)
+        tools = cls.sysroot = base / "sysroot"
+        tool_dir = tools / "lib" / "rustlib" / "x86_64-unknown-linux-gnu" / "bin"
+        tool_dir.mkdir(parents=True)
+        (tool_dir / "llvm-profdata").write_text(STUB_PROFDATA)
+        (tool_dir / "llvm-cov").write_text("#!/bin/sh\nexit 0\n")
+        for name in ("llvm-profdata", "llvm-cov"):
+            (tool_dir / name).chmod(0o755)
 
     @classmethod
     def write_mutant(cls, path: Path, old: str, new: str, context: Optional[str] = None) -> Path:
@@ -146,7 +213,7 @@ class LinuxRunCase(unittest.TestCase):
                if not k.startswith(("RUNNERD_", "GIT_", "ORACLE_")) and k != "CMUX_GHOSTTY_SRC"}
         env.update({"PATH": f"{self.bin_dir}:{env.get('PATH', '/usr/bin:/bin')}", "ORACLE_RUNNERD_SCOPE": "none",
                     "ORACLE_RUNNERD_ROOT": str(self.work / "root"), "ORACLE_TEST_LOG": str(self.log),
-                    "TMPDIR": str(self.work)})
+                    "TMPDIR": str(self.work), "ORACLE_TEST_SYSROOT": str(self.sysroot)})
         env.update(extra)
         return env
 
@@ -161,7 +228,7 @@ class LinuxRunCase(unittest.TestCase):
 
 class QueueOnlyTests(LinuxRunCase):
     def test_job_entry_points_refuse_outside_a_job(self) -> None:
-        for command in ("_build", "_run"):
+        for command in ("_build", "_run", "_walks"):
             result = self.linux_run(command, self.base_sha)
             self.assertEqual(result.returncode, 2, command)
             self.assertIn("only inside a runnerd job", result.stderr)
@@ -222,6 +289,19 @@ class BuildTests(LinuxRunCase):
             targets.add(receipt["targetDir"])
         self.assertEqual({Path(t).name for t in targets},
                          {f"{self.base_sha}-oracle-feat-oracle", f"{self.base_sha}-oracle-feat-none"})
+
+    def test_a_sha_from_before_ghostty_next_builds_with_its_ghostty_submodule(self) -> None:
+        result = self.linux_run("build", self.tag_sha, "--profile", "release", "--features", "")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        receipt = json.loads((Path(result.stdout.strip()).parent / "build.json").read_text())
+        self.assertEqual(receipt["vtModule"], "ghostty")
+        self.assertIsNone(receipt["ghosttyNext"])
+        self.assertEqual(receipt["gitlinks"], {"ghostty": git("rev-parse", f"{self.tag_sha}:ghostty", cwd=self.repo)})
+        base = self.linux_run("build", self.base_sha)
+        self.assertEqual(base.returncode, 0, base.stderr)
+        receipt = json.loads((Path(base.stdout.strip()).parent / "build.json").read_text())
+        self.assertEqual((receipt["vtModule"], receipt["ghosttyNext"]),
+                         ("ghostty-next", git("rev-parse", f"{self.base_sha}:ghostty-next", cwd=self.repo)))
 
     def test_the_build_worktree_is_gone_after_the_job(self) -> None:
         result = self.linux_run("build", self.base_sha)
@@ -365,6 +445,116 @@ class MutantTests(LinuxRunCase):
         self.assertIsNone(receipt["base"]["build"]["mutant"])
         self.assertEqual(receipt["head"]["build"]["mutant"]["id"], "daemon/index-off-by-one")
         self.assertEqual(receipt["mutant"]["id"], "daemon/index-off-by-one")
+
+
+class CoverageTests(LinuxRunCase):
+    """--coverage (p15-oracle-190): an instrumented build in its own target dir, counters merged per run."""
+
+    def test_a_coverage_build_instruments_the_target_only_and_names_its_tools(self) -> None:
+        covered = self.linux_run("build", self.base_sha, "--coverage")
+        self.assertEqual(covered.returncode, 0, covered.stderr)
+        plain = self.linux_run("build", self.base_sha)
+        self.assertEqual(plain.returncode, 0, plain.stderr)
+        self.assertEqual(len(self.logged("cargo")), 2, "an instrumented build and a plain build are two keys")
+        flags = self.logged("rustflags")
+        self.assertEqual(len(flags), 1, "only the coverage build sets RUSTFLAGS")
+        self.assertIn("-C instrument-coverage", flags[0])
+        self.assertTrue(flags[0].endswith("/x86_64-unknown-linux-gnu"), "an explicit --target keeps build scripts plain")
+        binary = Path(covered.stdout.strip().splitlines()[-1])
+        receipt = json.loads((binary.parent / "build.json").read_text())
+        self.assertEqual(Path(receipt["targetDir"]).name, f"{self.base_sha}-oracle-feat-oracle+cov")
+        tools = receipt["coverage"]
+        self.assertEqual(Path(tools["llvmProfdata"]).name, "llvm-profdata")
+        self.assertTrue(tools["llvmCov"].startswith(str(self.sysroot)))
+        self.assertEqual(tools["target"], "x86_64-unknown-linux-gnu")
+        self.assertTrue(tools["sourceRoot"].endswith("/scratch/wt"), tools["sourceRoot"])
+        self.assertIsNone(json.loads((Path(plain.stdout.strip()).parent / "build.json").read_text())["coverage"])
+
+    def test_a_coverage_run_merges_its_counters_into_the_run_dir(self) -> None:
+        result = self.linux_run("run", self.base_sha, "--suite", "iota", "--coverage")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        run_dir = Path(result.stdout.strip().splitlines()[-1])
+        self.assertEqual((run_dir / "coverage.profdata").read_text(), "counters iota\n")
+        self.assertFalse((run_dir.parent / "profraw").exists(), "the raw pools go once merged")
+        [profile] = self.logged("profile")
+        self.assertTrue(profile.endswith("/profraw/cmux-%8m.profraw"), profile)
+        plain = self.linux_run("run", self.base_sha, "--suite", "iota")
+        self.assertEqual(plain.returncode, 0, plain.stderr)
+        self.assertFalse((Path(plain.stdout.strip().splitlines()[-1]) / "coverage.profdata").exists())
+        self.assertEqual(len(self.logged("profile")), 1, "a plain build's run sets no LLVM_PROFILE_FILE")
+
+    def test_diff_refuses_coverage(self) -> None:
+        result = self.linux_run("diff", self.base_sha, self.head_sha, "--coverage", "--out", str(self.work / "c"))
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("--coverage is for run", result.stderr)
+        self.assertEqual(self.logged("cargo"), [])
+
+
+class WalksTests(LinuxRunCase):
+    """`linux_run.sh walks` (p15-oracle-099): one build, one queued walks job, minimized walks into the corpus."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.corpus = self.repo / "tests" / "oracle" / "corpus" / "walks"
+        self.addCleanup(shutil.rmtree, self.corpus, True)
+
+    def walks_dir(self, result: subprocess.CompletedProcess) -> Path:
+        return Path(result.stdout.strip().splitlines()[-1])
+
+    def test_one_build_and_one_job_run_the_walks_on_that_binary(self) -> None:
+        result = self.linux_run("walks", self.base_sha, "--", "--seeds", "20", "--switch", "holder")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        [build] = self.logged("cargo")
+        self.assertTrue(build.startswith(self.base_sha), build)
+        [walks] = self.logged("walks")
+        args = walks.split()
+        self.assertEqual(args[0], "run")
+        self.assertEqual(args[args.index("--sha") + 1], self.base_sha)
+        binary = Path(args[args.index("--binary") + 1])
+        self.assertTrue((binary.parent / "build.json").is_file())
+        self.assertEqual(args[-4:], ["--seeds", "20", "--switch", "holder"])
+        work = self.walks_dir(result)
+        self.assertEqual(Path(args[args.index("--work") + 1]), work)
+        self.assertTrue((work / "receipt.json").is_file())
+        self.assertNotIn(str(self.repo), str(work), "the walks dir stays outside the checkout")
+        self.assertFalse(self.corpus.exists(), "a clean run adds no walk to the corpus")
+
+    def test_a_clean_run_is_reused_and_fresh_runs_again(self) -> None:
+        first = self.linux_run("walks", self.base_sha, "--", "--seeds", "5")
+        again = self.linux_run("walks", self.base_sha, "--", "--seeds", "5")
+        other = self.linux_run("walks", self.base_sha, "--", "--seeds", "6")
+        fresh = self.linux_run("walks", self.base_sha, "--fresh", "--", "--seeds", "5")
+        for result in (first, again, other, fresh):
+            self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.walks_dir(first), self.walks_dir(again))
+        self.assertEqual(len(self.logged("walks")), 3)
+        self.assertEqual(len(self.logged("cargo")), 1)
+
+    def test_minimized_walks_are_copied_into_the_corpus_once_reported(self) -> None:
+        result = self.linux_run("walks", self.base_sha, ORACLE_TEST_WALKS="failures")
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertEqual(sorted(p.name for p in self.corpus.glob("*.json")), ["holder-walk-3.json"])
+        self.assertIn(f"minimized walk {self.corpus / 'holder-walk-3.json'}", result.stderr)
+        again = self.linux_run("walks", self.base_sha, ORACLE_TEST_WALKS="failures")
+        self.assertEqual(again.returncode, 1, again.stderr)
+        self.assertEqual(len(self.logged("walks")), 2, "a run with failures is never reused")
+
+    def test_no_walk_reaches_the_corpus_without_a_report(self) -> None:
+        result = self.linux_run("walks", self.base_sha, ORACLE_TEST_WALKS="unminimized")
+        self.assertEqual(result.returncode, 3, result.stderr)
+        work = self.walks_dir(result)
+        self.assertTrue((work / "unminimized.json").is_file())
+        self.assertFalse((work / "receipt.json").exists())
+        self.assertFalse(self.corpus.exists())
+
+    def test_options_walks_sets_are_refused(self) -> None:
+        for option in ("--binary", "--sha", "--work", "--commit-dir", "--registry"):
+            result = self.linux_run("walks", self.base_sha, "--", option, "x")
+            self.assertEqual(result.returncode, 2, option)
+            self.assertIn("set by linux_run.sh walks", result.stderr)
+        for argv in (("walks",), ("walks", self.base_sha, "--timeout", "1h"), ("walks", self.base_sha, "--seeds", "1")):
+            self.assertEqual(self.linux_run(*argv).returncode, 2, argv)
+        self.assertFalse((self.work / "root").exists(), "nothing is queued for a refused request")
 
 
 class QueuedDiffArgsTests(unittest.TestCase):

@@ -5,7 +5,7 @@ public import CmuxNextWakeups
 /// gh run at once however many chats restore offline; and the reply cards' cache, which reads through it.
 ///
 /// ```swift
-/// let reads = AgentPullRequestReads()
+/// let reads = AgentPullRequestReads(mainWork: mainWork)
 /// let chip = AgentChatPullRequest(reader: reads.reader)
 /// links.pullRequest = { reads.replies.answer($0) }
 /// ```
@@ -16,9 +16,11 @@ public final class AgentPullRequestReads {
     /// The reply links' and the changelog's pull request cards.
     public let replies: AgentReplyPullRequests
 
-    /// - Parameter processes: what runs gh; by default ``AsyncProcess``, two runs at a time.
-    public init(processes: any ProcessRunning = BoundedProcessRunner(AsyncProcess(), atOnce: 2)) {
+    /// - Parameters:
+    ///   - mainWork: The app's main-thread scheduler, where the cards' answers land.
+    ///   - processes: what runs gh; by default ``AsyncProcess``, two runs at a time.
+    public init(mainWork: MainWorkScheduler, processes: any ProcessRunning = BoundedProcessRunner(AsyncProcess(), atOnce: 2)) {
         reader = AgentChatPullRequestReader(processes: processes)
-        replies = AgentReplyPullRequests(reader: reader)
+        replies = AgentReplyPullRequests(reader: reader, mainWork: mainWork)
     }
 }

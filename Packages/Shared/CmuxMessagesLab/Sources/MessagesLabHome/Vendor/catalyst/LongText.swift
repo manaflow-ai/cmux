@@ -384,7 +384,7 @@ final class BlockLayout: Sendable {
 
 /// Block layouts by (lineage, byte range, column): LRU, 256 blocks.
 /// cmux: checked `Sendable` (p10-stability-055): the map and its clock are one lock state.
-final class BlockLayoutCache: Sendable {
+final class BlockLayoutCache: Sendable { // cmux: memory: fixed at most capacity + 64 blocks of about 4 KB of text each (LRU)
     static let shared = BlockLayoutCache()
     struct Key: Hashable { var lineage: Int; var start: Int; var end: Int; var final: Bool; var column: CGFloat; var md: Bool = false }
     private struct State: Sendable {

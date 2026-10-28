@@ -1,13 +1,18 @@
 import CmuxNextCompat
 public import Foundation
 public import CmuxNextWakeups
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// Reads the pull request of a folder's branch with the user's GitHub CLI (cx-tcwj):
 /// `gh pr view --json` ``AgentPanePullRequest/fields`` in the folder, or one pull request by its
 /// link (a hover card's `pr.inspect`). Nil when gh is not installed, there is no such pull
 /// request, or gh does not answer in time; it never prompts.
 public nonisolated struct AgentChatPullRequestReader: Sendable {
-    /// `gh`'s path; nil looks in the App's PATH and the usual install folders.
+    /// `gh`'s path; nil runs `gh` through `/usr/bin/env`, which finds it on the PATH of gh's
+    /// environment (``environment(_:)``: the App's PATH, then the usual install folders) as the
+    /// child starts, so nothing checks a file before the read.
     var gh: String?
     var timeout: Duration = .seconds(30)
     /// The App's environment, from which gh gets the user's GitHub settings (``githubVariables``).
@@ -186,28 +191,34 @@ public nonisolated struct AgentChatPullRequestReader: Sendable {
     /// answer in time (it gets SIGTERM, then SIGKILL). No thread waits for it. Nobody waits for a
     /// chip's pull request now, so gh runs at bestEffort.
     private func run(_ arguments: [String], in folder: String?, anyExit: Bool) async -> Data? {
-        guard let gh = gh ?? Self.findGitHubCLI(environment) else { return nil }
-        let request = ProcessRequest(URL(fileURLWithPath: gh), arguments, environment: Self.environment(environment),
+        let executable = gh ?? Self.env, command = gh == nil ? ["gh"] + arguments : arguments
+        let request = ProcessRequest(URL(fileURLWithPath: executable), command, environment: Self.environment(environment),
                                      directory: folder.map { URL(fileURLWithPath: $0) }, timeout: timeout, priority: .bestEffort)
         let outcome = try? await processes.outcome(of: request)
-        // A deadline kill is never an answer.
-        guard let outcome, outcome.succeeded || (anyExit && outcome.exited) else { return nil }
+        // A deadline kill is never an answer, nor env's "no gh".
+        guard let outcome, outcome.succeeded || (anyExit && outcome.exited && outcome.status != Self.notFound) else { return nil }
         return outcome.output
     }
 
-    /// gh's environment: no prompts, the App's PATH and gh's install folders, HOME, and the user's
-    /// GitHub settings.
+    /// Where `/usr/bin/env gh` looks for gh: the App's PATH, then the folders an app launched from
+    /// Finder lacks on it (``installFolders``).
+    public static func searchPath(_ app: [String: String]) -> String {
+        ([app["PATH"] ?? "/usr/bin:/bin"] + installFolders).joined(separator: ":")
+    }
+
+    /// Runs `gh` found on its environment's PATH (``gh`` nil).
+    static let env = "/usr/bin/env"
+    /// `env`'s exit status when it finds no `gh` on that PATH: gh is not installed.
+    static let notFound: Int32 = 127
+
+    /// gh's environment: no prompts, the App's PATH and gh's install folders (``searchPath(_:)``), HOME,
+    /// and the user's GitHub settings. Run as `/usr/bin/env gh` with it, gh is found on that PATH.
     static func environment(_ app: [String: String]) -> [String: String] {
         var environment = ["GH_PROMPT_DISABLED": "1", "GH_NO_UPDATE_NOTIFIER": "1", "GIT_TERMINAL_PROMPT": "0",
-                           "PATH": ([app["PATH"] ?? "/usr/bin:/bin"] + installFolders).joined(separator: ":")]
+                           "PATH": searchPath(app)]
         environment["HOME"] = app["HOME"]
         for key in githubVariables { environment[key] = app[key] }
         return environment
-    }
-
-    public static func findGitHubCLI(_ environment: [String: String] = ProcessInfo.processInfo.environment) -> String? {
-        let folders = (environment["PATH"] ?? "").split(separator: ":").map(String.init) + installFolders
-        return folders.filter { $0.hasPrefix("/") }.map { $0 + "/gh" }.first { FileManager.default.isExecutableFile(atPath: $0) }
     }
 }
 
@@ -221,6 +232,11 @@ public nonisolated struct AgentChatPullRequestReader: Sendable {
 /// into one — not once per reply and never once per hover. A read that fails — no gh, no
 /// network, a rate limit — leaves the last good answer and its age in place, and is not tried
 /// again for `retry`, so a rate-limited GitHub never replaces the pull request with an error.
+///
+/// Each read runs off the main actor, and its answers land in the cache as one task on the app's
+/// scheduler (Chromium's `PostTaskAndReplyWithResult` onto a typed UI task runner,
+/// base/task/task_runner_util.h): `background` for a reply's prefetch, which no card shows yet,
+/// `visible` for a link a card asked for.
 @MainActor
 public final class AgentReplyPullRequests {
     private struct Entry {
@@ -251,13 +267,19 @@ public final class AgentReplyPullRequests {
     private let reader: AgentChatPullRequestReader
     private let freshness: Duration
     private let retry: Duration
+    private let mainWork: MainWorkScheduler
+    /// The owner of the reads' answers, interned once.
+    private let owner: MainTaskOwner
     private var entries: [URL: Entry] = [:]
     private var inflight: [URL: Task<Void, Never>] = [:]
 
     /// The App makes one (`AppServices.replyPullRequests`): every chat's cards and the changelog's
-    /// read through it, with the App's one gh reader.
-    public init(reader: AgentChatPullRequestReader, freshness: Duration = .seconds(60), retry: Duration = .seconds(300)) {
+    /// read through it, with the App's one gh reader; `mainWork` is the app's scheduler the answers land on.
+    public init(reader: AgentChatPullRequestReader, mainWork: MainWorkScheduler, freshness: Duration = .seconds(60),
+                retry: Duration = .seconds(300)) {
         self.reader = reader
+        self.mainWork = mainWork
+        owner = mainWork.board.owner("AgentReplyPullRequests.read")
         self.freshness = freshness
         self.retry = retry
     }
@@ -282,13 +304,7 @@ public final class AgentReplyPullRequests {
             wanted.append(url)
         }
         guard !wanted.isEmpty else { return }
-        let reader = reader
-        let addresses = wanted.map(\.absoluteString)
-        // task-owner: one read for every link of a reply; a card opened meanwhile shares it.
-        let task = Task { [weak self] in
-            let answers = await reader.read(urls: addresses)
-            self?.absorb(answers, for: wanted)
-        }
+        let task = fetch(wanted, as: .background)
         for url in wanted { inflight[url] = task }
     }
 
@@ -312,20 +328,35 @@ public final class AgentReplyPullRequests {
     private func startRead(_ url: URL) -> Task<Void, Never>? {
         if let task = inflight[url] { return task }
         guard stale(url) else { return nil }
-        // task-owner: one gh read per stale link; everyone waiting on it shares this task.
-        let task = Task { await self.perform(url) }
+        let task = fetch([url], as: .visible)
         inflight[url] = task
         return task
     }
 
-    /// Reads one link the same way ``register(_:)`` reads a reply's: the batched GraphQL read with
+    /// Reads `urls` off the main actor and lands their answers in the cache as one `workClass` task; the
+    /// returned task ends once they landed (or the scheduler dropped them), so a waiter reads the cache then.
+    ///
+    /// One link is read the same way ``register(_:)`` reads a reply's: the batched GraphQL read with
     /// a batch of one, not `gh pr view <url>`. It is the same single call to GitHub, and it is the
     /// only one of the two that reads the base branch's checks — a card refreshed through
     /// `gh pr view` would quietly lose "also red on base" sixty seconds after it gained it. A link
     /// on another host (GitHub Enterprise) still falls back to `gh pr view` inside that read.
-    private func perform(_ url: URL) async {
-        let answers = await reader.read(urls: [url.absoluteString])
-        absorb(answers, for: [url])
+    private func fetch(_ urls: [URL], as workClass: BudgetedWorkClass) -> Task<Void, Never> {
+        let reader = reader, mainWork = mainWork, owner = owner, addresses = urls.map(\.absoluteString)
+        let absorb: @MainActor @Sendable ([String: AgentPanePullRequest?]) -> Void = { [weak self] answers in
+            self?.absorb(answers, for: urls)
+        }
+        // task-owner: one read for every link asked at once, off main; everyone waiting on it shares this task.
+        return Task { @concurrent in
+            let answers = await reader.read(urls: addresses)
+            // Abandoned only when the scheduler itself is gone (released with the task unrun): nothing is left to show.
+            _ = try? await withOnceContinuation { (landed: OnceContinuation<Void, OnceContinuationError>) in
+                mainWork.postFromAnyThread(workClass, owner: owner) {
+                    absorb(answers)
+                    landed.resume(returning: ())
+                }
+            }
+        }
     }
 
     /// What a batched read answered. A URL GitHub did not answer for (offline, timed out, rate

@@ -1,5 +1,6 @@
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextInputModel
 
 // Attach state machine transitions into the journal (byte counts only).
 extension InputJournal {

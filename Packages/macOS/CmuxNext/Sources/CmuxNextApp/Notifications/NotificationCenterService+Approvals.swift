@@ -2,6 +2,7 @@ import CmuxNextAgentPane
 import CmuxNextCloud
 import CmuxNextDaemon
 import CmuxNextSettings
+import CmuxNextWakeups
 
 /// Wiring of agent chat approval banners (cx-kz6m0.2, ``AgentApprovalBanners``): an agent's ask
 /// on a chat tab whose session runs on this Mac's acpmux gets Allow once and Deny.
@@ -46,24 +47,49 @@ extension NotificationCenterService {
 
     /// Allow once or Deny on an approval banner of this launch. An answered prompt reads the tab;
     /// one that ended or changed opens it, where the chat shows what it waits on now.
-    func answerApproval(banner: String, surface: SurfaceID?, allow: Bool) {
+    ///
+    /// The person's click answers off main (R-hop: a background task for the async part), at user
+    /// blocking priority; what follows on main (the note, reading or opening the tab) is posted in
+    /// the visible class.
+    ///
+    /// - Returns: The answer's task (tests await it); nil when the banner answers nothing.
+    @discardableResult
+    func answerApproval(banner: String, surface: SurfaceID?, allow: Bool) -> Task<Void, any Error>? {
+        let mainWork = work
         if banner.hasPrefix("hand-approval."), let hands = services?.cloud.hands {
-            // task-owner: NotificationCenterService.answerApproval: one hand answer per banner button.
-            Task { @MainActor [weak self] in
-                do { try await hands.answer(banner, allow: allow) } catch { self?.note("hand approval \(banner) failed: \(error)") }
+            return background.task(.userBlocking) { [weak self] in
+                do { try await hands.answer(banner, allow: allow) } catch {
+                    let failure = "hand approval \(banner) failed: \(error)"
+                    mainWork.postFromAnyThread(.visible, owner: "notifications.approval") { [weak self] in self?.note(failure) }
+                }
             }
-            return
         }
-        guard let entry = approvals.take(banner), let answerer = approvals.answerer else {
-            return note("approval refused: \(banner) is not an approval banner of this launch")
+        guard let entry = approvals.take(banner), approvals.answerer != nil else {
+            note("approval refused: \(banner) is not an approval banner of this launch")
+            return nil
         }
-        // task-owner: NotificationCenterService.answerApproval: one answer per banner button.
-        Task { @MainActor [weak self] in
-            let answered = await answerer.answer(entry.approval, allow: allow)
-            self?.note("approval \(allow ? "allow" : "deny") \(entry.tab) \(answered ? "answered" : "not answered")")
-            guard let self, let services = self.services else { return }
-            if !answered { return self.open(surface: surface) }
-            if let tab = Self.tab(id: entry.tab, in: services.daemon.store) { self.acknowledge(tab) }
+        let approvals = self.approvals
+        return background.task(.userBlocking) { [weak self] in
+            let answered = await approvals.answer(entry.approval, allow: allow)
+            mainWork.postFromAnyThread(.visible, owner: "notifications.approval") { [weak self] in
+                self?.approvalAnswered(entry.tab, surface: surface, allow: allow, answered: answered)
+            }
         }
+    }
+
+    /// An answer came back: a prompt it answered reads its tab, one it did not opens the tab.
+    private func approvalAnswered(_ tabID: String, surface: SurfaceID?, allow: Bool, answered: Bool) {
+        note("approval \(allow ? "allow" : "deny") \(tabID) \(answered ? "answered" : "not answered")")
+        guard let services else { return }
+        if !answered { return open(surface: surface) }
+        if let tab = Self.tab(id: tabID, in: services.daemon.store) { acknowledge(tab) }
+    }
+}
+
+extension AgentApprovalBanners {
+    /// Answers `approval` through this launch's answerer; false when there is none or it answered nothing.
+    func answer(_ approval: AgentApproval, allow: Bool) async -> Bool {
+        guard let answerer else { return false }
+        return await answerer.answer(approval, allow: allow)
     }
 }

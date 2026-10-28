@@ -2693,6 +2693,69 @@ class GenDaemonOpsSelfTest(unittest.TestCase):
             "operation": "history.restore",
             "reason": "no history backup history:0000000000000000000000000000000a (it was restored, purged or expired)"})
 
+    def test_the_workspace_family_tuning(self) -> None:
+        """tests/oracle/corpus/daemon-ops/workspace/_tuning.json (p15-oracle-064): each of the 26 workspace-family
+        mutations has a success and a typed-error case with no placeholder, and none needs a capability beyond
+        resource_api. Two successes no product runs yet are excluded naming the task that closes them:
+        workspace.agent_folder.set (user only, p15-oracle-237) and workspace.ensure_app (an installed first-party
+        app, p15-oracle-248). A handler-level refusal with typed keys asserts them; the checklist store's has only
+        a prose reason, so those cases assert the code."""
+        gapped = {"workspace.agent_folder.set": "p15-oracle-237", "workspace.ensure_app": "p15-oracle-248"}
+        missing_group = {"scope": "workspace_group", "id": "oracle-missing-group"}
+        typed = {
+            "workspace.agent_folder.set": ("origin.forbidden", {"derived": "agent", "required": "user"}),
+            "workspace.ensure_app": ("validation.invalid", {
+                "field": "app", "reason": "app oracle/not-installed is not installed and enabled"}),
+            "workspace.open_url": ("validation.invalid", {
+                "field": "url", "reason": "the URL must be an http or https URL with a host, at most 8192 bytes"}),
+            "workspace.place": ("resource.not_found", missing_group),
+            "workspace_group.delete": ("resource.not_found", missing_group),
+            "workspace_group.move": ("resource.not_found", missing_group),
+            "workspace_group.update": ("resource.not_found", missing_group),
+            "workspace.focus": ("selector.not_found", {
+                "scope": "workspace", "selector": "ws_00000000000000000000000000000000"}),
+        }
+        code_only = {"workspace_checklist.remove", "workspace_checklist.update"}
+        tuning = load_tuning(DEFAULT_OUT, self.catalog)
+        files = generate(self.catalog, tuning)
+        coverage = files[COVERAGE]
+        family = sorted(op for op in self.catalog.mutations() if family_of(op) == "workspace")
+        self.assertEqual(len(family), 26)
+        self.assertLessEqual({op for op in tuning if family_of(op) == "workspace"}, set(family))
+        for operation in family:
+            entry = coverage["operations"][operation]
+            self.assertEqual(entry["placeholders"], [], operation)
+            excluded = coverage["excluded"].get(operation)
+            self.assertEqual(excluded is not None, operation in gapped, operation)
+            if excluded is not None:
+                self.assertIn(gapped[operation], excluded, operation)
+            calls = {}
+            for kind in ("success", "error"):
+                case = files[entry["cases"][kind].split("/", 1)[1] + ".json"]
+                # workspace.run (p15-oracle-209) waits on the new tab after the call, so the call is not the last step.
+                calls[kind] = next(step for step in case["steps"] if step["id"] == CALL_STEP)
+                self.assertEqual(calls[kind]["args"]["method"], operation)
+                self.assertEqual(case["requires"], ["resource_api"], f"{operation} {kind}")
+                self.assertNotIn("fx-browser", [step["id"] for step in case["steps"]], f"{operation} {kind}")
+            expect = calls["error"]["expect"]
+            if operation in typed:
+                self.assertEqual((expect["error"], expect["errorDetails"]), typed[operation], operation)
+            elif operation in code_only:
+                self.assertEqual((expect["error"], "errorDetails" in expect), ("validation.invalid", False), operation)
+            else:
+                self.assertEqual(expect["error"], ERROR_CODE, operation)
+        self.assertEqual(sum(op not in coverage["excluded"] for op in family), len(family) - len(gapped))
+        # open_url reuses the app-drawn browser it focused first, so it needs no cmux-browser provider.
+        open_ok = files["workspace-open-url-ok.json"]["steps"]
+        ids = [step["id"] for step in open_ok]
+        call = ids.index(CALL_STEP)
+        self.assertEqual(ids[call - 1], "focus-app-browser")
+        self.assertEqual(open_ok[call - 1]["target"]["tab"], "$step:fx-app-browser#/value/tab_id")
+        # A tuned handler-level error is the tuned success request with one change, never a broken catalog type.
+        place_error = next(step for step in files["workspace-place-error.json"]["steps"]
+                           if step["id"] == CALL_STEP)["args"]["params"]
+        self.assertEqual(place_error, {"group": "oracle-missing-group"})
+
     def test_the_tab_family_tuning(self) -> None:
         """tests/oracle/corpus/daemon-ops/tab/_tuning.json (p15-oracle-067): the 21 tab, tab_group, saved_tab_group
         and closed mutations. Reopen and unpin run as round trips (a close or pin first, in the success case only);

@@ -197,12 +197,40 @@ export const ScrollJank = Schema.Struct({
   ),
 });
 
+/**
+ * `interaction_latency` (the client's `HangReport.InteractionLatency`, p04-input-097):
+ * cmux's INP for the report period, numbers and a closed kind only. The high
+ * percentile is never above the worst.
+ */
+export const InteractionLatency = Schema.Struct({
+  count: u64.pipe(Schema.positive()),
+  worst_ms: milliseconds,
+  high_pct_ms: milliseconds,
+  kind_of_worst: Schema.Literal("key", "tap", "drag"),
+}).pipe(Schema.filter((value) => value.high_pct_ms <= value.worst_ms, {
+  message: () => "interaction high percentile above the worst",
+}));
+
 // MARK: hang samples (blocking detector, task attribution)
 
 /** `hangs[].blocking` of a detector sample: what the call waited on and where it ran. */
 export const BlockingDetail = Schema.Struct({
   kind: Schema.String.pipe(Schema.pattern(RAW_LABEL_PATTERN)),
   context: Schema.String.pipe(Schema.pattern(RAW_LABEL_PATTERN)),
+});
+
+/** The client's `DaemonDiagnosticSite.key`: the daemon site's crate, file hash and line, or its request method. */
+const DAEMON_SITE_PATTERN = /^daemon-[a-z0-9._-]{1,96}$/;
+
+/**
+ * `hangs[].daemon` of a daemon sample (p02-threads-233): one site the local
+ * daemon saw for the first time in its life. No path: a site is a crate, a
+ * file hash and a line, or a request method.
+ */
+export const DaemonDetail = Schema.Struct({
+  family: Schema.Literal("blocking", "inversion", "hang"),
+  kind: Schema.String.pipe(Schema.pattern(RAW_LABEL_PATTERN)),
+  site: Schema.String.pipe(Schema.pattern(DAEMON_SITE_PATTERN)),
 });
 
 /** `hangs[].task` of a watchdog hang (p06-scheduler-203): the scheduled task's owner and class. */
@@ -268,10 +296,18 @@ export const BLACKBOX_PHASES: ReadonlySet<string> = new Set(["B", "E", "I", "b",
 export const BLOCKING_KINDS: ReadonlySet<string> = new Set([
   "file-io", "socket-read", "socket-write", "sync-wait", "ipc-reply", "process-wait", "process-spawn", "lock-wait",
   "system-call", "sleep", "wrong-lane", "cpu-intensive", "fs-metadata", "sqlite", "process-reap", "system-query",
-  "priority-inversion", "ffi",
+  "priority-inversion", "ffi", "xpc-reply",
 ]);
 /** `BlockingContext` raw values (CmuxNextCompat/Threading/BlockingContext.swift). */
 export const BLOCKING_CONTEXTS: ReadonlySet<string> = new Set(["main", "pool", "lane", "dedicated", "cpu-lane", "lane-sync"]);
+/**
+ * cmux-tui `cmux_threads::BlockingKind` names, and a hang's scope: `request` for a slow daemon request,
+ * `holder-link` and `journal-writer` for a holder frame or a journal commit past its hang tier.
+ */
+export const DAEMON_KINDS: ReadonlySet<string> = new Set([
+  "fs", "process-spawn", "process-wait", "recv", "join", "condvar-wait", "sleep", "sqlite", "block-on", "ipc-reply",
+  "fd-read", "fd-write", "lock-wait", "priority-inversion", "request", "holder-link", "journal-writer",
+]);
 /** `HangWatch.ThreadKind` case names and `HangSample.WatchedThread.other`. */
 export const THREAD_KINDS: ReadonlySet<string> = new Set(["main", "io", "lane", "renderer", "pool", "control", "other"]);
 /** `MainWorkClass` descriptions and `HangSample.MainTask.unattributed`. */
