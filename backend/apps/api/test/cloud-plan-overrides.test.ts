@@ -233,6 +233,13 @@ describe("Cloud machine grants", { timeout: 60_000 }, () => {
     expect(code(await create(x.t))).toBe("cloud.plan.required")
   })
 
+  it("a company account's tier follows its plan after cmuxVmPlan, as classic's userBillingPlanId does (web services/vms/auth.ts)", async () => {
+    const x = await person("grant-company-vm-max", "pro", "max", "grant-company-vm-max@manaflow.ai", true)
+    expect(await planGet(x.t)).toMatchObject({ plan_id: "max", limits: { max_active: COMPANY_MAX_ACTIVE } })
+    const y = await person("grant-company-vm-free", "max", "free", "grant-company-vm-free@manaflow.ai", true)
+    expect(await planGet(y.t)).toMatchObject({ plan_id: "team", limits: { max_active: COMPANY_MAX_ACTIVE } })
+  })
+
   it("an unverified company address gets no grant", async () => {
     const x = await person("grant-company-unverified", null, null, "grant-company-unverified@manaflow.ai", false)
     expect(code(await create(x.t))).toBe("cloud.plan.required")
