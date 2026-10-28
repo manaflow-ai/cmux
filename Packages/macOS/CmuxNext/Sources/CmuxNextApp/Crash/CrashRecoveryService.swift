@@ -135,8 +135,8 @@ final class CrashRecoveryService {
         // The crashed build, not this one: an update may have installed since. A marker from before
         // these fields names it through macOS's report; this build's commit only when that is this build.
         let running = info["CMUXCommit"] as? String
-        let version = writer.version
-        let commit = running
+        let version = previous.version ?? system?.version ?? writer.version
+        let commit = previous.commit ?? (version == writer.version ? running : nil)
         return CrashIssueReport(previous: previous, version: version, bundleID: writer.bundleID,
                                 commit: commit, system: system, systemReportName: log?.lastPathComponent,
                                 executableFunction: { symbolicator.executableFunction(uuid: $0, imageOffset: $1, returnAddress: $2) })
