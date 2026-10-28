@@ -797,9 +797,12 @@ export function ModelPicker(props: ModelPickerProps) {
     if (starred.length) list.push({ id: STARRED, name: starredText, starred: true, models: starred, more: [] });
     for (const entry of startable) {
       const signedOutHere = loginFor(entry) !== undefined;
-      const { shown, more } = signedOutHere
-        ? { shown: [], more: [] }
-        : quickSections(entry, entry.ids.includes(harness ?? "") ? props.model : undefined);
+      // A stale pre-turn health result must not blank the running chat's model list. Keep
+      // its rows visible beside the auth action; picks remain guarded until re-authentication.
+      const runningSignedOut = signedOutHere && entry.ids.includes(harness ?? "");
+      const { shown, more } = !signedOutHere || runningSignedOut
+        ? quickSections(entry, entry.ids.includes(harness ?? "") ? props.model : undefined)
+        : { shown: [], more: [] };
       list.push({
         id: entry.id,
         name: entry.name,
@@ -1023,7 +1026,7 @@ export function ModelPicker(props: ModelPickerProps) {
   // visible on the closed control and offer its login command without making the user send first.
   const selectedLogin = current ? loginFor(current) : undefined;
   const authLabel = selectedLogin !== undefined ? t("harnesses.signedOut") : undefined;
-  const authAction = current && selectedLogin !== undefined && onLogIn ? (
+  const authAction = current && selectedLogin && onLogIn ? (
     <button
       type="button"
       className="acpmux-picker-auth-action h-[var(--ui-row-height,28px)] flex-none cursor-pointer rounded-[var(--ui-row-radius,5px)] border-0 bg-transparent px-1.5 font-[inherit] text-detail text-danger hover:bg-hover"
