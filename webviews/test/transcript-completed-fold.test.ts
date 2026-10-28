@@ -1,0 +1,96 @@
+// A completed turn keeps its final answer in sight and folds the earlier transcript, including
+// received reports, under one stable Worked-for disclosure. A running turn keeps the existing
+// step-by-step rows so the reader can follow work as it arrives.
+import { expect, test } from "bun:test";
+import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
+import { turnFoldFor, turnView, WORKED } from "../src/agent-session/acpmux/conversation/turns";
+
+let at = 0;
+const row = (id: string, kind: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
+  id,
+  kind,
+  version: 1,
+  at: (at += 1_000),
+  ...extra,
+});
+const tool = (id: string) =>
+  row(id, "activity", {
+    items: [{ kind: "tool", text: `Ran ${id}`, tool: { id, title: id, kind: "execute", status: "completed" } }],
+  });
+const answer = (id: string, text: string) => row(id, "assistant", { text });
+const received = (id: string) =>
+  row(id, "user", {
+    text: "The delegated tests passed.",
+    // direct.ts preserves user_message.steer and lands it once read; this is the existing
+    // relation proving this report belongs inside the active turn rather than a later prompt.
+    steer: "landed",
+    promptId: `${id}-prompt`,
+    incoming: {
+      kind: "message",
+      message: { name: "test-runner", text: "The delegated tests passed.", raw: "The delegated tests passed." },
+    },
+  });
+
+const completedTurn = () => {
+  at = 0;
+  const prompt = row("prompt", "user", { text: "Ship the retry fix" });
+  return [
+    prompt,
+    tool("read"),
+    answer("progress", "I found the retry race and am checking the two call sites."),
+    tool("test"),
+    received("report"),
+    answer("final", "The retry fix is shipped."),
+    row("summary", "turnSummary", { status: "completed", durationMs: 7_000 }),
+  ];
+};
+
+test("a completed turn folds all pre-answer work and received reports under one stable line", () => {
+  const rows = completedTurn();
+  const folded = turnView(rows, new Set());
+  expect(folded.filter((entry) => entry.kind !== "date").map((entry) => `${entry.kind}:${entry.id}`)).toEqual([
+    "user:prompt",
+    "worked:worked-prompt",
+    "assistant:final",
+    "turnSummary:summary",
+  ]);
+
+  const opened = turnView(rows, new Set([`${WORKED}-prompt`]))
+    .filter((entry) => entry.kind !== "date")
+    .map((entry) => entry.id);
+  expect(opened).toEqual(["prompt", "worked-prompt", "read", "progress", "test", "report", "final", "summary"]);
+  expect(
+    turnFoldFor(
+      rows,
+      rows.findIndex((entry) => entry.id === "report"),
+    ),
+  ).toBe(`${WORKED}-prompt`);
+});
+
+test("a running turn keeps intermediate prose, tools, and received reports visible", () => {
+  const rows = completedTurn().slice(0, -1);
+  const live = turnView(rows, new Set(), { working: true });
+  expect(live.some((entry) => entry.kind === WORKED)).toBe(false);
+  const ids = live.map((entry) => entry.id);
+  for (const id of ["prompt", "read", "progress", "test", "report", "final"]) expect(ids).toContain(id);
+});
+
+test("a received prompt without a continuation relation stays a separate turn", () => {
+  const rows = completedTurn();
+  const unrelated = rows.map((entry) => (entry.id === "report" ? { ...entry, steer: undefined } : entry));
+  const folded = turnView(unrelated, new Set());
+  expect(folded).toContainEqual(expect.objectContaining({ id: "report" }));
+  expect(folded).toContainEqual(expect.objectContaining({ id: "progress" }));
+});
+
+test("the completed disclosure state is keyed by the turn prompt, so a later snapshot reopens it", () => {
+  const rows = completedTurn();
+  const expanded = new Set([`${WORKED}-prompt`]);
+  const first = turnView(rows, expanded);
+  const next = turnView(
+    rows.map((entry) => ({ ...entry })),
+    expanded,
+  );
+  expect(first.map((entry) => entry.id)).toEqual(next.map((entry) => entry.id));
+  expect(next).toContainEqual(expect.objectContaining({ id: "report" }));
+});
