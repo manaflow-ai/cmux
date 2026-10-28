@@ -2054,16 +2054,19 @@ class TabManager: ObservableObject {
 
     // MARK: - Reordering (WorkspaceReorderCoordinator, CmuxWorkspaces)
 
+    /// A user Move to Top is recorded even when the workspace is already at the top: it affirms
+    /// the place the workspace shows at (session priority ruling R24).
     func moveTabToTop(_ tabId: UUID, origin: WorkspaceMoveOrigin = .user) {
         let before = tabs.map(\.id)
         workspaceReordering.moveTabToTop(tabId)
-        if origin == .user, tabs.map(\.id) != before { noteUserWorkspaceMove(movedIds: [tabId], before: before) }
+        if origin == .user { noteUserWorkspaceMove(movedIds: [tabId], before: before) }
     }
 
     func moveTabsToTop(_ tabIds: Set<UUID>) {
         let before = tabs.map(\.id)
         workspaceReordering.moveTabsToTop(tabIds)
-        if tabs.map(\.id) != before { noteUserWorkspaceMove(movedIds: before.filter(tabIds.contains), before: before) }
+        let movedIds = before.filter(tabIds.contains)
+        if !movedIds.isEmpty { noteUserWorkspaceMove(movedIds: movedIds, before: before) }
     }
 
     func moveTabToTopForNotification(_ tabId: UUID) {
