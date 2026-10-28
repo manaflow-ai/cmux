@@ -133,9 +133,9 @@ function sectionsFor(entry: HarnessChoice | undefined): { latest: ModelChoice[];
         id: model.id,
         name: model.shortName || model.name || model.id,
         ...(model.family ? { family: model.family } : {}),
-        unavailable: model.unavailable,
-        efforts: model.efforts,
-        fast: model.fast,
+        ...(model.unavailable ? { unavailable: model.unavailable } : {}),
+        ...(model.efforts !== undefined ? { efforts: model.efforts } : {}),
+        ...(model.fast !== undefined ? { fast: model.fast } : {}),
         ...(model.release ? { release: model.release } : {}),
       },
     ];

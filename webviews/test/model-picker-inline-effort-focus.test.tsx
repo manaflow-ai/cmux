@@ -147,3 +147,9 @@ test.each([
   );
   expect(Boolean(effortSubmenu)).toBe(capability === "absent" && !inline);
 });
+
+test("the running model uses live session levels over stale catalog efforts", async () => {
+  await openPicker(["low"], true);
+  expect(document.querySelectorAll(".acpmux-quick-effort-segment")).toHaveLength(3);
+  expect(document.querySelector('[aria-label="Opus 5.5 · High"]')).toBeDefined();
+});

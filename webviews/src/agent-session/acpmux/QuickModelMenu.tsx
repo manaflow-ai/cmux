@@ -308,16 +308,15 @@ export function QuickModelMenu({
     if (menu.inlineEffort !== true || (!families && !menu.onModelEffort)) return [];
     // An explicit empty list must not inherit session choices, including Ultracode.
     if (model.efforts?.length === 0) return [];
-    const advertised =
-      model.efforts !== undefined
+    const advertised = running
+      ? levels
+      : model.efforts !== undefined
         ? reasoningChoices(
             model.efforts.map((value) => ({ value })),
             { efforts: model.efforts },
             t,
           )
-        : running
-          ? levels
-          : [];
+        : [];
     // Ultracode is a session-specific option. It may be reported on the harness effort
     // option even when the catalog model's own list predates it; keep it in the inline
     // row as well as in the Effort submenu so the combined picker does not remove it.
