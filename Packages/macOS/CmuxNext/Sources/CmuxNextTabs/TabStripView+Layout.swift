@@ -338,6 +338,8 @@ extension TabStripView {
         let buttonFrame = CGRect(x: pixel(buttonX), y: pixel(tabY + (tabHeight - buttonWidth) / 2), width: buttonWidth, height: buttonWidth)
         let buttonFrom = newTabButton.frame.origin
         newTabButton.frame = buttonFrame
+        newTabMenuButton.frame = CGRect(x: buttonFrame.maxX, y: buttonFrame.minY,
+                                       width: newTabControlsWidth - buttonWidth, height: buttonFrame.height)
         // The scroll moves it only where it follows the last tab both before and now (not held at the strip's end).
         let buttonEnd = pixel(tabsClip.frame.minX + viewportWidth) - 0.5
         let scroll = buttonFrame.minX < buttonEnd && buttonFrom.x < buttonEnd ? scrollPart(isPinned: false) : 0
