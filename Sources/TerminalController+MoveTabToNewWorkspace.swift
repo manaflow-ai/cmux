@@ -88,6 +88,8 @@ extension TerminalController {
         "surface.reorder",
         "surface.action",
         "tab.action",
+        "surface.textbox.toggle",
+        "surface.textbox.show",
         "pane.create",
         "pane.swap",
         "pane.break",

@@ -435,6 +435,7 @@ extension CMUXCLI {
         rpc <method> [json-params]
         debug-terminals
         trigger-flash [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]
+        textbox <toggle|show|hide|state> [--surface <id|ref|index>] [--workspace <id|ref|index>] [--focus]
         set-app-focus <active|inactive|clear>
         simulate-app-active
         simulate-sidebar-drag --window <id|ref|index> --from <ws> --to <ws> [--duration-ms <n>] [--steps <n>]

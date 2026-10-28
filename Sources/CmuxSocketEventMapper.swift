@@ -105,6 +105,8 @@ enum CmuxSocketEventMapper {
             return DomainEventMapping(name: "surface.input_sent", category: "surface", params: .redactedInput)
         case "surface.send_key":
             return DomainEventMapping(name: "surface.key_sent", category: "surface", params: .unchanged)
+        case "surface.textbox.toggle", "surface.textbox.show", "surface.textbox.hide":
+            return DomainEventMapping(name: "surface.textbox_requested", category: "surface", params: .unchanged)
         case "pane.resize":
             return DomainEventMapping(
                 name: "pane.resized",

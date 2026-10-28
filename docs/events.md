@@ -310,6 +310,7 @@ Surface and pane:
 | `surface.action` | Surface or tab action command completed. |
 | `surface.input_sent` | Text was sent through the socket API. Text is redacted. |
 | `surface.key_sent` | Key was sent through the socket API. |
+| `surface.textbox_requested` | Socket command showed, hid, or toggled a terminal's TextBox Input. The result's `visible` and `changed` give the outcome. |
 | `surface.jump_to_last_prompt_requested` | Socket command asked cmux to focus the surface where the user last submitted an agent prompt. |
 | `pane.created` | Pane created. |
 | `pane.closed` | Pane closed. |

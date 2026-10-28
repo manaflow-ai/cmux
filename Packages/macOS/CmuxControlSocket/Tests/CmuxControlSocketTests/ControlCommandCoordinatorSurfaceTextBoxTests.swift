@@ -2,6 +2,18 @@ import Foundation
 import Testing
 @testable import CmuxControlSocket
 
+// Surface-domain default for fakes that do not drive the TextBox. Kept beside its
+// tests because `ControlCommandContextTestStubs.swift` is over its line budget.
+extension ControlSurfaceContext {
+    func controlSurfaceTextBox(
+        action: ControlSurfaceTextBoxAction,
+        routing: ControlRoutingSelectors,
+        surfaceID: UUID?,
+        hasSurfaceIDParam: Bool,
+        focusRequested: Bool
+    ) -> ControlSurfaceTextBoxResolution { .tabManagerUnavailable }
+}
+
 @MainActor
 private final class TextBoxControlContext: ControlCommandContext {
     struct Call: Equatable {
