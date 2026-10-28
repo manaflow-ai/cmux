@@ -46,6 +46,7 @@ function Transcript() {
     <VirtualTranscript
       rows={turnView(rows, new Set())}
       sessionId="session-1"
+      jumpButton
       onToggleActivity={() => {}}
       expanded={new Set()}
     />
