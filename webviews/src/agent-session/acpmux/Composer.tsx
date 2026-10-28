@@ -197,7 +197,12 @@ export type ComposerHandle = {
   wake(state: ComposerWake): void;
 };
 
-export type ComposerWake = { attachments?: ComposerAttachment[]; shell?: boolean; shellText?: string };
+export type ComposerWake = {
+  attachments?: ComposerAttachment[];
+  draftText?: string;
+  shell?: boolean;
+  shellText?: string;
+};
 
 type Props = {
   snapshot: AcpmuxSnapshot;
@@ -234,6 +239,9 @@ type Props = {
   /// A harness switch is under way (another provider's model was picked): the session changes
   /// under the prompt, and the typed text stays instead of the new session's empty draft.
   switching?: boolean;
+  /// Stable storage identity for a fresh host-owned composer with no session (Quick Composer).
+  /// Normal chats use `sessionId`; New Tab does not pass this prop.
+  draftKey?: string;
   /// The bar's left button, such as attach; by default + opens the agent's commands. `null` leaves the slot empty.
   leading?: React.ReactNode;
   /// Granted folder trust and chat-wide permission state, rendered inside Access.
@@ -386,6 +394,7 @@ export function Composer({
   onShellChange,
   handle,
   sessionId,
+  draftKey,
   switching,
   blocked,
   placeholder,
@@ -419,6 +428,10 @@ export function Composer({
   const [text, setText] = useState(() => draft ?? readPersistedDraft(sessionId) ?? "");
   const textRef = useRef(text);
   textRef.current = text;
+  const currentSession = useRef(sessionId);
+  currentSession.current = sessionId;
+  // A delayed wake never replaces an edit, including a draft the person has just cleared.
+  const wakeDraftTouched = useRef(false);
   /// Shell mode: the prompt is a plain monospace field whose Enter runs a command. The markdown
   /// prompt stays mounted under it, keeping its own draft.
   const [shell, setShellState] = useState(false);
@@ -531,6 +544,16 @@ export function Composer({
     setDropHost(element ? (element.closest(".acpmux-main") ?? element.ownerDocument.body) : null);
   }, []);
   const landingTarget = useCallback(() => composerBox.current, []);
+  const attachmentScope = sessionId ?? draftKey;
+  const attachmentStore = useMemo<KeptAttachments | undefined>(() => {
+    if (!draftKey || !keptAttachments) return keptAttachments;
+    return {
+      read: (scope) => keptAttachments.read(scope),
+      // A first send can change the session before the old key's debounce flushes.
+      // That late flush clears the fresh draft instead of resurrecting its sent chips.
+      write: (scope, chips) => keptAttachments.write(scope, scope === draftKey && currentSession.current ? [] : chips),
+    };
+  }, [draftKey, keptAttachments]);
   const {
     attachments,
     setAttachments,
@@ -560,19 +583,20 @@ export function Composer({
     // A screenshot still being read when the composer moves to another chat stays the chat's it was
     // pasted in: its chip joins that chat's kept chips (keptAttachments.ts), unless a switch carries
     // the prompt to its new session.
-    scope: sessionId,
+    scope: attachmentScope,
     // A chat on this Mac (Quick Chat too): its attached videos show their posters.
     localChat: opensProcessTerminal(snapshot.summary),
     elsewhere: (chat, chips) => {
-      if (!keptAttachments) return;
-      void keptAttachments
+      if (!attachmentStore) return;
+      void attachmentStore
         .read(chat)
         .catch(() => [])
-        .then((kept) => keptAttachments.write(chat, appendAttachments(kept, chips)))
+        .then((kept) => attachmentStore.write(chat, appendAttachments(kept, chips)))
         .catch(() => {});
     },
     carries: () => carryPrompt.current || Boolean(switching),
   });
+
   const attachmentsRef = useRef(attachments);
   attachmentsRef.current = attachments;
   // A prompt sent while a pasted screenshot is still being read goes once its chip is ready.
@@ -649,6 +673,7 @@ export function Composer({
       send: () => submitNow.current(true),
       focus: () => field.current?.focus(),
       prefill(prefix) {
+        wakeDraftTouched.current = true;
         const typed = (field.current?.value() ?? textRef.current).trimStart();
         if (!typed.startsWith(prefix.trimEnd())) {
           const next = prefix + typed;
@@ -659,6 +684,7 @@ export function Composer({
         field.current?.focus();
       },
       wakeState: () => ({
+        draftText: currentSession.current ? undefined : (field.current?.value() ?? textRef.current),
         attachments: attachmentsRef.current.filter((chip) => !chip.shellRun),
         shell: shellRef.current.shell,
         shellText: shellRef.current.shellText,
@@ -680,6 +706,19 @@ export function Composer({
         await Promise.all([unsent?.settle(), settlePendingDraftWrites()]);
       },
       wake(state) {
+        if (
+          !currentSession.current &&
+          state.draftText !== undefined &&
+          !wakeDraftTouched.current &&
+          !textRef.current &&
+          !field.current?.value()
+        ) {
+          wakeDraftTouched.current = true;
+          field.current?.reset(state.draftText);
+          setText(state.draftText);
+          setCaret(state.draftText.length);
+          pendingCaret.current = state.draftText.length;
+        }
         const back = state.attachments ?? [];
         if (back.length)
           setAttachments((current) => [
@@ -738,7 +777,7 @@ export function Composer({
   // The pane closes: what it queued for its chat still goes to acpmux, but no quit compares it again.
   useEffect(() => () => forgetQueuedDraft(persistedSession.current), []);
   // The chat's own chips come back with its prompt; a switch carries the ones held (keptAttachments.ts).
-  useKeptAttachments(sessionId, attachments, setAttachments, keptAttachments, () => carryPrompt.current);
+  useKeptAttachments(attachmentScope, attachments, setAttachments, attachmentStore, () => carryPrompt.current);
   // WEB-SWAP: a web update reloads the page only when the prompt comes back as it is: text and
   // chips kept with the chat (composerDraft.ts, keptAttachments.ts), nothing being sent, read or
   // dictated, no shell mode (pages/shared/webSwap.ts).
@@ -903,6 +942,7 @@ export function Composer({
   });
 
   const edit = (value: string, at: number) => {
+    wakeDraftTouched.current = true;
     setText(value);
     setCaret(at);
     setDismissed(undefined);

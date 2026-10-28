@@ -722,6 +722,9 @@ const reportTabRowTools = (width: number) => void callNative("pane.tabRowTools",
 const postTyping = (text: string, sessionId?: string) =>
   void window.cmuxAcpmuxActions?.["chat.typing"]?.({ text, sessionId }).catch(() => undefined);
 const postUnsentDraft = (text: string) => callNative("chat.unsentDraft", { text }).catch(() => undefined);
+/// Quick Composer's standalone page has no tab id; this stable key backs its unsent chips.
+const QUICK_DRAFT_KEY = "quick-composer-v1";
+
 /// Each chat's unsent chips, kept by the host so reopening or restoring the chat brings them back
 /// (AgentPaneDraftAttachments.swift). A host without the store (the gallery, an older app) keeps none.
 const keptAttachments: KeptAttachments = {
@@ -804,6 +807,7 @@ function readWake(value: unknown): { composer: ComposerWake; scrollAnchor?: Scro
   if (!value || typeof value !== "object") return undefined;
   const wake = value as {
     attachments?: unknown;
+    draftText?: unknown;
     shell?: unknown;
     shellText?: unknown;
     scrollAnchor?: unknown;
@@ -812,6 +816,7 @@ function readWake(value: unknown): { composer: ComposerWake; scrollAnchor?: Scro
   const anchor = wake.scrollAnchor as { rowId?: unknown; offset?: unknown } | null | undefined;
   return {
     composer: {
+      draftText: typeof wake.draftText === "string" ? wake.draftText : undefined,
       attachments: Array.isArray(wake.attachments) ? (wake.attachments as ComposerAttachment[]) : undefined,
       shell: wake.shell === true,
       shellText: typeof wake.shellText === "string" ? wake.shellText : undefined,
@@ -8572,6 +8577,15 @@ function AcpmuxPane() {
     harness: heldPick(snapshot).harness ?? switchView.intent?.harness,
     cwd: projectDraft ?? switchView.intent?.cwd,
   };
+  // Quick has no tab record: the controller keeps its live text and chips together.
+  const onQuickDraft = useCallback(
+    (text: string) =>
+      callNative("chat.unsentDraft", {
+        text,
+        attachments: composerHandle.current?.wakeState().attachments ?? [],
+      }).catch(() => undefined),
+    [],
+  );
   // Stable, so the composer's unsent-draft throttle is not rebuilt on every render.
   const onNewChatDraft = useCallback(
     (text: string) => {
@@ -9242,9 +9256,11 @@ function AcpmuxPane() {
             permissionAccess={permissionAccess}
             onOpenContext={inspector.reveal ? () => inspector.reveal?.("context") : undefined}
             draft={draft}
-            onUnsentDraft={quick ? undefined : onNewChatDraft}
+            onUnsentDraft={quick ? onQuickDraft : onNewChatDraft}
             onTyping={quick ? undefined : postTyping}
-            keptAttachments={quick ? undefined : keptAttachments}
+            draftKey={quick ? QUICK_DRAFT_KEY : undefined}
+            keptAttachments={keptAttachments}
+
             onCmuxCommand={(command, args) => {
               if (command.action === "status") {
                 setStatusCardOpen(true);

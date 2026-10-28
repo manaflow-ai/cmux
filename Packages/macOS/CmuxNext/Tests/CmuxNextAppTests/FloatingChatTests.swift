@@ -390,7 +390,9 @@ struct FloatingChatTests {
         let (firstRig, first) = try Self.rig(floating: false, suite: suite)
         first.show()
         let firstChat = try #require(first.chat)
-        _ = await firstChat.model.respond(to: Self.request("chat.unsentDraft", ["text": "build A draft"]))
+        _ = await firstChat.model.respond(to: Self.request("chat.unsentDraft", ["text": "build A draft",
+            "attachments": AgentPaneDraftAttachments.json([attachment]).foundationObject]))
+        await first.prepareForQuit()
         // The update leaves no session behind; a new controller is the next launch.
         let (secondRig, second) = try Self.rig(floating: false, suite: suite)
         second.show()
