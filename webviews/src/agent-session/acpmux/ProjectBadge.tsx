@@ -16,8 +16,7 @@ export function projectKind(project: Pick<Project, "cwd" | "peer" | "host">): Pr
 /// The project's own icon when the host finds one on this Mac (projectIcon.ts: its GitHub owner's
 /// avatar, else an icon file in the folder or its repository), else its framework's or language's
 /// mark, else a plain folder; an icon WebKit cannot draw falls back to the mark or the folder too.
-/// Never letters and never a corner dot (Leo 2026-10-21: "do the icons/favicons/heuristics for icons
-/// apply here yet?"; no dots on the rows).
+/// If there is no icon, use a quiet monogram with no tile; never repeat a generic folder tile.
 export function ProjectBadge({ project }: { project: Project }) {
   const kind = projectKind(project);
   const icon = useProjectIcon(kind === "local" ? project.cwd : undefined);
@@ -41,27 +40,21 @@ export function ProjectBadge({ project }: { project: Project }) {
           <path fill="currentColor" d={glyph.path} />
         </svg>
       ) : (
-        <FolderMark />
+        <MonogramMark value={project.label || project.cwd} />
       )}
     </span>
   );
 }
 
 /// The folder a project with no icon and no mark draws, in the muted text color (the trigger's own).
-function FolderMark() {
+function MonogramMark({ value }: { value: string }) {
+  const letter = Array.from(value.trim())[0]?.toUpperCase() ?? "•";
   return (
-    <svg
-      width={14}
-      height={14}
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.25}
-      strokeLinejoin="round"
+    <span
+      className="acpmux-project-monogram"
       aria-hidden="true"
-      focusable="false"
     >
-      <path d="M1.9 4.6c0-.8.6-1.4 1.4-1.4h2.6l1.5 1.6h5.3c.8 0 1.4.6 1.4 1.4v5.6c0 .8-.6 1.4-1.4 1.4H3.3c-.8 0-1.4-.6-1.4-1.4Z" />
-    </svg>
+      {letter}
+    </span>
   );
 }

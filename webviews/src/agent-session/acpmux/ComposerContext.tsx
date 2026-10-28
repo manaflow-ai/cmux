@@ -68,6 +68,7 @@ type Location = {
   repo?: ProjectRepo;
   section?: string;
   disabled?: boolean;
+  kind?: EnvironmentKind;
 };
 type Computer = Location & { kind: EnvironmentKind; connected?: boolean; state?: string; cloudMachine?: CloudMachine };
 const NO_PEER_KINDS: Record<string, "ssh" | "cloud"> = {};
@@ -783,16 +784,19 @@ function LocationPicker({
                 : undefined;
             return (
               // tooltip-allow: the row shows the folder's name; the tooltip is its full path
-              <span
-                className="acpmux-menu-text acpmux-location-name"
+                <span
+                className={kind === "computer" ? "acpmux-location-row" : "acpmux-menu-text acpmux-location-name"}
                 title={path}
                 data-section={section}
                 data-first-section={section && index === 0 ? "" : undefined}
                 data-ready={folder?.disabled ? "false" : undefined}
                 aria-disabled={folder?.disabled ? true : undefined}
               >
-                <span className="acpmux-menu-label">{folder?.label ?? path}</span>
-                {!allowPath && folder?.detail && <span className="acpmux-menu-description">{folder.detail}</span>}
+                {kind === "computer" && <EnvironmentIcon kind={folder?.kind ?? "local"} name={folder?.label} />}
+                <span className={kind === "computer" ? "acpmux-menu-text acpmux-location-name" : "acpmux-menu-label"}>
+                  <span className="acpmux-menu-label">{folder?.label ?? path}</span>
+                  {!allowPath && folder?.detail && <span className="acpmux-menu-description">{folder.detail}</span>}
+                </span>
                 {suffix && (
                   <>
                     {" "}

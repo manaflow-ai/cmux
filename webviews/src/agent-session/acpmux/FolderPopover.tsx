@@ -83,7 +83,7 @@ export function FolderPopover({
     () => projectSuffixes(groups.map((group) => ({ cwd: group.lead.id, label: group.name }))),
     [groups],
   );
-  const rows = useMemo(() => shownRepoRows(groups, query, expanded), [groups, query, expanded]);
+  const rows = useMemo(() => shownRepoRows(groups, query, expanded, current), [groups, query, expanded, current]);
   // Each shown folder's row: a repository's (`group` only) or a worktree's under it.
   const shown = useMemo(() => {
     const byValue = new Map<string, { group: (typeof groups)[number]; worktree?: FolderChoice }>();

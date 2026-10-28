@@ -47,6 +47,11 @@ const longProjects: Project[] = [
   },
   { cwd: "/Users/you/src/cmux", label: "cmux" },
 ];
+const galleryProjects = (count: number): Project[] =>
+  Array.from({ length: count }, (_, index) => ({
+    cwd: `/Users/you/src/project-${index + 1}`,
+    label: `project-${index + 1}`,
+  }));
 
 const open: Play = async (ctx) => {
   await ctx.click({ selector: ".acpmux-project-button" });
@@ -187,6 +192,21 @@ export default componentEntry<Props>({
         onPick: () => undefined,
         onBrowse: () => undefined,
       },
+      play: open,
+    },
+    "downward-3": {
+      note: "Chosen layout: the shared placement rule opens below the composer when three projects fit.",
+      props: { projects: galleryProjects(3), current: "/Users/you/src/project-1", currentLabel: "project-1", icon, onPick: () => undefined, onBrowse: () => undefined },
+      play: open,
+    },
+    "downward-8": {
+      note: "Chosen layout: eight rows keep the same aligned icon, text and selection columns while the list scrolls.",
+      props: { projects: galleryProjects(8), current: "/Users/you/src/project-1", currentLabel: "project-1", icon, onPick: () => undefined, onBrowse: () => undefined },
+      play: open,
+    },
+    "downward-15": {
+      note: "Chosen layout: fifteen rows use the contained scrollbar and remain keyboard navigable without clipped content.",
+      props: { projects: galleryProjects(15), current: "/Users/you/src/project-1", currentLabel: "project-1", icon, onPick: () => undefined, onBrowse: () => undefined },
       play: open,
     },
   },

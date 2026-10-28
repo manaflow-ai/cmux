@@ -44,7 +44,7 @@ export function ProjectChooser({
   onNoProject,
   noProject = false,
   projectHost,
-  side = "top",
+  side = "bottom",
   inline = false,
 }: {
   projects: Project[];
@@ -75,11 +75,15 @@ export function ProjectChooser({
 
   const shown = useMemo(() => {
     const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
-    return projects.filter((project) => {
+    const filtered = projects.filter((project) => {
       const text = `${project.label} ${project.cwd} ${project.host ?? ""}`.toLowerCase();
       return words.every((word) => text.includes(word));
     });
-  }, [projects, query]);
+    const currentIndex = filtered.findIndex((project) => rowKey(project) === currentKey);
+    return currentIndex > 0
+      ? [filtered[currentIndex]!, ...filtered.slice(0, currentIndex), ...filtered.slice(currentIndex + 1)]
+      : filtered;
+  }, [projects, query, currentKey]);
   const rows = useMemo<Row[]>(() => {
     const listed: Row[] = shown.map((project) => ({ key: rowKey(project), project }));
     if (onNoProject) listed.unshift({ key: NO_PROJECT_KEY });

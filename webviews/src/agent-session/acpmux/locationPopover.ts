@@ -3,7 +3,8 @@ import type { UiVirtualAnchor } from "../../ui/Popover";
 import { useOpenSide } from "../../ui/openSide";
 import { registerPicker } from "./pickerOpeners";
 
-/// The location menus open next to their control: on its top side, the way the model menu opens
+/// The location menus open next to their control: below it, away from the chat, like the other
+/// composer dropdowns,
 /// above its chip (Lawrence 2026-10-08: "popover is not next to the button"; this replaces
 /// cx-yrgh's anchor at the card's top edge, which left the card's height between the two). Every
 /// location menu decides its side once, when it opens, by the shared rule (`useOpenSide`): above
@@ -20,7 +21,7 @@ export function useLocationPopover() {
     }),
     [],
   );
-  return { control, anchor, ...useOpenSide(control, "top", LOCATION_MENU_HEIGHT) };
+  return { control, anchor, ...useOpenSide(control, "bottom", LOCATION_MENU_HEIGHT) };
 }
 
 /// A location menu at its tallest: the folder list's cap (composerLocation.css), a field or
