@@ -90,11 +90,15 @@ await requireBrowserLane("transcript-gap-select-browser.test.ts", async () => {
         lower = textBox("lower"),
         after = textBox("after");
       const column = document.querySelector<HTMLElement>('[data-row-id="upper"]')!.getBoundingClientRect();
+      const upperRow = document.querySelector<HTMLElement>('[data-row-id="upper"]')!;
+      const padding = Number.parseFloat(getComputedStyle(upperRow).paddingBottom);
       return {
         upper,
         lower,
         after,
-        gapY: (upper.bottom + lower.top) / 2,
+        // Tool headers are controls before their output. Aim at the row's real blank trailing
+        // padding, so the midpoint cannot accidentally be inside the next tool's disclosure.
+        gapY: column.bottom - Math.max(1, padding / 2),
         center: (column.left + column.right) / 2,
         left: column.left / 2,
         right: (column.right + innerWidth - 16) / 2,
@@ -143,9 +147,10 @@ await requireBrowserLane("transcript-gap-select-browser.test.ts", async () => {
         const row = document.querySelector('[data-row-id="upper"]')!;
         const wrap = document.createElement("div");
         wrap.id = "selection-controls";
+        wrap.style.cssText = "position:relative;z-index:2;padding:8px";
         wrap.innerHTML =
           '<button>Attach file</button><a href="#fixture">Harbour link</a><span role="button" tabindex="0">Sender chip</span><input aria-label="Fixture field"><span draggable="true">Drag file</span><div class="cv-received__body selectable" data-cut>Open received message</div><div class="acpmux-edited-title--toggle">Open file diff</div><div class="acpmux-turn-preview-frame" style="height:30px">Open preview</div>';
-        row.append(wrap);
+        row.querySelector(".cv-tools")!.append(wrap);
         wrap.addEventListener("pointerdown", (event) => (wrap.dataset.prevented = String(event.defaultPrevented)));
         const hidden = document.createElement("span");
         hidden.className = "cv-code-handoff__real";
@@ -153,6 +158,7 @@ await requireBrowserLane("transcript-gap-select-browser.test.ts", async () => {
         hidden.style.cssText = "opacity:0;pointer-events:none;position:absolute";
         row.append(hidden);
       });
+      await paint(page);
       const end = (await geometry(page)).after;
       for (const selector of [
         "button",
@@ -182,6 +188,25 @@ await requireBrowserLane("transcript-gap-select-browser.test.ts", async () => {
       expect(await page.locator("body").getAttribute("data-text-prevented")).toBe("false");
       expect((await selected(page)).length).toBeGreaterThan(0);
       expect(await selected(page)).not.toContain("Invisible duplicate");
+      await page.close();
+    });
+    test(`${name}: a gap beside a code handoff anchors visible text`, async () => {
+      const page = await open(name, "agent", "agent");
+      await page.evaluate(() => {
+        const text = document.querySelector('[data-row-id="upper"] .cv-md')!;
+        text.innerHTML =
+          '<div class="cv-code-handoff is-plain" style="padding-bottom:40px"><pre class="cv-code-plain selectable"><span id="visible-gap-code">upper keeper visible code</span></pre><div class="cv-code-handoff__real" style="top:20px"><pre class="selectable">Invisible duplicate code</pre></div></div>';
+      });
+      await paint(page);
+      const point = await page.evaluate(() => {
+        const visible = document.getElementById("visible-gap-code")!;
+        const rect = visible.getBoundingClientRect();
+        const row = visible.closest(".acpmux-row")!.getBoundingClientRect();
+        return { x: (row.left + row.right) / 2, y: rect.bottom + 12 };
+      });
+      const after = await page.locator('[data-row-id="after"] .cv-md').boundingBox();
+      await drag(page, point, { x: after!.x + 90, y: after!.y + 8 });
+      expect(await page.evaluate(() => getSelection()?.anchorNode?.parentElement?.id)).toBe("visible-gap-code");
       await page.close();
     });
   }
