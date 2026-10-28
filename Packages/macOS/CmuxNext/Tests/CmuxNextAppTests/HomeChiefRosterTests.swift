@@ -4,6 +4,7 @@ import CmuxHomeCore
 @testable import CmuxNextHome
 @testable import CmuxNextHomeEngine
 import CmuxNextHostedChief
+import CmuxNextWakeups
 @testable import MessagesLabSidebar
 import Testing
 
@@ -80,7 +81,8 @@ struct HomeChiefRosterTests {
 
     @Test func theCardOffersTheOtherHostAndSwitches() {
         let card = HomeChiefSettingsView(muxHome: FileManager.default.temporaryDirectory, source: HomeChiefLocalEngine(
-            files: HomeChiefFiles(muxHome: FileManager.default.temporaryDirectory), connection: { nil }))
+            files: HomeChiefFiles(muxHome: FileManager.default.temporaryDirectory), lanes: BackgroundWork(label: "test.chief-engine"),
+            connection: { nil }))
         #expect(card.hostSwitch.isHidden, "a Chief with one host offers no switch")
         var switched = 0
         card.onSwitchHost = { switched += 1 }
