@@ -4,10 +4,19 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { parseConfig, lintGeometry, type GeometryArtifact } from "./geometry";
 import { parseManifest } from "./runner";
+import { captureEnvironment } from "./geometry-audit";
 
 const baseline = JSON.parse(readFileSync(join(import.meta.dir, "geometry-baseline.json"), "utf8"));
 
-const fleetOrCi = process.env.CMUX_GALLERY_IN_VM === "1" || process.env.CI === "1" || process.env.CI === "true";
+test("capture environment requires an existing fleet or CI flag", () => {
+  expect(captureEnvironment({})).toBe(false);
+  expect(captureEnvironment({ CI: "false", CMUX_GALLERY_IN_VM: "0" })).toBe(false);
+  expect(captureEnvironment({ CMUX_GALLERY_IN_VM: "1" })).toBe(true);
+  expect(captureEnvironment({ CI: "true" })).toBe(true);
+  expect(captureEnvironment({ CI: "1" })).toBe(true);
+});
+
+const fleetOrCi = captureEnvironment();
 for (const scenario of ["ready", "failed-play", "unready"] as const) {
   test.skipIf(!fleetOrCi)(`audit CLI preserves ${scenario} capture status when geometry passes`, async () => {
     const directory = mkdtempSync(join(tmpdir(), "geometry-audit-status-"));

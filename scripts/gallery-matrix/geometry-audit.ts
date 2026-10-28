@@ -6,10 +6,14 @@ import { parseManifest, runLocal } from "./runner";
 import { parseConfig } from "./geometry";
 import { main as lint } from "./geometry-lint";
 
+export function captureEnvironment(env = process.env): boolean {
+  return env.CMUX_GALLERY_IN_VM === "1" || env.CI === "1" || env.CI === "true";
+}
+
 export async function audit(args = process.argv.slice(2)): Promise<number> {
   const { values } = parseArgs({ args, options: { config: { type: "string", default: join(import.meta.dir, "geometry-baseline.json") }, "gallery-dir": { type: "string" }, "output-dir": { type: "string" }, "expected-sha": { type: "string" } } });
   if (!values["gallery-dir"] || !values["output-dir"] || !values["expected-sha"]) throw new Error("--gallery-dir, --output-dir and --expected-sha are required");
-  if (process.env.CMUX_GALLERY_IN_VM !== "1") throw new Error("geometry capture runs only on fleet/CI");
+  if (!captureEnvironment()) throw new Error("geometry capture runs only on fleet/CI");
   const config = JSON.parse(await readFile(values.config!, "utf8"));
   parseConfig(config);
   const cases = parseManifest(config.cases);
