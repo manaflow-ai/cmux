@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 731,
-    "mcp": 649
+    "verbs": 747,
+    "mcp": 665
   },
   "nouns": [
     {
@@ -3504,6 +3504,13 @@
           "mcpTool": "app_sidebar_hide_controls_until_hover"
         },
         {
+          "command": "cmux sidebar hide-spaces",
+          "title": "Hide Spaces",
+          "id": "sidebar.spaces.hide",
+          "mcp": true,
+          "mcpTool": "app_sidebar_hide_spaces"
+        },
+        {
           "command": "cmux sidebar mark-checklist-item-in-progress",
           "title": "Mark Checklist Item In Progress",
           "id": "checklistMarkInProgress",
@@ -3658,6 +3665,13 @@
           "mcpTool": "app_sidebar_show_controls_always"
         },
         {
+          "command": "cmux sidebar show-spaces",
+          "title": "Show Spaces",
+          "id": "sidebar.spaces.show",
+          "mcp": true,
+          "mcpTool": "app_sidebar_show_spaces"
+        },
+        {
           "command": "cmux sidebar toggle-item-archive",
           "title": "Archive/Unarchive Item",
           "id": "sidebar.item.toggleArchive",
@@ -3726,6 +3740,69 @@
           "mcpTool": "app_space_clear_theme"
         },
         {
+          "command": "cmux space color-blue",
+          "title": "Space Color: Blue",
+          "id": "space.color.blue",
+          "mcp": true,
+          "mcpTool": "app_space_color_blue"
+        },
+        {
+          "command": "cmux space color-cyan",
+          "title": "Space Color: Cyan",
+          "id": "space.color.cyan",
+          "mcp": true,
+          "mcpTool": "app_space_color_cyan"
+        },
+        {
+          "command": "cmux space color-green",
+          "title": "Space Color: Green",
+          "id": "space.color.green",
+          "mcp": true,
+          "mcpTool": "app_space_color_green"
+        },
+        {
+          "command": "cmux space color-grey",
+          "title": "Space Color: Grey",
+          "id": "space.color.grey",
+          "mcp": true,
+          "mcpTool": "app_space_color_grey"
+        },
+        {
+          "command": "cmux space color-orange",
+          "title": "Space Color: Orange",
+          "id": "space.color.orange",
+          "mcp": true,
+          "mcpTool": "app_space_color_orange"
+        },
+        {
+          "command": "cmux space color-pink",
+          "title": "Space Color: Pink",
+          "id": "space.color.pink",
+          "mcp": true,
+          "mcpTool": "app_space_color_pink"
+        },
+        {
+          "command": "cmux space color-purple",
+          "title": "Space Color: Purple",
+          "id": "space.color.purple",
+          "mcp": true,
+          "mcpTool": "app_space_color_purple"
+        },
+        {
+          "command": "cmux space color-red",
+          "title": "Space Color: Red",
+          "id": "space.color.red",
+          "mcp": true,
+          "mcpTool": "app_space_color_red"
+        },
+        {
+          "command": "cmux space color-yellow",
+          "title": "Space Color: Yellow",
+          "id": "space.color.yellow",
+          "mcp": true,
+          "mcpTool": "app_space_color_yellow"
+        },
+        {
           "command": "cmux space delete",
           "title": "Delete Space…",
           "id": "space.delete",
@@ -3775,6 +3852,13 @@
           "mcpTool": "app_space_new_group"
         },
         {
+          "command": "cmux space new-incognito",
+          "title": "New Incognito Space",
+          "id": "space.newIncognito",
+          "mcp": true,
+          "mcpTool": "app_space_new_incognito"
+        },
+        {
           "command": "cmux space new-window",
           "title": "New Window in Space…",
           "id": "space.newWindow",
@@ -3789,11 +3873,39 @@
           "mcpTool": "app_space_new_workspace"
         },
         {
+          "command": "cmux space next",
+          "title": "Next Space",
+          "id": "space.next",
+          "mcp": true,
+          "mcpTool": "app_space_next"
+        },
+        {
+          "command": "cmux space open-in-new-window",
+          "title": "Open Space in New Window",
+          "id": "space.openInNewWindow",
+          "mcp": true,
+          "mcpTool": "app_space_open_in_new_window"
+        },
+        {
+          "command": "cmux space previous",
+          "title": "Previous Space",
+          "id": "space.previous",
+          "mcp": true,
+          "mcpTool": "app_space_previous"
+        },
+        {
           "command": "cmux space rename",
           "title": "Rename Space…",
           "id": "space.rename",
           "mcp": true,
           "mcpTool": "app_space_rename"
+        },
+        {
+          "command": "cmux space select-1-9",
+          "title": "Select Space 1…9",
+          "id": "space.selectByNumber",
+          "mcp": true,
+          "mcpTool": "app_space_select_1_9"
         },
         {
           "command": "cmux space set-color",

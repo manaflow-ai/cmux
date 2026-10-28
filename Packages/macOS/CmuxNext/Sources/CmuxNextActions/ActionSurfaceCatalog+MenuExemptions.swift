@@ -138,6 +138,9 @@ nonisolated extension ActionSurfaceCatalog {
         ],
         .minimalMenu: [
             "space.setDefaults", "space.clearDefaults", "browserProfile.clearSpaceDefault",
+            // Open in New Window took its row (spaces-overhaul-DESIGN.md rule 4); New Window in Space… (a new
+            // window with a new workspace of the space) stays in the palette and the CLI.
+            "space.newWindow",
             // Specialist tab controls stay canonical palette/CLI commands, outside the
             // compact pointer menu. Shared commands keep their other menu placements.
             "terminal.keep", "terminal.setTheme", "terminal.clearTheme", "palette.toggleTabUnread",
