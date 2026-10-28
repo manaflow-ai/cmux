@@ -60,4 +60,13 @@ import Testing
         #expect(machine.status == .connecting)
         #expect(machine.mayAttempt)
     }
+
+    @Test func userRetryLeavesARecoverableFailureForTheNewAttempt() {
+        var machine = SSHConnectionMachine()
+        machine.handle(.connect)
+        machine.handle(.failed(.authFailed("denied")))
+        machine.handle(.wake(.user))
+        #expect(machine.status == .connecting)
+        #expect(machine.mayAttempt)
+    }
 }
