@@ -107,6 +107,8 @@ export type NewTabScreenActions = {
   /// with the chat's first prompt.
   /// `saved`: a saved environment picked the place. `cwd` is its folder, used even when it is the
   /// tab's own; with `peer` (an SSH environment's machine) a folder there.
+  /// `mode`: a + Plan/Build pick the new chat starts in, for a send that starts a fresh chat (no
+  /// project, another machine), which the page's deferred chat holding the pick does not become.
   onAsk(
     harness: string,
     text: string,
@@ -115,6 +117,7 @@ export type NewTabScreenActions = {
     noProject?: boolean,
     attachments?: ComposerAttachment[],
     saved?: { peer?: string },
+    mode?: string,
   ): void;
   onOpen(url: string): void;
   onSearch(text: string): void;
@@ -479,6 +482,9 @@ export function NewTabScreen(props: Props) {
   /// A Sandboxed send refused here (attachments, an agent a sandbox can't run): said over the box,
   /// and the prompt stays.
   const [sandboxRefusal, setSandboxRefusal] = useState<string>();
+  /// The last + Plan/Build pick the host took, for its harness. A send to this Mac's project
+  /// continues the deferred chat that holds it; a send that starts a fresh chat names it (`onAsk`).
+  const [plusMode, setPlusMode] = useState<{ harness: string; modeId: string }>();
   /// False only when a Sandboxed send started nothing, so the caller's one-shot guards stay open.
   const askChat = (agent: string, prompt: string, cwd?: string, model?: string): boolean | void => {
     if (props.runMode?.mode === "sandboxed" && props.onSandbox) {
@@ -486,7 +492,9 @@ export function NewTabScreen(props: Props) {
       setSandboxRefusal(typeof started === "string" ? started : undefined);
       return started === true;
     }
-    if (environment) return askInEnvironment(environment, agent, prompt, model);
+    // The + pick, for a send that starts a fresh chat (another machine, no project).
+    const mode = plusMode?.harness === agent ? plusMode.modeId : undefined;
+    if (environment) return askInEnvironment(environment, agent, prompt, model, mode);
     if (machine)
       return props.onAsk(
         agent,
@@ -498,7 +506,10 @@ export function NewTabScreen(props: Props) {
         {
           peer: machine.peer,
         },
+        mode,
       );
+    if (none && mode)
+      return props.onAsk(agent, prompt, cwd, model, true, attachments.length ? attachments : undefined, {}, mode);
     if (attachments.length > 0) return props.onAsk(agent, prompt, cwd, model, none || undefined, attachments);
     return none ? props.onAsk(agent, prompt, cwd, model, true) : props.onAsk(agent, prompt, cwd, model);
   };
@@ -1074,10 +1085,10 @@ export function NewTabScreen(props: Props) {
   // worktree of its folder (the host makes it first; its refusal shows above the card and the
   // prompt stays in the field).
   const worktreePending = useRef(false);
-  function askInEnvironment(picked: SavedEnvironment, agent: string, prompt: string, model?: string) {
+  function askInEnvironment(picked: SavedEnvironment, agent: string, prompt: string, model?: string, mode?: string) {
     const extra = attachments.length > 0 ? attachments : undefined;
     if (picked.kind === "ssh")
-      return props.onAsk(agent, prompt, picked.folder, model, undefined, extra, { peer: picked.host });
+      return props.onAsk(agent, prompt, picked.folder, model, undefined, extra, { peer: picked.host }, mode);
     if (!picked.worktree || !picked.folder || !props.onNewWorktree)
       return props.onAsk(agent, prompt, picked.folder, model, undefined, extra, {});
     if (worktreePending.current) return;
@@ -1129,17 +1140,24 @@ export function NewTabScreen(props: Props) {
   /// split draws the chat composer's box instead.
   const pill = template === "cards" && !split;
 
-  const plusTarget: NewTabPlusTarget | undefined = harness
-    ? {
-        harness,
-        ...(none ? { noProject: true as const } : {}),
-        ...((environment?.folder ?? machine?.folder ?? chatFolder)
-          ? { cwd: environment?.folder ?? machine?.folder ?? chatFolder }
-          : {}),
-        ...(chipSnapshot.summary?.model ? { model: chipSnapshot.summary.model } : {}),
-        ...(environment?.kind === "ssh" ? { peer: environment.host } : machine ? { peer: machine.peer } : {}),
-      }
-    : undefined;
+  // The place the send goes, in askChat's order: a saved environment, else a machine, else no
+  // project, else this Mac's folder. A saved environment picked after a machine or no project
+  // replaces them, so their older state never names its target.
+  const plusModel = chipSnapshot.summary?.model ? { model: chipSnapshot.summary.model } : {};
+  const plusTarget: NewTabPlusTarget | undefined = !harness
+    ? undefined
+    : environment
+      ? {
+          harness,
+          ...(environment.folder ? { cwd: environment.folder } : {}),
+          ...plusModel,
+          ...(environment.kind === "ssh" ? { peer: environment.host } : {}),
+        }
+      : machine
+        ? { harness, ...(machine.folder ? { cwd: machine.folder } : {}), ...plusModel, peer: machine.peer }
+        : none
+          ? { harness, noProject: true, ...plusModel }
+          : { harness, ...(chatFolder ? { cwd: chatFolder } : {}), ...plusModel };
   const plusEntries = newTabPlusEntries({
     snapshot,
     target: plusTarget,
@@ -1147,9 +1165,13 @@ export function NewTabScreen(props: Props) {
     capture: Boolean(props.capture && !shell),
     commands: !shell,
     project: Boolean(props.onBrowseProject && !shell),
+    // Plan only where the send continues the deferred chat that holds the pick: a no-project or
+    // another machine's send is a fresh `chat.new`, which cancels that switch and drops the mode.
     mode: Boolean(
       props.onPlusMode &&
       !shell &&
+      !plusTarget?.noProject &&
+      !plusTarget?.peer &&
       props.runMode?.mode !== "sandboxed" &&
       !(environment?.kind === "local" && environment.worktree),
     ),
@@ -1177,6 +1199,7 @@ export function NewTabScreen(props: Props) {
       if (folder && choice === projectChoice.current) pickProject(folder);
     } else if (action.id === "composer.planMode" && action.modeId && plusTarget && props.onPlusMode) {
       await props.onPlusMode({ ...plusTarget, modeId: action.modeId });
+      setPlusMode({ harness: plusTarget.harness, modeId: action.modeId });
     } else return "keep";
   };
   const attachmentPicker = (

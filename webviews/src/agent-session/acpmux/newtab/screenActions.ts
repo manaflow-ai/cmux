@@ -26,14 +26,24 @@ export function newTabScreenActions(deps: {
   requestFolder?(cwd: string, start: (folder: string) => void): void;
   /// false: the page's chats run on another machine, whose folders are never this Mac's default.
   startsHere?(): boolean;
+  /// The page's chat already has a session (its deferred start finished): a + mode pick goes to it.
+  chatStarted?(): boolean;
 }): NewTabScreenActions {
   const { callNative, cwd } = deps;
   const ignore = (result: Promise<unknown>) => void result.catch(() => undefined);
   const remember = (agent: string) => ignore(callNative("newTab.remember", { agent }));
   return {
-    onAsk(harness, text, picked, model, noProject, attachments, saved) {
+    onAsk(harness, text, picked, model, noProject, attachments, saved, mode) {
       const peer = saved?.peer;
       remember(harness);
+      // A + Plan/Build pick for a chat that starts fresh (another machine, no project): the started
+      // chat takes it before the prompt. A refused mode sends nothing, as a refused start does.
+      const inMode = (started: unknown) =>
+        started && mode ? callNative("chat.mode", { modeId: mode }).then(() => started) : started;
+      const send = () =>
+        text || attachments?.length
+          ? callNative("chat.send", { text, ...(attachments?.length ? { attachments } : {}) })
+          : undefined;
       // The prompt goes in the same turn as the switch: the switch queues it, and a folder trust
       // refusal then holds it with the send's gesture (holdPrompt), so Trust sends it. Sending
       // after `chat.new` settled lost it: the switch had stopped on the refusal with nothing
@@ -46,10 +56,6 @@ export function newTabScreenActions(deps: {
         // On another machine the prompt waits for its chat: a start that fails there must not
         // send it to a new chat on this Mac.
         if (peer) {
-          const send = () =>
-            text || attachments?.length
-              ? callNative("chat.send", { text, ...(attachments?.length ? { attachments } : {}) })
-              : undefined;
           // `chat.new` resolves to the chat it started; none (a refused or held start): no send.
           ignore(
             callNative("chat.new", {
@@ -57,7 +63,9 @@ export function newTabScreenActions(deps: {
               ...(folder ? { cwd: folder } : {}),
               ...(model ? { model } : {}),
               peer,
-            }).then((started) => (started ? send() : undefined)),
+            })
+              .then(inMode)
+              .then((started) => (started ? send() : undefined)),
           );
           return;
         }
@@ -65,6 +73,15 @@ export function newTabScreenActions(deps: {
         // there (`chat.new` resolves to it), the next New Tab starts here (newtab/startedProject.ts).
         // A refused or failed start, no project, or nothing sent leaves the default as it was.
         const remembers = (text || attachments?.length) && deps.startsHere?.() !== false;
+        // No project with a + mode: the prompt waits for the chat and its mode, as on another machine.
+        if (noProject && mode) {
+          ignore(
+            callNative("chat.new", { harness, noProject: true, ...(model ? { model } : {}) })
+              .then(inMode)
+              .then((started) => (started ? send() : undefined)),
+          );
+          return;
+        }
         ignore(
           callNative("chat.new", {
             harness,
@@ -90,6 +107,27 @@ export function newTabScreenActions(deps: {
         if (deps.requestFolder) deps.requestFolder(picked, start);
         else start(picked);
       } else start(deps.chatCwd);
+    },
+    // The + menu's Plan/Build row (plusActions.ts), as the page's mode chip sends it (App
+    // `DefaultComposerChips`): the deferred start for the picked harness and folder first, then the
+    // mode, which the switch holds until that chat starts, and the page's send continues that chat.
+    // `chat.new` for the switch already running is that switch. The page offers no Plan for another
+    // machine or no project: their send is a fresh `chat.new` that cancels the switch, so a held mode
+    // would be lost. A refused mode rejects: the menu stays open with its error.
+    async onPlusMode(pick) {
+      if (pick.peer || pick.noProject)
+        // l10n-allow: a developer guard; the page never offers Plan for these targets (NewTabScreen `mode`).
+        throw new Error("Plan is offered only for a chat in a project on this Mac");
+      if (!deps.chatStarted?.())
+        ignore(
+          callNative("chat.new", {
+            harness: pick.harness,
+            ...(pick.cwd ? { cwd: pick.cwd } : {}),
+            ...(pick.model ? { model: pick.model } : {}),
+            deferred: true,
+          }),
+        );
+      await callNative("chat.mode", { modeId: pick.modeId });
     },
     savedEnvironments: savedEnvironmentHost(callNative),
     onOpen: (url) => {

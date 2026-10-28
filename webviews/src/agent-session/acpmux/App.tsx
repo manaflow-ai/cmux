@@ -9944,6 +9944,8 @@ function AcpmuxPane() {
               plusExtensions={plusExtensions}
               onPlusOpen={refreshPlusActions}
               onPaletteAction={(id) => callNative("action.run", { id })}
+              // The + menu's Attach Screenshot… and Attach Window…: the chat composer's capture.
+              capture={captureScreen}
               onNewWorktree={(cwd) => {
                 let folder: string | undefined;
                 return newWorktree(callNative, cwd, (used) => {
@@ -10008,6 +10010,7 @@ function AcpmuxPane() {
                   chatCwd: startFolder,
                   requestFolder,
                   startsHere: () => !directClient.current?.startsOnSend,
+                  chatStarted: () => Boolean(newTabSnapshot.summary?.sessionId),
                   leave: () => setNewTab(undefined),
                   selectSession,
                   showAllChats,
