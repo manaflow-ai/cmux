@@ -22,6 +22,8 @@ import Observation
 /// One acpmux host is shared by every tab, so opening several at once starts one daemon.
 final class AgentTabStore {
     let host: any AgentPaneHostProviding
+    /// The app-owned Needs you store passed to every model this store creates.
+    let attentionTabs: AgentPaneAttentionTabs?
     /// The app's made-ahead open panel for every agent pane's file pickers; nil (tests) shows none.
     private let openPanel: MadeAheadOpenPanel?
     /// The page every agent tab loads: the bundled file, or in Debug builds
@@ -224,13 +226,15 @@ final class AgentTabStore {
     /// `settings`, when given, is followed for the page settings (``AgentPanePageSettings``); else from `AppServices.settings`.
     init(build: BuildIdentity?, registry: ActionRegistry, environment: [String: String] = ProcessInfo.processInfo.environment,
          showcase: Bool = false, linkScheme: String? = nil, settings: SettingsController? = nil,
-         openPanel: MadeAheadOpenPanel? = nil, defaults: UserDefaults = .standard) {
+         openPanel: MadeAheadOpenPanel? = nil, defaults: UserDefaults = .standard,
+         attentionTabs: AgentPaneAttentionTabs? = nil) {
         self.defaults = defaults
         if let data = defaults.data(forKey: Self.adoptionsDefaultsKey),
            let saved = try? JSONDecoder().decode([String: String].self, from: data) {
             adoptions = saved
         }
         self.openPanel = openPanel
+        self.attentionTabs = attentionTabs
         actionRegistry = registry
         self.linkScheme = linkScheme
         let (resolvedSource, resolvedHost) = AgentTabPaneSource.resolvePane(build: build, environment: environment, showcase: showcase)
@@ -339,7 +343,7 @@ final class AgentTabStore {
         if kind == .local, (sessions[key] ?? record.session) == nil, daemonForTab(key)?.isLocal == false {
             let machine = daemonForTab(key).flatMap { remoteMachineName($0) } ?? ""
             let refused = AgentTabRefusedHost(refusal: AgentRemoteStartRefusal(code: AgentRemoteStartRefusal.hostMismatchCode, machine: machine))
-            let model = AgentPaneModel(host: refused, allowsTabConversion: false)
+            let model = AgentPaneModel(host: refused, allowsTabConversion: false, attentionTabs: attentionTabs)
             // Its folder tools never act on this Mac either (cx-k21v).
             (model.remoteChat, model.neverPooled) = (true, true)
             guard let view = makeView(model) else { return nil }
@@ -380,7 +384,8 @@ final class AgentTabStore {
             seed: seed,
             // A new chat this app opened on another machine shows the same New Tab page (cx-k21v).
             newTab: local || record.host.hasPrefix(AgentTabRemoteStart.registryPrefix) ? newTabPages[key]?.page : nil,
-            allowsTabConversion: local
+            allowsTabConversion: local,
+            attentionTabs: attentionTabs
         )
         model.pendingRevealTurn = pendingTurns.removeValue(forKey: key)
         model.pendingWake = wakeStates.removeValue(forKey: key)
@@ -410,7 +415,7 @@ final class AgentTabStore {
     /// A prewarmed new tab page (NewTabSparePool): loaded, rendered and
     /// connected before any tab exists; ``open(in:of:session:seed:newTab:spare:linked:adopt:idempotencyKey:)`` adopts it.
     func makeSpare(_ page: AgentPaneNewTab) -> AgentPaneView? {
-        guard let view = makeView(AgentPaneModel(host: host, newTab: page)) else { return nil }
+        guard let view = makeView(AgentPaneModel(host: host, newTab: page, attentionTabs: attentionTabs)) else { return nil }
         standaloneViews.add(view)
         return view
     }
@@ -547,7 +552,7 @@ final class AgentTabStore {
     /// A chat outside any pane (onboarding's first task, Start Agent's panel), new or on `session`,
     /// on the same daemon and page as the tabs. The caller owns it and closes it.
     func standaloneView(seed: AgentPaneSeed, session: String? = nil) -> AgentPaneView? {
-        guard let view = makeView(AgentPaneModel(host: host, sessionId: session, seed: AgentPaneSeedSource(seed))) else { return nil }
+        guard let view = makeView(AgentPaneModel(host: host, sessionId: session, seed: AgentPaneSeedSource(seed), attentionTabs: attentionTabs)) else { return nil }
         standaloneViews.add(view)
         return view
     }

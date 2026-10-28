@@ -210,6 +210,9 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onCloudCredentialTransfer: (@MainActor (AgentPaneCloudCredentialTransferRequest) async -> Bool)?
 
     @ObservationIgnored let host: any AgentPaneHostProviding
+    /// The app-owned attention marks store. Nil for panes that do not participate in the app's
+    /// Needs you surface (including isolated package tests).
+    @ObservationIgnored public var attentionTabs: AgentPaneAttentionTabs?
     /// The page's host is another machine's (cx-k21v): it never becomes this Mac's prewarmed spare.
     @ObservationIgnored public var neverPooled = false
     /// What a new chat inherits from the tab it was opened from.
@@ -221,10 +224,12 @@ public final class AgentPaneModel {
         seed: AgentPaneSeedSource? = nil,
         newTab: AgentPaneNewTab? = nil,
         allowsTabConversion: Bool = false,
-        transport: AgentPaneTransport = AgentPaneTransport()
+        transport: AgentPaneTransport = AgentPaneTransport(),
+        attentionTabs: AgentPaneAttentionTabs? = nil
     ) {
         self.allowsTabConversion = allowsTabConversion
         self.host = host
+        self.attentionTabs = attentionTabs
         self.transport = transport
         (self.sessionId, self.seed) = (sessionId, seed)
         self.newTab = sessionId == nil ? newTab : nil
@@ -341,7 +346,7 @@ public final class AgentPaneModel {
         case .nowPlaying(let command): return AgentPaneNowPlaying.shared.perform(command) ? AgentPaneReply.success() : Self.unsupported("nowPlaying.command")
         // Showing a tab moves the person's focus: only their own click or key in this pane may.
         case .attentionOpen where !transport.gestures.consume(): return Self.transportFailure(.gestureRequired)
-        case .attentionOpen(let tab): return AgentPaneAttentionTabs.shared.open(tab) ? AgentPaneReply.success() : Self.unsupported("chat.attention.open")
+        case .attentionOpen(let tab): return attentionTabs?.open(tab) == true ? AgentPaneReply.success() : Self.unsupported("chat.attention.open")
         case .runAction(let id): return runAction(id)
         case .jump(let target, let id): guard newTab != nil, let onJump else { return Self.unsupported("tab.jump") }; onJump(target, id); return AgentPaneReply.success()
         case .chooseFolder where remoteChat: return Self.unsupported("workspace.chooseFolder")

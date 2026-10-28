@@ -9,10 +9,8 @@ public import Foundation
 /// where things are man i dont see anything other than the current workspace".
 @MainActor
 public final class AgentPaneAttentionTabs {
-    public static let shared = AgentPaneAttentionTabs()
-
-    /// One list; the App uses `shared`, a test its own (its pages are only the views it pushes to).
-    init() {}
+    /// Makes an empty attention store. The app owns one and tests may create isolated stores.
+    public init() {}
 
     /// The marked tabs, newest mark first.
     public var items: [Item] = [] {
@@ -29,8 +27,8 @@ public final class AgentPaneAttentionTabs {
     /// The pages pushed so far, held weakly, for the pushes on a change.
     private let views = NSHashTable<AgentPaneView>.weakObjects()
 
-    /// Longest row key a page may name (the App's machine id, `/`, and a daemon tab id).
-    static let maximumTabID = 256
+    /// Longest opaque request key a page may echo, in UTF-8 bytes.
+    public static let maximumTabID = 256
 
     /// One marked tab as the page draws it.
     public nonisolated struct Item: Hashable, Sendable {

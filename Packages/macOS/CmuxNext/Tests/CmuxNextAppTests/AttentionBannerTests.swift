@@ -19,31 +19,32 @@ struct AttentionBannerTests {
 
     @Test func aBannerPostsPerNewRequestAndClearsWithTheMark() {
         let login = Self.item("tab_1", at: 1_000)
-        #expect(NotificationCenterService.attentionChanges(previous: nil, current: [login]) == ([], []),
+        #expect(AttentionBannerLifecycle.attentionChanges(previous: nil, current: [login]) == ([], []),
                 "a mark made before launch posts nothing")
-        #expect(NotificationCenterService.attentionChanges(previous: [], current: [login]) == ([login], []))
-        #expect(NotificationCenterService.attentionChanges(previous: [login], current: [login]) == ([], []),
+        #expect(AttentionBannerLifecycle.attentionChanges(previous: [], current: [login]) == ([login], []))
+        #expect(AttentionBannerLifecycle.attentionChanges(previous: [login], current: [login]) == ([], []),
                 "the same request never posts twice")
         let again = Self.item("tab_1", at: 2_000, reason: "Approve the scopes")
-        let replaced = NotificationCenterService.attentionChanges(previous: [login], current: [again])
+        let replaced = AttentionBannerLifecycle.attentionChanges(previous: [login], current: [again])
         #expect(replaced.post == [again], "a new request on the tab posts again")
-        #expect(replaced.withdraw == [NotificationCenterService.attentionBannerID(login)])
-        #expect(NotificationCenterService.attentionChanges(previous: [again], current: []).withdraw
-            == [NotificationCenterService.attentionBannerID(again)], "a cleared mark takes its banner back")
+        #expect(replaced.withdraw == [AttentionBannerLifecycle.attentionBannerID(login)])
+        #expect(AttentionBannerLifecycle.attentionChanges(previous: [again], current: []).withdraw
+            == [AttentionBannerLifecycle.attentionBannerID(again)], "a cleared mark takes its banner back")
     }
 
     @Test func theBannerNamesItsTabAndNothingElse() {
-        let id = NotificationCenterService.attentionBannerID(Self.item("tab_0f3c", at: 42))
+        let id = AttentionBannerLifecycle.attentionBannerID(Self.item("tab_0f3c", at: 42))
         #expect(id == "cmux-attention.42.tab_0f3c")
-        #expect(NotificationCenterService.attentionTab(banner: id) == "tab_0f3c")
+        #expect(AttentionBannerLifecycle.attentionTab(banner: id) == "tab_0f3c")
         for other in ["cmux-notification-7", "cmux-attention.", "cmux-attention.x.tab_1", "cmux-attention.42.", "attention.42.tab_1"] {
-            #expect(NotificationCenterService.attentionTab(banner: other) == nil, "\(other)")
+            #expect(AttentionBannerLifecycle.attentionTab(banner: other) == nil, "\(other)")
         }
     }
 
     @Test func showGoesToTheMarkedTabThroughGoToOnlyForItsOwnRequest() {
         _ = NSApplication.shared
-        let shared = AgentPaneAttentionTabs.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let shared = services.attentionTabs
         let (items, onOpen) = (shared.items, shared.onOpen)
         defer { shared.items = items; shared.onOpen = onOpen }
         var shown: [String] = []
@@ -51,13 +52,15 @@ struct AttentionBannerTests {
         let key = AttentionTabsWatch.key(machine: "local", tab: "tab_1")
         let first = Self.item(key, at: 1_000)
         shared.items = [first]
-        let service = NotificationCenterService()
+        let service = services.notifications
         service.desktopPostingEnabled = false
         service.attentionMarksChanged([])
         service.attentionMarksChanged(shared.items)
         #expect(shown.isEmpty, "a mark and its banner move nothing")
-        let banner = NotificationCenterService.attentionBannerID(first)
-        #expect(NotificationCenterService.attentionTab(banner: banner) == key, "the banner names the machine-qualified key")
+        let banner = AttentionBannerLifecycle.attentionBannerID(first)
+        #expect(service.attentionBanners.isEmpty, "suppressed posting must not authorize a banner click")
+        service.attentionBanners.insert(banner) // A delivered banner; posting remains disabled in this routing test.
+        #expect(AttentionBannerLifecycle.attentionTab(banner: banner) == key, "the banner names the machine-qualified key")
         #expect(service.showAttention(banner: banner))
         #expect(shown == [key])
         // A newer request on the same tab replaces the banner's: the old banner opens nothing.
@@ -66,7 +69,7 @@ struct AttentionBannerTests {
         #expect(shown == [key], "a replaced request's banner went to the tab")
         // A cleared mark, or a banner from an earlier launch, opens nothing either.
         shared.items = []
-        #expect(service.showAttention(banner: NotificationCenterService.attentionBannerID(Self.item(key, at: 2_000))))
+        #expect(service.showAttention(banner: AttentionBannerLifecycle.attentionBannerID(Self.item(key, at: 2_000))))
         #expect(shown == [key], "a cleared mark's banner went to the tab")
         #expect(!service.showAttention(banner: "cmux-notification-3"), "other banners keep their own path")
     }
@@ -75,17 +78,18 @@ struct AttentionBannerTests {
     /// live mark after the restart: this launch posted nothing for it, so its Show opens nothing.
     @Test func anEarlierLaunchsBannerOpensNothingEvenWhileItsMarkIsLive() {
         _ = NSApplication.shared
-        let shared = AgentPaneAttentionTabs.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let shared = services.attentionTabs
         let (items, onOpen) = (shared.items, shared.onOpen)
         defer { shared.items = items; shared.onOpen = onOpen }
         var shown: [String] = []
         shared.onOpen = { id in shown.append(id); return true }
         let live = Self.item(AttentionTabsWatch.key(machine: "local", tab: "tab_1"), at: 1_000)
         shared.items = [live]
-        let restarted = NotificationCenterService()
+        let restarted = services.notifications
         restarted.desktopPostingEnabled = false
         restarted.attentionMarksChanged(shared.items)
-        #expect(restarted.showAttention(banner: NotificationCenterService.attentionBannerID(live)))
+        #expect(restarted.showAttention(banner: AttentionBannerLifecycle.attentionBannerID(live)))
         #expect(shown.isEmpty, "an earlier launch's banner went to the tab")
     }
 
@@ -113,8 +117,8 @@ struct AttentionBannerTests {
         let (labWorkspace, labTab) = try marked(ssh.daemon.store, WorkspaceSnapshot(id: 2, key: nil, name: "lab", screens: [screen]))
         #expect(hereTab.id == labTab.id && hereWorkspace.id != labWorkspace.id)
         let items = AttentionTabsWatch.items(in: [(hereWorkspace, machine: "local"), (labWorkspace, machine: ssh.machineID)])
-        let here = try #require(items.first { $0.tabId == AttentionTabsWatch.key(machine: "local", tab: hereTab.id) })
-        let lab = try #require(items.first { $0.tabId == AttentionTabsWatch.key(machine: ssh.machineID, tab: labTab.id) })
+        let here = try #require(items.first { $0.tabId == AttentionTabsWatch.key(machine: "local", tab: hereTab.id, atMs: 1_000) })
+        let lab = try #require(items.first { $0.tabId == AttentionTabsWatch.key(machine: ssh.machineID, tab: labTab.id, atMs: 1_000) })
         let notifications = services.notifications
         notifications.preferences.mutedWorkspaces = [labWorkspace.id]
         #expect(notifications.attentionArrival(lab).workspaceMuted, "the SSH machine's muted workspace did not silence its tab's banner")
@@ -124,6 +128,30 @@ struct AttentionBannerTests {
         #expect(!notifications.attentionArrival(lab).workspaceMuted, "muting this Mac's workspace silenced the SSH machine's tab")
         #expect(!NotificationPolicy(prefs: notifications.preferences).decide(notifications.attentionArrival(here)).desktop,
                 "a muted workspace's tab still posts a banner")
+    }
+
+    @Test func launchReconciliationWithdrawsOldRequestsButKeepsConcurrentNewBanners() {
+        let old = AttentionBannerLifecycle.attentionBannerID(Self.item("old", at: 1_000))
+        let fresh = AttentionBannerLifecycle.attentionBannerID(Self.item("fresh", at: 2_000))
+        #expect(AttentionBannerLifecycle.staleBannerIDs([old], currentLaunch: []) == [old])
+        #expect(AttentionBannerLifecycle.staleBannerIDs([old, fresh, "other-banner"], currentLaunch: [fresh]) == [old])
+    }
+
+    @Test func attentionUsesNeedsInputSoundVolumeAndSharedCooldown() {
+        _ = NSApplication.shared
+        let service = NotificationCenterService()
+        let now = ContinuousClock.now
+        service.soundGate = NotificationSoundGate(now: { now })
+        service.preferences.desktop = .always
+        service.preferences.sounds.events = [.needsInput: "Ping", .finished: "Hero"]
+        service.preferences.sounds.volume = 0.25
+        let first = service.attentionDecision(Self.item("request-one", at: 1_000))
+        #expect(first.soundEvent == .needsInput)
+        #expect(first.sound == "Ping")
+        #expect(first.soundVolume == 0.25)
+        let burst = service.attentionDecision(Self.item("request-two", at: 2_000))
+        #expect(burst.desktop, "sound cooldown must not suppress the new banner")
+        #expect(burst.sound == nil, "a second attention request bypassed the shared cooldown")
     }
 
     @Test func theBannerOffersShow() {

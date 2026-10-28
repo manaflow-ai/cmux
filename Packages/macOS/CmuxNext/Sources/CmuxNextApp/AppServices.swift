@@ -53,6 +53,8 @@ final class AppServices {
     /// The open files' quit documents, shared by the markdown and editor pages.
     private(set) lazy var fileQuitDocuments = FileQuitDocuments(drafts: recoveryDrafts, registry: quitUnsaved)
     let environment: AppEnvironment; let agentPaneEnvironment: [String: String]?
+    /// The app-owned Needs you marks store, injected into every agent pane that it presents.
+    let attentionTabs = AgentPaneAttentionTabs()
     /// Each window's last sidebar, drawn before the daemon answers.
     let sidebarSnapshots: SidebarSnapshotStore
     /// Launch load-in by region; tests inject one with their own clock.

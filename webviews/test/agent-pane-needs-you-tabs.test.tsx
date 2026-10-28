@@ -96,6 +96,15 @@ test("the host's push keeps each well-formed marked tab, newest first, and drops
   expect(attentionTabs()).toEqual([]);
 });
 
+test("tab keys preserve identity and obey the native bridge UTF-8 byte limit", () => {
+  const item = { kind: "tab", reason: "Sign in", atMs: 1_000 };
+  const accepted = "界".repeat(85) + "x";
+  expect(parseAttentionTabs([{ ...item, tabId: accepted }]).map((tab) => tab.tabId)).toEqual([accepted]);
+  for (const tabId of ["x".repeat(257), "界".repeat(86), "x".repeat(600)]) {
+    expect(parseAttentionTabs([{ ...item, tabId }])).toEqual([]);
+  }
+});
+
 test("a marked tab is one tab item: the reason, its workspace and title, no answers", () => {
   const items = needsYouItems({ sessions: [], asks: [], tabs: parseAttentionTabs(pushed) });
   expect(items.map((item) => item.id)).toEqual(["tab:tab_deploy", "tab:tab_login"]);

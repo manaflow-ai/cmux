@@ -664,3 +664,104 @@ final class NotificationCenterService {
         if log.count > Self.logLimit { log.removeFirst(log.count - Self.logLimit) }
     }
 }
+
+/// The system banner for a tab an agent marked as needing the person (tab-attention-v1,
+/// `cmux attention request`): "Workspace › Tab", "Needs you", the agent's reason. Its Show button
+/// (and a click on it) goes to the tab as Search Tabs does; nothing else moves focus. The mark
+/// alone never does either. Follows `notifications.*` (desktop mode, muted workspaces, quiet hours,
+/// sound) as an agent's notification. Leo, 2026-10-22: "idk where things are man i dont see
+/// anything other than the current workspace".
+extension NotificationCenterService {
+    /// The marked tabs changed (``AttentionTabsWatch``): banners for new requests, per policy, and
+    /// none left for a mark that cleared.
+    func attentionMarksChanged(_ items: [AgentPaneAttentionTabs.Item]) {
+        let firstList = attentionSeen == nil
+        let changes = AttentionBannerLifecycle.attentionChanges(previous: attentionSeen, current: items)
+        attentionSeen = items
+        desktop.withdraw(changes.withdraw)
+        attentionBanners.subtract(changes.withdraw)
+        if firstList {
+            // A prior launch may have left a delivered attention banner behind after its mark
+            // cleared. Reconcile the center once the first live list is available.
+            // task-owner: NotificationCenterService.tasks; one snapshot completes it, and the owner is weak
+            tasks.append(Task { @MainActor [weak self, desktop] in
+                let retained = await desktop.attentionBannerIDs()
+                guard let self, !Task.isCancelled else { return }
+                // Read the current set after the await: a new request may have posted while
+                // Notification Center answered. Only banners from a prior launch are removed.
+                desktop.withdraw(AttentionBannerLifecycle.staleBannerIDs(retained, currentLaunch: self.attentionBanners))
+            })
+        }
+        guard desktopPostingEnabled else { return }
+        for item in changes.post { postAttention(item) }
+    }
+
+    func attentionDecision(_ item: AgentPaneAttentionTabs.Item) -> NotificationPolicy.Decision {
+        var decision = NotificationPolicy(prefs: preferences).decide(attentionArrival(item))
+        soundGate.admit(&decision, cooldownSeconds: preferences.sounds.cooldownSeconds)
+        return decision
+    }
+
+    private func postAttention(_ item: AgentPaneAttentionTabs.Item) {
+        let decision = attentionDecision(item)
+        note("attention \(item.tabId) \(decision)")
+        if decision.desktop {
+            attentionBanners.insert(AttentionBannerLifecycle.attentionBannerID(item))
+            let content = bannerFormatter.content(headline: String(localized: "notifications.attention.needsYou", defaultValue: "Needs you", bundle: .module), posterSubtitle: nil, body: item.reason,
+                                                  workspace: item.workspaceTitle, tab: item.tabTitle, host: nil)
+            desktop.post(id: AttentionBannerLifecycle.attentionBannerID(item), title: content.title, subtitle: content.subtitle, body: content.body,
+                         surface: nil, workspace: nil, defaultSound: decision.sound == "default", category: DesktopNotifier.attentionCategory)
+        }
+        if let sound = decision.sound, sound != "default" || !decision.desktop {
+            soundGate.player.play(sound, volume: decision.soundVolume, banner: decision.desktop)
+        }
+    }
+
+    /// What the policy reads for `item`'s banner: whether its pane is viewed and its workspace
+    /// muted, both for the tab on the machine its row key names.
+    func attentionArrival(_ item: AgentPaneAttentionTabs.Item) -> NotificationPolicy.Arrival {
+        var arrival = NotificationPolicy.Arrival(source: .agent)
+        arrival.appActive = NSApp.isActive
+        // The row key names the tab's machine (tabs on two machines can share an id).
+        if let services, let (daemon, tab) = AttentionTabsWatch.locate(item.tabId, in: services.machines.daemons,
+                                                                        machine: { $0.machineID }, store: { $0.store },
+                                                                        expectedAtMs: item.atMs) {
+            arrival.paneIsViewed = isViewed(tab, onMachine: daemon.machineID)
+            if let model = daemon.store.tab(idOrResource: tab), let pane = daemon.store.pane(holding: model),
+               let workspace = daemon.store.workspace(containing: pane.handle) {
+                arrival.workspaceMuted = preferences.mutedWorkspaces.contains(workspace.id)
+                (arrival.soundEvent, arrival.soundScope) = soundGate.classify(
+                    level: "warning", source: .agent, agent: model.agentSession?.harness ?? model.agent?.agent,
+                    workspace: workspace.id)
+            }
+        }
+        if arrival.soundEvent == nil { arrival.soundEvent = .needsInput }
+        let components = Calendar.current.dateComponents([.hour, .minute], from: Date())
+        arrival.minuteOfDay = (components.hour ?? 0) * 60 + (components.minute ?? 0)
+        return arrival
+    }
+
+    /// Tab `tabID` of machine `machine` is the focused content of the key window while cmux is
+    /// active (``isViewed(_:)`` on that machine only).
+    private func isViewed(_ tabID: String, onMachine machine: String) -> Bool {
+        guard let services, NSApp.isActive else { return false }
+        return services.windows.controllers.contains { controller in
+            controller.focus.state.windowKey && Self.contentTab(controller.focus.state.resolved) == tabID
+                && controller.content?.daemon.machineID == machine
+        }
+    }
+
+    /// A Needs you banner's Show (or click): the tab, as a user's jump (``AgentPaneAttentionTabs/open(_:)``),
+    /// only for a banner this launch posted whose request is still the tab's live mark. A banner
+    /// from an earlier launch, or one a newer request on the tab replaced, opens nothing.
+    func showAttention(banner: String) -> Bool {
+        guard let tab = AttentionBannerLifecycle.attentionTab(banner: banner) else { return false }
+        guard let shared = services?.attentionTabs else { return true }
+        guard attentionBanners.contains(banner), shared.items.contains(where: { AttentionBannerLifecycle.attentionBannerID($0) == banner }) else {
+            note("attention banner \(banner): its request is gone")
+            return true
+        }
+        if !shared.open(tab) { note("attention banner \(banner): the tab is gone") }
+        return true
+    }
+}

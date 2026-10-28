@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextAgentLanes
+import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
@@ -110,7 +111,33 @@ enum AppActions {
         BrowserProfileHandlers.bind(into: registry, context: context)
         OpenInHandlers.bind(into: registry, context: context)
         NotificationHandlers.bind(into: registry, context: context)
-        AttentionPalettePage.bind(into: registry, context: context)
+        // Go to What Needs Me is a palette feature owned by AgentPane; the app composition root
+        // injects its shared marks store and keeps machine/window routing here.
+        services.attentionTabs.onOpen = { [weak services] key in
+            guard let services,
+                  let item = services.attentionTabs.items.first(where: { $0.tabId == key }),
+                  let (daemon, tab) = AttentionTabsWatch.locate(
+                      key, in: services.machines.daemons,
+                      machine: { $0.machineID }, store: { $0.store }, expectedAtMs: item.atMs) else { return false }
+            return services.revealTab(tab, onMachine: daemon.machineID)
+        }
+        services.attentionTabs.onChange = { [weak services] in
+            guard let model = services?.palette.model,
+                  model.currentPageID == AttentionPalettePage.pageID else { return }
+            model.reload()
+        }
+        services.palette.sources.actionPages[AttentionPalettePage.id] = { [weak services] in
+            services.map { AttentionPalettePage(tabs: $0.attentionTabs).page() }
+        }
+        registry.bindEffect(AttentionPalettePage.id) { invocation in
+            // An agent's `cmux action run attention.goTo` must not open the palette over the
+            // person's work; agents read the marks with `tab.list` and focus only when asked.
+            guard invocation.allowsViewChange else { return .refused(AttentionPaletteStrings.needsFocus) }
+            let page = AttentionPalettePage(tabs: services.attentionTabs)
+            guard !page.tabs.items.isEmpty else { return .refused(AttentionPaletteStrings.nothing) }
+            services.palette.show(page: page.page(), relativeTo: context.activeWindow?.window)
+            return .done
+        }
         AgentHandlers.bind(into: registry, context: context)
         AgentChatMenuHandlers.bind(into: registry, context: context)
         AgentConfigurationHandlers.bind(into: registry, context: context)
