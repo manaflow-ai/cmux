@@ -70,6 +70,7 @@ async fn remote_group_cli_opens_the_remote_id_locally_and_reuses_its_row() {
     let cmux = root.join("bin/cmux");
     std::fs::write(&cmux, "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$GROUP_CAPTURE\"\n").unwrap();
     std::fs::set_permissions(&cmux, std::fs::Permissions::from_mode(0o700)).unwrap();
+    std::fs::set_permissions(&cmux, std::fs::Permissions::from_mode(0o700)).unwrap();
     let mut previous = None;
     let mut unnamed = None;
     for (attempt, (peer, named)) in
