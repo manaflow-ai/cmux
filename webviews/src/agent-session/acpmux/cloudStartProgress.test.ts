@@ -13,6 +13,7 @@ test("the host's push fills the card, field by field, each checked", () => {
   const pushed = cloudStartPushed(begun(), {
     key: "k-1",
     step: "folder",
+    folder: "paint-app",
     machine: "  paint   machine ",
     size: "4 CPU, 16 GB",
     secrets: 3,
@@ -23,7 +24,7 @@ test("the host's push fills the card, field by field, each checked", () => {
     key: "k-1",
     task: "fix the build",
     state: "starting",
-    folder: "paint",
+    folder: "paint-app",
     step: "folder",
     machine: "paint machine",
     size: "4 CPU, 16 GB",
@@ -33,6 +34,7 @@ test("the host's push fills the card, field by field, each checked", () => {
   const odd = cloudStartPushed(begun(), { key: "k-1", step: "done", secrets: -1, network: "open", machine: 7 });
   expect(odd).toEqual(begun());
   expect(cloudStartPushed(begun(), { key: "k-1", machine: "x".repeat(100) })?.machine).toHaveLength(64);
+  expect(cloudStartPushed(begun(), { key: "k-1", folder: "/Users/me/src" })?.folder).toBe("paint");
 });
 
 test("a step never goes back, and another start's push or a push after a failure changes nothing", () => {

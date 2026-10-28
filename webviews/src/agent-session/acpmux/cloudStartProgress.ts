@@ -7,8 +7,9 @@ import type { CloudStartAnswer } from "./cloudRun";
 /// network. Never a sheet or a modal, and no Full Access warning: the chat runs on the machine.
 ///
 /// The page knows the message and the folder from the send. The rest comes from the host as it
-/// learns it (`cloudStartProgress` on the page bridge, keyed by the start's `key`); a host that
-/// sends none leaves the card at "Starting in Cloud" with the folder. A start that succeeds closes
+/// learns it (`cloudStartProgress` on the page bridge, keyed by the start's `key`), the folder too
+/// when the send named none (the host copies the tab's own); a host that sends none leaves the card
+/// at "Starting in Cloud". A start that succeeds closes
 /// this tab (the chat is the machine's), so the card has no done state; a failure shows the host's
 /// words, and the message stays in the composer for another send.
 
@@ -59,6 +60,8 @@ export function cloudStartPushed(current: CloudStartProgress | undefined, push: 
   const step = CLOUD_START_STEPS.indexOf(fields.step as CloudStartStep);
   if (step >= 0 && step >= (current.step ? CLOUD_START_STEPS.indexOf(current.step) : -1))
     next.step = CLOUD_START_STEPS[step];
+  const folder = line(fields.folder, 64);
+  if (folder && !folder.includes("/")) next.folder = folder;
   const machine = line(fields.machine, 64);
   if (machine) next.machine = machine;
   const size = line(fields.size, 32);

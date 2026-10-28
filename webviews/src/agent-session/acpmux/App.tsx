@@ -5976,6 +5976,10 @@ function AcpmuxPane() {
     // Another chat shows here: a Cloud start's card belongs to the new chat it was sent from.
     setCloudStart(undefined);
   }, [snapshot.sessionId, newTabGeneration]);
+  /// The person picked another place to run after a Cloud start failed: its card goes.
+  useEffect(() => {
+    if (sandbox.mode !== "cloud") setCloudStart((current) => (current?.state === "failed" ? undefined : current));
+  }, [sandbox.mode]);
   /// Labs went off: Sandboxed is no longer offered or shown, so the composer is Persistent again
   /// (a send from it isn't refused as Sandboxed). A run already out stays the tab's.
   useEffect(() => {
@@ -10218,7 +10222,7 @@ function AcpmuxPane() {
                   />
                 ) : freshView && pastTurns && (!pastWaitsForTrust || trustAsk.ask) ? (
                   <PastChat turns={pastTurns} {...(githubRepository ? { githubRepository } : {})} />
-                ) : cloudStart && !snapshot.sessionId && (cloudStart.state === "starting" || sandbox.mode === "cloud") ? (
+                ) : cloudStart && !snapshot.sessionId ? (
                   <CloudStartView start={cloudStart} />
                 ) : sandboxView && !snapshot.sessionId && (sandboxHoldsChat || sandbox.mode === "sandboxed") ? (
                   <SandboxRunView
