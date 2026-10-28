@@ -596,7 +596,15 @@ export default componentEntry<HeaderToolsProps>({
         ...base,
         menu: () =>
           withMachine(
-            cloudMachineRows({ id: "vm_1", name: "dev-vm-2", stage: "ready" }, false, galleryT, noCall, noop, noLive, noStop),
+            cloudMachineRows(
+              { id: "vm_1", name: "dev-vm-2", stage: "ready" },
+              false,
+              galleryT,
+              noCall,
+              noop,
+              noLive,
+              noStop,
+            ),
           ),
       },
       play: openMenu,
@@ -608,7 +616,15 @@ export default componentEntry<HeaderToolsProps>({
         ...base,
         menu: () =>
           withMachine(
-            cloudMachineRows({ id: "vm_1", name: "dev-vm-2", stage: "ready" }, true, galleryT, noCall, noop, noLive, noStop),
+            cloudMachineRows(
+              { id: "vm_1", name: "dev-vm-2", stage: "ready" },
+              true,
+              galleryT,
+              noCall,
+              noop,
+              noLive,
+              noStop,
+            ),
           ),
       },
       play: openMenu,
@@ -620,7 +636,15 @@ export default componentEntry<HeaderToolsProps>({
         ...base,
         menu: () =>
           withMachine(
-            cloudMachineRows({ id: "vm_1", name: "dev-vm-2", stage: "paused" }, false, galleryT, noCall, noop, noLive, noStop),
+            cloudMachineRows(
+              { id: "vm_1", name: "dev-vm-2", stage: "paused" },
+              false,
+              galleryT,
+              noCall,
+              noop,
+              noLive,
+              noStop,
+            ),
           ),
       },
       play: openMenu,
