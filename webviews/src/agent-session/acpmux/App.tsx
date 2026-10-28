@@ -6265,7 +6265,10 @@ function AcpmuxPane() {
   const revealInspector = inspector.reveal;
   useEffect(() => {
     const openCard = revealInspector
-      ? () => revealInspector("tasks")
+      ? () => {
+          setWorkflowSideTabId(undefined);
+          revealInspector("tasks");
+        }
       : workflowLabsEnabled
         ? openWorkflowSideTab
         : undefined;
