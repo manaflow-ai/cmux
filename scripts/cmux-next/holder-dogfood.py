@@ -364,18 +364,23 @@ class Dogfood:
     def relaunch(self, markers):
         # Quit and keep the sessions (the terminals and the daemon run on; DebugQuit's quitWith). `debug.quit {}`
         # only reports the quit sheet: the app ran on and the relaunch stopped at tag-in-use on every run.
-        reply = self.app.rpc("action.run", {"action": QUIT_KEEPING_SESSIONS}, timeout=20)
+        reply = self.app.rpc("action.run", {"action": QUIT_KEEPING_SESSIONS, "origin": "script"}, timeout=20)
+        # The app may exit before it answers (the socket drops: `unreachable`); only the app's own refusal fails.
+        quit_error = None if isinstance(reply, dict) and reply.get("unreachable") else refusal(reply)
+        exited = True
         try:
             self.app.process.wait(30)
         except Exception:  # noqa: BLE001 - the app this script started, by its pid
+            exited = False
             self.app.process.terminate()
             self.app.process.wait(15)
         daemon_pid = self.daemon.pid
         self.launch(fresh=False)
         same_daemon = self.daemon.pid == daemon_pid
         found = {marker: any(marker in self.daemon.screen(s) for s in self.daemon.surfaces()) for marker in markers}
-        self.step("quit-relaunch", all(found.values()), same_daemon=same_daemon, markers=found,
-                  quit_reply=str(reply.get("error"))[:200] if isinstance(reply, dict) and reply.get("error") else None)
+        # Kept sessions: the app quit (no refusal) and its daemon ran on, so the relaunch attached to the same one.
+        self.step("quit-relaunch", quit_error is None and exited and same_daemon and all(found.values()),
+                  same_daemon=same_daemon, quit_exited=exited, markers=found, quit_reply=quit_error)
 
     def run(self):
         teardown = TagTeardown(self.opts.app)
