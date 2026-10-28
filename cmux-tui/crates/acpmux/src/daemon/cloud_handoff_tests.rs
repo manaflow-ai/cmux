@@ -772,3 +772,23 @@ async fn a_held_turn_is_held_for_its_own_continuation_only() {
     assert!(!r.holds(S, Some(2)));
     assert!(!r.holds(S, None));
 }
+
+/// A continuation's begin from before a queue loss ends the hold without following the turn:
+/// a later prompt's needs-you is not reported on it, and the turn's end still is.
+#[tokio::test(start_paused = true)]
+async fn a_begin_from_before_a_loss_ends_the_hold_and_follows_nothing() {
+    let (mut r, fake) = reporter();
+    fake.answer([ok(1, "running")]);
+    r.step(S, began(1)).await;
+    r.step(S, cut_off(1)).await;
+    r.forget_turns();
+    r.release(S, Some(2));
+    assert!(r.holds(S, Some(1)));
+    r.release(S, Some(1));
+    assert!(!r.holds(S, Some(1)));
+    assert_eq!(r.next_deadline(), None);
+    r.step(S, Step::Asks(None)).await;
+    fake.answer([ok(1, "done")]);
+    r.step(S, done(1, "Back.")).await;
+    assert_eq!(fake.take(), [s(1, "running", None), s(1, "done", Some("Back."))]);
+}

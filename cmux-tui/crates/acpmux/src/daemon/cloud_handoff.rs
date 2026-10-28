@@ -631,6 +631,13 @@ impl<I: Io> Reporter<I> {
             Some(Now::Retrying { turn: held, .. }) if Some(*held) == turn)
     }
 
+    /// Ends the session's hold on `turn` for its continuation, reporting nothing.
+    pub(super) fn release(&mut self, session: &str, turn: Option<u64>) {
+        if self.holds(session, turn) {
+            self.set_now(session, Now::Quiet);
+        }
+    }
+
     /// Stops following every reported turn (the queue dropped steps, so one's end may be lost).
     /// A failed turn waiting for its continuation stays: its own records name it.
     pub(super) fn forget_turns(&mut self) {
@@ -769,12 +776,15 @@ pub(super) async fn handoff_loop(hub: Arc<Hub>) {
             }
             // Queued before a loss: it may follow a lost turn's end, so it starts no turn and
             // reports no needs-you or running (ends, closes and reopens name their own).
-            // A begin of the failed turn a session holds for its continuation still counts: it
-            // names that turn, and without it the hold would report a running turn failed.
+            // A begin of the failed turn a session holds for its continuation only ends the hold
+            // (else it would report a running turn failed); the session follows no turn, since a
+            // later prompt's begin may be lost, and the turn's named end still reports.
             if queued.losses != now
                 && matches!(queued.step, Step::Began(_) | Step::Asks(_) | Step::Runs)
-                && !matches!(queued.step, Step::Began(named) if reporter.holds(&queued.session, named))
             {
+                if let Step::Began(named) = queued.step {
+                    reporter.release(&queued.session, named);
+                }
                 continue;
             }
             if let (Step::Ended(End::Completed(reply), _), Some((after, upto))) =
