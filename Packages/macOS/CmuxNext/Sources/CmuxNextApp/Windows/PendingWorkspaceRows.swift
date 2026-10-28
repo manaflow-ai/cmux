@@ -128,20 +128,9 @@ final class PendingWorkspaceRows {
         let listed = Set(sections.flatMap(\.workspaces).map(\.id.rawValue))
         for row in rows where !listed.contains(row.id) {
             let section = SectionID.machine(row.machine)
-            // An explicit slot is ready at the press. A default slot whose
-            // current anchor is missing belongs to the stale cold layout and
-            // must wait for that anchor, rather than drawing a bottom frame.
-            let slot: WorkspaceSlot?
-            if let explicit = row.slot {
-                slot = explicit
-            } else if let byDefault = row.byDefault {
-                guard let resolved = byDefault.slot(for: row.id, section: section, in: sections, home: home) else { continue }
-                slot = resolved
-            } else {
-                // No slot keeps the daemon's place: the end of the loose rows.
-                slot = .bottom(anchor: nil)
-            }
-            guard let slot, let position = slot.position(moving: [row.id], section: section, in: sections) else { continue }
+            // No slot keeps the daemon's place: the end of the loose rows.
+            let slot = row.slot ?? row.byDefault?.slot(for: row.id, section: section, in: sections, home: home) ?? .bottom(anchor: nil)
+            guard let position = slot.position(moving: [row.id], section: section, in: sections) else { continue }
             SidebarEdits.insert([row.face], at: position, in: &sections)
         }
         return sections

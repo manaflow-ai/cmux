@@ -25,26 +25,6 @@ struct NewWorkspaceDefaultSlot: Hashable, Sendable {
     var placement: NewWorkspacePlacement
     /// The workspace the window showed when the new one was asked for.
     var current: String?
-    /// The machine of `current`, when it was known at the press. A cold
-    /// sidebar can briefly omit that row while its document projection catches
-    /// up; only an omitted row on this same machine needs to defer placement.
-    var currentMachine: String? = nil
-
-    init(placement: NewWorkspacePlacement, current: String?, currentMachine: String? = nil) {
-        self.placement = placement
-        self.current = current
-        self.currentMachine = currentMachine
-    }
-
-    /// The current row is expected in this machine section but is not in the
-    /// stale layout yet. Returning true keeps Cmd-N pending until the row is
-    /// realized, instead of resolving the slot against an empty layout.
-    func awaitsCurrentAnchor(section: SectionID, in sections: [SidebarRowSection]) -> Bool {
-        guard placement == .afterCurrent, let current, let currentMachine,
-              case let .machine(machine) = section, machine.rawValue == currentMachine,
-              !sections.flatMap(\.workspaces).contains(where: { $0.id.rawValue == current }) else { return false }
-        return true
-    }
 
     /// The slot for new workspace `id` in `section` of a window's `sections`;
     /// nil keeps the daemon's place. `home` is the home workspace's id.
@@ -57,7 +37,6 @@ struct NewWorkspaceDefaultSlot: Hashable, Sendable {
             }
             return nil
         case .afterCurrent:
-            if awaitsCurrentAnchor(section: section, in: sections) { return nil }
             if let current, current != id, current != home,
                WorkspaceSlot.below(current).position(moving: [id], section: section, in: sections) != nil {
                 return .below(current)
@@ -108,9 +87,7 @@ enum NewWorkspacePlacements {
     static func rule(for windowID: String?, in windows: WindowManager) -> NewWorkspaceDefaultSlot {
         let placement = windows.services.settings?.snapshot.newWorkspacePlacement ?? CmuxConfigSnapshot.newWorkspacePlacementFallback
         let window = windowID ?? windows.registry.value.mostRecentOpen()
-        let current = window.flatMap { windows.states[$0]?.workspaceID }
-        let currentMachine = current.flatMap { windows.services.machines.daemon(forWorkspace: $0)?.machineID }
-        return NewWorkspaceDefaultSlot(placement: placement, current: current, currentMachine: currentMachine)
+        return NewWorkspaceDefaultSlot(placement: placement, current: window.flatMap { windows.states[$0]?.workspaceID })
     }
 
     /// Places workspace `id` at `slot`, else by `byDefault`, in window

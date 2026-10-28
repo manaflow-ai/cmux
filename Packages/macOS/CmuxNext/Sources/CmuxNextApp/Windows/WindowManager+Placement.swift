@@ -27,12 +27,11 @@ extension WindowManager {
     func applyPendingPlacements(live: Set<String>) {
         // A stand-in Cmd-N shows waits: a placement moves a workspace the daemon has.
         for (id, pending) in pendingPlacements where live.contains(id) && services.machines.workspace(id: id)?.0.isProvisional != true {
+            pendingPlacements[id] = nil
             guard let window = pending.window ?? registry.value.owner(of: id), let bridge = controller(for: window)?.sidebar,
                   let daemon = services.machines.daemon(forWorkspace: id) else { continue }
             let sections = SidebarRowSection.withoutPlaceholders(bridge.model.sections)
             let section = SectionID.machine(MachineID(daemon.machineID))
-            if pending.byDefault?.awaitsCurrentAnchor(section: section, in: sections) == true { continue }
-            pendingPlacements[id] = nil
             let home = NewWorkspacePlacements.home(services.machines)
             // This Mac's daemon placed the workspace by the setting in its create: no second write for that
             // slot. Another machine's create writes no row in this Mac's order, so the app places it.
