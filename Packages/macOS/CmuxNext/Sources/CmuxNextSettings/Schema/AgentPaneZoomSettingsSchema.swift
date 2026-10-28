@@ -1,5 +1,3 @@
-import CmuxNextDesignTokens
-
 nonisolated enum AgentPaneZoomSettingsSchema {
     static var descriptors: [SettingDescriptor] {
         [SettingDescriptor(

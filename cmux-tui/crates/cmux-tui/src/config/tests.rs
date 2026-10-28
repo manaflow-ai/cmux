@@ -65,6 +65,7 @@ fn restore_env_var(key: &str, value: Option<OsString>) {
     match value {
         // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
         Some(value) => unsafe { std::env::set_var(key, value) },
+        // SAFETY: as for the `Some` arm: CONFIG_ENV_LOCK serializes env mutation in these tests.
         None => unsafe { std::env::remove_var(key) },
     }
 }

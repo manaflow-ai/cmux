@@ -1,5 +1,3 @@
-import CmuxNextDesignTokens
-
 /// The agent pane composer's own keys in cmux.json (the pane reads the same names,
 /// webviews/src/agent-session/acpmux/composerSettings.ts):
 ///

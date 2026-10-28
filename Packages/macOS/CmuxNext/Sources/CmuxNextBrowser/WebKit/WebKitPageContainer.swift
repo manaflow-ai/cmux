@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 
 /// A WebKit tab's `contentView`: the parent of the `WKWebView`, owned by
 /// the tab. The chrome pins this container with Auto Layout; the web view
@@ -18,9 +19,20 @@ final class WebKitPageContainer: NSView {
     /// The web view; WebKit owns its frame (an attached inspector shrinks it).
     private(set) weak var page: NSView?
 
-    init(page: NSView) {
+    /// What hides the web view from WebKit (``WebKitPageVisibility``): the web view's own `isHidden`, set in the
+    /// change's turn, so a show is applied before the switch's frame commits. Only the web view: an attached
+    /// inspector or a stand-in beside it keeps its own state.
+    var visibility: WebKitPageVisibility {
+        didSet { if visibility.hidesPage != oldValue.hidesPage { page?.isHidden = visibility.hidesPage } }
+    }
+
+    init(page: NSView, visibility: WebKitPageVisibility = WebKitPageVisibility()) {
         self.page = page
+        self.visibility = visibility
         super.init(frame: .zero)
+        page.isHidden = visibility.hidesPage
+        // Layer-backed for the gutter beside a held page (`WebKitPageContainer+SpringResize`).
+        wantsLayer = true
         page.frame = bounds
         page.autoresizingMask = [.width, .height]
         page.translatesAutoresizingMaskIntoConstraints = true
@@ -38,6 +50,8 @@ final class WebKitPageContainer: NSView {
 
     override func didAddSubview(_ subview: NSView) {
         super.didAddSubview(subview)
+        // An attached Web Inspector owns the web view's frame from now on: no spring holds it.
+        if subview !== page { endSpringHold() }
         onSubviewsChange?()
         if emulation != nil { needsLayout = true }
     }
@@ -64,6 +78,8 @@ final class WebKitPageContainer: NSView {
     var emulation: BrowserEmulation? {
         didSet {
             guard emulation != oldValue else { return }
+            // The emulation owns the web view's frame from now on: no spring holds it.
+            endSpringHold()
             placeEmulatedPage()
         }
     }
@@ -79,8 +95,40 @@ final class WebKitPageContainer: NSView {
     }
 
     override func resizeSubviews(withOldSize oldSize: NSSize) {
+        if springHold == nil { joinSpringResize() }
+        if let springHold, let page {
+            // Held at its top-left: the container's resize moves it, and WebKit lays out nothing.
+            let held = springHold.rect(in: bounds, flipped: isFlipped)
+            if page.frame != held { page.frame = held }
+            return
+        }
         guard emulation != nil, pageAlone else { return super.resizeSubviews(withOldSize: oldSize) }
         placeEmulatedPage()
+    }
+
+    /// The size its pane's spring rests at, held at the top-left until it lands (`WebKitPageContainer+SpringResize`).
+    var springHold: SpringPageHold?
+    /// The pane host it sits in when that pane's pages hold their size in springs (the `pageSpringResizeOnce`
+    /// feature), found once each time it moves (`placeInPane()`); nil otherwise, so a resize without the
+    /// feature walks no ancestors.
+    weak var springPlacement: (any RestingPlacement)?
+    /// The document's own background, for the gap beside a held page (`WebKitTab+SpringBackdrop`); nil for a
+    /// see-through page (blank, the New Tab page, a document that has not painted) and before it is read.
+    var pageBackdrop: CGColor? {
+        didSet { if springHold != nil, pageBackdrop != oldValue { layer?.backgroundColor = pageBackdrop } }
+    }
+    /// Asks the tab to read ``pageBackdrop`` (`WebKitTab.samplePageBackdrop`): the container joined a pane
+    /// whose pages hold their size in springs.
+    var needsPageBackdrop: (() -> Void)?
+
+    override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        placeInPane()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        placeInPane()
     }
 
     private var isScaledForEmulation = false
@@ -88,7 +136,7 @@ final class WebKitPageContainer: NSView {
     private var fitFrame: BrowserFitFrameView?
 
     /// The web view is alone in the container (no attached Web Inspector beside it).
-    private var pageAlone: Bool { subviews.allSatisfy { $0 === page || $0 === fitFrame } }
+    var pageAlone: Bool { subviews.allSatisfy { $0 === page || $0 === fitFrame } }
 
     private func placeEmulatedPage() {
         guard let page else { return }

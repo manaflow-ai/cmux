@@ -1438,6 +1438,9 @@ All IDs below are `p07-memory-NNN`.
 - Change: launch frames and images dropped after LaunchSettle; GlassBackdropImages and ReleaseMediaStore
   register; image-storage-limit from kittyImageBytesPerSurface, lowered at warning.
 - Acceptance: 0 images after LaunchSettle; MQ-CAPS 0 in GhosttyRuntime+ImageStorage.swift; bytes reported.
+  The Ghostty image budget is not a consumer, so "bytes reported" does not apply to it: libghostty reports
+  no image bytes, and the budget is a cap Ghostty enforces, not a store cmux releases. It follows the
+  coordinator's level (`GhosttyImageStorageBudget`) and rises only after `limitRiseDelay` at normal.
 - Test: fleet swift test 'TerminalLaunchFrames|GlassBackdrop|ReleaseMedia'.
 
 ### 084 cmux page browser tabs discardable
@@ -1531,11 +1534,33 @@ All IDs below are `p07-memory-NNN`.
 - Test: fleet cargo test -p cmux-holder; holder_terminals on macOS 26 and 27.
 
 ### 095 Daemon threads per terminal
-- Files: cmux-tui-core/src/surface/spawn.rs, surface.rs, mux/terminal_work.rs.
-- Change: PTY reads on the kqueue TerminalWorkPool; one EVFILT_PROC watcher for child waits; the host
-  thread joins the pool. Check the threading and PL-daemon queues first.
-- Acceptance: 50 terminals add <= 2 threads; idle_wakeups green; output order unchanged.
-- Test: fleet cargo test -p cmux-tui-core surface; perf-10x-idle.sh counts=100 thread column.
+- Files: cmux-tui-core/src/surface/spawn.rs, surface.rs, surface/local_reader.rs, surface/local_output.rs,
+  mux/terminal_work.rs, mux/terminal_work/read_loop.rs, read_poller.rs.
+- Change: daemon-local PTY reads on the owner's one read loop (kqueue/epoll, TerminalWorkPool); registry
+  publication (directory, progress, exit) on the pool. Narrowed: the child wait (`-wait`) is p02-threads-237's
+  reaper, and the hosted reader (`-host`, `-host-frames`) is 095b.
+- Acceptance: 50 daemon-local terminals add <= 2 threads at idle, plus the 50 `-wait` threads p02-threads-237
+  owns until it lands; no read worker slot is lost to a panicking or blocked source; idle_wakeups green;
+  output order unchanged.
+- Test: fleet cargo test -p cmux-tui-core surface read_loop; perf-10x-idle.sh counts=100 thread column.
+- Status: reader in. Daemon-local PTYs read on the owner's one read loop (`mux/terminal_work/read_loop.rs`:
+  `mux-terminal-io` on kqueue/epoll, `mux-terminal-read` workers, one run per terminal at once): no
+  `surface-<id>-reader`, and the loop adds 2 threads at idle. Each terminal still has its `surface-<id>-wait`
+  thread until p02-threads-237's `mux-reaper` lands, so today 50 terminals add 2 + 50 threads
+  (`surface::tests::read_loop::fifty_idle_local_terminals_add_only_the_loop_threads` asserts exactly that
+  bound). Registry publication (directory, progress, the exit) runs on the terminal work pool, and a query
+  response write that can wait runs in `read_loop::will_block`, which frees the worker's slot (Chrome's
+  `ScopedBlockingCall` WILL_BLOCK), so a blocked or panicking terminal never stops the others. Holder
+  terminals' readers are p01-process-120.
+
+### 095b Hosted terminals on the read loop
+- Files: cmux-tui-core/src/surface.rs, surface/hosted_reader.rs, surface/hosted_reader/reconnect.rs,
+  mux/terminal_work/read_loop.rs.
+- Change: the reconnect of an adopted or opt-out host becomes a pool work item; the host socket then reads as a
+  ReadSource on the owner's read loop, so `surface-<id>-host` and `-host-frames` go.
+- Acceptance: 50 adopted hosted terminals add <= 2 threads at idle; reconnect and resync keep output order.
+- Test: cargo test -p cmux-tui-core surface::tests::hosted read_loop.
+- Depends on: 095, p01-process-138.
 
 ### 096 Sliced release of parked workspaces and warm set
 - Files: Windows/WindowController+Parking.swift, AppServices+Hibernation.swift, TabContentCache.swift, tests.
@@ -1661,6 +1686,19 @@ All IDs below are `p07-memory-NNN`.
 - Change: Chrome's HasEnoughMemoryForAnotherMainFrame check for cmux page sharing and per-site sharing.
 - Acceptance: a page grown past the cap sends the next same-site page to a new renderer.
 - Test: fleet scripts/measure/renderer-sharing.sh.
+- As built: SubsystemBudget.sharedRendererMemoryCapBytes is Chrome's 2 GiB
+  (`kProcessPerSiteMainFrameTotalMemoryLimit`) and sharedRendererSubframeMemoryCapBytes its 512 MiB subframe
+  threshold, on every Mac. The app passes both to Chromium (`CEFSharedRendererMemoryCaps`,
+  `cmux-shared-renderer-memory-limit` and `cmux-shared-renderer-subframe-memory-limit`); older forks ignore them.
+  The fork (manaflow-ai/cef `cp/p07-memory-111`, 0cb7f868: the 011 line with e603be8e merged, patch
+  `cmux_shared_renderer_memory_cap`) uses them in Chrome's own `HasEnoughMemoryForAnotherMainFrame` and
+  `IsBelowReuseResourceThresholds`, and applies the main-frame check to a cmux page that joins a live renderer in
+  `GetExistingProcessHost`, the path 049's sharing takes (e603be8e checked the `kProcessPerSite` path, which no
+  cmux page takes). One difference from Chrome: a renderer still launching has room for a cmux page (Chrome
+  denies a footprint of 0), so pages opened together at launch still share up to the main-frame cap. The fork
+  train must take `cp/p07-memory-111` in place of e603be8e. Bench: `renderer-sharing.sh
+  --arg=--memory-cap-mb=256` grows a web page past a 256 MiB cap (a bench switch) and fails when the next tab of
+  its site joins that renderer below the limit; fork ceftests `--cmux-page-memory-cap-tiny` checks cmux pages.
 
 ### 112 Kernel compressor measurement gates the codec
 - Files: scripts/cmux-next/bench_memory.py, plans/cmux-next/memory-DESIGN.md.

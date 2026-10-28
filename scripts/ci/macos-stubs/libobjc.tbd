@@ -1,0 +1,19 @@
+--- !tapi-tbd
+tbd-version:     4
+targets:         [ x86_64-macos, arm64-macos ]
+install-name:    '/usr/lib/libobjc.A.dylib'
+current-version: 228.0.0
+compatibility-version: 1.0.0
+exports:
+  - targets:         [ x86_64-macos, arm64-macos ]
+    symbols:         [
+                       '_class_getName',
+                       '_class_isMetaClass',
+                       '_objc_getClass',
+                       '_objc_msgSend',
+                       '_objc_release',
+                       '_objc_retainAutoreleasedReturnValue',
+                       '_object_getClass',
+                       '_sel_getName',
+                       '_sel_registerName' ]
+...

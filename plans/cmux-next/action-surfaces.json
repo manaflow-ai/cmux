@@ -35641,6 +35641,62 @@
       "title" : "View Hang Report",
       "title_key" : "action.diagnostics.viewHangReport",
       "title_table" : "HangReportsActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "energy turn-off-for-now",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "energy.saver.turnOffForNow",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Turn Off Energy Saver for Now",
+      "title_key" : "action.energy.saver.turnOffForNow",
+      "title_table" : "Localizable"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "energy turn-on",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "energy.saver.turnOnNow",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Turn On Energy Saver Again",
+      "title_key" : "action.energy.saver.turnOnNow",
+      "title_table" : "Localizable"
     }
   ],
   "context_menu_rules" : [

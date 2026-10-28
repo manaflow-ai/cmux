@@ -33,6 +33,8 @@ RUNTIME_NAMED_REQUEST_REFS = {
     "crate::mux::CloseReason": "CloseReason",
     "crate::resource_name::NameSource": "NameSource",
     "AgentSessionParams": "AgentSessionSource",
+    # server/client_hello.rs `HelloFeatures::parse` (p12-perf-process-150).
+    "HelloFeatures": "ClientHelloFeatures",
     "ConversationTabSplitParams": "ConversationTabSplit",
     "crate::model::ColumnDock": "ColumnPin",
     "SnapshotHave": "SnapshotRequestHave",
@@ -97,6 +99,7 @@ RUNTIME_DECODED_REQUEST_FIELDS = {
 # longer served only prints a note, so the task that schemas a name can land
 # before or after this list drops it.
 UNSCHEMAD_SNIFFED_COMMANDS = {
+    "debug-panic": "debug and --features bench builds only (p09-observability-101), not an SDK command",
     "oracle-state": "debug and --features oracle builds only (p15-oracle-021), not an SDK command",
 }
 

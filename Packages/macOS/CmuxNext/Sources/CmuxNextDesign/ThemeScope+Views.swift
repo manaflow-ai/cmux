@@ -61,7 +61,7 @@ enum ThemeContext {
     }
 
     static func push(_ scope: ThemeScope) { stack.append((scope, scope.tokens)) }
-    static func pop() { stack.removeLast() }
+    static func pop() { _ = stack.popLast() }
 }
 
 extension ThemeScope {

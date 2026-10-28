@@ -75,4 +75,20 @@ import Testing
         #expect(SettingsDiagnosticToastPresenter.toast(kept).duration == CmuxToast.untilClosed)
         #expect(SettingsDiagnosticToastPresenter.toast(kept).action?.isUndo == false)
     }
+
+    @Test func theDiagnosticToastsTakeTheAppsOneKeyWindowObserverThroughThePresenter() throws {
+        let center = NotificationCenter()
+        let events = AppEvents(center: center)
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("cmux-next.json")
+        try Data("{}".utf8).write(to: url)
+        let settings = SettingsController(registry: ActionRegistry(catalog: []), fileURL: url,
+                                          managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
+        #expect(!events.isObserving(NSWindow.didBecomeKeyNotification))
+        settings.start(announcingDiagnostics: SettingsDiagnosticToastPresenter(events: events, toasts: CmuxToastCenter()))
+        #expect(events.subscriberCount(NSWindow.didBecomeKeyNotification) == 1)
+        settings.stop()
+    }
 }

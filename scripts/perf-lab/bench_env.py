@@ -75,6 +75,9 @@ SWITCHES = (
            SWIFT + "CmuxNextCrashReporting/CrashReportingPolicy.swift"),
     Switch("CMUX_NEXT_DEV_HANG_REPORTS", "env-unset", None, "hang reports off: a DEV bundle sends only with it =1",
            SWIFT + "CmuxNextApp/HangReports/HangReportsController.swift"),
+    Switch("CMUX_NEXT_BENCH_REAL_KEYCHAIN", "env-unset", None,
+           "Chromium's mock keychain in a DEV or bench bundle; =1 (chromium-host-bench.py --modes tcc) reads the login "
+           "keychain", SWIFT + "CmuxNextBrowser/CEF/CEFSwitches.swift"),
     Switch("CMUX_NEXT_BENCH_SHIPPING_DRAW", "env-unset", None,
            "a Debug automation launch draws occluded windows; =1 (idle-budget's shipping mode) gives it the user's draw",
            SWIFT + "CmuxNextDesign/Windows/WindowDrawPolicy.swift"),

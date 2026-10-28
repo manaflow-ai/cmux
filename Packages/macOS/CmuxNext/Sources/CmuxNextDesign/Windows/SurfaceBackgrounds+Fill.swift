@@ -1,8 +1,8 @@
 public import CmuxTheme
 public import CmuxNextDesignTokens
 
-/// The one resolver each surface's owner paints from (never a view's own color math): the
-/// override over the window's backdrop (``WindowBackdrop``), as ``SurfaceBackgrounds`` describes.
+/// The resolver each surface's owner paints from (``SurfaceBackgrounds``): it reads the window's
+/// tint from ``WindowBackdrop``, so it lives with it here.
 nonisolated extension SurfaceBackgrounds {
     /// What `kind`'s owner paints over the window's backdrop, or nil when
     /// the surface has no override.

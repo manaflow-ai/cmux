@@ -149,8 +149,13 @@ records `stall.render_starved` with the top unattributed turn from `MainTurnMete
   task 040, spec'd). Task 024 (pane, tab) is landed. Task 023 (workspace) is spec'd: until it lands,
   `WorkspaceContentController.visibilityNode` is nil and `PaneController` hangs its node on a root node.
 - `node.deferUntilVisible(key: k) { }` (task 020, landed) runs at once if the node is visible, else once on show.
-  It replaces per-view hidden-dirty flags and heavy `viewDidChangeEffectiveAppearance` bodies. Task 215 (spec'd)
-  adds the R-appear and R-hide adopters.
+  It replaces per-view hidden-dirty flags and heavy `viewDidChangeEffectiveAppearance` bodies. Task 215 (landed)
+  adds `deferAppearance(owner:_:)` (counted in the root's `VisibilityWorkCounts`, `appearance_applies`),
+  `deferUntilShown(key:_:)` for layout work (it runs at occluded too: an occluded node keeps its layout ready) and the
+  first R-appear and R-hide adopters. TabStripView and TerminalSurfaceView follow their own child node, and their
+  hidden flags are gone: a hidden strip's model sync, appearance and scale, and a hidden terminal's forced grid report,
+  size and scale, wait on the node under a key each. The terminal's node has a child, `windowNode`, hidden while the
+  view is in no window or a container above is parked, so the work waits on everything that hides it.
 - **Show order** (task 213, spec'd). Observers on screen in the focused pane, and `firstFrame` subscribers, read again in
   the show turn. Other newly visible observers post one userBlocking task each, in viewport order, so they land in
   the next 1-2 frames. A `warm` vote (hover, the Ctrl-Tab target, neighbor tabs) reads again in idle without
@@ -352,7 +357,7 @@ perf/chrome-parity at `4e0005673f2`; "spec'd" means the task has not landed and 
 | `MainWakeUpQueue`, `AlignedWakeups`; `DemandTimer.schedule(after:tolerance:)` | MainWakeUpQueue.swift, AlignedWakeups.swift, DemandTimer.swift | 011, 012 | landed |
 | `FrameInputCoalescer`, `FrameInputCoalescers` | FrameInputCoalescer.swift, FrameInputCoalescers.swift | 013 | landed |
 | `Visibility`, `VisibilityNode` (`effective`, `isVisible`, `hiddenSince`, `mediaActiveWithin(_:)`, `setCaptured(_:)`, `subscribe(owner:_:)`, `deferUntilVisible(key:_:)`, `queue(_:owner:on:)`, `freeze()`) | Visibility.swift, VisibilityNode.swift | 020, 209 | landed |
-| The R-appear and R-hide adopters of `deferUntilVisible` | (adopting views) | 215 | spec'd |
+| `VisibilityNode.deferAppearance(owner:_:)`, `VisibilityNode.deferUntilShown(key:_:)`, `VisibilityWorkCounts`; the first R-appear and R-hide adopters (TabStripView, TerminalSurfaceView) | VisibilityNode.swift, VisibilityWorkCounts.swift, TabStripView.swift, TerminalSurfaceView+Visibility.swift | 215 | landed |
 | `VisibilityNode.captureVote(reason:stayHidden:)` | VisibilityNode.swift | 211 | spec'd |
 | `MainTaskQueue` | MainTaskQueue.swift | 209 | landed |
 | `CPUTimeBudgetPool` | CPUTimeBudgetPool.swift | 210 | spec'd |
@@ -463,4 +468,47 @@ as key latency), `automation-typing-bench.py --input real` (task 230) and `bench
 and after), light and STRESS, on a GUI host with the input grant that passes `bench_launch.py check`, at 120 Hz
 (`--vdisplay=120`). The program's targets are the spec's section 5 done checks (key to frame p50 <= 8.3 ms and
 p99 <= 16.7 ms during the storm; every run-loop turn p99 <= 4 ms). Results: perf-lead.md section 5. The pilot's
-numbers (task 205) and the test phase (task 160) are recorded there with sha and host.
+numbers (task 205) and the test phase (task 160, "p06 scheduler test phase": before and after per done check, and
+the instrument each check needs) are recorded there with sha and host.
+
+## 16. Queue close-out counts (task 347, open)
+
+Task 347 is not done. Its first pass is a partial residual sweep only: it migrated the residual hits that no
+in-flight task holds. Its acceptance ("every done-check ratchet count is at its target") is not met, and
+`arch-ratchet.json` is not updated. The task stays open until file groups 300-346 land. Then it migrates the
+hits that are left, places `layer_hard` and `layer_unplaced` (or gives them a reviewed exception), runs
+`arch-ratchet.py --update`, commits `arch-ratchet.json` and replaces the table below with counts at target.
+
+The spec's section 5 check 11, measured at `6061b2d824b` (perf/chrome-parity `17f2e8b9979` plus task 347) with
+`p06_queue.py`'s queues: "open" is a hit with no reviewed escape that is not settled (section 11). The cut is
+`772cdfc45ac`. The Q1b row uses the queue's heuristic, because `main_inherited_tasks` (task 015) has not landed.
+
+| Count | Cut | Now: open (escaped) | Target |
+|---|---|---|---|
+| `main_inherited_tasks` (Q1 + Q1b) | 480 + 778 | 221 + 441 (50 + 62) | <= 10 reviewed escapes |
+| `raw_main_hops` (Q1c) | 53 | 23 (16) | <= 5 outside Wakeups |
+| `MainActor.run` (Q7) | 69 | 15 (0) | <= 10 |
+| `ObservationStream(` (Q2) | 297 | 131 (1), 16 in `*View*.swift` | <= 20, none in `*View*.swift` |
+| raw `withObservationTracking` (Q3) | 58 | 11 (7) | <= 5, in the primitives |
+| Q4 observer kinds | 263 | 105 (50; 60 settled) | <= 12 |
+| `isHiddenOrHasHiddenAncestor` | 159 | 97 | <= 10 |
+| gating `viewDidHide`/`viewDidUnhide` | 54 | 27 | 0 |
+| `DemandTimer(` (all, main-actor and off-main) | 187 | 143 | 0 on the main actor without MainDeadline |
+| periodic `Task.sleep`/`clock.sleep` | 76 | 35 | 0 |
+| `addLocalMonitorForEvents` | 32 | 0 | 1 (the hub) |
+| `didUpdateNotification` | 3 | 0 | 0 |
+| `app_broadcast_names` (arch_counts) | 13 | 3 | <= 2 |
+| `observer_sites` (arch_counts) | 340 | 235 | <= 40 |
+
+The counts are not at target yet, because 25 of the 47 file groups have not landed: their files hold 1,373 of the
+open hits (`p06_queue.py --check N` for 300, 303, 304, 309, 322, 325 and 328-346). The landed groups' files hold none.
+After task 347, `p06_queue.py --residual` lists 42 hits:
+
+- 40 in the Notifications and AgentCursor pilot files of task 205, which are on `cp/p06-scheduler-205` and not landed.
+- 2 in `CmuxNextHibernation/ContentDiscardScheduler.swift`: its `DemandTimer` deadline and the main-actor task that
+  awaits the host's `prepareDiscard`. Its six discard suites drive the deadline with a `ManualClock`, so the move to
+  a `MainDeadline` on a rig is its own task.
+
+`arch-ratchet.py --update` refuses at this head, because of rises that are not from this program: `layer_hard` 34 over
+33 and `layer_unplaced` 2 (`CmuxNextAppCore`, `CmuxNextUiLayerPreview` are not in `architecture-layers.json`). Run
+it again when those are placed or carry a reviewed exception; it then records the drops above.
