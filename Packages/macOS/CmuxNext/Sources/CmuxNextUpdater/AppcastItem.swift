@@ -23,11 +23,15 @@ nonisolated public struct AppcastItem: Sendable, Equatable {
     public var sparkleChannel: String?
     /// Whether the item lists `sparkle:deltas` (nightly-next adds them minutes after the full archive).
     public var listsDeltas: Bool
+    /// `cmux:rolloutPercent` as written: the item's staged rollout (CmuxUpdater `StagedRollout`); nil
+    /// offers it to every install.
+    public var rolloutPercent: String?
 
     public init(version: String, displayVersion: String? = nil, title: String? = nil,
                 minimumSystemVersion: SystemVersion? = nil, maximumSystemVersion: SystemVersion? = nil,
                 releaseNotesURL: URL? = nil, downloadURL: URL? = nil, itemDescription: String? = nil, date: Date? = nil,
-                sparkleChannel: String? = nil, listsDeltas: Bool = false) {
+                sparkleChannel: String? = nil, listsDeltas: Bool = false, rolloutPercent: String? = nil) {
+        self.rolloutPercent = rolloutPercent
         self.itemDescription = itemDescription
         self.listsDeltas = listsDeltas
         self.sparkleChannel = sparkleChannel

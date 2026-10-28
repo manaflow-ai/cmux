@@ -1,4 +1,5 @@
 public import Foundation
+import CmuxUpdater
 
 /// Reads the items of a Sparkle appcast (RSS 2.0 with the `sparkle:`
 /// namespace). Only the fields ``AppcastItem`` needs; deltas are skipped.
@@ -85,7 +86,8 @@ nonisolated private final class AppcastParserDelegate: NSObject, XMLParserDelega
             itemDescription: fields["description"],
             date: fields["pubDate"].flatMap(Self.rfc822),
             sparkleChannel: fields["sparkle:channel"],
-            listsDeltas: listsDeltas
+            listsDeltas: listsDeltas,
+            rolloutPercent: fields[StagedRollout.element]
         ))
     }
 }

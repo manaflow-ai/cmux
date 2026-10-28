@@ -34,6 +34,10 @@ nonisolated public struct URLSessionAppcastFetcher: AppcastFetching {
 nonisolated public struct UpdateProber: Sendable {
     private let fetcher: any AppcastFetching
     private let architecture: UpdateHostArchitecture
+    /// This install's staged rollout: an item it does not offer yet is not an update here, as
+    /// Sparkle's scheduled check holds it (``UpdaterService`` sets it from the updater's seed). Nil
+    /// offers every item.
+    public var rollout: StagedRollout?
 
     public init(fetcher: any AppcastFetching = URLSessionAppcastFetcher(), architecture: UpdateHostArchitecture = .current) {
         self.fetcher = fetcher
