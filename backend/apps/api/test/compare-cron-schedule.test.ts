@@ -1,6 +1,7 @@
 import { env } from "cloudflare:workers"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import worker from "../src/index.ts"
+import { compareFromEnv } from "../src/projection-compare-cron.ts"
 
 /**
  * The 15-minute cron (wrangler.jsonc, every environment): the projection compare does nothing until a
@@ -9,8 +10,24 @@ import worker from "../src/index.ts"
  * Vitess cutover (cmuxterm-hq#4767 step 2) changes nothing there.
  */
 const COMPARE_CRON = "*/15 * * * *"
-const run = (overrides: Record<string, unknown>) =>
-  worker.scheduled!({ cron: COMPARE_CRON, scheduledTime: Date.now(), noRetry: () => undefined } as unknown as ScheduledController, { ...(env as object), PROJECTION_PRIMARY: undefined, PROJECTION_SHADOW: undefined, ...overrides } as never)
+/** A Hyperdrive binding that fails the test if anything reads it (a database connection would). */
+const untouchable = (name: string) =>
+  new Proxy({}, { get: (_t, key) => (key === "then" ? undefined : expect.unreachable(`${name}.${String(key)} was read`)) })
+/** The production switch state from wrangler.jsonc (no PROJECTION_* var; release-rails projection-config.test.ts pins it). */
+const production = (overrides: Record<string, unknown> = {}) => ({
+  ...(env as object),
+  ENVIRONMENT: "production",
+  PROJECTION_PRIMARY: undefined,
+  PROJECTION_SHADOW: undefined,
+  PROJECTION_READS: undefined,
+  HYPERDRIVE: untouchable("HYPERDRIVE"),
+  HYPERDRIVE_RO: untouchable("HYPERDRIVE_RO"),
+  PS_MYSQL: untouchable("PS_MYSQL"),
+  PS_MYSQL_RO: untouchable("PS_MYSQL_RO"),
+  ...overrides
+})
+const run = (e: Record<string, unknown>) =>
+  worker.scheduled!({ cron: COMPARE_CRON, scheduledTime: Date.now(), noRetry: () => undefined } as unknown as ScheduledController, e as never)
 
 describe("the 15-minute cron", () => {
   afterEach(() => vi.restoreAllMocks())
@@ -23,9 +40,15 @@ describe("the 15-minute cron", () => {
     })
     const logs = vi.spyOn(console, "log").mockImplementation(() => {})
     const errors = vi.spyOn(console, "error").mockImplementation(() => {})
-    await run({ ENVIRONMENT: "production", STRIPE_USAGE_KEY: "sk_test_fake-usage-sync-key" })
+    await run(production({ STRIPE_USAGE_KEY: "sk_test_fake-usage-sync-key" }))
     expect(calls).toEqual([])
     expect([...logs.mock.calls, ...errors.mock.calls]).toEqual([])
+  })
+
+  it("the compare opens no database connection without a MySQL switch, and does once one is set", async () => {
+    await expect(compareFromEnv(production() as never)).resolves.toBeUndefined()
+    // The guard is the switch: with one set, the compare reaches for the bindings (here: the trap).
+    await expect(compareFromEnv(production({ PROJECTION_SHADOW: "mysql" }) as never)).rejects.toThrow("was read")
   })
 
   it("outside production, the usage sync runs beside the compare", async () => {
@@ -36,7 +59,7 @@ describe("the 15-minute cron", () => {
     })
     vi.spyOn(console, "log").mockImplementation(() => {})
     vi.spyOn(console, "error").mockImplementation(() => {})
-    await run({ ENVIRONMENT: "staging", STRIPE_USAGE_KEY: "sk_test_fake-usage-sync-key" })
+    await run({ ...(env as object), ENVIRONMENT: "staging", PROJECTION_PRIMARY: undefined, PROJECTION_SHADOW: undefined, STRIPE_USAGE_KEY: "sk_test_fake-usage-sync-key" })
     expect(calls.some((u) => u.startsWith("https://api.stripe.com/"))).toBe(true)
   })
 })
