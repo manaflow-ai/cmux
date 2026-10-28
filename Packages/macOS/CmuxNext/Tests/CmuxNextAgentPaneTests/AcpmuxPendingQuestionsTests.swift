@@ -213,17 +213,36 @@ struct AcpmuxPendingQuestionsTests {
     @Test(arguments: ["_acpmux/detach", "_acpmux/watch"])
     func detachOrWatchOffInvalidatesInFlightReads(method: String) throws {
         let ledger = ledger()
-        ledger.observe(Self.live(), replyTo: nil, connection: 1)
+        read(ledger, Self.snapshot([Self.prompt(), Self.prompt("other")], seq: 10))
         let first = try #require(ledger.question(session: "s", permission: "p", connection: 1))
         ledger.request(method: "_acpmux/attach", session: "s", watchEnabled: nil, token: 1, connection: 1)
         ledger.request(method: method, session: "s", watchEnabled: false, token: 2, connection: 1)
         #expect(!ledger.isCurrent(first))
-        ledger.observe(Self.snapshot([Self.prompt()], seq: 12), replyTo: "_acpmux/attach",
+        ledger.observe(Self.snapshot([Self.prompt(), Self.prompt("other")], seq: 10), replyTo: "_acpmux/attach",
                        connection: 1, snapshotRequestToken: 1)
         #expect(ledger.questions(connection: 1).isEmpty)
         if method == "_acpmux/watch" { enableWatch(ledger) }
-        read(ledger, Self.snapshot([Self.prompt()], seq: 13))
-        #expect(ledger.question(session: "s", permission: "p", connection: 1) != nil)
+        // The request is current even when no daemon event advanced its watermark.
+        read(ledger, Self.snapshot([Self.prompt()], seq: 10))
+        let recovered = try #require(ledger.question(session: "s", permission: "p", connection: 1))
+        #expect(recovered.generation != first.generation)
+        #expect(!ledger.isCurrent(first))
+        #expect(ledger.question(session: "s", permission: "other", connection: 1) == nil)
+        // Once recovered, an uninterrupted repeat cannot add an identity absent at this watermark.
+        read(ledger, Self.snapshot([Self.prompt(), Self.prompt("other")], seq: 10))
+        #expect(ledger.isCurrent(recovered))
+        #expect(ledger.question(session: "s", permission: "other", connection: 1) == nil)
+    }
+
+    @Test(arguments: ["permission_decision", "turn_end"])
+    func settledFloorsSurviveSameWatermarkRecovery(kind: String) {
+        let ledger = ledger()
+        read(ledger, Self.snapshot([Self.prompt()], seq: 10))
+        // Exercise both the per-permission tombstone and the session-wide retirement floor.
+        ledger.observe(Self.event(kind, seq: 10), replyTo: nil, connection: 1)
+        ledger.request(method: "_acpmux/detach", session: "s", watchEnabled: nil, token: 1, connection: 1)
+        read(ledger, Self.snapshot([Self.prompt()], seq: 10))
+        #expect(ledger.questions(connection: 1).isEmpty)
     }
 
     @Test func snapshotTokenIsNativeCorrelatedSingleUseAndCancelledReadsCannotRecover() throws {
