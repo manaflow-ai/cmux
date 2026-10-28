@@ -1321,7 +1321,8 @@ def release_switch_paths(repo: Path, ranges: list, trusted_scripts: Path | None)
             log(f"prepush-gate: WARNING: {RELEASE_SWITCH_PATHS} did not run ({type(error).__name__}: {error}); not "
                 "applied to this push.")
             continue
-        if done.returncode == 1:
+        # A refusal is exit 1 with the check's header: an interpreter crash (also exit 1) prints a traceback instead.
+        if done.returncode == 1 and done.stdout.startswith("check-release-switch-paths: features"):
             log(f"prepush-gate: at {own.head[:12]}: {done.stdout.strip()}")
             refused = True
         elif done.returncode != 0:

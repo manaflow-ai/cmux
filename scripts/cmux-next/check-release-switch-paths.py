@@ -739,8 +739,15 @@ class Checker:
             return Verdict(feature, "not judged", f"no Release use found through {names}; not followed: "
                            f"{', '.join(skipped)} (over {MAX_NAME_FILES} files)", trail)
         dead_uses = list(dict.fromkeys(dead_uses))
+        # An offender needs proof: a use of what it sets that only a Debug or bench build compiles. A walk that found
+        # no use at all, or ran out of hops, cannot tell a no-op switch from a use this text walk does not model (a
+        # memberwise init read elsewhere, a `didSet`, `.init(...)` shorthand, a chain over MAX_HOPS): not judged, so
+        # correct code is never refused.
+        if not dead_uses:
+            why = "ran out of hops" if frontier else "found no use it can follow"
+            return Verdict(feature, "not judged", f"read in Release; the walk through {names} {why}", trail)
         where = f"; its uses are only under #if Release does not compile ({', '.join(dead_uses[:6])}" + (
-            ", ..." if len(dead_uses) > 6 else "") + ")" if dead_uses else "; nothing uses it"
+            ", ..." if len(dead_uses) > 6 else "") + ")"
         return Verdict(feature, "offender", f"read in Release, but what it sets ({names}) decides nothing a Release "
                        f"build compiles{where}", trail)
 
@@ -824,8 +831,8 @@ def main(argv: list[str] | None = None) -> int:
         old: set[str] = set()
         for base in args.base:
             old |= set(offenders(GitTree(repo, base)))
-    except (OSError, RuntimeError, KeyError) as error:
-        print(f"check-release-switch-paths: error: {error}", file=sys.stderr)
+    except Exception as error:  # a broken feature file or a bug here must never refuse a push (exit 2: no verdict)
+        print(f"check-release-switch-paths: error: {type(error).__name__}: {error}", file=sys.stderr)
         return 2
     if args.list:
         for v in verdicts:
