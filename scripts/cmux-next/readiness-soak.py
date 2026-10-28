@@ -708,6 +708,37 @@ class Soak:
                 "state_mb": round(sum(tree_bytes(p) for p in tag_state if os.path.isdir(p)) / 1048576, 1),
                 "free_gb": round(stat.f_bavail * stat.f_frsize / 1e9, 2)}
 
+    def daemon_breakdown(self):
+        """Where the cmux-tui daemon's memory goes, once an hour: its own `server-stats` (with the `memory` section, by
+        owner, when the build has it; older builds answer the other sections or refuse the include) and, per daemon
+        process, the region summary of `vmmap -summary` (MALLOC zones against mapped files and stacks), so a footprint
+        growth points at its owner."""
+        out = {"server_stats": None, "regions": {}}
+        status = daemon_status(self.tui, self.tag)
+        if status:
+            for include in (["memory", "resource_projection", "write_path"], ["resource_projection", "write_path"]):
+                try:
+                    reply = request(status["socket"], {"id": 9001, "cmd": "server-stats", "include": include}, 10)
+                except (OSError, ValueError, ConnectionError) as error:
+                    reply = {"ok": False, "error": str(error)[:200]}
+                if reply.get("ok", True) and "error" not in reply:
+                    out["server_stats"] = reply.get("result", reply)
+                    break
+                out["server_stats"] = {"error": str(reply.get("error"))[:300]}
+        for pid in self.pids.get("daemon", []):
+            try:
+                text = run("/usr/bin/vmmap", "-summary", str(pid), timeout=120).stdout
+            except (OSError, subprocess.SubprocessError) as error:
+                out["regions"][str(pid)] = {"error": str(error)[:200]}
+                continue
+            rows = {}
+            for line in text.splitlines():
+                m = re.match(r"^(MALLOC[A-Z_]*|Physical footprint(?: \(peak\))?|TOTAL|__DATA[A-Z_]*|Stack|IOKit|VM_ALLOCATE|mapped file)\s{2,}(.*)$", line.strip())
+                if m:
+                    rows.setdefault(m.group(1), m.group(2).split()[:4])
+            out["regions"][str(pid)] = rows
+        return out
+
     def hourly(self, rows):
         """One HOURLY line per hour of samples: per kind the hour's mean CPU and energy, the last memory, fds and
         threads; the soak's disk; the host's CPU and power. Also appended to hourly.jsonl."""
@@ -727,12 +758,16 @@ class Soak:
         out["system_cpu_percent"] = round(statistics.fmean(cpu), 1) if cpu else None
         out["system_power_mw"] = round(statistics.fmean(power)) if power else None
         out["owned_energy_mw"] = round(sum(k["energy_mw"] for k in out["kinds"].values()), 1)
+        out["daemon"] = self.daemon_breakdown()
         with open(os.path.join(self.out, "hourly.jsonl"), "a") as handle:
             handle.write(json.dumps(out) + "\n")
         cells = " | ".join(f"{k} n={v['count']} mem={v['mem_mb']}MB fds={v['fds']} thr={v['threads']} cpu={v['cpu_percent']}% "
                            f"e={v['energy_mw']}mW" for k, v in out["kinds"].items())
         say(f"HOURLY h={hour} {out['phase']} turns={out['turns_done']} sys_cpu={out['system_cpu_percent']}% "
             f"sys_power={out['system_power_mw']}mW owned_e={out['owned_energy_mw']}mW disk={out['disk']} :: {cells}")
+        memory = (out["daemon"].get("server_stats") or {}).get("memory")
+        regions = {pid: {k: v[:2] for k, v in r.items() if k.startswith(("MALLOC", "Physical"))} for pid, r in out["daemon"]["regions"].items()}
+        say(f"DAEMON-MEM h={hour} memory={json.dumps(memory)[:1500]} regions={json.dumps(regions)[:1500]}")
 
     # ---- report --------------------------------------------------------------------------
 
