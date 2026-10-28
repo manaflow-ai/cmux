@@ -96,6 +96,7 @@ await requireBrowserLane("tool-output-full-read-browser.test.ts", async () => {
   test("Raw shows the complete source while JSON and logs remain monospace", async () => {
     const page = await stage("expanded");
     try {
+      expect(await page.locator(".cv-tool-output__markdown").evaluate((node) => node.scrollTop)).toBe(0);
       await page.getByRole("button", { name: "Raw", exact: true }).click();
       expect(await page.locator("pre.cv-tool-output").textContent()).toContain("**End of the complete result.**");
     } finally {
