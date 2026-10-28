@@ -121,4 +121,28 @@ struct EarlyTerminalKeysTests {
             #expect(composer.string.isEmpty, "a key typed for the new terminal reached another text input")
         }
     }
+
+    /// Cmd-W of the new terminal after focus landed on it (the expectation is gone): the keys typed for it go with it.
+    /// Before, the close branch read only the focus expectation, so the hold force-ran them into whatever had the
+    /// keyboard (the old terminal) before the close (review of a8acc611977, finding A).
+    @Test func closingTheNewTerminalAfterFocusLandedDropsItsKeys() async throws {
+        try await Self.withTerminal { h in
+            let (controller, window, tab) = (h.controller, h.window, h.tab)
+            let router = h.services.keyRouter
+            let coordinator = router.creationInputCoordinator
+            window.makeFirstResponder(nil)
+            _ = try #require(coordinator.begin(in: window, generation: controller.focus.state.generation, earlyTab: tab, tab: tab))
+            #expect(controller.focus.state.expectation == nil, "the test needs focus landed on the new terminal")
+            let typed = try Self.key("a", keyCode: 0, in: window)
+            #expect(router.interceptKeyDown(typed, in: window), "the key was not held")
+            let before = coordinator.replayedCount
+            let close = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.command],
+                                                      timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                                                      context: nil, characters: "w", charactersIgnoringModifiers: "w",
+                                                      isARepeat: false, keyCode: 13))
+            _ = router.interceptKeyDown(close, in: window)
+            #expect(coordinator.replayedCount == before, "a key typed for the closed terminal was run into another view")
+            #expect(coordinator.heldCount(in: window) == 0, "the keys typed for the closed terminal still wait")
+        }
+    }
 }
