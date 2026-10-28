@@ -333,11 +333,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             for await _ in NotificationCenter.default.notifications(named: NSApplication.didBecomeActiveNotification) {
                 settings?.managedPreferencesMayHaveChanged()
                 services?.windows.enterRestoredFullScreens()
+                await services?.paidPlanReturned() // an upgrade's payment page sends the person back here
             }
         }
         services.configActions.start(settings: settings)
         // Agent-launched builds never take system-wide keys from the person's app.
         if !environment.noActivate { services.globalHotKeys.start() }
+        // Nor a menu bar item: a tagged build an agent launches leaves the person's menu bar alone.
+        if !environment.noActivate { services.menuBarExtra.follow(settings, background: services.background) }
         services.cache.browserTabs.preference.follow(settings)
         BrowserLinkClickPreference.follow(settings, webKit: services.cache.webKit, cef: services.cache.cef)
         WorkspaceAutoNameWiring(services: services).start(settings: settings) // `workspaces.autoName.variant` persist (hq#1957)
@@ -351,6 +354,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         })
         services.startHibernation(settings: settings)
         services.autoArchive.start() // workspaces.autoArchive: first pass 30 s after launch
+        services.workspaceHibernation.start() // workspaces.hibernation: first pass 60 s after launch
         services.terminalTheme.follow(settings)
         services.themes.start()
         services.themes.followChromeTheme(settings)
@@ -492,6 +496,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services?.crashRecovery.applicationWillTerminate()
         // The release push's socket closes and nothing reconnects (ReleasePushListener).
         services?.updater.stopReleasePush()
+        services?.agentTabs.pageChats.runNotices?.stop()
         AppProcessRoot.shared.hangReports?.applicationWillTerminate()
         ComputerUseHelperDaemon.shared.applicationWillTerminate()
         services?.viewers.diffPages.terminate()

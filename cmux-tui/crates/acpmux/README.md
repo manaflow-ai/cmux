@@ -248,7 +248,8 @@ its `depth`; `ACPMUX_TOOL_CALL_ID`, when the harness sets it, names the tool cal
 `turn_result failed outcome_unknown` so nobody replays a prompt that may have run. A turn a
 connection error cut off ("stream disconnected", a refused or reset connection, a 502/504), or
 that the provider or the gateway had no capacity for (HTTP 503 or 529, `overloaded_error`, "no
-non-exhausted ... accounts", "at capacity"), goes on by itself in the same session: after `autoResumeDelaysMs` (default 10 s, 1 min, 5 min, 20 min; `[]` turns it
+non-exhausted ... accounts", "at capacity"), goes on by itself in the same session: after `autoResumeDelaysMs` (one entry per attempt, so its
+length is how many attempts run, up to 12 of 1 s to 1 h each; default 10 s, 1 min, 5 min, 20 min; `[]` turns it
 off) the chat gets one prompt telling the agent to check what finished and continue, with prompt
 id `<promptId>~resume-<n>` and `_meta.provenance.kind` `auto_resume`. Stop, closing the chat, or
 anything else run in it meanwhile cancels it, and a continuation that completes resumes the
@@ -1303,8 +1304,10 @@ records of a failed turn, and so on the session's `lastTurn`. The error's own me
 - `errorKind`: `disk.full` (a write hit a full disk or quota), `disk.low` (`daemon status`:
   under `diskLowBytes`, 1 GiB by default, free on acpmux's disk), `peer.unreachable` (the peer
   did not answer; the request was not sent), `daemon.restarting` (the daemon is
-  shutting down), `spawn.failed` (the harness's program or folder is missing) or `agent.exited`
-  (the agent's process ended mid-turn). A client treats a kind it does not know as a plain error.
+  shutting down), `spawn.failed` (the harness's program or folder is missing), `agent.exited`
+  (the agent's process ended mid-turn), `auth.signed_out` (the agent said it is not signed in)
+  or `auth.expired` (it said its sign-in expired). A connection error is never an `auth.*`
+  kind. A client treats a kind it does not know as a plain error.
 - `recovery`: one sentence with the action, e.g. "The disk is full. Free space on the disk that
   holds /home/me/.acpmux: 0.9 GB free of 252 GB. acpmux's chats in /home/me/.acpmux/sessions
   use 3.0 GB; `acpmux session stop <session> --purge` removes a chat you no longer need."
