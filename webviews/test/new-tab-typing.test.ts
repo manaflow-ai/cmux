@@ -10,6 +10,7 @@ import path from "node:path";
 import { chromium, type Browser } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
+import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
 
 await requireBrowserLane("new-tab-typing.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -45,19 +46,28 @@ await requireBrowserLane("new-tab-typing.test.ts", async () => {
       const { port } = vite!.httpServer!.address() as { port: number };
       const page = await browser!.newPage({ viewport: { width: 900, height: 700 } });
       await page.goto(`http://127.0.0.1:${port}/test/browser/new-tab-typing.html?screen=${screen}`);
-      const field = page.locator(screen === "classic" ? "input.acpmux-newtab-field" : ".nt-field");
+      const classic = screen === "classic";
+      const field = page.locator(classic ? "input.acpmux-newtab-field" : ".nt-field");
       await field.first().waitFor();
-      await page.waitForFunction(
-        () =>
-          document.activeElement instanceof HTMLInputElement || document.activeElement instanceof HTMLTextAreaElement,
-      );
+      // The default field is the composer's Markdown field (#26567): its contenteditable takes the keys.
+      await page.waitForFunction((classic) => {
+        const active = document.activeElement;
+        return classic
+          ? active instanceof HTMLInputElement
+          : active instanceof HTMLElement && active.isContentEditable && !!active.closest(".nt-field");
+      }, classic);
       // A key at a time, with the page rendering again before each, as the bead's keys came.
       for (const key of "hello world 123") {
         await page.evaluate(() => window.rerenderHost?.());
         await page.keyboard.type(key);
       }
       await page.evaluate(() => window.rerenderHost?.());
-      expect(await field.first().inputValue()).toBe("hello world 123");
+      const typed = classic
+        ? await field.first().inputValue()
+        : await page.evaluate(() =>
+            document.querySelector<MarkdownFieldElement>(".nt-field")?.acpmuxMarkdownField?.value(),
+          );
+      expect(typed).toBe("hello world 123");
       await page.close();
     });
   }
