@@ -93,7 +93,7 @@ test("an omitted model effort capability stays distinct from explicit no-effort"
   });
   const models = result.harnesses.find((entry) => entry.id === "custom-harness")!.models;
   expect(models.find((model) => model.id === "live-custom")?.efforts).toEqual([]);
-  expect(models.find((model) => model.id === "live-custom")?.effortsDeclared).toBeUndefined();
+  expect(models.find((model) => model.id === "live-custom")?.effortsDeclared).toBe(false);
   expect(models.find((model) => model.id === "declared-none")?.efforts).toEqual([]);
   expect(models.find((model) => model.id === "declared-none")?.effortsDeclared).toBe(true);
 });

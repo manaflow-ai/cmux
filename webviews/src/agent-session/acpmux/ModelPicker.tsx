@@ -138,7 +138,9 @@ function sectionsFor(entry: HarnessChoice | undefined): { latest: ModelChoice[];
         ...(model.unavailable ? { unavailable: model.unavailable } : {}),
         // Catalog normalization materializes omitted capabilities as [] and marks them false;
         // direct catalog entries without provenance retain their explicit empty declaration.
-        ...(model.effortsDeclared !== false && model.efforts !== undefined ? { efforts: model.efforts } : {}),
+        ...((model.efforts?.length ?? 0) > 0 || (model.effortsDeclared !== false && model.efforts !== undefined)
+          ? { efforts: model.efforts }
+          : {}),
         ...(model.effortsDeclared !== undefined ? { effortsDeclared: model.effortsDeclared } : {}),
         ...(model.fast !== undefined ? { fast: model.fast } : {}),
         ...(model.release ? { release: model.release } : {}),
@@ -252,7 +254,9 @@ function quickRow(family: string, model: ModelChoice): QuickModel {
     id: model.id,
     name: model.name,
     family,
-    ...(model.effortsDeclared !== false && model.efforts !== undefined ? { efforts: model.efforts } : {}),
+    ...((model.efforts?.length ?? 0) > 0 || (model.effortsDeclared !== false && model.efforts !== undefined)
+      ? { efforts: model.efforts }
+      : {}),
     ...(model.unavailable ? { disabled: true } : {}),
     ...(model.tag ? { tag: model.tag } : {}),
     ...(model.provider ? { provider: model.provider } : {}),
