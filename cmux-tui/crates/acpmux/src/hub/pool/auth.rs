@@ -35,7 +35,7 @@ const AUTH_ENV: &[&str] = &[
 /// Where one family keeps its login, and how to read the account from it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Reader {
-    /// `~/.claude.json`: `oauthAccount.accountUuid` and `organizationUuid`.
+    /// `~/.claude.json`: OAuth account/organization and a saved `primaryApiKey`.
     ClaudeAccount,
     /// Codex `auth.json`: `auth_mode`, `tokens.account_id`, `OPENAI_API_KEY`.
     CodexAuth,
@@ -170,7 +170,11 @@ fn account_part(reader: Reader, bytes: &[u8]) -> u64 {
     let s = |v: &serde_json::Value, p: &str| v.pointer(p).map(|x| x.to_string());
     match reader {
         Reader::ClaudeAccount => {
-            (s(&v, "/oauthAccount/accountUuid"), s(&v, "/oauthAccount/organizationUuid"))
+            (
+                s(&v, "/oauthAccount/accountUuid"),
+                s(&v, "/oauthAccount/organizationUuid"),
+                s(&v, "/primaryApiKey"),
+            )
                 .hash(&mut h);
         }
         Reader::CodexAuth => {
