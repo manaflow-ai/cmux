@@ -1018,8 +1018,7 @@
   padding-inline: calc(var(--acpmux-top-strip-edge) - var(--acpmux-tray-inset));
 }
 
-/* The folder popover (FolderPopover.tsx): a search field over the folders, then New Worktree, Add
-   project and Choose folder…. A row is its check, its project's badge and its name, with a short
+/* The folder popover (FolderPopover.tsx): search, pinned project actions, then scrolling folders. A row is its check, its project's badge and its name, with a short
    suffix only when another project shares the name; the full path is its tooltip. */
 .acpmux-folder-popover { display: flex; flex-direction: column; min-width: 240px; }
 .acpmux-folder-popover .acpmux-location-search {

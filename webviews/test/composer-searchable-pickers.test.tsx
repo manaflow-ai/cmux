@@ -11,10 +11,7 @@ let host: HTMLElement;
 let root: Root | undefined;
 
 beforeAll(() => {
-  dom = new JSDOM("<!doctype html><div id=root></div>", {
-    pretendToBeVisual: true,
-    url: "https://cmux.test/",
-  });
+  dom = new JSDOM("<!doctype html><div id=root></div>", { pretendToBeVisual: true, url: "https://cmux.test/" });
   const replacements: Record<string, unknown> = {
     window: dom.window,
     document: dom.window.document,
@@ -76,11 +73,7 @@ async function type(field: HTMLInputElement, value: string) {
 }
 
 async function key(field: HTMLInputElement, value: string) {
-  const event = new dom.window.KeyboardEvent("keydown", {
-    key: value,
-    bubbles: true,
-    cancelable: true,
-  });
+  const event = new dom.window.KeyboardEvent("keydown", { key: value, bubbles: true, cancelable: true });
   await act(async () => field.dispatchEvent(event));
   return event.defaultPrevented;
 }
@@ -95,15 +88,7 @@ async function machines() {
       <ComposerContext
         peers={["gpu-box", "build-cloud", "gpu-spare"]}
         localName="This Mac"
-        sessions={[
-          {
-            sessionId: "gpu-chat",
-            cwd: "/demo/atlas",
-            host: "gpu-box",
-            peer: "gpu-box",
-            updatedAt: 0,
-          },
-        ]}
+        sessions={[{ sessionId: "gpu-chat", cwd: "/demo/atlas", host: "gpu-box", peer: "gpu-box", updatedAt: 0 }]}
         projectChoices={[{ cwd: "/demo/atlas", label: "atlas" }]}
         onProject={(cwd, peer) => calls.push([cwd, peer])}
         onConnect={(kind) => calls.push(["connect", kind])}

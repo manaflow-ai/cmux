@@ -18,8 +18,8 @@ export type FolderChoice = { id: string; label: string; repo?: ProjectRepo };
 /// another shares that name, a short suffix that tells it apart (projectSuffix.ts); the full path is
 /// the row's tooltip. A repository's row picks the current folder, else its main checkout, else its
 /// newest worktree; its other worktrees, newest first, open under it with → (← or the count closes
-/// them). The current folder is checked. After the folders: New Worktree, Add project and Choose
-/// folder…, each only where the host offers it. The shared Combobox keeps the keyboard in the field:
+/// them). The current folder is checked. Actions stay directly under search, before the scrolling
+/// folders: No project, New Worktree, Add project and Choose folder, where the host offers them. The shared Combobox keeps the keyboard in the field:
 /// typing filters by repository, branch and path, and lists a worktree on its own when the words
 /// name it; ↑/↓ move through the rows and the actions; Return picks; Escape closes back to the
 /// strip. A typed absolute or `~/` path is offered as typed. `note` is a quiet line under the list:
