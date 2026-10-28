@@ -132,7 +132,7 @@ jobs:
         env:
           SCRATCH_URL: postgres://postgres:postgres@localhost:5432/postgres
         run: bun migrate.ts --url-env SCRATCH_URL && bun migrate.ts --url-env SCRATCH_URL --verify
-      - name: Projection queries and the Drizzle schema on the migrated scratch Postgres
+      - name: The Postgres migrations and the Drizzle schema on the migrated scratch Postgres (until the schema goes)
         working-directory: backend/db
         env:
           SCRATCH_URL: postgres://postgres:postgres@localhost:5432/postgres
@@ -140,7 +140,7 @@ jobs:
       - name: MySQL migration lint (Vitess rules)
         working-directory: backend/db
         run: bun migrate-mysql.ts --lint
-      - name: MySQL migrations apply from zero, projection, search and Postgres/MySQL parity
+      - name: MySQL migrations apply from zero, projection, search and the mobile copy (Postgres source)
         working-directory: backend/db
         env:
           SCRATCH_URL: postgres://postgres:postgres@localhost:5432/postgres
