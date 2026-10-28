@@ -235,6 +235,59 @@ async fn grouped_open_failure_reports_retry_and_keeps_first_prompt() {
 }
 
 #[tokio::test]
+async fn detached_group_open_interruption_still_queues_first_prompt() {
+    let root = std::env::temp_dir().join(format!("amx-grp-interrupt-{}", std::process::id()));
+    std::fs::create_dir_all(root.join("bin")).unwrap();
+    let root = std::fs::canonicalize(root).unwrap();
+    let local = hub(&root);
+    let socket = root.join("a.sock");
+    let listener = bind_unix(&socket).await.unwrap();
+    let server = tokio::spawn(serve_unix(local.clone(), listener));
+
+    // The app hop kills its parent CLI before it can return. The CLI must
+    // queue the first prompt before attempting the synchronous app open.
+    let cmux = root.join("bin/cmux");
+    std::fs::write(&cmux, "#!/bin/sh\nkill -TERM \"$PPID\"\nexit 0\n").unwrap();
+    std::fs::set_permissions(&cmux, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let mut command = daemon_env::tokio_command(&root, daemon_env::Agents::StandIn);
+    command
+        .env("ACPMUX_SOCKET", &socket)
+        .env("PATH", root.join("bin"))
+        .current_dir(&root)
+        .args([
+            "new",
+            "-m",
+            "fake",
+            "--name",
+            "detached-interruption",
+            "--group",
+            "remote-audit",
+            "-d",
+            "do it",
+        ])
+        .kill_on_drop(true);
+    let output = tokio::time::timeout(Duration::from_secs(5), command.output())
+        .await
+        .expect("interrupted grouped launch hung")
+        .expect("interrupted grouped launch could not run");
+    assert!(!output.status.success(), "the app hop terminated the CLI");
+
+    let session = local
+        .resolve("detached-interruption")
+        .expect("session survives an interrupted grouped launch");
+    let summary = local.session_summary(&session);
+    assert!(
+        summary["queued"].as_u64().unwrap_or(0) >= 1
+            || summary["turnCount"].as_u64().unwrap_or(0) >= 1,
+        "first prompt was lost when the app open was interrupted: {summary}"
+    );
+    local.end_agents_at_shutdown(Default::default()).unwrap();
+    local.shutdown_all().await;
+    server.abort();
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[tokio::test]
 async fn ephemeral_keep_is_limited_to_the_creating_client() {
     let root = std::env::temp_dir().join(format!("amx-keep-{}", std::process::id()));
     std::fs::create_dir_all(&root).unwrap();

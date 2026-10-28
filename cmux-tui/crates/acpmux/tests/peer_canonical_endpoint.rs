@@ -148,7 +148,9 @@ fn blackholed_host_add_returns_without_waiting_for_ssh() {
     let started = Instant::now();
     let out =
         cli_bounded(&d, &["host", "add", "blackhole", "ssh://192.0.2.10"], Duration::from_secs(1));
-    assert!(started.elapsed() < Duration::from_secs(1), "host add took {:?}", started.elapsed());
+    let elapsed = started.elapsed();
+    eprintln!("blackholed host add elapsed: {elapsed:?}");
+    assert!(elapsed < Duration::from_secs(1), "host add took {elapsed:?}");
     assert!(String::from_utf8_lossy(&out.stderr).contains("probing in the background"));
     assert_eq!(saved_url(&d, "blackhole").as_deref(), Some("ssh://192.0.2.10"));
 }

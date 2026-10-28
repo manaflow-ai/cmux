@@ -482,16 +482,38 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 return Ok(());
             }
             let first = launch.first_prompt(&args, &v);
-            if let Err(open_error) = show() {
-                if ephemeral && host.is_none() {
-                    client.request(method::MUX_KEEP, json!({"sessionId": id})).await
-                        .map_err(|error| anyhow!("app open failed and the ephemeral session could not be retained: {error}; retry the launch without --ephemeral"))?;
+            // A detached launch must already have its instructions if the CLI
+            // is interrupted while the app is opening its workspace.
+            if args.detach
+                && let Some(text) = &first
+            {
+                let prompt = PromptId::new(args.prompt_id.clone());
+                let accepted =
+                    queue_prompt(client.clone(), &id, text, false, None, &prompt).await?;
+                if !json_out {
+                    warn_host_pressure(&accepted);
                 }
-                if let Some(text) = &first {
+            }
+            if let Err(mut open_error) = show() {
+                if !args.detach
+                    && let Some(text) = &first
+                {
                     let prompt = PromptId::new(args.prompt_id.clone());
-                    queue_prompt(client, &id, text, false, None, &prompt).await.map_err(
-                        |error| anyhow!("{open_error}; first prompt was not confirmed: {error}"),
-                    )?;
+                    if let Err(error) =
+                        queue_prompt(client.clone(), &id, text, false, None, &prompt).await
+                    {
+                        open_error =
+                            anyhow!("{open_error}; first prompt was not confirmed: {error}");
+                    }
+                }
+                if ephemeral
+                    && host.is_none()
+                    && let Err(error) =
+                        client.request(method::MUX_KEEP, json!({"sessionId": id})).await
+                {
+                    open_error = anyhow!(
+                        "{open_error}; the ephemeral session could not be retained: {error}; retry the launch without --ephemeral"
+                    );
                 }
                 return Err(open_error);
             }
@@ -554,11 +576,6 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                     return Ok(());
                 }
                 if args.detach {
-                    // Return once the daemon has accepted the prompt.
-                    let accepted = queue_prompt(client, &id, &text, false, None, &prompt).await?;
-                    if !json_out {
-                        warn_host_pressure(&accepted);
-                    }
                     return Ok(());
                 }
                 let opts = CollectOpts {
