@@ -184,8 +184,13 @@ function sources(rows: readonly AcpmuxRow[], pullRequests: readonly SummaryPullR
       if (!tool.tool) continue;
       const item = tool.tool;
       if (item.status !== "completed" || (item.exitCode ?? 0) !== 0) continue;
-      const command = item.command ? pullRequestSourceCommand(item.command) : field(input(item).command) ?? "";
-      const text = `${item.title} ${command} ${item.inputSummary ?? ""} ${item.output ?? ""}`;
+      const inputFields = input(item);
+      const inputCommand = field(inputFields.command);
+      const command = item.command ? pullRequestSourceCommand(item.command) : inputCommand ?? "";
+      // When raw input carries a shell command, scanning the JSON would reintroduce URLs from
+      // --body/--body-file payloads that the command sanitizer intentionally removed.
+      const inputText = inputCommand ? "" : item.inputSummary ?? "";
+      const text = `${item.title} ${command} ${inputText} ${item.output ?? ""}`;
       addUrls(text, rowIndex);
       if (item.kind === "fetch" && !/https?:\/\//.test(text)) add({ label: item.title }, rowIndex);
       if (item.kind === "read") for (const path of editedPaths(item)) add({ label: path, kind: "file" }, rowIndex);
