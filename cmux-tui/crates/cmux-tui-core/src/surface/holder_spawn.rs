@@ -97,6 +97,46 @@ impl Surface {
         launched
     }
 
+    /// A new shell on the holder for terminal `terminal_id` whose shell
+    /// ended (an automatic respawn or a `restart-tab`, `mux::terminal_respawn`):
+    /// the same terminal and tab identity, a new incarnation, the previous
+    /// screen's `seed` before the shell's first byte. The holder model's
+    /// counterpart of [`Surface::respawn_hosted`], so a terminal that comes
+    /// back stays on the holder (H12).
+    pub(crate) fn respawn_on_holder(
+        id: SurfaceId,
+        opts: SurfaceOptions,
+        mux: Weak<Mux>,
+        terminal_id: crate::terminal_host::TerminalId,
+        resource_identity: TabResourceIdentity,
+        cell_pixels: (u16, u16),
+        seed: &[u8],
+    ) -> anyhow::Result<Arc<Surface>> {
+        let host_root = opts
+            .terminal_host_root
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("respawn needs a terminal host root"))?;
+        let (opts, terminal_public_id, kitty_reservation) =
+            Self::spawn_prelude(id, opts, &mux, Some(&resource_identity), KittyQuota::AtLaunch)?;
+        let initial_kitty_limits = kitty_reservation
+            .as_ref()
+            .map(crate::mux::KittyImageBudgetReservation::initial_limits)
+            .unwrap_or_default();
+        Self::spawn_on_holder(HolderSpawn {
+            id,
+            opts,
+            mux,
+            host_root,
+            terminal_id: Some(terminal_id),
+            seed: seed.to_vec(),
+            terminal_public_id,
+            resource_identity: Some(resource_identity),
+            kitty_reservation,
+            initial_kitty_limits,
+            cell_pixels,
+        })
+    }
+
     /// Re-attach a terminal the holder still runs after a daemon restart:
     /// its kept output replays into a fresh parser. `None` when the holder
     /// does not run it.

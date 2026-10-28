@@ -455,7 +455,8 @@ impl Mux {
         options.terminal_host_root.clone()
     }
 
-    /// Reopen the row, launch the new host and put it in the tabs. `None`
+    /// Reopen the row, start the new shell (on the holder or a new host)
+    /// and put it in the tabs. `None`
     /// when a close or another end won, or the owner is shutting down.
     #[cfg(any(unix, windows))]
     #[track_caller]
@@ -516,7 +517,18 @@ impl Mux {
         }
         let terminal_id = TerminalId::from_hex(&plan.terminal_id)
             .context("terminal id is not a canonical UUIDv4")?;
-        let surface = Surface::respawn_hosted(
+        // The new shell runs where this daemon's new terminals run: on the
+        // holder under the holder model, else on a new host (H12: a
+        // respawn or restart-tab must not move a holder terminal to a host).
+        #[cfg(unix)]
+        let respawn = if crate::holder_runtime::enabled() {
+            Surface::respawn_on_holder
+        } else {
+            Surface::respawn_hosted
+        };
+        #[cfg(not(unix))]
+        let respawn = Surface::respawn_hosted;
+        let surface = respawn(
             plan.slot,
             launch.options,
             Arc::downgrade(self),
