@@ -51,7 +51,7 @@ async fn ran(c: &mut Client, session: &str, id: &str) -> bool {
 /// prompt runs past it, and the owner's approval at its revision runs it under its author.
 #[tokio::test]
 async fn a_guests_prompt_waits_while_the_owners_run_past_it() {
-    let hub = hub_env(json!({"FAKE_CODEX_STEER": "1"}));
+    let hub = hub_env(json!({"FAKE_CLAUDE_STEER": "1"}));
     let mut c = Client::open(&hub);
     let session = c.new_session(json!({"harness": "fake"})).await;
     c.busy(&session).await;
