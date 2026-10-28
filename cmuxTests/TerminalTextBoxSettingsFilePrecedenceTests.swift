@@ -115,7 +115,9 @@ struct TerminalTextBoxSettingsFilePrecedenceTests {
     ) async {
         await withCheckedContinuation { continuation in
             let admitted = enqueue { _ in continuation.resume() }
+            // A rejected callback is never retained, so it never runs.
             #expect(admitted)
+            if !admitted { continuation.resume() }
         }
     }
 
