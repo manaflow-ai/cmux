@@ -476,10 +476,7 @@ const github = {{
         reRuns.push(request.run_id);
         return {{ status: 201 }};
       }},
-      getWorkflowRun: async (request) => {{
-        const marker = markerRuns.find((m) => m.runId === Number(request.run_id));
-        return {{ data: {{ id: request.run_id, status: marker?.statusAfterRerun ?? 'completed' }} }};
-      }},
+
       listArtifactsForRepo: async (request) => {{
         if (request.name === 'ios-testflight-deferred') {{
           const markers = markerRuns
@@ -1024,6 +1021,9 @@ def test_manual_run_queues_behind_an_earlier_upload_instead_of_sleeping() -> Non
 
     assert result["waitCalls"] == []
     assert result["workflowRunCalls"] == 1
+    # Every page of a bounded window, so no older active run is missed.
+    assert result["workflowRunRequests"][0]["created"].startswith(">=")
+    assert result["workflowRunRequests"][0]["page"] == 1
     assert result["priorRunStatuses"] == ["in_progress"]
     # One look at the blocking run's jobs, not one per minute.
     assert result["uploadJobStatuses"] == ["in_progress"]
@@ -1157,7 +1157,10 @@ def test_queue_drops_a_run_github_refuses_to_re_run_but_not_one_already_started(
         prior_sha="base-sha",
         head_sha="head-sha",
         changed_files=("ios/cmux/App.swift",),
-        deferred_markers=({"runId": 70, "rerunStatus": 403}, {"runId": 80}),
+        deferred_markers=(
+            {"runId": 70, "rerunStatus": 403, "runAttempt": 49},
+            {"runId": 80},
+        ),
     )
     assert refused["deletedArtifacts"] == [1070]
     assert refused["reRuns"] == [80]
@@ -1168,10 +1171,9 @@ def test_queue_drops_a_run_github_refuses_to_re_run_but_not_one_already_started(
         prior_sha="base-sha",
         head_sha="head-sha",
         changed_files=("ios/cmux/App.swift",),
-        deferred_markers=(
-            {"runId": 70, "rerunStatus": 403, "statusAfterRerun": "in_progress"},
-            {"runId": 80},
-        ),
+        # A refusal below the attempt cap is most likely another reconciler's
+        # re-run still starting: never move past it.
+        deferred_markers=({"runId": 70, "rerunStatus": 403}, {"runId": 80}),
     )
     assert raced["deletedArtifacts"] == []
     assert raced["reRuns"] == []
@@ -1190,8 +1192,8 @@ def test_queue_drops_a_run_github_refuses_to_re_run_but_not_one_already_started(
 
 def test_queued_run_builds_when_its_turn_comes() -> None:
     # The re-run of a queued manual run (its own marker, nothing ahead) builds
-    # the commit and inputs it was dispatched with. Its marker stays until the
-    # upload job is done, so later runs keep waiting behind it.
+    # the commit and inputs it was dispatched with and deletes its marker; the
+    # active run itself holds later runs back until its upload job is done.
     result = run_decision_scenario(
         event_name="workflow_dispatch",
         prior_sha="base-sha",
@@ -1205,7 +1207,7 @@ def test_queued_run_builds_when_its_turn_comes() -> None:
         "last_uploaded_sha": "base-sha",
         "variant": "internal",
     }
-    assert result["deletedArtifacts"] == []
+    assert result["deletedArtifacts"] == [1100]
     assert result["reRuns"] == []
 
 
@@ -1643,5 +1645,4 @@ def test_queued_run_saves_its_marker_and_the_upload_hands_the_queue_on() -> None
         "if: ${{ always() && needs.decide.outputs.should_build == 'true' "
         "&& github.ref == 'refs/heads/main' }}"
     ) in handoff
-    assert "queue.release(" in handoff
     assert "queue.reconcile(" in handoff

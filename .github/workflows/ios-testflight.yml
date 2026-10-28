@@ -383,15 +383,20 @@ jobs:
                 }
               }
             }
-            // A run that will not upload gives up its place in line (a queued
-            // DEMO re-run whose commit already shipped) and hands the queue on.
-            if (!shouldBuild && queueState) {
+            // A queued run whose turn came has its answer: its marker goes.
+            // If it builds, this active run blocks later runs on its own until
+            // its upload job is done, and a failed upload is final, exactly as
+            // for a run that never queued. If it does not build (a queued DEMO
+            // re-run whose commit already shipped), it hands the queue on.
+            if (queueState) {
               try {
                 await queue.release({ github, context, core }, queueState.markers);
               } catch (error) {
                 core.debug(`could not release the queue marker: ${error.message}`);
               }
-              await queue.reconcile({ github, context, core }, queueState);
+              if (!shouldBuild) {
+                await queue.reconcile({ github, context, core }, queueState);
+              }
             }
             core.setOutput('should_build', shouldBuild ? 'true' : 'false');
             core.setOutput('last_uploaded_sha', lastUploadedSha || '');
@@ -408,9 +413,9 @@ jobs:
               ])
               .write();
 
-      # A blocked manual or DEMO run's place in the upload queue. It stays
-      # until this run's upload job is done; the queue re-runs this run when
-      # every earlier upload has finished.
+      # A blocked manual or DEMO run's place in the upload queue. The queue
+      # re-runs this run when every earlier upload has finished, and the
+      # re-run's decide deletes the marker.
       - name: Join the upload queue
         if: steps.decide.outputs.deferred == 'true'
         env:
@@ -1186,10 +1191,9 @@ jobs:
         run: |
           security delete-keychain ios-testflight.keychain >/dev/null 2>&1 || true
 
-  # Hands the upload queue on as soon as this run's upload job is done: drops
-  # this run's queue marker (if it was a queued re-run) and re-runs the oldest
-  # queued manual or DEMO run. The 20-minute INTERNAL poll does the same, so a
-  # failure here only delays the next upload.
+  # Hands the upload queue on as soon as this run's upload job is done (or
+  # skipped): re-runs the oldest queued manual or DEMO run. The 20-minute
+  # INTERNAL poll does the same, so a failure here only delays the next upload.
   next-queued-upload:
     name: Start the next queued upload
     needs: [decide, upload]
@@ -1210,14 +1214,12 @@ jobs:
             scripts/ci/ios_testflight_queue.cjs
           sparse-checkout-cone-mode: false
 
-      - name: Release this run and start the next queued upload
+      - name: Start the next queued upload
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
             const queue = require(`${process.env.GITHUB_WORKSPACE}/scripts/ci/ios_testflight_queue.cjs`);
-            const markers = await queue.listMarkers({ github, owner: context.repo.owner, repo: context.repo.repo });
-            await queue.release({ github, context, core }, markers);
-            await queue.reconcile({ github, context, core }, { markers });
+            await queue.reconcile({ github, context, core });
 
   set-testflight-notes:
     # Production secrets: GitHub releases them only to protected refs (the

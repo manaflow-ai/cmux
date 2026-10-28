@@ -7,12 +7,14 @@
 // A manual dispatch or DEMO run that finds an earlier upload still running no
 // longer waits on a runner. Its decide job uploads a small marker artifact
 // (DEFERRED_ARTIFACT) and the run ends. A marker is the run's place in line:
-// it blocks every later run, and it stays until that run's own upload job is
-// done. reconcile() then re-runs the oldest marked run, which keeps its commit,
-// its inputs and its variant, so a queued upload ships exactly what it would
-// have shipped after waiting. reconcile() runs after every upload and in every
-// 20-minute INTERNAL poll that does not upload, so a missed handoff is picked
-// up by the next poll.
+// it blocks every later run. reconcile() re-runs the oldest marked run once
+// nothing earlier may still upload; the re-run keeps its commit, its inputs
+// and its variant, so a queued upload ships exactly what it would have shipped
+// after waiting. The re-run's decide deletes the marker when it has its answer;
+// from then on the active run blocks later runs by itself until its upload job
+// is done, like any other run. reconcile() runs after every upload and in
+// every 20-minute INTERNAL poll that does not upload, so a missed handoff is
+// picked up by the next poll.
 //
 // Every function makes a fixed, small number of API calls and returns. Nothing
 // here waits: tests/test_ios_testflight_main_push_filter.py fails on a timer.
@@ -23,6 +25,9 @@ const WORKFLOW = 'ios-testflight.yml';
 const UPLOAD_JOB = 'Upload to TestFlight';
 const DEFERRED_ARTIFACT = 'ios-testflight-deferred';
 const QUEUE_EVENTS = ['push', 'schedule', 'workflow_dispatch'];
+// GitHub's documented cap on attempts of one run; a refused re-run below this
+// may be another reconciler's re-run still starting, so it is left alone.
+const MAX_RUN_ATTEMPTS = 50;
 // A run whose jobs never started after this long is in GitHub's queued limbo
 // (cancel, force-cancel and rerun all fail) and is not treated as active.
 const DEFUNCT_MINUTES = 120;
@@ -32,15 +37,32 @@ function minutesSince(timestamp) {
   return Number.isFinite(ms) ? (Date.now() - ms) / 60_000 : 0;
 }
 
+// Runs created in the last RUN_WINDOW_DAYS, every page, newest first. An
+// active run older than that is defunct; a queued run of any age is found by
+// its marker, not by this list.
+const RUN_WINDOW_DAYS = 3;
+
 async function listMainRuns({ github, owner, repo }) {
-  const response = await github.rest.actions.listWorkflowRuns({
-    owner,
-    repo,
-    workflow_id: WORKFLOW,
-    branch: 'main',
-    per_page: 100,
-  });
-  return response.data.workflow_runs || [];
+  const since = new Date(Date.now() - RUN_WINDOW_DAYS * 86_400_000).toISOString();
+  const perPage = 100;
+  const runs = [];
+  for (let page = 1, pageCount = 1; page <= pageCount; page += 1) {
+    const response = await github.rest.actions.listWorkflowRuns({
+      owner,
+      repo,
+      workflow_id: WORKFLOW,
+      branch: 'main',
+      created: `>=${since}`,
+      per_page: perPage,
+      page,
+    });
+    const pageRuns = response.data.workflow_runs || [];
+    runs.push(...pageRuns);
+    const totalCount = Number(response.data.total_count ?? pageRuns.length);
+    pageCount = Math.max(1, Math.ceil(totalCount / perPage));
+    if (pageRuns.length === 0) break;
+  }
+  return runs;
 }
 
 // Marker artifacts by run id, oldest run first.
@@ -171,10 +193,10 @@ async function reconcile({ github, context, core }, state) {
         return null;
       }
     }
-    const getRun = async (runId) =>
-      (await github.rest.actions.getWorkflowRun({ owner, repo, run_id: runId })).data;
     for (const runId of queued) {
-      const run = byId.get(runId) ?? (await getRun(runId));
+      const run =
+        byId.get(runId) ??
+        (await github.rest.actions.getWorkflowRun({ owner, repo, run_id: runId })).data;
       const jobs = await listJobs({ github, owner, repo }, runId);
       if (run.status !== 'completed') {
         const stuckMinutes = isDefunct(run, jobs);
@@ -195,8 +217,8 @@ async function reconcile({ github, context, core }, state) {
       const uploadRan =
         uploadJob?.status === 'completed' && uploadJob.conclusion !== 'skipped';
       if (uploadRan || run.conclusion === 'cancelled') {
-        // Already uploaded (its release failed) or cancelled by someone: the
-        // marker no longer holds a place in line.
+        // Its turn already came (decide could not delete the marker) or
+        // someone cancelled it: the marker no longer holds a place in line.
         if (!uploadRan) {
           core.warning(`dropping cancelled TestFlight run ${runId} from the upload queue`);
         }
@@ -208,11 +230,14 @@ async function reconcile({ github, context, core }, state) {
         await github.rest.actions.reRunWorkflow({ owner, repo, run_id: runId });
       } catch (error) {
         const status = Number(error.status);
-        if (!(status >= 400 && status < 500)) throw error;
-        // Another reconciler may have started it a moment ago.
-        if ((await getRun(runId)).status !== 'completed') return null;
-        // GitHub refuses this re-run for good (attempt limit, or older than
-        // its re-run window): say so loudly and keep the line moving.
+        if (!(status >= 400 && status < 500) || attempts + 1 < MAX_RUN_ATTEMPTS) {
+          // Most likely another reconciler started it a moment ago; if not,
+          // the next poll tries again. Never move past it here.
+          core.warning(`could not re-run queued TestFlight run ${runId}; the next poll retries`);
+          return null;
+        }
+        // GitHub refuses this re-run for good (attempt limit): say so loudly
+        // and keep the line moving.
         core.error(
           `dropping queued TestFlight run ${runId} from the upload queue: ` +
           `GitHub refused attempt ${attempts + 1} (HTTP ${status}); dispatch it again`
