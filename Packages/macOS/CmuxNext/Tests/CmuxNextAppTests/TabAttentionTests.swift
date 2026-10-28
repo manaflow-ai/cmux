@@ -177,7 +177,8 @@ import Testing
         try #require(controller.content?.workspace === localWorkspace)
         notifications.noteMouseUp(in: nil, at: window.convertPoint(toScreen: point))
         #expect(notifications.attentionMarks(for: remoteWorkspace).isEmpty, "workspace replacement lost the pressed remote tab")
-        #expect(localTab.attentionRingHiddenThrough != 4_000, "workspace replacement redirected the press into the local tab")
+        #expect(localTab.attentionRingHiddenThrough != localTab.attentionGeneration,
+                "workspace replacement redirected the press into the local tab")
         #expect(localTab.markedUnread)
 
         // Run the real remote strip menu item, including its native target payload. Both stores

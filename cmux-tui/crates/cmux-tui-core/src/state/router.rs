@@ -346,6 +346,7 @@ pub(crate) fn dispatch(
                 emulation: None,
                 marked_unread: optional_bool(fields, "marked_unread")?,
                 attention: nullable_reason(fields, "attention")?,
+                attention_clear_at_ms: fields.get("attention_at_ms").and_then(Value::as_u64),
                 attention_page: None,
             };
             let commit = mux
