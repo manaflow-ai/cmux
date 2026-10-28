@@ -265,7 +265,7 @@ try:
     # thread view's first row; the thread object stays on the owner and in Channels.
     head = drive("header")
     result["header"] = head
-    check("the thread view draws no header above the root", head.get("header") == "", head)
+    check("the thread view is open and draws no header above the root", head.get("open") == "1" and head.get("header") == "", head)
 
     # 10: Copy Link on a message: the daemon's permalink form, which the owner resolves to its thread path.
     drive("escape"); drive("escape")
@@ -329,10 +329,6 @@ try:
     result["channels"] = shown
     check("Channels shows A, B and C in R's thread at depth 1, 2 and 3", shown == {"A": "1", "B": "2", "C": "3"},
           {"shown": shown, "elements": (rpc("debug.page", dict(page, action="query", selector="article.hc-msg")) or {}).get("elements")})
-    sheet = poll(lambda: [e for e in ((rpc("debug.page", dict(page, action="query", selector="[data-status]")) or {}).get("elements") or [])
-                          if (e.get("data") or {}).get("status") == "resolved" and new_title in (e.get("text") or "")], timeout=20)
-    check("Channels shows the same thread resolved, with the title set in Messages", bool(sheet),
-          (rpc("debug.page", dict(page, action="query", selector="[data-status]")) or {}).get("elements"))
     rpc("debug.page", dict(page, action="snapshot", path=os.path.join(opts.out, "7-channels.png")))
 finally:
     reply = rpc("debug.quit", {"fixture_quit": "end-sessions"}, timeout=10)

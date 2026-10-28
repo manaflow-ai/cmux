@@ -10,13 +10,13 @@ extension MessagesLabHomeView {
         set { projection.tree.linkScheme = newValue }
     }
 
-    /// Automation (DEBUG socket), tree threads: `header` (whether the open thread view draws anything above its root;
+    /// Automation (DEBUG socket), tree threads: `header` (`open`: a thread view is open; `header`: it draws anything above its root;
     /// Messages draws nothing, https://github.com/manaflow-ai/cmux/issues/26686) and `copy_link` {text} (Copy Link
     /// in the menu of that bubble; answers the pasteboard). nil: not a tree action.
     public func debugTreeDrive(_ action: String, _ args: [String: String]) -> [String: String]? {
         switch action {
         case "header":
-            return ["header": controller.demo?.threadHeaderFrame == nil ? "" : "1"]
+            return ["open": controller.demo?.threadOpen == true ? "1" : "", "header": controller.demo?.threadHeaderFrame == nil ? "" : "1"]
         case "copy_link":
             guard let hit = debugBubble(text: args["text"] ?? ""),
                   let menu = controller.menu(at: CGPoint(x: hit.body.midX, y: hit.body.midY)) else { return ["ok": "0"] }
