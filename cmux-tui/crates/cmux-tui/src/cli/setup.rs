@@ -483,8 +483,24 @@ mod tests {
             "state": "needs_setup",
             "clients": [{"fix": "cmux setup mcp claude"}, {"fix": "cmux setup mcp codex"}],
         }));
-        assert_eq!(multiple["status"], "needs_action");
+        assert_eq!(multiple["check_status"], "needs_action");
         assert_eq!(multiple["recovery"].as_array().unwrap().len(), 2);
+
+        let nested_failure = enrich_status(json!({
+            "task": "mcp",
+            "state": "needs_setup",
+            "clients": [{"state": "failed", "error": "client timed out"}],
+        }));
+        assert_eq!(nested_failure["check_status"], "failed");
+        assert_eq!(nested_failure["status"], Value::Null);
+
+        let existing = enrich_status(json!({
+            "task": "computer_use",
+            "state": "needs_user",
+            "status": {"phase": "off", "accessibility": false},
+        }));
+        assert_eq!(existing["check_status"], "needs_action");
+        assert_eq!(existing["status"]["phase"], "off");
     }
 
     #[test]
