@@ -6224,7 +6224,8 @@ mod unix {
                 break;
             }
         }
-        // The input thread retains a socket clone; dropping this writer alone cannot signal EOF.
+        // The input worker may still be handling a PTY write. Shut down the shared socket
+        // before cleanup so EOF never depends on that worker dropping its socket clone.
         tap.close();
         host.remove_client(client);
         Ok(())
@@ -9539,8 +9540,46 @@ mod unix {
 
         #[test]
         fn output_timeout_disconnects_client_and_allows_reattachment() {
+            assert_output_timeout_disconnects_and_allows_reattachment(false);
+        }
+
+        #[test]
+        fn output_timeout_disconnects_while_input_is_blocked_on_pty() {
+            assert_output_timeout_disconnects_and_allows_reattachment(true);
+        }
+
+        fn assert_output_timeout_disconnects_and_allows_reattachment(block_input: bool) {
             let host = exited_host_fixture();
+            let blocked_input = block_input.then(|| {
+                let (write_started_tx, write_started_rx) = sync_channel(1);
+                let (write_release_tx, write_release_rx) = sync_channel(1);
+                let (flush_started_tx, flush_started_rx) = sync_channel(1);
+                let (flush_release_tx, flush_release_rx) = sync_channel(1);
+                flush_release_tx.send(()).unwrap();
+                *host.writer.lock().unwrap() = Box::new(GatedInputWriter {
+                    write_started: write_started_tx,
+                    write_release: write_release_rx,
+                    flush_started: flush_started_tx,
+                    flush_release: flush_release_rx,
+                    fail_flush: false,
+                });
+                (write_started_rx, write_release_tx, flush_started_rx)
+            });
             let (server_stream, mut client_stream) = UnixStream::pair().unwrap();
+            // Force backpressure independently of the machine's default socket buffer size.
+            let send_buffer_bytes: libc::c_int = 4096;
+            assert_eq!(
+                unsafe {
+                    libc::setsockopt(
+                        server_stream.as_raw_fd(),
+                        libc::SOL_SOCKET,
+                        libc::SO_SNDBUF,
+                        (&send_buffer_bytes as *const libc::c_int).cast(),
+                        std::mem::size_of_val(&send_buffer_bytes) as libc::socklen_t,
+                    )
+                },
+                0
+            );
             client_stream.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
             let (done_tx, done_rx) = mpsc_channel();
             let server_host = host.clone();
@@ -9560,6 +9599,12 @@ mod unix {
                     read_required_frame(&mut client_stream, "handshake").unwrap().kind,
                     kind
                 );
+            }
+
+            if let Some((write_started, _, _)) = &blocked_input {
+                write_frame(&mut client_stream, &Frame::new(MessageKind::Input, b"x".to_vec()))
+                    .unwrap();
+                write_started.recv_timeout(Duration::from_secs(1)).unwrap();
             }
 
             // Stop reading until the real socket write timeout ends the output thread.
@@ -9592,6 +9637,12 @@ mod unix {
             assert_eq!(frame.payload, b"still running");
             drop(client_stream);
             server.join().unwrap().unwrap();
+
+            // EOF and reattachment must succeed before the blocked PTY write is released.
+            if let Some((_, write_release, flush_started)) = blocked_input {
+                write_release.send(()).unwrap();
+                flush_started.recv_timeout(Duration::from_secs(1)).unwrap();
+            }
         }
 
         #[test]
