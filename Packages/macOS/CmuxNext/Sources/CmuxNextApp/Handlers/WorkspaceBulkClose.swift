@@ -194,10 +194,17 @@ enum WorkspaceBulkClose {
         return await prompt(members, warn: warn, askWithoutUndo: window == nil, incognito: incognito)
     }
 
-    /// Asks when a terminal in `members` runs a program (`warn`), or when two
-    /// or more close and nothing can undo it (`askWithoutUndo`).
-    static func prompt(_ members: [Member], warn: Bool, askWithoutUndo: Bool = false, incognito: Bool = false,
+    /// Asks when an agent works in a terminal of `members` (`warnAgent`, `app.warnBeforeClosingAgentSession`, the
+    /// question a tab close asks first, ``TabCloseGuard/question(closing:asked:services:)``), when a terminal runs a
+    /// program (`warn`), or when two or more close and nothing can undo it (`askWithoutUndo`).
+    static func prompt(_ members: [Member], warn: Bool, warnAgent: Bool = false, askWithoutUndo: Bool = false, incognito: Bool = false,
                        title: String? = nil) async -> DestructiveConfirmation.Prompt? {
+        if warnAgent, let first = members.first, members.count == 1,
+           let agent = first.0.screens.flatMap(\.panes).flatMap(\.tabs).filter({ $0.kind == .pty && !$0.dead }).lazy.compactMap(TabCloseGuard.workingAgent).first {
+            return DestructiveConfirmation.Prompt(title: title ?? ConfirmationStrings.closeWorkspaceTitle(first.0.displayName),
+                                                  body: ConfirmationStrings.agentStillWorking(agent), button: ConfirmationStrings.close,
+                                                  suppresses: CmuxConfigSnapshot.warnBeforeClosingAgentSessionPath)
+        }
         var programs: [String] = []
         if warn { for (workspace, daemon) in members { programs += await DestructiveConfirmation.runningPrograms(in: workspace, on: daemon) } }
         guard let first = members.first, !programs.isEmpty || (askWithoutUndo && members.count > 1) else { return nil }

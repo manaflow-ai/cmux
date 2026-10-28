@@ -243,6 +243,7 @@ extension AppActions {
         let terminals = WorkspaceClose.closing(workspace, on: daemon), id = workspace.id, owner = services.windows.registry.value.owner(of: id)
         let controller = owner.flatMap(services.windows.controller(for:)), shownAtPress = controller?.state.workspaceID == id
         let warn = services.settings?.snapshot.warnBeforeClosingTab ?? CmuxConfigSnapshot.closeWarningFallback, selected = WorkspaceCloseSelection()
+        let warnAgent = services.settings?.snapshot.warnBeforeClosingAgentSession ?? CmuxConfigSnapshot.closeWarningFallback
         let flow = WorkspaceCloseFlow(
             // Instant (ClosingWorkspaces): the row starts closing and the selection moves now, in one sidebar pass.
             hide: {
@@ -252,7 +253,7 @@ extension AppActions {
             },
             // The question, when a terminal runs a program: on the window that lists the workspace, above its pages.
             question: {
-                guard var prompt = await WorkspaceBulkClose.prompt([(workspace, daemon)], warn: warn) else { return nil }
+                guard var prompt = await WorkspaceBulkClose.prompt([(workspace, daemon)], warn: warn, warnAgent: warnAgent) else { return nil }
                 prompt.returnConfirms = false
                 return {
                     // A question that goes unanswered is a no.

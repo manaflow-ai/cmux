@@ -203,9 +203,10 @@ enum TabCloseGuard {
 /// the workspace can be reopened. Before, the tab left, an empty pane stayed for a daemon round trip, and the empty-
 /// workspace repair closed the workspace about three round trips later, ending its terminals.
 ///
-/// Only a close nothing can hold back takes this route: no live terminal (its close can ask about a running program or
-/// a working agent, ``close(_:on:services:window:close:)``), no live page that decides its own close (`beforeunload`, `BrowserUserClosing`),
-/// and no tab of the pane whose close is still asking or deciding. Those keep the tab close, which asks first.
+/// A live terminal takes it too: Close Workspace asks what its tab close would ask (a working agent with
+/// `app.warnBeforeClosingAgentSession`, a running program with `app.warnBeforeClosingTab`), after the row left; a no
+/// lists the row again. A Chromium page keeps the tab close, which runs the page's `beforeunload` first (Close
+/// Workspace does not yet), and so does a tab whose close is still asking or deciding.
 @MainActor
 extension TabCloseGuard {
     /// Closes `closing`'s workspace as Close Workspace does, when `closing` is every tab of the only pane of its
@@ -223,12 +224,10 @@ extension TabCloseGuard {
         return true
     }
 
-    /// Whether `id`'s close cannot be held back: no question can apply and no page decides it.
+    /// Whether Close Workspace can take `id`'s close: it is not still asking or deciding, and no page decides it.
     private static func closesQuietly(_ id: StripTabID, in pane: PaneController) -> Bool {
         let key = id.rawValue
         if asking.contains(key) || pane.services.closedTabs?.undoToasts.pageClosing.contains(key) == true { return false }
-        if let tab = pane.tab(id), tab.kind == .pty, !tab.dead { return false }
-        if pane.services.cache.browsers[key]?.tab is any BrowserUserClosing { return false }
-        return true
+        return !(pane.services.cache.browsers[key]?.tab is any BrowserUserClosing)
     }
 }
