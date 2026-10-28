@@ -47,14 +47,15 @@ FAILED = (
 RAN = re.compile(r"[◇✔✘] (?:Test|Suite) |Test Case '-\[|Test Suite '|^test \S+ \.\.\. |^running \d+ tests?$|"
                  r"^Ran \d+ tests? in |^=+ (?:test session starts|FAILURES)|Executed \d+ tests?")
 
-SIGNAL = re.compile(r"exited with unexpected signal code (\d+)|died on signal (\d+)|exited with signal (?:code )?(\d+)|"
-                    r"\(signal: (\d+)|terminated by signal (\d+)|signal (\d+) \(SIG[A-Z]+\)")
+SIGNAL = re.compile(r"(?i:exited with unexpected signal code (\d+)|died on signal (\d+)|exited with signal (?:code )?(\d+)|"
+                    r"\(signal: (\d+)|terminated by signal (\d+)|signal (\d+) \(SIG[A-Z]+\))")
 SIGNAL_NAMES = {"SIGABRT": "6", "SIGSEGV": "11", "SIGBUS": "10", "SIGILL": "4", "SIGTRAP": "5", "SIGKILL": "9",
                 "SIGFPE": "8"}
 # What a tool or the runtime prints when a test process dies: matched anywhere in a line.
 CRASH = re.compile(r"exited with unexpected signal code|died on signal \d|Terminating app due to uncaught exception|"
                    r"terminating due to uncaught exception|Restarting after unexpected exit, crash, or test timeout|"
-                   r"Test Case '[^']*' crashed|Fatal Python error|process didn't exit successfully: .*\(signal: \d+")
+                   r"Test Case '[^']*' crashed|Fatal Python error|process didn't exit successfully: .*\(signal: \d+",
+                   re.I)
 # Crash words a test's own assertion text may quote: a crash only at the start of a line (after an optional
 # `file:line: `, `##[error]` or a shell's `script: line N: PID `), never in a test's result line.
 CRASH_AT_START = re.compile(r"^(?:##\[error\]|::error[^:]*::)?(?:error: )?(?:\S+:\d+: )?(?:\S+: line \d+: +)?(?:\d+ +)?"
@@ -66,7 +67,8 @@ CRASH_AT_START = re.compile(r"^(?:##\[error\]|::error[^:]*::)?(?:error: )?(?:\S+
 SIGNALED = re.compile(r"(?:exited|terminated|killed|died) (?:with|by|on) (?:unexpected )?signal\b|\(signal: \d+|"
                       r"\bEXC_[A-Z][A-Z_]+\b|\b[Uu]ncaught (?:exception|signal)\b")
 # SwiftPM's line for a killed test helper: it can land in the middle of a test's result line when output interleaves.
-HELPER_KILLED = re.compile(r"Process '[^']+' exited with unexpected signal code \d+")
+HELPER_KILLED = re.compile(r"Process '[^']+' exited with unexpected signal code \d+|"
+                           r"^(?:##\[error\])?error: exited with unexpected signal code \d+", re.I)
 # A test's own result and progress lines carry assertion text and arguments, never a runtime diagnostic.
 TEST_LINE = re.compile(r"^[◇✔✘↪] (?:Test|Suite) |^Test Case '-\[")
 XCTEST_RESTART = re.compile(r"(?:Restarting after unexpected exit, crash, or test timeout in|"

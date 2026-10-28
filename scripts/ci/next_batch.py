@@ -1326,8 +1326,11 @@ class Controller:
             return {name}
         log = self.job_log(job_id)
         if log is None or not log.strip():
-            # Unreadable or empty: nothing can show it is the base's, so it is this job's own (fails closed).
-            return {f"{name}: log unreadable (job {job_id}, never a base red)"}
+            # A test job's unreadable or empty log: nothing can show it is the base's, so it is this job's
+            # own (fails closed). Any other job keeps its bare name, as before.
+            if base_red_excuse.test_reds.is_test_red(base_red_excuse.test_reds.Result(), name):
+                return {f"{name}: log unreadable (job {job_id}, never a base red)"}
+            return {name}
         steps, tests, errors = base_red_excuse.signature(job, log)
         # A crash or a run cut short is never the base's (scripts/ci/test_reds.py): keyed by
         # this job's id, no base failure can match it, whatever the base shows.

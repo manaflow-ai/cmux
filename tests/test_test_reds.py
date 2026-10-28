@@ -127,7 +127,7 @@ class PerTest(unittest.TestCase):
         self.assertTrue(reds.classify(xc, xc).own)
 
     def test_bare_signal_and_exception_lines_are_crashes_and_an_empty_log_is_unreadable(self):
-        for line in ("Process '/x' exited with signal 6", "terminated by signal 9", "EXC_BAD_ACCESS (code=1)"):
+        for line in ("error: Exited with unexpected signal code 6", "Process '/x' exited with signal 6", "terminated by signal 9", "EXC_BAD_ACCESS (code=1)"):
             with self.subTest(line):
                 self.assertTrue(reds.classify(log(line), log(line), "cmux-next swift test").own)
         self.assertTrue(reds.classify("  \n", log(failed("a()")), "cmux-next swift test").own)
@@ -136,6 +136,13 @@ class PerTest(unittest.TestCase):
         self.assertEqual(reds.read(log("test_a (mod.T.test_a) ... ok", "Ran 1 test in 0.001s", "OK")).truncated, [])
         self.assertEqual(reds.read(log("◇ Test run started.", "━ Test run with 1 test in 1 suite passed after 0.1 "
                                        "seconds with 1 known issue.")).truncated, [])
+
+    def test_the_bundle_runners_exited_line_is_a_crash_after_a_shared_failure(self):
+        crash = log("◇ Test run started.", failed("a()"), "✘ Test a() failed after 0.1 seconds with 1 issue.",
+                    "error: Exited with unexpected signal code 6")
+        verdict = reds.classify(crash, log(failed("a()"), SUMMARY), "cmux-next swift test")
+        self.assertTrue(verdict.own)
+        self.assertIn("crashed (signal 6)", verdict.reasons[0])
 
     def test_a_compile_job_that_prints_fatal_error_is_left_to_the_caller(self):
         compile_log = log("Fatal error: module map file not found")

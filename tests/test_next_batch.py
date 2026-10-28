@@ -730,6 +730,15 @@ class BaseReds(unittest.TestCase):
             {"id": 9, "name": "cmux-next swift test", "conclusion": "failure", "steps": steps}]}
         self.assertEqual(stack - set(controller.failed_jobs(4, detail=True)), stack)
 
+    def test_an_unreadable_log_fails_closed_only_for_a_test_job(self):
+        controller = self.controller()
+        steps = [{"name": "Build", "conclusion": "failure"}]
+        controller.gh.gh.return_value = subprocess.CompletedProcess([], 1, "", "boom")
+        self.assertEqual(controller.expand_job("cmux app scheme compile (Debug)", 5, {"steps": steps}),
+                         {"cmux app scheme compile (Debug)"})
+        self.assertEqual(controller.expand_job("cmux-next swift test", 6, {"steps": steps}),
+                         {"cmux-next swift test: log unreadable (job 6, never a base red)"})
+
     def test_a_probe_stopped_before_its_run_is_found_cancels_it(self):
         controller = self.controller()
         controller.push = lambda sha, ref: None
