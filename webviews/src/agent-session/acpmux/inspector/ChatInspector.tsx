@@ -67,7 +67,7 @@ import { ChangesSection, headerStatus, visibleChanges, type InspectorPullRequest
 import { useChangesStatuses, useStableUrls, withHeader } from "./changesStatus";
 import { ConnectorsSection } from "./ConnectorsSection";
 import { ContextSection } from "./ContextSection";
-import { EnvironmentSection } from "./EnvironmentSection";
+import { EnvironmentSection, type ProjectRowLook } from "./EnvironmentSection";
 import { InspectorSection } from "./InspectorSection";
 import { SUBAGENT_HEADER, SubagentBanner, SubagentTitle } from "./SubagentScopeHeader";
 import { subagentProcesses, subagentSummary, withChatEnds, type SubagentScope } from "./subagentScope";
@@ -173,7 +173,7 @@ const SIDE_PANEL = ":scope > .acpmux-artifact";
 
 /// The Inspector starts right below the header: the pane's tab row when the header is in it.
 export function inspectorTopOffset(tabRowHeight: number): string {
-  return tabRowHeight > 0 ? `${tabRowHeight}px` : "var(--acpmux-header-height, 44px)";
+  return tabRowHeight > 0 ? `${tabRowHeight}px` : "var(--acpmux-header-height, 28px)";
 }
 
 /// The composer's stack height (`.acpmux-dock` in `shell`) while `on`: from the top of its highest
@@ -229,13 +229,29 @@ export function paneRoom(shell: HTMLElement): PaneRoom {
 /// the new width: the observer runs after that frame's layout and before its paint, and `flushSync`
 /// renders the panel's place there (state set plainly drew a frame or more later, the panel floating
 /// over the narrowed transcript before the chat jumped aside: "WHY DOES IT FLICKER").
-function usePaneRoom(shell: HTMLElement | null | undefined, live: boolean, beside: unknown): PaneRoom {
-  const [room, setRoom] = useState(UNMEASURED);
+type PaneRoomState = PaneRoom & { shellWidth: number; suppressShiftTransition: boolean };
+
+function usePaneRoom(shell: HTMLElement | null | undefined, live: boolean, beside: unknown): PaneRoomState {
+  const [room, setRoom] = useState<PaneRoomState>({ ...UNMEASURED, shellWidth: 0, suppressShiftTransition: false });
   useLayoutEffect(() => {
     if (!shell || !live) return;
+    let lastShellWidth = shell.clientWidth;
     const measure = () => {
       const next = paneRoom(shell);
-      setRoom((current) => (current.width === next.width && current.side === next.side ? current : next));
+      const shellWidth = shell.clientWidth;
+      const suppressShiftTransition = lastShellWidth !== shellWidth;
+      setRoom((current) =>
+        current.width === next.width && current.side === next.side && current.shellWidth === shellWidth
+          ? current
+          : {
+              ...next,
+              shellWidth,
+              // A native pane changes the shell's own width. An artifact only changes `side`, so it
+              // keeps the Session Info shift transition and its normal floating motion.
+              suppressShiftTransition,
+            },
+      );
+      lastShellWidth = shellWidth;
     };
     measure();
     if (typeof ResizeObserver !== "function") return;
@@ -245,6 +261,15 @@ function usePaneRoom(shell: HTMLElement | null | undefined, live: boolean, besid
     if (side) observer.observe(side);
     return () => observer.disconnect();
   }, [shell, live, beside]);
+  useLayoutEffect(() => {
+    if (!room.suppressShiftTransition) return;
+    const frame = requestAnimationFrame(() =>
+      setRoom((current) =>
+        current.suppressShiftTransition ? { ...current, suppressShiftTransition: false } : current,
+      ),
+    );
+    return () => cancelAnimationFrame(frame);
+  }, [room]);
   return room;
 }
 
@@ -557,7 +582,7 @@ function InspectorPresence({
   const drawn = presence.present;
   // The chat's room: the pane less the side panel beside it (a document), whose edge the floating
   // panel keeps clear of, so it never lies over the document.
-  const { width: paneWidth, side } = usePaneRoom(shell, drawn, beside);
+  const { width: paneWidth, side, suppressShiftTransition } = usePaneRoom(shell, drawn, beside);
   const push = pushes(display.inspector);
   const chatShift = push ? 0 : inspectorChatShift(paneWidth, width, column, wide);
   const overChat = !push && inspectorOverChat(paneWidth, width, column, wide);
@@ -573,17 +598,26 @@ function InspectorPresence({
     if (!shell) return;
     if (!drawn) {
       delete shell.dataset.inspectorChatPlacement;
+      delete shell.dataset.inspectorChatResizing;
       shell.style.removeProperty("--acpmux-chat-shift");
+      shell.style.removeProperty("--acpmux-header-room");
       return;
     }
     shell.dataset.inspectorChatPlacement = push ? "push" : "overlay";
+    if (suppressShiftTransition) shell.dataset.inspectorChatResizing = "true";
+    else delete shell.dataset.inspectorChatResizing;
     shell.style.setProperty("--acpmux-chat-shift", `${chatShift}px`);
-  }, [shell, drawn, push, chatShift]);
+    // Push always narrows the transcript, not the header: native tabs reserve the tools at the
+    // pane's trailing edge. Reuse the measured room (excluding an artifact beside the chat).
+    if (paneWidth > 0) shell.style.setProperty("--acpmux-header-room", `${paneWidth}px`);
+  }, [shell, drawn, push, chatShift, paneWidth, suppressShiftTransition]);
   useLayoutEffect(() => {
     if (!shell) return;
     return () => {
       delete shell.dataset.inspectorChatPlacement;
+      delete shell.dataset.inspectorChatResizing;
       shell.style.removeProperty("--acpmux-chat-shift");
+      shell.style.removeProperty("--acpmux-header-room");
     };
   }, [shell]);
   // A subagent's panel reads its own rows only: its replies, thoughts and tool calls.
@@ -628,10 +662,29 @@ function InspectorPresence({
   // again. Floating, it takes no room from the chat and stays.
   const roomy = !push || paneWidth <= 0 || paneWidth - pushedWidth(paneWidth, width) - FLOAT_MARGIN >= PUSH_MIN_CHAT;
   const roomyRef = useRef(roomy);
+  // Environment's project opens in Files as a tab right of the chat (App.tsx `onOpenFolder`). The panel
+  // then steps aside when it lies over the chat, at the click or once the tab's split narrows the pane,
+  // so the chat and its new tab are what show, never the card over them (Leo, 2026-10-27: "why am i
+  // sent to a whole new thing instead of a tab opening on the right?").
+  const openedFolderAt = useRef(0);
+  const openFolder = useMemo(
+    () =>
+      onOpenFolder &&
+      ((path: string) => {
+        openedFolderAt.current = Date.now();
+        onOpenFolder(path);
+        if (overChat) onSuppress();
+      }),
+    [onOpenFolder, overChat, onSuppress],
+  );
+  useEffect(() => {
+    if (overChat && Date.now() - openedFolderAt.current < SPLIT_SETTLE_MS) onSuppress();
+  }, [overChat, onSuppress]);
   useEffect(() => {
     const was = roomyRef.current;
     roomyRef.current = roomy;
-    if (was && !roomy && Date.now() - openedOutputAt.current < SPLIT_SETTLE_MS) onSuppress();
+    const opened = Math.max(openedOutputAt.current, openedFolderAt.current);
+    if (was && !roomy && Date.now() - opened < SPLIT_SETTLE_MS) onSuppress();
   }, [roomy, openedOutputAt, onSuppress]);
   if (!drawn) return null;
   return (
@@ -684,7 +737,7 @@ function InspectorPresence({
         onOpenOutput={onOpenOutput}
         onOpenUrl={onOpenUrl}
         onOpenImage={onOpenImage}
-        onOpenFolder={onOpenFolder}
+        onOpenFolder={openFolder}
         // Save keeps the chat's machine and folder, not a subagent's.
         onSaveEnvironment={scope ? undefined : onSaveEnvironment}
         onReconnectMcp={onReconnectMcp}
@@ -875,6 +928,7 @@ export function ChatInspector({
   banner,
   agent,
   layout = RAIL_LAYOUT,
+  projectRowLook,
 }: {
   summary?: Summary;
   machineName?: string;
@@ -930,7 +984,7 @@ export function ChatInspector({
   onSaveEnvironment?: () => Promise<unknown> | void;
   /// Reconnects one of the chat's failed MCP servers by name (`_acpmux/mcp/reconnect`).
   onReconnectMcp?: (server: string) => Promise<unknown>;
-  /// Opens one of the chat's folders in the Files tree beside the chat.
+  /// Opens the chat's project folder in the Files tree beside the chat.
   onOpenFolder?: (path: string) => void;
   /// Shows the Bash call that started a background command in the transcript: what its row opens
   /// in a chat whose terminal cannot open here (TasksSection).
@@ -941,6 +995,8 @@ export function ChatInspector({
   agent?: Subagent;
   /// How its sections are laid out (`RAIL_LAYOUT`); the gallery shows the others.
   layout?: RailLayout;
+  /// How Environment's project row reads (EnvironmentSection's `name`); the gallery shows the others.
+  projectRowLook?: ProjectRowLook;
 }) {
   const t = useT();
   const language = usePaneLanguage();
@@ -1025,10 +1081,10 @@ export function ChatInspector({
         machineName={machineName}
         peerKinds={peerKinds}
         repository={repository}
-        rows={rows}
         remoteControl={remoteControl}
         onSave={onSaveEnvironment}
         onOpenFolder={onOpenFolder}
+        projectLook={projectRowLook}
       />
     </InspectorSection>
   );

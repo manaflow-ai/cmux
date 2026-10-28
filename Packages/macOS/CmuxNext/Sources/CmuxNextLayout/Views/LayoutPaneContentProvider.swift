@@ -12,6 +12,9 @@ import CmuxNextDesign
 public protocol LayoutPaneContentProvider: AnyObject {
     /// Creates the view for a pane the first time it appears.
     func makeContentView(for pane: PaneID) -> NSView
+    /// Whether this pane's live content keeps its painted size while a split or close springs.
+    /// The host clips the held page and lays it out once when the spring lands.
+    func holdsContentInMotion(for pane: PaneID) -> Bool
     /// The pane left the layout. Called in the same update, with no removal animation.
     func releaseContentView(_ view: NSView, for pane: PaneID)
     /// The pane scrolled on screen, into the keep-alive band, or away (other
@@ -20,6 +23,7 @@ public protocol LayoutPaneContentProvider: AnyObject {
 }
 
 extension LayoutPaneContentProvider {
+    public func holdsContentInMotion(for pane: PaneID) -> Bool { false }
     public func releaseContentView(_ view: NSView, for pane: PaneID) {}
     public func panePresenceDidChange(_ pane: PaneID, presence: PanePresence) {}
 }
@@ -100,7 +104,9 @@ final class LayoutViewContext {
     func host(for pane: PaneID) -> PaneHostView {
         if let host = hosts[pane] { return host }
         let content = provider?.makeContentView(for: pane) ?? NSView()
-        let host = PaneHostView(pane: pane, content: content)
+        let host = PaneHostView(pane: pane, content: content) { [weak self] in
+            self?.provider?.holdsContentInMotion(for: pane) ?? false
+        }
         hosts[pane] = host
         return host
     }

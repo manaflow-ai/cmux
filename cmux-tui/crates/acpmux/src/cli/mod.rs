@@ -7,6 +7,8 @@
 pub mod beads;
 pub mod chats;
 pub mod cli_agent;
+#[cfg(unix)]
+pub mod codex_auth_broker;
 pub mod command;
 pub mod command_host;
 pub mod entry;
@@ -19,6 +21,7 @@ pub mod harness_login;
 pub mod harness_registry;
 pub mod harness_run;
 pub mod harness_secret;
+pub mod host_approvals;
 pub mod host_budget;
 pub mod host_candidates;
 pub mod host_enroll;

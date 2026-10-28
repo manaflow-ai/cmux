@@ -238,6 +238,8 @@ impl Brain {
             "mcp__optchat__tell" => {}
             // Another person's words never become the owner's preference.
             "mcp__optchat__remember" => return false,
+            // Nor spend the owner's money on a Cloud machine.
+            "mcp__optchat__cloud_workspace" => return false,
             _ => return true,
         }
         let Some(id) = field("id") else {

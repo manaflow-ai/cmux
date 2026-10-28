@@ -15,6 +15,8 @@ import Foundation
 /// `team` (at most 12) lists that many fixture team members with no DM after the conversations
 /// (`team: 0` removes them). `width`, `select`, `search`, `unread` set the list's look (`HomeSidebarView.debugLook`),
 /// after the rows (no `count` keeps them); the answer carries the header's frames.
+/// `new_message` (a team size) opens New Message and fills its list with fixture Chiefs and teammates;
+/// `intro` ("welcome" | "askFocus") shows that intro on the shown Chief (neither touches other rows).
 @MainActor
 enum DebugHomeSidebarFixture {
     static let names = ["Austin", "Lucas Wang", "Aziz Ali", "Mia Chen", "Noah Park", "Iris Lee",
@@ -25,6 +27,13 @@ enum DebugHomeSidebarFixture {
         guard let page = HomeDockTab.view(services)?.messages ?? services.windows.active?.topPages.views[.home] as? TopHomePageView else {
             return .object(["error": .string("no Home page in the active window")])
         }
+        if let raw = params["intro"]?.stringValue, let kind = ChiefIntroKind(rawValue: raw) { page.host?.transcript.showFirstRunIntro(kind) }
+        if let size = params["new_message"]?.intValue {
+            if !page.isComposingNewMessage { page.presentNewMessage() }
+            page.newMessage?.field.debugFillFixture(team: Array(names.prefix(min(names.count, max(0, size)))))
+            return .object(["rows": .number(Double(page.newMessage?.field.suggestions.rows.count ?? -1))])
+        }
+        if params["intro"] != nil { return .object(["intro": .bool(page.host != nil)]) }
         if let team = params["team"]?.intValue {
             page.sidebar.debugTeam = names.prefix(min(names.count, max(0, team))).reversed().enumerated().map { i, name in
                 HomeContact(id: ParticipantID("user_fixture_team_\(i)"), name: name, source: .team)

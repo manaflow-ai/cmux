@@ -34,15 +34,31 @@ public nonisolated enum ColumnStripGeometry {
         minimumWidths: [CGFloat] = []
     ) -> (frames: [CGRect], contentWidth: CGFloat) {
         var x = gap
+        // Where the columns end before rounding. Only rounding is cut back: a column that runs
+        // past the trailing edge on its own fraction keeps its width, and the strip scrolls.
+        var idealX = gap
+        // A column widened to its minimum moves every later one off its unrounded place; from
+        // there on nothing is cut back or snapped, and the strip scrolls.
+        var widened = false
+        let trailingEdge = viewport.width - gap
         var frames: [CGRect] = []
         frames.reserveCapacity(widths.count)
         let widest = max(1, viewport.width - gap * 2)
         for (index, fraction) in widths.enumerated() {
-            var width = SplitGeometry.roundToPixel(pixelWidth(fraction: fraction, viewportWidth: viewport.width, gap: gap), scale: scale)
-            let room = viewport.width - gap - x
-            if width > room { width = max(1, room) }
+            let ideal = pixelWidth(fraction: fraction, viewportWidth: viewport.width, gap: gap)
+            var width = SplitGeometry.roundToPixel(ideal, scale: scale)
+            let idealEnd = idealX + ideal
+            idealX = idealEnd + gap
+            let room = trailingEdge - x
+            if !widened, room >= 1, idealEnd <= trailingEdge + edgeTolerance,
+               width > room || abs(idealEnd - trailingEdge) <= edgeTolerance {
+                // Fits before rounding: rounding neither pushes it past the edge nor stops it
+                // short of an edge it was meant to reach.
+                width = room
+            }
             if index < minimumWidths.count, width < minimumWidths[index] {
-                width = max(width, SplitGeometry.ceilToPixel(min(minimumWidths[index], widest), scale: scale))
+                let minimum = SplitGeometry.ceilToPixel(min(minimumWidths[index], widest), scale: scale)
+                if minimum > width { width = minimum; widened = true }
             }
             frames.append(CGRect(x: x, y: 0, width: width, height: viewport.height))
             x += width + gap
@@ -51,6 +67,9 @@ public nonisolated enum ColumnStripGeometry {
         let contentWidth = frames.isEmpty ? viewport.width : (x - viewport.width < 0.001 ? min(x, viewport.width) : x)
         return (frames, contentWidth)
     }
+
+    /// Float slack when a column's unrounded end is compared with the strip's trailing edge.
+    static let edgeTolerance: CGFloat = 0.01
 
     public static func maxOffset(contentWidth: CGFloat, viewportWidth: CGFloat) -> CGFloat {
         max(0, contentWidth - viewportWidth)

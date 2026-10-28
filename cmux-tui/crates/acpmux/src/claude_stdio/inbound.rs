@@ -174,7 +174,9 @@ impl Translator {
                             // One model call's own usage, marked so a client can add a turn's
                             // calls up (the pane's running line). The result's resend below is
                             // the context ring's and is not marked. A subagent's calls are
-                            // marked too: they are the turn's spend.
+                            // marked too: they are the turn's spend. The four counts split the
+                            // call so the line can say its output apart from what it read (fresh
+                            // input, cache reads and cache writes).
                             out.push(upd(json!({
                                 "sessionUpdate": "usage_update",
                                 "used": used,
@@ -475,7 +477,12 @@ impl Translator {
             // Claude Code no longer needs the answer to one of its requests.
             "control_cancel_request" => {
                 let rid = line.get("request_id").and_then(Value::as_str).unwrap_or("");
-                self.forget_elicitation(rid).await;
+                if let Some(id) = self.cancel_control_request(rid).await {
+                    out.push(Message::notification(
+                        method::CANCEL_REQUEST,
+                        json!({"requestId": id}),
+                    ));
+                }
             }
             "control_response" => {
                 let resp = line.get("response").cloned().unwrap_or(Value::Null);

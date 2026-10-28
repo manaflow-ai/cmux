@@ -18,6 +18,7 @@ import { animateScroll, highlightBubble, reducedMotion, settleScroll, stopScroll
 import { PreviewCard } from "./PreviewCard";
 import { ScrollMap } from "./ScrollMap";
 import { threadMinimapLayout } from "./layout.experiment";
+import { threadMinimapHeight, railHeightConfig } from "./height.experiment";
 import { LIT_OPACITY, threadMinimapLit } from "./lit.experiment";
 import { MARK_OPACITY, threadMinimapMark } from "./mark.experiment";
 import { experimentArm } from "../../../experiments/experiment";
@@ -138,6 +139,7 @@ export function ThreadMinimap({
   /// steps below still run), read once per pane. The Chat Minimap setting
   /// (`agentPane.display.minimap`) wins when set, live.
   const [experiment] = useState(() => experimentArm(threadMinimapLayout));
+  const [heightArm] = useState(() => experimentArm(threadMinimapHeight));
   const arm = useThreadMinimapArm() ?? experiment;
   /// How bright the prompts on screen draw (lit.experiment.ts), read once per pane.
   const [lit] = useState(() => LIT_OPACITY[experimentArm(threadMinimapLit)]);
@@ -216,7 +218,14 @@ export function ThreadMinimap({
   const top = (seen ?? scrollTop) + shift;
   const onScreen = visibleTurns(turns, layout.tops, layout.totalHeight, top, viewportHeight);
   /// Never shorter than the prompts on screen, so the band always draws whole (model.ts railHeight).
-  const height = railHeight(turns.length, windowHeight, viewportHeight, foot, onScreen.last - onScreen.first + 1);
+  const height = railHeight(
+    turns.length,
+    windowHeight,
+    viewportHeight,
+    foot,
+    onScreen.last - onScreen.first + 1,
+    railHeightConfig(heightArm),
+  );
   const placement = railPlacement(gutter(width));
   // A view with no room for a single row (the transcript is at least 96 px tall) draws no rail. The
   // one full-width rail hides only below its usable horizontal gutter.
@@ -703,6 +712,10 @@ export function ThreadMinimap({
   };
   const railTop = railTopAt(height, viewportHeight, foot);
   const fades = railFades(onScreen, turns.length, height, listTop);
+  const inTickContent = (event: React.PointerEvent<HTMLElement>, node: HTMLElement) => {
+    const y = event.clientY - node.getBoundingClientRect().top + node.scrollTop;
+    return y >= 0 && y < turns.length * ROW_PITCH;
+  };
   // The rail keeps its full row box at rest. Hover, focus and scrubbing only magnify the ticks; the
   // preview card remains beside the same rail and may overlap the transcript freely.
   const magnified = hovered;
@@ -777,6 +790,7 @@ export function ThreadMinimap({
           }}
           onPointerDown={(event) => {
             if (event.button !== 0 || event.pointerType === "touch") return;
+            if (!inTickContent(event, event.currentTarget)) return;
             pressing.current = true;
             swallowClick.current = false;
             const state = { pointer: event.pointerId, y: event.clientY, moved: false };
@@ -799,6 +813,14 @@ export function ThreadMinimap({
           onPointerMove={(event) => {
             pointerY.current = event.clientY;
             const state = scrub.current;
+            if (!inTickContent(event, event.currentTarget)) {
+              if (!state?.moved) {
+                setHovered(undefined);
+                setCardRow(undefined);
+                if (!within(card.current, event.relatedTarget)) intend(null);
+              }
+              return;
+            }
             if (!state) return;
             if (!state.moved) {
               if (Math.abs(event.clientY - state.y) < SCRUB_SLOP) return;
@@ -847,6 +869,7 @@ export function ThreadMinimap({
           prompt={cardTurn.prompt}
           reply={cardTurn.reply}
           metadata={cardTurn.metadata}
+          onSizeChange={() => setCardHeight(card.current?.offsetHeight ?? 0)}
           bookmark={marks.can(cardTurn) ? { marked: cardMarked, toggle: () => marks.toggle(cardTurn) } : undefined}
           onPointerLeave={(event) => {
             // Back onto the rail keeps it (its row takes over); anywhere else it goes.

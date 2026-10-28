@@ -134,6 +134,9 @@ pub struct Settings {
     pub home: PathBuf,
     /// The harnesses with auto-update on (`<acpmux home>/harness-auto-update.json`); None: none.
     pub auto_update: Option<PathBuf>,
+    /// A capture fixture's rows (`harness_fixture.rs`): served as every
+    /// check, with nothing read from this machine and no update run.
+    pub fixture: Option<Vec<HarnessHealth>>,
 }
 
 #[derive(Default)]
@@ -311,6 +314,11 @@ impl HealthService {
 
     /// Sets where to ask and keep the copy, and reads the saved copy.
     pub fn attach(&self, settings: Settings) {
+        if let Some(rows) = &settings.fixture {
+            self.replace_rows(rows.clone());
+            *self.settings.lock().unwrap_or_else(PoisonError::into_inner) = settings;
+            return;
+        }
         let saved = settings
             .cache
             .as_deref()
@@ -341,6 +349,11 @@ impl HealthService {
         *self.settings.lock().unwrap_or_else(PoisonError::into_inner) = settings;
     }
 
+    /// Whether a capture fixture's rows stand in for this machine's.
+    pub(crate) fn fixed(&self) -> bool {
+        self.settings.lock().unwrap_or_else(PoisonError::into_inner).fixture.is_some()
+    }
+
     /// The last check's rows (the saved copy until the first check).
     pub fn rows(&self) -> Vec<HarnessHealth> {
         self.rows.lock().unwrap_or_else(PoisonError::into_inner).clone()
@@ -359,6 +372,9 @@ impl HealthService {
     pub async fn check(&self, subjects: Vec<Subject>, check_latest: bool) -> Vec<HarnessHealth> {
         let _one = self.checking.lock().await;
         let settings = self.settings.lock().unwrap_or_else(PoisonError::into_inner).clone();
+        if settings.fixture.is_some() {
+            return self.rows();
+        }
         let previous = self.rows();
         let probes = subjects.into_iter().map(|s| {
             let home = settings.home.clone();

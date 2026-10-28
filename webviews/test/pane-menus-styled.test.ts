@@ -6,22 +6,44 @@
 // class the bundled pane's stylesheet styles (scripts/cmux-next/build-agent-pane-web.sh writes it;
 // the gallery frame loads ui.css too, so a gallery shot never shows a bare menu); a Submenu wears
 // its parent's unless it names its own.
-import { describe, expect, test } from "bun:test";
+import { beforeAll, describe, expect, test } from "bun:test";
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import ts from "typescript";
 
 const webviews = path.resolve(import.meta.dir, "..");
 const pane = path.join(webviews, "src/agent-session");
 
-/** The bundled pane's stylesheet: every sheet build-agent-pane-web.sh writes into the page. */
-const shippedCss = (() => {
-  const script = fs.readFileSync(path.join(webviews, "../scripts/cmux-next/build-agent-pane-web.sh"), "utf8");
-  const sheets = [...script.matchAll(/"\$(SRC|ROOT\/webviews)\/([^"$]+\.css)"/g)].map(([, root, sheet]) =>
-    path.join(root === "SRC" ? pane : webviews, sheet!),
-  );
-  return sheets.map((sheet) => fs.readFileSync(sheet, "utf8")).join("\n");
-})();
+/** The page derives its sheets from dev.tsx's imports, just as the dev server does. */
+let shippedCss: string;
+beforeAll(() => {
+  const work = fs.mkdtempSync(path.join(os.tmpdir(), "pane-menus-styled-"));
+  try {
+    const list = path.join(work, "sheets.txt");
+    const bundle = spawnSync(
+      "bun",
+      [
+        "scripts/agent-pane/bundle.mjs",
+        "src/agent-session/acpmux/dev.tsx",
+        "src/agent-session/acpmux/shiki",
+        path.join(work, "pane.js"),
+        "--split",
+        "--css-inputs",
+        list,
+        "--css-inputs-only",
+      ],
+      { cwd: webviews, encoding: "utf8", timeout: 120_000 },
+    );
+    expect(bundle.status, bundle.stderr).toBe(0);
+    const sheets = fs.readFileSync(list, "utf8").split("\n").filter(Boolean);
+    expect(sheets.length).toBeGreaterThan(0);
+    shippedCss = sheets.map((sheet) => fs.readFileSync(path.join(webviews, sheet), "utf8")).join("\n");
+  } finally {
+    fs.rmSync(work, { recursive: true, force: true });
+  }
+}, 130_000);
 const styled = (name: string) => new RegExp(`\\.${name}(?![\\w-])`).test(shippedCss);
 
 const sources = (dir: string): string[] =>

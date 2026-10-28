@@ -1,6 +1,6 @@
 // l10n-allow-file: test fixture prompts, thoughts and commands, not shipped UI.
 // The steps of a turn read as one list (Leo 2026-10-13, cmux NEXT on macOS 27): tool calls,
-// thoughts and a background shell's end all draw as one 26px row style on one rhythm, whether
+// thoughts and a background shell's end all draw on one rhythm (22px since #24565), whether
 // they share a transcript row or not. A finished thought is one quiet row like the others that
 // opens to its full text, wrapped, with no tooltip (Leo 2026-10-20), and a row shows nothing more
 // on hover: its disclosure chevron is there at rest.
@@ -187,7 +187,7 @@ await requireBrowserLane("agent-pane-step-rows.test.ts", async () => {
     await daemon?.stop(true);
   });
 
-  test("every step is one 26px row on one rhythm, across transcript rows", async () => {
+  test("every step is one 22px row on one rhythm, across transcript rows", async () => {
     const page = await open();
     await openRun(page);
     const rows = await page.locator(".acpmux-row .cv-tool").evaluateAll((nodes) =>
@@ -202,7 +202,7 @@ await requireBrowserLane("agent-pane-step-rows.test.ts", async () => {
       }),
     );
     // The finished thought is folded to one line too.
-    expect(rows.map((row) => row.height)).toEqual(rows.map(() => 26));
+    expect(rows.map((row) => row.height)).toEqual(rows.map(() => 22));
     expect(new Set(rows.map((row) => row.fontSize)).size).toBe(1);
     // Each step starts where the one above it ends.
     const gaps = rows.slice(1).map((row, index) => row.top - (rows[index]!.top + rows[index]!.height));
