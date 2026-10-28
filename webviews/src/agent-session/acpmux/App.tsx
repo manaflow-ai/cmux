@@ -5133,10 +5133,17 @@ function AcpmuxPane() {
   );
   // The last snapshot's turns and subagent rows: the next builds on them (turnViewFrom).
   const lastTurns = useRef<{ turns: TurnView; subagents: SubagentRows } | undefined>(undefined);
+  const turnRowsChangedBeforeLast = useRef(true);
+  const lastTurnRowsOuterInputs = useRef<{ chatShellRuns: typeof chatShellRuns; panelAsks: typeof panelAsks } | undefined>(
+    undefined,
+  );
   /// Debug Settings `agent.sessionStatus`: a running turn's activity line under its todo list.
   const sessionStatus = useSessionStatus();
   const turnRowsShown = useMemo(() => {
-    if (childRows) return withoutAskedCalls(withoutQuietThoughts(childRows), panelAsks);
+    if (childRows) {
+      turnRowsChangedBeforeLast.current = true;
+      return withoutAskedCalls(withoutQuietThoughts(childRows), panelAsks);
+    }
     const startedRows = withStartedSessions(sourceRows, started, startedCache.current);
     // Labs: a Claude workflow is a card where it started (summary/WorkflowCard.tsx), not a tray line.
     const rows = subagentTray ? withSubagentLines(startedRows, doneLines.current, workflowLabsEnabled) : startedRows;
@@ -5156,6 +5163,13 @@ function AcpmuxPane() {
         },
         last?.turns,
       );
+      const previousOuter = lastTurnRowsOuterInputs.current;
+      turnRowsChangedBeforeLast.current =
+        turns.changedBeforeLast ||
+        previousOuter === undefined ||
+        previousOuter.chatShellRuns !== chatShellRuns ||
+        previousOuter.panelAsks !== panelAsks;
+      lastTurnRowsOuterInputs.current = { chatShellRuns, panelAsks };
       const subagents = subagentRowsFrom(turns.rows, expanded, last?.subagents);
       lastTurns.current = { turns, subagents };
       // After the turns: a live turn's status reads its last row, the call's included.
@@ -5190,6 +5204,7 @@ function AcpmuxPane() {
     if (
       previousInput &&
       lastAgentMessageRows.current &&
+      !turnRowsChangedBeforeLast.current &&
       previousInput.length === turnRowsShown.length &&
       previousInput.at(-1) === tail &&
       !(tail?.kind === "user" && tail.incoming?.kind === "message")
