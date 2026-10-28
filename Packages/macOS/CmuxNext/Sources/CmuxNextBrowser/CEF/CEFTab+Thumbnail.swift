@@ -37,8 +37,11 @@ enum CEFThumbnail {
             return .refused(.snapshotUnavailable)
         }
         let runtime = tab.runtime
-        return BrowserPictureRequest {
-            try CEFDevToolsResult.screenshot(try await runtime.result(of: sent, method: "Page.captureScreenshot"))
+        return BrowserPictureRequest { [weak tab] in
+            let json = try await runtime.result(of: sent, method: "Page.captureScreenshot")
+            // The answer is for a page that may have gone meanwhile: nothing of a closed page is kept.
+            guard let tab, !tab.isClosed else { throw BrowserTabError.closed }
+            return try CEFDevToolsResult.screenshot(json)
         }
     }
 }
