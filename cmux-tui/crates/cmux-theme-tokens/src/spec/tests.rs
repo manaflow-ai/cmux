@@ -134,6 +134,61 @@ fn derive_matches_the_spec_reference_themes() {
     );
 }
 
+/// Every bundled theme's inks and popup surface as Swift derives them
+/// (schemas/theme/theme-ink-vectors.json, which Swift's
+/// `ThemeInkVectorsTests` keeps equal to its output): this port gives the same.
+const INK_VECTORS: &str = include_str!("../../../../../schemas/theme/theme-ink-vectors.json");
+
+#[test]
+fn derive_matches_the_swift_ink_vectors() {
+    let doc = json::parse(INK_VECTORS).expect("theme-ink-vectors.json parses");
+    let lift = doc.get("lift").and_then(Value::as_f64).expect("theme-ink-vectors.json lift");
+    let cases = doc.get("cases").and_then(Value::as_array).expect("theme-ink-vectors.json cases");
+    assert!(cases.len() > 500, "only {} themes", cases.len());
+    let mut errors = Vec::new();
+    for case in cases {
+        let name = case.get("theme").and_then(Value::as_str).unwrap_or("?");
+        let input_of = |key: &str| case.get("input").and_then(|i| i.get(key));
+        let color = |key: &str| input_of(key).and_then(Value::as_str).map(hex);
+        // Only a theme with its own accent lists its palette (the inks read it through AppTheme).
+        let palette = input_of("palette").and_then(Value::as_array).map_or(
+            ThemeInput::GHOSTTY_DEFAULT.palette,
+            |p| {
+                let p: Vec<Rgb> = p.iter().map(|c| hex(c.as_str().unwrap_or_default())).collect();
+                p.try_into().unwrap_or_else(|_| panic!("{name}: 16 palette entries"))
+            },
+        );
+        let input = ThemeInput {
+            background: color("background").unwrap_or_else(|| panic!("{name}: background")),
+            foreground: color("foreground").unwrap_or_else(|| panic!("{name}: foreground")),
+            palette,
+            accent_color: color("accentColor"),
+            ..ThemeInput::GHOSTTY_DEFAULT
+        };
+        let t = ThemeTokens::derive(&input);
+        if case.get("isDark").and_then(Value::as_bool) != Some(t.is_dark) {
+            errors.push(format!("{name}.isDark: derive {}", t.is_dark));
+        }
+        for (key, got) in [
+            ("textPrimary", t.text_primary),
+            ("textSecondary", t.text_secondary),
+            ("textTertiary", t.text_tertiary),
+            ("opaqueOverlayFill", t.opaque_overlay_fill(lift)),
+        ] {
+            let want = case.get(key).and_then(Value::as_str);
+            if want != Some(css(got).as_str()) {
+                errors.push(format!("{name}.{key}: Swift {want:?}, derive {}", css(got)));
+            }
+        }
+    }
+    assert!(
+        errors.is_empty(),
+        "derive differs from schemas/theme/theme-ink-vectors.json in {} values:\n  {}",
+        errors.len(),
+        errors.join("\n  ")
+    );
+}
+
 #[test]
 fn constants_match_the_spec() {
     assert!(Spec::parse(DESIGN_TOKENS).is_ok(), "design-tokens.json theme section parses");

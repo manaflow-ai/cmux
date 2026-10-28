@@ -23,6 +23,7 @@
   height: 100%;
   font-size: var(--text-body);
   line-height: var(--text-body--line-height);
+  letter-spacing: var(--text-body--letter-spacing);
 }
 .lg-spacer {
   flex: 1;
@@ -35,6 +36,7 @@
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
   color: var(--page-text-3);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 /* ---------- List ---------- */
@@ -57,6 +59,7 @@
   font-size: var(--text-title);
   line-height: var(--text-title--line-height);
   font-weight: 600;
+  letter-spacing: var(--text-title--letter-spacing);
 }
 .lg-search {
   display: flex;
@@ -73,6 +76,7 @@
   font-size: var(--text-detail);
   text-align: start;
   cursor: default;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .lg-search span {
   flex: 1;
@@ -80,6 +84,7 @@
 .lg-search kbd {
   font: inherit;
   font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 .lg-search:hover {
   color: var(--page-text-2);
@@ -106,6 +111,7 @@
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);
   font-weight: 500;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .lg-list-group.after-pinned {
   margin-top: 6px;
@@ -120,6 +126,7 @@
   margin: 4px var(--lg-pad);
   color: var(--page-text-3);
   font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .lg-row {
   position: relative;
@@ -189,6 +196,7 @@
   line-height: var(--text-caption--line-height);
   color: var(--page-text-3);
   font-variant-numeric: tabular-nums;
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 .lg-row.unread .lg-row-time {
   color: var(--page-text);
@@ -203,6 +211,7 @@
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);
   color: var(--page-text-3);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .lg-row.unread .lg-row-preview {
   color: var(--page-text-2);
@@ -234,6 +243,7 @@
   font-weight: 600;
   text-align: center;
   font-variant-numeric: tabular-nums;
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 .lg-unread-dot {
   position: absolute;
@@ -258,6 +268,7 @@
   color: var(--page-text-2);
   font-size: var(--text-caption);
   font-weight: 600;
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 .hc-avatar {
   position: relative;
@@ -333,6 +344,7 @@
   font-weight: 600;
   flex: 0 1 auto;
   min-width: 0;
+  letter-spacing: var(--text-title--letter-spacing);
 }
 .lg-header-context {
   display: flex;
@@ -343,6 +355,7 @@
   white-space: nowrap;
   font-size: var(--text-detail);
   color: var(--page-text-3);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .lg-header-context > * + *::before {
   content: "·";
@@ -366,6 +379,7 @@
   flex: none;
   font-size: var(--text-detail);
   color: var(--page-text-2);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .lg-stage {
   position: relative;
@@ -391,6 +405,7 @@
   place-items: center;
   color: var(--page-text-3);
   font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .lg-day {
   display: flex;
@@ -402,6 +417,7 @@
   font-weight: 600;
   color: var(--page-text-3);
   font-variant-numeric: tabular-nums;
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 .lg-day::after {
   content: "";
@@ -414,6 +430,7 @@
   color: var(--page-text);
   font-size: var(--text-caption);
   font-weight: 600;
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 .lg-page .hc-new-line::before {
   opacity: 0.35;
@@ -454,6 +471,7 @@
 .hc-msg.lg-msg .hc-md {
   font-size: var(--text-body);
   line-height: var(--text-body--line-height);
+  letter-spacing: var(--text-body--letter-spacing);
 }
 .hc-msg.lg-msg:hover,
 .hc-msg.lg-msg:focus-within {
@@ -476,6 +494,7 @@
   margin: 0;
   font-size: var(--text-caption);
   color: var(--page-text-3);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 .lg-pending.failed {
   color: var(--hc-danger);
@@ -499,6 +518,7 @@
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
   color: var(--page-text-3);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 .lg-msg .hc-chip {
   margin-top: 4px;
@@ -560,11 +580,13 @@
   text-overflow: ellipsis;
   font-size: var(--text-detail);
   color: var(--page-text-3);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .lg-thread-new {
   font-size: var(--text-caption);
   font-weight: 600;
   color: var(--page-text);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 .lg-thread-faces {
   display: flex;
@@ -588,6 +610,7 @@
   color: var(--page-text-2);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .lg-thread-time {
   flex: none;
@@ -646,6 +669,7 @@
   font-size: var(--text-caption);
   line-height: 16px;
   color: var(--page-text-3);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 /* A Chief's run streams (chief-live-v1): the end of its reply, then what it works on, one line
    each; the whole row opens the run sheet. */
@@ -690,6 +714,7 @@
 .lg-page .hc-composer-field {
   font-size: var(--text-body);
   line-height: var(--text-body--line-height);
+  letter-spacing: var(--text-body--letter-spacing);
 }
 .lg-page .hc-composer {
   border-radius: 8px;
@@ -705,6 +730,7 @@
 }
 .lg-page .hc-composer-hint {
   font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 /* ---------- Thread sheet: over the timeline, from the end edge ---------- */
@@ -765,6 +791,7 @@
   font-size: var(--text-detail);
   font-weight: 500;
   cursor: default;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .lg-status-button:hover {
   background: var(--page-hover);
@@ -775,6 +802,7 @@
 .lg-sheet-place {
   font-size: var(--text-detail);
   color: var(--page-text-3);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .lg-sheet-title {
   margin: 0 8px 4px 0;
@@ -785,6 +813,7 @@
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+  letter-spacing: var(--text-heading--letter-spacing);
 }
 .lg-sheet[data-status="resolved"] .lg-sheet-title {
   color: var(--page-text-2);
@@ -795,6 +824,7 @@
   margin: 0;
   font-size: var(--text-detail);
   color: var(--page-text-3);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .lg-sheet-meta > * + *::before {
   content: "·";
@@ -808,6 +838,7 @@
   font-size: var(--text-caption);
   font-weight: 600;
   color: var(--page-text-3);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 .lg-sheet .hc-replies-line::after {
   content: "";
@@ -937,6 +968,7 @@
   font: inherit;
   font-size: var(--text-title);
   outline: none;
+  letter-spacing: var(--text-title--letter-spacing);
 }
 .lg-palette-input::placeholder {
   color: var(--page-text-3);
@@ -955,6 +987,7 @@
   font-size: var(--text-caption);
   font-weight: 600;
   color: var(--page-text-3);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 /* The row is the shared combobox item; its highlight is drawn on the line, not the heading. */
 .lg-palette-row.ui-combobox-item,
@@ -994,6 +1027,7 @@
   font-size: var(--text-detail);
   color: var(--page-text-3);
   font-variant-numeric: tabular-nums;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .lg-palette-none {
   margin: 16px 10px;
@@ -1006,6 +1040,7 @@
   border-top: 1px solid var(--lg-line);
   font-size: var(--text-caption);
   color: var(--page-text-3);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 /* ---------- The conversation column: the pane's full width, the side padding only ---------- */
@@ -1060,6 +1095,7 @@
   line-height: var(--text-heading--line-height);
   font-weight: 600;
   outline: none;
+  letter-spacing: var(--text-heading--letter-spacing);
 }
 .lg-page .lg-owner-button.ui-button,
 .lg-owner-button {
@@ -1135,6 +1171,7 @@
 .lg-goal-detail {
   color: var(--page-text-3);
   font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 .lg-goal-title {
   overflow: hidden;
@@ -1143,6 +1180,7 @@
   font-weight: 500;
   text-overflow: ellipsis;
   white-space: nowrap;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .lg-goal-detail {
   overflow: hidden;
@@ -1189,6 +1227,7 @@
   font-size: var(--text-detail);
   text-align: start;
   cursor: default;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .lg-run-label {
   min-width: 0;
@@ -1217,6 +1256,7 @@
   flex: none;
   height: 28px;
   font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .lg-run-mark {
   flex: none;
@@ -1246,6 +1286,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 /* A running run's reply as it streams (chief-live-v1): its end, in the label's column. */
 .lg-run-live {
@@ -1254,6 +1295,7 @@
   font-size: var(--text-detail);
   color: var(--page-text-2);
   overflow-wrap: anywhere;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 /* The rail: under the first glyph's center, the steps in the label's column. */
 .lg-run-steps {
@@ -1279,6 +1321,7 @@
   margin: 6px 0 0;
   font-size: var(--text-caption);
   color: var(--page-text-3);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 .lg-run-error {
   margin: 0;
@@ -1287,6 +1330,7 @@
   font-size: var(--text-detail);
   color: var(--hc-danger);
   white-space: pre-wrap;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 /* In the card (no frame): the error in the label's column, no line above it. */
 .lg-run > .lg-run-error {
@@ -1304,6 +1348,7 @@
   border-radius: 6px;
   font-size: var(--text-detail);
   font-weight: 500;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .lg-run-status.failed {
   color: var(--hc-danger);
@@ -1320,11 +1365,13 @@
 .lg-run-block.note {
   color: var(--page-text-2);
   font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 /* A thought in the run sheet: folded under "Thought". */
 .lg-run-block.thought {
   color: var(--page-text-3);
   font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .lg-run-block.thought > summary {
   cursor: default;
@@ -1340,6 +1387,7 @@
   gap: 8px;
   margin: 4px 0 0 24px;
   font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .lg-run-links a {
   color: var(--page-text);
@@ -1351,9 +1399,11 @@
   margin: 8px 0 0;
   font-size: var(--text-detail);
   color: var(--page-text-3);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .lg-run-session code {
   font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 .lg-run-chevron {
   order: 2;
@@ -1458,6 +1508,7 @@
   font-size: var(--text-title);
   line-height: var(--text-title--line-height);
   font-weight: 600;
+  letter-spacing: var(--text-title--letter-spacing);
 }
 .hc-att-video {
   margin: 0;
@@ -1500,6 +1551,7 @@
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
   font-weight: 600;
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 .hc-att-file-text,
 .hc-tray-text {
@@ -1514,6 +1566,7 @@
   white-space: nowrap;
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .hc-att-video figcaption .hc-att-name {
   flex: 1;
@@ -1524,6 +1577,7 @@
   line-height: var(--text-caption--line-height);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 .hc-att-download {
   display: grid;
@@ -1687,6 +1741,7 @@
   color: var(--page-text-2);
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .hc-att-image.failed {
   cursor: default;
@@ -1754,6 +1809,7 @@
   line-height: var(--text-title--line-height);
   font-weight: 700;
   color: var(--page-text);
+  letter-spacing: var(--text-title--letter-spacing);
 }
 .lg-form-lead {
   margin: 4px 0 0;
@@ -1789,10 +1845,12 @@
   font-size: var(--text-detail);
   font-weight: 600;
   color: var(--page-text-2);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .lg-form-note {
   font-size: var(--text-caption);
   color: var(--page-text-3);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 .lg-chief-backend {
   color: var(--page-text);
@@ -1803,6 +1861,7 @@
 .lg-form-error {
   font-size: var(--text-detail);
   color: var(--hc-danger);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .lg-form-row {
   display: flex;
@@ -1831,6 +1890,7 @@
   margin: 0;
   font-size: var(--text-caption);
   color: var(--page-text-3);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 .lg-picker-rows {
   display: flex;

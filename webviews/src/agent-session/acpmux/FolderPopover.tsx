@@ -22,7 +22,8 @@ export type FolderChoice = { id: string; label: string; repo?: ProjectRepo };
 /// folder…, each only where the host offers it. The shared Combobox keeps the keyboard in the field:
 /// typing filters by repository, branch and path, and lists a worktree on its own when the words
 /// name it; ↑/↓ move through the rows and the actions; Return picks; Escape closes back to the
-/// strip. A typed absolute or `~/` path is offered as typed.
+/// strip. A typed absolute or `~/` path is offered as typed. `note` is a quiet line under the list:
+/// where the chat starts while no folder is picked (a new chat's private folder).
 export function FolderPopover({
   label,
   menu,
@@ -36,6 +37,7 @@ export function FolderPopover({
   noProject = false,
   localName,
   peers,
+  note,
 }: {
   label: string;
   /// The name automation opens it by (`openPicker`).
@@ -55,6 +57,8 @@ export function FolderPopover({
   noProject?: boolean;
   localName?: string;
   peers?: string[];
+  /// A quiet line under the list.
+  note?: string;
 }) {
   const [adding, setAdding] = useState(false);
   const [query, setQuery] = useState("");
@@ -293,6 +297,7 @@ export function FolderPopover({
         {shown.size === 0 && !typedPath && (
           <div className="acpmux-location-empty">{t(typed ? "project.none" : "project.noneYet")}</div>
         )}
+        {note && <p className="acpmux-location-note">{note}</p>}
       </Popover>
       <AddProjectDialog
         open={adding}

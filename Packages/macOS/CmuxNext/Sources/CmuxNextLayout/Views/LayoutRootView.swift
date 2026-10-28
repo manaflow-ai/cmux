@@ -335,13 +335,15 @@ public final class LayoutRootView: NSView {
             } else {
                 isNew = true
                 view = ScreenContentView(screenID: screen.id, layout: screen.layout, context: context)
-                view.frame = bounds
                 view.isHidden = !isActive
+                // In the window before its first frame: the frame reconciles the screen, which takes
+                // its panes' hosts, so a pane the old screen shows moves inside the window, never out.
                 if overlayPlane.isHome {
                     addSubview(view, positioned: .below, relativeTo: overlayPlane)
                 } else {
                     addSubview(view)
                 }
+                view.frame = bounds
                 screenViews[screen.id] = view
                 screenFrames[screen.id] = AnimatedFrame(bounds, alpha: isActive ? 1 : 0)
             }
@@ -400,7 +402,11 @@ public final class LayoutRootView: NSView {
             }
         }
 
+        // A drag's pages whose panes moved to a surviving screen hear its end when that screen lands;
+        // the rest (gone with their screen) hear it now.
+        var carried: [PaneResizeGestureListener] = []
         for (id, view) in leaving {
+            carried += view.takeResizeGestureListeners()
             view.tearDown()
             view.removeFromSuperview()
             screenViews[id] = nil
@@ -414,6 +420,18 @@ public final class LayoutRootView: NSView {
             }
         }
 
+        for listener in carried {
+            guard let page = listener.view else { continue }
+            if let home = screenViews.values.first(where: { page.isDescendant(of: $0) }) {
+                home.adoptResizeGestureListeners([listener])
+            } else {
+                page.paneResizeGestureDidChange(active: false)
+            }
+        }
+        // A released resize drag: its layout is in the screens now (`ScreenContentView+ResizeGesture`).
+        for view in screenViews.values where view.resizeGesture == .releasing {
+            view.resizeGestureModelSynced(gestureActive: snapshot.gestureActive)
+        }
         updateVisibility()
         overlayIsStale = true
         flushOverlaySync()
@@ -429,9 +447,16 @@ public final class LayoutRootView: NSView {
 
     func advanceFrame(_ dt: Double) -> Bool {
         defer { onFramePlaced?() }
+        // A released resize drag whose layout the observation has not applied yet: apply it before this
+        // frame, so the frame that ends the drag for the pane contents is the release's (`ScreenContentView+ResizeGesture`).
+        if !model.isGestureActive, screenViews.values.contains(where: { $0.resizeGesture == .releasing }) {
+            syncWithModel()
+            // Nothing new to apply: the screens already show the model.
+            for view in screenViews.values where view.resizeGesture == .releasing { view.resizeGestureModelSynced(gestureActive: false) }
+        }
         // Reduce Motion (or the no-animation switch) turned on mid-flight: the final layout now, no more frames.
         if context.reduceMotion {
-            for view in screenViews.values where view.hasMotion { view.settleMotion() }
+            for view in screenViews.values where view.hasMotion || view.resizeGesture == .landing { view.settleMotion() }
             for id in Array(screenFrames.keys) { screenFrames[id]?.snap() }
             applyScreenFrames()
             updateVisibility()
@@ -575,7 +600,13 @@ public final class LayoutRootView: NSView {
             self.eventMonitor = nil
         }
         driver.detach()
-        if !live { for view in screenViews.values { view.settleMotion() } }
+        if !live {
+            for view in screenViews.values {
+                view.settleMotion()
+                // No frames run while parked or away: a resize drag's pages lay out now (`ScreenContentView+ResizeGesture`).
+                view.finishResizeGesture()
+            }
+        }
         if !live, let planeHost {
             planeHost.releasePlane(overlayPlane)
             self.planeHost = nil

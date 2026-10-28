@@ -294,10 +294,21 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// `agent_session.needs_keyed_start` (cx-0w0jj): that machine's daemon says whether a keyed
     /// restart of its acpmux can lose nothing, so the app no longer reads the acpmux status.
     case agentSessionStartKeyedReason = "agent-session-start-keyed-reason-v1"
+    /// `agent-session-start` takes `vm_kind`: the Cloud API's `vmKind` for this app on its link to
+    /// that machine. A Cloud VM's daemon then starts a chat only on `vm_kind: "owner"`, never on
+    /// its own `owner` record (the agents there keep sudo).
+    case agentSessionStartVMKind = "agent-session-start-vm-kind-v1"
+    /// `agent-session-trust` takes `vm_kind`, as `agent-session-start` does: a Cloud VM's daemon
+    /// records folder trust only on `vm_kind: "owner"`.
+    case agentSessionTrustVMKind = "agent-session-trust-vm-kind-v1"
     /// `agent-session-children`: an attached chat's daemon lists the chats its session started on
     /// that machine and streams their changes, and a listed child opens in a tab of that machine
     /// (a Cloud VM chat's sub-sessions on the Mac). Without it the chat shows no children.
     case agentSessionChildren = "agent-session-children-v1"
+    /// `agent-session-typing` and `agent-session-view`, and the `agent-session-presence` event:
+    /// who is in an attached chat (chat multiplayer, hq#4389). Without it a chat of that machine
+    /// shows no one else, and the person's typing and view stay on this Mac.
+    case agentSessionPresence = "agent-session-presence-v1"
     /// Page tabs on the store: the `page` source of a conversation tab (App Store, Settings,
     /// Debug Settings), so they move and split like any tab (cmux-tui/spec/commands.md).
     case pageTabs = "page-tabs-v1"
@@ -501,7 +512,9 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .chiefLive, .cloudChiefLive, .conversationRuns, .cloudConversationRuns, .cloudConversationTyping,
              .workspaceKind, .workspaceAgentFolder, .workspaceAgentStart, .conversationTabs, .agentSessionTabs,
              .agentSessionAttach, .agentSessionObserve, .agentSessionStart, .agentSessionTrust,
-             .agentSessionStartKeyedReason, .agentSessionChildren, .pageTabs, .pageTabRoute, .appScreens,
+             .agentSessionStartKeyedReason, .agentSessionStartVMKind, .agentSessionTrustVMKind,
+             .agentSessionChildren, .agentSessionPresence, .pageTabs,
+             .pageTabRoute, .appScreens,
              .conversationSearch, .conversationThreads, .conversationThread, .conversationInboxState, .homeInbox,
              .chiefEvents, .cloudConversations, .cloudHostReplica, .cloudAttachments, .cloudSelfHost,
              .pageCredential, .scopedPageCredential, .wsListen, .wsListenOrigins, .personalMixedOrder,
@@ -560,8 +573,10 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     public static let advertised: [String] = (required + optional + unservedByBundledDaemon).filter {
         !notAdvertised.contains($0)
     }
+    /// `agentSessionPresence` only from the connection that draws an attached chat's presence
+    /// (`AgentSessionAttachClient`), never from every connection.
     private static let notAdvertised: Set<String> = Set(names([.terminalFrontendShellIntegration, .placementShift,
-                                                               .sharedSizing]))
+                                                               .sharedSizing, .agentSessionPresence]))
 
     /// What a connection echoes in `set-client-info`.
     ///

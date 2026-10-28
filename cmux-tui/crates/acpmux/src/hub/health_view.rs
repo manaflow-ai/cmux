@@ -155,7 +155,19 @@ impl Hub {
     /// (call after `begin_startup`), then every `REFRESH_EVERY`.
     /// `ACPMUX_HEALTH_FETCH=0` or `ACPMUX_CATALOG_FETCH=0` keeps newest-version
     /// lookups off (the local checks still run).
+    ///
+    /// A capture fixture (`ACPMUX_HARNESS_FIXTURE`, `harness_fixture.rs`)
+    /// replaces all of it: its rows are the check, and neither the registry
+    /// nor a newest version is fetched, nor a copy saved.
     pub fn start_harness_checks(self: &Arc<Self>) {
+        if let Some(fixture) = crate::harness_fixture::active() {
+            self.health.attach(crate::harness_health::Settings {
+                home: dirs::home_dir().unwrap_or_default(),
+                fixture: Some(fixture.health.clone()),
+                ..Default::default()
+            });
+            return;
+        }
         if !std::env::var("ACPMUX_REGISTRY_FETCH").is_ok_and(|v| v == "0") {
             let hub = self.clone();
             tokio::spawn(async move {
@@ -184,6 +196,7 @@ impl Hub {
             cache: Some(crate::config::home().join("harness-health.json")),
             auto_update: Some(crate::config::home().join("harness-auto-update.json")),
             home: dirs::home_dir().unwrap_or_default(),
+            fixture: None,
         });
         tokio::spawn(self.clone().run_health());
     }

@@ -6,7 +6,10 @@
 Each file is run_ci_guards.py --results output ({step name: passed}) from one runner: the head's
 checkout run on the head, then on the base (--root). A step red on the head that passed on the
 base, or is new, fails; a step red on both is a warning. Missing base results (an unreadable base)
-make every head red the change's.
+make every head red the change's. A step that reports its own checks (run_ci_guards.py) adds one
+"<step> :: <check>" entry per check, compared like any step: a check red on the base never masks a
+different check red on the change, and a check the base has no entry for (a base from before the
+step reported its checks) counts as the change's, so a step-level red on the base excuses nothing.
 
 --label names what the annotations count (default: Guard); the webview tests use it with
 webviews_test_results.py's per-test results.

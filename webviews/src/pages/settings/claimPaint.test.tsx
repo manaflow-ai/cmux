@@ -59,11 +59,20 @@ afterEach(() => {
   delete scope[PARKED_NAME];
 });
 
-/// What a frame shows: rows, disabled controls and the page's groups.
+const DISABLED = ":disabled, [aria-disabled='true']";
+const CONTROLS = "button, input, select, textarea, [role='switch'], [role='combobox'], [aria-disabled]";
+
+/// What a frame shows: rows, setting rows whose controls are all disabled (a row waiting for its
+/// value draws that way), and the page's groups. A disabled button beside enabled ones is the row's
+/// state, not a wait: an ordered list's first Move Up and last Move Down (tabs.newTabWidgets.order,
+/// #22903). Keep unrelated card actions out of this signal: they can be disabled for their own state.
 function screen() {
   return {
     rows: document.querySelectorAll("[data-row-key]").length,
-    disabled: document.querySelectorAll(".row-control :disabled, .row-control [aria-disabled='true']").length,
+    disabled: [...document.querySelectorAll("[data-row-key] .row-control")].filter((control) => {
+      const all = control.querySelectorAll(CONTROLS);
+      return all.length > 0 && [...all].every((element) => element.matches(DISABLED));
+    }).length,
     groups: document.querySelectorAll("section").length,
   };
 }

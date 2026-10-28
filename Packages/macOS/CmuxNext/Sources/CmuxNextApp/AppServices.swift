@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextOnboarding
 import CmuxNextApps
 import CmuxNextAgentPane
 import CmuxNextBridge
@@ -13,9 +14,11 @@ import CmuxNextCrashReporting
 import CmuxNextDesign
 import CmuxNextMobileHost
 import CmuxNextDaemon
+import CmuxNextDaemonRecovery
 import CmuxNextFeed
 import CmuxNextFloating
 import CmuxNextFavicons
+import CmuxNextHibernation
 import CmuxNextHomeEngine
 import CmuxNextIcons
 import CmuxNextPalette
@@ -81,10 +84,15 @@ final class AppServices {
     /// Restart CLI Listener: binds the control socket again. Set once the
     /// app's control socket starts; nil while it has none (tests, socket off).
     var restartControlListener: (@MainActor () throws -> Void)?
+    /// This build's error journal (AppControl starts it): Help > Copy Logs reads it.
+    var errorJournal: ErrorJournalService?
     /// Agents' and scripts' Cloud machine creates waiting on the person in every window's sidebar card.
     let machineAsks = SidebarAsks()
     /// Auto-archive of idle workspaces (plans/cmux-next/auto-archive-DESIGN.md); started at launch.
     private(set) lazy var autoArchive = AutoArchiveCoordinator(host: self, ledgerStore: AutoArchiveLedgerStore(defaults: .standard))
+    /// Hibernates idle workspaces (plans/cmux-next/workspace-hibernation-DESIGN.md).
+    private(set) lazy var workspaceHibernation = WorkspaceHibernation(host: self, keepAwake: WorkspaceKeepAwakeStore(defaults: .standard),
+                                                                  deadline: DemandTimer(owner: "workspace-hibernation"))
     private(set) lazy var cloud: CloudService = CloudService(machines: machines, isDebugBuild: ControlService.isDebugBuild, mainWork: mainWork, work: work)  // first read in init (no IUO)
     /// The feed mirror (`FeedDO`), started once the cmux account is signed in.
     private(set) lazy var feed: FeedService = FeedService(
@@ -103,6 +111,8 @@ final class AppServices {
     /// Add Device and Settings > Devices (plans/cmux-next/add-device-DESIGN.md): one entry, one list, one remove.
     private(set) lazy var addDevice = AddDeviceCard(services: .app(self))
     private(set) lazy var devices = DeviceDirectory.app(self)
+    /// Settings > Machines' "Dedicated agent machine" switch on each Cloud machine (acpmux vmHost).
+    private(set) lazy var cloudVmHost = CloudVmHostStore(api: cloud.api)
     let machineHealth = MachineHealthStore()
     let mobile = MobileHostService(displayName: { await MacName().displayName() })  // phone access; the account layer starts it
     /// iPhone connections for the cmux-next iPhone app (cmux-next-ios, Settings > Mobile).
@@ -348,10 +358,13 @@ final class AppServices {
     private(set) lazy var quit = QuitCoordinator(services: self)
     /// Background mode (cx-ghagp): no window open means no Dock icon or Cmd-Tab entry, and a menu bar item instead.
     /// Only the process's own services drive it, and not while quitting (window teardown runs inside a quit).
-    private(set) lazy var background = BackgroundActivation(registry: registry, icon: .icon(.appCmux, size: 16)) { [weak self] in
+    private(set) lazy var background = BackgroundActivation(registry: registry, icon: .icon(.appCmux, size: 16), mayEnter: { [weak self] in
         guard let self else { return false }
         return AppProcessRoot.shared.services === self && self.windows.controllers.isEmpty && !self.quit.isQuitting
-            && self.settings?.snapshot.hideDockIconWithoutWindows ?? CmuxConfigSnapshot.hideDockIconWithoutWindowsFallback }
+            && self.settings?.snapshot.hideDockIconWithoutWindows ?? CmuxConfigSnapshot.hideDockIconWithoutWindowsFallback
+    }, menuBarItemShown: { [weak self] in self?.menuBarExtra.isShown ?? false })
+    /// The cmux menu bar item (`app.showMenuBarIcon`): account, agents, help, community, updates, logs, Quit.
+    private(set) lazy var menuBarExtra = MenuBarExtra(registry: registry, icon: .icon(.appCmux, size: 16), host: self)
     /// First-run onboarding, browser import and default-app claims.
     private(set) lazy var onboarding = OnboardingService(services: self)
     /// Agent permission requests (`permissions.request`): the card, the store and the TCC reads.
@@ -360,8 +373,15 @@ final class AppServices {
     private(set) lazy var accounts = AccountsService(services: self)
     /// Agent harness profiles (Settings > Agents, `agent.harness.*`), through acpmux.
     private(set) lazy var agentHarnesses = AgentHarnessCenter(services: self)
+    /// Every harness's icon (user 12922) for the tab strip and sidebar, and their drawings.
+    private(set) lazy var harnessIcons = HarnessIconBook(environment: { [weak self] in self.flatMap(QuitAgents.environment) })
+    let harnessIconArtwork = HarnessIconArtwork()
+    /// The drawn harness icons the tab strip and sidebar mappings take.
+    var harnessIconLookup: HarnessIconLookup { harnessIconArtwork.lookup(for: harnessIcons.icons) }
     /// Links, files and services macOS hands cmux (default browser, ssh:, scripts).
     private(set) lazy var externalOpen = ExternalOpenController(services: self)
+    /// The `cmux://session/<id>` question before a link opens a new agent tab.
+    private(set) lazy var sessionLinks = SessionLinkGate.app(self)
     let terminalTheme = TerminalThemeSetting(backdropScope: .app)
     /// This Mac's layout templates (Save Layout as Template, New Workspace from Template).
     private(set) lazy var layoutTemplates = LayoutTemplateLibrary(repository: LayoutTemplateRepository(fileURL: environment.layoutTemplatesFile))
@@ -454,6 +474,8 @@ final class AppServices {
         DaemonService.launchMark = { DebugTimings.markLaunch($0) }  // before any daemon service starts
         self.mainWork = mainWork
         daemon = DaemonService(echoesPlacementShift: SidebarMirror.isLinked, mainWork: mainWork)
+        // A cmux-tui that stays alive but never answers restarts by itself (`UnresponsiveOwnerWatch`).
+        daemon.recovery.restartsUnresponsiveOwner = { DaemonTunables.restartUnresponsiveCmuxTUI.value }
         self.launchReveal = launchReveal
         sidebarSnapshots = SidebarSnapshotStore(file: environment.sidebarSnapshotFile)
         let contextMenus = BrowserContextMenuBuilder.shared
@@ -486,7 +508,9 @@ final class AppServices {
         _ = remoteLocalhost  // built here, as before
         cache.configureBrowser = { [weak self] tab, url, base in  // a Cloud proxied tab's store first (ProxiedBrowserTabs)
             let base = self?.cache.pageRequests.closedHistories.restoring(base, url: url, local: self?.machines.daemon(forTab: tab).isLocal == true, tab: tab.id) ?? base  // cx-d0d.59
-            return await self?.cache.pageRequests.proxiedTabs.configuration(for: tab.id, url: url, base: base) { await self?.remoteLocalhost.configuration(for: tab, url: url, base: base) ?? base } ?? base
+            // Nil (a blocked proxied tab, a remote-localhost route that cannot start) leaves the page
+            // blank (TabContentCache.chromiumConfiguration), never on this Mac's localhost.
+            return await self?.cache.pageRequests.proxiedTabs.configuration(for: tab.id, url: url, base: base) { await self?.remoteLocalhost.configuration(for: tab, url: url, base: base) }
         }
         cache.findTab = { [weak self] key in self?.remoteLocalhost.tab(id: key) }
         cache.onRelease = { [weak self] key in

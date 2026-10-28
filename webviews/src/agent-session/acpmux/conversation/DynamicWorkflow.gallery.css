@@ -44,7 +44,7 @@
   background: var(--workflow-bg);
   color: var(--workflow-ink);
   color-scheme: light;
-  font: var(--workflow-text-body) / 1.4 -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+  font: var(--workflow-text-body) / 1.4 var(--font-ui);
 }
 
 [data-workflow-gallery][data-mode="dark"] {

@@ -1,0 +1,1458 @@
+{
+  "sourceLanguage": "en",
+  "strings": {
+    "runs.error.agentInvalid": {
+      "comment": "cmux run --sandboxed refusal: unknown agent.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unknown agent. Use claude, codex, opencode or pi."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unbekannter Agent. Verwende claude, codex, opencode oder pi."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent inconnu. Utilisez claude, codex, opencode ou pi."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "وكيل غير معروف. استخدم claude أو codex أو opencode أو pi."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agente desconocido. Usa claude, codex, opencode o pi."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知的代理。請使用 claude、codex、opencode 或 pi。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知的代理。请使用 claude、codex、opencode 或 pi。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알 수 없는 에이전트입니다. claude, codex, opencode, pi 중 하나를 쓰세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不明なエージェントです。claude、codex、opencode、pi のいずれかを使ってください。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nepoznat agent. Koristite claude, codex, opencode ili pi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ukendt agent. Brug claude, codex, opencode eller pi."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agente sconosciuto. Usa claude, codex, opencode o pi."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ភ្នាក់ងារមិនស្គាល់។ ប្រើ claude, codex, opencode ឬ pi។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ukjent agent. Bruk claude, codex, opencode eller pi."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nieznany agent. Użyj claude, codex, opencode lub pi."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agente desconhecido. Use claude, codex, opencode ou pi."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Неизвестный агент. Используйте claude, codex, opencode или pi."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่รู้จักเอเจนต์ ใช้ claude, codex, opencode หรือ pi"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bilinmeyen ajan. claude, codex, opencode veya pi kullanın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Невідомий агент. Використовуйте claude, codex, opencode або pi."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tác tử không xác định. Dùng claude, codex, opencode hoặc pi."
+          }
+        }
+      }
+    },
+    "runs.error.badResponse": {
+      "comment": "A sandboxed run call got a reply from cmux.com that the app could not parse.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux.com sent an answer the app couldn't read."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux.com hat eine Antwort gesendet, die die App nicht lesen konnte."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux.com a envoyé une réponse que l'app n'a pas pu lire."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أرسل cmux.com ردًا تعذّر على التطبيق قراءته."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux.com envió una respuesta que la app no pudo leer."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux.com 傳回了 App 無法讀取的回應。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux.com 返回了 App 无法读取的响应。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux.com이 앱에서 읽을 수 없는 응답을 보냈습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux.com からアプリが読み取れない応答が返されました。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux.com je poslao odgovor koji aplikacija nije mogla pročitati."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux.com sendte et svar, som appen ikke kunne læse."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux.com ha inviato una risposta che l'app non è riuscita a leggere."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux.com បានផ្ញើចម្លើយដែលកម្មវិធីមិនអាចអានបាន។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux.com sendte et svar appen ikke kunne lese."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux.com wysłał odpowiedź, której aplikacja nie mogła odczytać."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O cmux.com enviou uma resposta que o app não conseguiu ler."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux.com прислал ответ, который приложение не смогло прочитать."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux.com ส่งคำตอบที่แอปอ่านไม่ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux.com, uygulamanın okuyamadığı bir yanıt gönderdi."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux.com надіслав відповідь, яку застосунок не зміг прочитати."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux.com đã gửi một phản hồi mà ứng dụng không đọc được."
+          }
+        }
+      }
+    },
+    "runs.error.idRequired": {
+      "comment": "runs.wait or runs.cancel refusal when no Run id was given.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Name the run with `id`."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gib den Lauf mit `id` an."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indiquez l’exécution avec `id`."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حدّد التشغيل باستخدام `id`."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indica la ejecución con `id`."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請用 `id` 指定執行。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请用 `id` 指定运行。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "`id`로 실행을 지정하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "`id` で実行を指定してください。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Navedite izvršavanje pomoću `id`."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Angiv kørslen med `id`."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Indica l’esecuzione con `id`."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ដាក់ឈ្មោះការដំណើរការដោយ `id`។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Angi kjøringen med `id`."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wskaż uruchomienie za pomocą `id`."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Indique a execução com `id`."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Укажите запуск через `id`."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ระบุการรันด้วย `id`"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Çalıştırmayı `id` ile belirtin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вкажіть запуск через `id`."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chỉ định lần chạy bằng `id`."
+          }
+        }
+      }
+    },
+    "runs.error.imageInvalid": {
+      "comment": "cmux run --sandboxed refusal: the image is not a Cloud VM manifest image.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That image isn't a cmux Cloud VM image. Leave out --image to use the base image."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieses Image ist kein cmux-Cloud-VM-Image. Lass --image weg, um das Basis-Image zu verwenden."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette image n’est pas une image de VM cmux Cloud. Omettez --image pour utiliser l’image de base."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هذه الصورة ليست صورة آلة cmux Cloud. احذف ‎--image لاستخدام الصورة الأساسية."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esa imagen no es una imagen de VM de cmux Cloud. Omite --image para usar la imagen base."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "該映像不是 cmux Cloud VM 映像。省略 --image 以使用基礎映像。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "该镜像不是 cmux Cloud VM 镜像。省略 --image 以使用基础镜像。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 이미지는 cmux Cloud VM 이미지가 아닙니다. 기본 이미지를 쓰려면 --image를 빼세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのイメージは cmux Cloud VM のイメージではありません。--image を省くとベースイメージを使います。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ta slika nije slika cmux Cloud VM-a. Izostavite --image da koristite osnovnu sliku."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Det image er ikke et cmux Cloud VM-image. Udelad --image for at bruge basisimaget."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quell’immagine non è un’immagine di VM cmux Cloud. Ometti --image per usare l’immagine di base."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "រូបភាពនោះមិនមែនជារូបភាព cmux Cloud VM ទេ។ ដក --image ចេញ ដើម្បីប្រើរូបភាពមូលដ្ឋាន។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Det imaget er ikke et cmux Cloud VM-image. Utelat --image for å bruke basisimaget."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ten obraz nie jest obrazem maszyny wirtualnej cmux Cloud. Pomiń --image, aby użyć obrazu bazowego."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Essa imagem não é uma imagem de VM do cmux Cloud. Omita --image para usar a imagem base."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Этот образ не является образом ВМ cmux Cloud. Не указывайте --image, чтобы использовать базовый образ."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "อิมเมจนั้นไม่ใช่อิมเมจ VM ของ cmux Cloud ละ --image ไว้เพื่อใช้อิมเมจพื้นฐาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu imaj bir cmux Cloud VM imajı değil. Temel imajı kullanmak için --image vermeyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Цей образ не є образом ВМ cmux Cloud. Не вказуйте --image, щоб використати базовий образ."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ảnh đó không phải ảnh VM của cmux Cloud. Bỏ --image để dùng ảnh cơ sở."
+          }
+        }
+      }
+    },
+    "runs.error.labsOff": {
+      "comment": "cmux run --sandboxed refusal while the Labs preview flag is off.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sandboxed runs are a preview. Turn on Settings > Advanced > Labs > Show Preview Features."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sandbox-Läufe sind eine Vorschau. Aktiviere Einstellungen > Erweitert > Labs > Vorschaufunktionen anzeigen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les exécutions isolées sont en aperçu. Activez Réglages > Avancé > Labs > Afficher les fonctions en aperçu."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التشغيلات المعزولة ميزة تجريبية. فعّل الإعدادات > متقدم > المختبرات > إظهار الميزات التجريبية."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las ejecuciones aisladas son una vista previa. Activa Ajustes > Avanzado > Labs > Mostrar funciones en vista previa."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沙箱執行仍為預覽功能。請開啟「設定 > 進階 > Labs > 顯示預覽功能」。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沙箱运行仍是预览功能。请打开“设置 > 高级 > Labs > 显示预览功能”。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "샌드박스 실행은 미리보기 기능입니다. 설정 > 고급 > Labs > 미리보기 기능 표시를 켜세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サンドボックス実行はプレビュー機能です。設定 > 詳細 > Labs > プレビュー機能を表示 をオンにしてください。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Izolirana izvršavanja su pregled. Uključite Postavke > Napredno > Labs > Prikaži funkcije u pregledu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sandkassekørsler er en forhåndsvisning. Slå Indstillinger > Avanceret > Labs > Vis forhåndsvisningsfunktioner til."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le esecuzioni isolate sono un’anteprima. Attiva Impostazioni > Avanzate > Labs > Mostra funzioni in anteprima."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការដំណើរការក្នុង sandbox ជាការមើលជាមុន។ បើក ការកំណត់ > កម្រិតខ្ពស់ > Labs > បង្ហាញមុខងារមើលជាមុន។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sandkassekjøringer er en forhåndsvisning. Slå på Innstillinger > Avansert > Labs > Vis forhåndsvisningsfunksjoner."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uruchomienia w piaskownicy to wersja zapoznawcza. Włącz Ustawienia > Zaawansowane > Labs > Pokaż funkcje w wersji zapoznawczej."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Execuções isoladas são uma prévia. Ative Ajustes > Avançado > Labs > Mostrar recursos em prévia."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запуски в песочнице — предварительная функция. Включите «Настройки > Дополнительно > Labs > Показывать предварительные функции»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การรันในแซนด์บ็อกซ์เป็นฟีเจอร์ตัวอย่าง เปิด การตั้งค่า > ขั้นสูง > Labs > แสดงฟีเจอร์ตัวอย่าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Korumalı çalıştırmalar önizlemedir. Ayarlar > Gelişmiş > Labs > Önizleme Özelliklerini Göster'i açın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запуски в пісочниці — попередня функція. Увімкніть «Налаштування > Додатково > Labs > Показувати попередні функції»."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chạy trong hộp cát là tính năng xem trước. Bật Cài đặt > Nâng cao > Labs > Hiện tính năng xem trước."
+          }
+        }
+      }
+    },
+    "runs.error.notSignedIn": {
+      "comment": "cmux run --sandboxed refusal when the app is not signed in to cmux.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to cmux in the cmux app first."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Melde dich zuerst in der cmux-App bei cmux an."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connectez-vous d’abord à cmux dans l’app cmux."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "سجّل الدخول إلى cmux في تطبيق cmux أولًا."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Primero inicia sesión en cmux desde la app cmux."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請先在 cmux App 中登入 cmux。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请先在 cmux 应用中登录 cmux。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "먼저 cmux 앱에서 cmux에 로그인하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "先に cmux アプリで cmux にサインインしてください。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prvo se prijavite u cmux u aplikaciji cmux."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Log først ind på cmux i cmux-appen."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prima accedi a cmux nell’app cmux."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ចូលគណនី cmux ក្នុងកម្មវិធី cmux ជាមុនសិន។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Logg først inn på cmux i cmux-appen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Najpierw zaloguj się do cmux w aplikacji cmux."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Primeiro entre no cmux pelo app cmux."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сначала войдите в cmux в приложении cmux."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ลงชื่อเข้าใช้ cmux ในแอป cmux ก่อน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Önce cmux uygulamasında cmux'a giriş yapın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Спершу увійдіть у cmux у застосунку cmux."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hãy đăng nhập cmux trong ứng dụng cmux trước."
+          }
+        }
+      }
+    },
+    "runs.error.sandboxUnavailable": {
+      "comment": "cmux run --sandboxed refusal when the server has not enabled sandboxes for the account.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sandboxed runs are not enabled for this cmux Cloud account yet."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sandbox-Läufe sind für dieses cmux-Cloud-Konto noch nicht aktiviert."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les exécutions isolées ne sont pas encore activées pour ce compte cmux Cloud."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التشغيلات المعزولة غير مفعّلة بعد لحساب cmux Cloud هذا."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las ejecuciones aisladas aún no están activadas para esta cuenta de cmux Cloud."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 cmux Cloud 帳號尚未啟用沙箱執行。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 cmux Cloud 账号尚未启用沙箱运行。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 cmux Cloud 계정에는 아직 샌드박스 실행이 활성화되지 않았습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この cmux Cloud アカウントではサンドボックス実行がまだ有効になっていません。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Izolirana izvršavanja još nisu omogućena za ovaj cmux Cloud račun."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sandkassekørsler er endnu ikke slået til for denne cmux Cloud-konto."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le esecuzioni isolate non sono ancora attive per questo account cmux Cloud."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការដំណើរការក្នុង sandbox មិនទាន់បើកសម្រាប់គណនី cmux Cloud នេះនៅឡើយទេ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sandkassekjøringer er ennå ikke slått på for denne cmux Cloud-kontoen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uruchomienia w piaskownicy nie są jeszcze włączone dla tego konta cmux Cloud."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Execuções isoladas ainda não estão ativadas para esta conta do cmux Cloud."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запуски в песочнице пока не включены для этой учётной записи cmux Cloud."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ยังไม่ได้เปิดการรันในแซนด์บ็อกซ์สำหรับบัญชี cmux Cloud นี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Korumalı çalıştırmalar bu cmux Cloud hesabı için henüz etkin değil."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запуски в пісочниці ще не ввімкнено для цього облікового запису cmux Cloud."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chạy trong hộp cát chưa được bật cho tài khoản cmux Cloud này."
+          }
+        }
+      }
+    },
+    "runs.error.taskInvalid": {
+      "comment": "cmux run --sandboxed refusal: the task is empty or too long.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A sandboxed run needs a task of at most 16,000 characters."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Sandbox-Lauf braucht eine Aufgabe mit höchstens 16.000 Zeichen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Une exécution isolée a besoin d’une tâche de 16 000 caractères au plus."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يحتاج التشغيل المعزول إلى مهمة لا تتجاوز 16000 حرف."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una ejecución aislada necesita una tarea de 16.000 caracteres como máximo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沙箱執行需要一項不超過 16,000 個字元的任務。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沙箱运行需要一个不超过 16,000 个字符的任务。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "샌드박스 실행에는 16,000자 이하의 작업이 필요합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サンドボックス実行には 16,000 文字以内のタスクが必要です。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Izolirano izvršavanje treba zadatak od najviše 16.000 znakova."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En sandkassekørsel kræver en opgave på højst 16.000 tegn."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un’esecuzione isolata richiede un’attività di al massimo 16.000 caratteri."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការដំណើរការក្នុង sandbox ត្រូវការកិច្ចការដែលមានមិនលើស 16,000 តួអក្សរ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En sandkassekjøring trenger en oppgave på høyst 16 000 tegn."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uruchomienie w piaskownicy wymaga zadania o długości najwyżej 16 000 znaków."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uma execução isolada precisa de uma tarefa com no máximo 16.000 caracteres."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Для запуска в песочнице нужна задача длиной не более 16 000 символов."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การรันในแซนด์บ็อกซ์ต้องมีงานที่ยาวไม่เกิน 16,000 อักขระ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Korumalı bir çalıştırma en fazla 16.000 karakterlik bir görev gerektirir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Для запуску в пісочниці потрібне завдання довжиною не більше 16 000 символів."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lần chạy trong hộp cát cần một tác vụ tối đa 16.000 ký tự."
+          }
+        }
+      }
+    },
+    "runs.error.taskRequired": {
+      "comment": "cmux run --sandboxed refusal when no task text was given.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A sandboxed run needs a task."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Sandbox-Lauf braucht eine Aufgabe."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Une exécution isolée a besoin d’une tâche."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يحتاج التشغيل المعزول إلى مهمة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una ejecución aislada necesita una tarea."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沙箱執行需要一項任務。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沙箱运行需要一个任务。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "샌드박스 실행에는 작업이 필요합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サンドボックス実行にはタスクが必要です。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Izolirano izvršavanje treba zadatak."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En sandkassekørsel kræver en opgave."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un’esecuzione isolata richiede un’attività."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការដំណើរការក្នុង sandbox ត្រូវការកិច្ចការមួយ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En sandkassekjøring trenger en oppgave."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uruchomienie w piaskownicy wymaga zadania."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uma execução isolada precisa de uma tarefa."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Для запуска в песочнице нужна задача."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การรันในแซนด์บ็อกซ์ต้องมีงาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Korumalı bir çalıştırma bir görev gerektirir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Для запуску в пісочниці потрібне завдання."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lần chạy trong hộp cát cần một tác vụ."
+          }
+        }
+      }
+    },
+    "runs.error.timeout": {
+      "comment": "A sandboxed run call to cmux.com timed out.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux.com didn't answer in time."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux.com hat nicht rechtzeitig geantwortet."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux.com n'a pas répondu à temps."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يستجب cmux.com في الوقت المحدد."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux.com no respondió a tiempo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux.com 未能及時回應。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux.com 未能及时响应。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux.com이 제때 응답하지 않았습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux.com が時間内に応答しませんでした。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux.com nije odgovorio na vrijeme."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux.com svarede ikke i tide."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux.com non ha risposto in tempo."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux.com មិនបានឆ្លើយតបទាន់ពេលទេ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux.com svarte ikke i tide."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux.com nie odpowiedział na czas."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O cmux.com não respondeu a tempo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux.com не ответил вовремя."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux.com ไม่ตอบกลับทันเวลา"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux.com zamanında yanıt vermedi."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux.com не відповів вчасно."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux.com không phản hồi kịp thời."
+          }
+        }
+      }
+    },
+    "runs.error.timeoutInvalid": {
+      "comment": "cmux run --sandboxed refusal: the timeout is out of range.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The timeout must be 30 to 720 seconds."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Zeitlimit muss zwischen 30 und 720 Sekunden liegen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le délai doit être compris entre 30 et 720 secondes."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجب أن تكون المهلة بين 30 و720 ثانية."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El tiempo límite debe estar entre 30 y 720 segundos."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "逾時必須介於 30 到 720 秒之間。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "超时必须在 30 到 720 秒之间。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "제한 시간은 30~720초여야 합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タイムアウトは 30 秒から 720 秒の間で指定してください。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vremensko ograničenje mora biti od 30 do 720 sekundi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tidsgrænsen skal være mellem 30 og 720 sekunder."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il timeout deve essere compreso tra 30 e 720 secondi."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ពេលវេលាកំណត់ត្រូវតែពី 30 ដល់ 720 វិនាទី។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tidsgrensen må være mellom 30 og 720 sekunder."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Limit czasu musi wynosić od 30 do 720 sekund."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O tempo limite deve ser de 30 a 720 segundos."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Тайм-аут должен быть от 30 до 720 секунд."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เวลาหมดต้องอยู่ระหว่าง 30 ถึง 720 วินาที"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zaman aşımı 30 ile 720 saniye arasında olmalıdır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Тайм-аут має бути від 30 до 720 секунд."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thời gian chờ phải từ 30 đến 720 giây."
+          }
+        }
+      }
+    }
+  },
+  "version": "1.0"
+}

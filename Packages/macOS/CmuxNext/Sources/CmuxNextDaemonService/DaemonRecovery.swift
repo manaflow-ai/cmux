@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextWakeups
 public import Observation
@@ -7,7 +8,9 @@ import os
 /// launch window and the App Store's disconnected banner offer Retry Now and,
 /// only after a plain `server ensure` failed as a stuck owner makes it fail
 /// (``offersRestart``), Restart cmux-tui. Remote machines have no launcher,
-/// so they offer neither.
+/// so they offer neither. An owner whose ensures keep failing that way for a sustained window
+/// restarts without the button (``UnresponsiveOwnerWatch``, once per owner process) unless
+/// ``restartsUnresponsiveOwner`` says no.
 @MainActor
 @Observable
 public final class DaemonRecovery {
@@ -20,7 +23,11 @@ public final class DaemonRecovery {
     /// Why the last Restart did not work (the refusal code or error, for Copy
     /// Details); nil after Retry Now or a Restart that worked.
     public private(set) var restartFailure: String?
+    /// When an unresponsive owner restarts by itself (tests shorten it before `attach`).
+    @ObservationIgnored var unresponsivePolicy = UnresponsiveOwnerWatch.Policy.standard
+    private nonisolated let restartsUnresponsive = Mutex<@Sendable () -> Bool>({ true })
     @ObservationIgnored private var launcher: DaemonLauncher?
+    @ObservationIgnored private var watch: UnresponsiveOwnerWatch?
     @ObservationIgnored private var wake: RetryWake?
     @ObservationIgnored private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.daemon")
 
@@ -29,10 +36,27 @@ public final class DaemonRecovery {
     /// True once the local daemon's launcher is known (`DaemonService.start(launch:)`).
     public var canRetry: Bool { wake != nil }
 
+    /// Whether an owner that stays unresponsive restarts without asking (default on). Read before
+    /// each automatic restart, off the main actor; the App sets it to its Debug Settings toggle.
+    public nonisolated var restartsUnresponsiveOwner: @Sendable () -> Bool {
+        get { restartsUnresponsive.withLock { $0 } }
+        set { restartsUnresponsive.withLock { $0 = newValue } }
+    }
+
     /// Follows `launcher`'s ensure outcomes; `wake` is the service's retry wake.
     func attach(_ launcher: DaemonLauncher, wake: RetryWake) {
         self.launcher = launcher
         self.wake = wake
+        // The button's restart without its confirm: the terminal hosts are separate processes,
+        // so they outlive the stuck owner and the next owner adopts them.
+        watch?.stop()
+        let watch = UnresponsiveOwnerWatch(policy: unresponsivePolicy, isEnabled: { [weak self] in
+            self?.restartsUnresponsiveOwner() ?? false
+        }, replace: { [weak self] claim in
+            await self?.restartUnresponsive(claim) ?? false
+        })
+        self.watch = watch
+        launcher.ensureOutcome.follow(watch)
         let outcome = launcher.ensureOutcome
         outcome.observe { [weak self] in
             guard let self else { return }
@@ -41,6 +65,21 @@ public final class DaemonRecovery {
             if !offersRestart { restartFailure = nil }
         }
         offersRestart = outcome.ownerLooksStuck
+    }
+
+    /// Ends the automatic restart: the service shut its connection down (`shutdownConnection`), so
+    /// nothing may start an owner again behind it. A later `attach` follows the launcher afresh.
+    func detach() {
+        watch?.stop()
+        watch = nil
+    }
+
+    /// The watch's restart: on the main actor, only while no Restart runs and the watch still
+    /// claims it (the toggle on, the same owner still stuck), then the button's restart with no
+    /// confirm. No suspension between the claim and `restart` setting ``isRestarting``.
+    private func restartUnresponsive(_ claim: @Sendable () -> Bool) async -> Bool {
+        guard launcher != nil, !isRestarting, claim() else { return false }
+        return await restart(automatic: true)
     }
 
     /// Tries to connect now instead of at the next backoff step.
@@ -52,18 +91,24 @@ public final class DaemonRecovery {
     /// Stops the unresponsive owner and starts a new one (`server ensure
     /// --replace-unresponsive`), then tries to connect at once. SIGTERM
     /// leaves the terminal hosts running and the new owner adopts them.
-    public func restart() async {
-        guard let launcher, !isRestarting else { return }
+    /// `automatic`: the watch asked, not the button (for the log). True when it replaced.
+    @discardableResult
+    public func restart(automatic: Bool = false) async -> Bool {
+        guard let launcher, !isRestarting else { return false }
         isRestarting = true
         restartFailure = nil
+        let source = automatic ? "automatic" : "requested"
+        var replaced = false
         do {
             let result = try await launcher.replaceUnresponsive()
-            logger.notice("cmux-tui restart: \(result.status, privacy: .public), pid \(result.pid)")
+            replaced = true
+            logger.notice("cmux-tui restart (\(source, privacy: .public)): \(result.status, privacy: .public), pid \(result.pid)")
         } catch {
             restartFailure = String(describing: error)
-            logger.error("cmux-tui restart failed: \(String(describing: error), privacy: .public)")
+            logger.error("cmux-tui restart (\(source, privacy: .public)) failed: \(String(describing: error), privacy: .public)")
         }
         isRestarting = false
         wake?.fire()
+        return replaced
     }
 }

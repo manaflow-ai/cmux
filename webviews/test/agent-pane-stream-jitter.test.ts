@@ -301,7 +301,7 @@ await requireBrowserLane("agent-pane-stream-jitter.test.ts", async () => {
       return !!footer && (!reply || at(footer) > at(reply));
     }, marker);
 
-  /// One frame: where the row holding `marker` is drawn (transforms included).
+  /// One frame: where the row holding `marker` is drawn (its `top` position included).
   type Frame = {
     t: number;
     marker?: number;

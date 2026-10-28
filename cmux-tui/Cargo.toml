@@ -17,6 +17,7 @@ workspace = true
 resolver = "2"
 members = [
     "crates/acpmux",
+    "crates/cmux-tailnet",
     "crates/cmux-coderouter",
     "crates/cmux-history",
     "crates/cmux-chat-index",
@@ -182,6 +183,7 @@ redundant_clone = "warn"
 
 [workspace.dependencies]
 cmux-coderouter = { path = "crates/cmux-coderouter" }
+cmux-tailnet = { path = "crates/cmux-tailnet" }
 ghostty-vt-sys = { path = "crates/ghostty-vt-sys" }
 ghostty-vt = { path = "crates/ghostty-vt" }
 cmux-tui-core = { path = "crates/cmux-tui-core" }
@@ -293,7 +295,10 @@ hyper-util = { version = "0.1", features = ["service", "tokio"] }
 # the cross-platform fs-event backend for the fs_watch stream family.
 ignore = "0.4"
 notify = "8"
-iroh = { version = "1.0.3", default-features = false, features = ["fast-apple-datapath", "portmapper", "tls-ring"] }
+# platform-verifier: iroh-relay verifies relay TLS against the OS trust store
+# (Apple Security.framework, Windows, Linux native roots), not its compiled-in
+# webpki list, which still trusted the leaked emSign (eMudhra) roots (#25452).
+iroh = { version = "1.0.3", default-features = false, features = ["fast-apple-datapath", "portmapper", "tls-ring", "platform-verifier"] }
 subtle = "2.6.1"
 parking_lot = "0.12"
 wait-timeout = "0.2"

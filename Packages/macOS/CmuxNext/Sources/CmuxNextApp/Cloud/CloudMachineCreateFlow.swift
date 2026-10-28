@@ -65,8 +65,9 @@ struct CloudMachineCreateFlow {
         case stillPending(request: String)
         /// A pending answer without its request id (a protocol break).
         case noApprovalRequest
-        /// The plan cannot create a machine; the upgrade card was shown and nothing was created.
-        case upgradeRequired
+        /// The plan cannot create a machine; nothing was created. A person's create showed the upgrade card
+        /// (for `reason`); an agent's shows none and reports the refusal.
+        case upgradeRequired(CloudUpgradeReason)
     }
 
     var run: CloudAppOp
@@ -92,8 +93,8 @@ struct CloudMachineCreateFlow {
     /// record (contract 1.2). `askedBy`: the agent chat that asked, if one did.
     func create(name: String?, startedByPerson: Bool, askedBy: String? = nil, gate: Gate = .allowed) async throws -> JSONValue {
         if case .upgrade(let need) = gate {
-            _ = await confirm(.upgrade(need))
-            throw Failure.upgradeRequired
+            if startedByPerson { _ = await confirm(.upgrade(need)) }
+            throw Failure.upgradeRequired(need.reason)
         }
         let machine = Self.named(name, askedBy: askedBy)
         var confirmed = !startedByPerson
@@ -138,15 +139,17 @@ struct CloudMachineCreateFlow {
     static func legacy<T>(name: String?, startedByPerson: Bool, askedBy: String? = nil, askFirst: Bool = false, gate: @MainActor () -> Gate = { .allowed },
                           confirm: @MainActor (Prompt) async -> Bool, create: @MainActor () async throws -> T) async throws -> T {
         if case .upgrade(let need) = gate() {
-            _ = await confirm(.upgrade(need))
-            throw Failure.upgradeRequired
+            // The upgrade card is for the person who asked for the machine; an agent's refused create
+            // only fails with the refusal, so the person is not prompted on every agent request.
+            if startedByPerson { _ = await confirm(.upgrade(need)) }
+            throw Failure.upgradeRequired(need.reason)
         }
         if !startedByPerson, askFirst { guard await confirm(.agentRequest(named(name, sizeShown: false, askedBy: askedBy))) else { throw Failure.declined } }
         do {
             return try await create()
         } catch CloudAPIError.http(let status, _, _, _, _) where status == 402 {
             _ = await confirm(.upgrade(Upgrade(reason: .server)))
-            throw Failure.upgradeRequired
+            throw Failure.upgradeRequired(.server)
         }
     }
 

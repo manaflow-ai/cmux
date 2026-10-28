@@ -209,6 +209,27 @@ export function fileKind(path: string, declaredGenerated?: ReadonlySet<string>):
 }
 
 /**
+ * `items` in ``FILE_KINDS`` order, each read by `pathOf`: the "delineated diff" every changes list
+ * shares. The sort is stable, so items of one kind keep the order they came in, and a list of one
+ * kind comes back as the same array, so a view re-renders nothing.
+ */
+export function orderByKind<T>(
+  items: readonly T[],
+  pathOf: (item: T) => string,
+  declaredGenerated?: ReadonlySet<string>,
+): readonly T[] {
+  if (items.length < 2) return items;
+  const ranked = items.map((item, index) => ({
+    item,
+    index,
+    rank: FILE_KINDS.indexOf(fileKind(pathOf(item), declaredGenerated)),
+  }));
+  if (ranked.every((entry) => entry.rank === ranked[0]!.rank)) return items;
+  ranked.sort((left, right) => left.rank - right.rank || left.index - right.index);
+  return ranked.map((entry) => entry.item);
+}
+
+/**
  * The change's lines by kind, in ``FILE_KINDS`` order, leaving out a kind nothing touched.
  * `declaredGenerated` is the host's generated list, as in ``fileKind``.
  */

@@ -615,6 +615,8 @@ export interface SubmenuProps {
   /** Extra classes on the nested popup, so it matches its parent menu's surface. */
   popupClassName?: string;
   disabled?: boolean;
+  /** Vertical alignment of the nested popup; omitted keeps the room-aware default. */
+  align?: "start" | "end";
   children: ReactNode;
 }
 
@@ -625,16 +627,16 @@ export interface SubmenuProps {
  * the menu's box (a composer's menu opened up from the window's foot), up from the row's bottom, as
  * Claude Code's and macOS's menus do (Leo 2026-10-21: "this effort should open up top instead of
  * bottom"). Base UI's collision avoidance still flips or shifts it when that side has no room. */
-export function Submenu({ label, className, popupClassName, disabled, children }: SubmenuProps) {
+export function Submenu({ label, className, popupClassName, disabled, align: requestedAlign, children }: SubmenuProps) {
   const surface = use(PopupSurface);
   const boundary = use(PopupBoundary);
   const trigger = useRef<HTMLDivElement | null>(null);
-  const [align, setAlign] = useState<"start" | "end">("start");
+  const [align, setAlign] = useState<"start" | "end">(requestedAlign ?? "start");
   return (
     <BaseMenu.SubmenuRoot
       onOpenChange={(open) => {
         const row = trigger.current;
-        if (open && row) setAlign(growsUp(row, boundary) ? "end" : "start");
+        if (open && row) setAlign(requestedAlign ?? (growsUp(row, boundary) ? "end" : "start"));
       }}
     >
       <BaseMenu.SubmenuTrigger

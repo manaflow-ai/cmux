@@ -14,7 +14,7 @@
 //! - Refused with `retry.busy` while a turn runs, a prompt waits to run or a continuation is
 //!   about to start, and with `retry.nothing_failed` when the last turn did not fail.
 //! - A retry that names a subagent (`subagentId`) asks for that subagent, never the chat's own
-//!   turn: refused with `retry.subagent_unsupported` until subagents retry (`Hub::retry`).
+//!   turn (`hub/subagent_retry_manual.rs`).
 //! - It runs under the caller's rules (`control`, the trust gate, a paired machine's Full
 //!   access), checked before it claims the chat and at dispatch as any prompt's are; a sub-session's retry also as its
 //!   messages are (`receiver_check`, and `family_dispatch_check` at dispatch).
@@ -46,15 +46,8 @@ fn refused(reason: &str, why: &str) -> RpcError {
     RpcError::invalid_params(format!("{reason}: {why}")).with_data(json!({"reason": reason}))
 }
 
-fn busy() -> RpcError {
+pub(crate) fn busy() -> RpcError {
     refused("retry.busy", "a turn runs or is about to start in this chat; retry once it ends")
-}
-
-fn subagent_unsupported() -> RpcError {
-    refused(
-        "retry.subagent_unsupported",
-        "this daemon does not retry a subagent yet; retry the chat's turn without subagentId",
-    )
 }
 
 fn stopped() -> RpcError {
@@ -107,19 +100,18 @@ fn prompt_blocks(msg: &Value, image: impl Fn(&str) -> Option<Value>) -> Option<V
 }
 
 impl Hub {
-    /// `_acpmux/retry` and `retry_session`: the subagent `subagent` names, or else the chat's
-    /// failed turn ([`Hub::retry_turn`]). A subagent is refused for now: retrying the chat's
-    /// turn instead would not do what was asked.
+    /// `_acpmux/retry` and `retry_session`: the failed subagent `subagent` names
+    /// ([`Hub::retry_subagent`]), or else the chat's failed turn ([`Hub::retry_turn`]).
     pub async fn retry(
         self: &Arc<Self>,
         session: &Arc<Session>,
         subagent: Option<&str>,
         by: RetryBy,
     ) -> Result<Value, RpcError> {
-        if subagent.is_some() {
-            return Err(subagent_unsupported());
+        match subagent {
+            Some(subagent) => self.retry_subagent(session, subagent, by).await,
+            None => self.retry_turn(session, by).await,
         }
-        self.retry_turn(session, by).await
     }
 
     /// Sends the chat's failed last turn again now, under the caller's rules (the module doc),
@@ -214,7 +206,7 @@ impl Hub {
 
     /// The caller's rules, checked before the retry claims the chat, so a refused caller leaves
     /// a retry that waits as it was, and again at dispatch (`check_dispatch`).
-    async fn retry_allowed(
+    pub(crate) async fn retry_allowed(
         self: &Arc<Self>,
         session: &Arc<Session>,
         by: &RetryBy,

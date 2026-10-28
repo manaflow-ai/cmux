@@ -1,3 +1,4 @@
+public import CmuxNextDesign
 import CoreGraphics
 import Foundation
 import ImageIO
@@ -33,4 +34,32 @@ nonisolated struct ChiefPetClip: Sendable {
         self.frames = frames
         self.delays = delays
     }
+}
+
+/// How the Chief Settings popover's grid offers an upload before there is one. The gallery captures
+/// each (`debug.tunables` set `chiefPet.uploadAffordance`); the "+" tile ships.
+public nonisolated enum ChiefPetUploadAffordance: String, Sendable, CaseIterable, TunableChoice {
+    case tile, button, drop
+
+    public var tunableTitle: String {
+        switch self {
+        case .tile: "A + tile after the nine"
+        case .button: "A button under the grid"
+        case .drop: "Drop only, with a hint"
+        }
+    }
+}
+
+/// The Chief pet's tunables (Debug Settings, DEV and NIGHTLY).
+public nonisolated struct ChiefPetTunables {
+    public nonisolated init() {}
+
+    static let section = TunableSection(id: "chiefPet", title: "Chief Pet", symbol: "pawprint", order: 44)
+
+    public static let uploadAffordance = Tunable<ChiefPetUploadAffordance>.choice(
+        "chiefPet.uploadAffordance", section, "Upload affordance",
+        help: "How the Chief Settings popover offers Upload Your Own… before there is an upload: a + tile after the nine characters, a button under the grid, or a drop with a hint. Dropping a picture on the grid works in all three.",
+        default: .tile, code: "ChiefPetTunables.uploadAffordance")
+
+    public static var all: [TunableDescriptor] { [uploadAffordance.descriptor] }
 }

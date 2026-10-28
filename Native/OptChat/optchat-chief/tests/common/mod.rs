@@ -143,6 +143,8 @@ pub struct Owner {
     pub no_link_previews: bool,
     /// Every run record summary the brain appended (`run_append`'s run).
     pub runs: Vec<Value>,
+    /// When set, every attachment upload is refused with this code.
+    pub refuse_uploads: Option<String>,
 }
 
 /// One side conversation as the fake owner keeps it.
@@ -232,6 +234,9 @@ impl PreviewPort for FakeUploader {
         height: u32,
     ) -> Result<DerivedImage, OpError> {
         use sha2::Digest;
+        if let Some(code) = self.0.lock().unwrap().refuse_uploads.clone() {
+            return Err(OpError::Rejected(code));
+        }
         let image = DerivedImage {
             hash: sha2::Sha256::digest(bytes)
                 .iter()

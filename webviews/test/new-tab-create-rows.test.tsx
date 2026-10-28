@@ -181,9 +181,11 @@ test("a create action opens what its button opens, from the strip or a named row
   calls.length = 0;
   await render(calls);
   await type("ff");
-  // Up from the top row wraps to the last one, the strip's New chat, which Return takes.
+  // Up from the top row goes back to the text; from there Up takes the last row, the strip's New
+  // chat, which Return takes.
   const field2 = host.querySelector<HTMLTextAreaElement>(".nt-field")!;
-  await act(async () => field2.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true })));
+  for (let press = 0; press < 2; press += 1)
+    await act(async () => field2.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true })));
   const selected = rows().find((row) => row.getAttribute("aria-selected") === "true")!;
   expect(label(selected)).toBe("New chat");
   await act(async () => field2.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true })));

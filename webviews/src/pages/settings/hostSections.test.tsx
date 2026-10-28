@@ -129,6 +129,19 @@ test("Development shows only when the host is a DEV build, however it is reached
   }
 });
 
+test("Devices shows in NIGHTLY and Release builds too, from the sidebar and its deep link", async () => {
+  // Mac Screen's sharing switch, permissions and relays live only here; release builds use the
+  // built-in device hub, so a non-DEV host must still list and open the category.
+  const page = await renderPage({
+    path: "/settings/devices",
+    setup: (provider) => provider.setHost({ ...provider.host, dev_build: false }),
+  });
+  expect(page.container.querySelector("[data-section]")?.getAttribute("data-section")).toBe("devices");
+  expect(page.container.querySelector('[data-section-link="devices"]')).not.toBeNull();
+  expect(page.container.querySelector('[data-section-link="development"]')).toBeNull();
+  page.unmount();
+});
+
 test("Machines offers Add Device…, which opens the one Add Device card through the palette's action", async () => {
   // add-device-DESIGN.md 2.2: one entry for every new device. The page passes no way, so it only
   // opens the card; the card hands off to Add Machine or Add Server and never approves by itself.
@@ -239,5 +252,45 @@ test("a machine row picks its color and Automatic takes the pick back", async ()
     value: { "big-red": "cyan" },
   });
   expect(row().querySelector("[data-machine-color-reset]")).toBeNull();
+  page.unmount();
+});
+
+test("a Cloud machine cmux made has its Dedicated agent machine switch; other machines have none", async () => {
+  const page = await renderPage({ path: "/settings/machines" });
+  const cloud = {
+    id: "cloud:vm_1",
+    title: "sample-vm",
+    subtitle: null,
+    active: true,
+    vm_host: { on: true, busy: false, error: null },
+  };
+  expect(page.container.querySelector("[data-machine-vm-host]")).toBeNull();
+  await act(async () => {
+    page.provider.setHost({ ...page.provider.host, machines: [...page.provider.host.machines, cloud] });
+  });
+  await settle();
+  const switches = page.container.querySelectorAll("[data-machine-vm-host]");
+  expect(switches.length).toBe(1);
+  expect(switches[0]!.getAttribute("data-machine-vm-host")).toBe("cloud:vm_1");
+  const toggle = switches[0]!.querySelector('[role="switch"]') as HTMLElement;
+  expect(toggle.getAttribute("aria-checked")).toBe("true");
+  await act(async () => toggle.click());
+  await settle();
+  expect(ops(page.provider, "cmux.settings.machines.vm_host")).toEqual([{ id: "cloud:vm_1", on: false }]);
+  const after = page.container.querySelector('[data-machine-vm-host="cloud:vm_1"] [role="switch"]');
+  expect(after?.getAttribute("aria-checked")).toBe("false");
+  // The machine's own refusal shows under the switch.
+  await act(async () => {
+    page.provider.setHost({
+      ...page.provider.host,
+      machines: page.provider.host.machines.map((m) =>
+        m.id === "cloud:vm_1" ? { ...m, vm_host: { on: false, busy: false, error: "vmHost stays off here" } } : m,
+      ),
+    });
+  });
+  await settle();
+  expect(page.container.querySelector('[data-machine-vm-host] [role="alert"]')?.textContent).toBe(
+    "vmHost stays off here",
+  );
   page.unmount();
 });
