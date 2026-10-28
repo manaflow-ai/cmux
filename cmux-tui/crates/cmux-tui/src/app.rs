@@ -50,6 +50,7 @@ mod config_status;
 mod graphics_emit;
 mod layout_sync;
 mod render;
+mod window_frame;
 
 mod drag_resize;
 mod input_admission;
