@@ -79,6 +79,39 @@ pub const FLAG_PROGRAM_STATUS: u32 = 1 << 7;
 /// and only toward a host whose record advertises `supports_shell_activity`;
 /// older hosts reject the unknown bit.
 pub const FLAG_SHELL_ACTIVITY: u32 = 1 << 8;
+/// ClientHello opt-in and HostHello acknowledgement for key-press flows
+/// (p09-observability-018). On a connection that negotiated it, the flag
+/// marks a payload whose last 8 bytes are not terminal bytes but the
+/// little-endian `flow u64` of a key press ([`flow_trailer_payload`]):
+/// - an interactive `Input` frame (request id 0): the key press the bytes
+///   carry. The host never writes the trailer to the PTY;
+/// - a live `Output` frame from the host: the output of the host's first
+///   PTY read after that input reached the PTY, the key's echo.
+///
+/// Sent only toward a host whose record advertises `supports_input_flow`;
+/// older hosts reject the unknown bit.
+pub const FLAG_INPUT_FLOW: u32 = 1 << 9;
+
+/// The payload of an `Input` or `Output` frame with [`FLAG_INPUT_FLOW`]:
+/// `bytes`, then `flow`.
+pub fn flow_trailer_payload(bytes: &[u8], flow: u64) -> Vec<u8> {
+    let mut payload = Vec::with_capacity(bytes.len() + size_of::<u64>());
+    payload.extend_from_slice(bytes);
+    payload.extend_from_slice(&flow.to_le_bytes());
+    payload
+}
+
+/// A payload split into its bytes and its flow (flow 0 without
+/// [`FLAG_INPUT_FLOW`] in `flags`; `None` when a flagged payload is
+/// shorter than its trailer).
+pub fn split_flow_trailer(flags: u32, payload: &[u8]) -> Option<(&[u8], u64)> {
+    if flags & FLAG_INPUT_FLOW == 0 {
+        return Some((payload, 0));
+    }
+    let at = payload.len().checked_sub(size_of::<u64>())?;
+    let (bytes, trailer) = payload.split_at(at);
+    Some((bytes, u64::from_le_bytes(trailer.try_into().ok()?)))
+}
 /// ResizeAck payload flag: this request changed the canonical grid and its
 /// sequenced Resized+Colors transition was enqueued immediately before the
 /// targeted acknowledgement.
@@ -475,6 +508,11 @@ pub enum MessageKind {
     /// op:u8 and categories:u64; no path. Sent only to a host whose record
     /// advertises `supports_trace_control` (`shared/host_trace.rs`).
     TraceControl = 113,
+    /// Admin request: the class the host's per-terminal threads (PTY reader,
+    /// parser) run at, as one `cmux_threads::ThreadQos` byte (0 background
+    /// to 4 user-interactive). Fire and forget; sent only to a host whose
+    /// record advertises `supports_thread_qos`.
+    SetThreadQos = 114,
 }
 
 impl TryFrom<u16> for MessageKind {
@@ -524,6 +562,7 @@ impl TryFrom<u16> for MessageKind {
             111 => Ok(Self::Detach),
             112 => Ok(Self::ClipboardReadReply),
             113 => Ok(Self::TraceControl),
+            114 => Ok(Self::SetThreadQos),
             other => Err(ProtocolError::UnknownMessageKind(other)),
         }
     }

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 public import Foundation
 
 /// One extension toolbar action, as `cmux_ext_actions` reports it.
@@ -40,7 +41,7 @@ public nonisolated struct CEFExtensionAction: Hashable, Sendable, Identifiable {
     /// Decodes the fork's JSON array. Invalid input yields an empty list.
     public static func decodeList(_ json: String) -> [CEFExtensionAction] {
         guard let data = json.data(using: .utf8),
-              let items = try? JSONDecoder().decode([Wire].self, from: data) else {
+              let items = try? JSONDecoder().blockingDecode([Wire].self, from: data) else {
             return []
         }
         return items.map { item in

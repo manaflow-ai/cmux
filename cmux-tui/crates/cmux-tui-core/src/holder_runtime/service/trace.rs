@@ -111,7 +111,6 @@ impl HolderService {
     /// echo before it handles the mark. False when nothing was sent (no
     /// flow, no open link, or a holder without the capability). Never
     /// connects.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the exact echo flow, p09-observability-018"))]
     pub(crate) fn mark_input_flow(&self, chan: u32, flow: u64) -> bool {
         if flow == 0 {
             return false;

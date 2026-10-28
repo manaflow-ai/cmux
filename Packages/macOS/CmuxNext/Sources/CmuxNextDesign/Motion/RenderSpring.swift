@@ -50,23 +50,23 @@ public struct RenderSpring {
         style(for: keyPath, shown: Motion.canAnimate(in: view)) != .snap
     }
 
-    /// Springs `layer.keyPath` to `value`. When the gate does not animate the key path, the
+    /// Springs `layer`'s `key` to `value`. When the gate does not animate the key path, the
     /// value shows in one frame (springs left on the key path are removed) and `completion`
     /// runs now; otherwise it runs when the layer lands (``Completion``). `view` is the view
     /// that shows `layer`, or nil only for a layer in no window.
-    public func animate<Value: RenderSpringValue>(_ layer: CALayer, _ keyPath: String, to value: Value, in view: NSView?,
+    public func animate<Value: RenderSpringValue>(_ layer: CALayer, _ key: RenderSpringKey<Value>, to value: Value, in view: NSView?,
                                                   completion: Completion? = nil) {
-        animateGroup([.init(layer, keyPath, to: value)], in: view, completion: completion)
+        animateGroup([.init(layer, key, to: value)], in: view, completion: completion)
     }
 
-    /// Springs the scalar `layer.keyPath` (`position.x`, `bounds.size.width`) to `value`,
+    /// Springs the scalar `key` of `layer` (`.positionX`, `.boundsWidth`) to `value`,
     /// starting with `velocity` (units of the value per second, as a fling's release
     /// velocity). One scalar per key path, because a `CASpringAnimation` has one initial
     /// velocity normalized to its distance: a point's velocity fits only when it is parallel
     /// to the distance.
-    public func animate(_ layer: CALayer, _ keyPath: String, to value: CGFloat, velocity: CGFloat, in view: NSView?,
+    public func animate(_ layer: CALayer, _ key: RenderSpringKey<CGFloat>, to value: CGFloat, velocity: CGFloat, in view: NSView?,
                         completion: Completion? = nil) {
-        animateGroup([.init(layer, keyPath, to: value, velocity: velocity)], in: view, completion: completion)
+        animateGroup([.init(layer, key, to: value, velocity: velocity)], in: view, completion: completion)
     }
 
     /// Springs a host layer and its sublayers to their rest frames on this one token, from
@@ -83,8 +83,8 @@ public struct RenderSpring {
         for (layer, frame) in frames { layer.frame = frame }
         var moves: [Move] = []
         for ((layer, _), (position, size)) in zip(frames, starts) {
-            moves.append(Move(layer, "position", from: position, to: layer.position))
-            moves.append(Move(layer, "bounds.size", from: size, to: layer.bounds.size))
+            moves.append(Move(layer, .position, from: position, to: layer.position))
+            moves.append(Move(layer, .boundsSize, from: size, to: layer.bounds.size))
         }
         animateGroup(moves, in: view, completion: completion)
         CATransaction.commit()
@@ -94,7 +94,13 @@ public struct RenderSpring {
     /// key path does not animate (``animates(_:in:)``) shows its value in one frame.
     public func animateGroup(_ moves: [Move], in view: NSView?, completion: Completion? = nil) {
         let shown = Motion.canAnimate(in: view)
-        let styles = moves.map { style(for: $0.keyPath, shown: shown) }
+        Self.run(moves, styles: moves.map { style(for: $0.keyPath, shown: shown) }, trace: "render.\(token.rawValue)", completion: completion)
+    }
+
+    /// Runs each move in its `style`, from one begin time, in one transaction, with one landing
+    /// (``Completion``). The caller's gate decided the styles: ``animateGroup(_:in:completion:)``, or a
+    /// fade token's view move (`MotionGate.animate(_:in:frame:alpha:completion:)`).
+    static func run(_ moves: [Move], styles: [Style], trace: String, completion: Completion?) {
         let landing = Landing(completion)
         var superseded: [Landing] = []
         for (move, style) in zip(moves, styles) {
@@ -105,9 +111,8 @@ public struct RenderSpring {
         }
         let animated = zip(moves, styles).first { $0.1 != .snap }?.0
         if MotionTrace.isEnabled, let animated {
-            landing.trace("render.\(token.rawValue)", id: ObjectIdentifier(animated.layer))
+            landing.trace(trace, id: ObjectIdentifier(animated.layer))
         }
-        let spring = parameters
         let now = CACurrentMediaTime()
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -117,20 +122,23 @@ public struct RenderSpring {
         for (move, style) in zip(moves, styles) {
             guard style != .snap else {
                 Self.stop(move.layer, move.keyPath)
-                move.layer.setValue(move.target, forKeyPath: move.keyPath)
+                move.writeTarget()
                 continue
             }
-            let offset = move.offsetFrom(move.layer.value(forKeyPath: move.keyPath))
-            move.layer.setValue(move.target, forKeyPath: move.keyPath)
+            let offset = move.offsetFromModel()
+            move.writeTarget()
             let begin = move.layer.convertTime(now, from: nil)
-            if case .crossfade(let duration) = style {
+            switch style {
+            case .snap:
+                break
+            case .timed(let duration):
                 if let offset, offset.extent > 0 {
                     Self.addFade(from: offset.value, on: move.layer, keyPath: move.keyPath, duration: duration, begin: begin, zero: move.zero)
                 }
-                continue
-            }
-            for part in Self.parts(offset: offset, velocity: move.velocity, omega: spring.omega) {
-                Self.add(part, on: move.layer, keyPath: move.keyPath, spring: spring, begin: begin, zero: move.zero)
+            case .spring(let spring):
+                for part in Self.parts(offset: offset, velocity: move.velocity, progressVelocity: move.progressVelocity, omega: spring.omega) {
+                    Self.add(part, on: move.layer, keyPath: move.keyPath, spring: spring, begin: begin, zero: move.zero)
+                }
             }
         }
         CATransaction.commit()
@@ -147,24 +155,36 @@ public struct RenderSpring {
     enum Style: Equatable {
         /// In one frame.
         case snap
-        /// An additive spring.
-        case spring
-        /// An additive fade of this many seconds (a fade key path while movement is off).
-        case crossfade(CFTimeInterval)
+        /// An additive spring with these parameters.
+        case spring(SpringParameters)
+        /// An additive change of this many seconds on the fade curve: a fade key path while
+        /// movement is off, or any key path a fade token moves (`MotionGate.animate(_:in:frame:alpha:completion:)`).
+        case timed(CFTimeInterval)
+
+        /// How long the change runs: 0 for a snap, a spring's visible end (`perceivedDuration`, as
+        /// `MotionGate.duration(_:)`), a timed change's length.
+        var seconds: CFTimeInterval {
+            switch self {
+            case .snap: 0
+            case .spring(let spring): spring.perceivedDuration
+            case .timed(let seconds): seconds
+            }
+        }
     }
 
     /// Opacity is a fade in the motion policy (`animatesFades`, a crossfade under Reduce
-    /// Motion); every other key path a `RenderSpringValue` animates is movement.
+    /// Motion), and so is a shadow's (its shape is the layer's shadowPath, which does not move);
+    /// every other key path a `RenderSpringValue` animates is movement.
     public static func isFade(_ keyPath: String) -> Bool {
         keyPath == "opacity" || keyPath == "shadowOpacity"
     }
 
     func style(for keyPath: String, shown: Bool) -> Style {
         guard shown else { return .snap }
-        if gate.animatesMovement { return .spring }
+        if gate.animatesMovement { return .spring(parameters) }
         guard Self.isFade(keyPath), gate.animatesFades else { return .snap }
         let crossfade = gate.duration(.crossfade)
-        return crossfade > 0 ? .crossfade(crossfade) : .snap
+        return crossfade > 0 ? .timed(crossfade) : .snap
     }
 
     /// Removes the springs `RenderSpring` added on `keyPath`, on its components and on the
@@ -187,33 +207,54 @@ public struct RenderSpring {
 
     /// One key path's change in a group.
     public struct Move {
-        let layer: CALayer
-        let keyPath: String
-        let target: Any
+        /// The layer the move springs; with ``keyPath``, what a caller stops early (``RenderSpring/stop(_:_:)``).
+        public let layer: CALayer
+        public let keyPath: String
         let zero: Any
         let velocity: CGFloat
-        /// The offset from the model value read when the group starts.
-        let offsetFrom: (Any?) -> Offset?
+        /// The share of the distance covered per second at the start, toward the target (any value type).
+        let progressVelocity: CGFloat
+        /// Writes the target as the layer's model value.
+        let writeTarget: () -> Void
+        /// The offset from the model value, read when the group starts (before ``writeTarget``).
+        let offsetFromModel: () -> Offset?
 
-        /// `layer.keyPath` springs from its model value to `value`.
-        public init<Value: RenderSpringValue>(_ layer: CALayer, _ keyPath: String, to value: Value) {
-            self.init(layer, keyPath, from: nil, to: value, velocity: 0)
+        /// `layer`'s `key` springs from its model value to `value`.
+        public init<Value: RenderSpringValue>(_ layer: CALayer, _ key: RenderSpringKey<Value>, to value: Value) {
+            self.init(layer, key, from: nil, to: value, velocity: 0)
         }
 
-        /// The scalar `layer.keyPath` springs from its model value to `value`, starting at `velocity`.
-        public init(_ layer: CALayer, _ keyPath: String, to value: CGFloat, velocity: CGFloat) {
-            self.init(layer, keyPath, from: nil, to: value, velocity: velocity)
+        /// The scalar `key` of `layer` springs from its model value to `value`, starting at `velocity`.
+        public init(_ layer: CALayer, _ key: RenderSpringKey<CGFloat>, to value: CGFloat, velocity: CGFloat) {
+            self.init(layer, key, from: nil, to: value, velocity: velocity)
         }
 
-        /// `from` replaces the model value read at the start (a frame already written).
-        init<Value: RenderSpringValue>(_ layer: CALayer, _ keyPath: String, from: Value?, to value: Value, velocity: CGFloat = 0) {
+        /// `from` replaces the model value read at the start (a frame already written: a pane host
+        /// AppKit placed at rest in the change's turn springs from where it showed).
+        public init<Value: RenderSpringValue>(_ layer: CALayer, _ key: RenderSpringKey<Value>, from: Value?, to value: Value,
+                                              velocity: CGFloat = 0) {
+            self.init(layer, key, from: from, to: value, velocity: velocity, progressVelocity: 0)
+        }
+
+        /// `layer`'s `key` springs from `from` to `value`, starting at `progressVelocity`: the share of the
+        /// distance it covers per second at the start, toward `value`. Any value type takes it, a transform
+        /// too: a `CASpringAnimation` moves every component by one progress, and its `initialVelocity` is
+        /// that progress's rate.
+        public init<Value: RenderSpringValue>(_ layer: CALayer, _ key: RenderSpringKey<Value>, from: Value, to value: Value,
+                                              progressVelocity: CGFloat) {
+            self.init(layer, key, from: from, to: value, velocity: 0, progressVelocity: progressVelocity)
+        }
+
+        private init<Value: RenderSpringValue>(_ layer: CALayer, _ key: RenderSpringKey<Value>, from: Value?, to value: Value,
+                                               velocity: CGFloat, progressVelocity: CGFloat) {
             self.layer = layer
-            self.keyPath = keyPath
-            target = value.layerValue
+            keyPath = key.path
             zero = Value.springZero.layerValue
             self.velocity = velocity
-            offsetFrom = { model in
-                guard let old = from ?? Value(layerValue: model) else { return nil }
+            self.progressVelocity = progressVelocity
+            writeTarget = { key.set(value, on: layer) }
+            offsetFromModel = {
+                guard let old = from ?? key.value(of: layer) else { return nil }
                 let delta = old.springDelta(to: value)
                 return Offset(value: delta.layerValue, extent: delta.springExtent, scalar: delta.springScalar)
             }
@@ -239,9 +280,15 @@ public struct RenderSpring {
     /// The additive springs that carry `offset` at `velocity`. A scalar whose offset is too small
     /// to normalize its velocity against (a fling released at its rest value) splits into two
     /// springs, (offset + s) with the velocity and -s at rest: the sum of two solutions of the same
-    /// spring is the solution with the summed start.
-    static func parts(offset: Offset?, velocity: CGFloat, omega: Double) -> [Part] {
+    /// spring is the solution with the summed start. A `progressVelocity` is already normalized
+    /// (``Move/init(_:_:from:to:progressVelocity:)``), so one spring of any value type carries it.
+    static func parts(offset: Offset?, velocity: CGFloat, progressVelocity: CGFloat = 0, omega: Double) -> [Part] {
         guard let offset else { return [] }
+        if progressVelocity != 0 {
+            guard offset.extent > 0 else { return [] }
+            return [Part(from: offset.value, normalizedVelocity: progressVelocity,
+                         extent: offset.extent * (1 + abs(progressVelocity) / CGFloat(omega)))]
+        }
         guard let scalar = offset.scalar, velocity != 0 else {
             return offset.extent > 0 ? [Part(from: offset.value, normalizedVelocity: 0, extent: offset.extent)] : []
         }
@@ -293,19 +340,17 @@ public struct RenderSpring {
     // MARK: Keys
 
     private static let keyPrefix = "cmux.renderSpring."
-    private static let serialKey = "cmux.renderSpring.serial"
 
     /// A key no running spring on `layer` uses, so a retarget stacks instead of replacing:
-    /// `cmux.renderSpring.<serial>.<keyPath>`, with the serial kept on the layer.
+    /// `cmux.renderSpring.<serial>.<keyPath>`, with the serial kept on the layer's landing table.
     private static func nextKey(on layer: CALayer, keyPath: String) -> String {
-        let serial = ((layer.value(forKey: serialKey) as? NSNumber)?.intValue ?? 0) &+ 1
-        layer.setValue(NSNumber(value: serial), forKey: serialKey)
+        let serial = Landing.Table.on(layer).nextSerial()
         return "\(keyPrefix)\(serial).\(keyPath)"
     }
 
     /// The key path of a key `nextKey` made, or nil for any other key.
     static func springKeyPath(_ key: String) -> String? {
-        guard key.hasPrefix(keyPrefix), key != serialKey else { return nil }
+        guard key.hasPrefix(keyPrefix) else { return nil }
         let rest = key.dropFirst(keyPrefix.count)
         guard let dot = rest.firstIndex(of: "."), Int(rest[..<dot]) != nil else { return nil }
         return String(rest[rest.index(after: dot)...])
@@ -329,71 +374,4 @@ extension MotionGate {
     public func renderSpring(_ token: MotionSpring) -> RenderSpring {
         RenderSpring(token, gate: self)
     }
-}
-
-/// A layer value a ``RenderSpring`` animates: a scalar, point, size or rect.
-public nonisolated protocol RenderSpringValue: Sendable {
-    /// The value from a layer's `value(forKeyPath:)`, or nil when it is another type.
-    init?(layerValue: Any?)
-    /// The value as a layer stores it (`NSNumber` or `NSValue`).
-    var layerValue: Any { get }
-    /// The zero offset.
-    static var springZero: Self { get }
-    /// `self - target`, per component.
-    func springDelta(to target: Self) -> Self
-    /// The largest component's magnitude.
-    var springExtent: CGFloat { get }
-    /// The value as a scalar, or nil when it has several components.
-    var springScalar: CGFloat? { get }
-}
-
-nonisolated extension CGFloat: RenderSpringValue {
-    public init?(layerValue: Any?) {
-        guard let number = layerValue as? NSNumber else { return nil }
-        self = CGFloat(number.doubleValue)
-    }
-    public var layerValue: Any { NSNumber(value: Double(self)) }
-    public static var springZero: CGFloat { 0 }
-    public func springDelta(to target: CGFloat) -> CGFloat { self - target }
-    public var springExtent: CGFloat { abs(self) }
-    public var springScalar: CGFloat? { self }
-}
-
-nonisolated extension CGPoint: RenderSpringValue {
-    public init?(layerValue: Any?) {
-        guard let value = layerValue as? NSValue else { return nil }
-        self = value.pointValue
-    }
-    public var layerValue: Any { NSValue(point: self) }
-    public static var springZero: CGPoint { .zero }
-    public func springDelta(to target: CGPoint) -> CGPoint { CGPoint(x: x - target.x, y: y - target.y) }
-    public var springExtent: CGFloat { Swift.max(abs(x), abs(y)) }
-    public var springScalar: CGFloat? { nil }
-}
-
-nonisolated extension CGSize: RenderSpringValue {
-    public init?(layerValue: Any?) {
-        guard let value = layerValue as? NSValue else { return nil }
-        self = value.sizeValue
-    }
-    public var layerValue: Any { NSValue(size: self) }
-    public static var springZero: CGSize { .zero }
-    public func springDelta(to target: CGSize) -> CGSize { CGSize(width: width - target.width, height: height - target.height) }
-    public var springExtent: CGFloat { Swift.max(abs(width), abs(height)) }
-    public var springScalar: CGFloat? { nil }
-}
-
-nonisolated extension CGRect: RenderSpringValue {
-    public init?(layerValue: Any?) {
-        guard let value = layerValue as? NSValue else { return nil }
-        self = value.rectValue
-    }
-    public var layerValue: Any { NSValue(rect: self) }
-    public static var springZero: CGRect { .zero }
-    public func springDelta(to target: CGRect) -> CGRect {
-        CGRect(x: origin.x - target.origin.x, y: origin.y - target.origin.y,
-               width: size.width - target.size.width, height: size.height - target.size.height)
-    }
-    public var springExtent: CGFloat { Swift.max(abs(origin.x), abs(origin.y), abs(size.width), abs(size.height)) }
-    public var springScalar: CGFloat? { nil }
 }

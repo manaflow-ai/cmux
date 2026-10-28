@@ -73,6 +73,8 @@ struct CPUIntensiveSeamTests {
             #expect(image?.height == side)
             let thumbnail = blockingImageThumbnail(inputs.png, options: CPUFixture.thumbnailOptions)
             #expect(thumbnail.map { max($0.width, $0.height) } == min(side, CPUFixture.thumbnailSide))
+            let encoded = try #require(blockingImageEncode(inputs.image, type: UTType.png.identifier as CFString))
+            #expect(blockingImageDecode(encoded)?.width == side)
         }
         #expect(blockingImageDecode(Data("not an image".utf8)) == nil)
         #expect(blockingImageThumbnail(Data("not an image".utf8), options: CPUFixture.thumbnailOptions) == nil)
@@ -249,11 +251,13 @@ struct CPUIntensiveSeamTests {
 /// The inputs of ``callEachCPUSeam(_:)``: each above its seam's gate when `large`, each well below it otherwise.
 private nonisolated struct CPUSeamInputs {
     /// How many seam calls ``callEachCPUSeam(_:)`` makes.
-    static let seamCount = 13
+    static let seamCount = 14
 
     let json: Data
     let plist: Data
     let png: Data
+    /// ``png`` decoded, the input of the encode seam.
+    let image: CGImage
     let bytes: Data
     let compressed: Data
     let text: String
@@ -263,6 +267,7 @@ private nonisolated struct CPUSeamInputs {
         json = CPUFixture.json(bytes: large ? 100 * 1024 : 1024)
         plist = try CPUFixture.plist(bytes: large ? 100 * 1024 : 1024)
         png = try CPUFixture.png(side: large ? CPUFixture.largeSide : CPUFixture.smallSide)
+        image = try #require(CGImageSourceCreateWithData(png as CFData, nil).flatMap { CGImageSourceCreateImageAtIndex($0, 0, nil) })
         bytes = CPUFixture.noise(bytes: large ? 100 * 1024 : 1024)
         // Noise does not compress, so the compressed input is above the gate too.
         compressed = try (bytes as NSData).compressed(using: .lzfse) as Data
@@ -289,6 +294,7 @@ private nonisolated func callEachCPUSeam(_ inputs: CPUSeamInputs) throws -> [CPU
     try calls.seam(.cpuIntensive) { _ = try PropertyListSerialization.blockingPropertyList(from: inputs.plist) }
     calls.seam(.cpuIntensive) { _ = blockingImageDecode(inputs.png) }
     calls.seam(.cpuIntensive) { _ = blockingImageThumbnail(inputs.png, options: CPUFixture.thumbnailOptions) }
+    calls.seam(.cpuIntensive) { _ = blockingImageEncode(inputs.image, type: UTType.png.identifier as CFString) }
     try calls.seam(.cpuIntensive) { _ = try inputs.bytes.blockingCompress(using: .lzfse) }
     try calls.seam(.cpuIntensive) { _ = try inputs.compressed.blockingDecompress(using: .lzfse) }
     calls.seam(.cpuIntensive) { _ = inputs.regex.blockingRegexMatches(in: inputs.text) }

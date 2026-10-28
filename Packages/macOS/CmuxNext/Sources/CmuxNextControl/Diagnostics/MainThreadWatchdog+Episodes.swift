@@ -1,5 +1,8 @@
 import os
 import CmuxNextCompat
+import CmuxNextSettings
+import CmuxNextTrace
+import CmuxNextWakeups
 
 extension MainThreadWatchdog {
     /// Writes one file per hang episode (``HangEpisodeRecorder``): the main thread's stack at
@@ -51,20 +54,24 @@ extension MainThreadWatchdog {
     }
 
     /// A stall just crossed the hang threshold (once per stall): samples the main thread and
-    /// every other thread, opens the hang file, reports the episode (``onHangEpisode``), and
-    /// reports the hang (``onHang``) at most once per `hangReportInterval`. Watchdog thread only.
-    func reportHang(beat: UInt64, elapsedNanos: UInt64, now: UInt64, sampler: ThreadStackSampler?, state: inout HangState) {
+    /// every other thread, opens the hang file, hands the hang to ``fatalHangs`` (every one),
+    /// reports the episode (``onHangEpisode``, every one), and reports the hang (``onHang``) at
+    /// most once per `hangReportInterval`. Watchdog thread only.
+    func reportHang(beat: UInt64, elapsedNanos: UInt64, now: UInt64, sampler: ThreadStackSampler?, crashKeys: CrashKeySlots?,
+                    trace: TraceRuntime?, state: inout HangState) {
         let duration = Duration.nanoseconds(Int64(clamping: elapsedNanos))
         logger.fault("main thread hang: busy \(duration.fractionalMilliseconds, format: .fixed(precision: 0)) ms and counting")
         let due = state.lastReportNanos.map { now >= $0 &+ hangIntervalNanos } ?? true
         let sink = due ? onHang : nil
         let recorder = episodes
+        let fatal = fatalHangs
         let episodeSink = onHangEpisode
-        guard sink != nil || recorder != nil || episodeSink != nil else { return }
+        guard sink != nil || recorder != nil || fatal != nil || episodeSink != nil else { return }
         // A fresh sample: the stall sample is from the first threshold, this one from the hang.
-        let sampled = sampleHang(beat: beat, duration: duration, sampler: sampler)
-        let hang = sampled.stillBlocked ? sampled.hang : Hang(duration: duration, addresses: [], otherThreads: sampled.hang.otherThreads)
-        recorder?.begin(beat: beat, elapsed: duration, main: hang.addresses, others: hang.otherThreads)
+        let sampled = sampleHang(beat: beat, duration: duration, now: now, sampler: sampler, crashKeys: crashKeys, trace: trace)
+        let hang = sampled.hang
+        recorder?.begin(beat: beat, elapsed: duration, main: hang.addresses, others: hang.otherThreads, phase: hang.phase)
+        if sampled.stillBlocked { fatal?.began(hang, now &- elapsedNanos) }
         if let episodeSink {
             state.episodeReport = hang
             episodeSink(.blocked(hang, previous: nil))
@@ -75,24 +82,66 @@ extension MainThreadWatchdog {
         }
     }
 
-    /// A hang episode's checkpoint or end, to its file and to ``onHangEpisode``
-    /// (``HangEpisodeTracker/Event/began`` is ``reportHang(beat:elapsedNanos:now:sampler:state:)``,
-    /// in `checkHang`). An ended stall's duration is the exact one the main thread recorded when
-    /// it resumed. Watchdog thread only.
-    func handle(_ event: HangEpisodeTracker.Event, sampler: ThreadStackSampler?, state: inout HangState) {
+    /// Whether the main thread was inside the Chromium message pump, from the crash keys read while it was
+    /// suspended: the trace runtime's `in_cef_pump` key (``CmuxNextTrace/CrashKeySlot/inCEFPump``), which the
+    /// pump sets in whichever process runs it, or the app crash keys' CEF state at
+    /// ``CrashKeySlots/CEFState/inPump``. The pump runs on main, so it is a phase of the main thread's
+    /// episode, not a hang-watch scope (task 077).
+    static func inCEFPump(cefState: UInt64, pumpKey: UInt64) -> Bool {
+        pumpKey != 0 || cefState == CrashKeySlots.CEFState.inPump.rawValue
+    }
+
+    /// The main-thread phase a stall or hang record names: `cef_pump` inside the Chromium message pump
+    /// (``inCEFPump(cefState:pumpKey:)``); nil otherwise.
+    static func phaseLabel(inCEFPump: Bool) -> String? {
+        inCEFPump ? "cef_pump" : nil
+    }
+
+    /// What a stall record inside the Chromium message pump adds to its details: `cef=true` and the phase.
+    static let cefPumpDetails: [String: JSONValue] = ["cef": .bool(true), "phase": .string("cef_pump")]
+
+    /// A main-thread hang in progress: how long the main thread has been
+    /// busy so far, and its stack (return addresses, innermost first).
+    public struct Hang: Sendable {
+        public var duration: Duration
+        public var addresses: [UInt]
+        /// Every other thread's stack, sampled right after the main thread's: a main thread
+        /// that waits on a lock or a reply shows only the wait, and the holder is in here
+        /// (``ThreadStackSampler/sampleOtherThreads(excluding:maxFrames:)``).
+        public var otherThreads: [ThreadSample] = []
+        /// What the main thread was in when sampled (``phaseLabel(inCEFPump:)``): `cef_pump` inside the
+        /// Chromium message pump; nil otherwise, with no crash keys attached, or when the stall ended first.
+        public var phase: String?
+        /// The sample caught the main thread inside the Chromium message pump (``inCEFPump(cefState:pumpKey:)``):
+        /// the Sentry tag `hang.cef`.
+        public var cef = false
+        /// The scheduled task the sample caught (owner, class, location) and the turn so far; its task
+        /// is nil (`unattributed`) when no scheduled task ran or the stall ended before the sample.
+        public var attribution = HangAttribution(task: nil, turnNanos: 0)
+    }
+
+    /// A hang episode's checkpoint or end, to its file, to ``fatalHangs`` and to ``onHangEpisode``
+    /// (``HangEpisodeTracker/Event/began`` is
+    /// ``reportHang(beat:elapsedNanos:now:sampler:crashKeys:trace:state:)``, in `checkHang`). An ended
+    /// stall's duration is the exact one the main thread recorded when it resumed. A checkpoint samples
+    /// the stacks only for ``onHangEpisode``, and only `sampler`'s (nil: no sample). Watchdog thread only.
+    func handle(_ event: HangEpisodeTracker.Event, sampler: ThreadStackSampler?, crashKeys: CrashKeySlots? = nil,
+                trace: TraceRuntime? = nil, state: inout HangState) {
         switch event {
         case .began:
             break
         case let .progressed(beat, elapsed):
             let duration = Duration.nanoseconds(Int64(clamping: elapsed))
             episodes?.update(beat: beat, duration: duration, ongoing: true)
+            fatalHangs?.progressed(elapsed)
             guard let episodeSink = onHangEpisode else { return }
-            let sampled = sampleHang(beat: beat, duration: duration, sampler: sampler)
+            let sampled = sampleHang(beat: beat, duration: duration, now: uptime(), sampler: sampler, crashKeys: crashKeys, trace: trace)
             guard sampled.stillBlocked else { return }
             let previous = state.episodeReport?.duration
             state.episodeReport = sampled.hang
             episodeSink(.blocked(sampled.hang, previous: previous))
         case let .ended(beat, lastElapsed):
+            fatalHangs?.ended() // first: the run is not stuck any more, before the episode file is rewritten
             let duration = Duration.nanoseconds(Int64(clamping: closeEpisode(beat: beat, lastElapsedNanos: lastElapsed)))
             episodes?.update(beat: beat, duration: duration, ongoing: false)
             let lastReport = state.episodeReport
@@ -101,14 +150,27 @@ extension MainThreadWatchdog {
         }
     }
 
-    /// The main thread's stack and every other thread's, for the stall of `beat`. The main
-    /// thread's beat is read while it is suspended: `stillBlocked` is false when the stall had
-    /// ended, and its sample is then of other work. Watchdog thread only.
-    private func sampleHang(beat: UInt64, duration: Duration, sampler: ThreadStackSampler?) -> (hang: Hang, stillBlocked: Bool) {
+    /// The main thread's stack and every other thread's, for the stall of `beat`, with the main thread's
+    /// phase and scheduled task. The beat and the phase are read while the main thread is suspended (atomics
+    /// only): `stillBlocked` is false when the stall had ended, and the hang then has no main-thread stack,
+    /// phase or task. Watchdog thread only.
+    private func sampleHang(beat: UInt64, duration: Duration, now: UInt64, sampler: ThreadStackSampler?, crashKeys: CrashKeySlots?,
+                            trace: TraceRuntime?) -> (hang: Hang, stillBlocked: Bool) {
         var stillBlocked = true
-        let addresses = sampler?.sample { _ in stillBlocked = beatSequence.load(ordering: .acquiring) == beat } ?? []
+        var inPump = false
+        let board = boardSink.withLock { $0 }
+        var scope = board?.hangScope ?? .noTask
+        let sampled = sampler?.sample { _ in
+            stillBlocked = beatSequence.load(ordering: .acquiring) == beat
+            inPump = Self.inCEFPump(cefState: crashKeys?.value(.cefState) ?? 0, pumpKey: trace?.crashKey(.inCEFPump) ?? 0)
+            scope = board?.hangScope ?? .noTask
+        } ?? []
+        let cef = stillBlocked && inPump
         let others = sampler.map { ThreadStackSampler.sampleOtherThreads(excluding: $0.thread) } ?? []
-        return (Hang(duration: duration, addresses: addresses, otherThreads: others), stillBlocked)
+        let hang = Hang(duration: duration, addresses: stillBlocked ? sampled : [], otherThreads: others,
+                        phase: Self.phaseLabel(inCEFPump: cef), cef: cef,
+                        attribution: hangAttribution(scope, stillBlocked: stillBlocked, now: now))
+        return (hang, stillBlocked)
     }
 
     /// The episode of `beat` ended: its exact length, which the main thread recorded in

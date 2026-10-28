@@ -253,9 +253,8 @@ fn resize_stream_serialization_reserves_budget_before_queueing() {
         pending_sequence: Arc::from([]),
     };
 
-    let error = writer
-        .send_attach_frame_backpressured(7, &frame, AttachWireShape::default(), &stream)
-        .unwrap_err();
+    let encoded = writer.encode_attach_frame(7, &frame, AttachWireShape::default(), &stream);
+    let error = writer.send_encoded_backpressured(encoded, &stream).unwrap_err();
 
     assert_eq!(error.kind(), std::io::ErrorKind::WouldBlock);
     assert!(outbound.try_pop().is_none());
@@ -565,7 +564,7 @@ fn blocking_wait_cannot_overtake_input_queued_behind_a_clear_barrier() {
     for (id, cmd) in [
         (
             1,
-            Command::Send(cmd_terminal_io::SendParams {
+            Command::Send(terminal_io_wire::SendParams {
                 surface: Some(1),
                 terminal_id: None,
                 text: Some("input".to_string()),
@@ -577,13 +576,23 @@ fn blocking_wait_cannot_overtake_input_queued_behind_a_clear_barrier() {
                 flow: None,
             }),
         ),
-        (2, Command::WaitFor { surface: 2, pattern: "never".to_string(), timeout_ms: 60_000 }),
+        (
+            2,
+            Command::WaitFor(terminal_io_wire::WaitForParams {
+                surface: 2,
+                pattern: "never".to_string(),
+                timeout_ms: 60_000,
+            }),
+        ),
     ] {
         state.requests.push_back(PendingSurfaceRequest {
             request: Request { id: Some(json!(id)), cmd },
             arrival: RequestArrival::now(),
+            cause: crate::event_cause::EventCause::Program,
+            frame_call: None,
             retained_bytes: 0,
             _bytes_permit: admission.try_reserve_bytes(0).unwrap(),
+            stream_barrier: None,
         });
     }
 
@@ -621,8 +630,11 @@ fn guarded_browser_pointer_input_overtakes_an_unrelated_clear_barrier() {
         state.requests.push_back(PendingSurfaceRequest {
             request: Request { id: Some(json!(1)), cmd },
             arrival: RequestArrival::now(),
+            cause: crate::event_cause::EventCause::Program,
+            frame_call: None,
             retained_bytes: 0,
             _bytes_permit: admission.try_reserve_bytes(0).unwrap(),
+            stream_barrier: None,
         });
 
         assert_eq!(
@@ -647,7 +659,10 @@ fn queued_same_surface_clears_do_not_reserve_worker_permits() {
     for id in 0..SERVER_SURFACE_WORKER_CAPACITY {
         let mut clear = Some(Request {
             id: Some(json!(id)),
-            cmd: Command::ClearHistory { surface: surface.id, fallback_key: None },
+            cmd: Command::ClearHistory(terminal_io_wire::ClearHistoryParams {
+                surface: surface.id,
+                fallback_key: None,
+            }),
         });
         assert_eq!(scheduler.dispatch(mux.clone(), 0, &mut clear, 0, writer.clone()), Some(true));
     }
@@ -675,16 +690,19 @@ fn queued_wait_releases_clear_worker_permit_after_clear_settles() {
 
     let mut clear = Some(Request {
         id: Some(json!(1)),
-        cmd: Command::ClearHistory { surface: surface.id, fallback_key: None },
+        cmd: Command::ClearHistory(terminal_io_wire::ClearHistoryParams {
+            surface: surface.id,
+            fallback_key: None,
+        }),
     });
     assert_eq!(scheduler.dispatch(mux.clone(), 0, &mut clear, 0, writer.clone()), Some(true));
     let mut wait = Some(Request {
         id: Some(json!(2)),
-        cmd: Command::WaitFor {
+        cmd: Command::WaitFor(terminal_io_wire::WaitForParams {
             surface: surface.id,
             pattern: "never-matches".to_string(),
             timeout_ms: 500,
-        },
+        }),
     });
     assert_eq!(scheduler.dispatch(mux.clone(), 0, &mut wait, 0, writer), Some(true));
 
@@ -728,16 +746,19 @@ fn connection_close_cancels_a_wait_queued_after_clear_history() {
 
     let mut clear = Some(Request {
         id: Some(json!(1)),
-        cmd: Command::ClearHistory { surface: surface.id, fallback_key: None },
+        cmd: Command::ClearHistory(terminal_io_wire::ClearHistoryParams {
+            surface: surface.id,
+            fallback_key: None,
+        }),
     });
     assert_eq!(scheduler.dispatch(mux.clone(), 0, &mut clear, 0, writer.clone()), Some(true));
     let mut wait = Some(Request {
         id: Some(json!(2)),
-        cmd: Command::WaitFor {
+        cmd: Command::WaitFor(terminal_io_wire::WaitForParams {
             surface: surface.id,
             pattern: "release-wait".to_string(),
             timeout_ms: 1_000,
-        },
+        }),
     });
     assert_eq!(scheduler.dispatch(mux.clone(), 0, &mut wait, 0, writer), Some(true));
 
@@ -758,10 +779,10 @@ fn independent_muxes_do_not_share_surface_operation_admission() {
     let first = ConnectionSurfaceScheduler::new(first_mux.surface_operation_admission.clone());
     let second = ConnectionSurfaceScheduler::new(second_mux.surface_operation_admission.clone());
     let permits = (0..SERVER_SURFACE_WORKER_CAPACITY)
-        .map(|_| first.admission.try_reserve_worker().unwrap())
+        .map(|_| first.admission.try_reserve_worker(WorkerClass::Automation).unwrap())
         .collect::<Vec<_>>();
 
-    let isolated = second.admission.try_reserve_worker();
+    let isolated = second.admission.try_reserve_worker(WorkerClass::Automation);
     drop(permits);
 
     assert!(
@@ -771,27 +792,27 @@ fn independent_muxes_do_not_share_surface_operation_admission() {
 }
 
 #[test]
-fn scheduler_retains_connection_permit_until_dispatcher_exit() {
+fn scheduler_retains_connection_permit_until_its_running_request_ends() {
     let active = Arc::new(crate::diagnostics::ConnectionStats::default());
     let permit = claim_connection(&active).unwrap();
     let scheduler = Arc::new(ConnectionSurfaceScheduler::new_with_connection_permit(
         Arc::new(ServerSurfaceOperationAdmission::default()),
         permit,
     ));
-    scheduler.state.lock().unwrap().dispatcher_started = true;
+    // A request is running on the connection's control sequence.
+    scheduler.state.lock().unwrap().pump_scheduled = true;
     let (release_tx, release_rx) = std::sync::mpsc::channel();
     let worker_scheduler = scheduler.clone();
-    let dispatcher = std::thread::spawn(move || {
+    let _pump = std::thread::spawn(move || {
         release_rx.recv().unwrap();
-        worker_scheduler.finish_dispatcher();
+        worker_scheduler.finish_pump();
     });
-    *scheduler.dispatcher.lock().unwrap() = Some(dispatcher);
 
     assert!(!scheduler.close_and_wait(Duration::from_millis(25)));
     assert_eq!(
         active.active(),
         1,
-        "timed-out shutdown released admission while its dispatcher was live"
+        "timed-out shutdown released admission while its request was running"
     );
 
     release_tx.send(()).unwrap();
@@ -1101,4 +1122,31 @@ fn client_detach_purges_attach_backlog_before_terminal_event() {
     let terminal: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
     assert_eq!(terminal, json!({"event": "detached", "surface": 41, "reason": "network"}));
     assert_eq!(outbound.try_pop(), None);
+}
+
+/// `sequence_depth` samples every arrival, also one a full sequence
+/// refuses: those are the saturation samples (`server-stats` `ipc`).
+#[test]
+fn sequence_depth_records_the_arrival_a_full_sequence_refuses() {
+    let mux = test_mux();
+    let scheduler =
+        Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+    // A pump that never runs holds the sequence, so every request stays in it.
+    scheduler.state.lock().unwrap().pump_scheduled = true;
+    let (writer, outbound) = captured_writer();
+    for id in 0..CONNECTION_SURFACE_QUEUE_CAPACITY {
+        let mut ping = Some(Request { id: Some(json!(id)), cmd: Command::Ping });
+        assert_eq!(scheduler.dispatch(mux.clone(), 0, &mut ping, 0, writer.clone()), Some(true));
+    }
+    let mut refused = Some(Request { id: Some(json!("over")), cmd: Command::Ping });
+    assert_eq!(scheduler.dispatch(mux.clone(), 0, &mut refused, 0, writer), Some(true));
+    assert!(refused.is_none(), "the full sequence refused it");
+    let reply = pop_json(&outbound);
+    assert_eq!((reply["id"].clone(), reply["ok"].clone()), (json!("over"), json!(false)));
+    let depth = mux.ipc_stats().snapshot().sequence_depth;
+    let arrivals = u64::try_from(CONNECTION_SURFACE_QUEUE_CAPACITY).unwrap() + 1;
+    assert_eq!(depth.count, arrivals);
+    assert_eq!(depth.max, arrivals, "the refused arrival met a full sequence");
+    scheduler.close();
+    scheduler.finish_pump();
 }

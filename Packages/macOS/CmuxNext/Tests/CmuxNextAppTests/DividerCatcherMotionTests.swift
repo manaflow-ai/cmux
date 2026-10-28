@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextDesign
 @testable import CmuxNextLayout
+import CmuxNextWakeups
 import Testing
 
 /// Lawrence (2026-10-23): splits lag, more with Chromium pages. While a page window shows, every
@@ -29,7 +30,7 @@ import Testing
             let column = LayoutColumn(id: "c", width: 1, root: .split("s", axis: .horizontal, ratio: 0.5, a: .leaf("a"), b: .leaf("b")))
             model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: .columns([column]))], activeScreenID: "s", focusedPane: "a")
             model.followsDesignMetrics = false
-            root = LayoutRootView(model: model, contentProvider: provider)
+            root = LayoutRootView(model: model, contentProvider: provider, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
             root.context.reduceMotionOverride = false
             window = ShellWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.titled, .resizable],
                                  backing: .buffered, defer: true)

@@ -70,7 +70,7 @@ check_agent() { # <bundle id>
   [[ "$(plutil -type ThrottleInterval "$agent")" == integer && "$throttle" -ge 10 ]] \
     || { echo "ThrottleInterval $throttle is not an integer >= 10" >&2; exit 1; }
   expect "$agent" RunAtLoad true
-  expect "$agent" ProcessType Standard
+  expect "$agent" ProcessType Interactive
   expect "$agent" AssociatedBundleIdentifiers:0 "$1"
   # No environment, no secrets, no per-user paths: the plist is sealed in a
   # signed bundle that every user of the Mac shares.

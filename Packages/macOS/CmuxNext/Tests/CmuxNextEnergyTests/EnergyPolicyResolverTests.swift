@@ -92,6 +92,25 @@ nonisolated struct EnergyPolicyResolverTests {
         }
     }
 
+    /// A Mac on battery that moves between fair and serious under load turns the saver on once: the
+    /// thermal reason holds until it cools to nominal or is plugged in.
+    @Test func theThermalReasonHoldsUntilNominal() {
+        var resolver = EnergyPolicyResolver(isEnabled: true)
+        #expect(resolver.update(setting: .auto, inputs: Self.battery(80, thermal: .fair)) == nil, "fair alone is no reason")
+        #expect(resolver.update(setting: .auto, inputs: Self.battery(80, thermal: .serious)) == .thermal)
+        for thermal in [ProcessInfo.ThermalState.fair, .serious, .fair, .critical, .fair] {
+            #expect(resolver.update(setting: .auto, inputs: Self.battery(80, thermal: thermal)) == .thermal,
+                    "the saver flapped off at \(thermal.rawValue)")
+            #expect(resolver.reason(setting: .auto, inputs: Self.battery(80, thermal: thermal)) == .thermal)
+        }
+        #expect(resolver.update(setting: .auto, inputs: Self.battery(80, thermal: .nominal)) == nil, "cooled to nominal")
+        #expect(resolver.update(setting: .auto, inputs: Self.battery(80, thermal: .fair)) == nil, "the hold outlived nominal")
+        // Plugged in ends the hold too: back on battery at fair, the saver stays off.
+        #expect(resolver.update(setting: .auto, inputs: Self.battery(80, thermal: .serious)) == .thermal)
+        #expect(resolver.update(setting: .auto, inputs: Self.plugged(thermal: .fair)) == nil)
+        #expect(resolver.update(setting: .auto, inputs: Self.battery(80, thermal: .fair)) == nil, "the hold outlived the plug-in")
+    }
+
     @Test func theThresholdIsChromes() {
         #expect(EnergyPolicyResolver.lowBatteryThresholdPercent == 20)
     }
@@ -130,6 +149,21 @@ nonisolated struct EnergyPolicyResolverTests {
         // AC -> battery is not the edge either.
         #expect(resolver.update(setting: .always, inputs: Self.battery(90)) == nil)
         #expect(resolver.isOffForSession)
+    }
+
+    /// The edge is the Mac's own power source (`macOnBattery`): a `debug.energy.simulate` battery that goes
+    /// away is no plug-in, and a real plug-in under a simulated battery still is.
+    @Test func onlyTheMacsOwnPlugInIsTheEdge() {
+        var resolver = EnergyPolicyResolver(isEnabled: true)
+        _ = resolver.update(setting: .auto, inputs: Self.plugged())
+        resolver.turnOffForNow()
+        let simulatedBattery = EnergyInputs(onBattery: true, macOnBattery: false, hasBattery: true, batteryPercent: 15)
+        #expect(resolver.update(setting: .auto, inputs: simulatedBattery) == nil)
+        #expect(resolver.update(setting: .auto, inputs: Self.plugged()) == nil)
+        #expect(resolver.isOffForSession, "a simulated battery that goes away is no plug-in")
+        #expect(resolver.update(setting: .auto, inputs: Self.battery(50)) == nil)
+        #expect(resolver.update(setting: .auto, inputs: simulatedBattery) == .battery)
+        #expect(!resolver.isOffForSession, "the Mac was plugged in under the simulated battery")
     }
 
     @Test func turnOffForNowBeforeAnyInputsWaitsForAnEdge() {

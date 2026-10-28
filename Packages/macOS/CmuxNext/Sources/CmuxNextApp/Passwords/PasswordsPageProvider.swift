@@ -4,6 +4,7 @@ import CmuxNextCompat
 import CmuxNextPages
 import CmuxNextSettings
 import Foundation
+import CmuxNextWakeups
 import CmuxNextBrowser
 
 /// Serves the Passwords page's `cmux.passwords.*` ops (webviews/src/pages/passwords/types.ts,
@@ -39,9 +40,12 @@ final class PasswordsPageProvider: PageProvider {
     private var replies: [(key: String, value: JSONValue)] = []
     private static let replayLimit = 64
     private var revision = 0
+    /// The app's main-thread scheduler: the export setting's follow flushes as a posted task on it.
+    private let mainWork: MainWorkScheduler
 
     init(store: any PasswordStore, profiles: @escaping @MainActor () -> [Profile], confirmations: any PageConfirmationPresenter,
-         authenticator: any DeviceOwnerAuthenticating, secrets: any PasswordSecretSurface) {
+         authenticator: any DeviceOwnerAuthenticating, secrets: any PasswordSecretSurface, mainWork: MainWorkScheduler) {
+        self.mainWork = mainWork
         self.store = store
         self.profiles = profiles
         self.confirmations = confirmations
@@ -104,17 +108,24 @@ final class PasswordsPageProvider: PageProvider {
             self.revision += 1
             onEvent(["profile": .string(profile), "revision": .number(Double(self.revision))])
         }
-        let gate = Task { [weak self] in
-            var last: Bool?
-            for await allowed in ObservationStream({ [weak self] in self?.allowExport() ?? false }) {
-                let changed = last.map { $0 != allowed } ?? false
-                last = allowed
-                guard changed, let self else { continue }
-                self.revision += 1
-                onEvent(["revision": .number(Double(self.revision))])
+        // `visible`: the page re-reads what it shows. A service, not a view: the page host keeps a hidden page's
+        // events (`frozenDelivery: .ordered`), so none may drop.
+        var first = true
+        let gate = ServiceObservation(.visible, owner: "PasswordsPageProvider.allowExport", on: mainWork) { [weak self] in
+            self?.allowExport() ?? false
+        } apply: { [weak self] _ in
+            // The first apply is the value the page reads with its state: no event.
+            guard !first else {
+                first = false
+                return
             }
+            guard let self else { return }
+            self.revision += 1
+            onEvent(["revision": .number(Double(self.revision))])
         }
-        return PageSubscription { stop(); gate.cancel() }
+        // Each event tells the page to re-read one profile, and the page re-reads only the profile it
+        // shows: a later event for another profile does not stand for a dropped one, so none may drop.
+        return PageSubscription(frozenDelivery: .ordered) { stop(); gate.cancel() }
     }
 
     // MARK: Reads

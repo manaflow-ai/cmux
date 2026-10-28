@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextBookmarks
 import CmuxNextBrowser
+import CmuxNextDesign
 import CmuxNextIcons
 import Foundation
 import Observation
@@ -23,6 +24,8 @@ final class BookmarkPageTab: BrowserTab {
     @ObservationIgnored let source: BookmarkManagerSourceAdapter
     @ObservationIgnored let contentView: NSView
     @ObservationIgnored var onNavigate: ((URL) -> Void)?
+    /// The scroll position a hibernation saved, for the rebuilt page's first show.
+    @ObservationIgnored let scrollRestore = BrowserAppPageScroll()
 
     init(id: BrowserTabID, engine: BrowserEngineKind, profile: BrowserProfileID, source: BookmarkManagerSourceAdapter) {
         self.id = id
@@ -54,12 +57,12 @@ final class BookmarkPageTab: BrowserTab {
     func setContentVisible(_ visible: Bool) {
         contentView.isHidden = !visible
         if visible { model.reload() }
+        if visible { showSavedScroll() } else { scrollRestore.pageDidHide() }
     }
 
     func snapshot() async throws -> CGImage {
-        guard let rep = contentView.bitmapImageRepForCachingDisplay(in: contentView.bounds) else { throw BrowserTabError.snapshotUnavailable }
-        contentView.cacheDisplay(in: contentView.bounds, to: rep)
-        guard let image = rep.cgImage else { throw BrowserTabError.snapshotUnavailable }
+        // A hidden page's SwiftUI is out of the window (feature visibilityGatedHosting): this draws it too.
+        guard let image = contentView.cachedDisplayImage() else { throw BrowserTabError.snapshotUnavailable }
         return image
     }
 
@@ -72,5 +75,31 @@ final class BookmarkPageTab: BrowserTab {
     func setZoom(_ zoom: Double) {}
     func exitContentFullscreen() {}
     func showDevTools() {}
-    func close() {}
+    func close() { scrollRestore.cancel() }
+}
+
+/// Hibernates as a web page does (`memoryDiscardPageTabs`): the shown folder, the search and the
+/// scroll of the bookmark list go with the tab.
+extension BookmarkPageTab: BrowserAppPage {
+    var pageAddress: URL { state.url ?? BookmarkPageAddress.url }
+    var drawsInFirstFrame: Bool { true }
+
+    func saveViewState() async -> BrowserAppPageState {
+        BrowserAppPageState(url: pageAddress, scroll: scrollRestore.position(of: listScrollView), search: model.query,
+                            selection: model.folder)
+    }
+
+    func restoreViewState(_ saved: BrowserAppPageState) {
+        if let folder = saved.selection { model.folder = folder }
+        if let search = saved.search { model.query = search }
+        scrollRestore.restore(saved.scroll)
+    }
+
+    /// The bookmark list (a `List`), not the folder sidebar beside it (a `ScrollView`).
+    private var listScrollView: NSScrollView? { BrowserAppPageScroll.listScrollView(in: contentView) }
+
+    /// A saved scroll goes back once the list holds it.
+    private func showSavedScroll() {
+        scrollRestore.pageDidShow(list: { [weak self] in self?.listScrollView }, hasRows: { [model] in !model.rows.isEmpty })
+    }
 }

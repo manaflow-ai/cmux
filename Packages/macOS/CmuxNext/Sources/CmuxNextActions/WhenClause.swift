@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 
 /// A binding's `when` clause: a boolean expression over context keys
@@ -37,7 +38,7 @@ public nonisolated indirect enum WhenClause: Hashable, Sendable {
             return context[key]?.text != value.text
         case .matches(let key, let pattern):
             guard let text = context[key]?.text, let regex = try? NSRegularExpression(pattern: pattern) else { return false }
-            return regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil
+            return regex.blockingRegexFirstMatch(in: text) != nil
         case .isIn(let key, let listKey):
             guard let text = context[key]?.text, case .strings(let list)? = context[listKey] else { return false }
             return list.contains(text)

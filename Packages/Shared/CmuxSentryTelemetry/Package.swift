@@ -1,4 +1,4 @@
-// swift-tools-version: 6.0
+// swift-tools-version: 6.2
 
 import Foundation
 import PackageDescription
@@ -28,6 +28,8 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../CMUXMobileCore"),
+        // The Mutex of the reporter's policy state (p02-threads-146).
+        .package(path: "../CmuxThreading"),
         .package(
             // sentry-cocoa 9.29.0 removed PrivateSentrySDKOnly, which the cmux
             // CLI uses to store envelopes (CLI/CLISocketSentryTelemetry.swift).
@@ -50,6 +52,7 @@ let package = Package(
             dependencies: [
                 "CmuxSentryScrubbing",
                 "CMUXMobileCore",
+                .product(name: "CmuxThreading", package: "CmuxThreading"),
                 // macOS links the dynamic SDK: a static Sentry adds the
                 // Objective-C personality routine to the cmux-next app image,
                 // one more than compact unwind encodes (C++, iroh-ffi and
@@ -94,3 +97,26 @@ if ProcessInfo.processInfo.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1" {
     package.dependencies.removeAll()
 }
 #endif
+
+// BEGIN apply-stability-settings.py: generated from scripts/cmux-next/stability-settings.json; do not edit.
+// p10 stability settings per target (plans/cmux-next/chrome-parity/p10-stability.md C.5): add a row to
+// stability-settings.json and run the lander instead of editing this block or a target's settings.
+let stabilitySettingGroups: [(targets: [String], settings: [SwiftSetting])] = [
+    (
+        targets: [
+            "CmuxSentryReporting",
+            "CmuxSentryReportingTests",
+            "CmuxSentryScrubbing",
+            "CmuxSentryScrubbingTests",
+        ],
+        settings: [
+            .strictMemorySafety(),
+        ]
+    ),
+]
+for group in stabilitySettingGroups {
+    for target in package.targets where group.targets.contains(target.name) {
+        target.swiftSettings = (target.swiftSettings ?? []) + group.settings
+    }
+}
+// END apply-stability-settings.py

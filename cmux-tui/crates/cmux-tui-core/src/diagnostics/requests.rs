@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use serde::Serialize;
 
-use super::{HistogramSnapshot, LogLinearHistogram};
+use super::{HistogramSnapshot, LogLinearHistogram, MethodLatencyStats};
 
 /// The request classes [`RequestStats`] keeps, by index: the server's
 /// `MethodClass` in declaration order (server/command_names.rs; the request
@@ -23,6 +23,8 @@ pub const REQUEST_CLASSES: [&str; 8] =
 pub struct RequestStats {
     latency_us: [LogLinearHistogram; REQUEST_CLASSES.len()],
     dispatch_queue_us: LogLinearHistogram,
+    /// The same requests by method (`server-stats` `ipc`).
+    methods: MethodLatencyStats,
     /// The last id given to an async reply's trace slice.
     async_ids: AtomicU64,
 }
@@ -32,6 +34,7 @@ impl Default for RequestStats {
         Self {
             latency_us: std::array::from_fn(|_| LogLinearHistogram::new()),
             dispatch_queue_us: LogLinearHistogram::new(),
+            methods: crate::server::method_latency_stats(),
             async_ids: AtomicU64::new(0),
         }
     }
@@ -41,7 +44,24 @@ impl RequestStats {
     /// One request of class `class` (an index into [`REQUEST_CLASSES`]; a
     /// larger one counts as `other`) was answered `latency` after it arrived.
     pub fn record_latency(&self, class: usize, latency: Duration) {
-        self.latency_us[class.min(REQUEST_CLASSES.len() - 1)].record_duration(latency);
+        let histogram = self.latency_us.get(class).or(self.latency_us.last());
+        if let Some(histogram) = histogram {
+            histogram.record_duration(latency);
+        }
+    }
+
+    /// The latency histogram of `class` (a larger one is `other`).
+    pub(super) fn latency(&self, class: usize) -> &LogLinearHistogram {
+        &self.latency_us[class.min(REQUEST_CLASSES.len() - 1)]
+    }
+
+    pub(super) fn dispatch_queue(&self) -> &LogLinearHistogram {
+        &self.dispatch_queue_us
+    }
+
+    /// The per-method histograms.
+    pub fn methods(&self) -> &MethodLatencyStats {
+        &self.methods
     }
 
     /// One request waited `queued` from its parse to its handler's start.
@@ -56,7 +76,7 @@ impl RequestStats {
 
     pub fn snapshot(&self) -> RequestStatsSnapshot {
         let [topology, terminal_io, create, query, browser, agent, cloud, other] =
-            std::array::from_fn(|class| self.latency_us[class].snapshot());
+            self.latency_us.each_ref().map(LogLinearHistogram::snapshot);
         RequestStatsSnapshot {
             request_latency_us: RequestLatencySnapshot {
                 topology,

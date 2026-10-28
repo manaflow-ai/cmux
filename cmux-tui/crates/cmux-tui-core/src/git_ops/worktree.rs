@@ -12,6 +12,7 @@
 //! it made instead of making a second. A post-checkout hook that fails does
 //! not undo the worktree git made, so that is a made worktree too.
 
+use cmux_threads::checked::fs as files;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -27,6 +28,7 @@ use super::run::run_git;
 use super::user_run::{UserGit, deadline};
 use super::{MAX_SMALL_OUTPUT_BYTES, Repository};
 use crate::Mux;
+use crate::panic_free::JsonFields;
 use crate::resource::ResourceError;
 use crate::resource_router::ParsedResourceRequest;
 
@@ -49,9 +51,9 @@ pub(super) fn dispatch(
     mux: &Arc<Mux>,
     request: &ParsedResourceRequest,
 ) -> Result<Value, ResourceError> {
-    // The operation runs git to completion on this request thread.
+    // git runs to completion here, on a work item (`answer`).
     crate::request_path::note(crate::request_path::BlockingKind::ChildProcess);
-    let key = key(request);
+    let key = key(request)?;
     let deadline = deadline();
     let target = Target::resolve(mux, request, OPERATION)?;
     let fingerprint = target.fingerprint(request);
@@ -88,7 +90,7 @@ pub(super) fn dispatch(
             Err(error) => {
                 // A run stopped by the deadline may have made the worktree:
                 // its retry finds it.
-                if error.details["reason"] != "timed_out" {
+                if error.details.field("reason") != "timed_out" {
                     journal.finish();
                 }
                 Err(error)
@@ -172,7 +174,7 @@ fn create(
             return Err(refused(OPERATION, "path_exists", message, Value::Null));
         }
         if let Some(parent) = attempt.root.parent()
-            && let Err(error) = std::fs::create_dir_all(parent)
+            && let Err(error) = files::create_dir_all(parent)
         {
             let message = format!("{}: {error}", parent.display());
             return Err(refused(OPERATION, "git_failed", message, Value::Null));
@@ -208,7 +210,7 @@ fn create(
 /// its administrative folder is no longer locked (`git worktree add` locks
 /// it while it checks the files out).
 fn made(attempt: &Attempt) -> bool {
-    let Ok(link) = std::fs::read_to_string(attempt.root.join(".git")) else { return false };
+    let Ok(link) = files::read_to_string(attempt.root.join(".git")) else { return false };
     let Some(admin) = link.trim().strip_prefix("gitdir:").map(str::trim) else { return false };
     if Path::new(admin).join("locked").exists() {
         return false;
@@ -226,7 +228,7 @@ fn described(attempt: &Attempt, common_dir: &Path) -> Value {
         "base_commit": attempt.base_commit,
     });
     if let Some(main) = main_root(common_dir) {
-        value["main_root"] = json!(main.to_string_lossy());
+        value.insert("main_root", json!(main.to_string_lossy()));
     }
     value
 }

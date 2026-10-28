@@ -1,7 +1,7 @@
 public import CmuxNextRemoteView
 import Foundation
 
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 /// One input to the client reducer (`ClientInput`, tag `op`).
 public nonisolated enum RbClientInput: Sendable, Equatable {
     /// A control body from the host (an `rb.*` message).

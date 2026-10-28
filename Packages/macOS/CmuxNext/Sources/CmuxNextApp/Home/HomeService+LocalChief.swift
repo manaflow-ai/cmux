@@ -48,6 +48,7 @@ extension HomeService {
     /// else its record) for the Home list's badges, and which of them are deleted (their rows
     /// hide); the list redraws only when one changed.
     func refreshChiefHarnesses() {
+        guard let services else { return }
         let chiefs = Set(homeStore.rows.filter { !isCloudConversation($0.id) }
             .flatMap { $0.summary.participants.filter(\.isChief).map(\.id.rawValue) })
         let reader = HomeChiefHarnesses(muxHome: HomeBrainHost.muxHome(tag: services.environment.tag), connection: connection)

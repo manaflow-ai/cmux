@@ -22,8 +22,12 @@ public import Darwin
 /// in Release, it is `body` alone. The seams below call it; call it directly for other CPU work whose cost grows
 /// with one input's size.
 ///
-/// Off the main thread it is one `pthread_main_np()` call: `size` is read only on the main thread (an image seam
-/// reads its header for it), and never in Release.
+/// In every build, while a trace records the `task` category, the call is one `task.blocking_call` interval of kind
+/// ``BlockingKind/cpuIntensive`` at its site, whatever its size and thread, through ``BlockingTraceHook`` as
+/// ``blockingCall(_:fileID:line:_:)`` writes its own (plans/cmux-next/trace.md "Blocking calls and lane jobs").
+///
+/// Off the main thread it is the trace hook's one acquiring load and one `pthread_main_np()` call: `size` is read
+/// only on the main thread (an image seam reads its header for it), and never in Release.
 ///
 /// ```swift
 /// let layout = cpuIntensiveCall(size: text.utf16.count, limit: 32 * 1024) { Layout(text) }
@@ -41,6 +45,20 @@ public import Darwin
 public func cpuIntensiveCall<Result, Failure: Error>(
     size: @autoclosure () -> Int, limit: Int, fileID: StaticString = #fileID, line: UInt = #line,
     _ body: () throws(Failure) -> Result
+) throws(Failure) -> Result {
+    guard let sink = BlockingTraceHook.recordingSink else {
+        return try checkedCPUIntensiveCall(size: size, limit: limit, fileID: fileID, line: line, body)
+    }
+    return try sink.interval(.cpuIntensive, fileID: fileID, line: line) { () throws(Failure) -> Result in
+        try checkedCPUIntensiveCall(size: size, limit: limit, fileID: fileID, line: line, body)
+    }
+}
+
+/// ``cpuIntensiveCall(size:limit:fileID:line:_:)`` without its trace interval: the detector's size gate, check and
+/// timing around `body` (Debug and bench-checks builds), or `body` alone (Release).
+@inlinable @inline(__always)
+func checkedCPUIntensiveCall<Result, Failure: Error>(
+    size: () -> Int, limit: Int, fileID: StaticString, line: UInt, _ body: () throws(Failure) -> Result
 ) throws(Failure) -> Result {
     #if DEBUG || CMUX_BLOCKING_CHECKS
     guard pthread_main_np() != 0, size() > limit else { return try body() }
@@ -131,7 +149,9 @@ extension PropertyListSerialization {
         fileID: StaticString = #fileID, line: UInt = #line
     ) throws -> Any {
         try cpuIntensiveCall(size: data.count, limit: BlockingKind.cpuIntensiveJSONBytes, fileID: fileID, line: line) {
-            try propertyList(from: data, options: options, format: format)
+            // SAFETY: forwards the caller's `format` pointer unchanged, only for the call; the caller's own `unsafe`
+            // states why it is valid for it.
+            try unsafe propertyList(from: data, options: options, format: format)
         }
     }
 }
@@ -211,6 +231,38 @@ public func blockingImageThumbnail(
     }
 }
 
+/// Encodes `image` in memory as `type` (`UTType.png.identifier`, JPEG, HEIC...), like a `CGImageDestination` over
+/// `NSMutableData` and its `CGImageDestinationFinalize`, as a checked CPU call gated like
+/// ``blockingImageDecode(_:at:fileID:line:)``: on the main thread, an image of more than
+/// ``BlockingKind/cpuIntensiveImagePixelBytes`` (width by height, 4 bytes a pixel) is a site. It writes no file, so
+/// it is CPU work for the `.cpu` lane, where a file seam (``blockingImageDestinationFinalize(_:fileID:line:)``)
+/// records a wrong-lane site. Chrome encodes in memory on its thread pool the same way
+/// (chrome/browser/ui/thumbnails/thumbnail_image.cc, `ThumbnailImage::CompressBitmap`).
+///
+/// ```swift
+/// let png = blockingImageEncode(frame, type: UTType.png.identifier as CFString)
+/// ```
+///
+/// - Parameters:
+///   - image: The image.
+///   - type: The uniform type identifier of the encoding.
+///   - fileID: The calling code's `#fileID` (names the call site).
+///   - line: The calling code's `#line`.
+/// - Returns: The encoded bytes, or nil when ImageIO cannot encode `image` as `type`.
+@inlinable
+public func blockingImageEncode(
+    _ image: CGImage, type: CFString, fileID: StaticString = #fileID, line: UInt = #line
+) -> Data? {
+    let output = NSMutableData()
+    guard let destination = CGImageDestinationCreateWithData(output as CFMutableData, type, 1, nil) else { return nil }
+    return cpuIntensiveCall(
+        size: image.width * image.height * 4, limit: BlockingKind.cpuIntensiveImagePixelBytes, fileID: fileID, line: line
+    ) { () -> Data? in
+        CGImageDestinationAddImage(destination, image, nil)
+        return CGImageDestinationFinalize(destination) ? output as Data : nil
+    }
+}
+
 extension Data {
     /// Compresses the bytes, like `NSData.compressed(using:)`, as a checked CPU call: on the main thread, more than
     /// ``BlockingKind/cpuIntensiveCompressionBytes`` bytes is a site.
@@ -265,7 +317,7 @@ extension Data {
     /// - Returns: The size in bytes.
     @usableFromInline
     static func decompressedBytes(compressed: Int, expected: Int?) -> Int {
-        if let expected { return max(compressed, expected) }
+        if let expected { return Swift.max(compressed, expected) }
         let estimate = compressed.multipliedReportingOverflow(by: BlockingKind.cpuIntensiveCompressionRatio)
         return estimate.overflow ? .max : estimate.partialValue
     }

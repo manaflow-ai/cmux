@@ -78,9 +78,43 @@ import Testing
         #expect(ran.last == "held")
     }
 
+    /// While frames run (another client keeps the link up), an automation post runs on the next
+    /// run loop turn, not on the next frame: a request waits for its reply, and Chrome runs the next
+    /// runnable task on the next pump iteration. Pending input holds it for a frame; visible work
+    /// still waits for the frame that shows it.
+    @Test func anAutomationPostWhileFramesRunRunsOnTheNextTurn() {
+        let clock = PostClock()
+        let input = PostFakeInput()
+        let turns = PostTurns()
+        let work = MainWorkScheduler.testing(budget: MainFrameBudget(input: input, uptimeNanos: clock.read),
+                                             performTurn: turns.perform) { _ in PostFakeLink() }
+        let keeper = LinkKeeper(on: work)
+        var ran: [String] = []
+        work.post(.visible, owner: "sidebar.rows") { ran.append("visible") }
+        work.post(.automation, owner: "cli.request") { ran.append("automation") }
+        #expect(ran.isEmpty, "a post never runs inline")
+        #expect(turns.runAll() == 1, "the automation post queued one turn")
+        #expect(ran == ["automation"], "the request waited for a display frame")
+        #expect(work.frames.frames == 0)
+
+        input.pending = true
+        work.post(.automation, owner: "cli.request") { ran.append("held") }
+        #expect(turns.runAll() == 1)
+        #expect(ran == ["automation"], "the turn ran a request ahead of the person's pending key")
+        input.pending = false
+        clock.advance(ms: 17)
+        work.frameDidFire(timestamp: 1, refreshInterval: 1.0 / 60)
+        #expect(ran == ["automation", "visible", "held"], "the frame runs the visible work and the held request")
+        keeper.stop()
+    }
+
     @Test func applyReturnsTheValue() async throws {
         let clock = PostClock()
-        let work = MainWorkScheduler.testing(budget: MainFrameBudget(uptimeNanos: clock.read)) { _ in PostFakeLink() }
+        // Turns never run here: both posts wait for the hand-fired frame.
+        let turns = PostTurns()
+        let work = MainWorkScheduler.testing(budget: MainFrameBudget(uptimeNanos: clock.read), performTurn: turns.perform) { _ in
+            PostFakeLink()
+        }
         let keeper = LinkKeeper(on: work)
         let value = Task { @MainActor in await work.apply(.visible, owner: "pages.title") { 42 } }
         let failure = Task { @MainActor in
@@ -144,6 +178,22 @@ private final class ReplySeen {
 
 private enum PostFailure: Error, Equatable {
     case refused
+}
+
+/// The scheduler's run loop turns, run only when the test says (``MainWorkScheduler/TurnPerformer``).
+@MainActor
+private final class PostTurns {
+    private var queued: [@MainActor () -> Void] = []
+
+    var perform: MainWorkScheduler.TurnPerformer { { [weak self] turn in self?.queued.append(turn) } }
+
+    /// Runs the turns queued now; returns how many ran.
+    func runAll() -> Int {
+        let turns = queued
+        queued.removeAll()
+        for turn in turns { turn() }
+        return turns.count
+    }
 }
 
 /// A frame-class client that keeps the scheduler's fake link up, so posts wait for hand-fired frames.

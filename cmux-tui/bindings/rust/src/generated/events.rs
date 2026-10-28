@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 5819519176d5752a978a367bdd398e2ab4431f89841efa45c8da605ce35ec617.
+// cmux-tui mux protocol 12, IR 8a9866283a47ec9e7be97f2560dca821030bc2dbfa05a573677c94e172d2b72d.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -24,6 +24,9 @@ pub struct AgentChangedEvent {
     /// The harness's own session id that the agent's hooks reported (\`claude\`, \`codex\` session ids), checked to \`\[A-Za-z0-9._:-\]\` and at most 256 bytes; null when no hook reported one or it isn't portable (a session-less adapter's local token). Hook reports keep \`session\` for a human label, so clients find a terminal's agent session by this.
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub agent_session_id: Optional<String>,
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub cause: Option<T::EventCause>,
     /// The terminal agent's last prompt (at most 200 characters), kept in daemon memory only: never journaled or persisted; null when none since the agent started or the daemon restarted.
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub last_prompt: Optional<String>,
@@ -60,6 +63,9 @@ pub struct AgentPresenceChangedEvent {
     pub activity: Nullable<T::AgentPresenceActivity>,
     /// Adapter identity (claude, codex, ...).
     pub agent: Nullable<String>,
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub cause: Option<T::EventCause>,
     /// The 1-based line the tool call targets, when the tool input names one.
     pub line: Nullable<u64>,
     /// The file the tool call targets, when the tool input names one.
@@ -76,6 +82,9 @@ pub struct AgentPresenceChangedEvent {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BellEvent {
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub cause: Option<T::EventCause>,
     pub surface: T::Id,
 }
 
@@ -84,6 +93,9 @@ pub struct BellEvent {
 pub struct BookmarksChangedEvent {
     pub bookmarks_revision: u64,
     pub browser_profile_id: String,
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub cause: Option<T::EventCause>,
 }
 
 #[rustfmt::skip]
@@ -127,6 +139,9 @@ pub enum ChiefChangedEventChange {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ChiefChangedEvent {
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub cause: Option<T::EventCause>,
     pub change: ChiefChangedEventChange,
     pub chief: String,
 }
@@ -143,6 +158,9 @@ pub enum ClientAttachedEventTransport {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ClientAttachedEvent {
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub cause: Option<T::EventCause>,
     pub client: u64,
     pub kind: Nullable<String>,
     pub name: Nullable<String>,
@@ -152,6 +170,9 @@ pub struct ClientAttachedEvent {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ClientChangedEvent {
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub cause: Option<T::EventCause>,
     pub client: u64,
     pub kind: Nullable<String>,
     pub name: Nullable<String>,
@@ -160,12 +181,18 @@ pub struct ClientChangedEvent {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ClientDetachedEvent {
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub cause: Option<T::EventCause>,
     pub client: u64,
 }
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct ClientListInvalidatedEvent {
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub cause: Option<T::EventCause>,
 }
 
 #[rustfmt::skip]
@@ -173,6 +200,9 @@ pub struct ClientListInvalidatedEvent {
 pub struct CloudConversationChangedEvent {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub account: Option<String>,
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub cause: Option<T::EventCause>,
     pub change: Nullable<T::JsonValue>,
     pub conversation: String,
     pub rev: u64,
@@ -185,6 +215,9 @@ pub struct CloudConversationChangedEvent {
 pub struct CloudConversationLiveEvent {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub account: Option<String>,
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub cause: Option<T::EventCause>,
     pub conversation: String,
     pub frame: Nullable<T::JsonValue>,
 }
@@ -194,6 +227,9 @@ pub struct CloudConversationLiveEvent {
 pub struct CloudConversationResyncedEvent {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub account: Option<String>,
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub cause: Option<T::EventCause>,
     pub conversation: String,
     pub messages: Nullable<T::JsonValue>,
     pub rev: u64,
@@ -206,6 +242,9 @@ pub struct CloudConversationResyncedEvent {
 pub struct CloudConversationRunChangedEvent {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub account: Option<String>,
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub cause: Option<T::EventCause>,
     pub conversation: String,
     pub run: Nullable<T::JsonValue>,
     pub steps: Vec<T::JsonValue>,
@@ -216,6 +255,9 @@ pub struct CloudConversationRunChangedEvent {
 pub struct CloudConversationTypingEvent {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub account: Option<String>,
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub cause: Option<T::EventCause>,
     pub conversation: String,
     pub on: bool,
     pub participant: String,
@@ -224,6 +266,9 @@ pub struct CloudConversationTypingEvent {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CloudHostReplicaNeededEvent {
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub cause: Option<T::EventCause>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub expires_at: Optional<u64>,
     pub reason: String,
@@ -234,6 +279,9 @@ pub struct CloudHostReplicaNeededEvent {
 pub struct CloudInboxChangedEvent {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub account: Option<String>,
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub cause: Option<T::EventCause>,
     pub entries: Nullable<T::JsonValue>,
     pub seq: u64,
     pub transaction: String,
@@ -244,6 +292,9 @@ pub struct CloudInboxChangedEvent {
 pub struct CloudInboxResetEvent {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub account: Option<String>,
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub cause: Option<T::EventCause>,
     pub seq: u64,
 }
 
@@ -252,6 +303,9 @@ pub struct CloudInboxResetEvent {
 pub struct CloudMuxResyncedEvent {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub account: Option<String>,
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub cause: Option<T::EventCause>,
     pub pending: Nullable<T::JsonValue>,
     pub seq: u64,
 }
@@ -261,6 +315,9 @@ pub struct CloudMuxResyncedEvent {
 pub struct CloudMuxWakeEvent {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub account: Option<String>,
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub cause: Option<T::EventCause>,
     pub seq: u64,
     pub wakes: Nullable<T::JsonValue>,
 }
@@ -268,6 +325,9 @@ pub struct CloudMuxWakeEvent {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CloudSessionNeededEvent {
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub cause: Option<T::EventCause>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub expires_at: Optional<u64>,
     pub reason: String,
@@ -278,6 +338,9 @@ pub struct CloudSessionNeededEvent {
 pub struct CloudSubscriptionStateEvent {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub account: Option<String>,
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub cause: Option<T::EventCause>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub conversation: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -310,11 +373,17 @@ pub struct ColorsChangedEvent {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct ConfigReloadRequestedEvent {
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub cause: Option<T::EventCause>,
 }
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ConversationChangedEvent {
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub cause: Option<T::EventCause>,
     pub change: Nullable<T::JsonValue>,
     pub conversation: String,
     pub rev: u64,
@@ -324,6 +393,9 @@ pub struct ConversationChangedEvent {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ConversationDraftEvent {
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub cause: Option<T::EventCause>,
     pub conversation: String,
     pub item: T::JsonValue,
     pub participant: String,
@@ -332,6 +404,9 @@ pub struct ConversationDraftEvent {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ConversationInboxChangedEvent {
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub cause: Option<T::EventCause>,
     pub conversation: String,
     pub marked_unread: bool,
     pub participant: String,
@@ -343,6 +418,9 @@ pub struct ConversationInboxChangedEvent {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ConversationLiveEvent {
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub cause: Option<T::EventCause>,
     pub conversation: String,
     pub frame: Nullable<T::JsonValue>,
 }
@@ -350,6 +428,9 @@ pub struct ConversationLiveEvent {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ConversationRunChangedEvent {
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub cause: Option<T::EventCause>,
     pub conversation: String,
     pub run: Nullable<T::JsonValue>,
     pub steps: Vec<T::JsonValue>,
@@ -358,6 +439,9 @@ pub struct ConversationRunChangedEvent {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ConversationTypingEvent {
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub cause: Option<T::EventCause>,
     pub conversation: String,
     pub on: bool,
     pub participant: String,
@@ -385,6 +469,9 @@ pub struct DetachedEvent {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct EmptyEvent {
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub cause: Option<T::EventCause>,
 }
 
 #[rustfmt::skip]
@@ -400,6 +487,9 @@ pub struct FrameEvent {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FrontendProjectionChangedEvent {
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub cause: Option<T::EventCause>,
     pub frontend: String,
     pub mutation_id: String,
     pub origin: String,
@@ -424,6 +514,9 @@ pub enum GraphicsStatusEventKind {
 pub struct GraphicsStatusEvent {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub attempts: Option<u16>,
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub cause: Option<T::EventCause>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub cell_height: Option<u16>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
@@ -442,8 +535,37 @@ pub struct GraphicsStatusEvent {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HistoryChangedEvent {
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub cause: Option<T::EventCause>,
     pub kinds: Vec<String>,
     pub revision: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum InputFailedEventReason {
+    #[serde(rename = "terminal_ended")]
+    TerminalEnded,
+    #[serde(rename = "not_a_terminal")]
+    NotATerminal,
+    #[serde(rename = "write_failed")]
+    WriteFailed,
+    #[serde(rename = "daemon_handoff")]
+    DaemonHandoff,
+    #[serde(rename = "overflow")]
+    Overflow,
+    #[serde(rename = "attach_failed")]
+    AttachFailed,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct InputFailedEvent {
+    pub bytes: u64,
+    pub reason: InputFailedEventReason,
+    /// The attach stream the INPUT frame named; the stream's tag, as on every item of an attach stream.
+    pub stream: u16,
 }
 
 #[rustfmt::skip]
@@ -468,6 +590,9 @@ pub enum KeybindingsChangedEventOrigin {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct KeybindingsChangedEvent {
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub cause: Option<T::EventCause>,
     pub origin: KeybindingsChangedEventOrigin,
     pub revision: u64,
 }
@@ -477,6 +602,9 @@ pub struct KeybindingsChangedEvent {
 pub struct LayoutChangedEvent {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub active_pane: Option<T::Id>,
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub cause: Option<T::EventCause>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub layout: Option<T::Layout>,
     pub screen: T::Id,
@@ -490,7 +618,38 @@ pub struct LayoutChangedEvent {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LoopbackClosedEvent {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    pub stream: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LoopbackCreditEvent {
+    pub bytes: u64,
+    pub stream: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LoopbackDataEvent {
+    pub data: String,
+    pub stream: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LoopbackEofEvent {
+    pub stream: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MachineUsageChangedEvent {
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub cause: Option<T::EventCause>,
     pub usage: Nullable<T::MachineUsage>,
 }
 
@@ -498,6 +657,9 @@ pub struct MachineUsageChangedEvent {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NotificationEvent {
     pub body: String,
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub cause: Option<T::EventCause>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub desktop: Option<bool>,
     pub level: T::NotificationLevel,
@@ -532,6 +694,9 @@ pub struct OverflowEvent {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PairingRequestedEvent {
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub cause: Option<T::EventCause>,
     pub code: String,
     pub expires_in: u64,
     pub peer: String,
@@ -541,6 +706,9 @@ pub struct PairingRequestedEvent {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PairingResolvedEvent {
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub cause: Option<T::EventCause>,
     pub request: u64,
 }
 
@@ -568,18 +736,27 @@ pub struct PaneClosedEvent {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ParticipantAvatarChangedEvent {
     pub avatar: Nullable<T::JsonValue>,
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub cause: Option<T::EventCause>,
     pub participant: String,
 }
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PersonalChangedEvent {
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub cause: Option<T::EventCause>,
     pub personal_revision: u64,
 }
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProgramStatusChangedEvent {
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub cause: Option<T::EventCause>,
     pub program_status: Nullable<T::ShownProgramStatus>,
     pub surface: T::Id,
 }
@@ -677,10 +854,66 @@ pub struct ScreenRenamedEvent {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ScriptLogEvent {
+    /// The console method that wrote the line (log, info, warn, error, debug).
+    pub level: String,
+    /// The line, its arguments joined as the console prints them.
+    pub message: String,
+    /// The id of the script-run that wrote the line; absent for a REPL session's line.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub request: Option<T::JsonValue>,
+    /// The REPL session (script-repl-open) whose cell wrote the line; absent for a script-run's line.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub session: Option<String>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ScrollChangedEvent {
     pub at_bottom: bool,
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub cause: Option<T::EventCause>,
     pub offset: u64,
     pub surface: T::Id,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ServerDiagnosticSiteEventFamily {
+    #[serde(rename = "blocking")]
+    Blocking,
+    #[serde(rename = "inversion")]
+    Inversion,
+    #[serde(rename = "hang")]
+    Hang,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerDiagnosticSiteEvent {
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub cause: Option<T::EventCause>,
+    /// Blocking and inversion: the crate of the call site without its version, or other. Never a path.
+    #[serde(rename = "crate", default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub crate_: Option<String>,
+    /// blocking: a blocking call where blocking is disallowed (or a work item's wait for other work); inversion: a wait on work of lower QoS; hang: a request method that ran past the 250 ms watchdog threshold, or a holder-link frame or a journal commit past its hang tier.
+    pub family: ServerDiagnosticSiteEventFamily,
+    /// Blocking and inversion: 16 hex digits, FNV-1a of the file's path from the crate folder on. Never a path.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub file_hash: Option<String>,
+    /// The blocking kind (cmux_threads BlockingKind names: fs, sleep, recv, priority-inversion, ...), or for a hang its scope: request, holder-link or journal-writer.
+    pub kind: String,
+    /// Blocking: a work item's wait for other work.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub lane_sync: Option<bool>,
+    /// Blocking and inversion: the call site's line.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub line: Option<u32>,
+    /// Hang: what ran: the request's command or v2 operation name (a colon written as a dot), the holder frame kind (data, exit, ...) or commit-batch.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub method: Option<String>,
 }
 
 #[rustfmt::skip]
@@ -705,6 +938,9 @@ pub enum SettingsChangedEventOrigin {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SettingsChangedEvent {
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub cause: Option<T::EventCause>,
     pub keys: Vec<String>,
     pub origin: SettingsChangedEventOrigin,
     pub revision: u64,
@@ -713,6 +949,9 @@ pub struct SettingsChangedEvent {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SizeStateEvent {
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub cause: Option<T::EventCause>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub self_participant: Option<String>,
     pub state: T::SizeState,
@@ -722,24 +961,56 @@ pub struct SizeStateEvent {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct StatusEvent {
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub cause: Option<T::EventCause>,
     pub message: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum StreamEndEventReason {
+    #[serde(rename = "canceled")]
+    Canceled,
+    #[serde(rename = "detached")]
+    Detached,
+    #[serde(rename = "overflow")]
+    Overflow,
+    #[serde(rename = "attach_failed")]
+    AttachFailed,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct StreamEndEvent {
+    pub reason: StreamEndEventReason,
+    pub stream: u16,
 }
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SurfaceExitedEvent {
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub cause: Option<T::EventCause>,
     pub surface: T::Id,
 }
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SurfaceOutputEvent {
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub cause: Option<T::EventCause>,
     pub surface: T::Id,
 }
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SurfaceResizeFailedEvent {
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub cause: Option<T::EventCause>,
     pub cols: u16,
     pub error: String,
     pub reservation_id: Nullable<u64>,
@@ -751,6 +1022,9 @@ pub struct SurfaceResizeFailedEvent {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SurfaceResizedEvent {
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub cause: Option<T::EventCause>,
     pub cols: u16,
     pub reservation_id: Nullable<u64>,
     pub rows: u16,
@@ -829,6 +1103,9 @@ pub struct TerminalInputUnclaimedEvent {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TerminalReapedEvent {
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub cause: Option<T::EventCause>,
     pub grace_ms: u64,
     pub terminal: Nullable<String>,
     pub terminal_id: String,
@@ -837,6 +1114,9 @@ pub struct TerminalReapedEvent {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TerminalRegistryChangedEvent {
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub cause: Option<T::EventCause>,
     pub generation: String,
     pub refetch: String,
     pub registry_id: String,
@@ -846,6 +1126,9 @@ pub struct TerminalRegistryChangedEvent {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TitleChangedEvent {
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub cause: Option<T::EventCause>,
     pub surface: T::Id,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
@@ -854,6 +1137,9 @@ pub struct TitleChangedEvent {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct TreeChangedEvent {
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub cause: Option<T::EventCause>,
 }
 
 #[rustfmt::skip]
@@ -882,6 +1168,9 @@ pub struct VtStateEvent {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct WindowTitleRequestedEvent {
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub cause: Option<T::EventCause>,
     pub title: String,
 }
 
@@ -1012,8 +1301,13 @@ pub enum Event {
     FrontendProjectionChanged(FrontendProjectionChangedEvent),
     GraphicsStatus(GraphicsStatusEvent),
     HistoryChanged(HistoryChangedEvent),
+    InputFailed(InputFailedEvent),
     KeybindingsChanged(KeybindingsChangedEvent),
     LayoutChanged(LayoutChangedEvent),
+    LoopbackClosed(LoopbackClosedEvent),
+    LoopbackCredit(LoopbackCreditEvent),
+    LoopbackData(LoopbackDataEvent),
+    LoopbackEof(LoopbackEofEvent),
     MachineUsageChanged(MachineUsageChangedEvent),
     Notification(NotificationEvent),
     Output(OutputEvent),
@@ -1032,10 +1326,13 @@ pub enum Event {
     ScreenChanged(ScreenChangedEvent),
     ScreenClosed(ScreenClosedEvent),
     ScreenRenamed(ScreenRenamedEvent),
+    ScriptLog(ScriptLogEvent),
     ScrollChanged(ScrollChangedEvent),
+    ServerDiagnosticSite(ServerDiagnosticSiteEvent),
     SettingsChanged(SettingsChangedEvent),
     SizeState(SizeStateEvent),
     Status(StatusEvent),
+    StreamEnd(StreamEndEvent),
     SurfaceExited(SurfaceExitedEvent),
     SurfaceOutput(SurfaceOutputEvent),
     SurfaceResizeFailed(SurfaceResizeFailedEvent),
@@ -1106,8 +1403,13 @@ impl Event {
             Self::FrontendProjectionChanged(_) => Some("frontend-projection-changed"),
             Self::GraphicsStatus(_) => Some("graphics-status"),
             Self::HistoryChanged(_) => Some("history-changed"),
+            Self::InputFailed(_) => Some("input-failed"),
             Self::KeybindingsChanged(_) => Some("keybindings-changed"),
             Self::LayoutChanged(_) => Some("layout-changed"),
+            Self::LoopbackClosed(_) => Some("loopback-closed"),
+            Self::LoopbackCredit(_) => Some("loopback-credit"),
+            Self::LoopbackData(_) => Some("loopback-data"),
+            Self::LoopbackEof(_) => Some("loopback-eof"),
             Self::MachineUsageChanged(_) => Some("machine-usage-changed"),
             Self::Notification(_) => Some("notification"),
             Self::Output(_) => Some("output"),
@@ -1126,10 +1428,13 @@ impl Event {
             Self::ScreenChanged(_) => Some("screen-changed"),
             Self::ScreenClosed(_) => Some("screen-closed"),
             Self::ScreenRenamed(_) => Some("screen-renamed"),
+            Self::ScriptLog(_) => Some("script-log"),
             Self::ScrollChanged(_) => Some("scroll-changed"),
+            Self::ServerDiagnosticSite(_) => Some("server-diagnostic-site"),
             Self::SettingsChanged(_) => Some("settings-changed"),
             Self::SizeState(_) => Some("size-state"),
             Self::Status(_) => Some("status"),
+            Self::StreamEnd(_) => Some("stream-end"),
             Self::SurfaceExited(_) => Some("surface-exited"),
             Self::SurfaceOutput(_) => Some("surface-output"),
             Self::SurfaceResizeFailed(_) => Some("surface-resize-failed"),
@@ -1199,8 +1504,13 @@ impl Event {
             Self::FrontendProjectionChanged(_) => Some(&FRONTEND_PROJECTION_CHANGED_EVENT_METADATA),
             Self::GraphicsStatus(_) => Some(&GRAPHICS_STATUS_EVENT_METADATA),
             Self::HistoryChanged(_) => Some(&HISTORY_CHANGED_EVENT_METADATA),
+            Self::InputFailed(_) => Some(&INPUT_FAILED_EVENT_METADATA),
             Self::KeybindingsChanged(_) => Some(&KEYBINDINGS_CHANGED_EVENT_METADATA),
             Self::LayoutChanged(_) => Some(&LAYOUT_CHANGED_EVENT_METADATA),
+            Self::LoopbackClosed(_) => Some(&LOOPBACK_CLOSED_EVENT_METADATA),
+            Self::LoopbackCredit(_) => Some(&LOOPBACK_CREDIT_EVENT_METADATA),
+            Self::LoopbackData(_) => Some(&LOOPBACK_DATA_EVENT_METADATA),
+            Self::LoopbackEof(_) => Some(&LOOPBACK_EOF_EVENT_METADATA),
             Self::MachineUsageChanged(_) => Some(&MACHINE_USAGE_CHANGED_EVENT_METADATA),
             Self::Notification(_) => Some(&NOTIFICATION_EVENT_METADATA),
             Self::Output(_) => Some(&OUTPUT_EVENT_METADATA),
@@ -1219,10 +1529,13 @@ impl Event {
             Self::ScreenChanged(_) => Some(&SCREEN_CHANGED_EVENT_METADATA),
             Self::ScreenClosed(_) => Some(&SCREEN_CLOSED_EVENT_METADATA),
             Self::ScreenRenamed(_) => Some(&SCREEN_RENAMED_EVENT_METADATA),
+            Self::ScriptLog(_) => Some(&SCRIPT_LOG_EVENT_METADATA),
             Self::ScrollChanged(_) => Some(&SCROLL_CHANGED_EVENT_METADATA),
+            Self::ServerDiagnosticSite(_) => Some(&SERVER_DIAGNOSTIC_SITE_EVENT_METADATA),
             Self::SettingsChanged(_) => Some(&SETTINGS_CHANGED_EVENT_METADATA),
             Self::SizeState(_) => Some(&SIZE_STATE_EVENT_METADATA),
             Self::Status(_) => Some(&STATUS_EVENT_METADATA),
+            Self::StreamEnd(_) => Some(&STREAM_END_EVENT_METADATA),
             Self::SurfaceExited(_) => Some(&SURFACE_EXITED_EVENT_METADATA),
             Self::SurfaceOutput(_) => Some(&SURFACE_OUTPUT_EVENT_METADATA),
             Self::SurfaceResizeFailed(_) => Some(&SURFACE_RESIZE_FAILED_EVENT_METADATA),
@@ -1575,6 +1888,14 @@ pub fn decode_event(raw: Value) -> Event {
                 decode_error: Some(error.to_string()),
             }),
         },
+        Some("input-failed") => match serde_json::from_value::<InputFailedEvent>(raw.clone()) {
+            Ok(event) => Event::InputFailed(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
         Some("keybindings-changed") => match serde_json::from_value::<KeybindingsChangedEvent>(raw.clone()) {
             Ok(event) => Event::KeybindingsChanged(event),
             Err(error) => Event::Unknown(UnknownEvent {
@@ -1585,6 +1906,38 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("layout-changed") => match serde_json::from_value::<LayoutChangedEvent>(raw.clone()) {
             Ok(event) => Event::LayoutChanged(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("loopback-closed") => match serde_json::from_value::<LoopbackClosedEvent>(raw.clone()) {
+            Ok(event) => Event::LoopbackClosed(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("loopback-credit") => match serde_json::from_value::<LoopbackCreditEvent>(raw.clone()) {
+            Ok(event) => Event::LoopbackCredit(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("loopback-data") => match serde_json::from_value::<LoopbackDataEvent>(raw.clone()) {
+            Ok(event) => Event::LoopbackData(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("loopback-eof") => match serde_json::from_value::<LoopbackEofEvent>(raw.clone()) {
+            Ok(event) => Event::LoopbackEof(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,
@@ -1735,8 +2088,24 @@ pub fn decode_event(raw: Value) -> Event {
                 decode_error: Some(error.to_string()),
             }),
         },
+        Some("script-log") => match serde_json::from_value::<ScriptLogEvent>(raw.clone()) {
+            Ok(event) => Event::ScriptLog(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
         Some("scroll-changed") => match serde_json::from_value::<ScrollChangedEvent>(raw.clone()) {
             Ok(event) => Event::ScrollChanged(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("server-diagnostic-site") => match serde_json::from_value::<ServerDiagnosticSiteEvent>(raw.clone()) {
+            Ok(event) => Event::ServerDiagnosticSite(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,
@@ -1761,6 +2130,14 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("status") => match serde_json::from_value::<StatusEvent>(raw.clone()) {
             Ok(event) => Event::Status(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("stream-end") => match serde_json::from_value::<StreamEndEvent>(raw.clone()) {
+            Ok(event) => Event::StreamEnd(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,

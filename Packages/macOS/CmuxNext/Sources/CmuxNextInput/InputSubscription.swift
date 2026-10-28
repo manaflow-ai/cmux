@@ -22,9 +22,19 @@ extension InputEventTap {
         case intercept(order: InterceptOrder)
     }
 
-    /// The three delivery stages of one event, in order: observers, intercepts, after-dispatch observers.
+    /// The delivery stages of one event, in order: observers, intercepts, after-dispatch observers,
+    /// and the end of its dispatch (``InputEventTap/observeDispatchEnd(_:_:)``).
     public enum Stage: Sendable, Equatable {
-        case observe, intercept, afterDispatch
+        case observe, intercept, afterDispatch, dispatchEnd
+    }
+
+    /// How an event's dispatch ended, for ``InputEventTap/observeDispatchEnd(_:_:)``.
+    public enum DispatchOutcome: Sendable, Equatable {
+        /// AppKit dispatched it to its window (`super.sendEvent`).
+        case delivered
+        /// cmux consumed it first (the key router, the find pill, the cross-window key guard or an
+        /// intercept): no window got it.
+        case consumed
     }
 
     /// Where an intercept runs among the others: lower first, equal orders in subscription order.
@@ -38,7 +48,7 @@ extension InputEventTap {
     /// | ``popup`` | popups, menus and hover cards that close on Escape or an outside click: `NativePopupHost`'s Escape in its panel (keys only) and `HoverCardCoordinator`'s wheel scroll on the card (scrolls only): they share no class, so their mutual order does not matter |
     /// | ``dragSession`` | a tab, link, pane or screen drag in progress (Escape and mouse-up end it) |
     /// | ``layout`` | the layout's scroll, magnify and button routing |
-    /// | ``standard`` | everything else |
+    /// | ``standard`` | everything else, such as the sidebar's space paging (`SidebarSwipeFeed`), which passes every scroll but hears none an order above consumed |
     ///
     /// Owners that only watch (a tooltip put away by a click, a popup closed by a click outside it, a
     /// hover card ended by a key or a click, the overlay panel's mouse routing) are observers, not

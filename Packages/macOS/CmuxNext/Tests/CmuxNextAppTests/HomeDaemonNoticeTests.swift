@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextWakeups
 @testable import CmuxNextHomeEngine
 import Testing
 
@@ -12,7 +13,8 @@ import Testing
 @MainActor
 struct HomeDaemonNoticeTests {
     @Test func noTooOldNoticeWhileTheOwnerIsStillConnecting() async {
-        let (services, view) = Self.home()
+        let (services, view, window) = Self.home()
+        defer { window.orderOut(nil) }
         await Self.settle()
         // Read outside `#expect`: it would reflect the view and the whole AppServices graph.
         let shownWhileConnecting = Self.showsUnavailable(view)
@@ -27,7 +29,8 @@ struct HomeDaemonNoticeTests {
     }
 
     @Test func theNoticeShowsOnceTheOwnerIsRefusedAsTooOld() async {
-        let (services, view) = Self.home()
+        let (services, view, window) = Self.home()
+        defer { window.orderOut(nil) }
         services.home.chief.noteFailure(.missingCapabilities([DaemonCapability.localConversations.rawValue]))
         let refused = services.home.isRefused
         #expect(refused, "a missing-capabilities refusal was not kept")
@@ -41,7 +44,8 @@ struct HomeDaemonNoticeTests {
     }
 
     @Test func aSuccessfulHandshakeAfterARefusalTakesTheNoticeDown() async {
-        let (services, view) = Self.home()
+        let (services, view, window) = Self.home()
+        defer { window.orderOut(nil) }
         services.home.chief.noteFailure(.missingCapabilities([DaemonCapability.localConversations.rawValue]))
         let shownOnRefusal = await Self.wait { Self.showsUnavailable(view) }
         #expect(shownOnRefusal, "the too-old notice never showed after a refusal: \(Self.labels(view))")
@@ -55,25 +59,34 @@ struct HomeDaemonNoticeTests {
 
     // MARK: Fixtures
 
-    static func home() -> (AppServices, HomeHostView) {
+    /// A Home in a window whose visibility reads visible: a Home that is not shown reads nothing
+    /// (p06-scheduler-308), so its notice follows the owner only on screen.
+    static func home() -> (AppServices, HomeHostView, NSWindow) {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
         let view = HomeHostView(services: services, conversation: "conv_local")
         view.frame = NSRect(x: 0, y: 0, width: 600, height: 700)
-        return (services, view)
+        let window = NSWindow(contentRect: view.frame, styleMask: [.borderless], backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        _ = WindowVisibilitySource.of(window, read: { _ in .visible })
+        window.contentView?.addSubview(view)
+        return (services, view, window)
     }
 
-    /// Lets the view's availability stream apply the newest state (test-only: nothing to wait on
-    /// when the expected state is that nothing changes).
+    /// Lets the view's availability observation apply the newest state: its flush is posted main work,
+    /// which runs on a main run loop pass (test-only: nothing to wait on when the expected state is
+    /// that nothing changes).
     static func settle() async {
-        for _ in 0..<10 { await Task.yield() }
+        await drainMainTurns()
         try? await Task.sleep(for: .milliseconds(200))
+        await drainMainTurns()
     }
 
     /// Waits up to five seconds for `done` (test-only), and says whether it came true.
     static func wait(until done: () -> Bool) async -> Bool {
         let deadline = ContinuousClock.now + .seconds(5)
         while !done(), ContinuousClock.now < deadline {
+            await drainMainTurns(rounds: 1)
             try? await Task.sleep(for: .milliseconds(20))
         }
         return done()

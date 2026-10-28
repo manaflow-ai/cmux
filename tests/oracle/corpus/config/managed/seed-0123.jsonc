@@ -1,0 +1,16 @@
+{
+  "file": "{\n  \"ui\": {\n    \"animations\": {\n      \"cursor\": 1\n    }\n  },\n  \"sidebar\": {\n    \"workspaceRow\": {\n      \"agent\": {\n        \"working\": false\n      }\n    }\n  }\n}\n",
+  "forced": {
+    "tabs.commandDigits": 1
+  },
+  "recommended": {},
+  "team": {
+    "name": "Oracle Team",
+    "defaults": {
+      "browser.enabled": null
+    },
+    "enforced": {
+      "browser.enabled": false
+    }
+  }
+}

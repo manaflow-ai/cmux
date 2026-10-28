@@ -1,6 +1,7 @@
 import CmuxNextDaemon
 import CmuxNextSidebar
 import CmuxNextDesign
+import CmuxNextWakeups
 
 /// When a personal workspace group ends (cx-rcby). The home daemon keeps a
 /// group until a client deletes it, so the client that moves workspaces
@@ -61,6 +62,21 @@ nonisolated enum PersonalGroupLifecycle {
 @MainActor
 struct PersonalGroupLife {
     let machines: MachineRegistry
+    /// Where a command's replies are awaited, off the main actor.
+    let work: BackgroundWork
+    /// Where each step after a reply runs (`visible`: the sidebar shows it).
+    let mainWork: MainWorkScheduler
+
+    init(machines: MachineRegistry, work: BackgroundWork, mainWork: MainWorkScheduler) {
+        self.machines = machines
+        self.work = work
+        self.mainWork = mainWork
+    }
+
+    /// The rule for `services`' machines, on its schedulers.
+    init(services: AppServices) {
+        self.init(machines: services.machines, work: services.work, mainWork: services.mainWork)
+    }
 
     private var personal: PersonalStore { machines.local.store.personal }
     private var groups: [PersonalGroupLifecycle.Group] {
@@ -113,29 +129,57 @@ struct PersonalGroupLife {
                                  failed: @escaping @MainActor () -> Void, applied: (@MainActor () -> Void)? = nil,
                                  landed: @escaping @MainActor (Value) -> Void = { _ in },
                                  _ body: @escaping @Sendable (isolated DaemonConnection) async throws -> Value) {
-        let home = machines.local, personal = personal, v2 = home.store.servesStateResources
+        let home = machines.local, personal = personal, v2 = home.store.servesStateResources, mainWork = mainWork
         let transaction = ClientTransactionID.generate()
         personal.endingGroups.formUnion(ending)
-        Task {
-            // Shown again before a failure re-syncs, so a kept group never stays hidden.
-            @MainActor func end() { personal.endingGroups.subtract(ending) }
-            guard let value = await home.request(label, transaction: transaction, { connection, _ in try await body(connection) }) else {
+        // Shown again before a failure re-syncs, so a kept group never stays hidden.
+        let end = { personal.endingGroups.subtract(ending) }
+        // The main-actor steps after each reply; the doomed groups are read from the latest personal state.
+        let steps = Steps<Value>(replied: { value in
+            guard let value else {
                 end()
-                return failed()
+                failed()
+                return []
             }
             landed(value)
             if let applied { home.whenApplied(transaction, applied) }
             let still = Set(recheck())
             let doomed = ending.filter(still.contains)
-            guard !doomed.isEmpty else { return end() }
-            let deleted = await home.request("delete-personal-group") { connection in
-                for group in doomed {
-                    if v2 { try await connection.state.deleteWorkspaceGroup(group.rawValue) } else { try await connection.deletePersonalGroup(group) }
-                }
-            }
+            if doomed.isEmpty { end() }
+            return doomed
+        }, deleted: { ok in
             end()
-            if deleted == nil { failed() }
+            if !ok { failed() }
+        })
+        // The person's organization command: the replies are awaited off main, each step after one is a visible task.
+        // Both run in the caller's action scopes, so its run waits for them and a retry replays them.
+        let scopes = ActionScopes.current
+        work.task(.userVisible) {
+            await scopes.awaiting {
+                let value = await home.request(label, transaction: transaction, { connection, _ in try await body(connection) })
+                let doomed = await mainWork.apply(.visible, owner: "PersonalGroupLife.landed") { scopes.applying { steps.replied(value) } }
+                guard !doomed.isEmpty else { return }
+                let deleted = await home.request("delete-personal-group") { connection in
+                    for group in doomed {
+                        if v2 { try await connection.state.deleteWorkspaceGroup(group.rawValue) } else { try await connection.deletePersonalGroup(group) }
+                    }
+                }
+                mainWork.postFromAnyThread(.visible, owner: "PersonalGroupLife.deleted") { scopes.applying { steps.deleted(deleted != nil) } }
+            }
         }
+    }
+
+    /// One commit's main-actor steps, carried through its off-main task (a main-actor class is Sendable).
+    @MainActor private final class Steps<Value: Sendable> {
+        let replied: @MainActor (Value?) -> [WorkspaceGroupID]
+        let deleted: @MainActor (Bool) -> Void
+
+        init(replied: @escaping @MainActor (Value?) -> [WorkspaceGroupID], deleted: @escaping @MainActor (Bool) -> Void) {
+            self.replied = replied
+            self.deleted = deleted
+        }
+
+        nonisolated deinit {} // generic main-actor class: an isolated deinit crashes the -O build (#23050)
     }
 
     /// Deletes `group` when it is still an unpinned group with no live member.

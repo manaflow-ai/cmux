@@ -5,8 +5,8 @@ import CmuxNextWakeups
 import CmuxNextWakeupsTestSupport
 import Testing
 
-/// The control socket starts at `LaunchSettle.settled(within:images:)` (cx-z9kz0) until p08-startup
-/// task 019 binds it off main: after the first terminal frame (at once when the daemon is
+/// Without the feature `controlSocketEarlyBind`, the control socket starts at
+/// `LaunchSettle.settled(within:images:)` (cx-z9kz0): after the first terminal frame (at once when the daemon is
 /// unavailable) and the launch images, at most 4 s; never at the startup scheduler's 10 s failsafe.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(1))) struct LaunchSettleControlStartTests {
     @Test func anUnavailableDaemonStartsTheControlSocketWithoutWaitingForStartup() async {
@@ -59,7 +59,7 @@ private final class SettleFixture {
     init() {
         let scheduler = StartupTestScheduler(), clock = ManualClock()
         images = LaunchImageHold(startup: scheduler.startup)
-        settle = LaunchSettle(reveal: LaunchReveal(deadline: .seconds(60)), paneRefs: VisiblePaneRefs(hold: { _ in { _ in } }), clock: clock)
+        settle = LaunchSettle(reveal: LaunchReveal(deadline: .seconds(60)), paneRefs: VisiblePaneRefs(hold: { _ in { _ in } }, mainWork: MainWorkScheduler(budget: MainFrameBudget())), clock: clock)
         self.scheduler = scheduler
         self.clock = clock
     }

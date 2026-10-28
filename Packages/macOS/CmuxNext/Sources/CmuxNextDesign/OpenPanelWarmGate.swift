@@ -48,7 +48,8 @@ struct OpenPanelWarmGate: Sendable {
 /// app started over SSH, as every fleet bench is), even when its account is on the console.
 private func thisAccountIsConsoleUser() -> Bool {
     var uid: uid_t = 0
-    guard let name = SCDynamicStoreCopyConsoleUser(nil, &uid, nil) as String?, name != "loginwindow" else { return false }
+    // SAFETY: the call writes the console user's uid into the local `uid`, live for the call.
+    guard let name = unsafe SCDynamicStoreCopyConsoleUser(nil, &uid, nil) as String?, name != "loginwindow" else { return false }
     return uid == getuid()
 }
 

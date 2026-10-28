@@ -22,6 +22,14 @@
 #                    stay incremental (build-<sanitizer> for sanitized runs,
 #                    build-shared/<package> for the shared packages).
 #
+# Before each SwiftPM build of the tier (not --update-resolved or --shared),
+# compile-xcstrings.py writes the string tables the Linux mode takes from every
+# target with a catalog (LinuxStringTables, p15-oracle-228) into the source
+# copy, for the targets the Linux-mode dump-package names. Without them SwiftPM
+# stops on the missing folder before it compiles any Swift. The copy's tables
+# and links are kept between runs, so the script rewrites only changed tables;
+# the checkout's own (from a manual run) are not copied.
+#
 # Every tier command gets --only-use-versions-from-resolved-file, so a
 # manifest change that needs new pins fails instead of resolving silently.
 # A package pinned in both files must have the same revision in both, so the
@@ -273,7 +281,7 @@ sync_src() {
       >"$list"
   rsync -a "${link_flags[@]}" --files-from="$list" "$repo_root/" "$src/"
   # Files that left the worktree since the last run leave the copy too.
-  (cd "$src" && find . \( -name .build-linux -o -name .build -o -name .swiftpm \) -prune -o \( -type f -o -type l \) -print) \
+  (cd "$src" && find . \( -name .build-linux -o -name .build -o -name .swiftpm -o -name LinuxStringTables \) -prune -o \( -type f -o -type l \) -print) \
     | sed 's|^\./||' | LC_ALL=C sort | LC_ALL=C comm -13 "$list" - \
     | while IFS= read -r stale; do rm -f -- "$src/$stale"; done
   local gen
@@ -281,7 +289,8 @@ sync_src() {
     if [[ -d "$repo_root/$gen" ]]; then
       mkdir -p "$src/$gen"
       mapfile -t link_flags < <(link_dest "$repo_root/$gen/")
-      rsync -a --delete "${link_flags[@]}" "$repo_root/$gen/" "$src/$gen/"
+      # lproj/ is the copy's own compile-xcstrings.py output: kept, never copied.
+      rsync -a --delete --exclude=/lproj/ "${link_flags[@]}" "$repo_root/$gen/" "$src/$gen/"
     fi
   done
   local resolved
@@ -309,6 +318,11 @@ stage_linux_resolved() {
   fi
 }
 checkout_unchanged() { [[ "$(resolved_digest)" == "$checkout_resolved_before" ]]; }
+# compile_string_tables DUMP LOG: the Linux mode's string tables into the copy.
+compile_string_tables() {
+  python3 -I "$repo_root/scripts/cmux-next/linux/compile-xcstrings.py" \
+    --package "$package_path" --manifest "$1" >"$2" 2>&1
+}
 
 # SwiftPM caches the evaluated manifest by its text, not by the files it reads
 # (the Linux mode reads linux-tier.json): note NOTE in a private copy of the
@@ -343,6 +357,11 @@ fi
 
 if [[ "$mode" == run ]]; then
   stage_linux_resolved
+  manifest_dump="$build/cmux-linux-manifest.json"
+  "$swift_bin" package --package-path "$package_path" --scratch-path "$build" \
+    dump-package >"$manifest_dump"
+  compile_string_tables "$manifest_dump" "$build/cmux-linux-string-tables.log" \
+    || { echo "error: compile-xcstrings.py failed (log: $build/cmux-linux-string-tables.log)" >&2; exit 1; }
   status=0
   # swift package takes these options before its subcommand; build, test and
   # run take them anywhere.
@@ -505,6 +524,11 @@ if ((rc)); then
   record dump-package setup fail "$rc" 0 "$out/logs/dump.log"
   finish
 fi
+t0="$EPOCHREALTIME"
+rc=0
+compile_string_tables "$out/dump.json" "$out/logs/string-tables.log" || rc=$?
+record string-tables setup "$(status_of "$rc")" "$rc" "$(since "$t0")" "$out/logs/string-tables.log"
+((rc == 0)) || finish
 
 tier_args=()
 [[ -f "$tier_json" ]] && tier_args=(--tier "$tier_json")

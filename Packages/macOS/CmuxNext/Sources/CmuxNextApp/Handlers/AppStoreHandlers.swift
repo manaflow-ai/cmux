@@ -30,15 +30,14 @@ enum AppStoreHandlers {
                 guard apps.client.app(appID)?.installed == true else {
                     throw ActionFailure(message: RefusalStrings.text("refusal.app.unknown", "No installed app with that id."))
                 }
-                let origin = AppOrigin(rawValue: invocation.origin.rawValue) ?? .script
-                registry.track(Task { @MainActor in
-                    do throws(AppsClientError) {
-                        try await apps.client.set(appID, .hide(hidden), origin: origin)
-                        return nil
-                    } catch {
-                        return ActionWorkFailure(error.description)
-                    }
-                })
+                let origin = AppOrigin(rawValue: invocation.origin.rawValue) ?? .script, client = apps.client
+                // The supervisor's answer is awaited off the action's turn; its refusal is one task of the run's completion.
+                registry.trackWork(owner: "AppStoreHandlers.setHidden", on: services.mainWork) {
+                    try await client.set(appID, .hide(hidden), origin: origin)
+                } then: { result in
+                    guard case .failure(let error) = result else { return nil }
+                    return ActionWorkFailure((error as? AppsClientError)?.description ?? String(describing: error))
+                }
             })
         }
         // First-party app pages: `app.open` (sidebar label item, palette, CLI
@@ -58,11 +57,11 @@ enum AppStoreHandlers {
             if let work { registry.track(work) }
         })
         // The root palette lists "Open <App>" and the commands of visible apps.
-        services.palette.sources.extraProviders.append(AsyncPaletteProvider(id: "apps", showsItemsForEmptyQuery: false) { [weak services] in
+        services.palettes.sources.extraProviders.append(AsyncPaletteProvider(id: "apps", showsItemsForEmptyQuery: false) { [weak services] in
             guard let services, !services.registry.disabledFeatures.contains(.apps) else { return [] }
             return AppCommandPalette.rootItems(services)
         })
-        services.palette.sources.actionPages["app.command.run"] = { [weak services] in services.map(AppCommandPalette.page) }
+        services.palettes.sources.actionPages["app.command.run"] = { [weak services] in services.map(AppCommandPalette.page) }
         registry.bind("app.command.run", run: { invocation in
             let appID = invocation["app"]?.stringValue ?? ""
             let commandID = invocation["command"]?.stringValue ?? ""

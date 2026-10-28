@@ -355,8 +355,11 @@ impl HostReplica {
             return Ok(());
         }
         let inner = self.inner.clone();
-        *driver =
-            Some(std::thread::Builder::new().name("mux-host-replica".into()).spawn(move || {
+        // Publishing the cloud's read copy: background sync no request waits on.
+        *driver = Some(cmux_threads::spawn(
+            "mux-host-replica",
+            cmux_threads::ThreadQos::Utility,
+            move || {
                 Driver {
                     inner,
                     source,
@@ -368,7 +371,8 @@ impl HostReplica {
                     chief_last: None,
                 }
                 .run();
-            })?);
+            },
+        )?);
         self.inner.lock().running = true;
         Ok(())
     }

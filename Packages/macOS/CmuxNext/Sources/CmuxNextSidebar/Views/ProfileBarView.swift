@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextInput
 
 /// The space switcher at the bottom of the sidebar or under its titlebar row
 /// (`sidebar.spacesPosition`, R109). Each profile keeps its name, optional
@@ -24,10 +25,16 @@ final class ProfileBarView: NSView {
     var pressPoint: NSPoint?
     /// The space dot being dragged (`ProfileBarView+DotDrag`); nil otherwise.
     var dotDrag: ProfileBarDotDrag?
-    private var swipeTracker = ProfileSwipeTracker()
-    private var wheel = SpaceWheelPager()
-    private var paging = false
     static let plusIndex = -1
+    /// The bar's hover moves (`ProfileBarView+Hover`).
+    private(set) lazy var frameInputHover = PointerFrameHover(owner: "ProfileBarView.hover", view: self) { [weak self] point in
+        self?.hover(atWindowPoint: point)
+    }
+    /// A pressed dot's drag (`ProfileBarView+DotDrag`), once per frame on the window's drag frames.
+    private(set) lazy var dotMoves = PointerFrameDrag(owner: "ProfileBarView.dotDrag", view: self) { [weak self] point in
+        guard let self else { return }
+        dragDot(to: convert(point, from: nil))
+    }
 
     /// The current space's chip; it slides on a switch.
     let indicator = ProfileBarLayerView()
@@ -35,13 +42,28 @@ final class ProfileBarView: NSView {
     let marks = ProfileBarLayerView()
 
     /// Called once for a qualifying horizontal trackpad swipe over the bar.
-    var onHorizontalSwipe: ((Int) -> Void)?
+    var onHorizontalSwipe: ((Int) -> Void)? {
+        get { swipes.onHorizontalSwipe }
+        set { swipes.onHorizontalSwipe = newValue }
+    }
     /// A horizontal trackpad gesture over the bar, 1:1 like over the list
     /// (`SidebarScrollView.onHorizontalScroll`). When set, it replaces the
     /// one-step swipe.
-    var onHorizontalScroll: ((ProfileSwipeTracker.Phase, CGFloat, TimeInterval) -> Void)?
+    var onHorizontalScroll: ((ProfileSwipeTracker.Phase, CGFloat, TimeInterval) -> Void)? {
+        get { swipes.onHorizontalScroll }
+        set { swipes.onHorizontalScroll = newValue }
+    }
     /// A mouse wheel notch over the bar, either axis: -1 or +1.
-    var onWheelPage: ((Int) -> Void)?
+    var onWheelPage: ((Int) -> Void)? {
+        get { swipes.onWheelPage }
+        set { swipes.onWheelPage = newValue }
+    }
+    /// The app's one input tap (the sidebar passes the App's on): the paging hears this window's scrolls there.
+    var inputTap: InputEventTap? {
+        didSet { if inputTap !== oldValue { swipes.follow(tap: inputTap, window: window) } }
+    }
+    /// The bar's trackpad and wheel paging, fed by the input tap (`SidebarSwipeFeed`).
+    private(set) lazy var swipes = SidebarSwipeFeed(view: self, pagesVertically: true)
 
     init(model: SidebarModel) {
         self.model = model
@@ -57,6 +79,7 @@ final class ProfileBarView: NSView {
         marks.autoresizingMask = [.width, .height]
         addSubview(indicator)
         addSubview(marks)
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect], owner: self))
     }
 
     @available(*, unavailable)
@@ -112,7 +135,7 @@ final class ProfileBarView: NSView {
         return (strip.slots + [strip.plus]).map { NSRect(x: $0.x, y: 0, width: $0.width, height: bounds.height) }
     }
 
-    private func index(at point: NSPoint) -> Int? {
+    func index(at point: NSPoint) -> Int? {
         let rects = slotRects()
         guard let hit = rects.firstIndex(where: { $0.contains(point) }) else { return nil }
         guard hit == model.profiles.count else { return hit }
@@ -226,6 +249,7 @@ final class ProfileBarView: NSView {
         if model.activeProfileID != shownActive {
             shownActive = model.activeProfileID
             if switched, let layer = marks.layer, let old = layer.contents {
+                // sync-layout: the crossfade below reads the marks' new contents.
                 marks.display()
                 if let new = layer.contents { _ = Motion.sidebar.set(layer, "contents", to: new, fade: .crossfade, from: old) }
             }
@@ -249,16 +273,14 @@ final class ProfileBarView: NSView {
 
     // MARK: Mouse
 
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        for area in trackingAreas where area.owner === self { removeTrackingArea(area) }
-        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
+    // Enter and exit are discrete: the pending moves land first (Chromium's `ShouldFlushQueue`).
+    override func mouseEntered(with event: NSEvent) {
+        frameInputHover.flush()
+        isPointerInside = true
     }
 
-    override func mouseMoved(with event: NSEvent) { setHovered(index(at: convert(event.locationInWindow, from: nil))) }
-    override func mouseEntered(with event: NSEvent) { isPointerInside = true }
-
     override func mouseExited(with event: NSEvent) {
+        frameInputHover.flush()
         setHovered(nil)
         isPointerInside = false
     }
@@ -291,6 +313,8 @@ final class ProfileBarView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        frameInputHover.flush() // the frame's pending hover lands before the press
+        dotMoves.began()
         let point = convert(event.locationInWindow, from: nil)
         pressPoint = point
         setPressed(index(at: point))
@@ -298,10 +322,11 @@ final class ProfileBarView: NSView {
 
     /// A press on a space that moves drags its dot to reorder the spaces (`ProfileBarView+DotDrag`).
     override func mouseDragged(with event: NSEvent) {
-        dragDot(to: convert(event.locationInWindow, from: nil))
+        dotMoves.dragged(event)
     }
 
     override func mouseUp(with event: NSEvent) {
+        dotMoves.ended() // the frame's pending dot position lands before the drop
         defer {
             pressed = nil
             pressPoint = nil
@@ -315,38 +340,17 @@ final class ProfileBarView: NSView {
 
     /// The bar is the pager's dots: a trackpad pages over it like over the
     /// list, and a mouse wheel pages on either axis (nothing here scrolls).
+    /// The paging hears the input tap (`SidebarSwipeFeed`); an event it took
+    /// goes no further.
+    // local-monitor-allow: the tap feeds the paging; this override only keeps a paged event from going further, as the responder AppKit routes it to
     override func scrollWheel(with event: NSEvent) {
-        guard event.hasPreciseScrollingDeltas, let phase = Self.phase(of: event) else {
-            if let onWheelPage, !event.hasPreciseScrollingDeltas {
-                switch wheel.feed(deltaX: event.scrollingDeltaX, deltaY: event.scrollingDeltaY, time: event.timestamp, pagesVertically: true) {
-                case .pass, .hold: return
-                case .page(let step): return onWheelPage(step)
-                }
-            }
-            super.scrollWheel(with: event)
-            return
-        }
-        let step = swipeTracker.feed(deltaX: Double(event.scrollingDeltaX), deltaY: Double(event.scrollingDeltaY), phase: phase)
-        if let onHorizontalScroll {
-            if phase == .ended || phase == .momentum {
-                if paging, phase == .ended { onHorizontalScroll(.ended, 0, event.timestamp) }
-                paging = false
-            } else if swipeTracker.isHorizontal {
-                onHorizontalScroll(paging ? .changed : .began, event.scrollingDeltaX, event.timestamp)
-                paging = true
-            }
-        } else if let step {
-            onHorizontalSwipe?(step)
-        }
-        if !swipeTracker.isHorizontal { super.scrollWheel(with: event) }
+        if swipes.takes(event) { return }
+        super.scrollWheel(with: event)
     }
 
-    private static func phase(of event: NSEvent) -> ProfileSwipeTracker.Phase? {
-        if !event.momentumPhase.isEmpty { return .momentum }
-        if event.phase.contains(.began) { return .began }
-        if event.phase.contains(.changed) { return .changed }
-        if event.phase.contains(.ended) || event.phase.contains(.cancelled) { return .ended }
-        return nil
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        swipes.follow(tap: inputTap, window: window)
     }
 
     private func activate(_ index: Int) {

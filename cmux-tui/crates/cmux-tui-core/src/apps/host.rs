@@ -2,6 +2,7 @@
 //! [`FromHost`] lines on a reader thread that blocks on the socket, and
 //! report the exit once the socket closes and the child is reaped.
 
+use cmux_threads::checked::sync as waits;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::os::fd::AsFd;
 use std::os::unix::net::UnixStream;
@@ -93,6 +94,7 @@ impl HostProcess {
             // Only fd 3 beyond the null stdio, on Linux too.
             .isolate()
             .inherit_fd(theirs.as_fd(), 3)?;
+        crate::request_path::note(crate::request_path::BlockingKind::ProcessSpawn);
         let mut child = command.spawn()?;
         drop(theirs);
         let pid = child.id();
@@ -157,7 +159,7 @@ impl HostProcess {
 }
 
 fn write_loop(mut socket: UnixStream, outgoing: Receiver<Outgoing>) {
-    while let Ok(item) = outgoing.recv() {
+    while let Ok(item) = waits::recv(&outgoing) {
         match item {
             Outgoing::Line(line) => {
                 if socket.write_all(&line).is_err() {

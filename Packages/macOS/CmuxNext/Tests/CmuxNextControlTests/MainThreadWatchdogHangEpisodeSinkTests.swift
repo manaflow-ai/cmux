@@ -17,9 +17,9 @@ struct MainThreadWatchdogHangEpisodeSinkTests {
         watchdog.onHangEpisode = { episodes.add($0) }
         watchdog.onHang = { hangs.add(.blocked($0, previous: nil)) }
         var state = MainThreadWatchdog.HangState(episodes: HangEpisodeTracker(hangNanos: 2 * Self.second))
-        watchdog.reportHang(beat: 1, elapsedNanos: 2 * Self.second, now: 10 * Self.second, sampler: nil, state: &state)
+        watchdog.reportHang(beat: 1, elapsedNanos: 2 * Self.second, now: 10 * Self.second, sampler: nil, crashKeys: nil, trace: nil, state: &state)
         state.episodeReport = nil // the first episode ended
-        watchdog.reportHang(beat: 2, elapsedNanos: 3 * Self.second, now: 20 * Self.second, sampler: nil, state: &state)
+        watchdog.reportHang(beat: 2, elapsedNanos: 3 * Self.second, now: 20 * Self.second, sampler: nil, crashKeys: nil, trace: nil, state: &state)
         #expect(episodes.summaries == [.blocked(.seconds(2), previous: nil), .blocked(.seconds(3), previous: nil)])
         #expect(hangs.summaries.count == 1, "onHang keeps its interval")
     }
@@ -28,7 +28,7 @@ struct MainThreadWatchdogHangEpisodeSinkTests {
         let watchdog = MainThreadWatchdog(configuration: .init(threshold: .milliseconds(50), sampleStacks: false, logStalls: false,
                                                                hangAssertThreshold: nil))
         var state = MainThreadWatchdog.HangState(episodes: HangEpisodeTracker(hangNanos: 2 * Self.second))
-        watchdog.reportHang(beat: 1, elapsedNanos: 2 * Self.second, now: 1, sampler: nil, state: &state)
+        watchdog.reportHang(beat: 1, elapsedNanos: 2 * Self.second, now: 1, sampler: nil, crashKeys: nil, trace: nil, state: &state)
         #expect(state.lastReportNanos == nil)
         #expect(state.episodeReport == nil)
     }

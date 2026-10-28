@@ -25,8 +25,12 @@ Rules, each a table below:
   spawns       SPAWNS_TERMINAL (the daemon commands that may start a
                terminal host); it must hold every Swift
                `TerminalSpawningRequest` command
-  clients      sdk for every command; macos for the ipc-census Q1 names,
-               cli for the Q14 names; ios is kept when set by hand
+  clients      sdk for every command; macos for the ipc-census Q1 names, the
+               `static let commandName: DaemonCommandName` names, the
+               MACOS_CALL_SITES names and the raw `"cmd": "<name>"`
+               lines the Swift app writes, cli for the Q14 names and
+               CLI_CALL_HELPER_SENDS, ios for the cases of the
+               iOS client's command table (IOS_COMMAND_TABLE)
 
 Stdlib only, plus the schema validator in cmux-tui/bindings/codegen.
 """
@@ -48,6 +52,8 @@ ROOT = Path(__file__).resolve().parents[2]
 SCHEMA = ROOT / "cmux-tui/spec/sdk-schema.json"
 CENSUS = ROOT / "scripts/cmux-next/ipc-census.py"
 SWIFT_SOURCES = "Packages/macOS/CmuxNext/Sources"
+# The iOS cmux-tui client names every command it sends in this enum (p05-ipc-048).
+IOS_COMMAND_TABLE = "Packages/iOS/CmuxMobileSSH/Sources/CmuxMobileSSH/CmuxTUI/CmuxTUICommand.swift"
 
 sys.path.insert(0, str(ROOT / "cmux-tui/bindings"))
 from codegen.ipc_meta import STREAM_TARGET_FIELDS, IpcMetaValidator, family_kind  # noqa: E402
@@ -66,16 +72,18 @@ class AssignError(Exception):
 FAMILIES: dict[str, tuple[int, str, tuple[str, ...]]] = {
     "daemon": (0x01, "Daemon identity, liveness, configuration and machine state.", (
         "identify", "ping", "shutdown-daemon", "reload-config", "server-stats", "machine-*",
+        "debug-daemon-locks", "server-threads", "server-blocking",
         "subscribe-activity", "ws-listen", "page-credential", "pairing-response",
         "set-default-colors", "set-window-title", "clear-window-title", "trace-*",
     )),
     "clients": (0x02, "Connected clients and their focus.", (
         "set-client-info", "list-clients", "detach-client", "client-focus", "report-focus",
+        "client-hello",
     )),
     "terminal-io": (0x03, "Terminal input, output streams, screen reads and terminal requests to the frontend.", (
         "send", "send-key", "paste-image", "read-screen", "read-scrollback", "wait-for", "copy",
         "clear-history", "vt-state", "scroll-surface", "snapshot-request", "terminal-history",
-        "terminal-read-range", "terminal-events", "attach-surface", "subscribe",
+        "terminal-read-range", "terminal-events", "attach-surface", "cancel-stream", "subscribe",
         "mint-terminal-renderer", "mint-terminal-renderer-by-terminal", "get-cell-pixels",
         "set-cell-pixels", "url-open", "url-open-*", "terminal-clipboard-*",
     )),
@@ -126,20 +134,36 @@ FAMILIES: dict[str, tuple[int, str, tuple[str, ...]]] = {
         "forget-session", "set-session-icon", "import-session-organization",
         "*-personal-group", "set-personal-*",
     )),
-    "agents": (0x0E, "Agents in terminals and the local feed.", (
-        "list-agents", "report-agent", "feed-local-*",
+    "agents": (0x0E, "Agents in terminals, the local feed, agent CLI updates and the agent CLI inventory.", (
+        "list-agents", "report-agent", "feed-local-*", "agent-cli-intents-*", "agent-cli-update-job*",
+        "agent-inventory", "agent-inventory-*",
     )),
     "conversations": (0x0F, "Local conversations, runs, attachments, inbox and search.", (
         "conversation-*", "home-inbox", "history-search", "chief-inspect",
     )),
     "cloud": (0x10, "cmux Cloud session, host replica, conversations and inbox.", ("cloud-*",)),
     "assets": (0x11, "Content-addressed icon assets.", ("put-blob", "get-blob")),
+    "apps": (0x12, "The app supervisor (apps-v1, server/apps.rs): installs, mounts, runs, logs and app op providers.", (
+        "apps-*", "cancel-request",
+    )),
+    "agent-sessions": (0x13, "Agent chat tabs attached to this machine's acpmux sessions.", (
+        "agent-session-*",
+    )),
+    "loopback": (0x14, "TCP streams to the daemon machine's loopback services (loopback-forward-v1).", (
+        "loopback-*",
+    )),
+    "agent-machine": (0x15, "This machine's acpmux for the app: chat moves, Cloud access requests and agent CLI updates.", (
+        "agent-transfer-*", "access-request", "access-request-*", "agent-update-*",
+    )),
+    "files": (0x16, "File ops on a cmux Cloud host's roots (fs-v1).", ("fs.*",)),
+    "scripts": (0x17, "Script runs and REPL sessions in the daemon's script host.", ("script-*",)),
 }
 
 EVENT_FAMILIES: dict[str, tuple[int, str, tuple[str, ...]]] = {
     "terminal-stream-events": (0xC0, "Content of an attach stream: output, render state, frames and sizes.", (
         "output", "render-delta", "render-state", "frame", "browser-state", "vt-state", "resized",
-        "colors-changed", "detached", "overflow", "scroll-changed", "size-state",
+        "colors-changed", "detached", "overflow", "scroll-changed", "size-state", "stream-end",
+        "input-failed",
     )),
     "mux-events": (0xC1, "The mux tree: workspaces, screens, panes, tabs, surfaces and their state.", (
         "layout-changed", "tree-changed", "empty", "pane-*", "tab-*", "screen-*", "workspace-*",
@@ -151,6 +175,7 @@ EVENT_FAMILIES: dict[str, tuple[int, str, tuple[str, ...]]] = {
     "daemon-events": (0xC2, "Clients, daemon lifetime, settings, pairing and machine state.", (
         "client-*", "daemon-shutdown", "config-reload-requested", "keybindings-changed",
         "settings-changed", "pairing-*", "machine-usage-changed", "activity-changed",
+        "server-diagnostic-site",
     )),
     "agent-events": (0xC3, "Agents and the agent inventory.", ("agent-*",)),
     "personal-events": (0xC4, "Personal profiles, bookmarks and history.", (
@@ -160,6 +185,8 @@ EVENT_FAMILIES: dict[str, tuple[int, str, tuple[str, ...]]] = {
         "conversation-*", "participant-avatar-changed", "chief-changed",
     )),
     "cloud-events": (0xC6, "cmux Cloud session, conversations and inbox.", ("cloud-*",)),
+    "loopback-events": (0xC7, "Data, credit and end of loopback-forward-v1 streams.", ("loopback-*",)),
+    "script-events": (0xC8, "Console output of script runs and REPL cells.", ("script-*",)),
 }
 
 # Priority (p05-ipc design 3.4) -----------------------------------------------
@@ -170,30 +197,79 @@ EVENT_FAMILIES: dict[str, tuple[int, str, tuple[str, ...]]] = {
 # WidgetInputHandler, content/common/input/widget_input_handler.mojom).
 # bulk: large reads (journal and history reads, attachment bytes, icon
 # assets); a write stays control, so a later control command that names what
-# it wrote cannot pass it. background: stats; else control.
+# it wrote cannot pass it, unless BULK_STREAM_WRITES names it. background:
+# stats and the agent inventory registry refresh, which waits on the network
+# for seconds; else control. An agent chat's prompt, cancel and permission
+# answer are the person's input to the attached session (p05-ipc-018: input
+# for attach data, control otherwise).
 
 COMMAND_PRIORITY: dict[str, tuple[str, ...]] = {
     "input": (
         "send", "send-key", "paste-image", "browser-key", "browser-key-press", "browser-mouse",
         "browser-mouse-guarded", "browser-wheel", "browser-wheel-guarded", "browser-insert-text",
         "resize-attached-view", "scroll-surface",
+        "agent-session-prompt", "agent-session-cancel", "agent-session-permission",
     ),
     "bulk": (
         "terminal-events", "terminal-history", "terminal-read-range", "read-scrollback",
         "list-terminal-commands", "get-frontend-browser-history", "conversation-history",
         "cloud-conversation-history", "conversation-attachment-read", "cloud-attachment-read",
-        "get-blob",
+        "get-blob", "loopback-data", "loopback-shutdown",
+        # File and bundle reads: up to 16 MiB per fs.read, 4 MiB per
+        # agent-transfer-read page. fs.list stays control: it keeps a listing
+        # snapshot, so it is not read_only. fs.stat stays control: its answer
+        # is one fixed-size entry, nothing a control reply waits behind. Their
+        # writes stay control by the rule above: fs.write (12 MiB) is followed
+        # by an fs.rename of its part, and agent-transfer-write (4 MiB pages) by
+        # the agent-transfer-finish that lands them; a bulk write would let
+        # that control command pass the bytes it names.
+        "fs.read", "agent-transfer-read",
     ),
-    "background": ("server-stats", "machine-usage", "terminal-resources"),
+    "background": (
+        "server-stats", "debug-daemon-locks", "server-threads", "server-blocking", "machine-usage",
+        "terminal-resources", "agent-inventory-refresh",
+    ),
+}
+
+# Bulk writes: the bytes of a data stream and its half close, like a Mojo
+# data pipe beside the message pipe (mojo/public/cpp/system/data_pipe.h). They
+# share bulk, so the half close follows the queued bytes; the open that names
+# the stream is control and goes first. The abort, loopback-close, is control,
+# like closing a data pipe handle: it may pass the stream's queued bytes, and
+# it frees the slot a later open takes (RELEASES_SLOT).
+_LOOPBACK_STREAM = (
+    "Bytes or half close of a loopback stream: loopback-data and -shutdown share bulk, so the "
+    "half close follows the bytes; loopback-open precedes them on control and neither frees "
+    "the stream's slot."
+)
+BULK_STREAM_WRITES: dict[str, str] = {
+    "loopback-data": _LOOPBACK_STREAM,
+    "loopback-shutdown": _LOOPBACK_STREAM,
+}
+
+# Writes that free a per-connection slot, and the command of their family
+# that takes one. Both stay control: on bulk, a later take could pass the
+# write that frees its slot (a client at MAX_STREAMS_PER_CLIENT sends close(A)
+# then open(B), server/loopback_forward.rs).
+RELEASES_SLOT: dict[str, str] = {
+    "loopback-close": "loopback-open",
 }
 
 # Events: what draws the person's terminal rides input (the key echo path,
 # IPC-5); the subscribe copy of output is bulk; usage and inventory refreshes
-# are background; else control.
+# are background; loopback stream bytes and EOF are bulk (one ordered outbound
+# stream per loopback stream, server/loopback_forward.rs). Their credit and
+# loopback-closed are control: an error close is a stream terminal the daemon
+# sends on the control FIFO (ForwardStream::fail, unknown_stream, the overflow
+# text in bounded_outbound.rs), so it may pass the stream's queued bytes. Else
+# control. script-log stays control: a cell's console lines must
+# arrive before its control reply.
 EVENT_PRIORITY: dict[str, tuple[str, ...]] = {
     "input": ("output", "render-delta", "render-state", "frame"),
-    "bulk": ("surface-output",),
-    "background": ("machine-usage-changed", "activity-changed", "agent-inventory-changed"),
+    "bulk": ("surface-output", "loopback-data", "loopback-eof"),
+    "background": (
+        "machine-usage-changed", "activity-changed", "agent-inventory-changed", "server-diagnostic-site",
+    ),
 }
 
 # Ordering --------------------------------------------------------------------
@@ -201,7 +277,13 @@ EVENT_PRIORITY: dict[str, tuple[str, ...]] = {
 # they may pass the connection's control sequence. Each one is read_only and
 # names no stream target (validate.py rejects anything else). A cloud command
 # is never here: it needs the lease this connection set with cloud-session-set.
-INDEPENDENT = ("server-stats", "machine-usage", "machine-listening-tcp")
+# fs.read and fs.stat are not here: they observe the files this connection's
+# own fs.write, fs.mkdir, fs.rename and fs.delete change (sync_cli's push
+# stats a folder its failed mkdir found, and reads back what it wrote).
+INDEPENDENT = (
+    "server-stats", "debug-daemon-locks", "server-threads", "server-blocking", "machine-usage",
+    "machine-listening-tcp",
+)
 
 # Durability --------------------------------------------------------------------
 # read_only: changes no daemon state. memory: changes state the journal never
@@ -211,7 +293,8 @@ INDEPENDENT = ("server-stats", "machine-usage", "machine-listening-tcp")
 READ_ONLY = (
     "list-*", "get-*", "read-*", "ids", "identify", "ping", "export-layout", "vt-state",
     "resolve-terminal", "process-info", "terminal-ports", "terminal-resources",
-    "terminal-history", "terminal-read-range", "terminal-events", "server-stats", "machine-*",
+    "terminal-history", "terminal-read-range", "terminal-events", "server-stats",
+    "debug-daemon-locks", "server-threads", "server-blocking", "machine-*",
     "wait-for", "pane-neighbor", "remote-terminal-snapshot",
     "conversation-list", "conversation-snapshot", "conversation-history", "conversation-thread",
     "conversation-search", "conversation-link-resolve", "conversation-runs", "conversation-run",
@@ -220,6 +303,17 @@ READ_ONLY = (
     "cloud-conversation-snapshot", "cloud-conversation-history",
     "cloud-conversation-thread", "cloud-conversation-runs", "cloud-conversation-run",
     "cloud-participant-avatar-get", "cloud-attachment-read", "feed-local-list", "trace-status",
+    "agent-cli-intents-list", "agent-cli-update-job-resolve",
+    "agent-session-events", "agent-session-media",
+    "loopback-status", "browser-runtime-status",
+    "fs.stat", "fs.read", "agent-transfer-source", "access-request-list",
+    # Pages a bundle file the begin recorded; it only refreshes the move's
+    # idle time.
+    "agent-transfer-read",
+    # Asks this machine's acpmux; a plan never starts it.
+    "agent-update-plan",
+    # Ask this machine's acpmux owner; nothing in the daemon changes.
+    "agent-inventory", "agent-inventory-refresh",
 )
 MEMORY = (
     "send", "send-key", "paste-image", "copy", "scroll-surface", "browser-key", "browser-key-press",
@@ -232,17 +326,64 @@ MEMORY = (
     "mint-terminal-renderer", "mint-terminal-renderer-by-terminal", "set-cell-pixels",
     "set-client-info", "client-focus", "report-focus", "detach-client", "set-window-title",
     "clear-window-title", "reload-config", "shutdown-daemon", "ws-listen", "page-credential",
-    "subscribe-activity",
+    "subscribe-activity", "agent-inventory-watch",
     # Start or stop a trace recording: process memory and ring files, never the journal.
     "trace-start", "trace-stop",
+    # The app supervisor's connection state: every apps-* request registers
+    # the connection for apps events; mounts, runs, follows and providers live
+    # until the connection closes. Nothing here is journaled.
+    "apps-list", "apps-terminal-links", "apps-logs", "apps-mount", "apps-unmount", "apps-dispatch",
+    "apps-run", "apps-link-changed", "apps-provider-register", "apps-agent-inventory-changed",
+    "apps-provider-result",
+    # Cancels an in-flight apps-run or script cell of this connection only.
+    "cancel-request",
+    # Connection state that ends with the connection: its role and proof, its
+    # loopback streams, its browser hosts and its machine catalog lease.
+    "client-hello", "loopback-open", "loopback-data", "loopback-credit", "loopback-shutdown",
+    "loopback-close", "browser-runtime-start", "browser-runtime-stop", "machine-catalog-publish",
     # Writes the lease's account, bumps its generation and reconnects sockets.
     "cloud-selfhost-info",
     # Binds the browser host's sockets and starts the host process.
     "browser-host-provider",
     # Admits a snapshot on the stream's gate (collapse and 500 ms throttle).
     "snapshot-request",
+    # Ends one attach stream of this connection and removes its view.
+    "cancel-stream",
+    # Agent chat attachments and what they send to acpmux, which keeps the
+    # session and the folder trust itself; children also records the chats
+    # the tab may file. agent-session-start binds the tab, a journaled write.
+    "agent-session-attach", "agent-session-observe", "agent-session-detach",
+    "agent-session-prompt", "agent-session-cancel", "agent-session-permission",
+    "agent-session-children", "agent-session-trust",
+    # Keeps a listing snapshot per caller for its paging.
+    "fs.list",
+    # Kept in daemon memory or in acpmux, never in the journal: a receive's
+    # pages and abort, a move's begin, commit and abort (acpmux keeps the
+    # move), access requests (a status read takes a delivered secret), the
+    # script host's cells and sessions, and the CLI updates acpmux runs.
+    # receive and finish also write the askable-receive and landed-chat
+    # records (agent_transfer/askable.rs, landed.rs), and begin forgets a
+    # landed chat, but best effort: a failed save is only logged and the
+    # reply still says ok, so the reply never reports a commit.
+    "agent-transfer-receive", "agent-transfer-finish",
+    "agent-transfer-write", "agent-transfer-receive-abort", "agent-transfer-begin",
+    "agent-transfer-commit", "agent-transfer-abort",
+    "access-request", "access-request-status", "access-request-answer",
+    "script-*", "agent-update-apply",
 )
-REPLY_AFTER_JOURNAL = ("journal-frontend-event",)
+# apps-set and the App Store mutations of apps-store write apps.json before
+# they apply and reply (apps/supervisor.rs `set`). The agent CLI update ledger
+# and job reply after their SQLite commit: the app records an intent before it
+# contacts an owner so a restarted app resumes the same update, and a job's
+# receipt names a durable creation record (commands.md "Update intent ledger").
+REPLY_AFTER_JOURNAL = (
+    "journal-frontend-event", "apps-set", "apps-store", "agent-cli-intents-record",
+    "agent-cli-intents-settle", "agent-cli-intents-attach", "agent-cli-update-job",
+    # fs.write and fs.rename answer after their change is fsynced (the file
+    # system is their journal); fs.mkdir and fs.delete do not fsync, so they
+    # keep the default.
+    "fs.write", "fs.rename",
+)
 
 # Stream barrier (p05-ipc design 3.4) -------------------------------------------
 # A command naming a surface, terminal or view runs in that surface's stream
@@ -275,13 +416,37 @@ CROSSES_STREAM_OK: dict[str, str] = {
 # `spawns_terminal`): their reply can carry `starting:true` and the client gives
 # them the spawn timeout. move-tab-to-split and move-tab-to-column start one
 # only with `respawn`, but an attribute cannot depend on a field, so both are
-# listed. Every Swift TerminalSpawningRequest command must be here.
+# listed. agent-cli-update-job opens a workspace whose terminal runs the
+# prepared update. Every Swift TerminalSpawningRequest command must be here.
 SPAWNS_TERMINAL = (
     "new-tab", "create-terminal", "new-screen", "new-pane", "new-pane-right", "split", "new-row",
     "new-workspace", "run", "restart-tab", "create-surface-with-receipt", "apply-layout",
     "sidebar-plugin", "reopen-saved-screen-group", "reopen-saved-tab-group", "move-tab-to-split",
-    "move-tab-to-column",
+    "move-tab-to-column", "agent-cli-update-job",
 )
+
+# CLI senders outside census Q14 ---------------------------------------------------
+# Wire names the Rust CLI sends through a call helper that takes the name as
+# an argument (`RemoteMachine::call`, `sync_cli::machine_call`, the move pump's
+# `call` and `call_once`), not on a hand-built `"cmd": "..."` line, so census
+# Q14 does not see them. name -> the CLI file (under crates/cmux-tui/src) that
+# sends it; the script refuses an entry whose file stops naming it.
+CLI_SRC = ROOT / "cmux-tui/crates/cmux-tui/src"
+_SYNC_REMOTE = "link/sync_cli/remote.rs"
+_MOVE_PUMP = "link/agent_cli.rs"
+_ACCESS_CLI = "link/access_cli/requests.rs"
+CLI_CALL_HELPER_SENDS: dict[str, str] = {
+    "fs.stat": _SYNC_REMOTE, "fs.list": _SYNC_REMOTE, "fs.read": _SYNC_REMOTE,
+    "fs.write": _SYNC_REMOTE, "fs.mkdir": _SYNC_REMOTE, "fs.rename": _SYNC_REMOTE,
+    "fs.delete": _SYNC_REMOTE,
+    "agent-transfer-receive": _MOVE_PUMP, "agent-transfer-write": _MOVE_PUMP,
+    "agent-transfer-finish": _MOVE_PUMP, "agent-transfer-receive-abort": _MOVE_PUMP,
+    "agent-transfer-begin": _MOVE_PUMP, "agent-transfer-source": _MOVE_PUMP,
+    "agent-transfer-read": _MOVE_PUMP, "agent-transfer-commit": _MOVE_PUMP,
+    "agent-transfer-abort": _MOVE_PUMP,
+    "access-request": _ACCESS_CLI, "access-request-status": _ACCESS_CLI,
+    "access-request-list": _ACCESS_CLI, "access-request-answer": _ACCESS_CLI,
+}
 
 COMMAND_KEY_ORDER = (
     "method_id", "priority", "ordering", "durability", "stream_scoped", "crosses_stream_ok",
@@ -334,6 +499,77 @@ def census_names(queue: str) -> set[str]:
     return {hit["key"] for hit in json.loads(result.stdout)}
 
 
+# Swift clients that send daemon commands by wire name (`call("name", ...)`),
+# not through a request type with `static let command`, the only form census
+# Q1 sees. The file's literals with the prefix are macos names; a pushed event
+# name among them names no command and changes nothing.
+MACOS_CALL_SITES: dict[str, str] = {
+    f"{SWIFT_SOURCES}/CmuxNextDaemon/AgentSession/AgentSessionAttachClient.swift": "agent-session-",
+}
+
+
+def swift_call_site_names() -> set[str]:
+    """The wire names the MACOS_CALL_SITES Swift files spell."""
+
+    names: set[str] = set()
+    for relative, prefix in MACOS_CALL_SITES.items():
+        try:
+            text = (ROOT / relative).read_text(encoding="utf-8")
+        except (OSError, UnicodeError) as error:
+            raise AssignError(f"MACOS_CALL_SITES: cannot read {relative}: {error}") from error
+        found = set(re.findall(rf'"({re.escape(prefix)}[a-z0-9-]+)"', text))
+        if not found:
+            raise AssignError(f"MACOS_CALL_SITES: {relative} spells no {prefix}* name")
+        names |= found
+    return names
+
+
+def cli_call_helper_names() -> set[str]:
+    """CLI_CALL_HELPER_SENDS, each checked against the file that sends it."""
+
+    for name, relative in CLI_CALL_HELPER_SENDS.items():
+        try:
+            text = (CLI_SRC / relative).read_text(encoding="utf-8")
+        except (OSError, UnicodeError) as error:
+            raise AssignError(f"CLI_CALL_HELPER_SENDS: cannot read {relative} for {name!r}: {error}") from error
+        if f'"{name}"' not in text:
+            raise AssignError(f"CLI_CALL_HELPER_SENDS: {relative} no longer names {name!r}; remove or move the entry")
+    return set(CLI_CALL_HELPER_SENDS)
+
+
+_CLIENT_USE = re.compile(r"\bcmux_ipc::client::(?:\{([^}]*)\}|(\w+))")
+
+
+def _pascal(name: str) -> str:
+    """The Rust type stem cmux-ipc's build.rs gives a command (build-support/client_requests.rs)."""
+
+    return "".join(part[:1].upper() + part[1:] for part in re.split(r"[-_.]", name))
+
+
+def cli_typed_request_names(commands: Iterable[str]) -> set[str]:
+    """Wire names of the generated `<Command>Request` types (cmux_ipc::client) the
+    Rust CLI imports. A command the CLI sends through its typed request has no
+    `"cmd"` literal for census Q14 to see, so without this the migrated commands
+    would lose `cli`, and with it the very types the CLI imports."""
+
+    by_type = {f"{_pascal(name)}Request": name for name in commands}
+    listed = subprocess.run(
+        ["git", "ls-files", "-z", "--", "*.rs"],
+        cwd=CLI_SRC, capture_output=True, check=True,
+    ).stdout.decode().split("\0")
+    names: set[str] = set()
+    for relative in filter(None, listed):
+        try:
+            text = (CLI_SRC / relative).read_text(encoding="utf-8")
+        except (OSError, UnicodeError) as error:
+            raise AssignError(f"cannot read {relative}: {error}") from error
+        for group, single in _CLIENT_USE.findall(text):
+            for ident in re.findall(r"\w+", group or single):
+                if ident in by_type:
+                    names.add(by_type[ident])
+    return names
+
+
 def _match_brace(text: str, open_: int) -> int:
     depth = 0
     for index in range(open_, len(text)):
@@ -346,9 +582,76 @@ def _match_brace(text: str, open_: int) -> int:
     return len(text)
 
 
+_RAW_LINE = re.compile(r'"cmd":\s*"([a-z][a-z0-9-]*)"')
+
+
+def swift_line_commands() -> set[str]:
+    """Wire names the Swift app writes as raw `"cmd": "<name>"` lines instead
+    of a request type (LoopbackForwardLine), which ipc-census Q1 does not see."""
+
+    listed = subprocess.run(
+        ["git", "ls-files", "-z", "--", f"{SWIFT_SOURCES}/*.swift"],
+        cwd=ROOT, capture_output=True, check=True,
+    ).stdout.decode().split("\0")
+    return {
+        found.group(1)
+        for path in listed
+        if path and not path.endswith(".generated.swift")
+        for found in _RAW_LINE.finditer((ROOT / path).read_text())
+    }
+
+
+_IOS_CASE = re.compile(r'^\s*case\s+(\w+)(?:\s*=\s*"([^"]*)")?\s*$', re.MULTILINE)
+
+
+def ios_command_names() -> set[str]:
+    """The wire names of IOS_COMMAND_TABLE's cases: a case's raw value, else its name.
+
+    The table holds one case per line, so a line that starts with `case` and is not one
+    simple case (a list, an associated value) is refused rather than misread.
+    """
+
+    try:
+        text = (ROOT / IOS_COMMAND_TABLE).read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as error:
+        raise AssignError(f"IOS_COMMAND_TABLE: cannot read {IOS_COMMAND_TABLE}: {error}") from error
+    lines = [line for line in text.splitlines() if line.strip().startswith("case ")]
+    found = [_IOS_CASE.match(line) for line in lines]
+    if not found or not all(found):
+        bad = [line.strip() for line, match in zip(lines, found) if not match]
+        raise AssignError(f"IOS_COMMAND_TABLE: {IOS_COMMAND_TABLE} must list one simple case per line: {bad}")
+    return {match.group(2) or match.group(1) for match in found if match}
+
+
+_TYPED_COMMAND = re.compile(r'static\s+(?:let|var)\s+commandName(?:\s*:\s*DaemonCommandName)?\s*=\s*"([a-z][a-z0-9-]*)"')
+
+
+def swift_typed_commands() -> set[str]:
+    """Wire names of the Swift request types that declare
+    `static let commandName: DaemonCommandName = "<name>"`. Census Q1 counts only
+    the older hand-written `static let command = "<name>"` form it queues for
+    migration, so the migrated types are read here."""
+
+    listed = subprocess.run(
+        ["git", "ls-files", "-z", "--", f"{SWIFT_SOURCES}/*.swift"],
+        cwd=ROOT, capture_output=True, check=True,
+    ).stdout.decode().split("\0")
+    names: set[str] = set()
+    for relative in filter(None, listed):
+        if relative.endswith(".generated.swift"):
+            continue
+        try:
+            text = (ROOT / relative).read_text(encoding="utf-8")
+        except (OSError, UnicodeError) as error:
+            raise AssignError(f"cannot read {relative}: {error}") from error
+        names.update(_TYPED_COMMAND.findall(text))
+    return names
+
+
 _SPAWNING = re.compile(r"\b(?:struct|extension)\s+(\w+)\s*:[^{]*\bTerminalSpawningRequest\b")
 _STRUCT = re.compile(r"\bstruct\s+(\w+)\b[^{]*\{")
-_COMMAND = re.compile(r'static\s+(?:let|var)\s+command(?:\s*:\s*String)?\s*=\s*"([^"]+)"')
+# `static let commandName: DaemonCommandName = "..."`, or the older `static let command = "..."`.
+_COMMAND = re.compile(r'static\s+(?:let|var)\s+command(?:Name)?(?:\s*:\s*\w+)?\s*=\s*"([^"]+)"')
 
 
 def swift_spawning_commands() -> set[str]:
@@ -377,12 +680,26 @@ def swift_spawning_commands() -> set[str]:
 # Assignment ------------------------------------------------------------------------
 
 
+def _schema_commands() -> list[str]:
+    """The command names of the committed schema, to resolve the CLI's request types."""
+
+    try:
+        return list(json.loads(SCHEMA.read_text(encoding="utf-8"))["commands"])
+    except (OSError, UnicodeError, ValueError, KeyError) as error:
+        raise AssignError(f"cannot read the commands of {SCHEMA}: {error}") from error
+
+
 @dataclass
 class Sources:
     """The name sets read outside the schema, loaded only when a command needs them."""
 
-    macos: Callable[[], set[str]] = lambda: census_names("Q1")
-    cli: Callable[[], set[str]] = lambda: census_names("Q14")
+    macos: Callable[[], set[str]] = (
+        lambda: census_names("Q1") | swift_typed_commands() | swift_call_site_names() | swift_line_commands()
+    )
+    cli: Callable[[], set[str]] = lambda: (
+        census_names("Q14") | cli_call_helper_names() | cli_typed_request_names(_schema_commands())
+    )
+    ios: Callable[[], set[str]] = ios_command_names
     swift_spawning: Callable[[], set[str]] = swift_spawning_commands
 
 
@@ -391,17 +708,26 @@ class Assigner:
         self.document = document
         self.changes: list[str] = []
         self.sources = sources or Sources()
-        self._clients: tuple[set[str], set[str]] | None = None
+        self._clients: tuple[set[str], set[str], set[str]] | None = None
 
-    def clients_of(self, name: str, current: Any) -> list[str]:
-        """The census clients of a command, plus `ios` when the schema already lists it."""
+    def clients_of(self, name: str) -> list[str]:
+        """The clients whose sources send the command, and `sdk` for every command."""
 
-        if self._clients is None:
-            self._clients = (self.sources.macos(), self.sources.cli())
-        macos, cli = self._clients
-        ios = isinstance(current, list) and "ios" in current
-        members = (("macos", name in macos), ("ios", ios), ("cli", name in cli), ("sdk", True))
+        macos, ios, cli = self.client_sources()
+        members = (("macos", name in macos), ("ios", name in ios), ("cli", name in cli), ("sdk", True))
         return [client for client, member in members if member]
+
+    def client_sources(self) -> tuple[set[str], set[str], set[str]]:
+        if self._clients is None:
+            self._clients = (self.sources.macos(), self.sources.ios(), self.sources.cli())
+        return self._clients
+
+    def check_ios(self) -> None:
+        """Every name in the iOS client's command table is a schema command."""
+
+        unknown = sorted(self.client_sources()[1] - set(self.document["commands"]))
+        if unknown:
+            raise AssignError(f"{IOS_COMMAND_TABLE} names {', '.join(unknown)}, which sdk-schema.json does not declare")
 
     def check_spawning(self) -> None:
         """SPAWNS_TERMINAL holds every command the Swift client gives the spawn timeout."""
@@ -489,7 +815,7 @@ class Assigner:
             else:
                 self.set_missing("commands", name, entry, "stream_scoped", True)
         self.follow("commands", name, entry, "spawns_terminal", True if name in SPAWNS_TERMINAL else None)
-        self.follow("commands", name, entry, "clients", self.clients_of(name, entry.get("clients")))
+        self.follow("commands", name, entry, "clients", self.clients_of(name))
 
     def follow(self, section: str, name: str, entry: dict[str, Any], key: str, value: Any) -> None:
         """Set an attribute that follows a source outside the schema; None removes it."""
@@ -506,6 +832,7 @@ class Assigner:
     def run(self) -> dict[str, Any]:
         self.check_tables()
         self.check_spawning()
+        self.check_ios()
         table = self.families()
         self.wire_ids("commands", "method_id", table, FAMILIES)
         self.wire_ids("events", "event_id", table, EVENT_FAMILIES)
@@ -532,6 +859,7 @@ class Assigner:
             ("REPLY_AFTER_JOURNAL", REPLY_AFTER_JOURNAL, commands),
             ("CROSSES_STREAM_OK", list(CROSSES_STREAM_OK), commands),
             ("SPAWNS_TERMINAL", SPAWNS_TERMINAL, commands),
+            ("CLI_CALL_HELPER_SENDS", list(CLI_CALL_HELPER_SENDS), commands),
         ]
         for family, (family_id, _, patterns) in FAMILIES.items():
             named.append((f"FAMILIES[{family}]", patterns, commands))
@@ -552,8 +880,22 @@ class Assigner:
             if durability_of(name) == "read_only":
                 raise AssignError(f"SPAWNS_TERMINAL: {name!r} is read_only")
         for name in COMMAND_PRIORITY["bulk"]:
-            if durability_of(name) != "read_only":
+            if durability_of(name) != "read_only" and name not in BULK_STREAM_WRITES:
                 raise AssignError(f"COMMAND_PRIORITY bulk: {name!r} is a write; writes stay control")
+        for name in BULK_STREAM_WRITES:
+            if name not in COMMAND_PRIORITY["bulk"]:
+                raise AssignError(f"BULK_STREAM_WRITES: {name!r} is not bulk")
+        for name, taker in RELEASES_SLOT.items():
+            for command in (name, taker):
+                if command not in commands:
+                    raise AssignError(f"RELEASES_SLOT: {command!r} is not a schema command")
+                entry = self.document["commands"][command]
+                if {priority_of(command, COMMAND_PRIORITY), entry.get("priority", "control")} != {
+                    "control"
+                }:
+                    raise AssignError(
+                        f"RELEASES_SLOT: {name!r} frees the slot {taker!r} takes; both stay control"
+                    )
 
 
 def ordered(entry: dict[str, Any], keys: tuple[str, ...]) -> dict[str, Any]:

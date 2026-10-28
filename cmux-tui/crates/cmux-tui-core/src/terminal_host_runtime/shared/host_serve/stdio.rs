@@ -6,7 +6,8 @@
 //! entry points (`sys::adopt_launch`) and the service-manager signal hooks
 //! (`sys::host_signals`).
 
-use std::fs;
+use cmux_threads::checked::fs as files;
+use cmux_threads::checked::sync as waits;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
@@ -28,13 +29,31 @@ pub fn serve_terminal_host_process(args: &[String]) -> anyhow::Result<()> {
     // Key-press flow marks start here, before any PTY or client work (`CMUX_TRACE_FLOWS`).
     cmux_flow_trace::init();
     let (mut reader, mut writer) = sys::host_bootstrap_streams(args)?;
-    serve_terminal_host_stdio(args, &mut reader, &mut writer)
+    serve_host(args, &mut reader, &mut writer, HangWatch::Process)
 }
 
+/// [`serve_terminal_host_process`] on given bootstrap streams, inside a process that is not only
+/// this host (a test): the process's hang watch is not started.
 pub fn serve_terminal_host_stdio(
     args: &[String],
     reader: &mut impl Read,
     writer: &mut impl Write,
+) -> anyhow::Result<()> {
+    serve_host(args, reader, writer, HangWatch::Embedded)
+}
+
+/// Whether the host owns its process, and so starts the process's hang watch.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum HangWatch {
+    Process,
+    Embedded,
+}
+
+fn serve_host(
+    args: &[String],
+    reader: &mut impl Read,
+    writer: &mut impl Write,
+    hang_watch: HangWatch,
 ) -> anyhow::Result<()> {
     let adopt_fd = adopt_launch::adopt_pty_fd(args)?;
     let mut bootstrapped = crate::terminal_host::bootstrap_stdio_once(reader, writer)?;
@@ -45,6 +64,10 @@ pub fn serve_terminal_host_stdio(
         return Ok(());
     };
     let (launch, adopt) = adopt_launch::decode(&launch_frame, adopt_fd, &mut bootstrapped)?;
+    // Before the loops start, so each one registers with it.
+    if hang_watch == HangWatch::Process {
+        super::super::host_shared::start_process_hang_watch(Path::new(&launch.record_path));
+    }
     crate::debug_spans::install(crate::debug_spans::Trace::start("host", Instant::now()));
     crate::debug_spans::label_terminal(|| bootstrapped.terminal_id.to_hex());
     let (shared, _pty_lock) = match adopt_launch::start(&launch, adopt, &bootstrapped) {
@@ -76,7 +99,7 @@ pub fn serve_terminal_host_stdio(
     let endpoint = PathBuf::from(&launch.endpoint);
     let mut unpublished =
         UnpublishedHostGuard { shared: shared.clone(), endpoint: endpoint.clone(), armed: true };
-    let _ = fs::remove_file(&endpoint);
+    let _ = files::remove_file(&endpoint);
     if let Some(parent) = endpoint.parent() {
         prepare_private_dir(parent)?;
     }
@@ -104,6 +127,8 @@ pub fn serve_terminal_host_stdio(
         supports_program_status: true,
         supports_shell_activity: true,
         supports_trace_control: true,
+        supports_input_flow: true,
+        supports_thread_qos: true,
         orphan_grace_secs: host_orphan_grace().map(|grace| grace.as_secs()),
     };
     let record_root = Path::new(&launch.record_path)
@@ -148,7 +173,7 @@ pub fn serve_terminal_host_stdio(
         && let Ok(delay) = delay.parse::<u64>()
         && delay > 0
     {
-        thread::sleep(Duration::from_millis(delay.min(5_000)));
+        crate::request_path::sleep(Duration::from_millis(delay.min(5_000)));
     }
     // Debug builds only: a test can hold several launches open at once
     // before Ready and prove they overlap.
@@ -295,7 +320,7 @@ pub fn serve_terminal_host_stdio(
     // the old host's exit.
     #[cfg(debug_assertions)]
     wait_at_test_gate("CMUX_TUI_TEST_HOST_EXIT_GATE");
-    thread::sleep(Duration::from_millis(20));
+    crate::request_path::sleep(Duration::from_millis(20));
     drop(guard);
     Ok(())
 }
@@ -311,8 +336,8 @@ fn wait_at_test_gate(variable: &str) {
     };
     let (opened, wait) = std::sync::mpsc::channel();
     let _ = thread::Builder::new().name("host-test-gate".into()).spawn(move || {
-        let _ = fs::File::open(&gate);
+        let _ = files::open(&gate);
         let _ = opened.send(());
     });
-    let _ = wait.recv_timeout(Duration::from_secs(30));
+    let _ = waits::recv_timeout(&wait, Duration::from_secs(30));
 }

@@ -189,6 +189,56 @@ fn request_path_server_stats_section_reports_counts_and_sites() {
     assert_eq!(json["lock_hold_over_1ms"], 1);
 }
 
+/// A lock wait of 2 ms or more shows in the section's `lock_waits`, with the
+/// holder, the waiter and the waiter's line.
+#[test]
+fn request_path_server_stats_section_reports_lock_waits() {
+    const HOLD: Duration = Duration::from_millis(20);
+    cmux_threads::set_holder_tracking(true);
+    let shared = Arc::new((std::sync::Mutex::new(()), cmux_threads::LockHolder::default()));
+    let (held_tx, held_rx) = channel();
+    let holder = {
+        let shared = Arc::clone(&shared);
+        std::thread::Builder::new()
+            .name("section-lock-holder-test".into())
+            .spawn(move || {
+                let (lock, holder) = &*shared;
+                let guard = holder.lock_mutex("test.section", std::panic::Location::caller(), lock);
+                held_tx.send(()).expect("held");
+                while holder.waiting() == 0 {
+                    std::thread::yield_now();
+                }
+                std::thread::sleep(HOLD);
+                drop(guard);
+            })
+            .expect("spawn holder")
+    };
+    held_rx.recv().expect("the holder took the lock");
+    let line = std::thread::Builder::new()
+        .name("section-lock-waiter-test".into())
+        .spawn(move || {
+            let site = std::panic::Location::caller();
+            drop(shared.1.lock_mutex("test.section", site, &shared.0));
+            site.line()
+        })
+        .expect("spawn waiter")
+        .join()
+        .expect("waiter");
+    holder.join().expect("holder");
+    let stats = RequestPathStats::new(RequestPathMode::OFF);
+    let json = serde_json::to_value(RequestPathIoSnapshot::of(&stats)).expect("json");
+    let waits = &json["lock_waits"];
+    assert!(waits["long_waits"].as_u64().is_some_and(|count| count >= 1), "{waits}");
+    let wait = waits["recent"]
+        .as_array()
+        .and_then(|recent| recent.iter().find(|wait| wait["waiter"] == "section-lock-waiter-test"))
+        .unwrap_or_else(|| panic!("the wait is in the section: {waits}"));
+    assert_eq!(wait["lock"], "test.section");
+    assert_eq!(wait["holder"], "section-lock-holder-test");
+    assert!(wait["waited_us"].as_u64().is_some_and(|us| us >= 20_000), "{wait}");
+    assert_eq!(wait["site"], format!("{}:{line}", file!()));
+}
+
 #[test]
 fn request_path_off_snapshot_counts_without_sites_or_hold_times() {
     let stats = RequestPathStats::new(RequestPathMode::OFF);
