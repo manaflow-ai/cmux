@@ -37,9 +37,7 @@ public final class AgentPaneDraftTexts {
     }
 
     /// Waits for this store's ordered files writes without blocking the main actor.
-    public func flush() async {
-        await tail?.value
-    }
+    public func flush() async { await tail?.value }
 
     /// Called after a committed quit: page producers stop changing this store, then pending writes drain.
     public func finalizeForQuit() async {
