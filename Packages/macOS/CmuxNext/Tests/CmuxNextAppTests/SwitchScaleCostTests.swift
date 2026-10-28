@@ -9,11 +9,16 @@ import Testing
 /// CMUX_PERF_RESULT_DIR (lab story swift-switch-scale), and the checks that the switch is O(visible): its main-thread
 /// time at 1,000 workspaces is the same as at 10, and memory stays flat over 1,000 switches.
 ///
-/// A bench: it runs only with CMUX_SWITCH_SCALE_BENCH=1 (the story and a person's fleet step set it), never in the
-/// package suites. CMUX_SWITCH_SCALE_ROUNDS sets the switches per kind (default 200).
-@MainActor @Suite(.serialized, .enabled(if: ProcessInfo.processInfo.environment["CMUX_SWITCH_SCALE_BENCH"] == "1",
-                                        "a bench: CMUX_SWITCH_SCALE_BENCH=1"))
+/// A bench: it runs in an optimized suite build (CMUX_SWIFT_SUITE_CONFIGURATION=release, the fleet step that measures)
+/// or with CMUX_SWITCH_SCALE_BENCH=1 (the lab story), never in the debug package suites. CMUX_SWITCH_SCALE_ROUNDS sets
+/// the switches per kind (default 200).
+@MainActor @Suite(.serialized, .enabled(if: SwitchScaleCostTests.enabled, "a bench: an optimized suite build or CMUX_SWITCH_SCALE_BENCH=1"))
 struct SwitchScaleCostTests {
+    nonisolated static var enabled: Bool {
+        let environment = ProcessInfo.processInfo.environment
+        return environment["CMUX_SWITCH_SCALE_BENCH"] == "1" || environment["CMUX_SWIFT_SUITE_CONFIGURATION"] == "release"
+    }
+
     static var rounds: Int { Int(ProcessInfo.processInfo.environment["CMUX_SWITCH_SCALE_ROUNDS"] ?? "") ?? 200 }
 
     /// Every kind at `size`: the per-kind samples, printed and recorded.
