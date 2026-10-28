@@ -152,6 +152,21 @@ struct CodePuppyDetectionTests {
         #expect(!CmuxVaultAgentRegistration.builtInCodePuppy.detect.matches(process))
     }
 
+    @Test("Vault ignores processes that merely mention Code Puppy paths", arguments: [
+        ("vim", ["vim", "code_puppy/x.py"]),
+        ("python3", ["/usr/bin/python3", "scripts/code_puppy_helper.py"]),
+        ("python3", ["/usr/bin/python3", "/tmp/code-puppy/run.py", "--resume", "session-id"]),
+    ])
+    func vaultIgnoresIncidentalMentions(processName: String, arguments: [String]) {
+        let process = VaultObservedAgentProcess(
+            processName: processName,
+            processPath: arguments[0],
+            arguments: arguments,
+            environment: [:]
+        )
+        #expect(!CmuxVaultAgentRegistration.builtInCodePuppy.detect.matches(process))
+    }
+
     // MARK: - Asset name
 
     @Test("definition carries the CodePuppy brand asset name")

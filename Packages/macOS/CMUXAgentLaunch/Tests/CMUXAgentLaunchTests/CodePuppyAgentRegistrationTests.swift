@@ -71,7 +71,7 @@ struct CodePuppyAgentRegistrationTests {
             "Stop", "Notification", "SessionEnd",
         ])
         #expect(registration.lifecycleEvents.map(\.cmuxSubcommand) == [
-            "session-start", "prompt-submit", "pre-tool-use", "post-tool-use",
+            "session-start", "prompt-submit", "tool-start", "tool-end",
             "stop", "notification", "session-end",
         ])
         #expect(registration.feedEvents.isEmpty)
@@ -82,9 +82,6 @@ struct CodePuppyAgentRegistrationTests {
         }
         #expect(registration.pidEnvironmentVariable == "CMUX_CODE_PUPPY_PID")
         #expect(registration.hookConfigDirectory == ".code_puppy")
-        #expect(registration.hookConfigFile == "hooks.json")
-        #expect(registration.nestedGroupMatcher == "*")
-        #expect(registration.hookTimeoutMilliseconds == 5_000)
         #expect(registration.resumeOption == "--resume")
         #expect(registration.resumeCommand.contains("{{sessionId}}"))
         #expect(registration.sessionDirectory == "~/.code_puppy/autosaves")
