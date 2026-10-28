@@ -49,13 +49,7 @@ pub(super) async fn call(daemon: &Arc<Client>, session: &str, name: &str, args: 
         other => return error_result(format!("unknown tool: {other}")),
     };
     match daemon.request(m, params).await {
-        // The agent reads the text; the exact bytes (`data`, base64) would only double it.
-        Ok(mut r) => {
-            if let Some(o) = r.as_object_mut() {
-                o.remove("data");
-            }
-            ok(summary(name, &r), r)
-        }
+        Ok(r) => ok(summary(name, &r), r),
         Err(e) => refusal(e),
     }
 }
