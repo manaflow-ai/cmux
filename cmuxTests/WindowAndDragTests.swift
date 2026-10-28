@@ -201,6 +201,25 @@ struct WindowAccessorSwiftTestingTests {
         coordinator.reset()
         #expect(coordinator.shouldInvoke(window: window, dedupeByWindow: true, refreshID: "same"))
     }
+
+    @Test
+    func bootstrapCloseDoesNotAcceptAReusedIdentityForAMainWindow() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 200),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(UUID().uuidString)")
+
+        #expect(
+            !MainWindowBootstrapWindowPolicy.owns(
+                window,
+                objectIdentifier: ObjectIdentifier(window)
+            ),
+            "A reused object identity must not let the hidden bootstrap task close a real main window."
+        )
+    }
 }
 
 @MainActor

@@ -1729,12 +1729,14 @@ private struct MainWindowBootstrapView: View {
         Color.clear
             .frame(width: 1, height: 1)
             .background(WindowAccessor { window in
-                window.identifier = NSUserInterfaceItemIdentifier("cmux.bootstrap")
+                window.identifier = NSUserInterfaceItemIdentifier(MainWindowBootstrapWindowPolicy.identifier)
                 window.isRestorable = false
                 window.orderOut(nil)
                 let windowIdentifier = ObjectIdentifier(window)
                 Task { @MainActor in
-                    guard let window = NSApp.windows.first(where: { ObjectIdentifier($0) == windowIdentifier }) else {
+                    guard let window = NSApp.windows.first(where: {
+                        MainWindowBootstrapWindowPolicy.owns($0, objectIdentifier: windowIdentifier)
+                    }) else {
                         return
                     }
                     window.orderOut(nil)
@@ -1743,6 +1745,15 @@ private struct MainWindowBootstrapView: View {
             })
     }
 }
+
+enum MainWindowBootstrapWindowPolicy {
+    static let identifier = "cmux.bootstrap"
+
+    static func owns(_ window: NSWindow, objectIdentifier: ObjectIdentifier) -> Bool {
+        ObjectIdentifier(window) == objectIdentifier
+    }
+}
+
 private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
     "cmux.newMachine",
     "cmux.settings",
