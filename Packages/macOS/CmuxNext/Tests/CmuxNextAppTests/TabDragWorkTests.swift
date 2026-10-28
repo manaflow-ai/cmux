@@ -58,11 +58,10 @@ import Testing
         let window = try #require(f.controller.window)
         let source = try #require(drag.source.pane)
         let target = try #require(f.controller.content?.panes.values.first { $0 !== source }, "k0 has no second pane")
-        let body = target.view.convert(target.view.bounds, to: nil)
         let stripView = target.view.stripView
         let strip = stripView.convert(stripView.bounds, to: nil)
         let layout = session.adapters(for: f.controller, drag: drag).layout
-        let start = NSPoint(x: body.midX, y: body.midY)
+        let start = NSPoint(x: strip.midX, y: strip.midY)
         try #require(session.window(at: window.convertPoint(toScreen: start)) === f.controller,
                      "no window under the drag: \(f.geometry)")
 
@@ -107,8 +106,12 @@ import Testing
             return measured
         }
 
-        // Over the target pane: its body, then down into its bottom edge's split zone.
-        let panes = try sweep("panes") { t in NSPoint(x: body.midX, y: body.midY - t * body.height * 0.38) }
+        // Over the target pane: its middle, then down into its bottom edge's split zone, as the layout lays it out
+        // (a display-less host clamps the window, so the pane view's frame is not the layout's).
+        let layoutView = try #require(f.controller.content?.layoutView)
+        let screen = try #require(layoutView.model.activeScreenID.flatMap { layoutView.screenViews[$0] })
+        let cell = try #require(screen.geometry.panes[target.layoutPaneID], "the layout has no frame for the target pane")
+        let panes = try sweep("panes") { t in screen.convert(CGPoint(x: cell.midX, y: cell.midY + t * cell.height * 0.4), to: nil) }
         if case .newSplit = drag.outcome {} else { Issue.record("the bottom edge resolves to \(drag.outcome)") }
         // Along the target pane's strip: its gap follows.
         let gap = try sweep("strip") { t in NSPoint(x: strip.minX + 8 + t * (strip.width * 0.8), y: strip.midY) }
