@@ -36,6 +36,9 @@ public struct ConversationShortTimeCache {
     public mutating func removeAll() {
         texts.removeAll()
     }
+
+    /// The number of minutes kept.
+    var count: Int { texts.count }
 }
 
 /// The shared cache for the app's cells, emptied when the locale or the
@@ -43,7 +46,7 @@ public struct ConversationShortTimeCache {
 @MainActor
 // lint:allow namespace-type -- vendored CmuxConversation snapshot
 public enum ConversationShortTime {
-    private static var cache = ConversationShortTimeCache()
+    private(set) static var cache = ConversationShortTimeCache()
     private static var observers: [any NSObjectProtocol] = []
 
     /// `date`'s short time, as `date.formatted(date: .omitted, time: .shortened)`.
