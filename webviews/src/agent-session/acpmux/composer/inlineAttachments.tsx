@@ -1,11 +1,7 @@
-// The composer's side of attachments placed in the prompt's text (composer/inlineNode.ts): a
-// pasted or dropped image or file goes in at the caret and in the strip above the prompt (Leo, 2026-10-25:
-// "ALSO show the top displayed attachments alongside the inline attachments... just so you can see
-// it all and close aka delete"), and the two stay one list. Everything is by id: a node taken out of
-// the text (Backspace, a cut, a selection typed over) takes its attachment out of the strip, a × in
-// the strip takes its node out of the text, undo or a paste of the node brings the attachment back,
-// and the strip's drag (stripReorder.ts) moves the nodes. The strip lists the placed attachments in
-// the text's order.
+// Attachments in the prompt are ID-bound editor atoms. Paste/drop inserts their pending IDs
+// at the caret; resolution fills the same node. Deletion takes the payload out, undo restores it,
+// and moving a node preserves its place among text. Settings can draw these same payloads in the
+// strip instead, without rewriting the draft or its sent order.
 import { type ReactNode, type RefObject, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {

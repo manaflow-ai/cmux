@@ -1,8 +1,8 @@
 // Leo 2026-10-20: two images copied in Chrome and pasted into the composer showed as chips and also
 // full size in the field, as `![Screenshot · 778×696](data:image/png;base64,…)`; the prompt went out
 // with that text, the bubble showed pages of base64 and the chat's compaction failed. A pasted image
-// is an attachment chip only: the field gets nothing but plain text, a prompt's text never carries a
-// `data:` URI (it goes as an ACP image block), and a bubble never draws one.
+// is an attachment atom: only its thumbnail is rendered, its data never becomes prompt text
+// (it goes as an ACP image block), and a bubble never draws the data URI as text.
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act, createRef, type RefObject } from "react";
@@ -390,7 +390,7 @@ test("an image copied as HTML into a plain text field comes in as a chip and the
   expect(held.map((chip) => chip.kind)).toEqual(["image"]);
 });
 
-test("a prompt copied from a bubble with `![…](data:…)` text pastes as a chip and its text, nothing inline", async () => {
+test("a prompt copied from a bubble with `![…](data:…)` text pastes as an attachment atom beside its text", async () => {
   const composer = await openComposer();
   await paste({ plain: `![Screenshot · 778×696](${dataUri} "Screenshot · 778×696")what the heck` });
   expect((composer.current!.wakeState().attachments ?? []).map((chip) => chip.kind)).toEqual(["image"]);
