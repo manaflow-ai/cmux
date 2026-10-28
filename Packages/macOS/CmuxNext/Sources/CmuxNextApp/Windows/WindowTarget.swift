@@ -24,7 +24,12 @@ extension WindowManager {
     func dispatching<T>(eventFrom window: NSWindow?, _ body: () throws -> T) rethrows -> T {
         let previous = eventOrigin
         defer { eventOrigin = previous }
-        if let window, let controller = owner(of: window) { eventOrigin = EventOrigin(controller: controller) }
+        if let window, let controller = owner(of: window) {
+            eventOrigin = EventOrigin(controller: controller)
+            // The person's key or click is in this window: it is the app's most recently active window from now,
+            // also when it never becomes key (the app in the background, a capture slot). One compare per event.
+            if lastActive !== controller || registry.value.recency.first != controller.state.id { didActivate(controller) }
+        }
         return try body()
     }
 
@@ -73,8 +78,9 @@ extension WindowManager {
     }
 
     /// The window of code that runs with no input of its own (a timer, an observation, a page's
-    /// message): the window of the action run it belongs to, else the event in dispatch, else the
-    /// window the person used last, else the front one. Never the key window read at a later time.
+    /// message, a script or socket command with no window): the window of the action run it belongs to,
+    /// else the event in dispatch, else the app's most recently active window from its own window order
+    /// (also with no key window). Never the key window read at a later time.
     /// A task started in a run keeps the run's window while that window is open (`isTargetable`);
     /// long-lived work (a service loop, an observation) must not start inside a run's scope.
     func ambientTarget() -> WindowTarget? {
@@ -83,11 +89,13 @@ extension WindowManager {
         }
         if let id = runWindow(), isTargetable(id) { return WindowTarget(id: id, source: .named) }
         if let origin = eventOriginWindow { return WindowTarget(id: origin.state.id, source: .event) }
-        if let lastActive, controllers.contains(where: { $0 === lastActive }) {
-            return WindowTarget(id: lastActive.state.id, source: .lastPersonActive)
-        }
+        // The app's most recently active window from its own window order (Chrome's last active browser
+        // window): every key change, order-in and person's key or click updates it. Never the key window read now.
         if let front = registry.value.recency.lazy.compactMap({ self.controller(for: $0) }).first(where: { $0.window != nil }) {
-            return WindowTarget(id: front.state.id, source: .front)
+            return WindowTarget(id: front.state.id, source: .lastPersonActive)
+        }
+        if let lastActive, controllers.contains(where: { $0 === lastActive }) {
+            return WindowTarget(id: lastActive.state.id, source: .front)
         }
         if let launch = launchWindowID, awaitsRestore(launch) { return WindowTarget(id: launch, source: .launch) }
         // An unregistered window (the launch window between its build and its registration): the newest.

@@ -48,7 +48,9 @@ import Testing
         #expect(windows.active === harness.b, "outside an event the window the person used last decides")
         let during = windows.dispatching(eventFrom: shellA) { windows.active }
         #expect(during === harness.a, "a click in window A ran its action in window \(during === harness.b ? "B" : "?")")
-        #expect(windows.active === harness.b, "the event's scope ends with its dispatch")
+        // The click was the person's: window A is the app's most recently active window from now (its own order),
+        // whatever window AppKit still names key.
+        #expect(windows.active === harness.a, "after a click in window A the app still acts in window B")
     }
 
     /// An action the event runs that makes another window key on purpose (New Window, Select Next

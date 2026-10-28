@@ -22,10 +22,11 @@ public nonisolated struct WindowTarget: Hashable, Sendable {
         case keyWindowAtEntry
         /// The window that owns the run's target object (its workspace or tab).
         case targetOwner
-        /// The window the person used last, recorded by that window when it (or a window it owns)
-        /// became key (`WindowManager.didActivate(_:)`); never the key window read later.
+        /// The app's most recently active window, from its own window order (the registry's recency: every
+        /// key change, order-in and person's key or click updates it); never the key window read later.
         case lastPersonActive
-        /// The front open window in the registry's recency (the person's last window was closed).
+        /// The window that last became key, when the order lists no open window (a launch window not
+        /// registered yet).
         case front
         /// The launch window before the restore registered it (it shows the connecting state).
         case launch

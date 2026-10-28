@@ -310,6 +310,8 @@ enum DebugKey {
         }
         window.orderFrontRegardless()
         window.makeKey()
+        // As `WindowActivation.show` does: the app's window order follows (a capture slot's window never becomes key).
+        services.windows.windowDidOrder(window, inFront: true)
         let windowID = { (window: NSWindow?) -> JSONValue in
             services.windows.controllers.first { $0.window === window }.map { .string($0.state.id) } ?? .null
         }
