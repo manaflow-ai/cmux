@@ -160,7 +160,13 @@ test("the omnibar's editing keys stay the field's", async () => {
   ];
   for (const [key, modifiers] of editing) {
     const event = await press(field, key, modifiers);
-    expect({ key, modifiers, taken: event.defaultPrevented }).toEqual({ key, modifiers, taken: false });
+    // MarkdownField owns Select All in its ProseMirror keymap; browser-native editing keys
+    // continue through without the New Tab's suggestion handler taking them.
+    expect({ key, modifiers, taken: event.defaultPrevented }).toEqual({
+      key,
+      modifiers,
+      taken: key === "a" && modifiers.ctrlKey === true,
+    });
   }
   expect(selected()).toBe(0);
 });
