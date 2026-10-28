@@ -97,6 +97,13 @@ import {
   runComposerPlusAction,
   type ComposerPlusExtension,
 } from "./composerPlusRegistry";
+import {
+  composerPlusContextEntries,
+  insertContextSession,
+  recentComposerSessions,
+  type ComposerPlusContextItem,
+  type ComposerPlusContextSelection,
+} from "./composerPlusContext";
 import { openPicker } from "./pickerOpeners";
 
 /// Composer copy. English defaults until the host passes localized labels, as the rest of the pane does today.
@@ -276,6 +283,10 @@ type Props = {
   searchFiles?: FileSearchSource;
   /// Live tools, chats and tabs from the existing command-palette registry.
   plusExtensions?: readonly ComposerPlusExtension[];
+  /** Recent chats and native-issued tabs/panes shown as actual context rows in the + menu. */
+  plusContextItems?: readonly ComposerPlusContextItem[];
+  /** Resolves a chosen native tab/pane after revalidation; never infer from focused tab. */
+  onPlusContextPick?(selection: ComposerPlusContextSelection): void | Promise<void>;
   /// Runs a host-provided command-palette action from the + menu.
   onPlusCommand?(id: string): void;
   onPlusOpen?(): void;
@@ -374,6 +385,8 @@ export function Composer({
   searchFiles,
   capture,
   plusExtensions,
+  plusContextItems,
+  onPlusContextPick,
   onPlusCommand,
   onPlusOpen,
   upload,
@@ -854,6 +867,14 @@ export function Composer({
   }
   if (currentModeId && !/(^|[-_])plan$/i.test(currentModeId)) lastMode.current.mode = currentModeId;
   const planning = plan?.id === currentModeId;
+  const chatId = snapshot.summary?.sessionId;
+  const liveContextItems = useMemo(
+    () => [...recentComposerSessions(snapshot.sessions, chatId), ...(plusContextItems ?? [])],
+    [snapshot.sessions, chatId, plusContextItems],
+  );
+  const contextEntries = useMemo(() => composerPlusContextEntries(liveContextItems), [liveContextItems]);
+  const contextById = useMemo(() => new Map(liveContextItems.map((item) => [item.id, item])), [liveContextItems]);
+
   const planChoice: Choice | undefined =
     plan && onMode
       ? {
@@ -871,7 +892,6 @@ export function Composer({
   useEffect(() => setActive(0), [query]);
   // Typing @ at a word start lists other chats, then the chat's folders and files that match what
   // follows (cx-ncc.68, mentionItems.ts).
-  const chatId = snapshot.summary?.sessionId;
   const otherChats = useMemo(() => hasOtherChats(snapshot.sessions, chatId), [snapshot.sessions, chatId]);
   const mentionTyped =
     !open && !recalling && (searchFiles || otherChats) && mentionDismissed !== text
@@ -1896,7 +1916,7 @@ export function Composer({
                     composerPlusRegistry({
                       commands,
                       translate: t,
-                      extensions: plusExtensions,
+                      extensions: [...(plusExtensions ?? []), ...contextEntries],
                       canCapture: Boolean(capture && allowImages),
                       canChooseProject: locationVisible && Boolean(projectChoices || onBrowseProject),
                       ...(planChoice && plan
@@ -1958,6 +1978,23 @@ export function Composer({
                           onPick: (id: string) => {
                             const entry = entries.find((row) => row.id === id);
                             if (!entry) return;
+                            if (entry.action.kind === "context") {
+                              const context = contextById.get(entry.action.itemId);
+                              if (!context) return "keep";
+                              if (context.selection.kind === "session") {
+                                const inserted = insertContextSession(
+                                  field.current?.value() ?? text,
+                                  caret,
+                                  context.name,
+                                  context.selection.sessionId,
+                                );
+                                pendingCaret.current = inserted.caret;
+                                edit(inserted.text, inserted.caret);
+                                field.current?.focus();
+                                return;
+                              }
+                              return onPlusContextPick?.(context.selection);
+                            }
                             const handled = runComposerPlusAction(entry.action, {
                               command: (action, modeId) => {
                                 if (action === "composer.attachFiles") chooser.current?.click();

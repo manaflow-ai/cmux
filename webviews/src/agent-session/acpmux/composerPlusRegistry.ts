@@ -13,6 +13,7 @@ export type ComposerPlusSection = (typeof COMPOSER_PLUS_SECTIONS)[number];
 
 export type ComposerPlusAction =
   | { kind: "command"; id: string; modeId?: string }
+  | { kind: "context"; itemId: string }
   | { kind: "slash"; command: SlashCommand };
 
 export type ComposerPlusEntry = {
@@ -231,6 +232,7 @@ export function runComposerPlusAction(
     handlers.slash(action.command);
     return true;
   }
+  if (action.kind === "context") return false;
   if (Object.values(COMMANDS).includes(action.id as (typeof COMMANDS)[keyof typeof COMMANDS])) {
     handlers.command(action.id, action.modeId);
     return true;
