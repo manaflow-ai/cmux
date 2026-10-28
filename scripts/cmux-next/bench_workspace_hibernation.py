@@ -118,8 +118,11 @@ def wake(app: bm.App, sock: str, entry: dict, port: int) -> dict:
     before = surfaces(sock).get("hibernation") or {}
     restored = before.get("restored_total") or 0
     asleep = entry["page"] in (before.get("hibernated") or [])
-    started = time.monotonic()
     app.action("goToWorkspace", workspace=entry["workspace"])
+    # The workspace shows the tab it showed last; the page is timed from its own show (its pane may
+    # show the terminal, which the terminal timing below covers).
+    started = time.monotonic()
+    app.run("tab.focus", target=entry["page"])
     # A page that stayed awake has nothing to restore: waiting for a restore would time the wait, not the wake.
     mounted = wait_for(lambda: ((surfaces(sock).get("hibernation") or {}).get("restored_total") or 0) > restored and time.monotonic(), 15) if asleep else None
     usable, got = None, {}
