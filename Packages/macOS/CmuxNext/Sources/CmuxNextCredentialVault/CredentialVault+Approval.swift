@@ -62,7 +62,7 @@ extension CredentialVault {
 
     /// A program name as an approval sheet shows it: ASCII letters, digits and `-_.+@`, at most 40,
     /// so a caller cannot put words, spacing or direction marks on the sheet.
-    static func displayProgram(_ raw: String) -> String? {
+    nonisolated static func displayProgram(_ raw: String) -> String? {
         let kept = commandSummary(raw).unicodeScalars.filter {
             ($0.isASCII && CharacterSet.alphanumerics.contains($0)) || "-_.+@".unicodeScalars.contains($0)
         }
