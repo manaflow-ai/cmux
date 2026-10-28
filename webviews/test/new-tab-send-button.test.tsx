@@ -93,3 +93,41 @@ test("a click on the field's Send button asks the agent, as Return does", async 
   // On the model the chip names (cx-sljrg).
   expect(asked).toEqual([["claude", "fix the flaky upload test", "/Users/you/src/app", "claude-opus-5-5"]]);
 });
+
+test("New Tab /import opens the transcript flow and never sends the slash token as a prompt", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
+  const asked: unknown[][] = [];
+  const imported: File[] = [];
+  root = createRoot(host);
+  await act(async () =>
+    root!.render(
+      <NewTabScreen
+        snapshot={noChat()}
+        lastAgent="claude"
+        cwd="/Users/you/src/app"
+        onAsk={(...args) => asked.push(args)}
+        onImportFile={(file) => imported.push(file)}
+        onOpen={noop}
+        onSearch={noop}
+        onShell={noop}
+        onJump={noop}
+        onOpenSession={noop}
+        onShowAll={noop}
+      />,
+    ),
+  );
+  const field = host.querySelector<HTMLTextAreaElement>(".nt-field")!;
+  const setValue = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field), "value")!.set!;
+  await act(async () => {
+    setValue.call(field, "/import");
+    field.dispatchEvent(new window.Event("input", { bubbles: true }));
+  });
+  await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Send"]')!.click());
+  expect(asked).toEqual([]);
+  const input = host.querySelector<HTMLInputElement>('input[aria-label="/import"]')!;
+  const file = new window.File(["{}"], "transcript.json", { type: "application/json" });
+  Object.defineProperty(input, "files", { configurable: true, value: [file] });
+  await act(async () => input.dispatchEvent(new window.Event("change", { bubbles: true })));
+  expect(imported).toEqual([file]);
+});

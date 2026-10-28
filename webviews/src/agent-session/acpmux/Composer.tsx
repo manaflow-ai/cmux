@@ -40,7 +40,7 @@ import type { ContextMenuItem } from "../../ui/ContextMenu";
 import { openChipMenu } from "./composerChipMenu";
 import type { Choice } from "./ComposerPickers";
 import type { FileSearchSource } from "./fileSearchModel";
-import { commandArgs, type CmuxCommand } from "./cmuxCommands";
+import { commandArgs, type CmuxCommand, type CmuxCommandResult } from "./cmuxCommands";
 import { cliOnlyCommand } from "./cliOnlyCommands";
 import {
   applyCommand,
@@ -218,7 +218,7 @@ type Props = {
   onEdit?(command: ComposerEditCommand): void;
   /// Handles a cmux-owned slash command after the user submits it. False keeps the prompt; a
   /// promise keeps it until it settles, clearing it only when it resolves.
-  onCmuxCommand?(command: CmuxCommand, args?: string): boolean | void | Promise<unknown>;
+  onCmuxCommand?(command: CmuxCommand, args?: string): CmuxCommandResult;
   /// The empty prompt's text in place of the usual one (a side session's "Reply in this session…").
   placeholder?: string;
   /// A new chat's typed text, before it has a session (acpmux keeps a session's draft): the host
@@ -888,6 +888,10 @@ export function Composer({
         return false;
       } else {
         const accepted = onCmuxCommand(owned, commandArgs(prompt, owned));
+        if (typeof accepted === "string") {
+          setAttachError(accepted);
+          return false;
+        }
         if (accepted === false) return false;
         if (accepted instanceof Promise) {
           // The prompt stays until the command is done; a refusal leaves it to send again.

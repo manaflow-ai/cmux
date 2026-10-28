@@ -7,6 +7,9 @@ export type CmuxCommand = SlashCommand & {
   descriptionKey?: NonNullable<SlashCommand["descriptionKey"]>;
 };
 
+/** A command handler may return a user-facing refusal while keeping the draft in the field. */
+export type CmuxCommandResult = boolean | void | string | Promise<unknown>;
+
 export const CMUX_COMMANDS: readonly CmuxCommand[] = [
   {
     name: "import",
