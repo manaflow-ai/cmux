@@ -6786,7 +6786,7 @@ function AcpmuxPane() {
     if (forkable && forkSeq !== undefined) enabledCmuxActions.add("fork");
     if (continueAvailable) enabledCmuxActions.add("continue");
     // Reserve /btw even with the kill switch off: it must never become a steer or queued prompt.
-    if (snapshot.sessionId && !isSideSession) enabledCmuxActions.add("btw");
+    if (snapshot.sessionId && !isSideSession && !quick) enabledCmuxActions.add("btw");
     const withCommands = { ...snapshot, commands: mergedCommands(snapshot.commands, enabledCmuxActions) };
     // Prompts still waiting for a new chat to take them follow acpmux's queue.
     if (startingRows.length)

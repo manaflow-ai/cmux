@@ -6496,7 +6496,7 @@ export class AcpmuxDirectClient {
   /// (its gesture rule), and its reply's session joins the scope, so the host may open it beside
   /// the chat (`chat.sideChat`).
   async btw(question: string, sessionId = this.actingSessionId): Promise<string> {
-    if (!sessionId) throw new Error(translate("error.notOpen"));
+    if (!sessionId || sessionId !== this.actingSessionId) throw new Error(translate("error.notOpen"));
     const result = await this.request(SIDE_SESSION_METHOD, { sessionId, question });
     // No id: the caller says the side session did not start, without a reason it does not have.
     if (typeof result?.sessionId !== "string" || !result.sessionId) throw new Error("");

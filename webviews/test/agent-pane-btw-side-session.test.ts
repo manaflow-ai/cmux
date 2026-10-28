@@ -103,7 +103,12 @@ await requireBrowserLane("agent-pane-btw-side-session.test.ts", async () => {
   function answer(method: string, params: Record<string, any>): { result?: unknown; error?: unknown } {
     switch (method) {
       case "initialize":
-        return { result: { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [] } } } };
+        return {
+          result: {
+            protocolVersion: 1,
+            _meta: { acpmux: { origin: "local", extensions: [], capabilities: ["btw-inline-v1"] } },
+          },
+        };
       case "_acpmux/watch":
         return { result: { sessions: [main, side] } };
       case "_acpmux/attach":
