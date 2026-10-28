@@ -30,6 +30,7 @@ pub(super) async fn agent_prompt_hook<F: FnOnce()>(
     params: Value,
     turn_id: &str,
     steer: bool,
+    fence: Option<&crate::agent::Fence>,
     on_sent: F,
 ) -> Result<Value, RpcError> {
     let mut ended = session.steer_end.subscribe();
@@ -40,7 +41,7 @@ pub(super) async fn agent_prompt_hook<F: FnOnce()>(
     {
         return Ok(answer);
     }
-    let request = child.request_with_hook(method::SESSION_PROMPT, params, None, on_sent);
+    let request = child.request_with_hook(method::SESSION_PROMPT, params, fence, on_sent);
     tokio::pin!(request);
     loop {
         tokio::select! {
@@ -85,12 +86,12 @@ impl Hub {
         let cancels = session.cancels.load(std::sync::atomic::Ordering::SeqCst);
         let prompt_id = opts.prompt_id.unwrap_or_default();
         self.check_steer(session, control, opts.full_access_device.as_deref())?;
+        // A running turn has a live agent.
+        let child = self.child_for(session).await?;
         // A family message is checked again here, as a dispatched one is, and the gate held
         // until it is written: it was checked before an MDM off push may have come
         // (`family_gate`).
         let family_gate = self.family_gate(session, opts.provenance.as_ref()).await?;
-        // A running turn has a live agent.
-        let child = self.child_for(session).await?;
         let agent_sid = session
             .meta()
             .agent_session_id
@@ -132,8 +133,11 @@ impl Hub {
         }
         // Counted in the turn before the agent can read it (`lane_reports.rs`).
         let count = self.lane_steer_in(session, opts.provenance.as_ref());
+        let fence = family_gate.map(|hold| self.hold_until_written(session, hold));
+        // A fence no writer took is cut (review 86 of #23322).
+        let _unsent = crate::agent::CutOnDrop(fence.as_ref());
         let answer =
-            agent_prompt_hook(session, &child, params, turn_id, true, || drop(family_gate)).await;
+            agent_prompt_hook(session, &child, params, turn_id, true, fence.as_ref(), || {}).await;
         session
             .steer_now
             .lock()

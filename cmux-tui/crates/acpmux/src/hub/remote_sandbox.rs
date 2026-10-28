@@ -680,6 +680,31 @@ fn linux_credential_file(home: &Path) -> Result<Option<String>, String> {
     Ok(Some(token.to_owned()))
 }
 
+/// A remote chain's Claude command line at the VM boundary
+/// (`vm_boundary.rs`): everything the sandboxed one gets except the platform
+/// sandbox. Its own settings (every acting tool asks, the API route pinned),
+/// no MCP servers, the refused argv and env refused, and `REFUSED_ENV` unset.
+fn boundary_plan(
+    profile: &HarnessProfile,
+    plan: crate::claude_stdio::SpawnPlan,
+) -> Result<crate::claude_stdio::SpawnPlan, String> {
+    let user_settings = dirs::home_dir().and_then(|home| user_settings_endpoint(&home));
+    let endpoint = endpoint(
+        profile.env.get("ANTHROPIC_BASE_URL").map(String::as_str),
+        user_settings.as_deref(),
+        remote_login_value("ANTHROPIC_BASE_URL").as_deref(),
+    );
+    let args = claude_args(endpoint.as_ref(), profile, plan.args)?;
+    let mut out = Vec::with_capacity(args.len() + 2 * REFUSED_ENV.len() + 1);
+    for k in REFUSED_ENV {
+        out.push("-u".into());
+        out.push((*k).into());
+    }
+    out.push(plan.program);
+    out.extend(args);
+    Ok(crate::claude_stdio::SpawnPlan { program: "/usr/bin/env".into(), args: out })
+}
+
 /// The remote chain's Claude command line: its own settings and no MCP
 /// servers, then the whole command inside `exec` with the profile and this
 /// spawn's `TMPDIR`. Refuses a profile argv or env that already shapes them.
@@ -690,7 +715,7 @@ pub(super) fn wrap(
     program: String,
     args: Vec<String>,
 ) -> Result<(String, Vec<String>), String> {
-    let args = claude_args(bound, profile, args)?;
+    let args = claude_args(bound.endpoint.as_ref(), profile, args)?;
     let mut out = bound.sandbox_args();
     out.push("/usr/bin/env".into());
     for k in REFUSED_ENV {
@@ -705,7 +730,7 @@ pub(super) fn wrap(
 }
 
 fn claude_args(
-    bound: &Bound,
+    endpoint: Option<&Endpoint>,
     profile: &HarnessProfile,
     mut args: Vec<String>,
 ) -> Result<Vec<String>, String> {
@@ -723,8 +748,8 @@ fn claude_args(
         return Err(format!("a remote chain never runs Claude Code with {bad} set"));
     }
     args.push("--settings".into());
-    args.push(claude_settings(bound.endpoint.as_ref().map(|e| e.url.as_str())));
-    if bound.endpoint.as_ref().is_some_and(|e| e.own) {
+    args.push(claude_settings(endpoint.map(|e| e.url.as_str())));
+    if endpoint.is_some_and(|e| e.own) {
         args.push("--setting-sources".into());
         args.push("project,local".into());
     }
@@ -799,7 +824,7 @@ fn linux_wrap(
     program: String,
     args: Vec<String>,
 ) -> Result<(String, Vec<String>), String> {
-    linux_keeper_args(bound, program, claude_args(bound, profile, args)?)
+    linux_keeper_args(bound, program, claude_args(bound.endpoint.as_ref(), profile, args)?)
 }
 
 /// The canary's shell: $1 a file outside the allowed folders, $2 a 127.0.0.1
@@ -913,7 +938,7 @@ fn canary_persistence_probe(cwd: &Path, linux: bool) -> Result<Option<Persistenc
     #[cfg(not(target_os = "linux"))]
     {
         let _ = probe;
-        return Ok(None);
+        Ok(None)
     }
     #[cfg(target_os = "linux")]
     let text = std::ffi::CString::new(probe.as_os_str().as_encoded_bytes())
@@ -1251,15 +1276,24 @@ impl Hub {
             profile.env.insert(key.into(), value);
         }
         // Whatever supplied the plan (including `sr claude proxy`), the
-        // inner program is frozen before either a VM or Seatbelt runs it.
+        // inner program is frozen before the sandbox runs it.
         plan.program = super::resolve::remote_executable(&plan.program)?;
         super::resolve::refuse_remote_cwd_executable(&plan.program, &session.meta().cwd)?;
-        // A dedicated agent VM (`vmHost`, off macOS): the VM is the sandbox.
-        // Bypass mode stays off (above); the session's permission policy
-        // answers Claude's prompts.
-        let vm_host = self.vm_host().await;
-        if vm_host_unsandboxed(vm_host, cfg!(target_os = "macos")) {
-            self.append(session, "mux", "remote_sandbox", json!({"vmHost": true}));
+        // Every host sandboxes, a Cloud VM included: nothing on the machine (its
+        // `/etc/cmux/vm-kind`, `/srv/team`, config.json's `vmHost`) skips the probe
+        // and canary below, since the agent can write all of them (`vm_host.rs`).
+        // Only the caller's own opt-out for this session does (`vm_boundary.rs`).
+        // Bypass mode stays off (above); the session's policy answers Claude's prompts.
+        if self.vm_boundary_unsandboxed(&session.meta()).await {
+            let plan = boundary_plan(&profile, plan).map_err(|why| {
+                self.append(session, "mux", "remote_sandbox", json!({"refused": why}));
+                refused(why)
+            })?;
+            profile.env.insert("CLAUDE_CODE_SUBPROCESS_ENV_SCRUB".into(), "1".into());
+            self.append(session, "mux", "remote_sandbox", json!({"vmBoundary": true}));
+            // Unsandboxed on purpose: Web control stays refused (`remote_floor.rs`), as for
+            // any agent no canary proved (`hosts.rs` reads it back the same way).
+            session.floor.unsandboxed.store(true, Ordering::SeqCst);
             return Ok((plan, std::borrow::Cow::Owned(profile)));
         }
         let (program, args) =
@@ -1346,30 +1380,8 @@ impl Hub {
     }
 }
 
-/// Whether a remote chain's Claude Code runs without the Seatbelt sandbox:
-/// only on a `vmHost` machine that is not a Mac (a dedicated agent VM, where
-/// the VM boundary is the sandbox). A Mac always sandboxes.
-pub(crate) fn vm_host_unsandboxed(vm_host: bool, macos: bool) -> bool {
-    vm_host && !macos
-}
-
-/// Whether a new session with no asked policy runs approve-all: only on a
-/// `vmHost` machine that is not a Mac, only for the owner's peer daemon
-/// (`Origin::Peer`, proven by the peer token over ssh), and only while
-/// MDM leaves approve-all allowed (`Hub::approve_all_allowed`); a Web client never.
-pub fn vm_host_peer_approves(
-    vm_host: bool,
-    macos: bool,
-    from_peer: bool,
-    approve_all_allowed: bool,
-) -> bool {
-    vm_host_unsandboxed(vm_host, macos) && from_peer && approve_all_allowed
-}
-
 #[cfg(test)]
 mod vm_host_tests {
-    use super::{vm_host_peer_approves, vm_host_unsandboxed};
-
     #[test]
     fn a_nested_agent_parent_credential_never_becomes_remote_login() {
         assert_eq!(
@@ -1396,26 +1408,6 @@ mod vm_host_tests {
             ),
             Some("http://synthetic-login.invalid".into())
         );
-    }
-
-    #[test]
-    fn only_the_owner_peer_on_a_vm_host_gets_approve_all() {
-        assert!(vm_host_peer_approves(true, false, true, true));
-        assert!(!vm_host_peer_approves(true, false, false, true), "a Web client still asks");
-        assert!(!vm_host_peer_approves(true, true, true, true), "never on a Mac");
-        assert!(!vm_host_peer_approves(false, false, true, true), "off by default");
-        assert!(
-            !vm_host_peer_approves(true, false, true, false),
-            "never while MDM forces full access off"
-        );
-    }
-
-    #[test]
-    fn only_a_vm_host_off_macos_runs_remote_claude_unsandboxed() {
-        assert!(vm_host_unsandboxed(true, false));
-        assert!(!vm_host_unsandboxed(true, true), "a Mac always sandboxes");
-        assert!(!vm_host_unsandboxed(false, false), "off by default");
-        assert!(!vm_host_unsandboxed(false, true));
     }
 }
 
@@ -1460,7 +1452,11 @@ mod endpoint_tests {
     fn linux_refuses_loader_profile_env() {
         for key in LOADER_KEYS.split_whitespace() {
             let p = profile(&["claude"], &[(key, "injected")]);
-            assert_eq!(claude_args(&bound(None), &p, vec![]).is_err(), key != "TMPDIR", "{key}");
+            assert_eq!(
+                claude_args(bound(None).endpoint.as_ref(), &p, vec![]).is_err(),
+                key != "TMPDIR",
+                "{key}"
+            );
             assert!(loader_env_key(key), "{key} must be scrubbed");
         }
     }

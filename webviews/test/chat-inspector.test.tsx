@@ -188,7 +188,7 @@ const head = (element: HTMLElement) => element.querySelector<HTMLElement>("butto
 const click = (element: HTMLElement) => act(async () => element.click());
 
 test("the Inspector starts right under the header: no row for a machine and folder label", () => {
-  expect(inspectorTopOffset(0)).toBe("var(--acpmux-header-height, 44px)");
+  expect(inspectorTopOffset(0)).toBe("var(--acpmux-header-height, 28px)");
   expect(inspectorTopOffset(28)).toBe("28px");
 });
 
@@ -204,13 +204,12 @@ test("the Inspector opens with a first chat: its environment, context use and ou
   // subagents) are left out.
   expect(sectionIds(container)).toEqual(["environment", "context", "outputs"]);
 
-  // Environment: this Mac by its name, never "This computer"; the folder with its parent
-  // home-abbreviated and its full path on hover; the branch.
+  // Environment: this Mac by its name, never "This computer"; the project by its name, its full path
+  // only on hover; the branch.
   const rows = [...section(container, "environment")!.querySelectorAll<HTMLElement>(".acpmux-chat-inspector-row")];
   expect(rows[0]!.textContent).toBe("Studio");
   expect(rows[0]!.dataset.machine).toBe("local");
-  expect(rows[1]!.textContent).toContain("atlas-web");
-  expect(rows[1]!.textContent).toContain("~/src");
+  expect(rows[1]!.textContent).toBe("atlas-web");
   expect(rows[1]!.getAttribute("title")).toBe(CWD);
   expect(rows.map((row) => row.textContent)).toContain("main");
 
