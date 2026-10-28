@@ -491,9 +491,9 @@ impl Hub {
                         self.peer_snapshots.listed(&peer, listed.collect(), true);
                         (changed, old.into_values().collect::<Vec<_>>())
                     };
-                    if !changed.is_empty() || !gone.is_empty() {
-                        self.save_peer_cache(&peer, generation, true);
-                    }
+                    // A notice before this list may have changed a row while its
+                    // cache save was throttled. A full list also persists that change.
+                    self.save_peer_cache(&peer, generation, true);
                     for summary in changed {
                         self.announce_remote(&peer, summary, "status");
                     }

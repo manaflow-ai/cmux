@@ -43,7 +43,7 @@ async fn short_peer_flap_keeps_rows_and_emits_no_status_events() {
 
 #[tokio::test(start_paused = true)]
 async fn persistent_drop_marks_only_live_rows_and_retries_do_not_extend_grace() {
-    let (hub, peer, _) = fixture();
+    let (hub, peer, rows) = fixture();
     let mut events = hub.events.subscribe();
     send(&hub, &peer, PeerNotice::Disconnected("reset".into())).await;
     tokio::time::advance(Duration::from_secs(6)).await;
@@ -54,6 +54,13 @@ async fn persistent_drop_marks_only_live_rows_and_retries_do_not_extend_grace() 
     assert_eq!(hub.resolve_remote("done").unwrap().2["status"], "closed");
     assert_eq!(events.try_recv().unwrap().session_id, "live");
     assert!(events.try_recv().is_err(), "closed rows must never be announced on a drop");
+    hub.peer_notices
+        .send((peer.name.clone(), peer.generation, PeerNotice::Sessions(rows)))
+        .await
+        .unwrap();
+    send(&hub, &peer, PeerNotice::Connected).await;
+    assert_eq!(events.try_recv().unwrap().session_id, "live");
+    assert!(events.try_recv().is_err(), "only the live row changed on reconnect");
 }
 
 #[tokio::test(start_paused = true)]
