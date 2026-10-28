@@ -178,13 +178,21 @@ impl Hub {
         self.append(session, "mux", "transfer_out", json!({"transferId": transfer_id}));
         let dir = transfers_dir().join(&transfer_id);
         let made = self.export(session, &dir).and_then(|bundle| Ok(bundle_files(&bundle)?));
+        // A prompt that waits for the owner moves to no daemon: an older one would run it
+        // unapproved (`queue_approve.rs`). Read once the bundle is made, so none queued before it
+        // was is missed; the move refuses new ones from `transfer_out` on.
+        let held = self.held_prompts(session);
         drop(guard);
-        let files = match made {
-            Ok(files) => files,
-            Err(e) => {
+        let files = match (made, held) {
+            (Ok(files), Ok(())) => files,
+            (made, held) => {
                 let _ = std::fs::remove_dir_all(&dir);
                 self.append(session, "mux", "transfer_aborted", json!({"transferId": transfer_id}));
-                return Err(unfreeze(RpcError::internal(format!("transfer: bundle: {e}"))));
+                let e = held.err().unwrap_or_else(|| {
+                    let e = made.err().map(|e| e.to_string()).unwrap_or_default();
+                    RpcError::internal(format!("transfer: bundle: {e}"))
+                });
+                return Err(unfreeze(e));
             }
         };
         if let Some(socket) = to {

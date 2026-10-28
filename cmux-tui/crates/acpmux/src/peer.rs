@@ -20,6 +20,9 @@ use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 mod health;
 
 #[cfg(test)]
+#[path = "peer_features_tests.rs"]
+mod features_tests;
+#[cfg(test)]
 #[path = "peer_state_tests.rs"]
 mod state_tests;
 
@@ -463,6 +466,7 @@ impl Peer {
 
     /// A connection to the peer ended: what the peer kept for it is gone.
     pub(crate) fn link_ended(&self) {
+        self.features.lock_or_recover().clear();
         self.link_epoch.fetch_add(1, Ordering::SeqCst);
     }
 
@@ -477,6 +481,14 @@ impl Peer {
     /// holds a prompt for the owner (`author::QUEUE_APPROVAL_FEATURE`).
     pub fn lists(&self, feature: &str) -> bool {
         self.features.lock_or_recover().iter().any(|f| f == feature)
+    }
+
+    /// The link that listed `feature` (`lists`), for a request that may go only to a peer that
+    /// listed it: sent on that link (`request_on`), it never reaches a reconnected one. The epoch
+    /// is read first and a link's end clears the list first (`link_ended`).
+    pub fn lists_on(&self, feature: &str) -> Option<u64> {
+        let epoch = self.link_epoch();
+        self.lists(feature).then_some(epoch)
     }
 
     /// The WebSocket is open and the handshake has not finished.
