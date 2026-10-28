@@ -505,8 +505,9 @@ def launch(bundle: str, config: dict, extra_env: dict | None = None, direct: boo
     if direct:
         env.setdefault("CMUX_NEXT_TEST_WINDOW_FRAME", "40,40,1400,900")
         with open(log_path, "a") as log:
-            subprocess.Popen([binary], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL, start_new_session=True)
+            child = subprocess.Popen([binary], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL, start_new_session=True)
     else:
+        child = None
         argv = ["open", "-n", "-g"] + [arg for name, value in env.items() for arg in ("--env", f"{name}={value}")]
         subprocess.run(argv + ["-a", bundle], check=True, timeout=60)
     try:
@@ -523,8 +524,15 @@ def launch(bundle: str, config: dict, extra_env: dict | None = None, direct: boo
             time.sleep(1)  # test script: waiting for the launched app's socket
         state = os.path.join(home, ".local", "state", "cmux")
         seen = sorted(os.listdir(state)) if os.path.isdir(state) else []
+        # A direct child that ended says how (its exit status, or the signal that ended it).
+        ended = ""
+        if child is not None and child.poll() is not None:
+            code = child.returncode
+            ended = f"; the app process {child.pid} ended with {'signal ' + str(-code) if code < 0 else 'exit status ' + str(code)}"
+        elif child is not None:
+            ended = f"; the app process {child.pid} still runs, as {next((cmd for p, _, cmd in process_table() if p == child.pid), '?')[:200]!r}"
         raise SystemExit(f"bench-memory: the launched app opened no socket within 90 s "
-                         f"(app pid {pid or 'none: it did not start'}; {state}: {seen}; "
+                         f"(app pid {pid or 'none: it did not start'}{ended}; {state}: {seen}; "
                          f"launch {'direct' if direct else 'open'})" + tail(log_path) + exception_records(home))
     except BaseException:
         end_bundle(bundle)
