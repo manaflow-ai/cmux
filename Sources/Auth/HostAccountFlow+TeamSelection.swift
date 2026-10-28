@@ -30,6 +30,7 @@ extension HostAccountFlow {
                 self.teamObservationRevision &+= 1
                 self.syncReceivedInvitationsPolling()
                 self.syncAnalytics()
+                self.refreshBillingPlanAfterTeamChange()
                 self.observeCoordinator()
             }
         }

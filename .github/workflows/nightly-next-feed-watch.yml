@@ -5,7 +5,7 @@ name: nightly-next feed watch
 # nightly-next push runs, so a stall before promotion (a red Release compile,
 # an unpublished cmux-tui tree) never raised it. A schedule runs only from the
 # default branch, so this lives on main. Every 30 minutes it measures how long
-# feat-cmux-next pushes have waited for the feed and keeps one
+# feat-cmux-next pushes have waited for the feed (limit 30 minutes) and keeps one
 # `nightly-next-feed-stale` issue naming the stuck stage
 # (scripts/ci/nightly_next_feed_watch.py, tested by
 # tests/test_nightly_next_feed_watch.py). It also requests the continuation
@@ -56,7 +56,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
-          MAX_LAG_HOURS: ${{ vars.NIGHTLY_NEXT_MAX_FEED_LAG_HOURS || '3' }}
+          MAX_LAG_HOURS: ${{ vars.NIGHTLY_NEXT_MAX_FEED_LAG_HOURS || '0.5' }}
           LEGACY_IDENTITY: ${{ vars.NIGHTLY_NEXT_LEGACY_IDENTITY == 'off' && 'off' || 'on' }}
+          TRAIN: ${{ vars.NIGHTLY_NEXT_TRAIN == 'on' && 'on' || 'off' }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: python3 scripts/ci/nightly_next_feed_watch.py --repo "$REPOSITORY" --max-lag-hours "$MAX_LAG_HOURS" --legacy-identity "$LEGACY_IDENTITY" --run-url "$RUN_URL"
+        run: python3 scripts/ci/nightly_next_feed_watch.py --repo "$REPOSITORY" --max-lag-hours "$MAX_LAG_HOURS" --legacy-identity "$LEGACY_IDENTITY" --train "$TRAIN" --run-url "$RUN_URL"

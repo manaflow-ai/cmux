@@ -60,7 +60,8 @@ jobs:
     concurrency:
       group: ci-cla-quota-rerun
       cancel-in-progress: false
-    continue-on-error: true
+    # No continue-on-error: a pass that ends on a spent budget it cannot wait out exits 1,
+    # so the run is red rather than green while CLA checks stay failed.
     permissions:
       contents: read
     steps:
@@ -87,7 +88,8 @@ jobs:
           sparse-checkout: scripts/ci/cla_quota_rerun.py
           sparse-checkout-cone-mode: false
 
-      # Waits at most WAIT_FOR_RESET (40 minutes) for a near reset, then one pass.
+      # Waits at most WAIT_FOR_RESET (40 minutes) for a near reset, then one pass; a 403,
+      # 429 or spent X-RateLimit-Remaining waits for its reset within PASS_DEADLINE (43).
       - name: Re-run CLA checks the spent budget failed
         if: steps.glaeda-token.outputs.token != ''
         timeout-minutes: 44

@@ -100,6 +100,8 @@ check("workflow_run:" not in publish_text,
       "the publisher must be dispatch-only; unrelated cmux-next completions are not DEV artifacts")
 check("SOURCE_RUN_ID: ${{ inputs.source_run_id }}" in publish_text,
       "the publisher must resolve the exact dispatched source run")
+check(re.search(r"select\(\.conclusion == \"success\"\) \| \.name' \|\| true", publish_text) is None,
+      "a failed source-job read must fail the publisher run, not succeed with nothing published")
 check("finishedRuns.slice(0, 10)" not in text,
       "the dispatcher must not hide an older app behind ten failed source runs")
 # verify is the admission gate since the signer moved to Linux (Apple's codesign runs only

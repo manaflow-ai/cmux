@@ -6,6 +6,9 @@ nightly-next ships feat-cmux-next: a green push is promoted to the
 stage can stall: a red Release compile or an unpublished cmux-tui tree stops
 promotion, a red nightly stops publication. Lawrence and Leo daily-drive the
 feed, so this checks it every 30 minutes from main (schedule runs only there).
+The limit is 30 minutes (Leo, 2026-10-24: "it is unacceptable to have nightlies
+>30min out of date"); on 2026-10-26 a 3-hour limit let promotion sit four hours
+behind daemon tests queued on a saturated runner label without an alarm.
 
 Waiting is measured from the oldest feat-cmux-next push after the published
 commit's own push (cmux-next guards runs on every such push), so a quiet spell
@@ -25,12 +28,13 @@ the alarm and each inside its own boundary, because they are three cheap calls
 each while the alarm pages through runs and jobs and is the first thing a tight
 installation budget refuses.
 
-usage: nightly_next_feed_watch.py --repo OWNER/NAME [--max-lag-hours 3] [--dry-run]
+usage: nightly_next_feed_watch.py --repo OWNER/NAME [--max-lag-hours 0.5] [--dry-run]
 Needs GH_TOKEN with actions: read and issues: write.
 """
 from __future__ import annotations
 
 import argparse
+import dataclasses
 from dataclasses import dataclass
 import datetime as dt
 import email.utils
@@ -71,6 +75,13 @@ LABEL = "nightly-next-feed-stale"
 PUSH_WORKFLOW = "cmux-next-guards.yml"  # every feat-cmux-next push, no path filter
 RELEASE_COMPILE_JOB = "cmux-next Release compile (Xcode 26)"
 TICK_WORKFLOW = "nightly-next-tick.yml"
+# Runs whose queued jobs can hold the feed back: the cmux-tui artifacts run's
+# daemon tests gate the promotion (no daemon-tests.json, no request), and the
+# nightly-next run's sign job gates publication. A job queued this long has no
+# runner on its label; the alarm names it with that label.
+GATE_RUNS = (("cmux-tui-artifacts.yml", "feat-cmux-next"), ("nightly.yml", "nightly-next"))
+GATE_QUEUED_MINUTES = 10.0
+GATE_RUNS_READ = 5  # queued or in-progress runs read per workflow, newest first
 TICK_ANNOTATION = "nightly-next tick"  # the tick's refusal tally
 PUBLISHED_MARKER = re.compile(r"<!--\s*cmux-published-sha:\s*([0-9a-f]{40})\s*-->", re.IGNORECASE)
 
@@ -118,6 +129,36 @@ def failed_steps(jobs: list[dict]) -> str:
         steps = [step["name"] for step in job.get("steps") or [] if step.get("conclusion") == "failure"]
         out.append(f"{job['name']} (step: {', '.join(steps)})" if steps else job["name"])
     return "; ".join(out) or "no failed job recorded"
+
+
+def queued_gates(now: dt.datetime, runs_by_workflow: list[tuple[str, list[dict]]], jobs_of,
+                 minutes: float = GATE_QUEUED_MINUTES) -> str:
+    """Name every job still waiting for a runner after `minutes`, with its label.
+
+    runs_by_workflow: (workflow, its queued runs newest first). A run whose
+    other jobs finished but whose gate job never got a runner reads as one
+    queued run; that is the stall a red Release compile or a failed job never
+    shows (2026-10-26: "cmux_next_ daemon tests (macOS)" queued on
+    glaeda-side-std-xcode-26.6 while the tick refused every newer commit).
+    """
+    out = []
+    for workflow, runs in runs_by_workflow:
+        for run in runs[:GATE_RUNS_READ]:
+            for job in jobs_of(run):
+                if job.get("status") != "queued":
+                    continue
+                # created_at is when the job was queued; started_at is the runner's start.
+                since = job.get("created_at") or job.get("started_at") or run.get("created_at")
+                try:
+                    waited = (now - parse_time(since)).total_seconds() / 60
+                except (TypeError, ValueError):
+                    continue
+                if waited < minutes:
+                    continue
+                labels = ", ".join(job.get("labels") or []) or "no label recorded"
+                out.append(f"{workflow} job \"{job.get('name', '?')}\" queued {waited:.0f} min on {labels} "
+                           f"({run.get('head_sha', '')[:12]}, {run.get('html_url', run.get('id', '?'))})")
+    return "; ".join(out)
 
 
 def assess(now: dt.datetime, newest: dt.datetime, pushes: list[dict], nightly: list[dict],
@@ -201,6 +242,16 @@ class GitHub:
     def runs(self, workflow: str, branch: str, created_since: dt.datetime | None = None, per_page: int = 100):
         return self.runs_page(workflow, branch, ">=" + stamp(created_since) if created_since else None, per_page)["workflow_runs"]
 
+    def queued_runs(self, workflow: str, branch: str) -> list[dict]:
+        """Queued and in-progress runs, newest first: a run is in_progress while its other jobs
+        run and its gate job still waits for a runner, so both statuses are read."""
+        runs: dict = {}
+        for status in ("queued", "in_progress"):
+            query = {"branch": branch, "status": status, "per_page": GATE_RUNS_READ}
+            for run in self.call("GET", f"/actions/workflows/{workflow}/runs?{urllib.parse.urlencode(query)}")["workflow_runs"]:
+                runs.setdefault(run.get("id"), run)
+        return sorted(runs.values(), key=lambda run: run.get("created_at") or "", reverse=True)
+
     def jobs(self, run: dict) -> list[dict]:
         return self.call("GET", f"/actions/runs/{run['id']}/jobs?filter=latest&per_page=100")["jobs"]
 
@@ -281,6 +332,21 @@ def is_active_delivery_run(workflow: str, branch: str | None, run: dict) -> bool
         # a competing classic publication while its purpose is ambiguous.
         return True
     return True
+
+
+def next_delivery_workflows(train: str) -> list[tuple[str, str]]:
+    """The (workflow, branch) runs that may still deliver feat-cmux-next.
+
+    A train delivers only in mode on (repository variable NIGHTLY_NEXT_TRAIN,
+    the train's own switch). Otherwise it is a dry run that plans and runs car
+    guards, sometimes for an hour, and publishes nothing, so it must never
+    hold back the starvation dispatch.
+    """
+    flows = [("nightly-next-tick.yml", "main"), ("nightly.yml", "nightly-next"), ("nightly.yml", "main")]
+    # GitHub compares strings case-insensitively; so does this.
+    if train.strip().lower() == "on":
+        flows.insert(1, ("nightly-next-train.yml", "feat-cmux-next"))
+    return flows
 
 
 def published_commit_for_release(gh: GitHub, tag: str) -> str:
@@ -547,13 +613,15 @@ def sync_issue(gh: GitHub, stage: Stage, body: str, max_lag_hours: float, run_ur
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--repo", required=True)
-    parser.add_argument("--max-lag-hours", type=float, default=3.0)
+    parser.add_argument("--max-lag-hours", type=float, default=0.5)
     parser.add_argument("--feed-url", dest="feed_urls", action="append",
                         help="a cmux NEXT appcast; repeatable, and defaults to both NEXT feeds")
     parser.add_argument("--classic-feed-url", default=CLASSIC_FEED_URL)
     parser.add_argument("--legacy-feed-url", default=LEGACY_FEED_URL)
     parser.add_argument("--legacy-identity", default="on",
                         help="repository variable NIGHTLY_NEXT_LEGACY_IDENTITY; off stops the legacy jobs, so their feed is not watched")
+    parser.add_argument("--train", default="",
+                        help="repository variable NIGHTLY_NEXT_TRAIN; only on makes a running train a delivery run")
     parser.add_argument("--run-url", default="this check")
     parser.add_argument("--dry-run", action="store_true", help="read and decide, never write issues")
     args = parser.parse_args(argv)
@@ -589,8 +657,7 @@ def main(argv: list[str]) -> int:
         gh, now, feed=newest, published_sha=published(),
         branch="feat-cmux-next", workflow="nightly-next-tick.yml", ref="main", tip_input="sha",
         feed_unknown=bool(missing),
-        active_workflows=[("nightly-next-tick.yml", "main"), ("nightly-next-train.yml", "feat-cmux-next"),
-                          ("nightly.yml", "nightly-next"), ("nightly.yml", "main")]))
+        active_workflows=next_delivery_workflows(args.train)))
     heal("classic", lambda: starvation_dispatch(
         gh, now, feed=classic_newest, published_sha=published("nightly"),
         branch="main", workflow="nightly.yml", ref="main", inputs={"force": "false"},
@@ -633,6 +700,16 @@ def main(argv: list[str]) -> int:
             max_lag_hours=args.max_lag_hours,
             tick_refusal=gh.tick_refusal,
         )
+        if stage.stale:
+            # Only a stale feed pays for these reads (four listings, at most
+            # GATE_RUNS_READ job lists each), and a failed read never hides the alarm.
+            try:
+                gates = queued_gates(now, [(name, gh.queued_runs(name, branch)) for name, branch in GATE_RUNS], gh.jobs)
+            except (*TRANSPORT, KeyError, TypeError) as error:
+                gates = ""
+                print(f"::warning::could not read queued gate jobs: {error}")
+            if gates:
+                stage = dataclasses.replace(stage, detail=" ".join(filter(None, [f"Waiting for a runner: {gates}.", stage.detail])))
         print(f"feed newest {newest.isoformat()}, waited {stage.waited_hours:.1f}h: {stage.reason}")
         print(sync_issue(gh, stage, issue_body(stage, newest, now, published_sha, args.max_lag_hours, args.run_url), args.max_lag_hours, args.run_url))
     except TRANSPORT as error:  # the next check runs in 30 minutes

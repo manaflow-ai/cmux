@@ -36,27 +36,32 @@ if [ ! -d "$APP" ]; then
   exit 1
 fi
 
+APP_PID=""
 cleanup() {
-  # Never touch the user's running stable app ("cmux", com.cmuxterm.app):
-  # killing it drops their live agent sessions.
-  pkill -x "cmux DEV" || true
+  # Stop only the app this run launched (its recorded PID), never by name;
+  # a name match also stopped other runs' and the person's DEV apps.
+  if [ -n "$APP_PID" ]; then
+    kill "$APP_PID" 2>/dev/null || true
+    for _ in {1..50}; do
+      kill -0 "$APP_PID" 2>/dev/null || break
+      sleep 0.1
+    done
+    APP_PID=""
+  fi
   rm -f "$TEST_SOCK" || true
 }
 
 launch_and_wait() {
-  cleanup
-  # Wait briefly for the previous instance to fully terminate; LaunchServices can flake if we
+  # cleanup waits for the previous instance to exit; LaunchServices can flake if we
   # relaunch too quickly.
-  for _ in {1..50}; do
-    pgrep -x "cmux DEV" >/dev/null 2>&1 || break
-    sleep 0.1
-  done
+  cleanup
 
   # Force socket mode for deterministic automation runs, independent of prior user settings.
   defaults write com.cmuxterm.app.debug socketControlMode -string full >/dev/null 2>&1 || true
 
   # Launch directly with UI test mode enabled so startup follows deterministic test codepaths.
   CMUX_TAG="$RUN_TAG" CMUX_UI_TEST_MODE=1 "$APP/Contents/MacOS/cmux DEV" >/dev/null 2>&1 &
+  APP_PID=$!
 
   SOCK=""
   for _ in {1..120}; do

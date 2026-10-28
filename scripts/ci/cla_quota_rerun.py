@@ -37,7 +37,11 @@ late or not at all (12:35Z to 14:19Z on 2026-10-26, while #25466 sat blocked for
 
 A re-run changes no policy: the same trusted workflow runs again on the same head. Reads and re-runs use
 GH_TOKEN (the janitor's App token, its own budget); RATE_TOKEN is the workflow token
-whose budget is measured. Never fails the sweep: every error is a warning.
+whose budget is measured. Most errors are warnings. A spent budget is not: a 403, a 429 or
+X-RateLimit-Remaining 0 on any call (SpentBudget) makes the pass wait for Retry-After or
+X-RateLimit-Reset and run again, within PASS_DEADLINE. When that resume time falls past
+the deadline, the pass exits 1 with the time, so the run is red and the next tick picks it
+up. (On 2026-10-26 a pass logged only "HTTP Error 403: Forbidden" and ended green.)
 """
 
 from __future__ import annotations
@@ -90,21 +94,107 @@ MAX_GUARD_ATTEMPT = 8
 MAX_LOG_READS = 12  # CLA Assistant logs per sweep
 MAX_GUARD_READS = 12  # CLA policy guard logs, and CLA Assistant logs read as their evidence
 MAX_RERUNS = 8
+# The whole pass, waits included, ends within this; the workflow step's timeout-minutes is
+# above it (tests/test_cla_quota_rerun.py).
+PASS_DEADLINE = dt.timedelta(minutes=43)
+SPENT_RETRIES = 3  # passes run again after a spent budget, each after its wait
+SPENT_FALLBACK = dt.timedelta(seconds=60)  # a 403 or 429 with neither header: GitHub's advice
+PASS_TIME = dt.timedelta(minutes=2)  # a wait leaves at least this before PASS_DEADLINE for the pass
+
+
+class SpentBudget(Exception):
+    """A GitHub call failed for a spent budget: a 403 or 429, or X-RateLimit-Remaining 0."""
+
+    def __init__(self, status: int, path: str, retry_after: float | None, reset: dt.datetime | None) -> None:
+        super().__init__(f"HTTP {status} on {path.split('?')[0]}")
+        self.status, self.retry_after, self.reset = status, retry_after, reset
+
+    def resume_at(self, now: dt.datetime) -> dt.datetime:
+        """Retry-After when given, else just after X-RateLimit-Reset, else SPENT_FALLBACK."""
+        if self.retry_after is not None:
+            return now + dt.timedelta(seconds=self.retry_after)
+        if self.reset is not None and self.reset + RESET_GRACE > now:
+            return self.reset + RESET_GRACE
+        return now + SPENT_FALLBACK  # no reset given, or one already past
+
+
+class PastDeadline(Exception):
+    """The pass has no time left for another GitHub call inside PASS_DEADLINE."""
+
+
+def spent_budget(error: urllib.error.HTTPError, path: str) -> SpentBudget | None:
+    return spent_headers(error.code, error.headers or {}, path, error.code in (403, 429))
+
+
+def spent_headers(status: int, headers: Any, path: str, refused: bool = False) -> SpentBudget | None:
+    """A SpentBudget when the call was refused (403, 429) or its headers say none is left."""
+    if not refused and str(headers.get("X-RateLimit-Remaining", "")).strip() != "0":
+        return None
+    retry_after = reset = None
+    try:
+        retry_after = max(0.0, float(headers.get("Retry-After")))
+    except (TypeError, ValueError):
+        pass
+    try:
+        reset = dt.datetime.fromtimestamp(int(headers.get("X-RateLimit-Reset")), dt.timezone.utc)
+    except (TypeError, ValueError, OverflowError, OSError):
+        pass
+    return SpentBudget(status, path, retry_after, reset)
+
+
+class Clock:
+    """The wall clock in a workflow; in tests, `now` moved on only by `sleep`."""
+
+    def __init__(self, now: dt.datetime | None, sleep: Callable[[float], None]) -> None:
+        self.real, self.at, self._sleep = now is None, now or dt.datetime.now(dt.timezone.utc), sleep
+
+    def now(self) -> dt.datetime:
+        return dt.datetime.now(dt.timezone.utc) if self.real else self.at
+
+    def sleep(self, seconds: float) -> None:
+        self._sleep(seconds)
+        self.at += dt.timedelta(seconds=seconds)
 
 
 class GitHub:
     def __init__(self, token: str, repo: str) -> None:
         self.token, self.repo, self.calls = token, repo, 0
+        # Set by the pass: no call starts unless it can finish inside it (wall clock).
+        self.deadline: dt.datetime | None = None
+        self.spent: SpentBudget | None = None  # the last response said none is left
 
     def request(self, method: str, path: str, raw: bool = False) -> Any:
+        if self.spent is not None:
+            raise self.spent
+        timeout = 30.0
+        if self.deadline is not None:
+            timeout = min(timeout, (self.deadline - dt.datetime.now(dt.timezone.utc)).total_seconds())
+            if timeout < 1:
+                raise PastDeadline(f"no time left for {method} {path.split('?')[0]}")
         self.calls += 1
         req = urllib.request.Request(API + path, method=method, data=b"" if method == "POST" else None)
         # Not sent on the redirect: job logs redirect to signed blob storage.
         req.add_unredirected_header("Authorization", f"Bearer {self.token}")
         req.add_header("Accept", "application/vnd.github+json")
         req.add_header("X-GitHub-Api-Version", "2022-11-28")
-        with urllib.request.urlopen(req, timeout=30) as response:
-            body = response.read()
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as response:
+                body = response.read()
+                # This call worked; the next one would be refused. (/rate_limit is free, and its
+                # body is read for the workflow token's budget instead.)
+                if path != "/rate_limit":
+                    self.spent = spent_headers(response.status, response.headers, path)
+        except urllib.error.HTTPError as error:
+            spent = spent_budget(error, path)
+            if spent is not None:
+                raise spent from error
+            raise
+        except (urllib.error.URLError, OSError) as error:
+            # A call cut short by the deadline's timeout is out of time, not a passing warning.
+            # (urlopen's timeout bounds each socket wait; the step's timeout-minutes is the hard stop.)
+            if self.deadline is not None and dt.datetime.now(dt.timezone.utc) >= self.deadline - dt.timedelta(seconds=1):
+                raise PastDeadline(f"{method} {path.split('?')[0]} ran into the deadline") from error
+            raise
         if raw:
             return body.decode("utf-8", "replace")
         return json.loads(body) if body else {}
@@ -120,6 +210,11 @@ def budget(rate: dict[str, Any]) -> tuple[int, dt.datetime | None, str]:
     allowed = max(0, (remaining - floor) // RERUN_COST) if limit > 0 else 0
     at = f", resets {reset:%H:%M:%SZ}" if reset else ""
     return min(MAX_RERUNS, allowed), reset, f"{remaining} of {limit} left (floor {floor}{at})"
+
+
+def remaining(rate: dict[str, Any]) -> int | None:
+    core = (rate.get("resources") or {}).get("core") or rate.get("rate") or {}
+    return int(core["remaining"]) if core.get("remaining") is not None else None
 
 
 def open_heads(gh: GitHub, log: Callable[[str], None]) -> dict[str, set[int]]:
@@ -231,7 +326,8 @@ def rotated(runs: list[dict[str, Any]], now: dt.datetime) -> list[dict[str, Any]
     return runs[start:] + runs[:start]
 
 
-def plan(gh: GitHub, now: dt.datetime, log: Callable[[str], None], limit: int = MAX_RERUNS) -> list[dict[str, Any]]:
+def plan(gh: GitHub, now: dt.datetime, log: Callable[[str], None], limit: int = MAX_RERUNS,
+         skip: frozenset[int] | set[int] = frozenset()) -> list[dict[str, Any]]:
     """The runs to re-run: CLA Assistant failures whose log shows the rate limit, and CLA
     policy guard failures with evidence of an API failure (guard_api_failure, a pull request
     that proposes no policy, or a rate-limited CLA Assistant job within GUARD_WINDOW). Log
@@ -246,7 +342,8 @@ def plan(gh: GitHub, now: dt.datetime, log: Callable[[str], None], limit: int = 
     # Guards keep half the slots, so standing Assistant failures cannot starve them.
     assistant_limit = limit - limit // 2
     reads = 0
-    for run in rotated(latest_failures(assistant_runs, heads, now), now):
+    # `skip`: runs this job re-ran already; they take no read and no slot.
+    for run in rotated([r for r in latest_failures(assistant_runs, heads, now) if r["id"] not in skip], now):
         if reads >= MAX_LOG_READS:
             break
         reads += 1
@@ -261,7 +358,7 @@ def plan(gh: GitHub, now: dt.datetime, log: Callable[[str], None], limit: int = 
             log(f"CLA Assistant run {run['id']} for #{run['number']} failed for another reason; left alone")
 
     guards = [run for run in rotated(latest_failures(guard_runs, heads, now), now)
-              if int(run.get("run_attempt") or 1) < MAX_GUARD_ATTEMPT]
+              if run["id"] not in skip and int(run.get("run_attempt") or 1) < MAX_GUARD_ATTEMPT]
     # A guard reject whose own log hides the cause can still be matched to a spent budget
     # through any rate-limited CLA Assistant failure in its window, re-run or not.
     extra = [run for run in assistant_runs if run.get("conclusion") == "failure" and recent(run, now)]
@@ -299,6 +396,44 @@ def plan(gh: GitHub, now: dt.datetime, log: Callable[[str], None], limit: int = 
     return chosen
 
 
+def one_pass(dry_run: bool, repo: str, token: str, rate_token: str, clock: Clock,
+             deadline: dt.datetime, done: set[int]) -> int:
+    """One sweep, 0 when it ends. Raises SpentBudget or PastDeadline. `done` holds the runs this
+    job has re-run already, so a pass run again never re-runs them twice."""
+    rate_gh = GitHub(rate_token, repo)
+    rate_gh.deadline = deadline if clock.real else None
+    rate = rate_gh.request("GET", "/rate_limit")
+    limit, reset, text = budget(rate)
+    now = clock.now()
+    if (not limit and reset is not None and dt.timedelta(0) < reset - now <= WAIT_FOR_RESET
+            and reset + RESET_GRACE <= deadline - PASS_TIME):
+        wait = reset + RESET_GRACE - now
+        print(f"cla-quota-rerun: the workflow token's budget is low ({text}); "
+              f"one pass {int(wait.total_seconds())} s from now, just after the reset")
+        clock.sleep(wait.total_seconds())
+        rate = rate_gh.request("GET", "/rate_limit")
+        limit, reset, text = budget(rate)
+    if not limit and remaining(rate) == 0:
+        # Spent, not just under the floor, and not waited out: main waits for the reset within
+        # the deadline, or reports it red.
+        raise SpentBudget(200, "/rate_limit (workflow token)", None, reset)
+    if not limit:
+        print(f"cla-quota-rerun: the workflow token's budget is low ({text}); a re-run would fail the same way")
+        return 0
+    gh = GitHub(token, repo)
+    gh.deadline = deadline if clock.real else None
+    runs = plan(gh, clock.now(), print, limit, skip=done)
+    for run in runs:
+        name = run.get("name") or "CLA"
+        print(f"cla-quota-rerun: {'would re-run' if dry_run else 're-running'} {name} run {run['id']} "
+              f"for #{run['number']} at {run['head_sha'][:12]} (attempt {run.get('run_attempt')})")
+        if not dry_run:
+            gh.request("POST", f"/repos/{repo}/actions/runs/{run['id']}/rerun-failed-jobs")
+            done.add(run["id"])
+    print(f"cla-quota-rerun: budget {text}; {len(runs)} re-run(s), {gh.calls} App call(s)")
+    return 0
+
+
 def main(argv: list[str] | None = None, now: dt.datetime | None = None,
          sleep: Callable[[float], None] = time.sleep) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
@@ -309,31 +444,31 @@ def main(argv: list[str] | None = None, now: dt.datetime | None = None,
     if not (repo and token and rate_token):
         print("cla-quota-rerun: GITHUB_REPOSITORY, GH_TOKEN and RATE_TOKEN are required; nothing to do")
         return 0
-    now = now or dt.datetime.now(dt.timezone.utc)
-    try:
-        rate_gh = GitHub(rate_token, repo)
-        limit, reset, text = budget(rate_gh.request("GET", "/rate_limit"))
-        if not limit and reset is not None and dt.timedelta(0) < reset - now <= WAIT_FOR_RESET:
-            wait = reset + RESET_GRACE - now
-            print(f"cla-quota-rerun: the workflow token's budget is low ({text}); "
-                  f"one pass {int(wait.total_seconds())} s from now, just after the reset")
-            sleep(wait.total_seconds())
-            now += wait
-            limit, reset, text = budget(rate_gh.request("GET", "/rate_limit"))
-        if not limit:
-            print(f"cla-quota-rerun: the workflow token's budget is low ({text}); a re-run would fail the same way")
+    clock = Clock(now, sleep)
+    deadline, done = clock.now() + PASS_DEADLINE, set()
+    for attempt in range(SPENT_RETRIES + 1):
+        try:
+            return one_pass(args.dry_run, repo, token, rate_token, clock, deadline, done)
+        except PastDeadline as error:
+            print(f"::error title=CLA quota re-run::{error} before this pass's deadline "
+                  f"{deadline:%H:%M:%SZ}; failed CLA checks are left for the next pass")
+            return 1
+        except SpentBudget as spent:
+            now = clock.now()
+            resume = spent.resume_at(now)
+            late = resume > deadline - PASS_TIME
+            if late or attempt == SPENT_RETRIES:
+                why = "past this pass's deadline" if late else f"after {SPENT_RETRIES} retries"
+                print(f"::error title=CLA quota re-run::{spent}: the budget is spent until {resume:%H:%M:%SZ}, "
+                      f"{why}; failed CLA checks are left for the next pass")
+                return 1
+            wait = resume - now
+            print(f"cla-quota-rerun: {spent}: the budget is spent; the pass runs again in "
+                  f"{int(wait.total_seconds())} s ({resume:%H:%M:%SZ})")
+            clock.sleep(wait.total_seconds())
+        except (urllib.error.URLError, OSError, ValueError, KeyError) as error:
+            print(f"::warning title=CLA quota re-run::{error}")
             return 0
-        gh = GitHub(token, repo)
-        runs = plan(gh, now, print, limit)
-        for run in runs:
-            name = run.get("name") or "CLA"
-            print(f"cla-quota-rerun: {'would re-run' if args.dry_run else 're-running'} {name} run {run['id']} "
-                  f"for #{run['number']} at {run['head_sha'][:12]} (attempt {run.get('run_attempt')})")
-            if not args.dry_run:
-                gh.request("POST", f"/repos/{repo}/actions/runs/{run['id']}/rerun-failed-jobs")
-        print(f"cla-quota-rerun: budget {text}; {len(runs)} re-run(s), {gh.calls} App call(s)")
-    except (urllib.error.URLError, OSError, ValueError, KeyError) as error:
-        print(f"::warning title=CLA quota re-run::{error}")
     return 0
 
 
