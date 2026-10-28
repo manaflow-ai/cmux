@@ -4,6 +4,9 @@ import { validateEvidence, type BudgetConfig } from "../scripts/latency/validate
 import { captureBaseline } from "../scripts/latency/bootstrap";
 
 const budget: BudgetConfig = {
+  minRuns: 10,
+  cpuThrottle: 1,
+  metricTypes: { "chromium/picker/open": "target_painted" },
   expectedCases: ["chromium/picker/open"],
   schemaVersion: 1,
   maxP95Ms: 50,
@@ -27,6 +30,7 @@ function evidence(p95 = 20): any {
     source,
     expectedCases: [id],
     runs: 10,
+    cpuThrottle: 1,
     errors: [],
     results: [
       {
@@ -137,10 +141,24 @@ test("drag target paint and frame cadence remain distinct accepted metric types"
     reactCommits: 1,
     unsupportedReasons: {},
   }));
-  expect(validateEvidence(candidate, baseline(), budget, { expectedHead: source.head }).ok).toBe(true);
+  expect(
+    validateEvidence(
+      candidate,
+      baseline(),
+      { ...budget, metricTypes: { [id]: candidate.results[0].metricType } },
+      { expectedHead: source.head },
+    ).ok,
+  ).toBe(true);
   candidate.results[0].metricType = "frame_time";
   candidate.results[0].latencyMs = { p50: 8, p95: 8, max: 8 };
-  expect(validateEvidence(candidate, baseline(), budget, { expectedHead: source.head }).ok).toBe(true);
+  expect(
+    validateEvidence(
+      candidate,
+      baseline(),
+      { ...budget, metricTypes: { [id]: candidate.results[0].metricType } },
+      { expectedHead: source.head },
+    ).ok,
+  ).toBe(true);
 });
 
 test("the trusted manifest rejects omitted cases even when the candidate rewrites its own expected list", () => {
@@ -148,6 +166,21 @@ test("the trusted manifest rejects omitted cases even when the candidate rewrite
   candidate.expectedCases = [];
   candidate.results = [];
   expect(validateEvidence(candidate, baseline(), budget).errors.join("\n")).toContain("trusted budget.expectedCases");
+});
+
+test("trusted policy pins metric units, run count, throttle, and the strict 50ms limit", () => {
+  const candidate = evidence();
+  candidate.results[0].metricType = "frame_time";
+  expect(validateEvidence(candidate, baseline(), budget).errors.join("\n")).toContain("metricType does not match");
+  candidate.results[0].metricType = "target_painted";
+  candidate.cpuThrottle = 4;
+  expect(validateEvidence(candidate, baseline(), budget).errors.join("\n")).toContain("CPU throttle");
+  candidate.cpuThrottle = 1;
+  candidate.runs = 1;
+  candidate.results[0].samples = candidate.results[0].samples.slice(0, 1);
+  candidate.results[0].reactCommits = 1;
+  expect(validateEvidence(candidate, baseline(), budget).errors.join("\n")).toContain("at least 10 runs");
+  expect(validateEvidence(evidence(50), baseline(50), budget).ok).toBe(false);
 });
 
 test("baseline provenance survives a newer live base while that live base remains exact", () => {

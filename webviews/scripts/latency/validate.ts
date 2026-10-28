@@ -18,6 +18,9 @@ export interface BudgetConfig {
   topN: number;
   expectedCases: string[];
   rawTraceRequired?: boolean;
+  minRuns: number;
+  cpuThrottle: number;
+  metricTypes: Record<string, string>;
 }
 
 export interface BaselineResult {
@@ -56,6 +59,7 @@ export interface EvidenceDocument {
   };
   expectedCases?: string[];
   runs?: number;
+  cpuThrottle?: number;
   results?: Array<Record<string, unknown>>;
   errors?: unknown;
 }
@@ -123,6 +127,21 @@ function validateBudget(value: unknown, errors: string[]): value is BudgetConfig
     new Set(value.expectedCases).size !== value.expectedCases.length
   )
     errors.push("budget.expectedCases must contain unique Chromium case IDs");
+  if (!Number.isInteger(value.minRuns) || Number(value.minRuns) < 1)
+    errors.push("budget.minRuns must be a positive integer");
+  if (!isFiniteNumber(value.cpuThrottle) || value.cpuThrottle < 1) errors.push("budget.cpuThrottle must be at least 1");
+  if (
+    !isRecord(value.metricTypes) ||
+    !Array.isArray(value.expectedCases) ||
+    value.expectedCases.some(
+      (id) =>
+        typeof id !== "string" ||
+        !["target_painted", "drag_target_painted", "frame_time", "scroll_frame_time"].includes(
+          String((value.metricTypes as Record<string, unknown>)[id]),
+        ),
+    )
+  )
+    errors.push("budget.metricTypes must pin the measured unit for every required case");
   return errors.length === before;
 }
 
@@ -374,6 +393,8 @@ export function validateCapture(
   )
     return errors;
   const expected = new Set(budget.expectedCases);
+  if ((parsed.runs ?? 0) < budget.minRuns) errors.push(`results require at least ${budget.minRuns} runs`);
+  if (parsed.cpuThrottle !== budget.cpuThrottle) errors.push("results CPU throttle does not match trusted budget");
   if (parsed.expectedCases.length !== expected.size || parsed.expectedCases.some((id) => !expected.has(id)))
     errors.push("results expectedCases does not match trusted budget.expectedCases");
   const seen = new Set<string>();
@@ -385,6 +406,8 @@ export function validateCapture(
     if (seen.has(result.id)) errors.push(`duplicate result: ${result.id}`);
     seen.add(result.id);
     if (!expected.has(result.id)) errors.push(`unexpected result: ${result.id}`);
+    if (budget.metricTypes[result.id] !== result.metricType)
+      errors.push(`${result.id}: metricType does not match trusted policy`);
     inspectResult(result, parsed.runs ?? 0, errors);
     if (
       budget.rawTraceRequired &&
@@ -477,10 +500,10 @@ export function validateEvidence(
           ? "invalid"
           : fixingPr &&
               distribution &&
-              ((budgetDoc && distribution.p95 > budgetDoc.maxP95Ms) ||
+              ((budgetDoc && distribution.p95 >= budgetDoc.maxP95Ms) ||
                 (allowedP95 !== null && distribution.p95 > allowedP95))
             ? "fixing-pr"
-            : distribution && budgetDoc && distribution.p95 > budgetDoc.maxP95Ms
+            : distribution && budgetDoc && distribution.p95 >= budgetDoc.maxP95Ms
               ? "over-budget"
               : distribution && allowedP95 !== null && distribution.p95 > allowedP95
                 ? "regression"
@@ -495,7 +518,7 @@ export function validateEvidence(
     if (budgetDoc) {
       const overBudget = [...rows].sort((a, b) => (b.p95 ?? -1) - (a.p95 ?? -1)).slice(0, budgetDoc.topN);
       for (const row of overBudget) {
-        if (row.p95 !== null && row.p95 > budgetDoc.maxP95Ms && !row.fixingPr)
+        if (row.p95 !== null && row.p95 >= budgetDoc.maxP95Ms && !row.fixingPr)
           errors.push(
             `${row.id}: p95 ${row.p95.toFixed(1)}ms exceeds ${budgetDoc.maxP95Ms.toFixed(1)}ms without an open fixing PR`,
           );
