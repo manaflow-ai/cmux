@@ -212,6 +212,15 @@ class NothingWaitsOnTheSmokeTests(unittest.TestCase):
             checkout = self.jobs[name]["steps"][0]
             self.assertEqual(checkout["with"]["ref"], "${{ env.TOOLING_REF }}", name)
 
+    def test_a_tooling_ref_without_the_tooling_judges_nothing(self) -> None:
+        # A pull request into main runs before feat-cmux-next has the tooling: no verdict, so
+        # nothing rolls back, nothing is cached, and the step does not fail.
+        record = next(s for s in self.jobs["smoke"]["steps"] if s.get("name") == "Record the verdict")
+        run = record["run"]
+        guard = run.index("if [ ! -f scripts/ci/nightly_next_launch_smoke.py ]; then")
+        self.assertLess(guard, run.index("nightly_next_launch_smoke.py verdict"))
+        self.assertIn("exit 0", run[guard:run.index("fi", guard)])
+
     def test_a_crash_is_never_marked_smoked_so_a_failed_rollback_is_retried(self) -> None:
         record = self.jobs["record"]
         self.assertNotIn("crash'", record["if"].replace("'pass'", "").replace("'cannot-run'", ""))
