@@ -1,5 +1,5 @@
 import type { AcpmuxRow } from "../model";
-import { childRows, type ChildEntry } from "./childRows";
+import { ChildRowView, type ChildEntry } from "./childRows";
 import { hiddenCall, isPlumbingName } from "../hiddenTools";
 import { applyRetry, applyRetryStep, type RetryState } from "./retryState";
 import { mergeWorkflowAgents, workflowPhases, type WorkflowAgent, type WorkflowPhase } from "./workflowAgents";
@@ -128,8 +128,8 @@ export class SubagentFold {
   private open: Group | undefined;
   /// Each subagent's own updates and the points where it spawned subagents, in order: its view.
   private readonly own = new Map<string, ChildEntry[]>();
-  /// Each subagent view's rows, while its version holds.
-  private readonly drawn = new Map<string, { version: number; rows: AcpmuxRow[] }>();
+  /// Each subagent's incremental source fold and drawn rows, while its version holds.
+  private readonly drawn = new Map<string, { version: number; view: ChildRowView; rows: AcpmuxRow[] }>();
   private readonly versions = new Map<string, number>();
   /// The subagents spawned since the current turn started, which its stop ends.
   private turn = new Set<string>();
@@ -536,7 +536,8 @@ export class SubagentFold {
       const version = this.versions.get(id) ?? 0;
       let drawn = this.drawn.get(id);
       if (drawn?.version !== version) {
-        drawn = { version, rows: childRows(id, entries, this.agents, version) };
+        const view = drawn?.view ?? new ChildRowView(id);
+        drawn = { version, view, rows: view.update(entries, this.agents, version) };
         this.drawn.set(id, drawn);
       }
       views[id] = drawn.rows;
