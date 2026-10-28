@@ -7,13 +7,15 @@
 //! servers, or run under one; anything else keeps the harness up. A census that fails or is not
 //! whole keeps it up too.
 //!
-//! The MCP servers are read from the configs the harness read as it was started
-//! (`ChildAgent::launch`: its argv, folder, `HOME`, `PATH`, `CLAUDE_CONFIG_DIR`, `CODEX_HOME`):
-//! the `mcpServers` acpmux gave an ACP harness; for Claude Code its `--mcp-config` files (acpmux's
-//! among them) and, unless `--strict-mcp-config`, its `.claude.json` (user servers and this
-//! folder's project entry) and the folder's `.mcp.json`; for Codex its `config.toml`. A file that
-//! is missing or does not parse adds nothing, so a server only it names keeps the harness up. For
-//! a harness another daemon started none are known: it ends only when nothing runs under it.
+//! The MCP servers are the ones the harness's configs named as it started: right after each
+//! start, `ChildAgent::record_launch` reads, once, the configs of that launch (argv, folder,
+//! `HOME`, `PATH`, `CLAUDE_CONFIG_DIR`, `CODEX_HOME`): for Claude Code its `--mcp-config` files
+//! (acpmux's among them) and, unless `--strict-mcp-config`, its `.claude.json` (user servers and
+//! this folder's project entry) and the folder's `.mcp.json`; for Codex its `config.toml`. The
+//! `mcpServers` acpmux gave an ACP harness are added. A config edited later never changes them. A
+//! file that is missing or does not parse adds nothing, so a server only it names keeps the
+//! harness up. For a harness another daemon started none are known: it ends only when nothing
+//! runs under it.
 //!
 //! Only a child of the harness can be a server, and only when its command line is exactly the
 //! server's: its program (as configured, or what `PATH` runs for a name), or an interpreter
@@ -98,33 +100,68 @@ impl Hub {
         }
     }
 
-    /// The MCP servers `child`, the session's harness, runs, from every config it reads as it was
-    /// started (`ChildAgent::launch`), within [`CENSUS_BUDGET`]. None when the reads ran out of
-    /// time: the harness stays up. For a harness another daemon started none are known, so it
-    /// ends only when nothing at all runs under it.
-    pub(super) async fn sidecars(
-        &self,
-        session: &Session,
-        child: &ChildAgent,
-    ) -> Option<Vec<Sidecar>> {
-        let Some(launch) = child.launch.lock().unwrap_or_else(|e| e.into_inner()).clone() else {
-            return Some(Vec::new());
+    /// The MCP servers `child`, the session's harness, runs: what its configs named as it
+    /// started (`ChildAgent::record_launch`) and the `mcpServers` acpmux gave it. None while
+    /// those are not known (still being read, or not read in time): the harness stays up. For a
+    /// harness another daemon started none are known, so it ends only when nothing at all runs
+    /// under it.
+    pub(super) async fn sidecars(&self, child: &ChildAgent) -> Option<Vec<Sidecar>> {
+        let state = child.launch.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let (mut servers, path) = match state {
+            None => return Some(Vec::new()),
+            Some(LaunchServers::Known { servers, path }) => (servers, path),
+            Some(LaunchServers::Reading | LaunchServers::Unknown) => return None,
         };
-        let family = session.meta().family.unwrap_or_default();
-        // What acpmux gave an ACP harness at its session/new or load.
         let given = child.given_servers.lock().unwrap_or_else(|e| e.into_inner()).clone();
         let read = tokio::task::spawn_blocking(move || {
-            let mut out = from_json(given.as_ref());
-            out.extend(from_launch(&family, &launch));
-            let path = launch.env.get("PATH").cloned().unwrap_or_default();
-            for s in out.iter_mut().filter(|s| !s.command.contains('/')) {
-                s.resolved = first_on_path(&s.command, &path);
-            }
-            out.dedup();
-            out
+            servers.extend(resolved(from_json(given.as_ref()), &path));
+            servers
         });
         tokio::time::timeout(CENSUS_BUDGET, read).await.ok()?.ok()
     }
+}
+
+/// What the idle census knows of a harness's MCP servers (`ChildAgent::launch`).
+#[derive(Debug, Clone)]
+pub(crate) enum LaunchServers {
+    /// Its configs are being read, just after its start.
+    Reading,
+    /// The servers its configs named as it started, and its `PATH`.
+    Known { servers: Vec<Sidecar>, path: String },
+    /// Its configs could not be read within [`CENSUS_BUDGET`].
+    Unknown,
+}
+
+impl ChildAgent {
+    /// Reads the MCP configs of the harness just started as `launch` once, in a task bounded by
+    /// [`CENSUS_BUDGET`] that ends with the read, so the census judges by what the harness read
+    /// at its start, never by a config edited since.
+    pub(crate) fn record_launch(self: &Arc<Self>, launch: crate::agent::Launch, family: String) {
+        *self.launch.lock().unwrap_or_else(|e| e.into_inner()) = Some(LaunchServers::Reading);
+        let agent = Arc::downgrade(self);
+        tokio::spawn(async move {
+            let path = launch.env.get("PATH").cloned().unwrap_or_default();
+            let at = path.clone();
+            let read =
+                tokio::task::spawn_blocking(move || resolved(from_launch(&family, &launch), &at));
+            let state = match tokio::time::timeout(CENSUS_BUDGET, read).await {
+                Ok(Ok(servers)) => LaunchServers::Known { servers, path },
+                _ => LaunchServers::Unknown,
+            };
+            if let Some(agent) = agent.upgrade() {
+                *agent.launch.lock().unwrap_or_else(|e| e.into_inner()) = Some(state);
+            }
+        });
+    }
+}
+
+/// `servers` with each one given by name resolved on `path`, without repeats.
+fn resolved(mut servers: Vec<Sidecar>, path: &str) -> Vec<Sidecar> {
+    for s in servers.iter_mut().filter(|s| !s.command.contains('/')) {
+        s.resolved = first_on_path(&s.command, path);
+    }
+    servers.dedup();
+    servers
 }
 
 /// The servers in the configs a harness of `family` started as `launch` reads: Claude Code's
@@ -176,12 +213,14 @@ fn from_launch(family: &str, launch: &crate::agent::Launch) -> Vec<Sidecar> {
 
 /// The program `PATH` runs for `name`: its first executable file there.
 fn first_on_path(name: &str, path: &str) -> Option<String> {
-    use std::os::unix::fs::PermissionsExt;
     path.split(':').filter(|d| !d.is_empty()).find_map(|dir| {
         let at = Path::new(dir).join(name);
         let meta = std::fs::metadata(&at).ok()?;
-        (meta.is_file() && meta.permissions().mode() & 0o111 != 0)
-            .then(|| at.to_string_lossy().into_owned())
+        #[cfg(unix)]
+        let runs = std::os::unix::fs::PermissionsExt::mode(&meta.permissions()) & 0o111 != 0;
+        #[cfg(not(unix))]
+        let runs = true;
+        (meta.is_file() && runs).then(|| at.to_string_lossy().into_owned())
     })
 }
 
@@ -194,9 +233,16 @@ fn escape(key: &str) -> String {
     key.replace('~', "~0").replace('/', "~1")
 }
 
-fn sidecar(command: &str, args: &[String]) -> Sidecar {
-    let args = args.iter().flat_map(|a| a.split_whitespace()).map(str::to_owned).collect();
-    Sidecar { command: command.to_owned(), args, resolved: None }
+/// A server by its command and args, or None when `ps`'s space-joined command line could not
+/// tell it apart (an empty word or one with whitespace in it): such a server never matches, so a
+/// harness that runs it stays up.
+fn sidecar(command: &str, args: &[String]) -> Option<Sidecar> {
+    let plain = |w: &str| !w.is_empty() && !w.contains(char::is_whitespace);
+    (plain(command) && args.iter().all(|a| plain(a))).then(|| Sidecar {
+        command: command.to_owned(),
+        args: args.to_vec(),
+        resolved: None,
+    })
 }
 
 /// The stdio servers of a `{"name": {"command", "args"}}` map (a project entry nests it) or an
@@ -213,11 +259,16 @@ fn from_json(servers: Option<&Value>) -> Vec<Sidecar> {
     all.into_iter()
         .filter_map(|s| {
             let command = s.get("command")?.as_str()?;
-            let args: Vec<String> =
-                s.get("args").and_then(Value::as_array).map_or_else(Vec::new, |a| {
-                    a.iter().filter_map(Value::as_str).map(str::to_owned).collect()
-                });
-            Some(sidecar(command, &args))
+            // An arg that is not a string: not a server this census can tell apart.
+            let args = match s.get("args") {
+                None => Vec::new(),
+                Some(a) => a
+                    .as_array()?
+                    .iter()
+                    .map(|a| a.as_str().map(str::to_owned))
+                    .collect::<Option<_>>()?,
+            };
+            sidecar(command, &args)
         })
         .collect()
 }
@@ -232,11 +283,16 @@ fn from_toml(text: &str) -> Vec<Sidecar> {
         .values()
         .filter_map(|s| {
             let command = s.get("command")?.as_str()?;
-            let args: Vec<String> =
-                s.get("args").and_then(toml::Value::as_array).map_or_else(Vec::new, |a| {
-                    a.iter().filter_map(toml::Value::as_str).map(str::to_owned).collect()
-                });
-            Some(sidecar(command, &args))
+            // An arg that is not a string: not a server this census can tell apart.
+            let args = match s.get("args") {
+                None => Vec::new(),
+                Some(a) => a
+                    .as_array()?
+                    .iter()
+                    .map(|a| a.as_str().map(str::to_owned))
+                    .collect::<Option<_>>()?,
+            };
+            sidecar(command, &args)
         })
         .collect()
 }
@@ -397,16 +453,24 @@ mod tests {
     #[test]
     fn codex_and_project_entries_are_read_and_a_bad_file_adds_nothing() {
         let codex = from_toml("[mcp_servers.docs]\ncommand = \"docs-mcp\"\nargs = [\"--stdio\"]\n");
-        assert_eq!(codex, vec![sidecar("docs-mcp", &["--stdio".into()])]);
+        assert_eq!(codex, vec![sidecar("docs-mcp", &["--stdio".into()]).unwrap()]);
         assert!(from_toml("[mcp_servers").is_empty());
+        // A server ps cannot tell apart from other argv, or with an arg that is not a string.
+        let unclear = json!({
+            "a": {"command": "srv", "args": ["foo bar"]},
+            "b": {"command": "srv", "args": ["", "x"]},
+            "c": {"command": "srv", "args": ["x", 1]},
+            "d": {"command": "srv", "args": "x"},
+        });
+        assert!(from_json(Some(&unclear)).is_empty());
         let project = json!({"projects": {"/w/a": {"mcpServers": {"x": {"command": "x-mcp"}}}}});
         let entry = project.pointer(&format!("/projects/{}", escape("/w/a")));
-        assert_eq!(from_json(entry), vec![sidecar("x-mcp", &[])]);
+        assert_eq!(from_json(entry), vec![sidecar("x-mcp", &[]).unwrap()]);
         let acp =
             json!([{"name": "cmux", "command": "/bin/cmux", "args": ["mcp", "serve"], "env": []}]);
         assert_eq!(
             from_json(Some(&acp)),
-            vec![sidecar("/bin/cmux", &["mcp".into(), "serve".into()])]
+            vec![sidecar("/bin/cmux", &["mcp".into(), "serve".into()]).unwrap()]
         );
     }
 }

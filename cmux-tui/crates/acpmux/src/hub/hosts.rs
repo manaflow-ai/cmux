@@ -1594,7 +1594,7 @@ impl Hub {
         let launcher = crate::agent_host::link::HostLauncher::current().map_err(internal)?;
         let launch = crate::agent::Launch::new(&spec.program, &spec.args, &spec.env, &spec.cwd);
         let launched = |child: Arc<ChildAgent>| {
-            *child.launch.lock().unwrap_or_else(|e| e.into_inner()) = Some(launch.clone());
+            child.record_launch(launch.clone(), meta.family.clone().unwrap_or_default());
             child
         };
         let first = match self.start_hosted(session, meta, &launcher, &spec, tap.clone()).await {

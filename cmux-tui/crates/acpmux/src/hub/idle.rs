@@ -143,7 +143,7 @@ impl Hub {
             }
             // Its MCP servers, read before the leases: the configs are files (`idle_census.rs`).
             let Some(child) = session.child.lock().await.clone() else { continue };
-            let sidecars = self.sidecars(&session, &child).await;
+            let sidecars = self.sidecars(&child).await;
             // Held until the harness is ended: no turn, start, mode change, fork or stop
             // begins meanwhile, and one that already began keeps the harness up.
             let turn = session.turn_lock.try_lock();

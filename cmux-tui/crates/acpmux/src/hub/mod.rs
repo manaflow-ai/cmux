@@ -38,6 +38,7 @@ mod harness_watch;
 mod health_view;
 mod idle;
 mod idle_census;
+pub(crate) use idle_census::LaunchServers;
 mod launch_roots;
 mod launchers;
 pub mod lineage;

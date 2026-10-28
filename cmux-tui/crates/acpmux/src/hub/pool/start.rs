@@ -129,7 +129,7 @@ impl Hub {
             &host_spec.cwd,
         );
         let started = started.map(|p| {
-            *p.child.launch.lock().unwrap_or_else(|e| e.into_inner()) = Some(launch);
+            p.child.record_launch(launch, spec.draft.family.clone().unwrap_or_default());
             Pooled { preview, ..p }
         });
         if started.is_err() {

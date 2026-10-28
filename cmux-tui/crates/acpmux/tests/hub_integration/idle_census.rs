@@ -66,6 +66,10 @@ async fn an_idle_harness_ends_only_once_nothing_but_its_mcp_servers_runs_under_i
     c.request(method::MUX_DETACH, json!({"sessionId": id})).await.unwrap();
     let session = hub.resolve(id).unwrap();
     let pids = children.pids();
+    // A config edited after the harness started: its new server is not one the harness runs.
+    let edited = json!({"mcpServers": {"side": {"command": "sleep", "args": ["3599"]},
+                                       "new": {"command": "sleep", "args": ["3601"]}}});
+    std::fs::write(root.join(".mcp.json"), edited.to_string()).unwrap();
     // A worker in its group and one that left the group keep it up; then the escaped one alone.
     for kept in ["worker", "escaped"] {
         clock.advance(Duration::from_secs(3));
