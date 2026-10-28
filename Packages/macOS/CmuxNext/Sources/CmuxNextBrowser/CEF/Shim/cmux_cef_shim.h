@@ -1487,6 +1487,13 @@ typedef void (*cmux_cef_hang_dump_fn)(void* ctx, int count, const uint64_t* thre
 // process. Returns 1 when the fork took it, 0 when the fork lacks the call
 // (then pass no --cmux-browser-hang-watch).
 CMUX_SHIM_EXPORT int cmux_cef_set_dump_handler(cmux_cef_hang_dump_fn fn, void* ctx);
+// The time slice of the next cmux_shim_do_work only, in microseconds (fork
+// cmux_set_message_loop_time_slice, p03-rendering-116): that pass runs ready
+// work for at most this long, clamped to 100 us and to the
+// --cmux-pump-time-slice-us slice; 0 or less: the switch's slice. Main thread,
+// in process only. Returns 1 when the fork has the call, 0 otherwise (every
+// pass keeps the switch's slice).
+CMUX_SHIM_EXPORT int cmux_shim_set_pump_time_slice(int64_t slice_us);
 
 #ifdef __cplusplus
 }

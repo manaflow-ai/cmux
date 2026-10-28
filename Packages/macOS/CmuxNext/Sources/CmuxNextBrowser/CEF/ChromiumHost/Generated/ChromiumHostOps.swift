@@ -51,16 +51,16 @@ nonisolated enum ChromiumHostOp: UInt16, CaseIterable, Sendable {
     case pageSchemeAddFirstParty = 175, pageSchemeAddFirstPartyDynamic = 176, pageResourceRespond = 177
     case memoryPressureVote = 178, setCursorEvents = 179, tabSetVisibility = 180, extLoadLaterSupported = 181
     case extLoadCommandLine = 182, tabPagePush = 183, setPopupMenus = 184, browserPopupMenuReply = 185
-    case addDocumentScript = 186, addPageChannel = 187, tabEvaluate = 188, tabSetFrozen = 189, tabSendClick = 190
-    case tabSetColorScheme = 191, pageSchemeSetGroup = 192, tabDiscard = 193, widgetSetGeometry = 194
-    case widgetDismiss = 195, widgetSendInput = 196, browserImeSetComposition = 197, browserImeCommitText = 198
-    case browserImeFinishComposing = 199, browserImeCancelComposition = 200, tabCopySurface = 201
-    case tabSendMouseMove = 202
+    case setPumpTimeSlice = 186, addDocumentScript = 187, addPageChannel = 188, tabEvaluate = 189
+    case tabSetFrozen = 190, tabSendClick = 191, tabSetColorScheme = 192, pageSchemeSetGroup = 193, tabDiscard = 194
+    case widgetSetGeometry = 195, widgetDismiss = 196, widgetSendInput = 197, browserImeSetComposition = 198
+    case browserImeCommitText = 199, browserImeFinishComposing = 200, browserImeCancelComposition = 201
+    case tabCopySurface = 202, tabSendMouseMove = 203
 
     /// The SHA-256 of the cmux_cef_shim.h this table was generated from (`CEFShimABI`).
-    static let abiIdentity = "7cfd21757cd9dc824e2ed8a8c04a31635de9db6e141228e5a290c0b1891a82d4"
+    static let abiIdentity = "8f342faa569f85604636f46ca3df7fb38edfff9b95a6365b175eec7e12a16867"
     /// This generation's op ids, classes and wire types; both HELLOs carry it.
-    static let wireIdentity = "94d3bc9fb8e11eb4c6ed53696b385a4070a7876c570df7f8e3112537ef40a97f"
+    static let wireIdentity = "4251e9f0777e8783e07b799893fc29b8a79abcd45ea4f79ce14065599f0205f3"
     /// Ops of fork API symbols the header does not declare yet (`r.optional` in CEFShimLibrary).
     static let optionalOps: Set<ChromiumHostOp> = [
         .addDocumentScript, .addPageChannel, .tabEvaluate, .tabSetFrozen, .tabSendClick, .tabSetColorScheme,
@@ -386,6 +386,7 @@ nonisolated enum ChromiumHostOp: UInt16, CaseIterable, Sendable {
         Row(.post, [.int32, .string], [.int32]),
         Row(.preinit, [.int32], []),
         Row(.post, [.int32, .int64, .int32], []),
+        Row(.local, [], []),
         Row(.preinit, [.string, .string, .int32, .int32], [.int32]),
         Row(.preinit, [.string, .string], [.int32]),
         Row(.async, [.int32, .int32, .string, .string, .int32], [.int32]),
