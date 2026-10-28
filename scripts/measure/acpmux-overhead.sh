@@ -72,6 +72,20 @@ done
 [[ "$bench" =~ ^(harness|daemon|prewarm|hibernate)$ ]] || { echo "acpmux-overhead.sh: bench=harness, daemon, prewarm or hibernate" >&2; exit 2; }
 root="$(git rev-parse --show-toplevel)"
 cd "$root"
+# Every tool this bench calls, checked before any build, so a worker without one says which at once
+# instead of failing after the build (cmux20-bench had no npm). The fleet routes by label; a missing
+# tool is the worker's, and the step names it.
+need=(git sysctl sw_vers cargo)
+[[ "$bench" == daemon ]] || need+=(curl python3 npm)
+missing=()
+for tool in "${need[@]}"; do command -v "$tool" >/dev/null 2>&1 || missing+=("$tool"); done
+if (( ${#missing[@]} )); then
+  echo "ACPMUX-OVERHEAD-MISSING-TOOL ${missing[*]}: bench=$bench needs ${need[*]} on PATH; run the step on a worker that has them" >&2
+  exit 2
+fi
+# Where before= is fetched from: a cmux-ci step tree has no `origin` remote, so origin's URL when
+# there is one, else the repository's own URL.
+fetch_url="${ACPMUX_OVERHEAD_FETCH_URL:-$(git remote get-url origin 2>/dev/null || echo https://github.com/manaflow-ai/cmux.git)}"
 work="$root/.build/acpmux-overhead"
 rm -rf "$work"
 mkdir -p "$work/bin" "$work/tools"
@@ -106,7 +120,7 @@ if [[ "$bench" == daemon ]]; then
   if [[ -n "$before" ]]; then
     depth=()
     [[ "$(git rev-parse --is-shallow-repository)" == true ]] && depth=(--depth 1)
-    git fetch -q ${depth[@]+"${depth[@]}"} origin "$before"
+    git fetch -q ${depth[@]+"${depth[@]}"} "$fetch_url" "$before"
     git worktree add -q --detach "$work/before-src" "$before"
     trap 'git -C "$root" worktree remove --force "$work/before-src" 2>/dev/null || true' EXIT
     perf before "$work/before-src" || before_rc=$?
@@ -146,7 +160,7 @@ if [[ -n "$before" ]]; then
   # --depth only in an already-shallow checkout; it would make a full clone shallow.
   depth=()
   [[ "$(git rev-parse --is-shallow-repository)" == true ]] && depth=(--depth 1)
-  git fetch -q ${depth[@]+"${depth[@]}"} origin "$before"
+  git fetch -q ${depth[@]+"${depth[@]}"} "$fetch_url" "$before"
   git worktree add -q --detach "$work/before-src" "$before"
   trap 'git -C "$root" worktree remove --force "$work/before-src" 2>/dev/null || true' EXIT
   (cd "$work/before-src" && git submodule update --init --depth 1 ghostty-next && scripts/cmux-next/build-acpmux.sh --output "$work/before/acpmux")

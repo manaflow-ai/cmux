@@ -94,4 +94,20 @@ grep -q '^ACPMUX-PERF-STATUS before exit=101 result=failed' <<<"$out" || fail "t
 grep -q '^634 |' <<<"$out" && fail "the compile error spilled into the step log without its label: $out"
 grep -q '^ACPMUX-PERF-LOG before error\[E0609\]' <<<"$out" || fail "the before side's compile error is not in its log tail: $out"
 
+# 6. A step tree with no `origin` remote (a cmux-ci step) still fetches before= from the repository's URL.
+"$GIT" -C "$TMP/repo" remote remove origin
+run ACPMUX_OVERHEAD_FETCH_URL="$TMP/repo" -- "before=$BEFORE"
+[[ "$code" -eq 0 ]] || fail "before= with no origin remote exited $code: $out"
+grep -q "origin' does not appear to be a git repository" <<<"$out" && fail "the fetch still asked for origin: $out"
+grep -q '^ACPMUX-PERF before light\._acpmux/status ' <<<"$out" || fail "no before rows without an origin remote: $out"
+"$GIT" -C "$TMP/repo" remote add origin "$TMP/repo"
+
+# 7. A worker without a tool the bench calls says which one, before any build, and exits 2.
+mv "$TMP/bin/cargo" "$TMP/cargo.off"
+run --
+mv "$TMP/cargo.off" "$TMP/bin/cargo"
+[[ "$code" -eq 2 ]] || fail "a missing cargo exited $code: $out"
+grep -q '^ACPMUX-OVERHEAD-MISSING-TOOL cargo:' <<<"$out" || fail "the missing tool is not named: $out"
+grep -q 'Compiling' <<<"$out" && fail "it built before it found the missing tool: $out"
+
 echo "PASS acpmux-overhead-daemon"
