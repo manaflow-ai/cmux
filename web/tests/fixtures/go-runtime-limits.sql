@@ -73,7 +73,7 @@ BEGIN
   INSERT INTO apple_subscriptions(original_transaction_id,user_id,bundle_id,environment,product_id,plan_id,status,
       purchase_date,expires_at,state_signed_at)
     VALUES (u,u,'com.cmux.app','Production','com.cmux.app.go.monthly','go','active',
-      now() - interval '3 days', now() + interval '27 days', now());
+      now() - interval '4 days', now() + interval '26 days', now());
   INSERT INTO cloud_vms(user_id,billing_team_id,billing_plan_id,provider,image_id,status)
     VALUES (u,u,'go','freestyle','test','running') RETURNING id INTO apple_vm;
   UPDATE cloud_vms SET status='paused' WHERE id=apple_vm;
