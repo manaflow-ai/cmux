@@ -1,5 +1,5 @@
 #if DEBUG && os(iOS)
-import CmuxMobileAgentChat
+import CmuxMobileSupport
 import GameController
 import QuartzCore
 import UIKit
@@ -90,12 +90,20 @@ final class KeyboardPinTrace: NSObject {
             parts.append("kb=-")
         }
         if let field = Self.composerField(in: window) {
-            let rect = KeyboardProbe.onScreen(field, in: window)
+            let rect = MobileKeyboardProbe().onScreen(field, in: window)
             parts.append(String(format: "field=%@ fy=%.2f fb=%.2f fx=%.1f fw=%.1f fr=%d",
                                 field.accessibilityIdentifier ?? "?", rect.minY, rect.maxY, rect.minX, rect.width,
                                 field.isFirstResponder ? 1 : 0))
+            if let guide = Self.keyboardGuide(above: field) {
+                let frame = guide.owningView.map { window.convert(guide.layoutFrame, from: $0) } ?? .zero
+                parts.append(String(format: "kg=%.2f kgh=%.1f", frame.minY, frame.height))
+            }
+            if let dock = Self.dockGuide(above: field) {
+                let frame = dock.owningView.map { window.convert(dock.layoutFrame, from: $0) } ?? .zero
+                parts.append(String(format: "dg=%.2f", frame.minY))
+            }
             if let scroll = Self.content(behind: field, in: window) {
-                let frame = KeyboardProbe.onScreen(scroll, in: window)
+                let frame = MobileKeyboardProbe().onScreen(scroll, in: window)
                 let bounds = (scroll.layer.presentation() ?? scroll.layer).bounds
                 // The content's bottom edge on screen.
                 let bottom = frame.minY + scroll.contentSize.height - bounds.minY
@@ -111,14 +119,7 @@ final class KeyboardPinTrace: NSObject {
 
     /// The keyboard as drawn, window coordinates; nil when none is on screen.
     static func keyboardRect(in window: UIWindow) -> CGRect? {
-        guard let scene = window.windowScene else { return nil }
-        for w in scene.windows where NSStringFromClass(type(of: w)).contains("TextEffects") {
-            guard let host = KeyboardProbe.find(in: w, where: { NSStringFromClass(type(of: $0)).contains("RemoteKeyboardPlaceholder") }) else { continue }
-            let rect = window.convert(KeyboardProbe.onScreen(host, in: w), from: w)
-            guard rect.height > 1, rect.minY < window.bounds.maxY else { return nil }
-            return rect
-        }
-        return nil
+        MobileKeyboardProbe().drawnFrame(in: window)
     }
 
     /// The composer field to follow: the first responder if a composer has
@@ -132,18 +133,39 @@ final class KeyboardPinTrace: NSObject {
         }
         walk(window)
         if let responder = found.first(where: \.isFirstResponder) { return responder }
-        return found.max { KeyboardProbe.onScreen($0, in: window).maxY < KeyboardProbe.onScreen($1, in: window).maxY }
+        return found.max { MobileKeyboardProbe().onScreen($0, in: window).maxY < MobileKeyboardProbe().onScreen($1, in: window).maxY }
+    }
+
+    /// The nearest keyboard layout guide an ancestor already has (never
+    /// creates one: `keyboardLayoutGuide` would).
+    static func keyboardGuide(above field: UIView) -> UIKeyboardLayoutGuide? {
+        var view: UIView? = field
+        while let current = view {
+            if let guide = current.layoutGuides.lazy.compactMap({ $0 as? UIKeyboardLayoutGuide }).first { return guide }
+            view = current.superview
+        }
+        return nil
+    }
+
+    /// The nearest `MobileKeyboardDock` guide an ancestor has.
+    static func dockGuide(above field: UIView) -> UILayoutGuide? {
+        var view: UIView? = field
+        while let current = view {
+            if let guide = current.layoutGuides.first(where: { $0.identifier == "MobileKeyboardDock" }) { return guide }
+            view = current.superview
+        }
+        return nil
     }
 
     /// The tallest scroll view (not a text view) under the field's column.
     static func content(behind field: UIView, in window: UIWindow) -> UIScrollView? {
-        let fieldRect = KeyboardProbe.onScreen(field, in: window)
+        let fieldRect = MobileKeyboardProbe().onScreen(field, in: window)
         var best: UIScrollView?
         var bestHeight: CGFloat = 0
         func walk(_ view: UIView) {
             guard !view.isHidden else { return }
             if let scroll = view as? UIScrollView, !(scroll is UITextView), scroll.bounds.height > bestHeight {
-                let rect = KeyboardProbe.onScreen(scroll, in: window)
+                let rect = MobileKeyboardProbe().onScreen(scroll, in: window)
                 if rect.minX <= fieldRect.midX, rect.maxX >= fieldRect.midX, rect.height > window.bounds.height / 3 {
                     best = scroll
                     bestHeight = scroll.bounds.height
