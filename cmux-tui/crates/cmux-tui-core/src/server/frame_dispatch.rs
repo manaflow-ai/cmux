@@ -542,12 +542,21 @@ fn member_present<'de, D: Deserializer<'de>>(deserializer: D) -> Result<bool, D:
     IgnoredAny::deserialize(deserializer).map(|_| true)
 }
 
+/// The whitespace JSON allows before a value (RFC 8259, section 2).
+const JSON_WHITESPACE: [char; 4] = [' ', '\t', '\n', '\r'];
+
 /// The body must be the v12 line of the header's method, so the handler that
-/// runs is the one the header was checked for.
+/// runs is the one the header was checked for. A line is a JSON object: serde
+/// also reads `BodyHead` from an array (`["ping"]`), which the line path never
+/// runs as a command.
 pub(super) fn names_method(body: &str, method: &MethodAttrs) -> Result<(), CallRefusal> {
+    let mismatch = CallRefusal::MethodMismatch { method_id: method.id.raw() };
+    if !body.trim_start_matches(JSON_WHITESPACE).starts_with('{') {
+        return Err(mismatch);
+    }
     match crate::line_parses::parse::<BodyHead<'_>>(body) {
         Ok(BodyHead { cmd: Some(cmd), protocol: false }) if cmd == method.name => Ok(()),
-        _ => Err(CallRefusal::MethodMismatch { method_id: method.id.raw() }),
+        _ => Err(mismatch),
     }
 }
 

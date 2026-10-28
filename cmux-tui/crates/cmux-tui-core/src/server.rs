@@ -158,6 +158,7 @@ pub use app_trust::{FrontendKey, frontend_proof, install_frontend_key, read_fron
 mod client_hello;
 pub use client_hello::{daemon_features, install_daemon_features};
 mod command_args;
+mod command_tag;
 mod frame_dispatch;
 #[cfg(unix)]
 mod fs_wire;
@@ -634,7 +635,7 @@ use wire_values::machine_usage_json;
 #[derive(Deserialize)]
 struct Request {
     id: Option<Value>,
-    #[serde(flatten)]
+    #[serde(flatten, deserialize_with = "command_tag::command_by_name")]
     cmd: Command,
 }
 

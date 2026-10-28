@@ -119,12 +119,15 @@ fn body(
     match shapes.request(method.id) {
         Some(request) => {
             let id = generator.u.int_in_range(0..=9_999u32)?;
-            members.insert("id".into(), json!(id));
-            members.insert("cmd".into(), json!(method.name));
-            name_key = "cmd";
             if let Value::Object(params) = generator.value(request.params, 0)? {
                 members.extend(params);
             }
+            // An open request may draw any extra member: it must not
+            // rename the line or make it a v2 envelope.
+            members.remove("protocol");
+            members.insert("id".into(), json!(id));
+            members.insert("cmd".into(), json!(method.name));
+            name_key = "cmd";
         }
         None => {
             members.insert("protocol".into(), json!("cmux.protocol/2"));
