@@ -969,6 +969,14 @@
   background: var(--acpmux-top-tray);
   box-shadow: inset 0 var(--cmux-hairline, .5px) 0 var(--acpmux-strip-edge);
 }
+/* The strip keeps the card's blur (composerStates.css), and glass is never opaque: off Reduce
+   Transparency the tray's step goes over the card's glass tint, as Codex's tray does
+   (composerLook.css), not over the solid tray tone (accent-glass-invariants). */
+@media not (prefers-reduced-transparency: reduce) {
+  :root[data-top-strip="tray"]:not([data-reduce-transparency]) .acpmux-composer > .acpmux-composer-strip {
+    background: color-mix(in srgb, var(--agent-text) 5%, var(--glass-tint));
+  }
+}
 :root[data-top-strip="tray"] .acpmux-composer:has(> .acpmux-composer-queue) > .acpmux-composer-strip {
   border-radius: 0;
   box-shadow: none;
