@@ -10,17 +10,17 @@ struct WorkstreamClearOrderingTests {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let url = directory.appendingPathComponent("history.jsonl")
-        let manager = WorkstreamClearFileManager()
-        let persistence = WorkstreamPersistence(fileURL: url, fileManager: manager)
+        let gate = WorkstreamClearGate()
+        let persistence = WorkstreamPersistence(fileURL: url, fileManager: WorkstreamClearFileManager(gate: gate))
         let date = Date(timeIntervalSince1970: 1_700_000_000)
         let old = WorkstreamItem(workstreamId: "old", source: .claude, kind: .sessionStart,
                                  createdAt: date, payload: .sessionStart)
         let new = WorkstreamItem(workstreamId: "new", source: .claude, kind: .sessionStart,
                                  createdAt: date, payload: .sessionStart)
         try await persistence.append(old)
-        manager.arm()
+        gate.arm()
         let clear = Task { try await persistence.clear() }
-        var entries = manager.entries.makeAsyncIterator()
+        var entries = gate.entries.makeAsyncIterator()
         _ = await entries.next()
         let (started, continuation) = AsyncStream<Void>.makeStream()
         let append = Task {
@@ -31,7 +31,7 @@ struct WorkstreamClearOrderingTests {
         // This actor read runs after append has entered. Until clear's durable
         // floor is saved, that append must not mutate the journal being removed.
         let duringClear = try await persistence.loadRecent(limit: 10)
-        manager.release()
+        gate.release()
         try await clear.value
         try await append.value
         #expect(duringClear == [old])

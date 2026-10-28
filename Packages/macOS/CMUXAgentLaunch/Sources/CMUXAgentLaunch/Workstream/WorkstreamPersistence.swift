@@ -30,6 +30,7 @@ public actor WorkstreamPersistence {
     let fileManager: FileManager
     private var handle: FileHandle?
     private var clearTask: Task<Void, Error>?
+    private let journalLock: WorkstreamJournalFileLock
     let uptimeNanoseconds: @Sendable () -> UInt64
 
     /// A malformed append-only row must not turn startup into an unbounded
@@ -58,6 +59,7 @@ public actor WorkstreamPersistence {
         self.fileManager = fileManager
         self.fileURL = fileURL
         self.revisionFile = WorkstreamRevisionFile(url: fileURL.appendingPathExtension("revision"), fileManager: fileManager)
+        self.journalLock = WorkstreamJournalFileLock(fileURL: fileURL, fileManager: fileManager)
         let enc = JSONEncoder()
         enc.dateEncodingStrategy = .iso8601
         self.encoder = enc
@@ -80,6 +82,8 @@ public actor WorkstreamPersistence {
         // Clearing must save its floor before deleting the journal. Do not let
         // an append land in that journal while the sidecar write is suspended.
         while let clearTask { _ = await clearTask.result }
+        let lease = try await journalLock.acquire()
+        defer { lease.release() }
         let data = try encoder.encode(item.redactedForPersistence())
         var line = data
         line.append(0x0A) // "\n"
@@ -282,6 +286,8 @@ public actor WorkstreamPersistence {
     }
 
     private func clearJournal() async throws {
+        let lease = try await journalLock.acquire()
+        defer { lease.release() }
         // The byte count is part of the legacy revision fallback. Snapshot it
         // into the durable sidecar before deleting the log, otherwise a clear
         // after a byte-heavy run could make the next process advertise a
@@ -314,7 +320,17 @@ public actor WorkstreamPersistence {
     }
 
     private func handleForWriting() throws -> FileHandle {
-        if let handle { return handle }
+        if let handle {
+            var pathMetadata = stat()
+            var handleMetadata = stat()
+            let pathIsCurrent = stat(fileURL.path, &pathMetadata) == 0
+                && fstat(handle.fileDescriptor, &handleMetadata) == 0
+                && pathMetadata.st_dev == handleMetadata.st_dev
+                && pathMetadata.st_ino == handleMetadata.st_ino
+            if pathIsCurrent { return handle }
+            try handle.close()
+            self.handle = nil
+        }
         let fm = fileManager
         try fm.createDirectory(
             at: fileURL.deletingLastPathComponent(),

@@ -43,8 +43,8 @@ struct WorkstreamPersistenceFailureTests {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let url = directory.appendingPathComponent("history.jsonl")
-        let manager = WorkstreamClearFileManager()
-        let persistence = WorkstreamPersistence(fileURL: url, fileManager: manager)
+        let gate = WorkstreamClearGate()
+        let persistence = WorkstreamPersistence(fileURL: url, fileManager: WorkstreamClearFileManager(gate: gate))
         let store = WorkstreamStore(persistence: persistence)
         await store.start()
         func ingest(_ session: String) {
@@ -52,9 +52,9 @@ struct WorkstreamPersistenceFailureTests {
         }
         ingest("warm")
         await store.flushPersistence()
-        manager.arm(count: 2)
+        gate.arm(count: 2)
         ingest("first")
-        var entries = manager.entries.makeAsyncIterator()
+        var entries = gate.entries.makeAsyncIterator()
         _ = await entries.next()
         let (started, continuation) = AsyncStream<Void>.makeStream()
         let flush = Task { @MainActor in
@@ -65,12 +65,12 @@ struct WorkstreamPersistenceFailureTests {
         var starts = started.makeAsyncIterator()
         _ = await starts.next()
         ingest("during-flush")
-        manager.release()
+        gate.release()
         _ = await entries.next()
         // Let any continuation of the first write run while the second write
         // remains blocked at a real filesystem boundary.
         await Task.yield()
-        manager.release()
+        gate.release()
         #expect(await flush.value == false)
         #expect(try await persistence.loadRecent(limit: 10).map(\.workstreamId) == ["warm", "first", "during-flush"])
     }
