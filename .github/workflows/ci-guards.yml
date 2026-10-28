@@ -728,6 +728,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_queue_janitor.py
 
+      - name: Validate when a nightly run may be cancelled (attempts, pickers, latest-wins, known-bad)
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_delivery_workflows_cancel.py
+
       - name: Validate the starved fleet runner label alert
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_starved_labels.py
