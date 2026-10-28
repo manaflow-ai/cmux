@@ -230,14 +230,18 @@ fn a_send_naming_bytes_never_uploaded_or_with_another_size_is_refused() {
 }
 
 #[test]
-fn bad_types_sizes_and_hashes_are_refused_before_any_bytes() {
+fn bad_types_previews_and_hashes_are_refused_before_any_bytes() {
     let (mux, user, _, conversation) = setup();
     let cases = [
         (json!({"mime_type":"image/svg+xml"}), "type_refused"),
         // Any name attaches since 9f31a629471 (a client sends HTML as text/plain);
         // a type outside the owner's list is still refused.
         (json!({"name":"index.html","mime_type":"text/html"}), "type_refused"),
-        (json!({"byte_count":100_000_001}), "too_large"),
+        // An original has no size cap; a derived preview is still bounded.
+        (
+            json!({"preview":{"sha256":hex(PREVIEW),"byte_count":512_001,"mime_type":"image/jpeg"}}),
+            "too_large",
+        ),
         (json!({"sha256":"ABC"}), "validation_invalid"),
         (json!({"name":"a/b.png"}), "validation_invalid"),
     ];
@@ -257,6 +261,16 @@ fn bad_types_sizes_and_hashes_are_refused_before_any_bytes() {
     poster["poster"] =
         json!({"sha256":hex(PREVIEW),"byte_count":PREVIEW.len(),"mime_type":"image/jpeg"});
     assert_eq!(rejection(&mux, user, poster).0, "poster_refused");
+}
+
+/// Leo, 2026-10-26: "WHY THE FUCK SHOULD THERE BE A FUCKING SIZE CAP ANYWAYS".
+#[test]
+fn an_original_over_the_old_100_mb_cap_begins() {
+    let (mux, user, _, conversation) = setup();
+    let mut request = begin(&conversation, IMAGE, None);
+    request["byte_count"] = json!(200_000_000_u64);
+    let begun = run(&mux, user, request).unwrap();
+    assert!(begun["upload"].is_string(), "{begun}");
 }
 
 #[test]
