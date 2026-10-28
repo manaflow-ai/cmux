@@ -14,6 +14,7 @@
 // next toggle, another chat, or the transcript unmounting.
 import { foldMotion, foldMs } from "./fold";
 import { FOLD_SETTLE_MS } from "./foldAnchor";
+import type { LayoutGeometry } from "../conversationGeometry";
 
 /// The fold's state on the thread while it plays: "open" or "close" (the CSS and tests read it).
 export const TURN_FOLD_ATTR = "data-turn-fold";
@@ -27,6 +28,19 @@ export type PlacedRows = {
   idAt: (index: number) => string | undefined;
   tops: ArrayLike<number>;
 };
+
+/** Indexed placement consumed by the fold without materializing row tops. */
+export type IndexedPlacedRows = {
+  count: number;
+  idAt: (index: number) => string | undefined;
+  geometry: LayoutGeometry;
+};
+
+export type FoldPlacedRows = PlacedRows | IndexedPlacedRows;
+
+function topAt(placed: FoldPlacedRows, index: number): number {
+  return "geometry" in placed ? placed.geometry.topAt(index) : (placed.tops[index] ?? 0);
+}
 
 /// A row element the fold moves: where it is placed below the line, and how it plays.
 type Moving = {
@@ -52,7 +66,7 @@ export type TurnFold = {
   start: number;
   until: number;
   /// The rows as placed at the toggle: where any row below the line was then, mounted or not.
-  startRows: PlacedRows;
+  startRows: FoldPlacedRows;
   startAt: number;
   /// `startRows`' indexes by id, made the first time a row needs one.
   startIndex?: Map<string, number>;
@@ -80,7 +94,7 @@ function mountedRows(thread: HTMLElement): { node: HTMLElement; id: string; inde
 }
 
 /// Where row `id` is in `placed`: at `hint` when it is still there, else found.
-function indexOfRow(placed: PlacedRows, id: string, hint = -1): number {
+function indexOfRow(placed: FoldPlacedRows, id: string, hint = -1): number {
   if (hint >= 0 && placed.idAt(hint) === id) return hint;
   for (let index = 0; index < placed.count; index += 1) if (placed.idAt(index) === id) return index;
   return -1;
@@ -94,7 +108,7 @@ function startTop(fold: TurnFold, id: string): number | undefined {
       fold.startIndex.set(fold.startRows.idAt(index)!, index);
   }
   const index = fold.startIndex.get(id);
-  return index === undefined ? undefined : fold.startRows.tops[index]! - fold.startRows.tops[fold.startAt]!;
+  return index === undefined ? undefined : topAt(fold.startRows, index) - topAt(fold.startRows, fold.startAt);
 }
 
 /// A copy of `row` that can sit in the thread for a moment: no ids, nothing focusable or found.
@@ -120,7 +134,7 @@ export function startTurnFold(
   thread: HTMLElement | null,
   id: string,
   opening: boolean,
-  placed: PlacedRows,
+  placed: FoldPlacedRows,
   sessionId: string | undefined,
   now = performance.now(),
 ): TurnFold | undefined {
@@ -131,7 +145,7 @@ export function startTurnFold(
   const moving = new Map<HTMLElement, Moving>();
   for (const row of mountedRows(thread)) {
     if (row.index <= at || placed.idAt(row.index) !== row.id) continue;
-    const top = placed.tops[row.index]! - placed.tops[at]!;
+    const top = topAt(placed, row.index) - topAt(placed, at);
     moving.set(row.node, { id: row.id, top, delta: 0, reveal: false, animations: [] });
   }
   thread.setAttribute(TURN_FOLD_ATTR, opening ? "open" : "close");
@@ -143,7 +157,7 @@ export function startTurnFold(
     ms,
     start: now,
     until: now + ms + FOLD_SETTLE_MS,
-    startRows: { ...placed, tops: Float64Array.from(placed.tops as ArrayLike<number>) },
+    startRows: "geometry" in placed ? placed : { ...placed, tops: Float64Array.from(placed.tops as ArrayLike<number>) },
     startAt: at,
     moving,
     copies: new Map(),
@@ -193,7 +207,7 @@ export function settleTurnFold(thread: HTMLElement | null, fold: TurnFold | unde
 export function playTurnFold(
   fold: TurnFold,
   thread: HTMLElement,
-  placed: PlacedRows,
+  placed: FoldPlacedRows,
   sessionId: string | undefined,
   ghosts: Set<HTMLElement>,
   now = performance.now(),
@@ -221,7 +235,7 @@ export function playTurnFold(
       ghosts.delete(copy);
       copy.remove();
     }
-    const top = placed.tops[row.index]! - placed.tops[at]!;
+    const top = topAt(placed, row.index) - topAt(placed, at);
     const from = startTop(fold, row.id);
     const reveal = from === undefined && fold.opening;
     const delta = from === undefined ? 0 : from - top;
@@ -258,7 +272,7 @@ export function playTurnFold(
     // Still a row, past the mounted ones: the copy slides on to its place. Gone (the close hid it):
     // it fades out where it was, under the rows sliding over it, over the whole fold (a shorter fade
     // left a blank band behind).
-    const to = place === undefined ? 0 : placed.tops[place]! - placed.tops[at]! - row.top;
+    const to = place === undefined ? 0 : topAt(placed, place) - topAt(placed, at) - row.top;
     const first: Keyframe = {};
     const end: Keyframe = {};
     if (Math.abs(row.delta) >= 0.5 || Math.abs(to) >= 0.5) {
@@ -304,7 +318,7 @@ const isRow = (node: Node): node is HTMLElement =>
 export function watchTurnFold(
   fold: TurnFold,
   thread: HTMLElement,
-  read: () => { placed: PlacedRows; sessionId: string | undefined },
+  read: () => { placed: FoldPlacedRows; sessionId: string | undefined },
   ghosts: Set<HTMLElement>,
   done: () => void,
 ): void {
