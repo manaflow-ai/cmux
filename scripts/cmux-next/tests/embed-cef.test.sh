@@ -35,6 +35,13 @@ else
   dist="$TMP/dist"; fw="$dist/Chromium Embedded Framework.framework"
   mkdir -p "$fw/Libraries" "$fw/Resources" "$TMP/cache" "$TMP/bin"
   : > "$fw/Chromium Embedded Framework"
+  # Chromium's locale catalogs, a few of the artifact's 220: languages cmux's own
+  # String tables lack (Hebrew, Hindi, Dutch, Swedish) and a grammatical-gender
+  # variant. Every one must ship (chromium-slim.md: keep all languages).
+  artifact_locales=(en en_GB he hi nl sv ja ja_FEMININE)
+  for locale in "${artifact_locales[@]}"; do
+    mkdir -p "$fw/Resources/$locale.lproj"; printf '%s' "$locale" > "$fw/Resources/$locale.lproj/locale.pak"
+  done
   printf 'static int hidden_helper(int x) { return x * 3; }\nint vk_icdGetInstanceProcAddr(int x) { return hidden_helper(x); }\n' > "$TMP/lib.c"
   if [[ "$(uname)" == Darwin ]]; then
     cc -g -dynamiclib -o "$fw/Libraries/libvk_swiftshader.dylib" "$TMP/lib.c"
@@ -66,5 +73,10 @@ STUB
   if grep -v 'radr://5614542' <<<"$syms" | grep -qE ' - |hidden_helper'; then
     printf 'embedded CEF library keeps local symbols or debug stabs:\n%s\n' "$syms" >&2; exit 1
   fi
+  resources="$TMP/build/app.app/Contents/Frameworks/Chromium Embedded Framework.framework/Versions/A/Resources"
+  for locale in "${artifact_locales[@]}"; do
+    [[ "$(cat "$resources/$locale.lproj/locale.pak" 2>/dev/null)" == "$locale" ]] ||
+      { printf 'the embedded framework dropped the %s locale catalog: %s\n' "$locale" "$(ls "$resources")" >&2; exit 1; }
+  done
 fi
 printf 'embed-cef tests: ok\n'
