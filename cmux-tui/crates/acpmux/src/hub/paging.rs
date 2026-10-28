@@ -29,6 +29,9 @@ pub const TRANSCRIPT_MUX_KINDS: &[&str] = &[
     "queue_order",
     "queue_paused",
     "queue_resumed",
+    // The owner approved or declined a prompt that waited for them (`queue_approve.rs`).
+    "queue_approved",
+    "queue_declined",
     "turn_started",
     // The turn's agent has said nothing since its prompt, and then its model's first sign
     // (`silent_turn.rs`).
@@ -316,6 +319,8 @@ mod transcript_kind_tests {
             "queue_order",
             "queue_paused",
             "queue_resumed",
+            "queue_approved",
+            "queue_declined",
         ] {
             assert!(is_transcript(&mux(kind)), "{kind} is not a transcript record");
         }

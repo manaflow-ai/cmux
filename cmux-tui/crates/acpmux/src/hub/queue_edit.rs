@@ -194,6 +194,11 @@ impl Hub {
         // `resume` changes no one prompt.
         let author = crate::author::author(params)?;
         let editor = crate::author::editor(author.as_ref());
+        // A prompt that waits for the owner runs only in its place, once approved
+        // (`queue_approve.rs`).
+        if matches!(op, "move" | "send_now" | "interrupt") {
+            self.refuse_awaiting_owner(session, prompt_id)?;
+        }
         let mut reply = json!({"sessionId": session.id, "promptId": prompt_id, "op": op});
         reply["ok"] = match op {
             "update" => {
@@ -257,12 +262,17 @@ impl Hub {
         device: Option<&str>,
         editor: crate::author::Editor<'_>,
     ) -> Result<bool, RpcError> {
-        let (turn_id, run, text) = {
+        let (turn_id, run, text, revision) = {
             let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let Some(q) = queue.iter_mut().find(|q| q.prompt_id == prompt_id) else {
                 return Ok(false);
             };
             crate::author::may_change(editor, q.sender())?;
+            // Approved, it runs the words the owner approved (`queue_approve.rs`).
+            let again = crate::author::awaits_owner(q.run.provenance.as_ref());
+            if again && !q.awaiting_owner {
+                return Err(super::queue::approved_error());
+            }
             let (mut blocks, origin) = edit.blocks(&q.run.blocks);
             // Only `session/prompt` adds a hidden context (prompt_context.rs).
             crate::prompt_context::strip_marks(&mut blocks);
@@ -289,9 +299,17 @@ impl Hub {
                 full_access_device: same_device(q.run.full_access_device.as_deref(), device),
             });
             q.preview = short_text(&text, 200);
-            (q.turn_id.clone(), q.run.clone(), text)
+            // Its author's edit of a prompt that waits for the owner is a new revision: an
+            // approval names the words the owner saw (`queue_approve.rs`).
+            if again {
+                q.revision += 1;
+            }
+            (q.turn_id.clone(), q.run.clone(), text, again.then_some(q.revision))
         };
         let mut msg = json!({"promptId": prompt_id, "turnId": turn_id, "text": text, "prompt": run.blocks, "control": run.control.as_str(), "trustGate": run.trust_gate});
+        if let Some(revision) = revision {
+            (msg["awaitingOwner"], msg["revision"]) = (json!(true), json!(revision));
+        }
         // Its images, kept and named as `queued` names them (`prompt_images.rs`).
         let images = super::prompt_images::keep(&run.blocks);
         if !images.is_empty() {

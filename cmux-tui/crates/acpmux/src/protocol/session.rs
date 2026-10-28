@@ -333,6 +333,14 @@ pub struct QueuedPromptSummary {
     pub queued_at: u64,
     /// Waits behind a failed turn until the queue is resumed.
     pub held: bool,
+    /// A person's prompt that waits for the chat's owner (`author.approval: "owner"`): the queue
+    /// runs past it until the owner approves it (`_acpmux/queue_approve`, naming `revision`) or
+    /// declines it (`_acpmux/queue_decline`). The owner's pane draws Approve and Decline on it.
+    #[serde(default)]
+    pub awaiting_owner: bool,
+    /// Its version for the owner's approval: 0 when queued, one more at each edit by its author.
+    #[serde(default)]
+    pub revision: u64,
     /// The images it sends, in its order; `_acpmux/attachment` reads each by its id.
     #[serde(default)]
     pub images: Vec<QueuedImage>,
