@@ -262,6 +262,23 @@ def test_delivery_coalescers_have_fixed_backstops_and_non_cancelling_groups() ->
     assert "cancel-in-progress: false" in dev
 
 
+def test_the_tick_is_the_only_cadence_and_the_only_promoter() -> None:
+    """nightly-next moves at most once per 30-minute tick, so a burst of landings starts one build.
+
+    On 2026-10-28 every finished cmux-next or cmux-tui artifacts run on feat-cmux-next promoted, through
+    this tick's workflow_run trigger and their own request jobs, and six Release builds ran at once."""
+    tick = yaml.safe_load((WORKFLOWS / "nightly-next-tick.yml").read_text(encoding="utf-8"))
+    triggers = tick.get("on", tick.get(True))
+    assert set(triggers) == {"schedule", "workflow_dispatch"}, "a workflow_run trigger promotes on every landing"
+    assert triggers["schedule"] == [{"cron": "7,37 * * * *"}]
+    steps = {step.get("name"): step for step in tick["jobs"]["request"]["steps"]}
+    request = steps["Request nightly-next promotion on main"]
+    assert request["env"]["NIGHTLY_NEXT_PROMOTE"] == "1", "request-nightly-next.sh promotes only when the tick asks"
+    for name, step in steps.items():
+        if step is not request:
+            assert "NIGHTLY_NEXT_PROMOTE" not in (step.get("env") or {}), name
+
+
 def test_nightly_push_runs_never_share_a_build_group() -> None:
     # A shared workflow-level group held a newer tip pending behind a running
     # build and let the next push replace it (2026-10-27). Each push run of
