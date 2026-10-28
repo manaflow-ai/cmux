@@ -11,10 +11,15 @@
 //! The wait runs on a work item, as a sized browser attach's does
 //! (connection_frame.rs): the connection's next request answers meanwhile,
 //! and no other connection waits. The item holds no mux, state or registry
-//! lock while it waits.
+//! lock while it waits. A detach of the same client's view that comes
+//! meanwhile cancels the attach, so it never attaches after that detach.
+//! Each waiting attach holds a System lane `will_block` slot, so at most a
+//! few wait at once (`RESTORE_ATTACH_WAITS`); past that an attach runs at
+//! once, as before.
 
 use super::*;
 use cmux_threads::work::{Lane, Priority, Shutdown};
+use std::sync::Weak;
 use std::time::Duration;
 
 /// The longest an attach waits for its terminal's adoption. One promoted
@@ -22,16 +27,42 @@ use std::time::Duration;
 /// past this the attach runs and fails as before, and the app retries.
 const ATTACH_ADOPTION_WAIT: Duration = Duration::from_secs(4);
 
-/// The host id of the terminal `cmd` attaches to, when it is an attach of
-/// this machine's client to a terminal that has no runtime yet because its
-/// host still adopts.
-pub(super) fn adopting_target(mux: &Mux, client: u64, cmd: &Command) -> Option<String> {
+/// An attach that waits for its restored terminal: the terminal's host id
+/// and its registration ([`Mux::begin_restore_attach`]), ended when it drops.
+pub(super) struct RestoreAttach {
+    host_id: String,
+    token: u64,
+    mux: Weak<Mux>,
+}
+
+impl RestoreAttach {
+    /// Ends the wait: whether a detach cancelled the attach meanwhile.
+    fn cancelled(mut self) -> bool {
+        let token = std::mem::take(&mut self.token);
+        self.mux.upgrade().is_some_and(|mux| mux.end_restore_attach(token))
+    }
+}
+
+impl Drop for RestoreAttach {
+    fn drop(&mut self) {
+        if self.token != 0
+            && let Some(mux) = self.mux.upgrade()
+        {
+            mux.end_restore_attach(self.token);
+        }
+    }
+}
+
+/// The wait of `cmd` when it is an attach of this machine's client to a
+/// terminal that has no runtime yet because its host still adopts, and
+/// fewer than the bound of such attaches wait already.
+pub(super) fn adopting_target(mux: &Arc<Mux>, client: u64, cmd: &Command) -> Option<RestoreAttach> {
     let Command::AttachSurface(params) = cmd else { return None };
     // A remote client takes the relay gate's path, unchanged.
     if mux.is_remote_client(client) {
         return None;
     }
-    match (params.surface, params.expected_terminal_id.as_deref()) {
+    let host_id = match (params.surface, params.expected_terminal_id.as_deref()) {
         (Some(surface), _) => {
             if mux.surface(surface).is_some_and(|surface| !surface.is_dead()) {
                 return None;
@@ -46,18 +77,21 @@ pub(super) fn adopting_target(mux: &Mux, client: u64, cmd: &Command) -> Option<S
             mux.adopting_terminal_for_attach(None, Some(&terminal))
         }
         (None, None) => None,
-    }
+    }?;
+    let token = mux.begin_restore_attach(client, params.surface)?;
+    Some(RestoreAttach { host_id, token, mux: Arc::downgrade(mux) })
 }
 
-/// Answers `cmd`, an attach [`adopting_target`] named `host_id` for, from a
-/// work item that first promotes and waits for that terminal's adoption.
-/// Returns whether the connection stays open.
+/// Answers `cmd`, an attach [`adopting_target`] made `wait` for, from a work
+/// item that first promotes and waits for that terminal's adoption. A detach
+/// of the same view that came meanwhile cancels it. Returns whether the
+/// connection stays open.
 pub(super) fn start(
     mux: &Arc<Mux>,
     client: u64,
     id: Option<Value>,
     cmd: Command,
-    host_id: String,
+    wait: RestoreAttach,
     reply: AsyncReply,
     writer: &MessageWriter,
 ) -> bool {
@@ -70,10 +104,15 @@ pub(super) fn start(
         move || {
             let reply = reply.start();
             cmux_threads::work::will_block(|| {
-                worker_mux.wait_for_terminal_adoption(&host_id, ATTACH_ADOPTION_WAIT);
+                worker_mux.wait_for_terminal_adoption(&wait.host_id, ATTACH_ADOPTION_WAIT);
             });
-            let result =
-                handle_command_with_cancellation(&worker_mux, client, cmd, &worker_writer, None);
+            let result = if wait.cancelled() {
+                Err(anyhow::anyhow!(
+                    "attach_cancelled: a detach of this view came while the attach waited"
+                ))
+            } else {
+                handle_command_with_cancellation(&worker_mux, client, cmd, &worker_writer, None)
+            };
             reply.reply(|| {
                 send_command_result(&worker_mux, client, worker_id, result, &worker_writer).1
             });
