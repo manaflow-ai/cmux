@@ -295,7 +295,7 @@ fn a_chief_home_of_purged_leftovers_and_chats_stays_within_the_memory_budget() {
     let rss_mb = daemon.rss_bytes() / (1024 * 1024);
     println!(
         "acpmux-memory: {}",
-        json!({"leftovers": leftovers, "chats": chats, "rss_kib": rss_kib, "budget_mb": budget_mb})
+        json!({"leftovers": leftovers, "chats": chats, "rss_mb": rss_mb, "budget_mb": budget_mb})
     );
     assert!(rss_mb <= budget_mb, "the daemon holds {rss_mb} MB (budget {budget_mb} MB)");
     drop(daemon);
