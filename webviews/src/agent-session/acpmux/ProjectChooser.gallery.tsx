@@ -12,6 +12,7 @@ type Props = {
   icon: ReactNode;
   onPick(cwd: string): void;
   onBrowse?(): void;
+  onNoProject?(): void;
 };
 
 const icon = createElement(
@@ -116,8 +117,15 @@ export default componentEntry<Props>({
         current: projects[0]!.cwd,
         currentLabel: projects[0]!.label,
         icon,
-        onPick: () => undefined,
-        onBrowse: () => undefined,
+        onPick: (cwd) => {
+          document.documentElement.dataset.galleryProjectPicked = cwd;
+        },
+        onBrowse: () => {
+          document.documentElement.dataset.galleryProjectAction = "browse";
+        },
+        onNoProject: () => {
+          document.documentElement.dataset.galleryProjectAction = "none";
+        },
       },
       play: open,
     },

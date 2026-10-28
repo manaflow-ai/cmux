@@ -156,7 +156,16 @@ export function Combobox({
   const held = keep && tallest > 0;
   const hasPinned = Boolean(pinnedSuggestions?.length);
   const deliberatelyHighlighted = useRef(false);
-  const enabledSuggestions = suggestions.filter((item) => !isItemDisabled?.(item));
+  const availableSuggestions = suggestions.filter((item) => !isItemDisabled?.(item));
+  // Base UI highlights item zero when the query changes. Put matching results first in its
+  // collection while the pinned actions remain visually fixed above the scrolling results.
+  const enabledSuggestions =
+    value.trim() && hasPinned
+      ? [
+          ...availableSuggestions.filter((item) => !pinnedSuggestions?.includes(item)),
+          ...availableSuggestions.filter((item) => pinnedSuggestions?.includes(item)),
+        ]
+      : availableSuggestions;
   const disabledSuggestions = suggestions.filter(
     (item) => isItemDisabled?.(item) && !pinnedSuggestions?.includes(item),
   );
@@ -180,15 +189,18 @@ export function Combobox({
           : undefined;
       const matchingCurrent =
         completed?.text === typed ? enabledSuggestions.find((item) => completionText?.(item) === typed) : undefined;
-      // Typing a match must not submit a pinned action that Base UI highlighted automatically.
-      // Arrowing or pointing at an action still selects it intentionally.
-      const firstMatch =
-        typed.trim() && hasPinned ? enabledSuggestions.find((item) => !pinnedSuggestions?.includes(item)) : undefined;
+      // An unmatched query must not submit an automatically highlighted action.
+      // Explicit arrow or pointer highlight still makes that pinned action selectable.
       const active = highlighted && enabledSuggestions.includes(highlighted) ? highlighted : undefined;
-      const next =
-        deliberatelyHighlighted.current && active
-          ? active
-          : (completedKey ?? matchingCurrent ?? firstMatch ?? (typed.trim() && hasPinned ? typed : (active ?? typed)));
+      const selected =
+        typed.trim() && hasPinned && active && pinnedSuggestions?.includes(active) && !deliberatelyHighlighted.current
+          ? undefined
+          : active;
+      const firstMatch =
+        !active && typed.trim() && hasPinned
+          ? enabledSuggestions.find((item) => !pinnedSuggestions?.includes(item))
+          : undefined;
+      const next = selected ?? completedKey ?? matchingCurrent ?? firstMatch ?? typed;
       if (!isItemDisabled?.(next)) onSubmit(next);
     } else if (event.key === "Escape") {
       event.preventDefault();

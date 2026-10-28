@@ -300,6 +300,22 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       props: baseProps,
       play: openFolder,
     },
+    "folder-pinned-search": {
+      note: "Typing a project keeps its row active while the actions stay pinned above it.",
+      props: {
+        ...baseProps,
+        onProject: (cwd) => {
+          document.documentElement.dataset.galleryProjectPicked = cwd;
+        },
+        onBrowseProject: () => {
+          document.documentElement.dataset.galleryProjectAction = "browse";
+        },
+        onNoProject: () => {
+          document.documentElement.dataset.galleryProjectAction = "none";
+        },
+      },
+      play: openFolder,
+    },
     "folder-long-list": {
       note: "Project actions stay below search while a long folder list scrolls; the thumb stays inside the right edge.",
       props: {

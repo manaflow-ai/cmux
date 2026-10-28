@@ -508,6 +508,9 @@ test("pinned picker actions precede scrolling suggestions and remain keyboard se
   expect(calls).toEqual(["No project", "Atlas", "No project"]);
   await type(field, "Atlas");
   await key(field, "ArrowDown");
+  await key(field, "ArrowDown");
+  await key(field, "ArrowDown");
+  expect(document.querySelector("[data-highlighted]")?.textContent).toBe("No project");
   await key(field, "Enter");
   expect(calls).toEqual(["No project", "Atlas", "No project", "No project"]);
   await act(async () => field.focus());

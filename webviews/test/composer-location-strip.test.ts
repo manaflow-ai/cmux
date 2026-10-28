@@ -564,6 +564,51 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
     await page.close();
   });
 
+  for (const [entry, variant] of [
+    ["agent-pane.composer-context", "folder-pinned-search"],
+    ["agent-pane.project-chooser", "open-current"],
+  ]) {
+    for (const query of ["relay", "/Users/you/src/relay"]) {
+      test(`${entry} highlights ${query} as the active project before Enter`, async () => {
+        const page = await open(entry, variant, 720);
+        const field = page.getByRole("combobox", { name: "Search projects" });
+        await field.fill(query);
+        await page.waitForFunction(() => document.querySelector("[data-highlighted]"));
+        const activeId = await field.getAttribute("aria-activedescendant");
+        const highlighted = page.locator("[data-highlighted]");
+        expect(activeId).toBeTruthy();
+        expect(await highlighted.getAttribute("id")).toBe(activeId);
+        expect(await highlighted.textContent()).toContain("relay");
+        expect(await highlighted.locator(".acpmux-location-action").count()).toBe(0);
+        await field.press("Enter");
+        expect(await page.evaluate(() => document.documentElement.dataset.galleryProjectPicked)).toBe(
+          "/Users/you/src/relay",
+        );
+        expect(await page.evaluate(() => document.documentElement.dataset.galleryProjectAction)).toBeUndefined();
+        await page.close();
+      });
+    }
+  }
+  for (const [entry, variant] of [
+    ["agent-pane.composer-context", "folder-pinned-search"],
+    ["agent-pane.project-chooser", "open-current"],
+  ]) {
+    test(`${entry} keeps pinned actions deliberately reachable by keyboard`, async () => {
+      const page = await open(entry, variant, 720);
+      const field = page.getByRole("combobox", { name: "Search projects" });
+      await field.fill("relay");
+      await page.waitForFunction(() => document.querySelector("[data-highlighted]")?.textContent?.includes("relay"));
+      await field.press("ArrowDown");
+      const activeId = await field.getAttribute("aria-activedescendant");
+      const highlighted = page.locator("[data-highlighted]");
+      expect(await highlighted.getAttribute("id")).toBe(activeId);
+      expect(await highlighted.textContent()).toContain("Do not work in a project");
+      await field.press("Enter");
+      expect(await page.evaluate(() => document.documentElement.dataset.galleryProjectAction)).toBe("none");
+      expect(await page.evaluate(() => document.documentElement.dataset.galleryProjectPicked)).toBeUndefined();
+      await page.close();
+    });
+  }
   test("a long project list without actions wheels to its last folder", async () => {
     const page = await open("agent-pane.project-chooser", "long-no-actions", 720);
     const list = page.locator(".acpmux-project-menu .acpmux-project-folders");
