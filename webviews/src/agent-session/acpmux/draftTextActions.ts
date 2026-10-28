@@ -10,9 +10,14 @@ export function draftTextActions(client: DraftClient, native: Native) {
     "chat.readDraft": async ({ sessionId }: Record<string, unknown>) => {
       const id = String(sessionId);
       const durable = await client.readDraft(id).catch(() => undefined);
-      if (typeof durable === "string" && durable.length) return durable;
+      if (durable && typeof durable === "object" && "draft" in durable) {
+        // A daemon string or explicit null is authoritative, including a clear from another host.
+        const draft = (durable as { draft?: unknown }).draft;
+        if (typeof draft === "string" || draft === null) return durable;
+      }
+      if (typeof durable === "string") return durable;
       const mirrored = await native("chat.draftText.get", { sessionId: id }).catch(() => undefined);
-      return typeof mirrored === "string" && mirrored.length ? mirrored : durable;
+      return typeof mirrored === "string" ? mirrored : durable;
     },
     "chat.writeDraft": async ({ sessionId, text }: Record<string, unknown>) => {
       const id = String(sessionId);

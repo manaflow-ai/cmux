@@ -30,9 +30,10 @@ struct DraftRootIsolationTests {
             }
             let appRoots = SidebarSnapshotFile.legacyDraftDirectories(launch: launch, appSupport: cmux)
             let daemonRoots = build.legacyAcpmuxDraftHomes(userHome: root)
-            for candidates in [appRoots, daemonRoots] {
-                let selected = candidates.filter { $0.deletingLastPathComponent().lastPathComponent == "builds" }
-                #expect(Set(selected.map(\.lastPathComponent)) == [build.key])
+            for (candidates, parent) in [(appRoots, cmux), (daemonRoots, daemon)] {
+                let builds = parent.appending(path: "builds")
+                let selected = candidates.filter { $0.deletingLastPathComponent().path == builds.path }
+                #expect(Set(selected.map(\.path)) == [builds.appending(path: build.key).path])
             }
         }
     }

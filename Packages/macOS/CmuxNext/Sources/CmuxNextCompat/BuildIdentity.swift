@@ -174,10 +174,8 @@ public nonisolated struct BuildIdentity: Sendable, Equatable {
         if draftIdentityKey == "channel-cmux-next" {
             homes.append(root.appendingPathComponent("tags/cmux-next", isDirectory: true))
         }
-        let builds = root.appendingPathComponent("builds", isDirectory: true)
-        if let entries = try? FileManager.checked.contentsOfDirectory(at: builds, includingPropertiesForKeys: [.isDirectoryKey]) {
-            homes.append(contentsOf: entries.filter { $0.lastPathComponent.hasPrefix(key) })
-        }
+        // A key already encodes its complete identity, including any generated hash or shipped tag.
+        homes.append(root.appendingPathComponent("builds/\(key)", isDirectory: true))
         var seen = Set<String>()
         return homes.filter { seen.insert($0.standardizedFileURL.path).inserted }
     }
