@@ -43,7 +43,16 @@ struct AgentPaneSavedCoverRevealTests {
         return (view, window, saved)
     }
 
-    @Test(arguments: [false, true])
+    private func revealed(_ view: AgentPaneView) async -> Bool {
+        let (stream, continuation) = AsyncStream<Bool>.makeStream()
+        view.loadingView.whenRevealed {
+            continuation.yield(true)
+            continuation.finish()
+        }
+        return await stream.first { $0 } == true
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
     func aSavedTranscriptStaysUntilItsPageReportsPaintThenHandsOff(chromium: Bool) async throws {
         let (view, window, saved) = try await pane(chromium: chromium)
         defer { view.page?.close(); window.close() }
@@ -68,10 +77,7 @@ struct AgentPaneSavedCoverRevealTests {
                 #expect(saved.superview != nil, "the WebKit cover must stay through its actual fade")
             }
         }
-        let revealed: Bool? = await PageTestWait.value("saved cover reveal") { done in
-            view.loadingView.whenRevealed { done(true) }
-        }
-        #expect(revealed == true)
+        #expect(await revealed(view))
         #expect(saved.superview == nil)
         #expect(reveals == 1)
         // A duplicate paint acknowledgement cannot start another reveal.
@@ -79,17 +85,14 @@ struct AgentPaneSavedCoverRevealTests {
         #expect(reveals == 1)
     }
 
-    @Test func theWatchdogStillUsesItsExistingRevealWithoutAPageReport() async throws {
+    @Test(.timeLimit(.minutes(1))) func theWatchdogStillUsesItsExistingRevealWithoutAPageReport() async throws {
         let (view, window, saved) = try await pane(chromium: true)
         defer { view.page?.close(); window.close() }
         #expect(saved.superview != nil)
         // This is the existing loading watchdog's path, not evidence that a new frame drew.
         view.model.markPainted()
         #expect(view.loadingView.leftFading == true, "do not accelerate an unpainted watchdog reveal")
-        let revealed: Bool? = await PageTestWait.value("watchdog cover reveal") { done in
-            view.loadingView.whenRevealed { done(true) }
-        }
-        #expect(revealed == true)
+        #expect(await revealed(view))
         #expect(saved.superview == nil)
     }
 }
