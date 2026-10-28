@@ -4,7 +4,9 @@ public import Foundation
 /// The app builds one for each window and merges the pairs where
 /// `isCrashDuplicate(of:)` holds: the same window written twice by a crash.
 public struct CrashWindowSignature: Equatable, Sendable {
+    /// Persisted window identity, when available.
     public let windowId: UUID?
+    /// Number of workspaces in the window generation.
     public let workspaceCount: Int
     /// Every workspace's ID, in order, or nil when any workspace has none.
     public let workspaceIDs: [UUID]?
@@ -81,7 +83,10 @@ extension CrashWindowSignature {
         let (smaller, larger) = checkpointIDs.count <= other.checkpointIDs.count
             ? (checkpointIDs, other.checkpointIDs)
             : (other.checkpointIDs, checkpointIDs)
-        return smaller.count >= 2 && smaller.isSubset(of: larger)
+        // Equal checkpoint sets can be two real windows intentionally sharing
+        // sessions. A replay with a fresh ID needs an additional checkpoint
+        // generation as evidence before one window can be removed.
+        return smaller.count >= 2 && smaller.isStrictSubset(of: larger)
     }
 
     private nonisolated func hasSameTitleMultiset(as other: CrashWindowSignature) -> Bool {

@@ -58,12 +58,12 @@ struct CrashWindowSignatureTests {
         #expect(rhs.isCrashDuplicate(of: lhs))
     }
 
-    @Test("Different window IDs with equal checkpoint sets are one window")
+    @Test("Different window IDs with equal checkpoints remain separate")
     func differentIDsEqualCheckpoints() {
         let lhs = signature(windowId: UUID(), workspaces: 4, checkpoints: ["a", "b", "c"], titles: titles)
         let rhs = signature(windowId: UUID(), workspaces: 4, checkpoints: ["c", "b", "a"], titles: titles.reversed())
-        #expect(lhs.isCrashDuplicate(of: rhs))
-        #expect(rhs.isCrashDuplicate(of: lhs))
+        #expect(!lhs.isCrashDuplicate(of: rhs))
+        #expect(!rhs.isCrashDuplicate(of: lhs))
     }
 
     @Test("Different window IDs need every checkpoint of the smaller window, not most")

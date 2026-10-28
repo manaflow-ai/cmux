@@ -163,9 +163,13 @@ extension SessionPersistencePolicy {
 
     private nonisolated static func crashDockSignature(_ dock: SessionSplitContainerSnapshot?) -> CrashDockSignature? {
         dock.map {
+            var normalized = $0
+            // Ownership IDs are remapped after workspace matching. Excluding
+            // them here lets an otherwise identical replay reach that remap.
+            normalized.sourceWorkspaceIdsByPanelId = nil
             CrashDockSignature(
-                panelIDs: Set($0.panels.map(\.id)), checkpointIDs: crashPanelCheckpointIDs($0.panels),
-                contentFingerprint: crashContentFingerprint($0)
+                panelIDs: Set(normalized.panels.map(\.id)), checkpointIDs: crashPanelCheckpointIDs(normalized.panels),
+                contentFingerprint: crashDockContentFingerprint(normalized)
             )
         }
     }
@@ -175,27 +179,91 @@ extension SessionPersistencePolicy {
         var contents: Set<String> = []
         for panel in workspace.panels {
             guard let checkpoint = crashPanelCheckpointID(panel) else {
-                guard let fingerprint = crashContentFingerprint(panel) else { return nil }
+                guard let fingerprint = crashPanelContentFingerprint(panel) else { return nil }
                 contents.insert("panel:\(panel.id):\(fingerprint)")
                 continue
             }
             if let scrollback = panel.terminal?.scrollback, !scrollback.isEmpty {
-                guard let fingerprint = crashContentFingerprint(scrollback) else { return nil }
+                guard let fingerprint = crashTextContentFingerprint(scrollback) else { return nil }
                 contents.insert("scrollback:\(checkpoint):\(fingerprint)")
             }
             if let draft = panel.terminal?.textBoxDraft {
-                guard let fingerprint = crashContentFingerprint(draft) else { return nil }
+                guard let fingerprint = crashDraftContentFingerprint(draft) else { return nil }
                 contents.insert("draft:\(checkpoint):\(fingerprint)")
             }
         }
         return contents
     }
 
-    private nonisolated static func crashContentFingerprint<Value: Encodable>(_ value: Value) -> String? {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys]
-        guard let data = try? encoder.encode(value) else { return nil }
-        return Data(SHA256.hash(data: data)).base64EncodedString()
+    private static let crashFingerprintTextLimit = 16_384
+
+    private nonisolated static func boundedCrashText(_ value: String?) -> String {
+        guard let value else { return "<nil>" }
+        let prefix = String(value.prefix(crashFingerprintTextLimit))
+        let suffix = String(value.suffix(crashFingerprintTextLimit))
+        return "\(value.utf8.count):\(prefix):\(suffix)"
+    }
+
+    private nonisolated static func digestCrashComponents(_ components: [String?]) -> String {
+        let joined = components.map { boundedCrashText($0) }.joined(separator: "\u{1f}")
+        return Data(SHA256.hash(data: Data(joined.utf8))).base64EncodedString()
+    }
+
+    private nonisolated static func crashTextContentFingerprint(_ value: String) -> String? {
+        digestCrashComponents([value])
+    }
+
+    private nonisolated static func crashDraftContentFingerprint(
+        _ draft: SessionTextBoxInputDraftSnapshot
+    ) -> String? {
+        var components = [draft.isActive ? "active" : "inactive"]
+        for part in draft.parts {
+            components.append(part.kind.rawValue)
+            components.append(part.text)
+            if let attachment = part.attachment {
+                components += [attachment.displayName, attachment.submissionPath, attachment.submissionText]
+            }
+        }
+        return digestCrashComponents(components)
+    }
+
+    private nonisolated static func crashPanelContentFingerprint(
+        _ panel: SessionPanelSnapshot
+    ) -> String? {
+        var components: [String?] = [
+            String(describing: panel.type), panel.title, panel.customTitle,
+            panel.directory, panel.ttyName, panel.gitBranch?.branch
+        ]
+        if let browser = panel.browser {
+            components += [browser.urlString, browser.profileID?.uuidString]
+            components += browser.backHistoryURLStrings ?? []
+            components += browser.forwardHistoryURLStrings ?? []
+            components += [browser.diffViewerRequestPath, browser.cloudTeamID]
+        }
+        if let markdown = panel.markdown { components.append(markdown.filePath) }
+        if let filePreview = panel.filePreview { components.append(filePreview.filePath) }
+        if let project = panel.project {
+            components += [project.projectPath, project.selectedNodePath, project.activeTab]
+        }
+        if let terminal = panel.terminal {
+            components += [terminal.workingDirectory, terminal.scrollback]
+            if let draft = terminal.textBoxDraft { components.append(crashDraftContentFingerprint(draft)) }
+        }
+        return digestCrashComponents(components)
+    }
+
+    private nonisolated static func crashDockContentFingerprint(
+        _ dock: SessionSplitContainerSnapshot
+    ) -> String? {
+        let panelContents = dock.panels.sorted { $0.id.uuidString < $1.id.uuidString }.compactMap {
+            guard let content = crashPanelContentFingerprint($0) else { return nil }
+            return "\($0.id.uuidString):\(content)"
+        }
+        guard panelContents.count == dock.panels.count else { return nil }
+        return digestCrashComponents([
+            String(describing: dock.layout), dock.focusedPanelId?.uuidString,
+            panelContents.joined(separator: "|")
+        ])
     }
 
     private nonisolated static func remappingCrashDockOwnership(

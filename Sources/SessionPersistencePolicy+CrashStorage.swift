@@ -306,7 +306,7 @@ extension SessionPersistencePolicy {
             }
             let newAnchorIndex = originalAnchorWorkspaceId.flatMap { anchorId in
                 keptMembers.firstIndex { $0.workspaceId == (identityReplacements[anchorId] ?? anchorId) }
-            } ?? 0
+            } ?? min(group.anchorMemberIndex ?? 0, max(0, keptMembers.count - 1))
             copy.anchorMemberIndex = newAnchorIndex
             copy.anchorWorkspaceId = keptMembers[newAnchorIndex].workspaceId
             copy.anchorIsEmpty = nil

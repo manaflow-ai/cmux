@@ -25,17 +25,26 @@ public struct CrashWorkspaceMergePlan: Sendable {
         var selections = preferred.indices.map(Source.preferred)
         var matches: [Int: Int] = [:]
         var consumed: Set<Int> = []
-        for (supplementalIndex, workspace) in supplemental.enumerated() {
+        let order = supplemental.indices.sorted {
+            let left = index.candidateMatches(supplemental[$0]).count
+            let right = index.candidateMatches(supplemental[$1]).count
+            return left == right ? $0 < $1 : left < right
+        }
+        var matchedSupplemental: Set<Int> = []
+        for supplementalIndex in order {
+            let workspace = supplemental[supplementalIndex]
             if let preferredIndex = index.match(workspace, excluding: consumed) {
                 consumed.insert(preferredIndex)
+                matchedSupplemental.insert(supplementalIndex)
                 matches[preferredIndex] = supplementalIndex
                 if workspace.isPreferred(over: preferred[preferredIndex]) {
                     selections[preferredIndex] = .supplemental(supplementalIndex)
                 }
-            } else {
-                selections.append(.supplemental(supplementalIndex))
             }
         }
+        selections.append(contentsOf: supplemental.indices.compactMap {
+            matchedSupplemental.contains($0) ? nil : .supplemental($0)
+        })
         self.selections = selections
         self.matches = matches
     }

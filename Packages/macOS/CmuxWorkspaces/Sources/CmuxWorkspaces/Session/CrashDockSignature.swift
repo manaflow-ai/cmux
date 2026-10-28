@@ -5,7 +5,9 @@ public import Foundation
 /// Docks have one layout slot. Different docks stay separate rather than
 /// choosing a layout that could discard the other copy's panels.
 public struct CrashDockSignature: Equatable, Sendable {
+    /// IDs of every panel persisted in this dock.
     public let panelIDs: Set<UUID>
+    /// Agent checkpoints belonging to dock terminals.
     public let checkpointIDs: Set<String>
     /// Fingerprint of the complete persisted dock, or nil when it cannot be compared safely.
     public let contentFingerprint: String?

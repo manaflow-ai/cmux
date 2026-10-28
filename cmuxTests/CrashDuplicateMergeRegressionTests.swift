@@ -119,10 +119,12 @@ extension CrashDiagnosticSessionPolicyTests {
             layout: .pane(SessionPaneLayoutSnapshot(panelIds: [panel.id], selectedPanelId: panel.id)),
             panels: [panel], sourceWorkspaceIdsByPanelId: [panel.id: sourceID]
         )
+        var replayDock = dock
+        replayDock.sourceWorkspaceIdsByPanelId = [panel.id: replacementID]
         if windowDock {
-            original.dock = dock; replay.dock = dock
+            original.dock = dock; replay.dock = replayDock
         } else {
-            original.tabManager.workspaces[0].dock = dock; replay.tabManager.workspaces[0].dock = dock
+            original.tabManager.workspaces[0].dock = dock; replay.tabManager.workspaces[0].dock = replayDock
         }
         let restored = try #require(SessionPersistencePolicy.snapshotForLiveRestore(AppSessionSnapshot(
             version: SessionSnapshotSchema.currentVersion, createdAt: 10, windows: [original, replay]

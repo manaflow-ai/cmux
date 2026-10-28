@@ -25,23 +25,23 @@ struct CrashWorkspaceMatchIndex {
     }
 
     nonisolated func match(_ workspace: CrashWorkspaceSignature, excluding consumed: Set<Int>) -> Int? {
-        if let id = workspace.stableID, let matches = stableIDs[id] {
-            return uniqueCompatibleMatch(matches, workspace: workspace, excluding: consumed)
-        }
-        if let id = workspace.workspaceID, let matches = workspaceIDs[id] {
-            return uniqueCompatibleMatch(matches, workspace: workspace, excluding: consumed)
-        }
+        uniqueCompatibleMatch(candidateMatches(workspace), workspace: workspace, excluding: consumed)
+    }
+
+    /// Returns all possible matches before consumption, so the caller can
+    /// solve ambiguous candidates in the most constrained-first order.
+    nonisolated func candidateMatches(_ workspace: CrashWorkspaceSignature) -> [Int] {
+        if let id = workspace.stableID, let matches = stableIDs[id] { return matches }
+        if let id = workspace.workspaceID, let matches = workspaceIDs[id] { return matches }
         var candidates: Set<Int> = []
         for checkpoint in workspace.checkpointIDs {
             candidates.formUnion(checkpoints[checkpoint] ?? [])
         }
-        if let match = uniqueCompatibleMatch(Array(candidates), workspace: workspace, excluding: consumed) {
-            return match
-        }
+        if !candidates.isEmpty { return Array(candidates) }
         if let key = titleKey(workspace), let matches = titles[key], matches.count == 1 {
-            return uniqueCompatibleMatch(matches, workspace: workspace, excluding: consumed)
+            return matches
         }
-        return nil
+        return []
     }
 
     private nonisolated func uniqueCompatibleMatch(

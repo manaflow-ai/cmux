@@ -89,6 +89,16 @@ struct CrashWorkspaceMergePlanTests {
         #expect(plan.matches == [0: 0])
     }
 
+    @Test("Constrained matches are assigned before ambiguous candidates")
+    func constrainedCandidatesWinGlobally() {
+        let plan = CrashWorkspaceMergePlan(
+            preferred: [workspace(agents: ["a", "b"]), workspace(agents: ["a"])],
+            supplemental: [workspace(agents: ["a"]), workspace(agents: ["b"])]
+        )
+        #expect(plan.selections == [.supplemental(1), .supplemental(0)])
+        #expect(plan.matches == [0: 1, 1: 0])
+    }
+
     @Test("Multiple checkpoint matches retain the supplemental workspace")
     func ambiguousCheckpointsStaySeparate() {
         let plan = CrashWorkspaceMergePlan(
