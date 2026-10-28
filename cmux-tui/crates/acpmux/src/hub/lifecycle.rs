@@ -231,6 +231,8 @@ impl Hub {
         if let Err(e) = self.store.save(&session.meta()) {
             self.sessions.lock().unwrap().remove(&id);
             self.child_tags.forget(&id);
+            // A list built meanwhile showed it (`list_guard.rs`).
+            self.events.changed();
             return Err(RpcError::internal(e.to_string()));
         }
         // The chat's route is bound once the session exists and before its
@@ -242,6 +244,7 @@ impl Hub {
             {
                 self.sessions.lock().unwrap().remove(&id);
                 self.child_tags.forget(&id);
+                self.events.changed();
                 return Err(RpcError::invalid_params(e.message().to_owned()));
             }
         }

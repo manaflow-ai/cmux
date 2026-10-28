@@ -9,6 +9,8 @@ use super::*;
 pub(crate) struct RemoteRows {
     rows: HashMap<String, RemoteSession>,
     by_pair: HashMap<(String, String), std::collections::BTreeSet<String>>,
+    /// Writes so far: a shared session list is rebuilt after one (`list_guard.rs`).
+    pub(crate) writes: u64,
 }
 
 impl std::ops::Deref for RemoteRows {
@@ -21,6 +23,7 @@ impl std::ops::Deref for RemoteRows {
 impl RemoteRows {
     pub(crate) fn insert(&mut self, key: String, row: RemoteSession) {
         self.remove(&key);
+        self.writes += 1;
         if let Some(pair) = pair_of(&row.summary) {
             self.by_pair.entry(pair).or_default().insert(key.clone());
         }
@@ -29,6 +32,7 @@ impl RemoteRows {
 
     pub(crate) fn remove(&mut self, key: &str) -> Option<RemoteSession> {
         let row = self.rows.remove(key)?;
+        self.writes += 1;
         if let Some(pair) = pair_of(&row.summary)
             && let Some(keys) = self.by_pair.get_mut(&pair)
         {

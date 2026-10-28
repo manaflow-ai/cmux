@@ -643,7 +643,8 @@ async fn dispatch_request(
             if let Some(name) = params.pointer("/clientInfo/name").and_then(Value::as_str) {
                 *conn.name.lock_or_recover() = name.to_owned();
             }
-            Ok(json!({
+            #[allow(unused_mut)]
+            let mut reply = json!({
                 "protocolVersion": 1,
                 "agentInfo": {"name": "acpmux", "title": "acpmux", "version": VERSION},
                 "agentCapabilities": {
@@ -680,7 +681,23 @@ async fn dispatch_request(
                     method::MUX_SET_POLICY, method::MUX_SET_TOOLS, method::MUX_MCP_RECONNECT, method::MUX_EXPORT, method::MUX_IMPORT, method::MUX_FILE_PUT, method::MUX_FILE_PUT_BEGIN, method::MUX_FILE_PUT_CHUNK, method::MUX_FILE_PUT_FINISH, method::MUX_FILE_PUT_CANCEL, method::MUX_FILE_PUT_STATUS, method::MUX_MEDIA_OPEN, method::MUX_MEDIA_RANGE, method::MUX_SUBAGENT_TRANSCRIPT, method::MUX_WORKFLOWS, method::MUX_DISPATCH, method::MUX_STEER, method::MUX_BRIEFS, method::MUX_REPORT, method::MUX_TASK_NEW, method::MUX_TASKS, method::MUX_RESOLVE, method::MUX_SHUTDOWN,
                 ], "operations": crate::hub::HANDOFF_OPERATIONS.iter().chain(crate::hub::PERMISSION_GROUP_OPERATIONS.iter()).chain(super::fork_through::FORK_OPERATIONS.iter()).collect::<Vec<_>>(), "handoff": {"maxCapsuleBytes": crate::hub::MAX_CAPSULE_BYTES},
                 "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", "personChallenge", "queueEdit", "steerInterrupt", "personHolds", "sessionTransfer", "approverDecisions", "toolInventory", "promptWithdraw", "processes", "worktreeCare", "harnessInventory", super::inventory_watch::FEATURE, crate::harness_health::INVENTORY_REFRESH_FEATURE, crate::harness_health::UPDATE_PLAN_FEATURE, crate::harness_health::UPDATE_PREPARE_FEATURE, "surfaces", crate::hub::FILE_PUT_FEATURE, crate::hub::file_uploads::CHUNKS_FEATURE, crate::hub::MEDIA_READ_FEATURE, crate::hub::SUBAGENT_TRANSCRIPT_FEATURE, crate::attach::FEATURE, crate::prompt_uploads::FEATURE, crate::hub::file_uploads::RESUME_FEATURE, super::upload_frames::FEATURE], "trustGate": true}}
-            }))
+            });
+            // Advertised only where they work; other builds answer `not_built`.
+            #[cfg(all(unix, feature = "tailnet"))]
+            if let Some(extensions) =
+                reply.pointer_mut("/_meta/acpmux/extensions").and_then(Value::as_array_mut)
+            {
+                extensions.extend(
+                    [
+                        method::MUX_TAILNET_START,
+                        method::MUX_TAILNET_LOGIN,
+                        method::MUX_TAILNET_STATE,
+                        method::MUX_TAILNET_LOGOUT,
+                    ]
+                    .map(Value::from),
+                );
+            }
+            Ok(reply)
         }
         method::AUTHENTICATE => Ok(json!({})),
         // Decided in order in `Conn::bind_person`; this only reports it.
@@ -1052,22 +1069,7 @@ async fn dispatch_request(
                 json!({"modes": meta.modes, "configOptions": meta.config_options, "_meta": {"acpmux": hub.session_summary(&s)}}),
             )
         }
-        method::SESSION_LIST => {
-            let sessions: Vec<Value> = hub
-                .all_session_summaries()
-                .into_iter()
-                .map(|s| {
-                    json!({
-                        "sessionId": s.get("sessionId").cloned().unwrap_or(Value::Null),
-                        "cwd": s.get("cwd").cloned().unwrap_or(Value::Null),
-                        "title": s.get("title").and_then(Value::as_str).map(str::to_owned).or_else(|| s.get("name").and_then(Value::as_str).map(str::to_owned)),
-                        "updatedAt": iso(s.get("updatedAt").and_then(Value::as_u64).unwrap_or(0)),
-                        "_meta": {"acpmux": s},
-                    })
-                })
-                .collect();
-            Ok(json!({"sessions": sessions}))
-        }
+        method::SESSION_LIST => super::list_reply::acp_list(hub, conn).await,
         method::SESSION_PROMPT => {
             let s = resolved_session(hub, resolved.as_ref(), &params)?;
             attach(hub, conn, &s.id);
@@ -1313,10 +1315,36 @@ async fn dispatch_request(
             Ok(json!({}))
         }
         // ------------------------------------------------ acpmux extensions
-        method::MUX_STATUS => Ok(hub.status().await),
-        method::MUX_SESSIONS => {
-            crate::hub::session_pages::session_list_reply(hub.all_session_summaries(), &params)
+        method::MUX_TAILNET_START
+        | method::MUX_TAILNET_LOGIN
+        | method::MUX_TAILNET_STATE
+        | method::MUX_TAILNET_LOGOUT => {
+            if conn.origin.web_class() || !conn.is_person() {
+                return Err(crate::hub::person::person_required(
+                    "controlling this daemon's embedded tailnet",
+                ));
+            }
+            #[cfg(all(unix, feature = "tailnet"))]
+            {
+                let controller = hub.tailnet_controller();
+                let snapshot = match m {
+                    method::MUX_TAILNET_START => controller.start().await,
+                    method::MUX_TAILNET_LOGIN => controller.login().await,
+                    method::MUX_TAILNET_LOGOUT => controller.logout().await,
+                    // MUX_TAILNET_STATE, the one method left from the arm above.
+                    _ => Ok(controller.snapshot()),
+                }
+                .map_err(RpcError::internal)?;
+                Ok(snapshot.to_json(true))
+            }
+            #[cfg(not(all(unix, feature = "tailnet")))]
+            {
+                Err(RpcError::new(-32000, "tailnet support is not built")
+                    .with_data(json!({"reason": "not_built"})))
+            }
         }
+        method::MUX_STATUS => Ok(hub.status().await),
+        method::MUX_SESSIONS => super::list_reply::sessions(hub, conn, &params).await,
         method::MUX_WEB_MODES => hub.web_modes_view(&params),
         method::MUX_WEB_TOKEN_ROTATE => hub.rotate_web_token().await,
         method::MUX_WARM => {
@@ -1752,12 +1780,7 @@ async fn dispatch_request(
         method::MUX_MARK_UNREAD => view::mark_unread(hub, &params),
         method::MUX_APP_REPLY => super::app_reply::check(hub, conn, &params),
         method::MUX_HARNESS_INVENTORY_WATCH => super::inventory_watch::handle(hub, conn, &params),
-        method::MUX_WATCH => {
-            crate::hub::session_pages::refuse_watch_filters(&params)?;
-            let on = params.get("enabled").and_then(Value::as_bool).unwrap_or(true);
-            conn.watch_all.store(on, Ordering::SeqCst);
-            crate::hub::session_pages::session_list_reply(hub.all_session_summaries(), &params)
-        }
+        method::MUX_WATCH => super::list_reply::watch(hub, conn, &params).await,
         method::MUX_EVENTS | method::MUX_ATTACHMENT => events::handle(hub, m, &params),
         method::MUX_MAIL_SEND
         | method::MUX_MAIL_READ

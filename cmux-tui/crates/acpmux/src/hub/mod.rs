@@ -15,7 +15,7 @@ pub(crate) mod auto_resume;
 mod btw;
 mod exit_reason;
 pub(crate) mod subagent_retry;
-mod turn_errors;
+pub(crate) mod turn_errors;
 pub(crate) use btw::SIDE_TAG;
 pub(crate) use policy_mode::SetRequest;
 mod bookmarks;
@@ -40,6 +40,7 @@ mod idle;
 mod launch_roots;
 mod launchers;
 pub mod lineage;
+pub(crate) mod list_guard;
 mod live_models;
 mod locate;
 pub mod media_handles;
@@ -372,7 +373,10 @@ pub struct Hub {
     pub(super) sessions: StdMutex<HashMap<String, Arc<Session>>>,
     /// Where adopt looks for harness sessions.
     pub(super) harness_homes: StdMutex<crate::adopt::HarnessHomes>,
-    pub(super) events: broadcast::Sender<HubEvent>,
+    /// Every change watchers hear of, counted for the session list guard (`list_guard.rs`).
+    pub(super) events: list_guard::Events,
+    /// The shared, paced full session list (`list_guard.rs`).
+    pub(crate) list_guard: list_guard::ListGuard,
     /// `_acpmux/models` replies now asking peers for theirs
     /// (`server/models_fanout.rs`): a remote asker meanwhile gets this
     /// daemon's own catalog, so mutual peers cannot ping-pong.
@@ -539,6 +543,10 @@ pub struct Hub {
     pub(super) agent_pairs: agent_pairs::AgentPairs,
     /// Pairing tickets and paired machines (`crate::pairing`).
     pub pairing: Arc<crate::pairing::Pairing>,
+    /// The optional embedded tailnet node. It is initialized lazily so the
+    /// default daemon never starts or links a node without an explicit request.
+    #[cfg(all(unix, feature = "tailnet"))]
+    pub(crate) tailnet_controller: std::sync::OnceLock<Arc<crate::tailnet::embedded::Controller>>,
     /// Brief identities shared by dispatch, report and MCP clients.
     pub(crate) briefs: dispatch::Briefs,
     /// Every Claude workflow of this daemon's chats (`workflow_index.rs`).
@@ -562,7 +570,7 @@ impl Hub {
     }
 
     fn build(config: Config, store: Box<dyn Store>, mailbox: Mailbox, deferred: bool) -> Arc<Self> {
-        let (events, _) = broadcast::channel(8192);
+        let events = list_guard::Events::new(8192);
         let (peer_notices, peer_notices_rx) = mpsc::channel(4096);
         let peers_cfg = config.peers.clone();
         let handoffs = handoff::Handoffs::open(store.handoff_dir());
@@ -582,6 +590,7 @@ impl Hub {
             sessions: StdMutex::new(HashMap::new()),
             harness_homes: StdMutex::new(crate::adopt::HarnessHomes::from_env()),
             events,
+            list_guard: Default::default(),
             models_fanouts: std::sync::atomic::AtomicUsize::new(0),
             shutdown: Notify::new(),
             started_at: now_ms(),
@@ -663,6 +672,8 @@ impl Hub {
             peer_accepts: Default::default(),
             agent_pairs: Default::default(),
             pairing: Default::default(),
+            #[cfg(all(unix, feature = "tailnet"))]
+            tailnet_controller: std::sync::OnceLock::new(),
             briefs,
         });
         if let Ok(c) = hub.config.try_read() {
@@ -726,6 +737,18 @@ impl Hub {
 
     pub fn mailbox(&self) -> &Mailbox {
         &self.mailbox
+    }
+
+    #[cfg(all(unix, feature = "tailnet"))]
+    pub(crate) fn tailnet_controller(&self) -> Arc<crate::tailnet::embedded::Controller> {
+        self.tailnet_controller
+            .get_or_init(|| {
+                crate::tailnet::embedded::Controller::new(
+                    crate::tailnet::embedded::state_dir(&crate::config::home()),
+                    crate::hand::pair::hostname(),
+                )
+            })
+            .clone()
     }
 
     pub(super) fn load_from_store(self: &Arc<Self>, deferred: bool) {
