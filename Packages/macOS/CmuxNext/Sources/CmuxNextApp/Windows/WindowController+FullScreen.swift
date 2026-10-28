@@ -39,7 +39,7 @@ extension WindowController {
         fullScreenTransitionDidEnd()
     }
 
-    /// A live-resize tick is one `resize.frame` (p09-observability-111), from the drag that moved the edge to the
+    /// A live-resize tick is one `resize.frame`, from the drag that moved the edge to the
     /// commit that shows it: the delegate hears each frame change, as Chromium's NSWindow delegate does
     /// (components/remote_cocoa/app_shim/views_nswindow_delegate.mm `windowDidResize:`).
     /// A full-screen transition's frames come from no drag, so they are none.

@@ -3,7 +3,7 @@ import CmuxNextTrace
 import CoreFoundation
 public import Foundation
 
-/// EventLatency for the input kinds other than a key press, and for live window resize (p09-observability 111):
+/// EventLatency for the input kinds other than a key press, and for live window resize:
 /// each event's `NSEvent` timestamp to the end of the main run loop's next commit that changes content, as Chrome's
 /// `EventLatency.<type>.TotalLatency` runs from the OS event's timestamp to the frame that shows it and reports only
 /// events that caused a frame update (cc/metrics/event_metrics.h `caused_frame_update`,

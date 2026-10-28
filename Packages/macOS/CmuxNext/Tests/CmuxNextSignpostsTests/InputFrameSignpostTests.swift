@@ -5,7 +5,7 @@ import CmuxNextMetrics
 import Foundation
 import Testing
 
-/// `input.frame.<kind>` and `resize.frame` (p09-observability-111), driven by synthetic events: each stamp runs from
+/// `input.frame.<kind>` and `resize.frame`, driven by synthetic events: each stamp runs from
 /// its event's timestamp to the end of its turn's commit, only when the event changed content; a drag and a resize
 /// tick count once per frame; a paste or an input method commit inside a key press takes the key's timestamp. The
 /// clock is a counter the test moves, starting at 1 s, so an event timestamp of 1.0 is "now".

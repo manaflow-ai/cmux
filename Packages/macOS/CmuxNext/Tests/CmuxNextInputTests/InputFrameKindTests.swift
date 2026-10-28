@@ -3,7 +3,7 @@ import CmuxNextInput
 import CmuxNextSignposts
 import Testing
 
-/// What `CmuxApplication.sendEvent` stamps for `input.frame` (p09-observability-111): the person's key presses,
+/// What `CmuxApplication.sendEvent` stamps for `input.frame`: the person's key presses,
 /// presses, releases, drags and scrolls, never moves, modifier changes or the app's synthetic input; and which text
 /// commands count as a paste.
 @MainActor @Suite struct InputFrameKindTests {
