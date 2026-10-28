@@ -43,7 +43,7 @@ pub(super) fn adopting_target(mux: &Mux, client: u64, cmd: &Command) -> Option<S
             mux.adopting_terminal_for_attach(Some(surface), None)
         }
         (None, Some(terminal)) => {
-            let terminal = crate::resource::TerminalPublicId::parse(terminal).ok()?;
+            let terminal = TerminalPublicId::parse(terminal).ok()?;
             if mux.resource_surface_for_terminal(&terminal).is_some() {
                 return None;
             }
