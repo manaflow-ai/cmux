@@ -6,6 +6,8 @@ pub const CELL: u32 = 32;
 const GUARD: [bool; 4] = [true, false, true, false];
 
 /// Cell values (true = white) for a counter.
+// The Linux test app paints the marker; on macOS the marker is its own app (scripts/mac-marker).
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub fn cells(counter: u32) -> [bool; CELLS] {
     let mut out = [false; CELLS];
     let v = counter & 0xffff;
@@ -34,6 +36,8 @@ pub fn decode_luma(y: &[u8], stride: usize, video_range: bool) -> Option<u16> {
 }
 
 /// Paints the marker into a 32-bit BGRX image buffer (used by the motion workload).
+// The Linux test app paints the marker; on macOS the marker is its own app (scripts/mac-marker).
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub fn paint_bgrx(buf: &mut [u8], stride: usize, counter: u32) {
     let rows = (CELL as usize).min(buf.len() / stride);
     for (i, white) in cells(counter).iter().enumerate() {

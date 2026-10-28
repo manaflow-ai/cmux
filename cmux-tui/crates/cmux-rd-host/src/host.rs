@@ -1,6 +1,6 @@
 //! `cmux-rd host`: accepts viewers on one port (TCP for control, UDP for datagrams),
-//! admits them through the `cmux-rd-core` session table, and streams with `stream.rs`.
-//! One viewer at a time in phase 1.
+//! admits them through the `cmux-rd-core` session table, and streams this OS's desktop
+//! with `stream.rs`. One viewer at a time in phase 1.
 
 use crate::args::Opts;
 use crate::clock::now_ns;
@@ -13,6 +13,23 @@ use cmux_rd_core::session::{Actor, SessionId, SessionTable, StartRequest};
 use cmux_rd_proto::{MAX_DATAGRAM_DEFAULT, OVERLAY_PORT};
 use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream, UdpSocket};
 use std::time::Duration;
+
+/// Linux: an X display name. macOS: `main` or a display's index, left to right.
+#[cfg(target_os = "linux")]
+const DEFAULT_DISPLAY: &str = ":99";
+#[cfg(target_os = "macos")]
+const DEFAULT_DISPLAY: &str = "main";
+/// Linux: Cisco's OpenH264 binary. macOS: the hardware encoder, fed the captured IOSurface.
+#[cfg(target_os = "linux")]
+const DEFAULT_CODEC: &str = "openh264";
+#[cfg(target_os = "macos")]
+const DEFAULT_CODEC: &str = "videotoolbox";
+/// X apps draw one change with several requests, so the Linux host waits briefly for the
+/// rest; ScreenCaptureKit delivers whole composited frames, so the macOS host never waits.
+#[cfg(target_os = "linux")]
+const DEFAULT_SETTLE_US: u64 = 1000;
+#[cfg(target_os = "macos")]
+const DEFAULT_SETTLE_US: u64 = 0;
 
 pub fn run(opts: &Opts) -> Res<()> {
     // Until the link token (lane 12) authenticates hello claims, the host trusts them, so by
@@ -34,19 +51,19 @@ pub fn run(opts: &Opts) -> Res<()> {
     let owner =
         opts.get("owner").ok_or("--owner <user> is required (the host's owner)")?.to_string();
     let cfg = SessionCfg {
-        display: opts.str_or("display", ":99"),
+        display: opts.str_or("display", DEFAULT_DISPLAY),
         max_fps: opts.num_or("max-fps", 60)?,
         start_kbps: opts.num_or("start-kbps", 8000)?,
         max_kbps: opts.num_or("max-kbps", 50_000)?,
         preset: opts.str_or("preset", "ultrafast"),
         // High for hardware decoders (VideoToolbox); the Linux bench decoder needs baseline.
         profile: opts.str_or("profile", "high"),
-        codec: opts.str_or("codec", "openh264"),
+        codec: opts.str_or("codec", DEFAULT_CODEC),
         content: opts.str_or("content", "screen"),
         openh264_lib: opts.get("openh264-lib").map(str::to_owned),
         threads: opts.num_or("threads", 2)?,
         stats_every_ms: opts.num_or("stats-ms", 1000)?,
-        settle_us: opts.num_or("settle-us", 1000)?,
+        settle_us: opts.num_or("settle-us", DEFAULT_SETTLE_US)?,
         upstream_record: opts.get("upstream-record").map(std::path::PathBuf::from),
         upstream_record_max_bytes: opts
             .num_or::<u64>("upstream-record-max-mb", 1024)?
@@ -71,10 +88,15 @@ pub fn run(opts: &Opts) -> Res<()> {
     };
     // `--browser URL`: the cloud browser. Chromium runs full screen in the display and
     // outlives viewers; the supervisor restarts it and stops it with the host.
+    #[cfg(target_os = "linux")]
     let _browser = match opts.get("browser") {
         Some(url) => Some(start_browser(opts, &cfg.display, url)?),
         None => None,
     };
+    #[cfg(not(target_os = "linux"))]
+    if opts.get("browser").is_some() {
+        return Err("--browser needs a Linux host (a virtual X display)".into());
+    }
     let mut table = SessionTable::new(policy);
     let listener = TcpListener::bind(SocketAddr::new(bind, port))?;
     let udp = UdpSocket::bind(SocketAddr::new(bind, port))?;
@@ -109,6 +131,7 @@ pub fn run(opts: &Opts) -> Res<()> {
 }
 
 /// Starts the cloud browser at the display's full size (read from the X server).
+#[cfg(target_os = "linux")]
 fn start_browser(opts: &Opts, display: &str, url: &str) -> Res<crate::browser::BrowserSupervisor> {
     let (conn, screen_num) = x11rb::connect(Some(display))?;
     let screen = &x11rb::connection::Connection::setup(&conn).roots[screen_num];

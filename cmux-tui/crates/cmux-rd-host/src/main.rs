@@ -1,16 +1,16 @@
-//! `cmux-rd`: the Linux remote desktop host engine (phase 1, virtual X display) and its
-//! measurement tools. Subcommands:
-//!   host     [--browser URL [--browser-bin google-chrome] [--browser-cdp-port N]] --owner USER --token-fd N [--bind 127.0.0.1] [--single-tenant-overlay 1] [--display :99] [--port 4103] [--max-fps 60] [--codec openh264|x264] [--openh264-lib PATH] [--profile high|baseline] [--upstream-record DIR]
-//!   bench    --addr HOST:4103 --token-fd N [--carrier udp|stream] [--input key|click|scroll] [--samples 300] [--user USER] [--upstream mic|camera|screen]
+//! `cmux-rd`: the remote desktop host engine (Linux: a virtual X display; macOS: the Mac's
+//! own display) and its measurement tools. Subcommands:
+//!   host     [--browser URL (Linux) [--browser-bin google-chrome] [--browser-cdp-port N]] --owner USER --token-fd N [--bind 127.0.0.1] [--single-tenant-overlay 1] [--display :99 | --display main|N on macOS] [--port 4103] [--max-fps 60] [--codec openh264|x264|videotoolbox] [--openh264-lib PATH] [--profile high|baseline] [--upstream-record DIR]
+//!   bench    --addr HOST:4103 --token-fd N [--carrier udp|stream] [--input key|click|scroll] [--samples 300] [--user USER] [--upstream mic|camera|screen] [--snapshot FILE.ppm]
 //!   testapp  --display :99 --workload marker|text|motion|idle
 //!   encode-selftest --codec videotoolbox|x264|openh264 --workload marker|text [--width 1920 --height 1080 --frames 300]
 //!   openh264-install [--dir PATH]   the host enable flow's step: downloads Cisco's OpenH264
 //!            from Cisco into the per-user data directory (pinned SHA-256) and prints its path
-//! The host and the test app are Linux (X11); encode-selftest and bench also build on macOS.
-//! Design: plans/cmux-next/remote-desktop.md. Wire: crate cmux-rd-proto.
+//! The host runs on Linux (X11) and macOS (ScreenCaptureKit, VideoToolbox, CGEvent); the test
+//! app is Linux only. Design: plans/cmux-next/remote-desktop.md and remote-desktop-mac-host.md.
+//! Wire: crate cmux-rd-proto.
 
-// macOS builds only the encoder self-test and the bench; the host (X11) is Linux.
-#![cfg_attr(not(target_os = "linux"), allow(dead_code))]
+#![cfg_attr(not(any(target_os = "linux", target_os = "macos")), allow(dead_code))]
 
 mod args;
 #[cfg(feature = "bench")]
@@ -20,19 +20,23 @@ mod browser;
 #[cfg(target_os = "linux")]
 mod capture;
 mod clock;
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+mod desktop;
 mod encoder;
 mod fdwait;
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 mod host;
 #[cfg(target_os = "linux")]
 mod inject;
 #[cfg(target_os = "linux")]
 mod keymap;
+#[cfg(target_os = "macos")]
+mod mac;
 mod marker;
 mod selftest;
 #[cfg(target_os = "linux")]
 mod shm;
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 mod stream;
 #[cfg(target_os = "linux")]
 mod testapp;
@@ -41,6 +45,8 @@ mod upstream;
 mod wire;
 #[cfg(target_os = "linux")]
 mod workload;
+#[cfg(target_os = "linux")]
+mod x11;
 #[cfg(feature = "x264")]
 mod x264;
 
@@ -62,7 +68,7 @@ fn main() {
         }
     };
     let result = match cmd.as_str() {
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
         "host" => host::run(&opts),
         #[cfg(feature = "bench")]
         "bench" => bench::run(&opts),

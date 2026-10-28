@@ -68,6 +68,9 @@ struct Viewer {
     stream_answer: Option<Result<(), String>>,
     /// The host closed the upstream stream.
     upstream_closed_by_host: bool,
+    /// `--snapshot PATH`: the newest decoded frame as a binary PPM, written when the run ends.
+    snapshot: Option<(usize, usize, Vec<u8>)>,
+    want_snapshot: bool,
 }
 
 fn pct(xs: &mut [f64]) -> serde_json::Value {
@@ -106,6 +109,12 @@ impl Viewer {
                     self.decode_ms.push((t1 - t0) as f64 / 1e6);
                     match decoded {
                         Ok(Some(yuv)) => {
+                            if self.want_snapshot {
+                                let (w, h) = yuv.dimensions();
+                                let mut rgb = vec![0u8; w * h * 3];
+                                yuv.write_rgb8(&mut rgb);
+                                self.snapshot = Some((w, h, rgb));
+                            }
                             if let Some(v) = marker::decode_luma(yuv.y(), yuv.strides().0, true) {
                                 if self.marker != Some(v) {
                                     self.marker = Some(v);
@@ -425,6 +434,8 @@ pub fn run(opts: &Opts) -> Res<()> {
         upstream: None,
         stream_answer: None,
         upstream_closed_by_host: false,
+        snapshot: None,
+        want_snapshot: opts.get("snapshot").is_some(),
     };
     let upstream = opts.get("upstream").map(str::to_owned);
     let udp_port = udp.as_ref().map(|(s, _)| s.local_addr().map(|a| a.port())).transpose()?;
@@ -467,6 +478,7 @@ pub fn run(opts: &Opts) -> Res<()> {
             return Err(format!("ended before the first frame: {e}").into());
         }
         if now_ns() - start > 15_000_000_000 {
+            write_snapshot(opts, &v)?;
             return Err(format!(
                 "no marker within 15 s (bytes {}, frames released {}, decode errors {}, losses {:?})",
                 v.bytes,
@@ -559,6 +571,17 @@ pub fn run(opts: &Opts) -> Res<()> {
         "ended": v.ended,
     });
     println!("{report}");
+    write_snapshot(opts, &v)?;
     let _ = write_control(&mut v.tcp, &Control::Stop);
+    Ok(())
+}
+
+/// `--snapshot PATH`: the newest decoded frame, so a run shows what the viewer received.
+fn write_snapshot(opts: &Opts, v: &Viewer) -> Res<()> {
+    if let (Some(path), Some((w, h, rgb))) = (opts.get("snapshot"), &v.snapshot) {
+        let mut ppm = format!("P6\n{w} {h}\n255\n").into_bytes();
+        ppm.extend_from_slice(rgb);
+        std::fs::write(path, ppm)?;
+    }
     Ok(())
 }
