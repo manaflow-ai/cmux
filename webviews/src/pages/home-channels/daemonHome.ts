@@ -1188,13 +1188,15 @@ export class DaemonHomeClient implements PageClient {
       typeof params.beforeStartedAt === "number" && Number.isFinite(params.beforeStartedAt)
         ? Math.max(0, Math.floor(params.beforeStartedAt))
         : undefined;
+    // Fetch owner pages wide enough to include timestamp ties at the global boundary.
+    const ownerLimit = Math.max(limit, 100);
     const lists = await Promise.all(
       agents.map((agent) =>
         this.cloud
           .read("cloud-conversation-runs", {
             conversation: id,
             agent,
-            limit,
+            limit: ownerLimit,
             ...(beforeStartedAt === undefined ? {} : { before_started_at: beforeStartedAt }),
           })
           .then((found) => ({

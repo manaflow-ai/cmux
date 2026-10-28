@@ -244,7 +244,7 @@ test("cloud run pages forward the cursor and keep a skewed second agent paginabl
     conversation: "cloud-conv",
     limit: 2,
   });
-  expect(first.runs.map((entry) => entry.id)).toEqual(["a3", "b3", "a2"]);
+  expect(first.runs.map((entry) => entry.id)).toEqual(["a3", "b3"]);
   expect(first.hasMore).toBe(true);
   const second = await home.call<{ runs: Run[]; hasMore: boolean }>(HomeOps.runs, {
     conversation: "cloud-conv",

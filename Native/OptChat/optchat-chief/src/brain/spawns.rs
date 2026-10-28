@@ -1606,7 +1606,7 @@ impl Brain {
                     &sub.answers
                 };
                 let mut run = match &turn {
-                    Some(turn) => json!({"id": turn}),
+                    Some(turn) => json!({"id": turn, "status": "done"}),
                     None => json!({"id": format!("reports:{spawn}"), "status": "done",
                         "started_at": record.started_ms, "answers": answers}),
                 };
