@@ -525,6 +525,7 @@ button.cv-subagent > :last-child {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   column-gap: 0;
+  padding-right: var(--acpmux-composer-column-inset);
 }
 .acpmux-running-tray[data-alignment-surface="tray"] .acpmux-agent-line:has(> [data-alignment-column="right-action"]) {
   grid-template-columns: minmax(0, 1fr) var(--acpmux-composer-action-size);
@@ -550,7 +551,7 @@ button.cv-subagent > :last-child {
   position: static;
   width: var(--acpmux-composer-action-size);
   height: var(--acpmux-composer-action-size);
-  margin: 0 var(--acpmux-composer-column-inset) 0 0;
+  margin: 0;
 }
 
 /* A line (AgentLine.tsx) is its button and, for a running subagent or a registry command, its

@@ -10,6 +10,7 @@ import {
   test,
 } from "bun:test";
 import path from "node:path";
+import { mkdir, writeFile } from "node:fs/promises";
 import { chromium, type Browser } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
@@ -122,10 +123,17 @@ await requireBrowserLane("tray-composer-alignment.test.ts", async () => {
                 )
               : null,
             rowRight: document.querySelector(
-              '[data-alignment-surface="tray"] .acpmux-running-tray__list .acpmux-agent-line__button [data-alignment-column="right-action"]',
+              '[data-alignment-surface="tray"] .acpmux-running-tray__list .acpmux-agent-line > [data-alignment-column="right-action"]',
             )
               ? rect(
-                  '[data-alignment-surface="tray"] .acpmux-running-tray__list .acpmux-agent-line__button [data-alignment-column="right-action"]',
+                  '[data-alignment-surface="tray"] .acpmux-running-tray__list .acpmux-agent-line > [data-alignment-column="right-action"]',
+                )
+              : null,
+            row: document.querySelector(
+              '[data-alignment-surface="tray"] .acpmux-running-tray__list .acpmux-agent-line',
+            )
+              ? rect(
+                  '[data-alignment-surface="tray"] .acpmux-running-tray__list .acpmux-agent-line',
                 )
               : null,
           };
@@ -163,6 +171,17 @@ await requireBrowserLane("tray-composer-alignment.test.ts", async () => {
             : {}),
         };
         console.log(JSON.stringify({ variant, scheme, result, checks }));
+        const evidenceDir = "/tmp/nx-tray-composer-align";
+        await mkdir(evidenceDir, { recursive: true });
+        const evidenceKey = variant + "-" + scheme;
+        await page.screenshot({
+          path: evidenceDir + "/" + evidenceKey + ".png",
+          fullPage: true,
+        });
+        await writeFile(
+          evidenceDir + "/" + evidenceKey + ".json",
+          JSON.stringify({ variant, scheme, result, checks }, null, 2),
+        );
         for (const [name, value] of Object.entries(checks))
           expect(
             value,

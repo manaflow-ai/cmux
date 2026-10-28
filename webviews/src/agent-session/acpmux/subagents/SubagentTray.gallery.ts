@@ -266,6 +266,23 @@ const openFold = async (ctx: PlayContext) => {
   await ctx.click({ selector: ".cv-worked" });
 };
 
+const alignmentPanel = () =>
+  chat(
+    [
+      user("Review the running lanes and stop the completed work", 2),
+      group(
+        ["UI", "daemon", "tests", "docs", "release"].map((name, index) =>
+          agent("Lane " + name, 1.9 - index * 0.1, "running", {
+            kind: "general-purpose",
+            action: "Read " + name + " status",
+          }),
+        ),
+        1.9,
+      ),
+    ],
+    { isWorking: true },
+  );
+
 export default agentPaneEntry({
   id: "agent-pane.subagent-tray",
   title: "Running subagents tray",
@@ -477,6 +494,25 @@ export default agentPaneEntry({
         ],
         { isWorking: true, harness: "codex" },
       ),
+    },
+    "alignment-collapsed": {
+      note: "Alignment evidence: five running lanes start folded so the collapsed tray and composer columns can be captured together.",
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__head"));
+        if (ctx.document.querySelector(".acpmux-running-tray__head")?.getAttribute("aria-expanded") !== "false")
+          throw new Error("alignment collapsed state must start folded");
+      },
+      snapshot: alignmentPanel(),
+    },
+    "alignment-expanded": {
+      note: "Alignment evidence: the same five running lanes with the tray expanded for row-column measurements.",
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__head"));
+        const head = ctx.document.querySelector<HTMLElement>(".acpmux-running-tray__head");
+        if (head?.getAttribute("aria-expanded") !== "true") await ctx.click({ selector: ".acpmux-running-tray__head" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__list"));
+      },
+      snapshot: alignmentPanel(),
     },
     "many-folded": {
       note: "Five running: the tray starts folded to its header so it never takes the transcript's room; the chevron opens the list.",
