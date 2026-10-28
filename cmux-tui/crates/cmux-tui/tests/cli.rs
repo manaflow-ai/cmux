@@ -4461,10 +4461,24 @@ fn unique_temp_dir(name: &str) -> PathBuf {
 /// The binary as the npm `cmux` launcher runs it, so output names `cmux`.
 /// Tests that check the installed `cmux-tui` name run `bin()` directly.
 fn cmux_command() -> Command {
-    let mut command = Command::new(bin());
     #[cfg(unix)]
-    std::os::unix::process::CommandExt::arg0(&mut command, "cmux");
-    command
+    {
+        let mut command = Command::new(bin());
+        std::os::unix::process::CommandExt::arg0(&mut command, "cmux");
+        command
+    }
+    // Windows has no separate argv[0]; run a copy named cmux.exe.
+    #[cfg(not(unix))]
+    {
+        static COPY: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+        Command::new(COPY.get_or_init(|| {
+            let dir = std::env::temp_dir().join(format!("cmux-launcher-{}", std::process::id()));
+            std::fs::create_dir_all(&dir).unwrap();
+            let copy = dir.join("cmux.exe");
+            std::fs::copy(bin(), &copy).unwrap();
+            copy
+        }))
+    }
 }
 
 fn bin() -> &'static str {

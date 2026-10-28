@@ -170,14 +170,7 @@ pub(super) fn parse(args: &[String]) -> Result<CommandPlan, UsageError> {
         Ok(tokens) => tokens,
         // Startup options before `server start` are not resource flags; say
         // where they go instead of naming the first one as unknown.
-        Err(_)
-            if args
-                .iter()
-                .take_while(|arg| *arg != "--")
-                .collect::<Vec<_>>()
-                .windows(2)
-                .any(|pair| pair[0] == "server" && pair[1] == "start") =>
-        {
+        Err(_) if starts_with_server_start(args) => {
             return Err(UsageError::new(
                 crate::localization::catalog().local_server.start_options_after_action,
             ));
@@ -222,6 +215,30 @@ pub(super) fn parse(args: &[String]) -> Result<CommandPlan, UsageError> {
     };
     tokens.flags.reject_remaining()?;
     Ok(plan)
+}
+
+/// Whether the first two command words are `server start`, skipping each
+/// flag and the value it would take (`--term xterm-256color server start`).
+fn starts_with_server_start(args: &[String]) -> bool {
+    let mut words = Vec::new();
+    let mut index = 0;
+    while index < args.len() && words.len() < 2 {
+        let value = args[index].as_str();
+        if value == "--" {
+            break;
+        }
+        if value.starts_with("--") {
+            if !value.contains('=')
+                && args.get(index + 1).is_some_and(|next| !next.starts_with('-'))
+            {
+                index += 1;
+            }
+        } else {
+            words.push(value);
+        }
+        index += 1;
+    }
+    words == ["server", "start"]
 }
 
 /// Reject flags the action does not take and report every missing required

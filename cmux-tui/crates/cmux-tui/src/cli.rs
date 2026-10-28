@@ -1050,6 +1050,16 @@ mod tests {
 
     #[test]
     fn forwarded_server_start_does_not_hide_an_unknown_flag() {
+        let Err(failure) =
+            parse(&strings(&["tab", "create", "terminal", "--name", "server", "start", "--bogus"]))
+        else {
+            panic!("an unknown flag must fail");
+        };
+        assert!(failure.error.0.starts_with("unknown flag --bogus"), "{}", failure.error);
+        let Err(failure) = parse(&strings(&["--term", "xterm-256color", "server", "start"])) else {
+            panic!("startup options before server start must fail");
+        };
+        assert!(failure.error.0.contains("after `server start`"), "{}", failure.error);
         let Err(failure) = parse(&strings(&[
             "workspace",
             "current",
