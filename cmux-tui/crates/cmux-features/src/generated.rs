@@ -43,7 +43,7 @@ pub(crate) const TABLE: &[crate::FeatureDef] = &[
     },
     crate::FeatureDef {
         name: "leftoverDaemonIdleExit",
-        defaults: crate::Defaults { dev: true, nightly: true, release: true },
+        defaults: crate::Defaults { dev: true, nightly: true, release: false },
         kind: crate::Kind::PerfPath,
         process: crate::Process::Daemon,
     },

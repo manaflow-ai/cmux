@@ -180,10 +180,16 @@ fn idle_exit_rule() {
 /// headless owner arms its idle exit on every channel. The disable list still
 /// turns it off.
 #[test]
-fn idle_exit_is_on_by_default_on_every_channel() {
+fn idle_exit_is_on_by_default_in_dev_and_nightly_and_off_in_release() {
     use cmux_features::Channel;
     let feature = cmux_features::feature::LEFTOVER_DAEMON_IDLE_EXIT;
-    for channel in [Channel::Dev, Channel::Nightly, Channel::Release] {
+    // Release waits for 7 days in NIGHTLY (feature-switch-policy.md rule 5).
+    let release = cmux_features::sources::snapshot(Channel::Release, None, None, &[]);
+    assert!(
+        !release.is_enabled(cmux_features::feature::LEFTOVER_DAEMON_IDLE_EXIT),
+        "release turned on before rule 5"
+    );
+    for channel in [Channel::Dev, Channel::Nightly] {
         let defaults = cmux_features::sources::snapshot(channel, None, None, &[]);
         assert!(defaults.is_enabled(feature), "the idle exit is off by default on {channel:?}");
         let disabled = cmux_features::sources::snapshot(

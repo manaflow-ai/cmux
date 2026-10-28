@@ -16,6 +16,7 @@ pub(crate) fn run_headless<F>(
     mux: &Arc<Mux>,
     socket_path: &Path,
     supervisor: &cmux_panic_log::Supervisor,
+    serves_remote: bool,
     remote_runtime_finished: F,
 ) -> anyhow::Result<()>
 where
@@ -67,9 +68,13 @@ where
     // running (dev_orphan_exit.rs).
     #[cfg(unix)]
     let orphan_exit = dev_orphan_exit::start_for_owner(mux);
-    // Any owner, with leftoverDaemonIdleExit on (server_lifecycle.rs).
+    // Any owner with leftoverDaemonIdleExit on (server_lifecycle.rs), except one that serves a remote entry: a
+    // Cloud machine's session host is restarted by its supervisor (cmux-devbox-boot), so an idle exit there only
+    // loops, and its clients arrive over the network after the grace.
     #[cfg(unix)]
-    let idle_exit = server_lifecycle::start_for_owner(mux, chief_brains.is_some());
+    let idle_exit = (!serves_remote)
+        .then(|| server_lifecycle::start_for_owner(mux, chief_brains.is_some()))
+        .flatten();
     // A Chief owner an app started stops soon after that app exits, when
     // nothing needs it (chief_owner_exit.rs).
     #[cfg(unix)]

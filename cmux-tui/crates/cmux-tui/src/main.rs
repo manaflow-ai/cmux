@@ -2725,7 +2725,8 @@ fn run_server(
         }
         #[cfg(unix)]
         {
-            run_headless(&mux, &socket_path, &supervisor, || {
+            let serves_remote = remote_runtime.is_some();
+            run_headless(&mux, &socket_path, &supervisor, serves_remote, || {
                 remote_runtime
                     .as_ref()
                     .is_some_and(remote_runtime::DaemonRuntimeHandle::is_finished)
@@ -2733,7 +2734,7 @@ fn run_server(
         }
         #[cfg(not(unix))]
         {
-            run_headless(&mux, &socket_path, &supervisor, || false)
+            run_headless(&mux, &socket_path, &supervisor, false, || false)
         }
     } else if let Some(runtime) = machine_runtime {
         run_machine_client(runtime, mux.clone(), config)
