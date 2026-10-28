@@ -6,7 +6,7 @@ import QuartzCore
 import Testing
 
 #if DEBUG
-/// p06-scheduler-345: the desktop pane's status and first frame reach it as visible-class tasks on the app's
+/// The desktop pane's status and first frame reach it as visible-class tasks on the app's
 /// scheduler, never in an unclassed main-actor hop: a status the source reports is not applied in the stream's
 /// delivery, it waits in the visible queue and applies on the frame that runs it; a status of a session the pane
 /// stopped (a hidden tab) is dropped. The scheduler's link is kept up and its frames fire only by hand; only the

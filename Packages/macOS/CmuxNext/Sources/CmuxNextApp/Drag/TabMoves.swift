@@ -87,7 +87,7 @@ enum TabMoves {
         guard services.daemon(for: pane) === daemon else { return refuseOtherMachine(services, completion) }
         guard !refusesIncognitoCrossing(tab, to: pane, services: services) else { return completion(false) }
         // The tab's pane now, read once for the whole decision.
-        // view-observation-allow: one MachineTabIndex lookup (p06-scheduler-051), no observation
+        // view-observation-allow: one MachineTabIndex lookup, no observation
         let current = services.locateTab(tab.id)?.1
         // With a respawn the source pane stays (it gets the new tab).
         let source = respawn == nil ? current : nil
@@ -114,7 +114,7 @@ enum TabMoves {
         let from = current?.handle
         if echoes {
             daemon.store.whenApplied(transaction) {
-                // view-observation-allow: one MachineTabIndex lookup (p06-scheduler-051) once the echo applied, no observation
+                // view-observation-allow: one MachineTabIndex lookup once the echo applied, no observation
                 if let now = services.locateTab(tab.id)?.1.handle, now != from { sizing() }
             }
         }
@@ -147,7 +147,7 @@ enum TabMoves {
         guard !refusesIncognitoCrossing(tab, to: pane, services: services) else { return completion(false) }
         let surface = tab.surface, paneHandle = pane.handle
         let echoes = daemon.supports(DaemonCapability.tabDrag.rawValue)
-        // view-observation-allow: one MachineTabIndex lookup (p06-scheduler-051), no observation
+        // view-observation-allow: one MachineTabIndex lookup, no observation
         let spawn = services.newColumnWidth(nextTo: pane, movingFrom: services.locateTab(tab.id)?.1)
         let width = spawn.width
         send("TabMoves.toNewColumn", services: services, landed: { ok in
@@ -197,7 +197,7 @@ enum TabMoves {
         // default"); a resize is the column's own width and stays. A right dock takes the width a
         // new column next to the anchor would take.
         let half = edge == .left && width == nil ? Self.leftDockWidth : nil
-        // view-observation-allow: one MachineTabIndex lookup (p06-scheduler-051), no observation
+        // view-observation-allow: one MachineTabIndex lookup, no observation
         let source = services.locateTab(tab.id)?.1
         let spawn = edge.isBand || width != nil || half != nil ? nil : services.newColumnWidth(nextTo: pane, movingFrom: source)
         let width = width ?? half ?? spawn?.width ?? 0.3

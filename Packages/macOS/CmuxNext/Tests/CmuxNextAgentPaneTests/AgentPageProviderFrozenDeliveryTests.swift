@@ -4,7 +4,7 @@ import CmuxNextSettings
 import Testing
 @testable import CmuxNextAgentPane
 
-/// The agent page's host events through a real ``PageRouter`` hold (p13-webui-027). They are an
+/// The agent page's host events through a real ``PageRouter`` hold. They are an
 /// append-only transcript the page cannot read again, so while the page is hidden or frozen the
 /// router keeps every one and sends them in `seq` order at release, with no gap and no drop; a busy
 /// stream thaws the page at ``PageFrozenDelivery/orderedHalfFull`` and loses nothing.

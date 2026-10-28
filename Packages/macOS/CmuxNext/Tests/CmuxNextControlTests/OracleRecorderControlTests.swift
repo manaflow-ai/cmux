@@ -5,7 +5,7 @@ import CmuxNextOracle
 import CmuxNextSettings
 import Testing
 
-/// `debug.oracle.recorder` and `debug.oracle.turns` (p15-oracle-032) over a real action registry: arm,
+/// `debug.oracle.recorder` and `debug.oracle.turns` over a real action registry: arm,
 /// perform, mark; the turn's facets equal the settled mark's, nested performs are one turn, `after`
 /// reads only newer checkpoints, bad params are `invalid_params`, a refused request changes nothing,
 /// and Release refuses both names `not_allowed`.

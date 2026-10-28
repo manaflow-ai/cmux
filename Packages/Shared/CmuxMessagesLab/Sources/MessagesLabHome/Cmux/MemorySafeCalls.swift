@@ -1,6 +1,6 @@
 // cmux: the Core Graphics, Core Text and AppKit calls the transcript makes with a pointer it does not use (a nil
 // transform, out-parameter or pixel buffer) or with an array the call reads as a pointer, and the array storage
-// test, each wrapped once with its SAFETY argument (p10-stability-073, strict memory safety). Chromium does the
+// test, each wrapped once with its SAFETY argument (strict memory safety). Chromium does the
 // same: one checked wrapper in base/ instead of an UNSAFE_BUFFERS() at every call site (docs/unsafe_buffers.md).
 // Not a vendored file.
 import AppKit

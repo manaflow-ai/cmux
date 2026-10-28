@@ -103,7 +103,7 @@ public final class WebUpdates {
         public let files: BackgroundWork
         /// The app's Energy Saver policy: checks wait its poll stretch.
         public let energy: EnergyPolicySource
-        /// The app's shown windows: none is booked while no cmux window shows (p14-energy-032); nil checks
+        /// The app's shown windows: none is booked while no cmux window shows; nil checks
         /// whether or not one shows.
         public let shown: ShownWindows?
         /// The app's deadline scheduler: the next check and the next safe-point look wait on it.
@@ -127,7 +127,7 @@ public final class WebUpdates {
 
     /// Starts the launch read of the kept update on `work`'s files lane: the bundled web's `abi`
     /// and build time, `state.json` and the kept tree's digest, read from `main` while AppKit
-    /// starts, so neither the main thread nor the first page waits for the disk (p08-startup-077).
+    /// starts, so neither the main thread nor the first page waits for the disk.
     /// Nil when this bundle takes no web updates.
     public static func startLaunchRead(bundle: Bundle = .main, on work: BackgroundWork) -> LaunchRead<Launch?>? {
         guard isAvailable(bundle), let pages = WebBundleOverlay.bundledPages,

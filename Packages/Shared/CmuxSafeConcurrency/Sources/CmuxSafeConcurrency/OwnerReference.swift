@@ -1,5 +1,5 @@
 /// A child's non-owning reference back to the object that owns it, for an owner that a test, a teardown or a bug
-/// can free first (p10-stability-091).
+/// can free first.
 ///
 /// An owner holds its children and a child's back-pointer does not own its owner, as Chromium's back-pointers are
 /// `raw_ptr` (base/memory/raw_ptr.h), never a `scoped_refptr` that would keep the owner alive in a cycle. Unlike

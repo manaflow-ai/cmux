@@ -109,7 +109,7 @@ public final class WindowPictureStore {
     let directory: URL?
     private let work: BackgroundWork
     private let encode: @Sendable (CGImage) -> Data?
-    /// The launch's read of the front window's picture (WindowPictureStore+LaunchRead.swift, p08-startup-058).
+    /// The launch's read of the front window's picture (WindowPictureStore+LaunchRead.swift).
     let launch: FrontRead
 
     /// - Parameters:

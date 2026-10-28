@@ -155,7 +155,7 @@ enum AgentBesidePlacement {
                     let away = services.paneController(for: anchor)?.paneKey
                     // Home's pinned dock alone takes no tab: the daemon made it in a new column right of
                     // the dock (`pinned-dock-alone-v1`), so there is nothing to move.
-                    // view-observation-allow: one MachineTabIndex lookup (p06-scheduler-051), once
+                    // view-observation-allow: one MachineTabIndex lookup, once
                     if services.locateTab(tab.id).map({ $0.1 !== anchor }) == true {
                         if let clicked { focus(surface, returningTo: from, awayFrom: away, in: clicked, generation: intent, services: services) }
                         moving.resume(returning: .moved(tab.id))
@@ -249,7 +249,7 @@ extension AgentBesidePlacement {
     /// `ObservedCondition` (a `ServiceObservation` in `workClass`) reads the tab index again only when it moves.
     @MainActor static func movedPane(of id: String, from anchor: PaneModel, limit: Duration = openLimit,
                                      workClass: BudgetedWorkClass, services: AppServices) async -> PaneModel? {
-        // view-observation-allow: one MachineTabIndex lookup (p06-scheduler-051) per read
+        // view-observation-allow: one MachineTabIndex lookup per read
         let moved: @MainActor () -> PaneModel? = { services.locateTab(id).flatMap { $0.1 !== anchor ? $0.1 : nil } }
         await ObservedCondition(owner: "AgentBesidePlacement.moved", workClass, on: services.mainWork)
             .until(timeout: limit, deadlines: services.mainDeadlines) { moved() != nil }

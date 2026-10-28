@@ -18,8 +18,8 @@ import os
 /// Everything runs on the main actor in frame order: a `lease` frame marks
 /// its tab agent-driven before the next frame is handled. Each frame is one
 /// task of the automation class, posted as it is read
-/// (``MainWorkScheduler/post(_:owner:file:line:_:)``, owner `browser-host.<tag>`;
-/// p06-scheduler-036): an agent never competes with the person, so a frame
+/// (``MainWorkScheduler/post(_:owner:file:line:_:)``, owner `browser-host.<tag>`):
+/// an agent never competes with the person, so a frame
 /// read while a key is pending runs after that key. Tasks of one class run in
 /// post order. The post runs on the next main run loop turn, also while frames
 /// run, not on a display frame: an agent's CDP and driver traffic is

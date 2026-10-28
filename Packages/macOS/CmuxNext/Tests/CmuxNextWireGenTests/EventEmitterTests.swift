@@ -12,7 +12,7 @@ private func json(_ text: String) throws -> SchemaJSON {
     try JSONDecoder().decode(SchemaJSON.self, from: Data(text.utf8))
 }
 
-/// `DaemonWireEvent`'s generator (p05-ipc-022): a case per framed event in id order, `unknown`
+/// `DaemonWireEvent`'s generator: a case per framed event in id order, `unknown`
 /// for the rest, and a decode that switches on the event id and decodes the payload once.
 /// The single-decode count itself is WireEventSetTests (CmuxNextIPCTests), over 20 fixture lines.
 @Suite struct EventEmitterTests {

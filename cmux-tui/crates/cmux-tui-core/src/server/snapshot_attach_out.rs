@@ -4,7 +4,7 @@
 //! A legacy viewer runs it on its own `mux-snapshot-attach-out` thread,
 //! blocked on the viewer's queue. A viewer on a client-minted attach stream
 //! runs it as a drain on the daemon-wide sequenced pool and holds no thread
-//! (p05-ipc-079); its idle digest is a delayed task of its sequence, aligned
+//!; its idle digest is a delayed task of its sequence, aligned
 //! to the daemon's wake grid so the digests of many idle viewers share one
 //! wake (Chrome's `kAlignWakeUps`, base/message_pump.cc).
 

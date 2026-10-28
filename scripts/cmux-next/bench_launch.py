@@ -114,7 +114,7 @@ bench_env = load_by_path("bench_env", os.path.join(PERF_LAB, "bench_env.py"))
 BASE_ENV = {"PATH": "/usr/bin:/bin:/usr/sbin:/sbin", **bench_env.fixed_env()}
 # The cmux.json a BenchApp writes when its caller passes none: an opaque window, so frames cost the same on any desktop.
 DEFAULT_CONFIG = {"appearance": {"backgroundOpacity": 1}}
-# The shipping measurement mode (idle-budget, p14-energy-100): the launch measures what users run. Occluded windows
+# The shipping measurement mode (idle-budget): the launch measures what users run. Occluded windows
 # stop drawing (WindowDrawPolicy.shippingDrawKey), Sentry and hang reports run (a DEV or bench bundle reports only
 # with these opt-ins; hang reports also need ``seed_hang_report_consent`` and the setting on), and
 # CMUX_NEXT_NO_ACTIVATE gives way to CMUX_NEXT_ISOLATED_LAUNCH: the app may activate (``BenchApp.activate``) and

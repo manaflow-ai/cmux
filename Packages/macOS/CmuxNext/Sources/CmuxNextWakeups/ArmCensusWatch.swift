@@ -1,6 +1,6 @@
 import CmuxNextCompat
 
-/// What the arm census (``ArmCensus``, p08-startup-085) records: the kind of an armed object.
+/// What the arm census (``ArmCensus``) records: the kind of an armed object.
 public enum ArmCensusKind: String, Sendable, CaseIterable {
     /// A ``DemandTimer`` deadline.
     case timer
@@ -14,7 +14,7 @@ public enum ArmCensusKind: String, Sendable, CaseIterable {
 }
 
 #if DEBUG || CMUX_BENCH_HOOKS
-/// One watcher's record in its ledger's ``ArmCensus`` (startup-queue.py arms, p08-startup-085), for a watch made outside
+/// One watcher's record in its ledger's ``ArmCensus`` (startup-queue.py arms), for a watch made outside
 /// the timer primitives: a DispatchSource or FSEvents watch, a system observer. The owner calls ``armed()`` each time it
 /// arms the watch (a re-opened file counts as another arm before the first fire) and ``fired()`` on each event, the
 /// process wakeup the watch costs; the census keeps the first arm made while it records and the first fire, whenever

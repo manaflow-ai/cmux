@@ -1,5 +1,5 @@
-/// The transcript's process-wide pixel caches for the host's memory policy, with no platform type
-/// (p07-memory-081): row bitmaps (`RowBitmaps`), decoded media (`MediaCache`), long-text tiles
+/// The transcript's process-wide pixel caches for the host's memory policy, with no platform type:
+/// row bitmaps (`RowBitmaps`), decoded media (`MediaCache`), long-text tiles
 /// (`TileCache`), bubble outlines (`BubbleSlices`), and since p07-memory-115 the pictures Markdown
 /// shows (`HomeMarkdownImages`) and the text measurements (`MeasureCache`). Every view of the process
 /// shares them, so the host sizes them once; cmux-next registers them with its memory coordinator

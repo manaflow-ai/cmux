@@ -2,7 +2,7 @@ import CmuxNextLaunch
 import Foundation
 import Testing
 
-/// p08-startup-002: `first_live_content_frame` is the first live content frame of any kind, once, and a paint
+/// `first_live_content_frame` is the first live content frame of any kind, once, and a paint
 /// no one sees is no live content.
 struct LaunchMarksLiveContentTests {
     private let processStart = Date(timeIntervalSince1970: 1_000)

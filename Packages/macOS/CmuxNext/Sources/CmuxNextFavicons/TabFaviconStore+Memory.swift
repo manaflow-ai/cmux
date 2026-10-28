@@ -1,8 +1,8 @@
 public import CmuxNextBrowser
 public import CmuxNextCompat
 
-/// The favicon pixels have one memory consumer, "browser-favicons" (p07-memory-055,
-/// `memoryBrowserCaches`): this store's strip icons and the `BrowserFaviconLoader` cache they are
+/// The favicon pixels have one memory consumer, "browser-favicons"
+/// (`memoryBrowserCaches`): this store's strip icons and the `BrowserFaviconLoader` cache they are
 /// decoded from hold the same `CGImage`s, so one release drops both and one report counts each image
 /// once, as Chrome's caches follow `base/memory_coordinator/memory_consumer.h`.
 ///

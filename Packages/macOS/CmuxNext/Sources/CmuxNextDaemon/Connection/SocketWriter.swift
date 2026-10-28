@@ -9,7 +9,7 @@ import Foundation
 /// not read its socket (a Unix socket buffers only a few KB, so a burst of
 /// commands to a busy daemon filled it).
 ///
-/// The owner of CmuxNextIPC's ``FrameWriter`` over the socket (p05-ipc-055):
+/// The owner of CmuxNextIPC's ``FrameWriter`` over the socket:
 /// writes append to the writer's priority FIFOs and return at once; its private
 /// serial queue drains them, input before control before bulk, call order within
 /// a priority. Only that queue's thread ever waits on the socket. Past `limit`

@@ -4,7 +4,7 @@ import Foundation
 import Testing
 import CmuxNextWakeups
 
-/// The glass feed evaluates no script per frame of a motion (chrome-parity p03-rendering-037): a page's
+/// The glass feed evaluates no script per frame of a motion: a page's
 /// place in its window is pushed when it is final, at a render-server spring's start, at a spring's landing,
 /// when a move of its pane ended, at a live window resize's end, and for a new size at rest. Frame and bounds
 /// changes of the page or its ancestors push nothing by themselves, and the feed observes no notification.
@@ -275,7 +275,7 @@ import CmuxNextWakeups
         #expect(rig.scripts.all.count == 2, "a page with no still was pushed again")
     }
 
-    /// A hidden page (p13-webui-065): the feed stops hearing its backdrop, asks for no frame and pushes
+    /// A hidden page: the feed stops hearing its backdrop, asks for no frame and pushes
     /// nothing, whatever moves meanwhile; the show pushes what changed once, on its next frame.
     @Test func aHiddenPageHasNoGlassObserverAndItsShowPushesOnce() async throws {
         let art = try GlassBackdropTests.artFile()
@@ -306,7 +306,7 @@ import CmuxNextWakeups
         #expect(rig.feed.sent?.rect == rig.rectNow(), "the show did not push the place the page has now")
     }
 
-    /// A push the page held (a frozen page keeps only the newest glass push for its thaw, p13-webui-065):
+    /// A push the page held (a frozen page keeps only the newest glass push for its thaw):
     /// the next push carries every field and the image, so it can take the held one's place; after it, a
     /// push carries only what changed again.
     @Test func thePushAfterAHeldOneCarriesTheWholeState() async throws {

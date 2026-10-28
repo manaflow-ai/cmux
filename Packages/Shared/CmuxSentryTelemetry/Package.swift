@@ -28,7 +28,7 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../CMUXMobileCore"),
-        // The Mutex of the reporter's policy state (p02-threads-146).
+        // The Mutex of the reporter's policy state.
         .package(path: "../CmuxThreading"),
         .package(
             // sentry-cocoa 9.29.0 removed PrivateSentrySDKOnly, which the cmux

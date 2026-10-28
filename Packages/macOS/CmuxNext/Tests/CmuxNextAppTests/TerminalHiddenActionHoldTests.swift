@@ -4,7 +4,7 @@ import CmuxNextWakeups
 import Foundation
 import Testing
 
-/// What a hidden terminal holds (feature `terminalHiddenActionHold`, p06-scheduler-218) reaches its
+/// What a hidden terminal holds (feature `terminalHiddenActionHold`) reaches its
 /// session's model before a reader that does not depend on visibility: a surface swap, whose old surface
 /// takes its mailbox with it, and a save at quit (`RemoteTerminalService.saveSnapshot`).
 @MainActor @Suite(.serialized) struct TerminalHiddenActionHoldTests {

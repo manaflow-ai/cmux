@@ -94,7 +94,7 @@ pub(crate) struct HolderSink {
     /// terminal has a channel).
     acker: OnceLock<Acker>,
     /// The key press of the newest input the daemon wrote on the custody
-    /// master (p09-observability-018): the reader's next holder read takes
+    /// master: the reader's next holder read takes
     /// it ([`SnapshottingReader`]).
     pub(crate) input_flow: crate::input_flow::InputFlowSlot,
     /// The flow that holder read took, for the parser's output of the same
@@ -169,7 +169,7 @@ impl SinkState {
     /// An acknowledgement is due for what the parser confirmed: every
     /// `ACK_EVERY` bytes, and once the stream went idle with
     /// [`IDLE_ACK_BYTES`] unacknowledged, so a cold terminal's holder can
-    /// release its ring up to the end of a burst (p07-memory-094).
+    /// release its ring up to the end of a burst.
     fn due_ack(&mut self, can_ack: bool) -> Option<u64> {
         let unacked = self.confirmed.saturating_sub(self.acked);
         let idle = self.bytes.is_empty();
@@ -710,7 +710,7 @@ mod tests {
         assert!(last >= ACK_EVERY && last <= 2 * chunk.len() as u64, "{acks:?}");
     }
 
-    /// p07-memory-094: the tail of a burst under `ACK_EVERY` is acknowledged
+    /// The tail of a burst under `ACK_EVERY` is acknowledged
     /// once the stream goes idle, so the holder may release its ring up to
     /// the burst's end; an echo after it costs no acknowledgement.
     #[test]

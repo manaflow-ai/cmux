@@ -34,7 +34,7 @@ struct KeyDownDispatchTests {
         #expect(!services.registry.isDispatchingKeyDown(), "a key whose dispatch ended counts as a key-down dispatch")
     }
 
-    // MARK: The discrete-input signal (p06-scheduler-003)
+    // MARK: The discrete-input signal
     //
     // The main-thread scheduler hears each discrete input from `InputDispatchContext` (key-down, mouse-down, and a
     // mouse-up whose turn expects a frame), with whether the turn expects a frame (Chrome's

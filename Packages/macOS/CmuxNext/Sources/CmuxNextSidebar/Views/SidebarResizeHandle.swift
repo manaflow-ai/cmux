@@ -74,7 +74,7 @@ final class SidebarResizeHandle: NSView {
     required init?(coder: NSCoder) { fatalError() }
 
     /// The resize cursor, set when the pointer enters (``addCursorUpdateArea(_:)``): no cursor rects
-    /// for the window to rebuild while the sidebar's width follows a drag (p04-input-090).
+    /// for the window to rebuild while the sidebar's width follows a drag.
     override func cursorUpdate(with event: NSEvent) {
         if #available(macOS 15, *) { NSCursor.columnResize.set() } else { NSCursor.resizeLeftRight.set() }
     }

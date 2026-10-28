@@ -3,9 +3,9 @@ import CmuxNextCompat
 import CmuxNextWakeups
 import Testing
 
-/// p07-memory-016: the footprints go into the histograms once per interval on the emitter's own
+/// The footprints go into the histograms once per interval on the emitter's own
 /// deadline (Chrome's periodic `ProcessMemoryMetricsEmitter` run), never per read or pressure change.
-/// p06-scheduler-347: the deadline is a `background` ``MainDeadline`` and the record a posted `background` task.
+/// The deadline is a `background` ``MainDeadline`` and the record a posted `background` task.
 @MainActor @Suite struct MemoryFootprintEmitterTests {
     /// The live PID reads the emitter made.
     final class Reads {

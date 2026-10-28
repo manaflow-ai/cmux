@@ -5,7 +5,7 @@ import Foundation
 import Testing
 @testable import CmuxNextDaemon
 
-/// The oracle's `crashes.daemon` (p15-oracle-188): the connection counts a ready connection the daemon dropped
+/// The oracle's `crashes.daemon`: the connection counts a ready connection the daemon dropped
 /// without `daemon-shutdown`. A killed owner cannot count its own end, so the app does. Run:
 /// `swift test --filter DaemonDropCountTests`.
 @Suite(.enabled(if: RealBinary.url != nil, "no cmux-tui binary available"), .liveDaemon)

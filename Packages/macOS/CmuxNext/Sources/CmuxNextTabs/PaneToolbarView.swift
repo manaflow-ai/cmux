@@ -171,7 +171,7 @@ public final class PaneToolbarView: NSView {
     private static var moreSlide: CGFloat { Metrics.space2 * 2 }
 
     /// Moves "…" with the reveal's fade (same `MotionFade.hover` timing), on its layer: its frame is
-    /// at the target in this turn, with no frame write per motion frame (p03-rendering-104).
+    /// at the target in this turn, with no frame write per motion frame.
     private func slideMore(revealed: Bool) {
         let target = moreFrame(revealed: revealed)
         guard moreButton.frame != target else { return }

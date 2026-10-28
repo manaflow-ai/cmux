@@ -6,7 +6,7 @@ import Foundation
 import ImageIO
 import Testing
 
-/// One picture per window at quit (p08-startup-057): never of an incognito, full-screen, other-Space or
+/// One picture per window at quit: never of an incognito, full-screen, other-Space or
 /// capture-hidden window; private files per profile, each save replacing the last; composed and encoded off the
 /// main thread; the panes' pictures drawn over the root view's drawing and the privacy fills over everything; the
 /// backdrop left out; and a meta whose layout digests are stable across processes and compared per region.

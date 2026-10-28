@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import CmuxNextBrowser
 
-/// p01-process-062: every Chromium permission request is asked from data. Chromium's permission
+/// Every Chromium permission request is asked from data. Chromium's permission
 /// bubble is a Views widget a host-mode page never shows, so a request cmux does not ask about
 /// waits until the page goes away. With the default-off feature `chromiumPermissionPromptsFromData`
 /// the shim sends every `cef_permission_request_types_t` as PERMISSION_PROMPT

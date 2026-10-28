@@ -3,7 +3,7 @@ import AppKit
 import CmuxNextInput
 import Testing
 
-/// The native popup host listens on the app's one input tap, not AppKit event monitors (p04-input-013):
+/// The native popup host listens on the app's one input tap, not AppKit event monitors:
 /// while the popup shows, a click outside it closes it and goes on, and Escape in it closes it and
 /// stops there (an intercept of order `.popup`); hidden, it holds no subscription.
 @MainActor @Suite(.serialized) struct NativePopupHostTests {

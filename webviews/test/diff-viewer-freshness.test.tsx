@@ -2,7 +2,7 @@
 // until the tab was reopened. It compares the host's fingerprint of its scope's diff with the one
 // it loaded: coming back to the viewer after an edit refreshes it, unless a comment draft or the
 // commit form would be lost, and then it says the files changed. It compares on the page's minute
-// clock while shown and runs no timer while hidden (p14-energy-062a).
+// clock while shown and runs no timer while hidden.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 

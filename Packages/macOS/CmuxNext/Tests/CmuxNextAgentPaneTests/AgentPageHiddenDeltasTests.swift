@@ -4,7 +4,7 @@ import CmuxNextSettings
 import Testing
 @testable import CmuxNextAgentPane
 
-/// p13-webui-038: a hidden chat that keeps streaming loses nothing. The acpmux transport's frames reach
+/// A hidden chat that keeps streaming loses nothing. The acpmux transport's frames reach
 /// the agent page through a real ``PageRouter`` hold (the page hidden or frozen); 20,000 of them all
 /// arrive, in order and in `seq` order, with no gap and no drop, the page thawing for a batch each time
 /// its `.ordered` stream fills half its bound.

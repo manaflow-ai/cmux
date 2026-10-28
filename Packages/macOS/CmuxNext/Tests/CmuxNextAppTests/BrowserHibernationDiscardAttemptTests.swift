@@ -3,7 +3,7 @@
 import CmuxNextHibernation
 import Testing
 
-/// p07-memory-104: a browser tab whose discard was tried and did not finish (its `beforeunload` asked, it had no
+/// A browser tab whose discard was tried and did not finish (its `beforeunload` asked, it had no
 /// state to restore, the engine refused its freeze, its release found nothing prepared) carries Chrome's
 /// `DiscardAttemptMarker` (page_discarding_helper.cc): the planner keeps it as `discardAttempted` from every discard
 /// until it shows (discard_eligibility_policy.cc), and the replan gives its slot to the next due tab at once. A probe

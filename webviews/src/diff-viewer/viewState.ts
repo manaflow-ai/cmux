@@ -1,11 +1,11 @@
 // What a diff tab shows besides its repository and scope, kept while the host discards its hidden
-// page (`memoryDiscardInternalPages`, p07-memory-026): the file at the top of the view and how far
+// page (`memoryDiscardInternalPages`): the file at the top of the view and how far
 // into it (an `ItemScrollAnchor`, as Chrome's scroll anchoring keeps a node and an offset,
 // third_party/blink/renderer/core/layout/scroll_anchor.cc), the files the reader unfolded that open
 // folded (large, generated, viewed or all folded), and the options that last for the tab. The host
 // asks `cmux.diff.viewState` right before the discard and gives the answer back as the next page's
-// `payload.viewState`. The page also saves the same state each time it hides (pageState.ts,
-// p13-webui-082), for a discard whose host cannot ask a frozen page; the host's answer wins when it
+// `payload.viewState`. The page also saves the same state each time it hides (pageState.ts),
+// for a discard whose host cannot ask a frozen page; the host's answer wins when it
 // has one. Input a new page would lose (a comment draft, the commit form) is reported when it
 // changes (`cmux.diff.input {unsaved}`): the host keeps such a page.
 import { useEffect, useRef } from "react";

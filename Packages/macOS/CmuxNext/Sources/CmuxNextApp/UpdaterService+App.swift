@@ -55,7 +55,7 @@ extension UpdaterService {
         #endif
     }
 
-    /// The work behind the wired cards, after startup (the `Updater.attachedWork` launch post, p08-startup-031):
+    /// The work behind the wired cards, after startup (the `Updater.attachedWork` launch post):
     /// the Updated card's change list when its record has none (2026-10-20; a network read), and the
     /// tip's re-pick when cmux becomes active again.
     func startAttachedWork(appEvents: AppEvents) {

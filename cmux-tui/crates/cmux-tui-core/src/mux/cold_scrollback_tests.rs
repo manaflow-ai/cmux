@@ -1,4 +1,4 @@
-//! The cold-scrollback policy (p07-memory-041): when a terminal is due, the
+//! The cold-scrollback policy: when a terminal is due, the
 //! one deadline, and what keeps a terminal hot.
 
 use std::sync::atomic::AtomicUsize;

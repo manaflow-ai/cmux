@@ -12,7 +12,7 @@ import CmuxNextWakeups
 /// its content view, as Blink's top layer paints above the rest of the
 /// document (`third_party/blink/renderer/core/dom/document.cc`,
 /// `Document::AddToTopLayer`). No panel exists then and no child window is
-/// re-ordered: a Chromium page attached as a view (p03-rendering-045) is below
+/// re-ordered: a Chromium page attached as a view is below
 /// it in the same view tree. What follows is the fallback for page child windows.
 ///
 /// Each Chromium page is a child window of the main window, and the CEF fork
@@ -75,7 +75,7 @@ public final class WindowOverlayHost {
             agentCursorCarrier?.routedPanel = mouseRouting == nil || !usesPanel ? nil : madePanel
         }
     }
-    /// The windows' frame-aligned pointer input (feature `pointerFrameHover`, p04-input-036): the agent cursor's
+    /// The windows' frame-aligned pointer input (feature `pointerFrameHover`): the agent cursor's
     /// tag hover and the panel's views wait on it; the panel's click routing never does. From the window
     /// (``HoverFrameInputHosting``, the App's main windows) when the host is made; nil (the feature off, any
     /// other window) hovers on every move.

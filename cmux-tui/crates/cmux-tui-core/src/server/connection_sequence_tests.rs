@@ -1,4 +1,4 @@
-//! Connections run on the daemon-wide sequenced pool (p05-ipc-073): their
+//! Connections run on the daemon-wide sequenced pool: their
 //! thread count does not follow the number of connections.
 
 use std::sync::Arc;

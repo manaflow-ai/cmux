@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import CmuxNextDaemon
 
-/// The attach decoder reads the key press an `output` event echoes (`flow`, p09-observability-018), so the
+/// The attach decoder reads the key press an `output` event echoes (`flow`), so the
 /// typing probe's decode mark names that press exactly.
 struct TerminalAttachmentFlowTests {
     private let surface = SurfaceID(rawValue: 3)

@@ -12,7 +12,7 @@ import Observation
 import Testing
 
 /// The CmuxNextApp/{Hibernation,BrowserProfiles,Screenshots,Apps,Screens,LayoutTemplates} sweep
-/// (plans/cmux-next/chrome-parity/p06-scheduler.md, task p06-scheduler-318, rule 9): one case per migrated owner class
+/// (plans/cmux-next/chrome-parity/p06-scheduler.md, rule 9): one case per migrated owner class
 /// on a rig whose frames the test fires. A service's follow is a classed task that runs with no window and no node, a
 /// list read off main lands in one visible task, a hidden workspace's bar applies nothing until it shows, a person's
 /// app command ends in userBlocking and a CLI's in automation, and the waits end on their condition or their deadline.

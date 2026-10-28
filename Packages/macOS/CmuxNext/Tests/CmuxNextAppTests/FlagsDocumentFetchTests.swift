@@ -5,7 +5,7 @@ import CryptoKit
 import Foundation
 import Testing
 
-/// The signed `notes/flags.json` fetch (p12-perf-process-093): a 304 does nothing,
+/// The signed `notes/flags.json` fetch: a 304 does nothing,
 /// a tampered byte is rejected, a valid document reaches the receiver once, it
 /// uses the release notes' own URL and content key, and the updater runs it at
 /// start with Sparkle and automatic checks off.

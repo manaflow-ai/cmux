@@ -4,7 +4,7 @@ import CmuxNextCompat
 import Foundation
 import Testing
 
-/// Chromium's side of Energy Saver (p14-energy-030): the app's saver state reaches the fork's
+/// Chromium's side of Energy Saver: the app's saver state reaches the fork's
 /// `cmux_cef_set_energy_saver` once at the start and then once per edge, with cmux's own pages exempt; a
 /// policy change that leaves the saver as it was makes no call, and a fork below the API gets none.
 @MainActor
@@ -38,7 +38,7 @@ import Testing
         #expect(recorder.calls == [true, false])
     }
 
-    /// A restarted Chromium (the host, p14-energy-045): an edge while no Chromium ran reached nobody, so
+    /// A restarted Chromium (the host): an edge while no Chromium ran reached nobody, so
     /// the next ready sends the source's state again, edge or not, and ``CEFEnergySaver/isApplied`` is the
     /// new Chromium's answer.
     @Test func resyncSendsTheCurrentStateAfterAnEdgeNoChromiumTook() {

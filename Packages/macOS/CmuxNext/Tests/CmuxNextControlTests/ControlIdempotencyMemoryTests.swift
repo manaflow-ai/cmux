@@ -4,7 +4,7 @@ import CmuxNextCompat
 import CmuxNextSettings
 import Testing
 
-/// The idempotency cache as a memory consumer (p07-memory-060): the coordinator's limit scales how
+/// The idempotency cache as a memory consumer: the coordinator's limit scales how
 /// many finished runs it keeps, a release drops the oldest finished ones, the newest
 /// ``ControlIdempotencyCache/workingSet`` stay at any limit (their retries are still coming), and a
 /// run still in flight is never dropped (its retry must join it, not run again).

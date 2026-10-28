@@ -58,14 +58,14 @@ enum Kind : uint32_t {
                    // the DOM's MouseEvent.buttons), flags = NSEventModifierFlags, t0 event time. The back
                    // and forward buttons (NSEvent buttonNumber 3 and 4, Chrome's
                    // WebPointerProperties::Button::kBack and kForward) are not sent until the host can
-                   // click them (p01-process-054b): CEF's SendMouseClickEvent has only left, middle, right
+                   // click them: CEF's SendMouseClickEvent has only left, middle, right
   kWheel = 4,      // v0 x, v1 y (points, top left), v2 v3 scrollingDeltaX/Y x kWheelDeltaScale, v4 phase, v5
                    // momentum phase (NSEventPhase bits), flags = NSEventModifierFlags | kWheelPrecise, t0
-                   // (Wheel below, p04-input-063)
+                   // (Wheel below)
   kKey = 5,        // v0 phase (0 down, 1 up, 2 flags changed), v1 key code, v2 repeat, flags, ch, unmod, t0;
                    // the host sends it with cmux_shim::SendHostKeyEvent and the frame's input seq, which
-                   // KEY_UNHANDLED carries back for a chord the page leaves unhandled (p01-process-030).
-                   // v3 (ChromiumHostTextInput.KeyMark, p01-process-043): on a down, 0 the key and ch,
+                   // KEY_UNHANDLED carries back for a chord the page leaves unhandled.
+                   // v3 (ChromiumHostTextInput.KeyMark): on a down, 0 the key and ch,
                    // 1 an input method took it (VKEY_PROCESSKEY down, skip_if_unhandled, no char), 2 the
                    // char ch only; on an up, 1 the up of that process key (skip_if_unhandled)
   kFocus = 6,      // v0 1 focused, 0 not
@@ -83,7 +83,7 @@ enum Kind : uint32_t {
                    // '\n'), then per clause i32 start, i32 end, u32 color 0xAARRGGBB, u32 thick (0 or 1).
                    // It has a payload, so it never rides the input ring.
   kTextInputWatch = 12,  // v0 1: push kTextInputState after each change; 0: stop (task 044's watch)
-  kGesture = 13,   // a trackpad gesture of the page view (p01-process-054), the input that
+  kGesture = 13,   // a trackpad gesture of the page view, the input that
                    // RenderWidgetHostNSViewHost takes as PinchEvent and SmartMagnifyEvent
                    // (content/common/render_widget_host_ns_view.mojom; render_widget_host_view_cocoa.mm
                    // -magnifyWithEvent:, -smartMagnifyWithEvent:) and the Force Touch pressure that
@@ -94,7 +94,7 @@ enum Kind : uint32_t {
                    // SmartMagnifyEvent; 4 pressure (v3 NSEvent pressure x 1e6, 0 to 1e6, v4 stage 0
                    // none, 1 click, 2 force click; Blink's WebPointerProperties::force); v5 pressed
                    // buttons as kMouse's, flags = NSEventModifierFlags, t0 event time. The host drops
-                   // it until the fork can send it to the page (p01-process-054b)
+                   // it until the fork can send it to the page
   // host -> cmux
   kReady = 101,         // v0 fork API version, v1 host pid, v2 what the host reports (kReadyReports*)
   kContext = 102,       // v0 CAContext id (bits of a uint32)
@@ -109,13 +109,13 @@ enum Kind : uint32_t {
   kError = 107,         // payload message
   kRendererGone = 108,  // v0 cef_termination_status_t
   kTextInputState = 109,  // the focused field's text input state while watched (host_text_input.h's
-                          // TextInputState, p01-process-044): v0 ui::TextInputType, v1 flags, v2 v3
+                          // TextInputState): v0 ui::TextInputType, v1 flags, v2 v3
                           // selection (-1 -1 unknown), v4 v5 composition (-1 -1 none); payload i32 caret
                           // x, y, width, height, i32 text offset, i32 rect count, per composition
                           // character i32 x, y, width, height (page-view points, top left), then the
                           // text around the selection as UTF-16LE
   kInputPresented = 110,  // t0 the input frame's t0 (its event time), t1 when the frame that shows it reached the
-                          // display, v0 gfx::PresentationFeedback flags (InputPresentedFrame, p04-input-066)
+                          // display, v0 gfx::PresentationFeedback flags (InputPresentedFrame)
 };
 
 struct Header {
@@ -130,7 +130,7 @@ struct Header {
   uint32_t seq = 0;
 };
 
-// A wheel frame (kWheel, task p04-input-063). Chrome builds its wheel event
+// A wheel frame (kWheel). Chrome builds its wheel event
 // from the NSEvent with the trackpad's scroll phase, its momentum phase and
 // whether the deltas are precise (WebMouseWheelEventBuilder::Build in
 // content/browser/renderer_host/input/web_input_event_builders_mac.mm), and its
@@ -191,8 +191,8 @@ struct Wheel {
   int modifiers = 0;  // cef_event_flags_t
 };
 
-// The frame that showed an input reached the display (kInputPresented, task
-// p04-input-066). Chrome closes each input's EventMetrics at the presentation
+// The frame that showed an input reached the display (kInputPresented).
+// Chrome closes each input's EventMetrics at the presentation
 // feedback of the compositor frame that carried it
 // (cc/metrics/compositor_frame_reporter.cc, gfx::PresentationFeedback in
 // ui/gfx/presentation_feedback.h); the host reports that feedback per input
@@ -347,7 +347,7 @@ class WheelPixelCarry {
   int64_t dy_ = 0;
 };
 
-// The time Chromium gives an input frame's event (task p04-input-065): its t0,
+// The time Chromium gives an input frame's event: its t0,
 // the NSEvent's timestamp, as Chrome stamps each event with
 // ui::EventTimeStampFromSeconds([event timestamp])
 // (content/browser/renderer_host/input/web_input_event_builders_mac.mm), so
@@ -361,7 +361,7 @@ inline uint64_t EventTimeOf(const Header& frame, uint64_t now_ns) {
   return frame.t0 <= now_ns ? frame.t0 : 0;
 }
 
-// One ordered input stream (task p01-process-092). Chrome sends input and the
+// One ordered input stream. Chrome sends input and the
 // view's state (focus, IME, edit commands, geometry) to the renderer host on
 // one ordered pipe, RenderWidgetHostNSViewHost
 // (content/common/render_widget_host_ns_view.mojom), so a key after a focus
@@ -408,7 +408,7 @@ inline bool IsOrderedInput(const Header& h) {
 // A kMouse down or up's button as CEF clicks it (cef_mouse_button_type_t MBT_LEFT 0, MBT_MIDDLE 1,
 // MBT_RIGHT 2: the wire's values), or kNoClickButton for any other v3. CEF's SendMouseClickEvent has
 // no back or forward button, and a frame that names one must never become a left click at the
-// pointer (p01-process-054): the host's SendMouse (p01-process-042) dispatches no click for it.
+// pointer: the host's SendMouse dispatches no click for it.
 inline constexpr int32_t kNoClickButton = -1;
 inline int32_t ClickButtonOf(const Header& h) {
   return h.v[3] >= 0 && h.v[3] <= 2 ? h.v[3] : kNoClickButton;

@@ -12,7 +12,7 @@ import Foundation
 import SwiftUI
 import Testing
 
-/// Page policies batch 2 (p07-memory-025): history, bookmarks, passwords, stashed, tasks and
+/// Page policies batch 2: history, bookmarks, passwords, stashed, tasks and
 /// workspace todo each declare when their hidden tab's view may go and what comes back. Passwords
 /// goes one minute after it hides and keeps no view state and no picture; an edit in progress
 /// (a todo item, a bookmark sheet) keeps the view; the rest come back as they were.

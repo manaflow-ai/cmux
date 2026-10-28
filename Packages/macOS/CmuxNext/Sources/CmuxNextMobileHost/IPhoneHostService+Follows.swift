@@ -1,7 +1,7 @@
 import CmuxNextMobile
 import CmuxNextWakeups
 
-/// What the host follows once wired (p06-scheduler-342): hostd's streams, read off main and applied as visible
+/// What the host follows once wired: hostd's streams, read off main and applied as visible
 /// tasks, and the setting, the account, the workspace folders and the New Tab picks, each one
 /// `ServiceObservation` on the app's scheduler (a person's settings edit or sign-in applies in their turn).
 extension IPhoneHostService {

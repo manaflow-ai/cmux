@@ -8,7 +8,7 @@ import CmuxNextSettings
 import Foundation
 import Testing
 
-/// `debug.webui` (p13-webui-001): the census names every page with its engine, state and renderer,
+/// `debug.webui`: the census names every page with its engine, state and renderer,
 /// attributes each Chromium helper to what it runs, and counts what reaches a page only while it is
 /// hidden. A parked spare is hidden to the person (Chrome counts no spare renderer as visible).
 @MainActor

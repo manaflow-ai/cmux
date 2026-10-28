@@ -30,8 +30,8 @@ private func dense<Entry: Hashable & Sendable>(
 }
 
 /// The method tables answer ids and names in O(1), miss everything else, and
-/// the generated `MethodTable.schema` agrees with cmux-tui/spec entry by entry
-/// (p05-ipc-023). The Rust twin is cmux-ipc's `methods_table_*` tests.
+/// the generated `MethodTable.schema` agrees with cmux-tui/spec entry by entry.
+/// The Rust twin is cmux-ipc's `methods_table_*` tests.
 @Suite struct MethodTableTests {
     // A table shaped like cmux-tui/spec/fixtures/ipc-method-tables.
     private static let fixture: MethodTable = {

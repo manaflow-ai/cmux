@@ -5,7 +5,7 @@ import Testing
 
 /// The attach reader's backpressure (``TerminalEventQueue``): an armed queue parks the reader thread above its
 /// high water and lets it go at its low water, at the end of the stream, or when the consumer drops it. Nothing
-/// here waits on time: the reader reports when it blocked and when its pushes returned (p10-stability-059: the
+/// here waits on time: the reader reports when it blocked and when its pushes returned (the
 /// state behind a checked lock and the reader on a semaphore, instead of unchecked condition-guarded fields).
 @Suite(.timeLimit(.minutes(1))) struct TerminalEventQueueBackpressureTests {
     /// A dedicated reader thread, as the attach connection's: pushes `events`, then reports that it returned.

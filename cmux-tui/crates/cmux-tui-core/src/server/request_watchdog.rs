@@ -54,7 +54,7 @@
 //! the other kinds have only the hang tier. Each slow request and each
 //! hang of another kind also goes to the first-sighting feed, whose
 //! consumer keeps the first of each scope and method
-//! (`server-diagnostic-site`, p02-threads-233). The holder link has no
+//! (`server-diagnostic-site`). The holder link has no
 //! `Mux` at hand, so the owner makes its Mux's watchdog the process's
 //! ([`RequestWatchdog::watch_for_process`]).
 //!

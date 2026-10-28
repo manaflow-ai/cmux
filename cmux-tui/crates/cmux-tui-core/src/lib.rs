@@ -92,7 +92,7 @@ pub mod release;
 mod request_origin;
 /// Blocking notes on request threads (`server-stats` `request_path_io`).
 mod request_path;
-/// A request's cause and QoS class together (p06-scheduler-035).
+/// A request's cause and QoS class together.
 mod request_qos;
 pub mod resource;
 mod resource_api;
@@ -111,7 +111,7 @@ mod sidebar_resource;
 pub mod sizing_policy;
 mod state;
 pub mod store_schemas;
-/// Every thread this crate starts runs under the process supervisor (p10-stability-112).
+/// Every thread this crate starts runs under the process supervisor.
 pub mod supervised;
 use cmux_tui_util::stream_interrupt;
 #[cfg(unix)]

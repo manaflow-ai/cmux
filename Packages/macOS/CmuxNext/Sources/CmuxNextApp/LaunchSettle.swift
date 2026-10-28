@@ -88,7 +88,7 @@ final class LaunchSettle {
     }
 
     /// `memorySmallAppStores` (default off): once the launch settled and no agent pane draws its last page, the
-    /// launch reads of the last quit's terminal frames and agent pages go, not at their 30 s deadline (p07-memory-083).
+    /// launch reads of the last quit's terminal frames and agent pages go, not at their 30 s deadline.
     ///
     /// - Parameters:
     ///   - frames: The last quit's terminal frames (`AppServices.terminalLaunchFrames`).

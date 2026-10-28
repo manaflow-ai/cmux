@@ -4,7 +4,7 @@ import Foundation
 import Testing
 @testable import CmuxNextWakeups
 
-/// `key.echo_frame` from synthetic marks (p09-observability-054): one key in 16 opens an echo sample while none is
+/// `key.echo_frame` from synthetic marks: one key in 16 opens an echo sample while none is
 /// open, its echo's contents mark records the key-down-to-frame time for its surface's route, and a sample that
 /// cannot show an echo closes at its commit. Main-actor tests, so the probe's run-loop commit observer never fires
 /// in the middle of one.

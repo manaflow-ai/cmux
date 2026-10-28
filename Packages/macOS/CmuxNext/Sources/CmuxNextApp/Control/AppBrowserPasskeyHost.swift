@@ -21,7 +21,7 @@ final class AppBrowserPasskeyHost: BrowserPasskeyHost, Sendable {
     }
 
     func isInFront(tabID: String) async -> Bool {
-        // view-observation-allow: locateTab is one MachineTabIndex lookup (p06-scheduler-051), read once per check; no walk, no observation
+        // view-observation-allow: locateTab is one MachineTabIndex lookup, read once per check; no walk, no observation
         guard NSApp.isActive, let services, let (tab, pane) = services.locateTab(tabID),
               let controller = services.paneController(for: pane) else { return false }
         return controller.selectedTab?.id == tab.id && controller.view.window?.isKeyWindow == true
@@ -29,7 +29,7 @@ final class AppBrowserPasskeyHost: BrowserPasskeyHost, Sendable {
 
     func reveal(tabID: String) async throws {
         // One lookup: the reveal shows the tab's pane, it does not move the tab to another pane.
-        // view-observation-allow: locateTab is one MachineTabIndex lookup (p06-scheduler-051), read once per click; no walk, no observation
+        // view-observation-allow: locateTab is one MachineTabIndex lookup, read once per click; no walk, no observation
         guard let services, let (_, pane) = services.locateTab(tabID) else {
             throw ControlError(code: "not_found", message: "No tab \(tabID)")
         }

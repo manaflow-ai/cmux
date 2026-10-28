@@ -6,7 +6,7 @@ import CmuxNextMetrics
 import Foundation
 import Testing
 
-/// p09-observability-061: a hibernated or deferred tab has no engine page, so it holds no renderer memory. Next to
+/// A hibernated or deferred tab has no engine page, so it holds no renderer memory. Next to
 /// a Chromium tab in a hidden workspace it is a clear 0, so the workspace still records its sample.
 @MainActor @Suite("Hidden workspace capture")
 struct HiddenWorkspaceCaptureTests {

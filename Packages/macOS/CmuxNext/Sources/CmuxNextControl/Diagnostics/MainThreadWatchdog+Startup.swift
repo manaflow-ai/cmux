@@ -3,7 +3,7 @@ import CmuxNextCompat
 import CmuxNextSettings
 import CmuxNextWakeups
 
-/// The launch's part of the watchdog (p08-startup-088): `main()` makes it first and starts it before
+/// The launch's part of the watchdog: `main()` makes it first and starts it before
 /// LaunchWarmup, so a launch stall is listed from the first statement on; each stall before startup
 /// completes names its launch phase and startup task (``startupTasks``, `startup_phase` and
 /// `startup_task` in `debug.hangs`).

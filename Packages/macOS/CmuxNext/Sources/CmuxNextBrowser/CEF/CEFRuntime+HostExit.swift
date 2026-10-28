@@ -1,7 +1,7 @@
 import CmuxNextWakeups
 import Foundation
 
-/// The Chromium Host's end while Chromium runs in it (``BrowserBackend/host``, p08-startup-046).
+/// The Chromium Host's end while Chromium runs in it (``BrowserBackend/host``).
 extension CEFRuntime {
     /// The host ended: everything still awaited from it resolves (``hostWireEnded()``), every page it showed
     /// shows `exit`'s crash state (the sad tab), and the crash log records the host once. Only the host's process

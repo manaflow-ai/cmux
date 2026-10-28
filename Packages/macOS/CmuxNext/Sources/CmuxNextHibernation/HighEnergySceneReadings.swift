@@ -1,7 +1,7 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 package import CmuxNextWakeups
 
-/// The `high-energy-tab` capture scene's renderer readings (p14-energy-125): one renderer per read tab, the busy tab's
+/// The `high-energy-tab` capture scene's renderer readings: one renderer per read tab, the busy tab's
 /// at `share` of one core since the first reading and every other tab's idle, on a clock of its own. Installed on a
 /// ``HighEnergyTabMonitor`` through its `measure` and `now` seams, so the scene needs no busy page and no minute of
 /// waiting; everything else (the hidden tabs, the rule, the card's question) is the app's own.

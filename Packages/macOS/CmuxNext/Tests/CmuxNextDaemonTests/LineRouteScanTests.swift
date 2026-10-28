@@ -3,7 +3,7 @@ import Testing
 @testable import CmuxNextDaemon
 
 /// ``LineRouteScan``: the routing fields read from a line's bytes match what ``LineTransport/Envelope`` decodes,
-/// and every line the scan could read differently is given up to the decoder (p05-ipc-090).
+/// and every line the scan could read differently is given up to the decoder.
 @Suite struct LineRouteScanTests {
     private static func scan(_ line: String) -> LineRouteScan? { LineRouteScan(Data(line.utf8)) }
 

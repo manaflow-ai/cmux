@@ -1,4 +1,4 @@
-//! Lane order and frame chunking of the bounded outbound queue (p05-ipc-072):
+//! Lane order and frame chunking of the bounded outbound queue:
 //! a reply waits for at most one chunk of a queued snapshot, the pop order is
 //! `cmux_ipc::LaneWriter`'s, and the frame cut comes from the environment.
 

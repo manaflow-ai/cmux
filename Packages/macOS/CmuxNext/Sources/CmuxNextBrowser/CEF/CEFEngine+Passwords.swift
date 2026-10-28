@@ -60,7 +60,7 @@ extension CEFEngine {
     /// Calls `copy` once with the password bytes, valid only during the call (the shim zeroes its
     /// buffer after it). False when the fork found no such sign-in, or when the Chromium Host
     /// exited first. The same call in both backends: in host mode the remote shim keeps the
-    /// callback and runs it on main with the host's REPLY (remote_shim_local.mm, task p01-process-025).
+    /// callback and runs it on main with the host's REPLY (remote_shim_local.mm).
     public func revealPassword(_ passwordID: String, in profile: BrowserProfileID,
                                copy: @escaping (UnsafeRawBufferPointer) -> Void) async throws -> Bool {
         let shim = try await coreShim()

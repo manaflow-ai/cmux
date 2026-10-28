@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# scripts/cmux-next/build-app-ffi.sh --linux (p15-oracle-003), on Linux:
+# scripts/cmux-next/build-app-ffi.sh --linux, on Linux:
 #  - the library is built from the pinned source sha (SOURCE_SHA);
 #  - every `cmux_*(` that CmuxNext Sources call and no in-package C header
 #    declares (CEFShim, CmuxNextMallocZone) is a global the .a defines;
 #  - the .a has no other globals: Rust and std symbols stay local, like the
 #    macOS slices;
-#  - the exports list keeps cmux_ffi_take_panic and cmux_ffi_panic_count
-#    (p10-stability-152), and a pin with the guard crate ships its header
+#  - the exports list keeps cmux_ffi_take_panic and cmux_ffi_panic_count,
+#   and a pin with the guard crate ships its header
 #    as CCmuxFfiGuardFFI and keeps both global in the .a;
 #  - each of the four modules has its pinned crate header and the link line,
 #    and Sources/CCmuxAppFFILinux/module.modulemap imports and links from C

@@ -2,7 +2,7 @@
 public import CmuxNextLayout
 public import CmuxNextOracle
 
-/// The oracle's `layout` facet (p15-oracle-035, schemas/oracle/snapshot-v1.schema.json `layout`): per screen of
+/// The oracle's `layout` facet (schemas/oracle/snapshot-v1.schema.json `layout`): per screen of
 /// each workspace a window shows, the split, strip, column and row tree with ratios, widths and heights at 3 dp,
 /// docks on their columns, whether the screen is active, its focused and zoomed pane, the strip's column count and
 /// the free canvas. Model values only: nothing the views report (frames, `LayoutModel.visiblePanes`, the strip's

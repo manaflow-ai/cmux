@@ -8,7 +8,7 @@ import CmuxNextOracle
 import Foundation
 import Testing
 
-/// The oracle's layout facet (p15-oracle-035, `OracleLayoutFacet`) is `LayoutModel` values in the snapshot
+/// The oracle's layout facet (`OracleLayoutFacet`) is `LayoutModel` values in the snapshot
 /// schema's form: the split, strip, column and row tree with ratios, widths and heights at 3 dp, docks on their
 /// columns, the zoomed and focused pane, the strip's column count and the free canvas. Nothing the views report
 /// (`visiblePanes`, frames) and no viewport-fitted zoom. The App's provider reads every workspace a window shows.

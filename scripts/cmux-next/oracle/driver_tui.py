@@ -93,10 +93,10 @@ HERE = Path(__file__).resolve().parent
 if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 
-import normalize  # noqa: E402 - sibling of this file (p15-oracle-013)
+import normalize  # noqa: E402 - sibling of this file
 from gen_tui import TUI_CONFIG  # noqa: E402 - the frontend's config, shared with the corpus that presses its keys
-import driver_daemon  # noqa: E402 - the daemon driver's case runner (p15-oracle-023)
-from driver_cli import ClientEvents  # noqa: E402 - client-detached events of the case daemon (p15-oracle-048)
+import driver_daemon  # noqa: E402 - the daemon driver's case runner
+from driver_cli import ClientEvents  # noqa: E402 - client-detached events of the case daemon
 from driver_daemon import (  # noqa: E402
     DEFAULT_FACETS,
     DEFAULT_STATE_BASE,

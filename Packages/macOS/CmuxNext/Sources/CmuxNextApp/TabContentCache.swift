@@ -42,7 +42,7 @@ final class TabContentCache {
             if browsers.count < oldValue.count { tabRenderers.keep(only: Set(browsers.keys)) }
         }
     }
-    /// Each Chromium tab's renderers, for the busy watchdog off the main thread (p14-energy-124): a tab
+    /// Each Chromium tab's renderers, for the busy watchdog off the main thread: a tab
     /// publishes itself at mount (`CEFTab.publishRenderers`) and leaves with its entry.
     let tabRenderers = TabRendererDirectory()
     var ledger = SurfaceLedger<String, ObjectIdentifier>(capacity: WarmSetBudget.standard.terminalCapacity)
@@ -85,7 +85,7 @@ final class TabContentCache {
     /// Releases terminals whose daemon tree dropped their tab (a closed workspace).
     let goneTabs: GoneTabWatch
     /// The terminal view whose stream rides the input lane, the last one focused, while `terminalStreamPriority`
-    /// is on (p05-ipc-142); nil: every view's stream keeps the priority it opened with.
+    /// is on; nil: every view's stream keeps the priority it opened with.
     let streamFocus: TerminalStreamFocus?
     /// Browser pages' hover card thumbnails (R131), at most `TabPreviewFitting.cachedPixelSize`
     /// each, with the page version each shows (`pageVersion`): a page is captured again only when
@@ -131,7 +131,7 @@ final class TabContentCache {
     /// Terminals made before their daemon knew its tab records, waiting to take their record's font scale
     /// (`applyFontScaleWhenKnown`), by tab; each ends when it applies or its tab is released.
     var fontScaleWaits: [String: ServiceObservation<Bool>] = [:]
-    /// Tabs whose page waits for `enginesAwait`, one posted step each (p08-startup-028).
+    /// Tabs whose page waits for `enginesAwait`, one posted step each.
     private var awaitingRead: Set<String> = [] {
         didSet { if !oldValue.isEmpty, !hasPendingPages { onPagesSettled?() } }
     }
@@ -157,7 +157,7 @@ final class TabContentCache {
     /// node that starts it when it shows: held here, as `node(for:)` holds nodes weakly.
     var launchDeferredNodes: [String: VisibilityNode] = [:]
     /// The launch read every browser tab's page waits for before an engine makes it (the browser
-    /// profiles, p08-startup-028); nil: none.
+    /// profiles); nil: none.
     var enginesAwait: LaunchReadEvent?
     /// The browser pages' pictures from the last quit, drawn over their panes at launch (feature `browserLaunchPictures`; nil while off).
     var launchPictures: BrowserLaunchPictures?
@@ -345,7 +345,7 @@ final class TabContentCache {
             return nil
         }
         if let page = appPage(for: tab, url: url) { return page }
-        let origin = launchOrigin(of: tab)  // read once: the deferral and the page made now agree (p08-startup-040)
+        let origin = launchOrigin(of: tab)  // read once: the deferral and the page made now agree
         if let page = deferredPage(tab, url: url, origin: origin) { return page }  // after crashes, or hidden at launch
         if let read = enginesAwait, !read.isSignaled { return awaitLaunchRead(read, key) }
         guard tab.browserEngine == BrowserEngineTag.cef.rawValue else { return tracked(browserTabs.historyStarts.page(tab, url: url, cache: self) ?? browser(for: key, url: url), tab) }

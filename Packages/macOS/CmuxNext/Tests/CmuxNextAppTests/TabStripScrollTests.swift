@@ -7,7 +7,7 @@ import CmuxNextWakeupsTestSupport
 import QuartzCore
 import Testing
 
-/// The tab strip and the saved groups bar scroll by translation (p04-input-087, feature
+/// The tab strip and the saved groups bar scroll by translation (feature
 /// `tabStripScrollFrames`), as Chrome's tab strip scrolls a layer-backed `views::ScrollView`
 /// (ui/views/controls/scroll_view.cc): a frame's wheel and trackpad events reach the strip at most twice
 /// per frame on p04-input-030's `FrameInputCoalescer`, summed per phase, and move one layer. The cells are

@@ -9,8 +9,8 @@ import Foundation
 @testable import MessagesLabSidebar
 import Testing
 
-/// The CmuxNextApp/{Drag,HostPressure,TopPages} sweep (plans/cmux-next/chrome-parity/p06-scheduler.md, task
-/// p06-scheduler-317, rule 9): one case per migrated owner class. A person's tab move ends in one userBlocking task and
+/// The CmuxNextApp/{Drag,HostPressure,TopPages} sweep (plans/cmux-next/chrome-parity/p06-scheduler.md,
+/// rule 9): one case per migrated owner class. A person's tab move ends in one userBlocking task and
 /// an agent's in one automation task, with the move's failure answered to the run; the forced host pressure level and
 /// the Home page's rows are service observations (they apply on the scheduler's frame, and while the page hides);
 /// the Home page's own node follows its hidden state.

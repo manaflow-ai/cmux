@@ -8,7 +8,7 @@ import Observation
 import Testing
 import UniformTypeIdentifiers
 
-/// When a launch may show the front window's saved picture, and what the picture may show (p08-startup-063): a test
+/// When a launch may show the front window's saved picture, and what the picture may show: a test
 /// per invalidation rule (the setting off, crash recovery, incognito leftovers, each whole-picture meta field, each
 /// layout region) and per privacy fill (Secure Input, a withheld page, a page with no picture), plus the store
 /// handing out only an allowed picture and recording why it refused one.

@@ -1,4 +1,4 @@
-//! Write batching of the line writer (p05-ipc-088): the writer thread takes
+//! Write batching of the line writer: the writer thread takes
 //! every ready item, in write order, up to [`WRITE_BATCH_BYTES`] and writes
 //! them with one `writev` of their buffers, headers and payloads
 //! unconcatenated, as Mojo's `ChannelPosix::WriteOutgoingMessagesWithWritev`
@@ -7,7 +7,7 @@
 //! would have returned them. A batch ends after a chunk of a frame longer
 //! than the chunk size (BULK_FRAME_MAX), so a reply queued while a 32 MiB
 //! snapshot leaves waits for at most one chunk of it, as with single pops
-//! (p05-ipc-072).
+//!.
 
 use super::{BoundedOutbound, OutboundItem};
 use crate::diagnostics::IpcStats;

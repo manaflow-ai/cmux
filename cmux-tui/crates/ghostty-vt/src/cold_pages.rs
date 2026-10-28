@@ -1,4 +1,4 @@
-//! Lossless cold-scrollback codec (p07-memory-040, gated by the kernel
+//! Lossless cold-scrollback codec (gated by the kernel
 //! compressor measurement p07-memory-112; plans/cmux-next/chrome-parity/p07-memory.md).
 //!
 //! [`Terminal::into_cold`] turns a terminal nobody reads into a

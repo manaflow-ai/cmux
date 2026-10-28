@@ -1032,7 +1032,7 @@ fn replay_keeps_anonymous_placements_separate_from_later_explicit_ids() {
     assert_eq!(mirror.kitty_graphics_snapshot().unwrap().placements.len(), 3);
 }
 
-/// Critical memory pressure clears both decoded pixel maps (p07-memory-073).
+/// Critical memory pressure clears both decoded pixel maps.
 /// The clear frees every copy, and the next frame and replay copy the same
 /// pixels again from libghostty's storage, so a shown placement still draws.
 #[test]

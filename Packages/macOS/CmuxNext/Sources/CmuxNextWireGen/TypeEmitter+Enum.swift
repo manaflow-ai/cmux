@@ -1,4 +1,4 @@
-// TypeEmitter's enums and unions (p05-ipc-020).
+// TypeEmitter's enums and unions.
 //
 // An enum the app only sends is a closed String enum. One it decodes is
 // extensible, as Mojo's [Extensible] enums are: with a schema `fallback` an

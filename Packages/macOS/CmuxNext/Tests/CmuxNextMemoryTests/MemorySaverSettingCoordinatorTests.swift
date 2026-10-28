@@ -2,7 +2,7 @@ import CmuxNextCompat
 import CmuxNextMemory
 import Testing
 
-/// The `memory.saver` mode reaches the planners that time discards by it (p07-memory-065): a
+/// The `memory.saver` mode reaches the planners that time discards by it: a
 /// ``MemorySaverModeConsumer`` gets the mode at registration and once per change, after the new
 /// limits, and never after its registration is cancelled. A repeated mode makes no call, and a plain
 /// consumer gets none.

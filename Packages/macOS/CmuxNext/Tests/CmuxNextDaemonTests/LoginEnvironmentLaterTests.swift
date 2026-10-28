@@ -5,7 +5,7 @@ import Foundation
 import Testing
 @testable import CmuxNextDaemon
 
-/// The login shell's environment is captured after startup (p08-startup-034): with a remembered
+/// The login shell's environment is captured after startup: with a remembered
 /// copy, neither starting the daemon nor a new terminal runs `$SHELL -l -i` before startup
 /// completes; with nothing remembered the capture starts at once, warm daemon or cold.
 ///

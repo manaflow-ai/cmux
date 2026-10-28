@@ -1,5 +1,5 @@
 //! REQUEST, REPLY, ERROR and CANCEL frames on the daemon
-//! (plans/cmux-next/chrome-parity/p05-ipc.md, section 3.2; p05-ipc-071).
+//! (plans/cmux-next/chrome-parity/p05-ipc.md, section 3.2).
 //!
 //! A REQUEST frame carries the JSON body its line would carry; its header
 //! names the method (`family << 8 | ordinal`, cmux-ipc `MethodTables`) and a
@@ -24,7 +24,7 @@
 //!
 //! A REQUEST or INPUT frame on stream S != 0 goes to the stream an opener
 //! REQUEST on S announced (`attach-surface`), queued until the opener's
-//! reply (server/pending_streams.rs, p05-ipc-087); a frame naming a stream
+//! reply (server/pending_streams.rs); a frame naming a stream
 //! that was never announced is a bad message.
 //!
 //! Frames are granted only at this daemon's API revision (capabilities.rs,
@@ -33,7 +33,7 @@
 //! daemon handoff is pending, a REQUEST gets its line's refusal as its ERROR
 //! frame (server/pending_handoff.rs).
 //!
-//! An INPUT frame (p05-ipc-078) is the raw bytes of a `send` on a stream:
+//! An INPUT frame is the raw bytes of a `send` on a stream:
 //! its header names the stream and the key press's flow id, its payload is
 //! the bytes. It is never parsed and never answered. It runs on the stream's
 //! sequence, after the stream's earlier items, and writes its surface's
@@ -112,7 +112,7 @@ impl FrameCall {
         Self::opening(stream, call, None)
     }
 
-    /// A request that opens `opens` when it is an opener (p05-ipc-087).
+    /// A request that opens `opens` when it is an opener.
     fn opening(stream: u16, call: CallAux, opens: Option<Arc<StreamEndpoint>>) -> Self {
         FrameCall {
             stream,

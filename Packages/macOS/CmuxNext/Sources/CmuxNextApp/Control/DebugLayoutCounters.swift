@@ -23,13 +23,13 @@ import CmuxNextWakeups
 ///   <= 2 per spring (motion-main-work.py). Per-root counts, so `reset` leaves it: read a delta.
 /// - `presented_hit_reads`: presentation-layer reads of pane hit tests of the mounted roots
 ///   (`LayoutRootView.presentedHitReads`): one per moving host for a press mid render-server spring, none
-///   for a press at rest (p03-rendering-098). Per-host counts: read a delta.
+///   for a press at rest. Per-host counts: read a delta.
 /// - `presses_mid_spring`: presses the layout's intercept handled while render-server springs ran on the
 ///   active screen (`LayoutRootView.pressesMidRenderSpring`), whatever their hit test read: when a press came
 ///   (every-action-sweep.py `click.during_motion`). Read a delta.
 /// - `scroll_routes`: scrolls the layout's intercept sent through its full routing, with its pane hit tests
 ///   and claim queries (`LayoutRootView.routedScrolls`); a page's plain scroll and the changes and coast of a
-///   gesture the layout did not take add none (p04-input-052). Cumulative per root: read a delta.
+///   gesture the layout did not take add none. Cumulative per root: read a delta.
 /// - `scroll_conversions`: scroll points the layout's intercept converted from a child window (a page, a
 ///   divider catcher) into its own (`LayoutRootView.scrollPointConversions`); a page's plain scroll adds none.
 ///   Cumulative per root: read a delta.
@@ -43,7 +43,7 @@ import CmuxNextWakeups
 ///   it (the last 64). A split shows 1, 2; a split undone before its daemon pane lands shows
 ///   1, 2, 1, 2 (cx-ry0y, scripts/cmux-next/split-no-flicker-e2e.py).
 /// - `hidden_workspace_layouts`: layout passes of the mounted roots while their workspace is off screen (parked and
-///   on no screen, `WorkspaceContentController.isOffScreen`: its visibility node hidden, p06-scheduler-023). A
+///   on no screen, `WorkspaceContentController.isOffScreen`: its visibility node hidden). A
 ///   hidden workspace's changes update the model only, so this stays 0 (p06-scheduler.md done checks 4 and 6;
 ///   bench_idle.py, script-storm-bench.py `--hidden`). The app's `HiddenLayoutWork`: all roots, kept when one unmounts.
 /// - `hidden_workspace_applies`: tree changes that reached a mounted off-screen workspace: each updates the handles

@@ -5,7 +5,7 @@
 //!
 //! A legacy view's output runs on threads of its own; a view on a
 //! client-minted attach stream runs as a drain on the daemon-wide sequenced
-//! pool and holds no thread (stream_attach_out.rs, p05-ipc-079).
+//! pool and holds no thread (stream_attach_out.rs).
 
 use super::size_state_for_client;
 use crate::panic_free::RecoverPoison;

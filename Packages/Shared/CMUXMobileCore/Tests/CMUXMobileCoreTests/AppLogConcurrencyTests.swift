@@ -3,8 +3,8 @@ import Testing
 @testable import CMUXMobileCore
 
 /// AppLog's ingress, acknowledgements and export gate, and the terminal trace
-/// limiter, keep their state in a `Mutex` and are plainly `Sendable`
-/// (p10-stability-050). These race them from many tasks; run them under TSan
+/// limiter, keep their state in a `Mutex` and are plainly `Sendable`.
+/// These race them from many tasks; run them under TSan
 /// (`swift test --sanitize=thread`) too.
 @Suite struct AppLogConcurrencyTests {
     private func makeTempDirectory() throws -> URL {

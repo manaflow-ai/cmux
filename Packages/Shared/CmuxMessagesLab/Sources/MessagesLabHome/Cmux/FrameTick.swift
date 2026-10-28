@@ -1,6 +1,6 @@
 // From MessagesLab bd65bbf appkit-native/Sources/FrameTick.swift (not vendored: it is a
 // Host.swift helper). cmux: main-actor isolated, and its frames come from an injected
-// ``FrameTickSource`` instead of a display link of its own (p14-energy-050).
+// ``FrameTickSource`` instead of a display link of its own.
 import AppKit
 
 /// Display frames for Home's ``FrameTick``. A host hands one to ``MessagesLabHomeView``: CmuxNext

@@ -1,7 +1,7 @@
 import AppKit
 import CmuxNextInput
 
-/// A sidebar view's space paging from the app's input tap (p04-input-100): the two-finger horizontal
+/// A sidebar view's space paging from the app's input tap: the two-finger horizontal
 /// trackpad swipe (`ProfileSwipeTracker`, or 1:1 through `onHorizontalScroll`) and the mouse wheel page
 /// (`SpaceWheelPager`) hear every scroll of the view's window as a passing intercept at
 /// ``InputEventTap/InterceptOrder/standard``, before AppKit dispatches it. An intercept that comes first
@@ -9,7 +9,7 @@ import CmuxNextInput
 /// the paging, so one input never both scrolls a card and pages the spaces. The view's
 /// `scrollWheel(with:)` only asks ``takes(_:)`` whether to keep an event from scrolling; it feeds nothing.
 /// So the paging still hears a gesture that AppKit's responsive scrolling tracks without calling
-/// `scrollWheel(with:)` for each event (p03-rendering-110).
+/// `scrollWheel(with:)` for each event.
 ///
 /// A trackpad gesture latches at its first event: it is the view's when that event hits the view, and
 /// every later event of the gesture, its momentum too, goes with it wherever the pointer is then. A

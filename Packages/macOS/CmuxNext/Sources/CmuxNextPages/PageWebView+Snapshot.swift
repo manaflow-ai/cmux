@@ -8,8 +8,8 @@ import Dispatch
 import UniformTypeIdentifiers
 import WebKit
 
-// The picture and the state a page keeps from the turn it hides (p13-webui-088,
-// plans/cmux-next/chrome-parity/p13-webui.md 3.C). Both are taken when the page hides, never at the
+// The picture and the state a page keeps from the turn it hides
+// (plans/cmux-next/chrome-parity/p13-webui.md 3.C). Both are taken when the page hides, never at the
 // discard: by then the page may be frozen, and a frozen page cannot answer, so a discard that
 // asked it for its picture or its state would wait forever and never discard. Chrome's discard asks
 // the renderer for nothing either: `WebContents::Discard` keeps the NavigationEntry's PageState and
@@ -79,7 +79,7 @@ extension PageWebView {
 
 /// What one ``PageWebView`` keeps from its last hide: the encoded picture of its last frame and the
 /// state its page saved (``PageWebView/keepHideSnapshot(encoder:)``). A discard shows the picture until
-/// the page draws again and hands the state back to the page (p13-webui-030).
+/// the page draws again and hands the state back to the page.
 @MainActor
 package final class PageHideState {
     /// The picture of the page's last shown frame. No case holds a decoded frame: a frame goes to its

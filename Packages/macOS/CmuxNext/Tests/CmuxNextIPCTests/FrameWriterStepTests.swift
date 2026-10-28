@@ -5,8 +5,8 @@ import Dispatch
 import Foundation
 import Testing
 
-/// The owner's step runner wraps each drain step of a ``FrameWriter`` exactly once (the owner's hang scope,
-/// p09-observability-069): every send runs inside one step, waiting input and control messages that share a
+/// The owner's step runner wraps each drain step of a ``FrameWriter`` exactly once (the owner's hang scope):
+/// every send runs inside one step, waiting input and control messages that share a
 /// send are one step, each bulk chunk is a step of its own, and nothing waiting in the FIFOs is in a step.
 @Suite nonisolated struct FrameWriterStepTests {
     @Test func eachDrainStepRunsInsideOneStepAndEverySendInsideAStep() throws {

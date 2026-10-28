@@ -5,10 +5,10 @@ import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
-/// p06-scheduler-301: a Ghostty config save reloads once, after the 75 ms debounce, which is a `MainDeadline` on the
+/// A Ghostty config save reloads once, after the 75 ms debounce, which is a `MainDeadline` on the
 /// app's deadline scheduler (`MainDeadlineRig`: its uptime moves only when the rig fires a wake), and the file event's
 /// hop to main is a posted task; after `stop()` a save reloads nothing. The launch's watch is an afterStartup post
-/// (Q13, p08-startup-086): nothing is armed before startup completes, and a save made in the launch reloads once when it arms.
+/// (Q13): nothing is armed before startup completes, and a save made in the launch reloads once when it arms.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(1))) struct GhosttyConfigLiveReloadTests {
     final class Reloads {
         var count = 0

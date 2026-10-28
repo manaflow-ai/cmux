@@ -98,7 +98,7 @@ public struct TerminalEnvironment: Sendable {
     ///   (neovim and others).
     /// - `GHOSTTY_RESOURCES_DIR`: themes and shell-integration lookups.
     ///
-    /// It reads no file: the app builds it on the main thread at launch (p02-threads-006).
+    /// It reads no file: the app builds it on the main thread at launch.
     public func ghostty(resourcesDirectory: String?, version: String?, installedTerminfo: Bool = false) -> [String: String] {
         var env = ["TERM": "xterm-256color", "COLORTERM": "truecolor", "TERM_PROGRAM": "ghostty"]
         if let version, !version.isEmpty { env["TERM_PROGRAM_VERSION"] = version }

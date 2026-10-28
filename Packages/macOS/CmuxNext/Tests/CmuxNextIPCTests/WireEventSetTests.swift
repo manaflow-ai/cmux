@@ -18,7 +18,7 @@ private nonisolated final class CountingDecoder: WireEventDecoding {
 }
 
 /// An event line costs one JSON decode: the name comes from a byte scan, the id from the method
-/// table, and only the event's own type is decoded (p05-ipc-022). A TYPED_EVENT payload is
+/// table, and only the event's own type is decoded. A TYPED_EVENT payload is
 /// decoded by its id with no scan. Every case runs on the emitter's generated `DaemonWireEvent`.
 @Suite struct WireEventSetTests {
     // The fixture schema's events, plus `tab-moved` (0xC201): the injected table knows it, the

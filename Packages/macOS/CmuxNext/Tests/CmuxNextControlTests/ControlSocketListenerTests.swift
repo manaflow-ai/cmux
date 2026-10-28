@@ -7,7 +7,7 @@ import Darwin
 import Foundation
 import Testing
 
-/// The control socket bound before the server accepts (p08-startup-019): the app binds it on a lane at launch,
+/// The control socket bound before the server accepts: the app binds it on a lane at launch,
 /// the method groups register after the first frame, then the server adopts the listener.
 @Suite(.serialized) struct ControlSocketListenerTests {
     private func makeServer(path: String, mode: ControlAccessMode = .automation) -> ControlSocketServer {
@@ -309,7 +309,7 @@ import Testing
     }
 }
 
-/// The control launch's order (p08-startup-019): nothing is served before the first frame, and a
+/// The control launch's order: nothing is served before the first frame, and a
 /// client that connected at launch is answered by a method of the last group.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(1))) struct ControlLaunchTests {
     @MainActor private final class Launched {

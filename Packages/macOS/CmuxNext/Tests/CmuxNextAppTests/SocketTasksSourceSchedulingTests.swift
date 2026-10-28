@@ -6,8 +6,8 @@ import Foundation
 import QuartzCore
 import Testing
 
-/// The Tasks owner's lines reach the main actor as automation work on the app's scheduler
-/// (p04-input-082): another process's socket never runs ahead of a person's pending input. Before,
+/// The Tasks owner's lines reach the main actor as automation work on the app's scheduler:
+/// another process's socket never runs ahead of a person's pending input. Before,
 /// each read hopped with `DispatchQueue.main.async`, a FIFO main-queue job beside the person's keys.
 @MainActor @Suite(.serialized) struct SocketTasksSourceSchedulingTests {
     @Test func theOwnersLinesWaitForPendingInputAsAutomationWork() throws {

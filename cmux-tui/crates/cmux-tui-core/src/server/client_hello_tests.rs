@@ -405,7 +405,7 @@ fn no_hello_is_the_legacy_client_role_and_set_client_info_never_sets_a_role() {
     assert_eq!(refused["error"]["details"]["derived"], "agent", "{refused}");
 }
 
-/// The daemon features of the hello tests (p12-perf-process-150): a
+/// The daemon features of the hello tests: a
 /// `process=daemon` kill switch, a perfPath and a `process=both` kill switch.
 mod features {
     use super::*;

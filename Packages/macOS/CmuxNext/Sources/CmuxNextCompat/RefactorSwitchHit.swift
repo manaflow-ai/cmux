@@ -1,5 +1,5 @@
 /// What one guarded site of a refactor switch holds next to its frozen arm: it counts the arm the
-/// site ran (p15-oracle-027, plans/cmux-next/chrome-parity/p15-oracle.md section 3F.2).
+/// site ran (plans/cmux-next/chrome-parity/p15-oracle.md section 3F.2).
 ///
 /// The oracle reads the counts through `debug.oracle.switch_hits` and calls a run with 0 hits on the
 /// requested arm `arm-not-exercised` (`scripts/cmux-next/oracle/switches.py --hits`): reading the

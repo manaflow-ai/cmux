@@ -1,4 +1,4 @@
-//! The `tabs` family's request params (p05-ipc-029, queue Q15), generated at
+//! The `tabs` family's request params (queue Q15), generated at
 //! build time from spec/sdk-schema.json by cmux-ipc build.rs: one struct per
 //! command, named `<Command>Params`. server.rs appends the family's `Command`
 //! variants with `cmux_ipc::server_command_enum!`, the way Mojo generates an

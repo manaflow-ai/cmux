@@ -1,4 +1,4 @@
-//! One maintenance thread per process (p14-energy-020).
+//! One maintenance thread per process.
 //!
 //! Periodic upkeep (catalog refresh, health views, sweeps, caps) registers
 //! here instead of running its own interval, so all of it shares one wake:

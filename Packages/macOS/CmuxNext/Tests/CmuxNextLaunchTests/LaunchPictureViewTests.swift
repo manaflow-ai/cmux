@@ -7,7 +7,7 @@ import CoreGraphics
 import Foundation
 import Testing
 
-/// The launch's first frame from the front window's saved picture (p08-startup-059): the first frame is the window,
+/// The launch's first frame from the front window's saved picture: the first frame is the window,
 /// its live material and one picture layer, nothing else; the window waits for the picture's read at most 40 ms and
 /// decides once; a picture whose meta does not match the window the launch opens is never shown (today's path); and
 /// the live window is built behind the picture, which leaves when every region showed.
@@ -163,7 +163,7 @@ struct LaunchPictureViewTests {
         #expect(phase.picture == nil && phase.window == nil, "no picture shows on today's path")
     }
 
-    /// The picture goes over the live root and leaves region by region (p08-startup-060): it stays while a region
+    /// The picture goes over the live root and leaves region by region: it stays while a region
     /// has no content, and the work that adopts the window waits for its live views, not for the picture.
     @Test func theLiveWindowIsBuiltBehindThePictureWhichLeavesWhenEveryRegionLeft() throws {
         let marks = Marks()

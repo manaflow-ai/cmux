@@ -6,7 +6,7 @@ import IOSurface
 import Testing
 @testable import CmuxNextPhone
 
-/// The phone module's pointer sites after the strict-memory-safety pass (p10-stability-071).
+/// The phone module's pointer sites after the strict-memory-safety pass.
 /// Private Objective-C calls are made only when the method's type encoding has the shape the
 /// call spells; Indigo messages are freed exactly once; Core Media and VideoToolbox pointers
 /// stay inside the memory their `// SAFETY:` argument names. Run under ASan

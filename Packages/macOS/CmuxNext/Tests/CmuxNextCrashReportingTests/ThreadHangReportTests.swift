@@ -3,7 +3,7 @@ import Sentry
 import Testing
 @testable import CmuxNextCrashReporting
 
-/// p09-observability-068: a watched thread's hang is one Sentry event tagged `hang.thread` with the registration's
+/// A watched thread's hang is one Sentry event tagged `hang.thread` with the registration's
 /// name, whose one exception and one (crashed) thread carry the hung thread's stack, symbolicated from debug_meta.
 struct ThreadHangReportTests {
     /// The address of `malloc`, in libsystem_malloc (the dyld shared cache on every supported macOS).

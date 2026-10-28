@@ -11,7 +11,7 @@
 // every reconnect loads again).
 // Then the page runs on the daemon's real conversations. A dropped connection reconnects with capped backoff and the same
 // credential; each connection gets a fresh store (spec transports.md "Reconnect"). The backoff
-// rests while the page is hidden and tries once on show (retryBackoff.ts, p13-webui-069).
+// rests while the page is hidden and tries once on show (retryBackoff.ts).
 import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import { DaemonSocket, type DaemonAuth } from "../shared/daemonSocket";
 import type { Strings } from "../shared/i18n";

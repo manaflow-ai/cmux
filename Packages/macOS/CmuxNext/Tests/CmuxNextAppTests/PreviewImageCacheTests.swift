@@ -5,7 +5,7 @@ import CoreGraphics
 import Testing
 
 /// Tab previews, page thumbnails and discarded internal pages' pictures are sized from the image cache
-/// budget and follow the memory coordinator (p07-memory-058): a limit lowers the cap and frees nothing, the
+/// budget and follow the memory coordinator: a limit lowers the cap and frees nothing, the
 /// release slice drops the oldest images down to it, and the critical limit empties the cache. Terminal
 /// previews give memory back at warning; caches holding the only copy of a picture wait for critical.
 @MainActor @Suite
@@ -130,7 +130,7 @@ struct PreviewImageCacheTests {
         withExtendedLifetime((pressure, coordinator)) {}
     }
 
-    /// p07-memory-107: with feature `purgeableImageCaches` off (the default allocator) the cache keeps the image
+    /// With feature `purgeableImageCaches` off (the default allocator) the cache keeps the image
     /// itself, as before the feature: no copy and no color conversion, and all its bytes are footprint.
     @Test func aResidentCacheKeepsTheInsertedImageItself() async throws {
         let cache = PreviewImageCache(fullCapacityBytes: Self.imageBytes)
@@ -141,7 +141,7 @@ struct PreviewImageCacheTests {
         #expect(cache.memoryUsage == MemoryUsage(footprintBytes: Self.imageBytes, entries: 1))
     }
 
-    /// p07-memory-107: an insert copies no pixels on the main actor. A purgeable picture's copy is drawn off it,
+    /// An insert copies no pixels on the main actor. A purgeable picture's copy is drawn off it,
     /// when the picture is made; the insert makes no pages; a picture the cache would refuse is never copied.
     @Test func anInsertCopiesNoPixelsOnTheMainActor() async throws {
         let fakes = FakePurgeableAllocations()
@@ -154,7 +154,7 @@ struct PreviewImageCacheTests {
         #expect(refused == nil && fakes.pages.count == 1, "a picture the cache refuses was copied")
     }
 
-    /// p07-memory-107: a picture the kernel purged is a miss and leaves the cache (its bytes with it), so the
+    /// A picture the kernel purged is a miss and leaves the cache (its bytes with it), so the
     /// owner pictures it again; the others stay readable.
     @Test func aPurgedPictureIsAMissAndLeavesTheCache() async throws {
         let fakes = FakePurgeableAllocations()
@@ -171,7 +171,7 @@ struct PreviewImageCacheTests {
         #expect(cache.image(for: "k1") != nil)
     }
 
-    /// p07-memory-107: a picture is locked only while an image of it lives, and reads wrap the kept pixels (no
+    /// A picture is locked only while an image of it lives, and reads wrap the kept pixels (no
     /// new pages per read). The report splits locked (footprint) bytes from volatile ones, and a picture
     /// removed while drawn leaves the locked bytes at once.
     @Test func lockedAndVolatileBytesAreReportedApart() async throws {

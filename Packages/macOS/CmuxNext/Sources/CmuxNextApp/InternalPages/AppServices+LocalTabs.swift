@@ -56,7 +56,7 @@ extension AppServices {
 
 #if DEBUG || CMUX_BENCH_HOOKS
 extension AppServices {
-    /// The oracle's `tabs` facet (p15-oracle-037): every pane that lists a browser or page tab, as its strip lists
+    /// The oracle's `tabs` facet: every pane that lists a browser or page tab, as its strip lists
     /// them (`PaneController.structure`): daemon tabs, then its window's session-local browser tabs, then internal
     /// page tabs, less the tabs the strip leaves out (`stripHidden`). A pane no window mounts lists what its strip
     /// would: no tab hidden, the local tabs of the window that holds them. Shown tab as `controlPageTabs` picks it.
@@ -110,7 +110,7 @@ extension AppServices {
                         hibernated: cache.dormantTabs.contains(tab.id))
     }
 
-    /// The oracle's `agents` facet (p15-oracle-043), over the same trees as the tabs facet: every agent chat tab with
+    /// The oracle's `agents` facet, over the same trees as the tabs facet: every agent chat tab with
     /// its record's session, acpmux's lane for it (`lane`) and the composer text the tab store keeps for a new chat,
     /// as its sha256; then every Home Messages view (a Home tab, the docked Home, a window's Home top page) and the
     /// conversation it shows, none on New Message or on Channels. Each value read is observed, the Home views'

@@ -203,17 +203,17 @@ pub struct TerminalHostRecord {
     /// ClientHello carrying `FLAG_SHELL_ACTIVITY`.
     #[serde(default)]
     pub supports_shell_activity: bool,
-    /// Additive control capability (p09-observability-015). Missing/false
+    /// Additive control capability. Missing/false
     /// records belong to hosts that would end the connection on the unknown
     /// TraceControl message, so the daemon never sends it to them.
     #[serde(default)]
     pub supports_trace_control: bool,
-    /// Additive handshake capability (p09-observability-018). Missing/false
+    /// Additive handshake capability. Missing/false
     /// records belong to hosts that take no key-press flow on input and
     /// reject a ClientHello carrying `FLAG_INPUT_FLOW`.
     #[serde(default)]
     pub supports_input_flow: bool,
-    /// Additive control capability (p02-threads-236). Missing/false records
+    /// Additive control capability. Missing/false records
     /// belong to hosts that would end the connection on the unknown
     /// SetThreadQos message, so the daemon never sends it to them.
     #[serde(default)]

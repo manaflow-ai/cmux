@@ -8,7 +8,7 @@ import Foundation
 import Testing
 
 /// A daemon terminal's input lane drains through `DaemonTerminalIO.inputDrain(on:driver:creating:)`
-/// (p04-input-058, the drain `inputDrain()` returns): every record reaches the attach driver on the input
+/// (the drain `inputDrain()` returns): every record reaches the attach driver on the input
 /// queue, in lane order. While the terminal is still being created a chunk goes by id and the lane holds every later
 /// record until that send returned; a chunk the daemon refused goes by the attachment before them; once the
 /// input goes by the attachment, bytes go to the link without an await.

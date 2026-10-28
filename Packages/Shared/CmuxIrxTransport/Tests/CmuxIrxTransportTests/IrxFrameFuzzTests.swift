@@ -9,7 +9,7 @@ import Testing
 /// whole frames, a typed error or a wait for more bytes; never a trap. Seeded
 /// property tests on CmuxFuzzSupport (long mode: CMUX_FUZZ_SECONDS).
 @Suite struct IrxFrameFuzzTests {
-    /// One input of either property, its choices read from `data` (the libFuzzer entry, p10-stability-182).
+    /// One input of either property, its choices read from `data` (the libFuzzer entry).
     static func oneInput(_ data: Data) throws {
         var rng = FuzzRNG(replaying: data)
         if rng.bool() { try alignedChunking(&rng) } else { anyBytes(&rng) }

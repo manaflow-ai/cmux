@@ -5,7 +5,7 @@ import CmuxScreenKit
 import Foundation
 import Testing
 
-/// p06-scheduler-211: a connected viewer holds one capture vote on the app's node, so the windows
+/// A connected viewer holds one capture vote on the app's node, so the windows
 /// the shared screen may show render while hidden and their pages still read hidden; every way the
 /// session ends releases it.
 @MainActor

@@ -15,7 +15,7 @@ public import CmuxNextWakeups
 /// budgeted one on the app's ``MainWorkScheduler`` (``init(owner:budgeted:on:)``: one task at a time
 /// under the class's per-frame budget, yielding to a person's pending input, the rest on the next
 /// frame). Every batcher names its scheduler: there is no default, so no batch runs outside the
-/// budget's frame window (p06-scheduler-010). A budgeted batcher's work names its cause through
+/// budget's frame window. A budgeted batcher's work names its cause through
 /// ``queue`` (``FrameBatchQueue/enqueue(cause:_:)``): a person's runs unbudgeted.
 @MainActor
 public final class FrameBatcher: FrameBatchScheduler, ControlFrameSource {

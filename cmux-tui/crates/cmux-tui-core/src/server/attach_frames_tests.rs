@@ -1,4 +1,4 @@
-//! Attach frames (p05-ipc-076): OUTPUT offsets stay contiguous over 10k
+//! Attach frames: OUTPUT offsets stay contiguous over 10k
 //! chunks of a real terminal's attach tap, and decoding the OUTPUT, GRID and
 //! EVENT frames gives back the JSON attach events of the line path.
 

@@ -9,7 +9,7 @@ import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
-/// Hidden workspaces and panes stay model-only at launch (p08-startup-065, `launchVisiblePanesOnly`):
+/// Hidden workspaces and panes stay model-only at launch (`launchVisiblePanesOnly`):
 /// a window of 60 workspaces builds the one it shows and nothing of the other 59; until startup
 /// completes a pane the layout does not report on screen makes no content, one on screen does
 /// (counted in `views_built`), one in the keep-alive band makes its content after completion, and

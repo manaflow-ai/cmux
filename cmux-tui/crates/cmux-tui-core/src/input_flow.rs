@@ -1,4 +1,4 @@
-//! The key press a PTY read echoes (p09-observability-018): the PTY's
+//! The key press a PTY read echoes: the PTY's
 //! reader-side owner arms a slot with the `flow` of input it writes to the
 //! PTY, and its next output read takes it, once.
 

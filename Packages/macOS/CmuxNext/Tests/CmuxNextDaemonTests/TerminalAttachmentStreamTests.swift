@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import CmuxNextDaemon
 
-/// Terminal views as client-minted streams on the app's control connection (attach-streams-v1, p05-ipc-095):
+/// Terminal views as client-minted streams on the app's control connection (attach-streams-v1):
 /// a view opens no connection and sends no handshake of its own, its commands name its stream, detaching
 /// cancels the stream, and its `stream-end` frees the id. DaemonWireStatsTests'
 /// `twoTerminalsOnAFakeDaemonOpenThreeConnectionsAndCopyTheirOutput` is the per-view baseline (3 connections).

@@ -5,8 +5,8 @@ import CmuxNextWakeups
 import CmuxNextWakeupsTestSupport
 import Testing
 
-/// The tooltip presenter listens on the app's one input tap, not an AppKit event monitor
-/// (p04-input-013): only while a tooltip shows or waits it observes clicks, keys and scrolls (it
+/// The tooltip presenter listens on the app's one input tap, not an AppKit event monitor:
+/// only while a tooltip shows or waits it observes clicks, keys and scrolls (it
 /// never stops one), and a click or a key press puts the tooltip away and ends the subscription.
 @MainActor @Suite(.serialized) struct TooltipPresenterTests {
     /// A presenter waiting to show `view`'s tooltip, listening on `events`' tap.

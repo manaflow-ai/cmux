@@ -112,7 +112,7 @@ import Testing
         #expect(BrowserTabService.message(.startFailed("dlopen failed")) == "dlopen failed")
     }
 
-    /// A sanitizer app (reload.sh --config asan|tsan|ubsan) starts with no Chromium (p10-stability-012).
+    /// A sanitizer app (reload.sh --config asan|tsan|ubsan) starts with no Chromium.
     @Test func aSanitizerBuildStartsWithNoChromiumRuntime() {
         let service = ChromiumRuntimeService.make(work: BackgroundWork(label: "test.chromium-runtime.sanitizer"), environment: [:],
                                                   applicationSupport: nil, sanitizer: SanitizerRuntime(kind: .asan, chromiumRequested: false))

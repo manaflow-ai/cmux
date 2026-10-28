@@ -4,7 +4,7 @@ import Sentry
 import Testing
 @testable import CmuxNextCrashReporting
 
-/// p09-observability-086: with `CMUX_NEXT_SENTRY_RECORDER=<dir>` an event lands as an envelope file in `<dir>`,
+/// With `CMUX_NEXT_SENTRY_RECORDER=<dir>` an event lands as an envelope file in `<dir>`,
 /// scrubbed and labeled as Sentry would receive it, and nothing is sent.
 @Suite struct SentryRecorderTransportTests {
     @Test func theEnvironmentNamesTheDirectory() {

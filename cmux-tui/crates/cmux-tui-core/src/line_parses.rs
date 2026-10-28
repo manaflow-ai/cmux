@@ -1,4 +1,4 @@
-//! The JSON parses of one request line (p05-ipc-062): every decode of a
+//! The JSON parses of one request line: every decode of a
 //! line on its way to its reply goes through [`parse`], which counts it in
 //! the reader thread's [`LineParses`] scope. The frame handler opens the
 //! scope around a local line and reports the count as the trace instant

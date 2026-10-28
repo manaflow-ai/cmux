@@ -1,6 +1,6 @@
 import Foundation
 
-/// A time budget that scales with the input (p10-stability-028): `perUnit` for each `unitBytes` of
+/// A time budget that scales with the input: `perUnit` for each `unitBytes` of
 /// input, never less than one unit. An input over budget is a failure of the run, as a slow unit is
 /// for libFuzzer (`-timeout`, `-report_slow_units`; testing/libfuzzer/README.md in Chromium), which
 /// does not retry a slow unit either.

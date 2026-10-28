@@ -146,7 +146,7 @@ import Testing
         #expect(pane.held == nil)
     }
 
-    /// p07-memory-083: the decoded frames no pane took went 30 s after launch; they go once the launch settled.
+    /// The decoded frames no pane took went 30 s after launch; they go once the launch settled.
     @Test func theLaunchReadHoldsNoFrameOnceTheLaunchSettled() async throws {
         let directory = try await Self.saved(["tab-1": Self.frame(Self.size, scale: 2), "tab-2": Self.frame(Self.size, scale: 2)])
         defer { try? FileManager.default.removeItem(at: directory) }

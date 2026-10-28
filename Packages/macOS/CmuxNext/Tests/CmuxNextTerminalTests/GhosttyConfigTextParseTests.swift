@@ -3,7 +3,7 @@ import Foundation
 import GhosttyNextKit
 import Testing
 
-/// p10-stability-095: the parsers of text and payloads from outside the app (a Ghostty config file's `keybind`
+/// The parsers of text and payloads from outside the app (a Ghostty config file's `keybind`
 /// and `font-family` lines, an action's URL length) read from the front with no subscript and convert with
 /// `exactly:`, so no line or length traps. Each keybind case is read the way Ghostty's binding parser reads it.
 struct GhosttyConfigTextParseTests {

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Regression test (p12-perf-process-147): `reload.sh --config bench` added -DCMUX_BLOCKING_CHECKS, so every
+# Regression test: `reload.sh --config bench` added -DCMUX_BLOCKING_CHECKS, so every
 # latency, frame, launch, idle and memory bench paid the blocking detector's bookkeeping. bench is now
 # Release + -DCMUX_BENCH_HOOKS only; bench-checks adds -DCMUX_BLOCKING_CHECKS for the blocking-sites story.
 # Runs anywhere (Linux included): xcodebuild is a stub that records its arguments and fails.

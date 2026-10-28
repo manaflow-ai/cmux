@@ -263,7 +263,7 @@ pub(crate) fn serve_client_with_snapshot_timeout(
     if shell_activity_negotiated {
         hello_response.flags |= FLAG_SHELL_ACTIVITY;
     }
-    // Key-press flows (p09-observability-018): only a client that may write input, and on the
+    // Key-press flows: only a client that may write input, and on the
     // smart stream, whose Output frames carry the flow of the read they come from.
     let input_flow = hello_frame.flags & FLAG_INPUT_FLOW != 0
         && selected_version == PROTOCOL_VERSION

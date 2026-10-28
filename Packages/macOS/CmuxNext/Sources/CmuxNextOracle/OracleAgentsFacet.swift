@@ -1,5 +1,5 @@
 #if DEBUG || CMUX_BENCH_HOOKS
-/// The `agents` facet (schemas/oracle/snapshot-v1.schema.json, p15-oracle-043): each agent chat tab's acpmux
+/// The `agents` facet (schemas/oracle/snapshot-v1.schema.json): each agent chat tab's acpmux
 /// session with what acpmux says of it (lane state, turn count, open permission requests), the hash of the
 /// composer text the app keeps for it, and the conversation each Home Messages view shows. The host reads model
 /// values in the snapshot's main-actor turn; this type only gives them the schema's shape. Private text never goes

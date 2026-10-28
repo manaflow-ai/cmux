@@ -1,5 +1,5 @@
-// The Files page keeps its open folders, its selected row and the tree's scroll across a discard
-// (p13-webui-082), saved when it hides. The host's own discard-time ask (`cmux.files.viewState`)
+// The Files page keeps its open folders, its selected row and the tree's scroll across a discard,
+// saved when it hides. The host's own discard-time ask (`cmux.files.viewState`)
 // still wins when it answered.
 import { describe, expect, test } from "bun:test";
 import type { PageClient } from "../shared/pageClient";

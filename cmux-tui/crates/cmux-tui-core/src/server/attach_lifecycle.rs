@@ -6,7 +6,7 @@
 //!
 //! A legacy attach's worker is a thread; an attach stream's is an
 //! [`attach_pump::AttachPump`] on the daemon-wide sequenced pool
-//! (p05-ipc-079).
+//!.
 
 use super::MessageWriter;
 use super::OutboundStream;

@@ -4,7 +4,7 @@ import CmuxNextCopyMode
 import CmuxNextWakeups
 import GhosttyNextKit
 
-/// A terminal session's echo predictions (`terminal.predictiveEcho`, p04-input-046). It rides on the
+/// A terminal session's echo predictions (`terminal.predictiveEcho`). It rides on the
 /// session's ``TerminalInputSink``, so every surface the session swaps in shares it; it works on the
 /// surface that took the last key.
 ///

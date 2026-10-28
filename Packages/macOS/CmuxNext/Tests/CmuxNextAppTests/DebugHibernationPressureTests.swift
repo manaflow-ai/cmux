@@ -10,8 +10,8 @@ import Testing
 
 #if DEBUG || CMUX_BENCH_HOOKS
 /// `debug.hibernation.pressure` sets the app's one memory coordinator's override, and the coordinator
-/// hands the same level to browser hibernation (its registered level consumer) in the same turn
-/// (p07-memory-004, p07-memory-017), so a bench that feeds pressure through the socket measures what
+/// hands the same level to browser hibernation (its registered level consumer) in the same turn,
+/// so a bench that feeds pressure through the socket measures what
 /// the coordinator and hibernation do together.
 @MainActor @Suite(.serialized)
 struct DebugHibernationPressureTests {
