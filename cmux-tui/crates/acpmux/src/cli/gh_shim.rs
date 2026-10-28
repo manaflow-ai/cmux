@@ -172,6 +172,19 @@ fn git(args: &[&str]) -> Result<String> {
     Ok(String::from_utf8_lossy(&out.stdout).trim().to_owned())
 }
 
+/// A body the broker can take: at most its limit, read no further (a `/dev/zero` or a FIFO
+/// that never ends is refused once past it, not read into memory).
+fn read_bounded(from: impl std::io::Read) -> Result<String> {
+    use std::io::Read as _;
+    let limit = crate::github_broker::TEXT_MAX;
+    let mut bytes = Vec::new();
+    from.take(limit as u64 + 1).read_to_end(&mut bytes)?;
+    if bytes.len() > limit {
+        bail!("acpmux gh: the body is over {} KiB", limit / 1024);
+    }
+    String::from_utf8(bytes).map_err(|_| anyhow!("acpmux gh: the body is not UTF-8"))
+}
+
 pub async fn run(args: Vec<String>) -> Result<()> {
     // The Mac's daemon marks the `gh` it runs: this is standing where the real `gh` should be.
     if std::env::var_os(SHIM_REFUSAL_ENV).is_some() {
@@ -184,9 +197,9 @@ pub async fn run(args: Vec<String>) -> Result<()> {
     };
     let read_body = |path: &str| -> Result<String> {
         if path == "-" {
-            return Ok(std::io::read_to_string(std::io::stdin())?);
+            return read_bounded(std::io::stdin().lock());
         }
-        Ok(std::fs::read_to_string(path)?)
+        read_bounded(std::fs::File::open(path)?)
     };
     let branch_here = || {
         git(&["symbolic-ref", "--short", "HEAD"])

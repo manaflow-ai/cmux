@@ -61,3 +61,14 @@ fn github_remote_urls_name_their_repository() {
     assert_eq!(github_repo("https://gitlab.com/o/r"), None);
     assert_eq!(github_repo("https://github.com/o"), None);
 }
+
+/// The review of the Add Machine part at 8ca6cd7: `--body-file /dev/zero` was read whole.
+#[test]
+fn a_body_past_the_limit_is_refused_without_reading_on() {
+    let endless = std::io::repeat(b'a');
+    let e = read_bounded(endless).unwrap_err();
+    assert!(e.to_string().contains("over 64 KiB"), "{e}");
+    let at_limit = vec![b'a'; crate::github_broker::TEXT_MAX];
+    assert_eq!(read_bounded(&at_limit[..]).unwrap().len(), crate::github_broker::TEXT_MAX);
+    assert!(read_bounded(&[0xff_u8][..]).is_err());
+}
