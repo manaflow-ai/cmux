@@ -60,6 +60,7 @@ export function CommandRow({ item }: { item: AcpmuxActivity }) {
       <button
         type="button"
         className={`cv-tool cv-command is-toggle${running ? " is-live" : " is-strong"}`}
+        data-tool-id={tool.id}
         aria-expanded={open}
         aria-controls={open ? detailsId : undefined}
         ref={(node) => {

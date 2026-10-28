@@ -31,19 +31,6 @@ function groupIcon(kind: ToolGroupKind): ReactNode {
   }
 }
 
-/// How many of a group's latest calls show under its open line; the earlier ones wait behind
-/// "+K more", so a long run stays dense (one line per call) without hiding what just ran.
-export const GROUP_TAIL = 5;
-
-/// Where a group's shown tail starts: at its GROUP_TAIL-th call from the end, or 0 when it has no
-/// more calls than that.
-export function tailStart(items: readonly AcpmuxActivity[]): number {
-  let calls = 0;
-  for (let index = items.length - 1; index >= 0; index -= 1)
-    if (items[index]!.tool && ++calls === GROUP_TAIL) return groupCalls(items).length > GROUP_TAIL ? index : 0;
-  return 0;
-}
-
 /// Commands, reads and searches open by default, one row per call, as the Codex and Claude Code
 /// desktop apps list them; edits stay closed, since each opens to its whole diff. A finished run
 /// that is this one group (`folded`: text followed it) stays closed too, one summary line between
@@ -66,25 +53,14 @@ export function ToolGroupRow({
 }) {
   const t = useT();
   const [open, setOpen] = useTranscriptDisclosure(disclosureKey, kind !== "edits" && !folded);
-  const [all, setAll] = useTranscriptDisclosure(`${disclosureKey}:all`);
   const fold = useAnchoredCollapse({ open, onOpenChange: setOpen });
-  // The calls behind "+K more", and where the shown tail starts (a thought between two hidden
-  // calls hides with them).
-  const cut = kind === "edits" || all ? 0 : tailStart(items);
-  const hidden = cut ? groupCalls(items.slice(0, cut)).length : 0;
   useFindReveal(items, () => setOpen(true));
-  // A match in a call behind "+K more" shows the whole group.
-  useFindReveal(
-    useMemo(() => items.slice(0, cut), [items, cut]),
-    () => setAll(true),
-  );
-  // Each entry with its place in the whole group: a thought is named by how many thoughts come
-  // before it, which a call appended after it or "+K more" never moves, so its open state stays
-  // with it (ThoughtRow keeps it by `id`), even when one activity shows twice.
+  // Opening the group shows every call. Each call still owns its full body's disclosure.
+  // A thought's stable ordinal keeps its choice when more calls append to the group.
   const shown = useMemo(() => {
     let thoughts = 0;
-    return items.map((item, at) => ({ item, at, thought: item.tool ? -1 : thoughts++ })).slice(cut);
-  }, [items, cut]);
+    return items.map((item, at) => ({ item, at, thought: item.tool ? -1 : thoughts++ }));
+  }, [items]);
   const entryRow = ({ item, thought }: (typeof shown)[number], call: (item: AcpmuxActivity) => ReactNode) =>
     item.tool ? call(item) : <ThoughtRow key={thoughtId(thought)} id={thoughtId(thought)} item={item} />;
   const detailsId = useId();
@@ -106,6 +82,7 @@ export function ToolGroupRow({
       <button
         type="button"
         className={`cv-tool is-toggle${running ? " is-live" : " is-strong"}`}
+        data-tool-group={disclosureKey}
         aria-expanded={open}
         aria-controls={open ? detailsId : undefined}
         ref={fold.headerRef}
@@ -148,12 +125,11 @@ export function ToolGroupRow({
       <ToolFailureCause failure={failure} />
       {fold.present && (
         <div {...fold.bodyProps}>
-          <div className={kind === "edits" ? "cv-tool-group" : "cv-tool-group is-flat"} id={detailsId}>
-            {hidden > 0 && (
-              <button type="button" className="cv-tool cv-tool-group__more" onClick={() => setAll(true)}>
-                <span className="cv-tool__text">{t("tools.more", { n: hidden })}</span>
-              </button>
-            )}
+          <div
+            className={kind === "edits" ? "cv-tool-group" : "cv-tool-group is-flat"}
+            id={detailsId}
+            data-tool-group-items={disclosureKey}
+          >
             {kind === "commands"
               ? shown.map((entry) =>
                   entryRow(entry, (item) => <CommandRow key={item.tool!.id || entry.at} item={item} />),

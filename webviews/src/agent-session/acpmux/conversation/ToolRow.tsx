@@ -148,6 +148,7 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
         <button
           type="button"
           className={`cv-tool is-toggle${running ? " is-live" : " is-strong"}`}
+          data-tool-id={tool.id}
           aria-expanded={open}
           aria-controls={open ? detailsId : undefined}
           ref={fold.headerRef}
@@ -161,7 +162,9 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
           />
         </button>
       ) : (
-        <div className={`cv-tool${running ? " is-live" : " is-strong"}`}>{content}</div>
+        <div className={`cv-tool${running ? " is-live" : " is-strong"}`} data-tool-id={tool.id}>
+          {content}
+        </div>
       )}
       <ToolFailureCause failure={failure} />
       {images.length > 0 && <ToolImages sources={images} />}
