@@ -91,7 +91,7 @@
     "web/scripts/cmux-vm-image/bake.ts": {"count": 2, "reason": "safe: runs inside a throwaway VM or container this script owns; nothing else lives there (the VM image bake)"},
     "web/scripts/cmux-vm-image/browser-probe.ts": {"count": 2, "reason": "safe: the pattern is the probe's own mktemp dir inside the VM"},
     "web/scripts/dev-local.sh": {"count": 1, "reason": "safe: -P <recorded pid>, the children of the dev server this script started"},
-    "web/services/vms/images/devbox/Dockerfile": {"count": 2, "reason": "safe: inside the image build, stops the work user's own boot processes in the container"},
+    "web/services/vms/images/devbox/Dockerfile": {"count": 3, "reason": "safe: inside the image build, stops the work user's own boot processes in the container"},
     "web/services/vms/images/devbox/desktop/start-vnc.sh": {"count": 1, "reason": "safe: -USR1 -U <own uid> -x tint2 inside the devbox VM tells its own panel to reload (not a kill)"},
     "web/services/vms/images/workUser.ts": {"count": 1, "reason": "safe: inside a devbox VM cmux owns, stops a renamed work user's processes before removing that user"}
   },
