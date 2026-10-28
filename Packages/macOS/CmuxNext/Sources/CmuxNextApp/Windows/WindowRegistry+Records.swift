@@ -1,5 +1,4 @@
 import CmuxNextDaemon
-import CmuxNextDesign
 import CmuxNextLayout
 import CoreGraphics
 import Foundation
@@ -96,7 +95,8 @@ extension WindowFrame {
 extension WindowDocks {
     /// The docks a saved window had; unknown edges are skipped and extents clamped.
     init(record: WindowRecord) {
-        self.init(orientation: record.dockOrientation.flatMap(FrameOrientation.init(rawValue:)) ?? .columnMajor)
+        self.init()
+        if record.dockOrientation == "rowMajor" { orientation = .rowMajor }
         for saved in record.docks ?? [] {
             guard let edge = DockEdge(rawValue: saved.edge) else { continue }
             dock(saved.workspaceKey.rawValue, at: edge, mode: saved.mode == "floating" ? .overlay : .docked,
