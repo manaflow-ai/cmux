@@ -82,3 +82,23 @@ fn request_head_is_one_counted_parse() {
     assert_eq!(parses.count(), 1);
     assert_eq!(head.cmd(), Some("ping"));
 }
+
+/// The head names no command for a `cmd` that is not a string, so the
+/// `Command` parse must not run one either (p05-ipc-182, the
+/// dispatch_structured crasher `regress-crash-numeric-cmd`).
+#[test]
+fn request_head_and_command_parse_refuse_a_cmd_that_is_not_a_string() {
+    let (ping, _) = Command::method_of_wire("ping").expect("ping is a command");
+    let numeric = format!(r#"{{"id":1,"cmd":{ping}}}"#);
+    for line in [numeric.as_str(), r#"{"id":1,"cmd":0}"#, r#"{"cmd":163,"keys":true}"#] {
+        let head = RequestHead::parse(line);
+        assert_eq!(head.cmd(), None, "{line}");
+        assert!(
+            crate::line_parses::parse::<super::super::Request>(line).is_err(),
+            "the Command parse runs a command the head does not name: {line}"
+        );
+    }
+    let named = crate::line_parses::parse::<super::super::Request>(r#"{"id":1,"cmd":"ping"}"#)
+        .expect("a named cmd parses");
+    assert_eq!(named.cmd.method_id(), ping);
+}

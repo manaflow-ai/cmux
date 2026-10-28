@@ -71,3 +71,28 @@ fn line_whose_command_parse_fails_is_refused() {
     assert_eq!(dispatched.head.command, None);
     assert_eq!(dispatched.line, Some(Line::Refused));
 }
+
+/// The array form serde also reads a struct from is no request line: the
+/// header's method must not accept it (the dispatch_structured crasher
+/// `regress-crash-array-body`).
+#[test]
+fn body_that_is_not_an_object_never_names_the_method() {
+    for body in [&br#"["ping"]"#[..], br#"["ping",false]"#, b" \n[\"ping\"]"] {
+        let dispatched = dispatch(call("ping"), body);
+        let shown = String::from_utf8_lossy(body);
+        assert_eq!(dispatched.frame, Err("method_mismatch"), "{shown}");
+        assert_eq!(dispatched.head.command, None, "{shown}");
+    }
+}
+
+/// A numeric `cmd` names no command in the head, so its line is refused
+/// rather than run as the command at that index (the dispatch_structured
+/// crasher `regress-crash-numeric-cmd`).
+#[test]
+fn line_whose_cmd_is_a_number_is_refused() {
+    let body = format!(r#"{{"id":1,"cmd":{}}}"#, command("ping"));
+    let dispatched = dispatch(call("ping"), body.as_bytes());
+    assert_eq!(dispatched.frame, Err("method_mismatch"));
+    assert_eq!(dispatched.head.command, None);
+    assert_eq!(dispatched.line, Some(Line::Refused));
+}
