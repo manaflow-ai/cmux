@@ -1303,13 +1303,17 @@
   top: calc(11px * var(--cmux-interface-scale, 1));
   right: calc(8px * var(--cmux-interface-scale, 1));
 }
+/* Shell mode takes this look's prompt insets (the 44 px row above), the chrome scale and the glyph's
+   own character column with them (composerStates.css), so entering shell mode moves nothing. */
 .acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner) .acpmux-shell-field {
-  min-height: 44px;
-  padding: 11px 8px 11px 23px;
+  min-height: calc(var(--text-content--line-height) + 22px * var(--cmux-interface-scale, 1));
+  padding: calc(11px * var(--cmux-interface-scale, 1)) calc(8px * var(--cmux-interface-scale, 1))
+    calc(11px * var(--cmux-interface-scale, 1))
+    calc(7px * var(--cmux-interface-scale, 1) + var(--acpmux-shell-glyph-column));
 }
 .acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner) .acpmux-shell-glyph {
-  left: 7px;
-  top: 11px;
+  left: calc(7px * var(--cmux-interface-scale, 1));
+  top: calc(11px * var(--cmux-interface-scale, 1));
 }
 /* Under the attachments' band the prompt starts one gap down, as in the other look
    (composerAttachments.css), at this look's specificity. */
