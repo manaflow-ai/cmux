@@ -953,9 +953,9 @@ pub struct Config {
     /// default): such a send is refused as before.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub send_relay: Option<crate::cli::send_relay::SendRelay>,
-    /// `meshRelay`: `{"url", "tokenCommand"}`, the team hub this daemon heartbeats its sessions to
-    /// and takes messages for them from (`mesh_http.rs`, `server/mesh_relay.rs`). Unset (the
-    /// default): no relay.
+    /// `meshRelay`: `{"url", "tokenCommand"}`, the team hub this daemon heartbeats its sessions to,
+    /// takes messages for them from, and sends a message to a name nobody here resolves through
+    /// (`mesh_http.rs`, `server/mesh_relay.rs`). Unset (the default): no relay.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mesh_relay: Option<crate::mesh_http::MeshRelayConfig>,
     /// Where this config was loaded from. A config built in code (tests,

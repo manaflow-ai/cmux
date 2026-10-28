@@ -3,8 +3,8 @@
 //! daemon sees it: [`MeshHub`], which the HTTPS client implements and tests fake, and the
 //! records it carries (cmux-platform `openapi.json` 1.3.0, `/v1/mesh`). `server/mesh_relay.rs`
 //! runs the daemon's side: it heartbeats its sessions, long-polls its inbox, delivers each message
-//! into the session it names as a local send does, and acks with the prompt id. `mesh_http.rs` is
-//! the HTTPS client.
+//! into the session it names as a local send does, acks with the prompt id, and posts the sends
+//! this daemon's sessions make to a name no one here resolves. `mesh_http.rs` is the HTTPS client.
 //!
 //! Delivery is at least once: a message stays leased until acked and comes back when its lease
 //! ends. The prompt id of a delivery is the message id, so a message delivered twice runs once
@@ -126,6 +126,35 @@ pub struct InMessage {
     pub attempt: u32,
 }
 
+/// A message to post.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OutMessage {
+    pub to: Target,
+    pub from: Sender,
+    pub kind: Kind,
+    pub body: String,
+    pub mode: Mode,
+    /// The sender's prompt id: the same send posted again is the same message.
+    pub idempotency_key: String,
+}
+
+/// A message's receipt: `queued`, `leased`, `delivered`, `refused` or `expired`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Receipt {
+    pub message_id: String,
+    pub state: String,
+    #[serde(default)]
+    pub to: Target,
+    #[serde(default)]
+    pub attempt: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompt_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+}
+
 /// How a delivery settled.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -161,8 +190,10 @@ impl Ack {
 pub struct HubError {
     pub message: String,
     pub refused: bool,
-    /// The hub's code (`mesh.unauthorized`, `mesh.rate_limited`, ...).
+    /// The hub's code (`mesh.unknown_recipient`, `mesh.ambiguous`, ...).
     pub code: Option<String>,
+    /// The sessions an ambiguous name names (`mesh.ambiguous`).
+    pub candidates: Option<serde_json::Value>,
     /// How long a rate-limited caller waits (429 `retryAfterSeconds`).
     pub retry_after: Option<Duration>,
     /// The HTTP status the hub answered, when it answered one.
@@ -183,7 +214,14 @@ impl HubError {
 
     pub fn refused(message: impl Into<String>) -> Self {
         let message = message.into();
-        Self { message, refused: true, code: None, retry_after: None, status: None }
+        Self {
+            message,
+            refused: true,
+            code: None,
+            candidates: None,
+            retry_after: None,
+            status: None,
+        }
     }
 }
 
@@ -205,6 +243,8 @@ pub trait MeshHub: Send + Sync {
         &'a self,
         beat: &'a Heartbeat,
     ) -> BoxFuture<'a, Result<HeartbeatReply, HubError>>;
+    fn send<'a>(&'a self, message: &'a OutMessage) -> BoxFuture<'a, Result<Receipt, HubError>>;
+    fn receipt<'a>(&'a self, message_id: &'a str) -> BoxFuture<'a, Result<Receipt, HubError>>;
 }
 
 /// What runs a control message (start, resume or stop a session). The hub grants nothing: a hook

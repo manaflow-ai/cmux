@@ -15,7 +15,8 @@
 //! person's resume runs it, so it is never sent again from here.
 //!
 //! `send_status {deliveryId, waitMs?}` answers the delivery's state, after waiting up to
-//! `waitMs` (at most [`MAX_STATUS_WAIT_MS`]) for it to settle.
+//! `waitMs` (at most [`MAX_STATUS_WAIT_MS`]) for it to settle. A target no one here resolves goes
+//! to the mesh hub when the relay is on, and its status is the hub's receipt (`mesh_send.rs`).
 
 use crate::no_panic::JsonExt;
 use std::time::Duration;
@@ -69,6 +70,13 @@ pub(super) async fn handle(
         && hub.resolve_remote(&target).is_none()
         && hub.peer_down_for(&target).is_none()
     {
+        // With the mesh relay on, the team hub may know a name nothing here matches
+        // (`mesh_send.rs`); a name several sessions here match stays this daemon's refusal.
+        if let Some(mesh) = hub.mesh.get()
+            && hub.resolve(&target).is_err_and(|e| e.code == RpcError::not_found("").code)
+        {
+            return super::mesh_send::send(hub, conn, mesh, &request, &target).await;
+        }
         return Err(RpcError::invalid_params(format!("no session: {target}"))
             .with_data(json!({"reason": "no_session", "session": target})));
     }
@@ -149,6 +157,11 @@ async fn drop_own_uploads(hub: &Arc<Hub>, new: &Delivery, kept: &Delivery) {
 async fn status(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcError> {
     let id = str_param(params, "deliveryId")
         .ok_or_else(|| RpcError::invalid_params("deliveryId is required"))?;
+    if id.starts_with(super::mesh_send::PREFIX)
+        && let Some(mesh) = hub.mesh.get()
+    {
+        return super::mesh_send::status(mesh, id).await;
+    }
     let wait = params.get("waitMs").and_then(Value::as_u64).unwrap_or(0).min(MAX_STATUS_WAIT_MS);
     let deadline = tokio::time::Instant::now() + Duration::from_millis(wait);
     loop {
