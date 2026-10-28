@@ -3,6 +3,7 @@
 // responds when the source control shows the new source, not when the new diff has loaded.
 import type { Page } from "playwright";
 import type { LatencyAction, LatencyPageSpec } from "./measure";
+import { RAIL_DRAG_CASE } from "../../bench/thread-rail-drag.adapter";
 
 /** After a run (not measured): resolves once the page holds still, 10 painted frames with no DOM
  *  change and nothing animating (a new session streaming its patch, a slide, a menu closing), so
@@ -878,6 +879,52 @@ export const LONG_CHAT_PAGES: LatencyPageSpec[] = [false, true].map((resident) =
   actions: [longScroll(resident)],
 }));
 
+// Preserve the imported owner's case IDs while its viewport/cadence discriminator fails.
+const railUnsupported =
+  "rail adapter 20c305 accepts horizontally offscreen targets and may record a negative first frame gap; owner repair pending";
+export const RAIL_DRAG_PAGE: LatencyPageSpec = {
+  name: "chat rail",
+  path: "/test/latency/flows.html?mock&turns=3000&resident",
+  ready: `document.documentElement.dataset.latencyFlowsReady === "true"`,
+  actions: [RAIL_DRAG_CASE.metric, RAIL_DRAG_CASE.frameMetric].map((metricType) => ({
+    id: metricType === RAIL_DRAG_CASE.metric ? RAIL_DRAG_CASE.id : `${RAIL_DRAG_CASE.id}.cadence`,
+    name: metricType === RAIL_DRAG_CASE.metric ? "rail drag target paint" : "rail drag frame cadence",
+    metricType,
+    requiredInstrumentation: [...profiled],
+    async measureRun() {
+      return {
+        status: "unsupported",
+        reason: railUnsupported,
+        observations: [
+          {
+            status: "unsupported",
+            latencyMs: null,
+            inputAt: null,
+            targetPaintAt: null,
+            raw: {
+              adapterHead: "20c305cef9e48da98d85c3451c482e1a95d9f6fc",
+              releaseToPaintMs: null,
+              lastMoveToPaintMs: null,
+              alreadyPaintedBeforeRelease: null,
+              reason: railUnsupported,
+            },
+          },
+        ],
+        frameGaps: null,
+        longTasks: null,
+        reactCommits: null,
+        unsupportedReasons: {
+          longTasks: railUnsupported,
+          reactCommits: railUnsupported,
+          frameCadence: railUnsupported,
+          eventTiming: "drag target paint is not EventTiming INP",
+          trace: railUnsupported,
+        },
+      };
+    },
+  })),
+};
+
 // Settings (test/latency/settings.html, host delay 40 ms): a sidebar section switch, from the input
 // to the first painted frame that shows the new section complete (its title and the host-read
 // buttons at its end). Two sections with host reads alternate. "click" is a pointer that lands and
@@ -944,4 +991,5 @@ export const PAGES: LatencyPageSpec[] = [
   CHAT_FLOWS_PAGE,
   ...LONG_CHAT_PAGES,
   SETTINGS_PAGE,
+  RAIL_DRAG_PAGE,
 ];
