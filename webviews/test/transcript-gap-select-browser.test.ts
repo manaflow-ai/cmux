@@ -277,6 +277,53 @@ await requireBrowserLane("transcript-gap-select-browser.test.ts", async () => {
           await page.close();
         });
       }
+    for (const [kind, label] of [
+      ["highlighted-code", "HighlightedCode"],
+      ["edit-diff-hunks", "EditDiffHunks"],
+    ] as const)
+      test(`${name}: ${label} shadow text keeps native selection ownership`, async () => {
+        const page = await open(name, "agent", "agent");
+        await page.evaluate((surface) => {
+          const mount = (
+            window as unknown as {
+              __mountShadowSurface(rowId: string, kind: "highlighted-code" | "edit-diff-hunks"): Promise<void>;
+            }
+          ).__mountShadowSurface("upper", surface);
+          return mount;
+        }, kind);
+        const selector = `#shadow-surface-${kind}`;
+        await page.waitForFunction((surface) => {
+          const host = document.querySelector<HTMLElement>(surface)?.querySelector("diffs-container");
+          return Boolean(host?.shadowRoot?.querySelector("[data-line]"));
+        }, selector);
+        await paint(page);
+        const point = await page.evaluate((surface) => {
+          const host = document.querySelector<HTMLElement>(surface)?.querySelector("diffs-container");
+          const line = host?.shadowRoot?.querySelector<HTMLElement>("[data-line]");
+          if (!line) throw new Error(`No shadow text for ${surface}`);
+          const range = document.createRange();
+          range.selectNodeContents(line);
+          const rect = Array.from(range.getClientRects()).find((candidate) => candidate.width > 0);
+          if (!rect) throw new Error(`No painted shadow text for ${surface}`);
+          return { x: rect.left + Math.min(24, rect.width / 2), y: rect.top + rect.height / 2 };
+        }, selector);
+        const after = (await geometry(page)).after;
+        await drag(page, point, after);
+        const details = await page.evaluate(() => {
+          const selection = getSelection()!;
+          const inShadow = (node: Node | null) => Boolean(node && node.getRootNode() instanceof ShadowRoot);
+          return {
+            text: selection.toString(),
+            anchorInShadow: inShadow(selection.anchorNode),
+            focusInShadow: inShadow(selection.focusNode),
+          };
+        });
+        expect(details.anchorInShadow).toBe(true);
+        expect(details.text).toContain("shadow code");
+        expect(details.text).not.toContain("upper keeper checks");
+        expect(details.text).not.toContain("lower keeper checks");
+        await page.close();
+      });
     test(`${name}: control presses, control drags, and text presses retain native ownership`, async () => {
       const page = await open(name, "tool", "prompt");
       await page.evaluate(() => {

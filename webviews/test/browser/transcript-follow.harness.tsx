@@ -5,6 +5,7 @@ import { flushSync } from "react-dom";
 import { VirtualTranscript, type ScrollAnchor } from "../../src/agent-session/acpmux/App";
 import { followTrace } from "../../src/agent-session/acpmux/followTrace";
 import type { AcpmuxRow } from "../../src/agent-session/acpmux/model";
+import type { TurnFile } from "../../src/agent-session/acpmux/diff";
 import { turnView } from "../../src/agent-session/acpmux/conversation/turns";
 // The pane's styles, as its dev entry loads them (acpmux/dev.tsx).
 import "../../src/pages/shared/desktop.css";
@@ -50,6 +51,7 @@ let openAt: ScrollAnchor | undefined;
 let sessionId = "session-1";
 let dock: HTMLElement | null = null;
 let working = false;
+const shadowMounts: Array<{ root: ReturnType<typeof createRoot>; host: HTMLElement }> = [];
 const draw = () =>
   view.render(
     <VirtualTranscript
@@ -73,6 +75,56 @@ const draw = () =>
   rawRows = false;
   shown = rows;
   draw();
+};
+
+// Focused browser regressions mount the same Pierre-backed transcript surfaces the app uses. They
+// live outside the row renderer only for the test's lifetime, so the fixture can press their open
+// shadow text and verify that the transcript-level gap handler leaves native selection in charge.
+(
+  window as unknown as {
+    __mountShadowSurface(rowId: string, kind: "highlighted-code" | "edit-diff-hunks"): Promise<void>;
+  }
+).__mountShadowSurface = async (rowId, kind) => {
+  const row = document.querySelector<HTMLElement>(`[data-row-id="${rowId}"]`);
+  if (!row) throw new Error(`No row for shadow fixture: ${rowId}`);
+  const mount = document.createElement("div");
+  mount.id = `shadow-surface-${kind}`;
+  mount.className = "selectable";
+  (row.querySelector<HTMLElement>(".cv-md") ?? row).append(mount);
+  const root = createRoot(mount);
+  shadowMounts.push({ root, host: mount });
+  if (kind === "highlighted-code") {
+    const { HighlightedCode } = await import("../../src/agent-session/acpmux/conversation/HighlightedCode");
+    root.render(<HighlightedCode code={'const keeper = "shadow code";\nreturn keeper;'} lang="ts" />);
+  } else {
+    const [{ EditDiffHunks }, { editPatch }] = await Promise.all([
+      import("../../src/agent-session/acpmux/conversation/EditDiffHunks"),
+      import("../../src/agent-session/acpmux/diff"),
+    ]);
+    const file: TurnFile = {
+      path: "shadow-fixture.ts",
+      displayPath: "shadow-fixture.ts",
+      edits: [
+        {
+          toolId: "shadow-edit",
+          numbered: false,
+          hunks: [
+            {
+              lines: [
+                { type: "context", text: 'const keeper = "shadow code";' },
+                { type: "add", text: "return keeper;" },
+              ],
+            },
+          ],
+        },
+      ],
+      additions: 1,
+      deletions: 0,
+      created: false,
+    };
+    root.render(<EditDiffHunks file={file} patches={[editPatch(file, file.edits[0]!)]} wrap={false} />);
+  }
+  await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
 };
 (window as unknown as { __showRawRows: (rows: AcpmuxRow[]) => void }).__showRawRows = (rows) => {
   rawRows = true;
