@@ -1214,9 +1214,11 @@ jobs:
       # preflight skips duplicate work after the first complete run.
       cancel-in-progress: false
     name: cmux_next_ daemon tests
-    # The nightly-next promotion gate (chief 2026-10-13): a pass here writes
-    # tree/<key>/daemon-tests.json (publish-tree-tested), which
-    # request-nightly-next.sh requires. Leo, 2026-10-26: "I THOUGHT THESE
+    # A pass here writes tree/<key>/daemon-tests.json (publish-tree-tested),
+    # which the feat-cmux-next channel (point-feat-channel) requires. Since
+    # 2026-10-28 nightly-next promotion does not wait for it: mark-tree-commits
+    # marks a published tree whatever these tests say (Leo, 2026-10-23: "we
+    # want no smoke tests"). Leo, 2026-10-26: "I THOUGHT THESE
     # COULD JUST GO ON LINUX". None of the cmux_next_ tests is gated to macOS
     # and cmux-tui.yml's Linux job runs the whole workspace, so every attempt
     # of every event takes Blacksmith Linux at 32 vCPU: no owned-Mac queue
@@ -1301,8 +1303,8 @@ jobs:
         run: |
           set -euo pipefail
           python3 scripts/ci/cmux_tui_superseded_push.py --event "$EVENT_NAME" --ref "$REF" --sha "$SHA" --key "$KEY" --run-id "$RUN_ID"
-          # The nightly gate tests only the newest tree: nightly-next-tick
-          # promotes the newest daemon-tested one. When feat-cmux-next's head
+          # These tests run only for the newest tree: the feat-cmux-next
+          # channel follows the newest daemon-tested one. When feat-cmux-next's head
           # has a different key whose tree is published, that head's run (or
           # its marker path) tests it, so this older key skips its tests and
           # frees the runner. On 2026-10-21, 26 such jobs queued for 2 h while
@@ -2650,8 +2652,9 @@ jobs:
     # cx-y0nf2): their macOS runner queues up to ~1 h, and every dev build
     # waited for the tree. A published tree does not mean the daemon tests
     # passed: source.json says daemonTests "separate", publish-tree-tested
-    # writes tree/<key>/daemon-tests.json when they do, and nightly-next
-    # promotion (request-nightly-next.sh) requires it. A run whose tests fail
+    # writes tree/<key>/daemon-tests.json when they do, and the feat-cmux-next
+    # channel (point-feat-channel) requires it; nightly-next promotion does not
+    # (2026-10-28, mark-tree-commits). A run whose tests fail
     # leaves the tree unmarked; any later testing run of the key finds it so
     # (tree-preflight daemon_tested, tree-owner-wait unmarked), runs them and
     # writes the marker. A lane-branch push (tree-preflight's daemon-policy)
@@ -2989,8 +2992,9 @@ jobs:
   # marker per key, after publish-tree published the tree,
   # or for a tree another run published unmarked (tree_ready, unmarked). No
   # publisher writes it (cx-y0nf2): only this job, only after this run's daemon
-  # tests of the same key passed. request-nightly-next.sh promotes a tree whose
-  # source.json says daemonTests "separate" only when the marker exists.
+  # tests of the same key passed. point-feat-channel moves the feat-cmux-next
+  # channel to a tree whose source.json says daemonTests "separate" only when
+  # the marker exists. Nightly-next promotion no longer reads it (2026-10-28).
   # Only a macOS run of those tests writes it: a pin push tests on Linux, and
   # the feat-cmux-next push of its tree then tests it on its Mac pool.
   publish-tree-tested:
@@ -3055,7 +3059,7 @@ jobs:
 
   # The tree-commit markers (scripts/cmux-next/tree-commit-marker.sh has the
   # contract): cmux-tui/tree-commits/<sha>.json for each first-parent commit in
-  # the last 40 of this run's commit whose tree is published and daemon-tested.
+  # the last 40 of this run's commit whose tree is published and verified.
   # Main's promote guard and request-nightly-next.sh require one, so main never
   # needs the tree key; reading it is a CDN GET, no API call. Write-once. A
   # dispatch on feat-cmux-next (request-nightly-next.sh's backfill) runs it too.
@@ -3063,11 +3067,17 @@ jobs:
   # that share a tree this run published late (a takeover after the owner's
   # publish failed) ran this job before the tree existed, so only this run can
   # mark them without a backfill (2026-10-28: a P0 fix's promote waited on it).
+  # It follows the publish, not the daemon tests (2026-10-28): run 40651931144
+  # published its tree, its daemon tests failed fetching Zig packages, and no
+  # commit was marked for hours. Leo, 2026-10-23: "we want no smoke tests". It
+  # runs when this run published the tree or did not try to (a tree already
+  # published, or one another run owns); the script verifies each tree itself
+  # (tree-commit-marker.sh tree-ready), so it never marks an unpublished one.
   mark-tree-commits:
     environment: artifacts
     name: mark the commits whose tree is ready
-    needs: [tree-preflight, publish-tree-tested]
-    if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/feat-cmux-next' && needs.tree-preflight.result == 'success' && needs.publish-tree-tested.result != 'failure' }}
+    needs: [tree-preflight, publish-tree]
+    if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/feat-cmux-next' && needs.tree-preflight.result == 'success' && (needs.publish-tree.result == 'success' || needs.publish-tree.result == 'skipped') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     permissions:
