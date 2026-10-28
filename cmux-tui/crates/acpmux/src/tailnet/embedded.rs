@@ -147,6 +147,7 @@ struct Inner {
     snapshot: Snapshot,
     node: Option<Arc<Node>>,
     starting: bool,
+    closing: bool,
     generation: u64,
     /// Set by daemon shutdown and never cleared: no node starts after it.
     closed: bool,
@@ -182,6 +183,7 @@ impl Controller {
                 snapshot: Snapshot { state: "not_started", ..Snapshot::default() },
                 node: None,
                 starting: false,
+                closing: false,
                 generation: 0,
                 closed: false,
             }),
@@ -450,10 +452,7 @@ impl Controller {
         tokio::task::spawn_blocking(move || clear_opt_in(&path))
             .await
             .map_err(|e| e.to_string())??;
-        {
-            let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
-            inner.generation = inner.generation.wrapping_add(1);
-        }
+        self.begin_intentional_close();
         let node = self.node();
         if let Some(node) = node {
             let result = tokio::task::spawn_blocking(move || {
@@ -487,10 +486,7 @@ impl Controller {
     }
 
     async fn shutdown_locked(&self) -> Result<(), String> {
-        {
-            let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
-            inner.generation = inner.generation.wrapping_add(1);
-        }
+        self.begin_intentional_close();
         if let Some(node) = self.node() {
             let result = tokio::task::spawn_blocking(move || node.close().map_err(|e| e.0))
                 .await
@@ -505,6 +501,14 @@ impl Controller {
         Ok(())
     }
 
+    fn begin_intentional_close(&self) {
+        let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
+        inner.closing = true;
+        inner.generation = inner.generation.wrapping_add(1);
+        inner.snapshot.node_gone("stopped");
+        self.publish_locked(&inner.snapshot);
+    }
+
     fn retire_node(
         &self,
         expected: Option<&Arc<Node>>,
@@ -512,7 +516,8 @@ impl Controller {
     ) -> Option<(Option<Arc<Node>>, u64)> {
         let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(expected) = expected
-            && !inner.node.as_ref().is_some_and(|node| Arc::ptr_eq(node, expected))
+            && (inner.closing
+                || !inner.node.as_ref().is_some_and(|node| Arc::ptr_eq(node, expected)))
         {
             return None;
         }
@@ -535,7 +540,8 @@ impl Controller {
 
     pub(crate) fn listener_is_current(&self, node: &Arc<Node>) -> bool {
         let inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
-        matches!(&inner.state, LifecycleState::Running(current) if Arc::ptr_eq(current, node))
+        !inner.closing
+            && inner.node.as_ref().is_some_and(|current| Arc::ptr_eq(current, node))
     }
 
     pub(super) fn retirement_pending(&self) -> bool {
@@ -567,6 +573,7 @@ impl Controller {
         let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
         let node = inner.node.take();
         inner.starting = false;
+        inner.closing = false;
         inner.snapshot.node_gone(state);
         self.publish_locked(&inner.snapshot);
         drop(inner);
@@ -704,11 +711,20 @@ mod tests {
         let config = NodeConfig::new(temporary.path(), "test");
         let node = Arc::new(Node::new(&config).unwrap());
         let controller = Controller::new(temporary.path(), "test");
-        controller.inner.lock().unwrap().state = LifecycleState::Running(Arc::clone(&node));
+        controller.inner.lock().unwrap().node = Some(Arc::clone(&node));
         assert!(controller.listener_is_current(&node));
-        controller.request_logout();
+        controller.begin_intentional_close();
         assert!(!controller.listener_is_current(&node));
+        // Also fence a completion that passed the service check just before logout.
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("test runtime");
+        runtime.block_on(controller.listener_failed(&node));
+        assert!(!controller.retirement_pending());
+        controller.clear_node("stopped");
         assert_eq!(controller.snapshot().state, "stopped");
+        assert!(controller.snapshot().error.is_none());
     }
 
     #[tokio::test]
