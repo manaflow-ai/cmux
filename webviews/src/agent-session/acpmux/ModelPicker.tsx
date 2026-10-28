@@ -938,12 +938,12 @@ export function ModelPicker(props: ModelPickerProps) {
   };
   /// Shows a rail tab's models (click or arrow key); `clear` drops the typed query.
   const showTab = (id: string | undefined, index: number, clear = false) => {
+    setActiveHarness(index);
     if (clear && query) setQuery("");
     else if (searching) return;
     if (id === undefined || id === selectedHarness) return;
     setSelectedHarness(id);
     setOlderOpen(false);
-    if (index >= 0) setActiveHarness(index);
     setActive(0);
   };
   // Add is an action after the pickable harnesses, not a harness selection.
@@ -959,8 +959,8 @@ export function ModelPicker(props: ModelPickerProps) {
     return stops[(position + step + stops.length) % stops.length]!;
   };
   const focusRail = (index: number) => {
+    setActiveHarness(index);
     if (index === addRailIndex && onAddAgent) {
-      setActiveHarness(index);
       menu.current?.querySelector<HTMLButtonElement>(".acpmux-mp-add-harness")?.focus();
       return;
     }
@@ -1367,6 +1367,9 @@ export function ModelPicker(props: ModelPickerProps) {
                 aria-expanded="true"
                 value={query}
                 placeholder={searchText}
+                onFocus={() =>
+                  setActiveHarness(railHarnesses.findIndex((entry) => entry.ids.includes(selectedHarness ?? "")))
+                }
                 onChange={(event) => {
                   setQuery(event.target.value);
                   setActive(0);
