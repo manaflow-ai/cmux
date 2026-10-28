@@ -85,6 +85,28 @@ struct PersonalIrohDeviceRegistryDecoratorTests {
         #expect(try await devices(registry).map(\.deviceId) == ["mac-b"])
     }
 
+    @Test("a stale observer reset cannot clear a newer projection")
+    func staleObserverResetPreservesNewerProjection() async throws {
+        let fixture = RegistryScopeFixture()
+        let provider = makeProvider(fixture)
+        let registry = makeRegistry(provider)
+        let firstScope = "account-a:team-a"
+        let nextScope = "account-b:team-b"
+
+        #expect(await provider.applyDirectory(directory(macID: "mac-a"), owner: firstScope))
+        await fixture.set(scope: nextScope, directory: directory(macID: "mac-b"))
+        #expect(await provider.applyDirectory(directory(macID: "mac-b"), owner: nextScope))
+
+        // This is the cleanup path for an observer that read firstScope and
+        // noticed nextScope only after the newer projection had won.
+        #expect(await provider.applyDirectory(
+            nil,
+            owner: nextScope,
+            expectedObservedScope: firstScope
+        ) == false)
+        #expect(try await devices(registry).map(\.deviceId) == ["mac-b"])
+    }
+
     private func makeProvider(_ fixture: RegistryScopeFixture) -> MobileIrxDiscoveryProvider {
         MobileIrxDiscoveryProvider(
             preferredTag: "default", compatibilityPolicy: nil,

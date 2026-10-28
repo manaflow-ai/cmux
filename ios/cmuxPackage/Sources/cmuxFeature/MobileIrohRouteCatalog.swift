@@ -18,6 +18,7 @@ public actor MobileIrohRouteCatalog {
         self.authenticatedScopeID = authenticatedScopeID
     }
 
+    /// Begins a newer projection generation for the authenticated owner.
     func activate(scope: UInt64, owner: String?) {
         guard activeScope.map({ scope > $0 }) ?? true else { return }
         activeScope = scope
@@ -26,6 +27,7 @@ public actor MobileIrohRouteCatalog {
         liveMacs.removeAll()
     }
 
+    /// Replaces the current generation with routes projected from a directory.
     @discardableResult
     func replace(with directory: V2Directory, scope: UInt64) -> Bool {
         guard activeScope == scope else { return false }

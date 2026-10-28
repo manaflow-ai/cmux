@@ -47,6 +47,7 @@ public final class MobileIrxDiscoveryProvider: MobileIrohMacDiscovering,
         return stream
     }
 
+    /// Keeps the route catalog aligned with runtime account and team changes.
     private func observe(_ irx: MobileIrxRuntimeComposition) {
         runtimeObservation = Task { [weak self] in
             for await _ in await irx.changes() {
@@ -55,7 +56,12 @@ public final class MobileIrxDiscoveryProvider: MobileIrohMacDiscovering,
                 let directory = await irx.currentDirectory()
                 let currentOwner = await irx.directoryScopeID()
                 guard owner == currentOwner else {
-                    _ = await applyDirectory(nil, owner: currentOwner)
+                    // Do not let an older observer callback clear a projection
+                    // that a newer discovery has already installed.
+                    guard observedScope == owner else { continue }
+                    guard await applyDirectory(nil, owner: currentOwner, expectedObservedScope: owner) else {
+                        continue
+                    }
                     for observer in observers.values { observer.yield(()) }
                     continue
                 }
@@ -68,7 +74,14 @@ public final class MobileIrxDiscoveryProvider: MobileIrohMacDiscovering,
     /// Applies directory snapshots through one monotonic projection path. An
     /// older async observation can never replace a newer revision.
     @discardableResult
-    private func applyDirectory(_ directory: V2Directory?, owner: String?) async -> Bool {
+    func applyDirectory(
+        _ directory: V2Directory?,
+        owner: String?,
+        expectedObservedScope: String? = nil
+    ) async -> Bool {
+        if let expectedObservedScope, observedScope != expectedObservedScope {
+            return false
+        }
         let ownerChanged = observedScope != owner
         if ownerChanged {
             observedScope = owner
@@ -134,6 +147,7 @@ public final class MobileIrxDiscoveryProvider: MobileIrohMacDiscovering,
 
     // MARK: - MobileIrohMacDiscovering
 
+    /// Discovers Macs for the currently authenticated account and team.
     public func discoverLiveMacs() async -> [MobileDiscoveredIrohMac] {
         let owner = await authenticatedScopeID()
         guard let discovery = await discover(), owner == (await authenticatedScopeID()) else { return [] }
@@ -153,6 +167,7 @@ public final class MobileIrxDiscoveryProvider: MobileIrohMacDiscovering,
 
     // MARK: - MobileIrohMacForgetting
 
+    /// Revokes the selected Mac binding after rechecking account and team scope.
     public func forgetComputer(
         macDeviceID: String,
         instanceTag: String?,
