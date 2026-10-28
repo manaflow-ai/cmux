@@ -107,6 +107,7 @@ class StubTests(unittest.TestCase):
         self.assertTrue((self.dir / "usr/lib/libresolv.tbd").is_file())
         self.assertTrue((self.dir / "usr/include/CoreFoundation/CoreFoundation.h").is_file())
         self.assertTrue((self.dir / "usr/include/IOKit/IOKitLib.h").is_file())
+        self.assertTrue((self.dir / "usr/include/Security/Security.h").is_file())
 
     def test_a_libsystem_routine_bound_to_a_framework_needs_no_stub(self) -> None:
         # A Mac link with the macOS 15 SDK binds log2 to CoreServices (an
