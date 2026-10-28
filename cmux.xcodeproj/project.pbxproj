@@ -775,6 +775,7 @@
 		C1AB00000000000000000010 /* CLICommandSuggestionDerivationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1AB00000000000000000011 /* CLICommandSuggestionDerivationTests.swift */; };
 		C1A900000000000000000020 /* CLICompletionCandidateLiveTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A900000000000000000021 /* CLICompletionCandidateLiveTests.swift */; };
 		C1A900000000000000000010 /* CLICompletionCandidateSafetyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A900000000000000000011 /* CLICompletionCandidateSafetyTests.swift */; };
+		878189AC7D0B0C7EEEC8A8D3 /* CLIDifficultyAssessmentHookTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40FD0F9B2FD092AB1895A21C /* CLIDifficultyAssessmentHookTests.swift */; };
 		AB51A9138DD7097F30E8F1C1 /* CLIDifficultyAssessmentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 067DE6719DBA28DDA93D9B71 /* CLIDifficultyAssessmentTests.swift */; };
 		C11218000000000000000052 /* CLIError.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11218000000000000000051 /* CLIError.swift */; };
 		C11218000000000000000053 /* CLIError.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11218000000000000000051 /* CLIError.swift */; };
@@ -1401,6 +1402,7 @@
 		D1FF1C0A00000000000000B1 /* CMUXCLI+DifficultyAssessment.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1FF1C0A00000000000000A2 /* CMUXCLI+DifficultyAssessment.swift */; };
 		D1FF1C0A00000000000000B2 /* CMUXCLI+DifficultyAssessment.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1FF1C0A00000000000000A2 /* CMUXCLI+DifficultyAssessment.swift */; };
 		D1FF1C0A00000000000000B3 /* CMUXCLI+DifficultyAssessment.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1FF1C0A00000000000000A2 /* CMUXCLI+DifficultyAssessment.swift */; };
+		D1FF1C0A00000000000000C2 /* CMUXCLI+DifficultyAssessmentHook.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1FF1C0A00000000000000A3 /* CMUXCLI+DifficultyAssessmentHook.swift */; };
 		D1FF51000000000000000001 /* CMUXCLI+DiffSidecar.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1FF51000000000000000002 /* CMUXCLI+DiffSidecar.swift */; };
 		C0DE75890000000000000001 /* CMUXCLI+DiffViewerBundledAssets.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE75890000000000000002 /* CMUXCLI+DiffViewerBundledAssets.swift */; };
 		12BFD5CF87D8B35D610B3880 /* CMUXCLI+DiffViewerPreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = 054B01530302FCEEAA5CFEAD /* CMUXCLI+DiffViewerPreferences.swift */; };
@@ -5717,6 +5719,7 @@
 		C1AB00000000000000000011 /* CLICommandSuggestionDerivationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLICommandSuggestionDerivationTests.swift; sourceTree = "<group>"; };
 		C1A900000000000000000021 /* CLICompletionCandidateLiveTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLICompletionCandidateLiveTests.swift; sourceTree = "<group>"; };
 		C1A900000000000000000011 /* CLICompletionCandidateSafetyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLICompletionCandidateSafetyTests.swift; sourceTree = "<group>"; };
+		40FD0F9B2FD092AB1895A21C /* CLIDifficultyAssessmentHookTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CLIDifficultyAssessmentHookTests.swift"; sourceTree = "<group>"; };
 		067DE6719DBA28DDA93D9B71 /* CLIDifficultyAssessmentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CLIDifficultyAssessmentTests.swift"; sourceTree = "<group>"; };
 		C11218000000000000000051 /* CLIError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIError.swift; sourceTree = "<group>"; };
 		12756C0212756C0212756C02 /* CLIEventsStreamPeerCloseTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIEventsStreamPeerCloseTests.swift; sourceTree = "<group>"; };
@@ -6303,6 +6306,7 @@
 		112950000000000000000005 /* CMUXCLI+ContinuationSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+ContinuationSupport.swift"; sourceTree = "<group>"; };
 		E1A09ECE26DDC67D94CF18B1 /* CMUXCLI+Current.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+Current.swift"; sourceTree = "<group>"; };
 		D1FF1C0A00000000000000A2 /* CMUXCLI+DifficultyAssessment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+DifficultyAssessment.swift"; sourceTree = "<group>"; };
+		D1FF1C0A00000000000000A3 /* CMUXCLI+DifficultyAssessmentHook.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+DifficultyAssessmentHook.swift"; sourceTree = "<group>"; };
 		D1FF51000000000000000002 /* CMUXCLI+DiffSidecar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+DiffSidecar.swift"; sourceTree = "<group>"; };
 		C0DE75890000000000000002 /* CMUXCLI+DiffViewerBundledAssets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+DiffViewerBundledAssets.swift"; sourceTree = "<group>"; };
 		054B01530302FCEEAA5CFEAD /* CMUXCLI+DiffViewerPreferences.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+DiffViewerPreferences.swift"; sourceTree = "<group>"; };
@@ -13060,6 +13064,7 @@
 				C6209A020000000000000001 /* CodexRestoreValidationResult.swift */,
 				5257257034CA4729B1211166 /* CMUXCLI+AutoNaming.swift */,
 				D1FF1C0A00000000000000A2 /* CMUXCLI+DifficultyAssessment.swift */,
+				D1FF1C0A00000000000000A3 /* CMUXCLI+DifficultyAssessmentHook.swift */,
 				5257257034CA4729B121116A /* CMUXCLI+AutoNamingDispatch.swift */,
 				5257257034CA4729B1211167 /* CMUXCLI+AutoNamingGenericHooks.swift */,
 				5257257034CA4729B1211168 /* CMUXCLI+AutoNamingHooks.swift */,
@@ -14565,6 +14570,7 @@
 				C9FD84923E5DC420DC9F4EF3 /* SessionPriorityPaneTrackingTests.swift */,
 				124F531170622CD46FC841D7 /* SessionPriorityStatusSnapshotTests.swift */,
 				067DE6719DBA28DDA93D9B71 /* CLIDifficultyAssessmentTests.swift */,
+				40FD0F9B2FD092AB1895A21C /* CLIDifficultyAssessmentHookTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -18348,6 +18354,7 @@
 				112950000000000000000006 /* CMUXCLI+ContinuationSupport.swift in Sources */,
 				807AC28C2C2457B59F8792AC /* CMUXCLI+Current.swift in Sources */,
 				D1FF1C0A00000000000000B2 /* CMUXCLI+DifficultyAssessment.swift in Sources */,
+				D1FF1C0A00000000000000C2 /* CMUXCLI+DifficultyAssessmentHook.swift in Sources */,
 				D1FF51000000000000000001 /* CMUXCLI+DiffSidecar.swift in Sources */,
 				C0DE75890000000000000001 /* CMUXCLI+DiffViewerBundledAssets.swift in Sources */,
 				12BFD5CF87D8B35D610B3880 /* CMUXCLI+DiffViewerPreferences.swift in Sources */,
@@ -18874,6 +18881,7 @@
 				C1AB00000000000000000010 /* CLICommandSuggestionDerivationTests.swift in Sources */,
 				C1A900000000000000000020 /* CLICompletionCandidateLiveTests.swift in Sources */,
 				C1A900000000000000000010 /* CLICompletionCandidateSafetyTests.swift in Sources */,
+				878189AC7D0B0C7EEEC8A8D3 /* CLIDifficultyAssessmentHookTests.swift in Sources */,
 				AB51A9138DD7097F30E8F1C1 /* CLIDifficultyAssessmentTests.swift in Sources */,
 				C11218000000000000000053 /* CLIError.swift in Sources */,
 				12756C0112756C0112756C01 /* CLIEventsStreamPeerCloseTests.swift in Sources */,
