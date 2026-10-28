@@ -16,6 +16,8 @@ mod directory_publication;
 mod echo_flow;
 #[cfg(unix)]
 mod holder_input;
+#[cfg(unix)]
+mod holder_threads;
 mod hosted;
 #[cfg(unix)]
 mod hosted_input_outage;
