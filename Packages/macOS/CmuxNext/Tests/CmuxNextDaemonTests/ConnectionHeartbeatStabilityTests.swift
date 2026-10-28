@@ -38,8 +38,8 @@ struct ConnectionHeartbeatStabilityTests {
         let heartbeat = ConnectionHeartbeat(clock: clock)
         let (stability, store) = Self.attached()
         let (probe, closed) = Self.silentProbe(stability: stability)
-        heartbeat.noteRequest("focus-pane")
-        heartbeat.noteRequest("resize-surface")
+        heartbeat.requests.sent(wire: "focus-pane")
+        heartbeat.requests.sent(wire: "resize-surface")
         #expect(heartbeat.lastRequestClass == .terminalIO)
         heartbeat.start(probe)
         try await clock.waitForSleeper()
@@ -72,8 +72,40 @@ struct ConnectionHeartbeatStabilityTests {
     }
 
     @Test func aDaemonEndSaysHowItEnded() {
-        #expect(DaemonConnection.daemonExit(.daemonShutdown) == .clean)
-        #expect(DaemonConnection.daemonExit(.lost("EOF")) == .signal)
-        #expect(DaemonConnection.daemonExit(.closedByClient) == nil)
+        #expect(TransportCloseReason.daemonShutdown.daemonExit == .clean)
+        #expect(TransportCloseReason.lost("EOF").daemonExit == .signal)
+        #expect(TransportCloseReason.closedByClient.daemonExit == nil)
+        #expect(TransportCloseReason.appFault("bad message: invalid_utf8").daemonExit == nil, "the app's own close is no daemon end")
+    }
+
+    /// The finding of the review: a stall while the person types is counted as `terminal_io`. The key goes out on a
+    /// terminal view's own connection with no reply (`send`), and the heartbeat's own ask, which follows, is not the
+    /// last request.
+    @Test func aKeyOnATerminalConnectionThenAHeartbeatCloseCountsTerminalIO() async throws {
+        let clock = ManualClock()
+        let heartbeat = ConnectionHeartbeat(clock: clock)
+        let (stability, store) = Self.attached()
+        let daemon = try ReplyEventOrderTests.FakeDaemon()
+        let transport = try LineTransport(path: daemon.path, role: .terminalAttach, stats: nil, requests: heartbeat.requests)
+        try daemon.accept()
+        transport.start(onEvent: { _, _, _ in }, onClose: { _ in })
+        defer { transport.close() }
+        heartbeat.requests.sent(wire: "focus-pane")
+        try transport.sendNoReply(cmd: SendInputRequest.command) { id in Data(#"{"id":\#(id),"cmd":"send"}"#.utf8) }
+        #expect(try daemon.readRequest()["cmd"] as? String == "send")
+        #expect(heartbeat.lastRequestClass == .terminalIO)
+        _ = try? await transport.request(cmd: IdentifyRequest.commandName, timeout: .milliseconds(20), notes: false) { id in
+            try WireCoding.encodeRequest(IdentifyRequest(), id: id)
+        }
+        #expect(heartbeat.lastRequestClass == .terminalIO, "the heartbeat's ask replaced the person's last request")
+
+        let (probe, closed) = Self.silentProbe(stability: stability)
+        heartbeat.start(probe)
+        try await clock.waitForSleeper()
+        clock.advance(by: .seconds(15))
+        for await _ in closed { break }
+        let position = try #require(HistogramID.MethodClass.allCases.firstIndex(of: .terminalIO))
+        #expect(Self.unresponsive(store) == [position: 1])
+        heartbeat.stop()
     }
 }

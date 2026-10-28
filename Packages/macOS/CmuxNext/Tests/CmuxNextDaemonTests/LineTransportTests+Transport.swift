@@ -197,7 +197,7 @@ extension LineTransportTests {
                         })
         var iterator = closed.makeAsyncIterator()
         let reason = await iterator.next()
-        #expect(reason == .lost("bad message: invalid_utf8"))
+        #expect(reason == .appFault("bad message: invalid_utf8"), "a bad message is the reader's own close, not a daemon end")
         #expect(routed.lines.withLock { $0.map(\.name) } == ["first"])
     }
 }

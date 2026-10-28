@@ -226,6 +226,60 @@ extension CEFPumpTests {
         #expect(Self.helperExitCounts(in: store).isEmpty)
         #expect(sink.exits.isEmpty, "quit's ends send nothing")
     }
+
+    // MARK: stability.child_exit (p09-observability-109)
+
+    /// ``exitRig()`` over a store of the whole catalog, so `stability.child_exit.*` samples land too.
+    private static func stabilityRig() throws -> (CEFRuntime, MetricsStore) {
+        let (runtime, _) = try exitRig()
+        let trace = TraceRuntime(role: .app)
+        let profile = MetricsProfile(appVersion: "1.0", buildNumber: "1", channel: "test", osVersion: "26.0", hardwareClass: "Mac16,10",
+                                     buildDay: MetricsProfile.Day(year: 2026, month: 10, day: 28))
+        let store = MetricsStore(role: .app, profile: profile, pid: 4242)
+        #expect(store.attach(to: trace))
+        runtime.helperExits = CEFHelperExitMetric(metrics: Metrics(runtime: trace))
+        return (runtime, store)
+    }
+
+    /// `[kind: [ChildExit value: count]]` of the helpers' `stability.child_exit` histograms with samples.
+    private static func childExits(in store: MetricsStore) -> [String: [Int: UInt64]] {
+        var out: [String: [Int: UInt64]] = [:]
+        for kind in [HistogramID.ProcessKind.renderer, .gpu, .utility] {
+            guard let histogram = Self.histogram(.stabilityChildExit(kind), in: store), histogram.count > 0 else { continue }
+            out[kind.rawValue] = Dictionary(uniqueKeysWithValues: histogram.buckets.map { ($0.index, $0.count) })
+        }
+        return out
+    }
+
+    /// The crash matrix's renderer, GPU and utility kinds: each abnormal end the monitor sees is one sample of its
+    /// process kind, a page renderer's too (only the monitor has its wait status); normal ends count nothing.
+    @Test func eachAbnormalHelperEndIsOneChildExitOfItsKind() throws {
+        let (runtime, store) = try Self.stabilityRig()
+        func helper(_ type: String, extension isExtension: Bool = false, _ status: Int32, oom: Bool = false) -> CEFChildProcessMonitor.Exit {
+            CEFChildProcessMonitor.Exit(pid: 4500, processType: type, subType: nil, isExtension: isExtension, status: status,
+                                        outOfMemory: oom)
+        }
+        runtime.childExited(Self.renderer(status: SIGSEGV))
+        runtime.childExited(helper("gpu-process", SIGTRAP))
+        runtime.childExited(helper("utility", SIGKILL))
+        runtime.childExited(helper("renderer", extension: true, 1 << 8))
+        runtime.childExited(helper("utility", SIGKILL, oom: true))
+        runtime.childExited(helper("gpu-process", SIGTERM))
+        runtime.childExited(helper("utility", 0))
+        runtime.childExited(helper("crashpad-handler", SIGABRT))
+        let (signal, panic, oom) = (Int(HistogramID.ChildExit.signal.rawValue), Int(HistogramID.ChildExit.panic.rawValue),
+                                    Int(HistogramID.ChildExit.oom.rawValue))
+        #expect(Self.childExits(in: store) == ["renderer": [signal: 1, panic: 1], "gpu": [signal: 1], "utility": [signal: 1, oom: 1]],
+                "SIGTERM, exit 0 and a helper type the counts do not name count nothing")
+    }
+
+    @Test func quitsHelperEndsCountNoChildExit() throws {
+        let (runtime, store) = try Self.stabilityRig()
+        runtime.shutdownSequence = CEFShutdownSequence(liveBrowsers: 1, windows: 1)
+        runtime.childExited(Self.renderer(status: SIGKILL))
+        runtime.childExited(CEFChildProcessMonitor.Exit(pid: 4501, processType: "gpu-process", subType: nil, isExtension: false, status: SIGKILL))
+        #expect(Self.childExits(in: store).isEmpty)
+    }
 }
 
 /// A shim whose every export does nothing and returns 0.

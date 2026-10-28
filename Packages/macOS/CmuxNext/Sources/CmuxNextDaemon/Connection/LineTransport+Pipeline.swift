@@ -71,6 +71,7 @@ extension LineTransport {
         case .closedByClient: .connectionClosed(reason: "closed by client")
         case .daemonShutdown: .daemonShutdown
         case .lost(let detail): .connectionClosed(reason: detail)
+        case .appFault(let detail): .connectionClosed(reason: detail)
         }
     }
 }

@@ -1,3 +1,5 @@
+import CmuxNextMetrics
+import CmuxNextTrace
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane
@@ -54,6 +56,20 @@ struct AcpmuxCrashRestartTests {
         #expect(fixture.launched, "a reconnect after kill -9 did not start acpmux; the chat stays on 'acpmux is not running'")
     }
 
+    /// p09-observability-109: the started daemon ended before it was ready and no other daemon answers, so the
+    /// launch really failed: one `stability.child_exit.acpmux` `panic` sample.
+    @Test func anEarlyExitWithNoWinnerCountsOneAcpmuxExit() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        try fixture.leaveCrashedPidFile()
+        let (stability, store) = AcpmuxStability.attached()
+        let host = AcpmuxHost(environment: fixture.environment, stability: stability)
+
+        await #expect(throws: (any Error).self) { _ = try await host.reconnectHandshake(sessionId: "s") }
+        #expect(fixture.launched)
+        #expect(AcpmuxStability.exits(store) == [Int(HistogramID.ChildExit.panic.rawValue): 1])
+    }
+
     @Test func aReconnectAfterAShutdownStillStartsNothing() async throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
@@ -71,5 +87,24 @@ struct AcpmuxCrashRestartTests {
 
         await #expect(throws: AgentPaneHostError.chiefStopped) { _ = try await host.reconnectHandshake(sessionId: "s") }
         #expect(!fixture.launched)
+    }
+}
+
+/// A metrics store of its own for one test, and the `stability.child_exit.acpmux` samples in it.
+enum AcpmuxStability {
+    static func attached() -> (StabilityCounters, MetricsStore) {
+        let runtime = TraceRuntime(role: .app)
+        let profile = MetricsProfile(appVersion: "1.2.3", buildNumber: "45", channel: "nightly", osVersion: "26.1.0",
+                                     hardwareClass: "Mac16,10", buildDay: MetricsProfile.Day(year: 2026, month: 10, day: 28))
+        let store = MetricsStore(role: .app, profile: profile, pid: 4242)
+        _ = store.attach(to: runtime)
+        return (StabilityCounters(metrics: Metrics(runtime: runtime)), store)
+    }
+
+    /// `[ChildExit value: count]` of `stability.child_exit.acpmux`.
+    static func exits(_ store: MetricsStore) -> [Int: UInt64] {
+        let name = HistogramID.stabilityChildExit(.acpmux).name
+        let histogram = store.delta().histograms.first { $0.name == name }
+        return Dictionary(uniqueKeysWithValues: (histogram?.buckets ?? []).map { ($0.index, $0.count) })
     }
 }

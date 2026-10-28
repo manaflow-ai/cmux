@@ -2,7 +2,6 @@ import Darwin
 import Foundation
 import os
 import CmuxNextCompat
-import CmuxNextMetrics
 import struct CmuxNextDaemon.POSIXErrorText
 import class CmuxSafeConcurrency.OnceContinuation
 import enum CmuxSafeConcurrency.OnceContinuationError
@@ -16,10 +15,6 @@ import func CmuxSafeConcurrency.withOnceContinuation
 /// launchd when the shell exits, and outlives the app (its sessions are
 /// durable state). The launcher reaps the shell. Its fd 3 is our pipe; stdout and stderr go to
 /// `<home>/daemon.log`.
-///
-/// A daemon that ends before its ready line ended on a fatal error it wrote to that log: one
-/// `stability.child_exit.acpmux` `panic` sample (p09-observability-109). Once ready it belongs to launchd, so the
-/// app sees no later exit status.
 nonisolated enum AcpmuxDaemonLauncher {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.acpmux")
     nonisolated enum Failure: Error, Equatable {
@@ -94,10 +89,8 @@ nonisolated enum AcpmuxDaemonLauncher {
         try await launch(environment, deadline: deadline, launcher: launcher, onSpawn: { _ in })
     }
 
-    /// `onSpawn` gets the launch shell's pid (tests check that it was reaped); `stability` counts a daemon that
-    /// ended before it was ready.
+    /// `onSpawn` gets the launch shell's pid (tests check that it was reaped).
     @concurrent static func launch(_ environment: AcpmuxEnvironment, deadline: Duration, launcher: ChildProcessLauncher,
-                                   stability: StabilityCounters = StabilityCounters(),
                                    onSpawn: @Sendable (pid_t) -> Void) async throws -> AcpmuxWebEndpoint {
         // cmux NEXT's one-time adoption of its old acpmux home ends before any daemon starts (cx-is1kf.9).
         await AcpmuxEnvironment.adoptBuildHomes()
@@ -173,7 +166,7 @@ nonisolated enum AcpmuxDaemonLauncher {
         // in this process (cx-xqng).
         let ready: Result<AcpmuxWebEndpoint, any Error>
         do {
-            ready = .success(try await readReadyLine(&outputPipe, environment: environment, deadline: deadline, stability: stability))
+            ready = .success(try await readReadyLine(&outputPipe, environment: environment, deadline: deadline))
         } catch {
             ready = .failure(error)
         }
@@ -238,7 +231,7 @@ nonisolated enum AcpmuxDaemonLauncher {
     }
 
     private static func readReadyLine(_ outputPipe: inout [Int32], environment: AcpmuxEnvironment,
-                                      deadline: Duration, stability: StabilityCounters) async throws -> AcpmuxWebEndpoint {
+                                      deadline: Duration) async throws -> AcpmuxWebEndpoint {
         // Only the spawned shell and daemon may hold the write end. The CLOEXEC
         // default above closes every inherited descriptor; the shell creates
         // descriptor 3 explicitly for the ready line.
@@ -263,8 +256,6 @@ nonisolated enum AcpmuxDaemonLauncher {
                 return line
             }
         } catch AgentPaneLineReader.Failure.endOfFile {
-            // The daemon (and the shell) closed the ready pipe: it ended before it was ready.
-            stability.childExited(.acpmux, .panic)
             throw Failure.exited(logPath: environment.logPath)
         }
         guard let ready = AcpmuxReadyLine.parse(line) else { throw Failure.exited(logPath: environment.logPath) }

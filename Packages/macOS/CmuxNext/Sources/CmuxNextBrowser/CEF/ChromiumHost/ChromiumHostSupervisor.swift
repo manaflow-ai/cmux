@@ -1,6 +1,7 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 // The Chromium host app ships in Debug and bench builds only (embed-cef.sh), and so does its Swift side.
 public import CmuxNextWakeups
+import CmuxNextMetrics
 import Darwin
 import Foundation
 
@@ -29,6 +30,7 @@ import Foundation
 ///   `--log-file`, which the host writes), read off the main thread before its end is posted, with URLs replaced, as
 ///   Chrome hands each lost child's `ChildProcessTerminationInfo` (status, exit code) to
 ///   `BrowserChildProcessObserver::BrowserChildProcessCrashed` (content/browser/browser_child_process_host_impl.cc).
+///   The same end is one `stability.child_exit.chromium_host` sample (p09-observability-109).
 @MainActor
 public final class ChromiumHostSupervisor: ChromiumHostExitReporting {
     public var onHostEnded: (@MainActor (BrowserProcessExit) -> Void)?
@@ -73,6 +75,8 @@ public final class ChromiumHostSupervisor: ChromiumHostExitReporting {
     private(set) var policy: ChromiumHostRestartPolicy
     /// A crash within the budget restores the host's pages on the next host (feature `chromiumHostRestoreTabs`).
     private let restoresPages: Bool
+    /// Where each crash record's end is counted as a child exit.
+    private let stability: StabilityCounters
     private var host: Host?
     private var generation: UInt64 = 0
     private var starting = false
@@ -93,10 +97,11 @@ public final class ChromiumHostSupervisor: ChromiumHostExitReporting {
     }
 
     init(spawner: any ChromiumHostSpawning, policy: ChromiumHostRestartPolicy = ChromiumHostRestartPolicy(),
-         restoresPages: Bool = false) {
+         restoresPages: Bool = false, stability: StabilityCounters = StabilityCounters()) {
         self.spawner = spawner
         self.policy = policy
         self.restoresPages = restoresPages
+        self.stability = stability
     }
 
     /// The running host's wire, starting a host first. One start at a time: the runtime shares one attach
@@ -151,6 +156,7 @@ public final class ChromiumHostSupervisor: ChromiumHostExitReporting {
         if let failure = exit.startFailure { startFailure = failure }
         endObservers.forEach { $0() }
         guard !isQuitting(), let pageExit = exit.pageExit else { return }
+        stability.childExited(.chromiumHost, exit.childExit)
         keep(record(current, exit, reason: pageExit.reason, logTail: logTail))
         // A host that died before its hello, or with a start failure (kExit*), could not start: it spends no crash,
         // and no host starts again (a new one would die the same way).

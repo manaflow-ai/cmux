@@ -1996,6 +1996,15 @@ Paths are relative to the repo root. `S/` = `Packages/macOS/CmuxNext/Sources/`, 
 - Acceptance: Each source has one record call. A different boot session never counts as a crash. The
   fold test shows the counts survive an app crash.
 - Test phase: fleet: `swift test --filter StabilityCountersTests`; crash-matrix counter check.
+- Done in 109: the kinds whose exit the app sees. daemon (its ready connection's end), acpmux (a start
+  that ended before ready with no winner), chromium_host (the supervisor's reap), renderer, gpu and
+  utility (the in-process child monitor's wait status, `oom` from `NOTE_EXIT_DETAIL`), webkit.
+- Follow-up 109b: holder, host, app_host and browser_host are reaped by the daemon, and agent_host by
+  acpmux, so the app never sees their exit status (the crash matrix reports their counter as
+  NOT-MEASURABLE). The reaping process counts `stability.child_exit.<kind>` in its own metrics file
+  (cmux-tui-core `DAEMON_CATALOG`, an acpmux catalog), and `DaemonMetricsFold` folds those
+  histograms into the app's. Chromium helpers of host mode are the Chromium host's children: the
+  host counts them the same way.
 
 ### 110 Fatal-hang report at the next launch
 - Files: S/CmuxNextControl/Diagnostics/MainThreadWatchdog.swift, S/CmuxNextApp/Crash/{RunMarkerFile.swift, CrashReporter+Launch.swift}, S/CmuxNextTrace/CrashKeys.swift.

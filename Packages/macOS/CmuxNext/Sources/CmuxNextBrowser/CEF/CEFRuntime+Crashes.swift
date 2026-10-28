@@ -41,7 +41,7 @@ extension CEFRuntime {
         logger.error("helper ended type=\(type, privacy: .public) sub=\(exit.subType ?? "-", privacy: .public) pid=\(exit.pid) reason=\(reason.rawValue, privacy: .public) status=\(exit.status)")
         crashLog.append(BrowserCrashRecord(processType: type, subType: exit.subType, pid: exit.pid, reason: reason,
                                            code: Int(exit.status), source: .process))
-        let kind = CEFHelperExitMetric.ProcessType(processType: exit.processType, isExtension: exit.isExtension)
+        let kind = helperExits.childExited(exit)  // every helper's `stability.child_exit`, page renderers' too
         // CEF tells a browser only of its main frame's renderer; the monitor names the browsers whose other frames it hosted.
         for browser in exit.subframeBrowsers { tabsByBrowser[browser]?.subframeRendererEnded(pid: exit.pid) }
         // A page renderer counts in `rendererEnded`; its exit here gives that report its pid.

@@ -119,11 +119,7 @@ public actor LoopbackForwardClient {
                 table.stream(event.stream)?.deliver(event)
             },
             onClose: { reason in
-                let detail = switch reason {
-                case .closedByClient: "closed"
-                case .daemonShutdown: "daemon shut down"
-                case .lost(let text): text
-                }
+                let detail = reason.detail
                 let streams = table.removeAll()
                 if !streams.isEmpty { logger.info("loopback connection lost: \(detail, privacy: .public)") }
                 for stream in streams { stream.connectionLost(detail) }

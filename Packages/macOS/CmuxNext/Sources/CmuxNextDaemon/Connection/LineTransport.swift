@@ -5,16 +5,6 @@ import CmuxNextCompat
 import CmuxNextIPC
 import CmuxNextTrace
 
-/// Why a transport stopped.
-public enum TransportCloseReason: Sendable, Equatable {
-    /// `close()` was called locally.
-    case closedByClient
-    /// The daemon sent `daemon-shutdown`, then EOF.
-    case daemonShutdown
-    /// EOF, a read/write error, or a bad message.
-    case lost(String)
-}
-
 /// One connection to a cmux-tui Unix socket (raw protocol v12): the app's DaemonTransport.
 ///
 /// A dedicated reader thread cuts messages with CmuxNextIPC's ``FrameReader`` and routes them without
@@ -87,17 +77,20 @@ final class LineTransport: Sendable {
     /// Where each request's `daemon.request` slice goes (LineTransport+RequestTrace.swift), the top bits of its
     /// async id (``traceConnectionBits(scope:)``) and its flow's seed (``requestFlowSeed(pid:)``).
     let trace: TraceRuntime, traceConnection: UInt64, traceFlowSeed: UInt64
+    /// Where each request written is noted as the daemon's last (``DaemonEndpoint/requests``); nil notes none.
+    let requests: DaemonRequestNote?
 
-    /// - Parameter opened: An opened bridge (``open(path:bridge:role:stats:hangs:writerTarget:trace:)``); nil connects to `path`.
+    /// - Parameter opened: An opened bridge (``open(path:bridge:role:stats:hangs:writerTarget:trace:requests:)``); nil connects to `path`.
     /// - Parameter stats: Where the connection counts (``DaemonEndpoint/wireStats``); nil for none.
     /// - Parameter hangs: Watches each line the reader handles and each writer drain step; nil: none. `writerTarget`: see `open`.
     /// - Parameter clock: What reply deadlines are measured and slept on; tests pass a `ManualClock`.
     init(path: String, opened: DaemonBridge.Opened? = nil, role: DaemonWireStats.Role, stats: DaemonWireStats?,
          hangs: (any HangWatchScoping)? = nil, writerTarget: DispatchQueue? = nil, trace: TraceRuntime = .shared,
-         clock: any Clock<Duration> = ContinuousClock()) throws(DaemonError) {
+         requests: DaemonRequestNote? = nil, clock: any Clock<Duration> = ContinuousClock()) throws(DaemonError) {
         self.path = path
         self.role = role
         self.trace = trace
+        self.requests = requests
         traceConnection = Self.traceConnectionBits(scope: trace.nextAsyncScope())
         traceFlowSeed = Self.requestFlowSeed(pid: getpid())
         // timer-class-allow: off main: the request deadlines fail their expired requests from the transport's own state; no main-thread job
@@ -187,7 +180,8 @@ final class LineTransport: Sendable {
     /// `daemon.request` slice ends when the slot resolves (LineTransport+RequestTrace.swift).
     /// With `framed`, a typed v12 command goes as a REQUEST frame once the connection holds `ipc-frames-v2`
     /// (``FramedRequests``).
-    func request(cmd: DaemonCommandName, timeout: Duration?, framed: Bool = false,
+    /// With `notes` false the request is not the daemon's last (``requests``): the heartbeat's own ask.
+    func request(cmd: DaemonCommandName, timeout: Duration?, framed: Bool = false, notes: Bool = true,
                  _ body: (UInt64) throws -> Data) async throws -> Response {
         let slot = ReplySlot()
         #if DEBUG || CMUX_BENCH_HOOKS
@@ -195,7 +189,8 @@ final class LineTransport: Sendable {
         let armed = NewTerminalTrace.shared.isArmed
         var traced: String?
         #endif
-        submit(.reply(cmd: cmd.wire, slot), deadline: timeout.map { self.deadline(after: $0) }, framed: framed) { id in
+        submit(.reply(cmd: cmd.wire, slot), deadline: timeout.map { self.deadline(after: $0) }, framed: framed,
+               notes: notes) { id in
             let line = try body(id)
             #if DEBUG || CMUX_BENCH_HOOKS
             if armed { traced = NewTerminalTrace.shared.requestSent(line) }
@@ -243,11 +238,12 @@ final class LineTransport: Sendable {
     /// only to a waiter that awaits its reply.
     /// With `framed`, the request goes as a REQUEST frame when the connection frames its method
     /// (``FramedRequests``), else as a line.
+    /// With `notes`, a written request is the daemon's last (``requests``); the heartbeat's ask is not.
     /// Returns the request id once the waiter is registered.
     @discardableResult
-    func submit(_ waiter: Waiter, deadline: DeadlineHeap.Deadline? = nil, framed: Bool = false,
+    func submit(_ waiter: Waiter, deadline: DeadlineHeap.Deadline? = nil, framed: Bool = false, notes: Bool = true,
                 _ body: (UInt64) throws -> Data) -> Result<UInt64, any Error> {
-        var writeFailure: String?
+        var writeFailure: SocketWriteFailure?
         var submittedID: UInt64 = 0
         let early: (any Error)? = socket.withLock { socket -> (any Error)? in
             let id: UInt64
@@ -274,8 +270,11 @@ final class LineTransport: Sendable {
             }
             submittedID = id
             let message = Self.message(payload, id: id, cmd: waiter.cmd, framing: framing)
-            writeFailure = socket.fd >= 0 ? writer.write(message)?.description : "socket closed"
-            if writeFailure == nil { recorder?.lineWritten(bytes: message.count) }
+            writeFailure = socket.fd >= 0 ? writer.write(message) : .closed
+            if writeFailure == nil {
+                recorder?.lineWritten(bytes: message.count)
+                if notes { requests?.sent(wire: waiter.cmd) }
+            }
             return nil
         }
         if let early {
@@ -283,8 +282,10 @@ final class LineTransport: Sendable {
             return .failure(early)
         }
         if let writeFailure {
-            failAll(.lost(writeFailure))
-            return .failure(DaemonError.connectionClosed(reason: writeFailure))
+            let detail = writeFailure.description
+            // Only the daemon's end refusing the bytes is the daemon's; any other failure is the app's own close.
+            failAll(writeFailure == .peerClosed ? .lost(detail) : .appFault(detail))
+            return .failure(DaemonError.connectionClosed(reason: detail))
         }
         return .success(submittedID)
     }
@@ -373,6 +374,7 @@ final class LineTransport: Sendable {
         var framesAccepted = false
         var chunk = [UInt8](repeating: 0, count: Self.socketBufferBytes)
         var closeDetail = "EOF"
+        var badMessage: String?  // the reader's own close (``TransportCloseReason/appFault(_:)``)
         // wakeup-allow: bounded: blocking read on a dedicated thread; EOF, errors and bad messages end it, EINTR retries
         while true {
             // SAFETY: read writes at most $0.count bytes into the array's own storage, which the closure lends
@@ -403,16 +405,17 @@ final class LineTransport: Sendable {
                 if unrouted == nil { next = Self.nextMessage(&reader) }
             }
             if let unrouted {
-                closeDetail = "bad message: \(unrouted)"
+                badMessage = unrouted
                 break
             }
             if case .failure(let bad) = next {
-                closeDetail = "bad message: \(bad.reason)"
+                badMessage = bad.reason
                 break
             }
         }
         let reason: TransportCloseReason = state.withLock { state in
             if let closed = state.closed { return closed }
+            if let badMessage { return .appFault("bad message: \(badMessage)") }
             return state.sawShutdown ? .daemonShutdown : .lost(closeDetail)
         }
         failAll(reason)

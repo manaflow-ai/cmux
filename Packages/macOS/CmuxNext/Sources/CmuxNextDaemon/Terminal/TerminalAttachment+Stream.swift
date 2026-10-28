@@ -227,7 +227,7 @@ extension TerminalAttachment {
             switch reason {
             case .closedByClient: router.finish(.closed(.detachedByClient))
             case .daemonShutdown: router.finish(.closed(.connectionLost("daemon shut down")))
-            case .lost(let detail): router.finish(.closed(.connectionLost(detail)))
+            case .lost, .appFault: router.finish(.closed(.connectionLost(reason.detail)))
             }
         }
 

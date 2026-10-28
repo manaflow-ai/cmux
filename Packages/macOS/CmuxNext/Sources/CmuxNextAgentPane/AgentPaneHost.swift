@@ -1,6 +1,7 @@
 import CmuxNextCompat
 public import CmuxNextDesign
 public import Foundation
+public import CmuxNextMetrics
 import CmuxNextWakeups
 import os
 
@@ -123,11 +124,14 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     /// owner hands it off and starts the bundled one (the Chief host,
     /// `ChiefAcpmuxHeal`). Returns whether it did. Nil: this host cannot heal.
     private let healReplaced: (@Sendable () async -> Bool)?
+    /// Counts a daemon this host started that ended before it was ready while no other daemon took its place
+    /// (`stability.child_exit.acpmux`, p09-observability-109).
+    private let stability: StabilityCounters
 
     /// - Parameter healReplaced: called once per daemon pid when a daemon this
     ///   host does not start (`startsDaemons: false`) runs from a replaced bundle.
     public init(environment: AcpmuxEnvironment?, startsDaemons: Bool = true,
-                healReplaced: (@Sendable () async -> Bool)? = nil) {
+                healReplaced: (@Sendable () async -> Bool)? = nil, stability: StabilityCounters = StabilityCounters()) {
         self.resolveEnvironment = { environment }
         self.computerUse = { [:] }
         self.offersSessionTools = { environment?.offersSessionTools ?? false }
@@ -136,6 +140,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         self.daemonReady = { _ in }
         self.startsDaemons = startsDaemons
         self.healReplaced = healReplaced
+        self.stability = stability
     }
 
     /// Looks for acpmux (bundled, PATH, install directories) on the actor,
@@ -156,6 +161,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         self.daemonReady = daemonReady ?? { _ in }
         self.startsDaemons = true
         self.healReplaced = nil
+        stability = StabilityCounters()
     }
 
     public func handshake(sessionId: String?) async throws -> AgentPaneHandshake {
@@ -220,7 +226,11 @@ public actor AcpmuxHost: AgentPaneHostProviding {
             heal = { @Sendable (pid: Int32) async -> Bool in await self.healOnce(pid: pid, healReplaced) }
         }
         let launcher = self.launcher
-        let task = Task { try await Self.findOrStart(environment, startsDaemon: startsDaemon, owned: owned, heal: heal, launcher: launcher) }
+        let stability = self.stability
+        let task = Task {
+            try await Self.findOrStart(environment, startsDaemon: startsDaemon, owned: owned, heal: heal, launcher: launcher,
+                                       stability: stability)
+        }
         inFlight[startsDaemon] = task
         defer { if inFlight[startsDaemon] == task { inFlight[startsDaemon] = nil } }
         let endpoint = try await task.value
@@ -319,7 +329,8 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     }
 
     private static func findOrStart(_ environment: AcpmuxEnvironment, startsDaemon: Bool, owned: Bool,
-                                    heal: (@Sendable (Int32) async -> Bool)?, launcher: ChildProcessLauncher) async throws -> AcpmuxWebEndpoint {
+                                    heal: (@Sendable (Int32) async -> Bool)?, launcher: ChildProcessLauncher,
+                                    stability: StabilityCounters) async throws -> AcpmuxWebEndpoint {
         // cmux NEXT adopts its old acpmux home before it asks or starts a daemon (cx-is1kf.9).
         await AcpmuxEnvironment.adoptBuildHomes()
         do {
@@ -404,6 +415,8 @@ public actor AcpmuxHost: AgentPaneHostProviding {
             // A reconnect's rule: this branch never stops the winner (`mayHandOff: false`).
             do {
                 guard let status = await Self.startedStatus(environment) else {
+                    // No winner: the daemon this launch started ended before it was ready, on a fatal error its log has.
+                    stability.childExited(.acpmux, .panic)
                     throw failure(environment, .exited, detail: "no daemon answers after the launch exited")
                 }
                 guard status.serves(home: environment.home) else { throw Self.foreignHome(status, environment) }

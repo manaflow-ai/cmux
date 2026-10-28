@@ -32,7 +32,7 @@ import CmuxNextMetrics
 /// same way (google_apis/gcm/engine/heartbeat_manager.cc).
 ///
 /// A close after the misses is one `daemon.unresponsive` sample (p09-observability-109) when the run counts
-/// stability, by the class of the last request the app sent the daemon (``noteRequest(_:)``): what it was asked
+/// stability, by the class of the last request the app sent the daemon (``requests``): what it was asked
 /// before it stopped answering.
 public final class ConnectionHeartbeat: Sendable {
     /// One run's daemon: how to ask it, how to close it, and how long it has been quiet.
@@ -114,8 +114,9 @@ public final class ConnectionHeartbeat: Sendable {
     private let elapsed: @Sendable () -> Duration
     // concurrency-allow: the run's counters, its probe, gate and presence, read and written synchronously by the timer's ask and the policy's and presence's edges (lock carve-out: a few fields, no I/O; the timer is scheduled with no wait under it).
     private let state = Mutex(State())
-    /// The method id of the last request the app sent (``noteRequest(_:)``) plus one; 0 before one.
-    private let lastRequest = Atomic<UInt64>(0)
+    /// The last request the app sent this daemon: each transport of the connection's endpoint notes its own
+    /// (``DaemonEndpoint/requests``), never this heartbeat's ask.
+    let requests = DaemonRequestNote()
 
     init(clock: any Clock<Duration> = ContinuousClock()) {
         // timer-class-allow: off main: each ask runs on the connection's own probe (a request on its transport) and posts no main-thread job
@@ -172,26 +173,16 @@ public final class ConnectionHeartbeat: Sendable {
         if let run { schedule(.onSilence, run: run) }
     }
 
-    /// The app sent `command` to the daemon (not the heartbeat's own ask): an unresponsive daemon is counted by
-    /// its class. One relaxed store per request.
-    func noteRequest(_ command: DaemonCommandName) {
-        lastRequest.store(UInt64(truncatingIfNeeded: command.id) &+ 1, ordering: .relaxed)
-    }
-
-    /// The class of the last request ``noteRequest(_:)`` saw; nil before one.
-    var lastRequestClass: HistogramID.MethodClass? {
-        let stored = lastRequest.load(ordering: .relaxed)
-        guard stored > 0 else { return nil }
-        let position = DaemonCommandName.methodClassPosition(id: UInt16(truncatingIfNeeded: stored &- 1))
-        return HistogramID.MethodClass.allCases.dropFirst(position).first ?? .other
-    }
+    /// The class of the last request the app sent the daemon (``requests``); nil before one.
+    var lastRequestClass: HistogramID.MethodClass? { requests.lastClass }
 
     /// Starts asking on `transport`; a later start (a reconnect) or `stop`
     /// ends the earlier run, and a closed transport ends it after its misses, counted in `stability` when given.
+    /// The ask is not noted as the app's last request.
     func start(_ transport: LineTransport, every interval: Duration, hidden hiddenInterval: Duration?, misses limit: Int,
                stability: StabilityCounters? = nil) {
         start(Probe(ask: { timeout in
-            (try? await transport.request(cmd: IdentifyRequest.commandName, timeout: timeout) { id in
+            (try? await transport.request(cmd: IdentifyRequest.commandName, timeout: timeout, notes: false) { id in
                 try WireCoding.encodeRequest(IdentifyRequest(), id: id)
             }) != nil
         }, close: { transport.close() }, silence: { transport.inboundSilence },

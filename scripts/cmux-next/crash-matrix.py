@@ -14,7 +14,8 @@ checks:
     (TraceBlackBoxUpload's rule: no `key.*`, no `pty` name part, no per-input event);
   - the top cmux frame's image UUID is a UUID of a dSYM of the build (`dwarfdump --uuid`), by the kind's rule below;
   - its stability counter (`metrics.snapshot`, task 109's `stability.*` enumerations) rose by exactly 1, for a kind
-    that ends a process;
+    that ends a process; a process the daemon or acpmux reaps (the holder and the four hosts) is NOT-MEASURABLE there
+    until follow-up p09-observability-109b counts its exit where it is reaped;
   - for every kind that is not an app kind, the app pid did not change.
 
 The matrix is Chromium's own: crash each process type on purpose (chrome://crash, chrome://gpucrash and
@@ -89,7 +90,8 @@ DWARFDUMP_UUID = re.compile(r"UUID:\s+([0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]
 class Kind:
     """One process kind of done check 8. `trigger` names a Run method and `arg` its argument; `report` is
     "relaunch" (Sentry sends the crash at the app's next launch) or "live"; `counter` is the stability enumeration
-    (histogram, value) the crash adds 1 to, or None with `counter_why`; `processes` and `crash_sources` are the
+    (histogram, value) the crash adds 1 to, or None with `counter_why`; with `counter_gap` the app cannot count it yet
+    (the missing capability, a NOT-MEASURABLE check); `processes` and `crash_sources` are the
     accepted `process` and `crash_source` tag values (empty: any non-empty value). `stand_in` names the injector no
     task specifies, when a signal takes its place (the kind is then NOT-MEASURABLE). `starts` says what starts the
     process: "launch" (the app's launch), "trigger" (the trigger itself) or the Run method that starts it first.
@@ -104,6 +106,7 @@ class Kind:
     processes: tuple = ()
     host_flag: bool = False
     counter_why: str = ""
+    counter_gap: str = ""
     stand_in: str = ""
     no_stack: str = ""
     stack_gap: str = ""
@@ -130,6 +133,13 @@ THREAD_PANIC = ("a `panic` ends only the injector's thread (task 101); the proce
                 "is counted")
 PANIC_LOG = ("missing capability: OwnerPanicForwarder.event sends a Rust panic-log event with no stack and no "
              "debug_meta (the backtrace is text in `extra`), so no image UUID can be checked")
+def reaped_elsewhere(process, reaper):
+    return (f"missing capability: {reaper} reaps {process}, not the app, so the app never sees its exit status "
+            "(task 109 counts only the exits the app sees); follow-up p09-observability-109b: the reaping process "
+            "counts stability.child_exit.<kind> in its own metrics file and DaemonMetricsFold folds it into the "
+            "app's histograms")
+
+
 HELPER_EXIT = ("missing capability: the helper-exit event (task 083) has no stack; only a macOS crash report of the "
                "helper carries one")
 KILLED = "SIGKILL ends the process with no crash handler, so no stack exists"
@@ -140,19 +150,24 @@ KINDS = (
     Kind("daemon-panic", "daemon_inject", "panic", "live", None, ("cmux-tui",), counter_why=THREAD_PANIC,
          stack_gap=PANIC_LOG, crash_sources=("owner_panic_log",)),
     Kind("daemon-segv", "daemon_inject", "segv", "live", child("daemon", CHILD_SIGNAL), ("cmux-tui",)),
-    Kind("holder-abort", "signal_holder", signal.SIGABRT, "live", child("holder", CHILD_SIGNAL), ("cmux-holder",)),
+    Kind("holder-abort", "signal_holder", signal.SIGABRT, "live", child("holder", CHILD_SIGNAL), ("cmux-holder",),
+         counter_gap=reaped_elsewhere("cmux-holder", "the daemon")),
     Kind("terminal-host-panic", "signal_host", signal.SIGABRT, "live", child("host", CHILD_SIGNAL),
-         ("cmux-tui-host", "cmux-tui"), stand_in=no_injector("the terminal host")),
+         ("cmux-tui-host", "cmux-tui"), stand_in=no_injector("the terminal host"),
+         counter_gap=reaped_elsewhere("the terminal host", "the daemon")),
     Kind("terminal-host-segv", "signal_host", signal.SIGSEGV, "live", child("host", CHILD_SIGNAL),
-         ("cmux-tui-host", "cmux-tui")),
+         ("cmux-tui-host", "cmux-tui"), counter_gap=reaped_elsewhere("the terminal host", "the daemon")),
     Kind("acpmux-panic", "acpmux_inject", "panic", "live", None, ("acpmux",), counter_why=THREAD_PANIC,
          stack_gap=PANIC_LOG, crash_sources=("acpmux_panic_log",)),
     Kind("agent-host-panic", "signal_agent_host", signal.SIGABRT, "live", child("agent_host", CHILD_SIGNAL),
+         counter_gap=reaped_elsewhere("the agent host", "acpmux"),
          stand_in=no_injector("the agent host"), starts="new_agent_chat"),
     Kind("app-host-panic", "signal_bundle_binary", ("cmux-app-host", signal.SIGABRT), "live",
-         child("app_host", CHILD_SIGNAL), stand_in=no_injector("cmux-app-host"), starts="open_app_pane"),
+         child("app_host", CHILD_SIGNAL), stand_in=no_injector("cmux-app-host"), starts="open_app_pane",
+         counter_gap=reaped_elsewhere("cmux-app-host", "the daemon")),
     Kind("browser-host-panic", "signal_bundle_binary", ("cmux-browser-host", signal.SIGABRT), "live",
-         child("browser_host", CHILD_SIGNAL), stand_in=no_injector("cmux-browser-host")),
+         child("browser_host", CHILD_SIGNAL), stand_in=no_injector("cmux-browser-host"),
+         counter_gap=reaped_elsewhere("cmux-browser-host", "the daemon")),
     Kind("renderer-crash", "omnibar", "chrome://crash", "live", child("renderer", CHILD_SIGNAL),
          stack_gap=HELPER_EXIT, images="chromium", starts="trigger"),
     Kind("gpu-crash", "omnibar", "chrome://gpucrash", "live", child("gpu", CHILD_SIGNAL),
@@ -637,6 +652,9 @@ def check_counter(report, kind, before, after):
     """Its stability counter rose by exactly 1; the other changes are printed."""
     if kind.counter is None:
         report.add("stability counter", SKIP, kind.counter_why)
+        return
+    if kind.counter_gap:
+        report.add("stability counter", NOT_MEASURABLE, kind.counter_gap)
         return
     if before is None or after is None:
         report.add("stability counter", NOT_MEASURABLE, "metrics.snapshot gave no histograms (metricsView off?)")
@@ -1167,19 +1185,24 @@ class SelfTest(unittest.TestCase):
 
     def test_stability_counters_and_delta(self):
         reply = {"histograms": [
-            {"name": "stability.child_exit.holder", "buckets": [{"index": 1, "low": 1, "high": 2, "count": 1}]},
+            {"name": "stability.child_exit.renderer", "buckets": [{"index": 1, "low": 1, "high": 2, "count": 1}]},
             {"name": "stability.launch", "buckets": [{"index": 1, "low": 1, "count": 1}]},
             {"name": "key.frame", "buckets": [{"index": 3, "low": 4, "count": 9}]}]}
         after = stability_counters(reply)
-        self.assertEqual(after, {("stability.child_exit.holder", 1): 1})
+        self.assertEqual(after, {("stability.child_exit.renderer", 1): 1})
         self.assertIsNone(stability_counters({"error": "unavailable"}))
-        self.assertEqual(counter_delta({}, after), {("stability.child_exit.holder", 1): 1})
-        report = KindReport(KINDS_BY_NAME["holder-abort"])
+        self.assertEqual(counter_delta({}, after), {("stability.child_exit.renderer", 1): 1})
+        report = KindReport(KINDS_BY_NAME["renderer-crash"])
         check_counter(report, report.kind, {}, after)
         self.assertEqual(report.status, PASS)
-        report = KindReport(KINDS_BY_NAME["holder-abort"])
+        report = KindReport(KINDS_BY_NAME["renderer-crash"])
         check_counter(report, report.kind, after, after)
         self.assertEqual(report.status, FAIL)
+        # A process another process reaps: the app cannot count it yet, which names the follow-up.
+        report = KindReport(KINDS_BY_NAME["holder-abort"])
+        check_counter(report, report.kind, {}, {("stability.child_exit.holder", 1): 1})
+        self.assertEqual(report.status, NOT_MEASURABLE)
+        self.assertIn("follow-up", report.checks[0].detail)
 
     def test_envelope_checks(self):
         box = "".join(f"{i} app frame.commit B 0 0\n" for i in range(300)).encode()
@@ -1337,6 +1360,9 @@ class SelfTest(unittest.TestCase):
                 self.assertIsNone(kind.counter, f"{kind.name}: a thread panic ends no process")
             if kind.counter is None:
                 self.assertTrue(kind.counter_why, kind.name)
+            if kind.counter_gap:
+                self.assertIsNotNone(kind.counter, f"{kind.name}: a counter gap names the counter it cannot count yet")
+                self.assertIn("follow-up", kind.counter_gap, kind.name)
             if kind.stand_in:
                 self.assertTrue(kind.name.endswith("-panic") and kind.trigger not in ("daemon_inject", "acpmux_inject"))
             if kind.name.endswith("-panic") and not kind.stand_in:
@@ -1490,7 +1516,8 @@ def main(argv=None):
         for kind in KINDS:
             counter = f"{kind.counter[0]}[{kind.counter[1]}]" if kind.counter else "-"
             print(f"{kind.name:<22} {kind.trigger:<20} {kind.report:<9} {counter}{'  (--host)' if kind.host_flag else ''}"
-              f"{'  (SIGABRT stands in for a panic: NOT-MEASURABLE)' if kind.stand_in else ''}")
+              f"{'  (SIGABRT stands in for a panic: NOT-MEASURABLE)' if kind.stand_in else ''}"
+              f"{'  (counter: NOT-MEASURABLE, follow-up 109b)' if kind.counter_gap else ''}")
         return 0
     opts.app = opts.app or os.environ.get("NX_APP")
     if not opts.app:

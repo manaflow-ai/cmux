@@ -88,9 +88,10 @@ struct AcpmuxLostStartRaceTests {
 
     @Test func aLaunchThatLosesTheStartRaceStillKeysTheWinner() async throws {
         let fixture = try Fixture(winnerOfAnotherHome: false)
+        let (stability, store) = AcpmuxStability.attached()
         var started: Result<Void, any Error> = .success(())
         do {
-            try await AcpmuxHost(environment: fixture.environment).prewarm()
+            try await AcpmuxHost(environment: fixture.environment, stability: stability).prewarm()
         } catch {
             started = .failure(error)
         }
@@ -108,6 +109,7 @@ struct AcpmuxLostStartRaceTests {
         #expect(winner?.pid != nil, "no daemon won the start")
         #expect(key != nil, "the app used the daemon that won the start without enrolling its person key: no pane proves the person, and every Allow is refused until the app restarts")
         #expect(bound == key, "the app's key is not bound to the daemon that won the start")
+        #expect(AcpmuxStability.exits(store).isEmpty, "a lost start race was counted as an acpmux exit (p09-observability-109)")
     }
 
     /// The winner serves another acpmux home on this app's socket (another app's or tag's): the

@@ -11,7 +11,7 @@ import os
 /// restarts those itself. This monitor makes them visible (`debug.crashes`,
 /// crash reports) without polling: a kqueue `NOTE_FORK` on the app process
 /// fires when Chromium spawns a helper (posix_spawn counts), a rescan of
-/// the app's children registers `NOTE_EXEC | NOTE_EXIT | NOTE_EXITSTATUS`
+/// the app's children registers `NOTE_EXEC | NOTE_EXIT | NOTE_EXITSTATUS | NOTE_EXIT_DETAIL`
 /// on each new one, and the exit event carries the wait status before
 /// Chromium reaps the child.
 nonisolated final class CEFChildProcessMonitor: @unchecked Sendable {
@@ -27,7 +27,14 @@ nonisolated final class CEFChildProcessMonitor: @unchecked Sendable {
         var rendererClientID: Int32?
         /// The browsers a renderer hosted frames for other than their main frame (``CEFSubframeRenderers``).
         var subframeBrowsers: Set<Int32> = []
+        /// The kernel ended it for memory (jetsam, `NOTE_EXIT_MEMORY`).
+        var outOfMemory = false
     }
+
+    /// `<sys/event.h>`: `NOTE_EXIT_DETAIL` asks the exit event for why the process ended, and `NOTE_EXIT_MEMORY`
+    /// in its data says the kernel ended it for memory; the wait status is the data's low 16 bits.
+    static let noteExitDetail: UInt32 = 0x0200_0000
+    static let noteExitMemory: Int = 0x0002_0000
 
     private let queue = DispatchQueue(label: "com.cmuxterm.app.next.cef-children", qos: .userInitiated)
     private let onExit: @Sendable (Exit) -> Void
@@ -92,8 +99,9 @@ nonisolated final class CEFChildProcessMonitor: @unchecked Sendable {
                 guard let identity else { continue }
                 let subframeBrowsers = identity.rendererClientID.map { subframes.ended(client: $0) } ?? []
                 onExit(Exit(pid: pid, processType: identity.processType, subType: identity.subType,
-                            isExtension: identity.isExtension, status: Int32(truncatingIfNeeded: event.data),
-                            rendererClientID: identity.rendererClientID, subframeBrowsers: subframeBrowsers))
+                            isExtension: identity.isExtension, status: Int32(truncatingIfNeeded: event.data & 0xFFFF),
+                            rendererClientID: identity.rendererClientID, subframeBrowsers: subframeBrowsers,
+                            outOfMemory: event.data & Self.noteExitMemory != 0))
             }
         }
         if needsRescan { rescan() }
@@ -137,7 +145,8 @@ nonisolated final class CEFChildProcessMonitor: @unchecked Sendable {
         for pid in pids.prefix(count) where pid > 0 && children[pid] == nil {
             // SAFETY: udata is NULL; the kernel never dereferences it.
             var event = unsafe kevent(ident: UInt(pid), filter: Int16(EVFILT_PROC), flags: UInt16(EV_ADD | EV_CLEAR),
-                                      fflags: UInt32(NOTE_EXEC) | UInt32(NOTE_EXIT) | UInt32(NOTE_EXITSTATUS), data: 0, udata: nil)
+                                      fflags: UInt32(NOTE_EXEC) | UInt32(NOTE_EXIT) | UInt32(NOTE_EXITSTATUS) | Self.noteExitDetail,
+                                      data: 0, udata: nil)
             // Fails when the child already exited (and was reaped).
             // SAFETY: one change read from `event`, no event list.
             guard unsafe kevent(kq, &event, 1, nil, 0, nil) == 0 else { continue }

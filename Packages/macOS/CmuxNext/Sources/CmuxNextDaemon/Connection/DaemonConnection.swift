@@ -38,7 +38,7 @@ import os
 ///
 /// The app's main connection to its local daemon (``DaemonConnectionConfiguration/localHeartbeat``) counts the
 /// daemon's stability (p09-observability-109): each end of a ready connection as `stability.child_exit.daemon`
-/// (``daemonExit(_:)``) and each heartbeat close as `daemon.unresponsive`.
+/// (``TransportCloseReason/daemonExit``) and each heartbeat close as `daemon.unresponsive`.
 public actor DaemonConnection {
     public typealias EndpointProvider = @Sendable () async throws -> DaemonEndpoint
 
@@ -219,7 +219,6 @@ public actor DaemonConnection {
         defer { handoffGate.leave() }
         guard let ready = admittedConnection else { throw DaemonError.notConnected }
         try R.requireServed(by: ready.identity)
-        heartbeat.noteRequest(R.commandName)
         let request = forDaemon(request, ready.identity)
         // Before the line goes out: the echo can arrive before the reply.
         DaemonCommandScope.recordEchoTransaction(of: request, in: mutationCauses)
@@ -247,9 +246,7 @@ public actor DaemonConnection {
         defer { handoffGate.leave() }
         guard let ready = admittedConnection else { throw DaemonError.notConnected }
         try onTransport(ready.transport)
-        let command = DaemonCommandName(wire: envelope(0).operation)
-        heartbeat.noteRequest(command)
-        let response = try await ready.transport.request(cmd: command, timeout: timeout ?? configuration.requestTimeout) { id in
+        let response = try await ready.transport.request(cmd: DaemonCommandName(wire: envelope(0).operation), timeout: timeout ?? configuration.requestTimeout) { id in
             try envelope(id).lineData()
         }
         return try ResourceRequestEnvelope.decodeResult(R.self, from: response)
@@ -297,11 +294,14 @@ public actor DaemonConnection {
         serial += 1
         let serial = serial
         do {
-            let endpoint = try await endpointProvider()
+            var endpoint = try await endpointProvider()
+            // Every request to a counted daemon, on this connection or a terminal's own, is noted as its last.
+            if configuration.countsStability(of: endpoint) { endpoint.requests = heartbeat.requests }
             DaemonLaunchTimings.shared.mark("daemon.endpoint_resolved")
             let transport = try await LineTransport.open(path: endpoint.socketPath, bridge: endpoint.bridge,
                                                          role: configuration.role == .pageRelay ? .pageRelay : .control,
-                                                         stats: endpoint.wireStats, hangs: configuration.hangWatch)
+                                                         stats: endpoint.wireStats, hangs: configuration.hangWatch,
+                                                         requests: endpoint.requests)
             DaemonLaunchTimings.shared.mark("daemon.socket_connected")
             let gate = EventGate()
             let route = route
@@ -376,20 +376,8 @@ public actor DaemonConnection {
 
     var isClosedPhase: Bool { if case .closed = phase { true } else { false } }
 
-    /// Whether this connection counts its daemon's stability: the app's main connection (the one with the local
-    /// heartbeat) to a daemon on this Mac. A bridge's server is another machine's; a page relay shares the daemon.
-    private var countsStability: Bool { configuration.localHeartbeat && endpoint?.bridge == nil }
-
-    /// How a ready connection's end says its daemon ended: a `daemon-shutdown` first is a clean exit; an end
-    /// without it is a signal (the app is not the daemon's parent, so no exit status says more); the app's own
-    /// close is no daemon exit.
-    static func daemonExit(_ reason: TransportCloseReason) -> HistogramID.ChildExit? {
-        switch reason {
-        case .closedByClient: nil
-        case .daemonShutdown: .clean
-        case .lost: .signal
-        }
-    }
+    /// Whether this connection counts its daemon's stability (``DaemonConnectionConfiguration/countsStability(of:)``).
+    private var countsStability: Bool { endpoint.map { configuration.countsStability(of: $0) } ?? false }
 
     private func transportClosed(serial: UInt64, reason: TransportCloseReason) {
         guard serial == self.serial else { return }
@@ -398,14 +386,10 @@ public actor DaemonConnection {
         #if DEBUG || CMUX_BENCH_HOOKS
         if case .ready = phase, case .lost = reason { droppedWithoutShutdown += 1 }
         #endif
-        if case .ready = phase, countsStability, let exit = Self.daemonExit(reason) { stability.childExited(.daemon, exit) }
+        if case .ready = phase, countsStability, let exit = reason.daemonExit { stability.childExited(.daemon, exit) }
         phase = .waiting
         healthy.cancel()
-        let detail: String = switch reason {
-        case .closedByClient: "closed"
-        case .daemonShutdown: "daemon shut down"
-        case .lost(let text): text
-        }
+        let detail = reason.detail
         logger.info("cmux-tui connection lost: \(detail, privacy: .public)")
         route.emit(DaemonEventEnvelope(sequence: DaemonEventEnvelope.sequence(serial: serial, index: DaemonEventEnvelope.lastIndex),
                                        event: .disconnected(reason: detail), sourceID: eventSourceID))

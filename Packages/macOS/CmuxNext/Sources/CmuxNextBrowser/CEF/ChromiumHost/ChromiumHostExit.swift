@@ -1,5 +1,6 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 // The Chromium host app ships in Debug builds only (embed-cef.sh), and so does its Swift side.
+import CmuxNextMetrics
 import Darwin
 
 /// How a Chromium host process ended.
@@ -52,6 +53,13 @@ nonisolated struct ChromiumHostExit: Equatable, Sendable, CustomStringConvertibl
         guard status != 0 else { return nil }
         let reason: BrowserProcessExit.Reason = startFailure == nil ? .abnormal : .launchFailed
         return BrowserProcessExit(reason: reason, code: Int(status) << 8, engine: .cef, process: .chromiumHost)
+    }
+
+    /// How it ended in `stability.child_exit.chromium_host`: a signal (or an end whose status could not be read) is
+    /// `signal`, a nonzero exit status the host's own fatal error (`panic`), status 0 `clean`.
+    var childExit: HistogramID.ChildExit {
+        guard signal == nil, let status else { return .signal }
+        return status == 0 ? .clean : .panic
     }
 }
 #endif

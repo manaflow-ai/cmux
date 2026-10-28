@@ -39,6 +39,8 @@ final class WireDaemon: Sendable {
     let refusedFrames = Mutex(0)
     private let listener: Int32
     private let script: Script
+    /// The connections being served, by descriptor.
+    private let clients = Mutex<Set<Int32>>([])
 
     init(_ script: Script) throws {
         self.script = script
@@ -67,6 +69,7 @@ final class WireDaemon: Sendable {
                 guard client >= 0 else { return }
                 let connection = index
                 index += 1
+                clients.withLock { _ = $0.insert(client) }
                 let serving = Thread { [self] in serve(client, connection: connection) }
                 serving.start()
             }
@@ -78,6 +81,16 @@ final class WireDaemon: Sendable {
         shutdown(listener, SHUT_RDWR)
         close(listener)
         unlink(path)
+    }
+
+    /// Ends every served connection as a daemon that died does: the app reads EOF.
+    func dropConnections() {
+        for client in clients.withLock({ $0 }) { shutdown(client, SHUT_RDWR) }
+    }
+
+    /// Writes `bytes` as they are to every served connection (a line the app cannot decode, say).
+    func sendToConnections(_ bytes: [UInt8]) {
+        for client in clients.withLock({ $0 }) { _ = Self.write(Data(bytes), to: client, newline: false) }
     }
 
     private enum Message {
@@ -92,7 +105,10 @@ final class WireDaemon: Sendable {
     }
 
     private func serve(_ client: Int32, connection: Int) {
-        defer { close(client) }
+        defer {
+            clients.withLock { _ = $0.remove(client) }
+            close(client)
+        }
         var on: Int32 = 1
         setsockopt(client, SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size))
         var session = Session()

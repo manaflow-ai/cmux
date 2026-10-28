@@ -16,6 +16,8 @@ public struct DaemonEndpoint: Hashable, Sendable {
     /// passes it to its ``LineTransport``. Nil counts nothing (a release build). Not part of the
     /// endpoint's identity (equality and hash).
     public var wireStats: DaemonWireStats?
+    /// Where its connections note each request as the daemon's last (``DaemonRequestNote``); nil notes nothing.
+    var requests: DaemonRequestNote?
 
     public init(socketPath: String, pid: Int32? = nil, generation: DaemonGeneration? = nil, bridge: DaemonBridge? = nil,
                 wireStats: DaemonWireStats? = nil) {
@@ -24,17 +26,6 @@ public struct DaemonEndpoint: Hashable, Sendable {
         self.generation = generation
         self.bridge = bridge
         self.wireStats = wireStats
-    }
-
-    public static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.socketPath == rhs.socketPath && lhs.pid == rhs.pid && lhs.generation == rhs.generation && lhs.bridge == rhs.bridge
-    }
-
-    public func hash(into hasher: inout Hasher) {
-        hasher.combine(socketPath)
-        hasher.combine(pid)
-        hasher.combine(generation)
-        hasher.combine(bridge)
     }
 }
 
