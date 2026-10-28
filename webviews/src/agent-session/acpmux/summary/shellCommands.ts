@@ -23,13 +23,15 @@ export function shellCommands(text: string): string[] {
       }
       const runs = active && (operator === "&&" ? status !== false : operator === "||" ? status !== true : true);
       const previous = at;
-      let result = compound(runs, depth + 1);
+      const first = compound(runs, depth + 1);
+      let result = first.status;
       // A short-circuit guard applies to every component of the following pipeline.
       while (tokens[at] === "|") {
         at++;
         while (tokens[at] === "\n") at++;
-        result = compound(runs, depth + 1);
+        result = compound(runs, depth + 1).status;
       }
+      if (first.negate) result = invert(result);
       if (operator === "&&" && status === false) {
         /* skipped: status stays false */
       } else if (operator === "||" && status === true) {
@@ -40,7 +42,7 @@ export function shellCommands(text: string): string[] {
     }
     return status;
   };
-  const compound = (active: boolean, depth: number): Status => {
+  const compound = (active: boolean, depth: number): { status: Status; negate: boolean } => {
     let negate = false;
     while (tokens[at] === "!") {
       negate = !negate;
@@ -50,10 +52,12 @@ export function shellCommands(text: string): string[] {
     if (tokens[at] === "if") {
       at++;
       let remaining = active;
+      let uncertain = false;
       // An if with no matching arm and no else succeeds.
       status = true;
       while (at < tokens.length) {
         const condition = list(remaining, ["then", "fi"], depth);
+        if (remaining && condition === undefined) uncertain = true;
         if (tokens[at] !== "then") {
           if (tokens[at] === "fi") at++;
           break;
@@ -74,6 +78,7 @@ export function shellCommands(text: string): string[] {
         if (tokens[at] === "fi") at++;
         break;
       }
+      if (uncertain) status = undefined;
     } else if (tokens[at] === "(") {
       at++;
       status = list(active, [")"], depth);
@@ -91,7 +96,7 @@ export function shellCommands(text: string): string[] {
       if (active && words.length) commands.push(`${negate ? "! " : ""}${words.join(" ")}`);
       status = words.length === 1 && ["true", "false", ":"].includes(words[0]!) ? words[0] !== "false" : undefined;
     }
-    return negate ? invert(status) : status;
+    return { status, negate };
   };
   list(true, [], 0);
   return commands;
