@@ -15,7 +15,8 @@ import Testing
 /// the content's insets inside the pill stay equal. Since 10990df76a738 (Lawrence 2026-10-23, msg 11914: "trailing dots
 /// and spinners must line up horizontally across sections") a row's last mark centers on the trailing column
 /// (`SidebarStyle+TrailingColumn`, the group header chevron's x), so it ends half the column slot less half the
-/// glyph further in than the leading inset.
+/// glyph further in than the leading inset. Since Leo 2026-10-27 the fill runs to `SidebarStyle.rowEdgeGap`
+/// (1.5 pt) from the sidebar's right edge (a negative trim); the content's insets inside it are unchanged.
 @MainActor @Suite(.serialized) struct SidebarRowGutterTests {
     private static let pinnedID = WorkspaceID("ws-pinned")
     private static let unreadID = WorkspaceID("ws-unread")
@@ -90,6 +91,9 @@ import Testing
             #expect(row.frame.minX == gutter)
             #expect(sidebar.list.bounds.width - row.frame.maxX == gutter + SidebarStyle.rowTrailingTrim,
                     "\(name): pill ends \(sidebar.list.bounds.width - row.frame.maxX) pt in")
+            // Leo 2026-10-27: the fill runs to about 1.5 pt from the sidebar's right edge.
+            #expect(abs(sidebar.list.bounds.width - row.frame.maxX - SidebarStyle.rowEdgeGap) < 0.01,
+                    "\(name): the fill ends \(sidebar.list.bounds.width - row.frame.maxX) pt from the edge")
         }
     }
 

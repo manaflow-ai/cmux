@@ -5,14 +5,13 @@ import UIKit
 
 /// The composer's text field: a UITextView, so the screen controls what a
 /// SwiftUI TextField does not expose: the dark keyboard (iOS 27 no longer
-/// derives it from the field's trait), Return as send, terminal-safe text
-/// traits, and growth from 1 to 6 lines before it scrolls.
+/// derives it from the field's trait), terminal-safe text traits, and growth
+/// from 1 to 14 lines before it scrolls (classic cmux iOS).
 ///
-/// Return sends from either keyboard (SPEC 10.2, `ComposerReturnStyle.terminal`).
-/// A multi-line draft still has a way to start a new line: Shift-Return or
-/// Option-Return on a hardware keyboard, or New Line in the field's edit menu
-/// (tap the focused field); pasted lines stay as they are. The draft goes to
-/// the program as one paste (`ComposerSubmit`).
+/// Return starts a new line from either keyboard and only the send button
+/// sends (classic cmux iOS, `ComposerReturnStyle.message`); the key row's ⏎
+/// sends a bare Return. The draft goes to the program as one paste
+/// (`ComposerSubmit`).
 struct ComposerTextView: UIViewRepresentable {
     @Binding var text: String
     let placeholder: String
@@ -20,13 +19,16 @@ struct ComposerTextView: UIViewRepresentable {
     /// A focus request made before the field existed (a new terminal tab):
     /// take focus once the field is in a window.
     var focusOnAppear = false
+    /// Dictation owns the text: the field takes no edits until it settles,
+    /// so an edit is never overwritten by the next result (classic).
+    var isDisabled = false
     let onFocusChange: (Bool) -> Void
     let onReturn: () -> Void
     /// Asked before typed text is inserted; false: the key went elsewhere
     /// (the terminal, with the key bar's ctrl or alt on).
     var shouldInsert: (String) -> Bool = { _ in true }
 
-    static let maxLines = 6
+    static let maxLines = 14
     /// Read so a live text size change updates the view (Codex QA F10): the
     /// insets follow the new line height and SwiftUI measures it again.
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -40,9 +42,9 @@ struct ComposerTextView: UIViewRepresentable {
         view.backgroundColor = .clear
         view.textColor = .label
         view.tintColor = .label
-        // One line is as tall as the + and send circles, so they sit with
-        // equal insets on every side of the card (user note 2026-10-14).
-        let inset = ComposerMetrics().verticalTextInset(lineHeight: view.font?.lineHeight ?? 20)
+        // With the field container's 6 pt padding, one line is 40 pt: as tall
+        // as the paperclip and mic circles beside it (classic).
+        let inset = TerminalDockMetrics.textInset
         view.textContainerInset = UIEdgeInsets(top: inset, left: 0, bottom: inset, right: 0)
         view.textContainer.lineFragmentPadding = 0
         view.isScrollEnabled = false
@@ -60,7 +62,7 @@ struct ComposerTextView: UIViewRepresentable {
         view.writingToolsBehavior = .none
         view.inputAssistantItem.leadingBarButtonGroups = []
         view.inputAssistantItem.trailingBarButtonGroups = []
-        view.returnKeyType = .send
+        view.returnKeyType = .default
         view.accessibilityIdentifier = "terminal.composer.field"
         view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         view.setContentHuggingPriority(.required, for: .vertical)
@@ -74,17 +76,18 @@ struct ComposerTextView: UIViewRepresentable {
         if context.coordinator.lastTypeSize != dynamicTypeSize {
             context.coordinator.lastTypeSize = dynamicTypeSize
             view.font = .preferredFont(forTextStyle: .body)
-            let inset = ComposerMetrics().verticalTextInset(lineHeight: view.font?.lineHeight ?? 20)
-            view.textContainerInset = UIEdgeInsets(top: inset, left: 0, bottom: inset, right: 0)
             view.refreshPlaceholderFont()
             view.invalidateIntrinsicContentSize()
             view.setNeedsLayout()
         }
         if view.text != text { view.text = text }
         view.placeholder = placeholder
+        view.isEditable = !isDisabled
+        if isDisabled, view.isFirstResponder { view.resignFirstResponder() }
         if focusRequest != context.coordinator.lastFocusRequest {
             context.coordinator.lastFocusRequest = focusRequest
-            view.becomeFirstResponder()
+            // Locked by dictation: the field takes focus once it settles, not now.
+            if !isDisabled { view.becomeFirstResponder() }
         }
     }
 
@@ -109,8 +112,8 @@ struct ComposerTextView: UIViewRepresentable {
         init(parent: ComposerTextView) { self.parent = parent }
 
         func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
-            // Return sends (SPEC 10.2); Shift-Return and New Line insert their own
-            // line break; a pasted multi-line text stays as is.
+            // Return starts a new line (`ComposerReturnStyle.message`); a pasted
+            // multi-line text stays as is.
             if text == "\n", let view = textView as? ComposerReturnTextView {
                 return view.insertingLineBreak || view.returnShouldInsert(text)
             }
@@ -128,7 +131,7 @@ struct ComposerTextView: UIViewRepresentable {
     }
 }
 
-/// The terminal composer's text view: Return sends, New Line in the edit menu.
+/// The terminal composer's text view: Return starts a new line.
 final class ComposerUITextView: ComposerReturnTextView {
     var focusWhenInWindow = false
 
@@ -143,16 +146,14 @@ final class ComposerUITextView: ComposerReturnTextView {
     /// its only item was AutoFill, a pill over the last terminal rows that
     /// stayed until dismissed (r13 D3, verifier 2026-10-19: 67 of 67 s with
     /// the keyboard up). A shell line has nothing to AutoFill (SPEC M2).
-    /// Proof: `verify/termqa/afprobe/run.sh`. New Line stays, and only
-    /// once there is text (an empty draft has no line to break).
+    /// Proof: `verify/termqa/afprobe/run.sh`.
     override func buildMenu(with builder: any UIMenuBuilder) {
-        offersNewLineMenuItem = !(text ?? "").isEmpty
         builder.remove(menu: .autoFill)
         super.buildMenu(with: builder)
     }
 
     init() {
-        super.init(policy: ComposerReturnPolicy(style: .terminal, maxLines: ComposerTextView.maxLines))
+        super.init(policy: ComposerReturnPolicy(style: .message, maxLines: ComposerTextView.maxLines))
     }
 
     @available(*, unavailable)

@@ -77,6 +77,7 @@ pub mod pairing;
 pub mod path_canon;
 pub mod peer;
 pub mod peer_link;
+pub mod peer_states;
 pub mod placement;
 #[cfg(not(unix))]
 mod platform;

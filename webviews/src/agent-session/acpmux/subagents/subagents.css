@@ -482,9 +482,19 @@ button.cv-subagent > :last-child {
   color: var(--agent-muted);
 }
 /* Under the header's divider the first line keeps the tray's 2px gap, as the last keeps its rim's. */
-.acpmux-running-tray__head + .acpmux-running-tray__list {
+.acpmux-running-tray__head + .acpmux-running-tray__fold > .acpmux-running-tray__list {
   padding-top: 2px;
+}
+.acpmux-running-tray__head + .acpmux-running-tray__fold {
   border-top: var(--cmux-hairline, 0.5px) solid var(--acpmux-composer-edge, transparent);
+}
+/* The list and View all, in the box the shared fold sizes (conversation/fold.ts `useFold`): it gives
+   up its height in a short pane as the list did, and the list in it still scrolls alone. */
+.acpmux-running-tray__fold {
+  display: flex;
+  flex: 0 1 auto;
+  flex-direction: column;
+  min-height: 0;
 }
 /* The overflow control for ended cards, dim beside what runs. */
 .acpmux-running-tray__finished {
@@ -655,4 +665,72 @@ button.cv-subagent > :last-child {
 .cv-subagent-done-row:hover .cv-subagent-done__actions,
 .cv-subagent-done__actions:focus-within {
   opacity: 1;
+}
+
+/* ---------- The tray's motion (trayMotion.tsx, Leo 2026-10-26: "following along with the exact
+   same things as everything else") ---------- */
+/* The card's entrance and its kept copy's exit. Shipped: the new message's own (the gallery's other
+   arms, trayMotion.experiment.ts, live in gallery/fixtures/trayMotionArms.css only): a live transcript row's cv-enter (conversation.css) on the same
+   tokens, and what leaves on --agent-motion-out. */
+.acpmux-running-tray {
+  --acpmux-tray-enter: cv-enter var(--agent-motion-in, 120ms) var(--agent-ease-out, ease-out) both;
+  --acpmux-tray-leave: acpmux-tray-leave var(--agent-motion-out, 80ms) var(--ui-exit-ease, ease-in) both;
+}
+/* The bottom stack's own rise-on-mount (bottomStack.css) played on every mount, a chat switch too:
+   the tray enters only when it appears in a chat that showed without it. */
+.acpmux-dock > .acpmux-running-tray:not([data-tray-enter]) {
+  animation: none;
+}
+.acpmux-running-tray[data-tray-enter],
+.acpmux-dock > .acpmux-running-tray[data-tray-enter] {
+  transform-origin: bottom center;
+  animation: var(--acpmux-tray-enter);
+}
+:is(.acpmux-dock, *) > .acpmux-running-tray.acpmux-running-tray--ghost {
+  z-index: var(--layer-raised);
+  transform-origin: bottom center;
+  animation: var(--acpmux-tray-leave);
+}
+/* Inside the leaving copy nothing else animates: a line rising in or a tick holds where it was drawn
+   (trayMotion.tsx copies those values), and spinners stop. */
+.acpmux-running-tray--ghost * {
+  animation: none !important;
+}
+@keyframes acpmux-tray-leave {
+  to {
+    opacity: 0;
+    translate: 0 4px;
+  }
+}
+/* Words that tick (trayMotion.tsx `Tick`): the old and the new share one cell; the old leave up as the
+   new rise in, on the message tokens. Reduce Motion's stylesheet cuts both to a frame. */
+.acpmux-tick {
+  display: inline-grid;
+  grid-template-columns: minmax(0, auto);
+  overflow: hidden;
+}
+.acpmux-tick > span {
+  grid-area: 1 / 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.acpmux-tick__in {
+  animation: acpmux-tick-in var(--agent-motion-in, 120ms) var(--agent-ease-out, ease-out) both;
+}
+.acpmux-tick__out {
+  animation: acpmux-tick-out var(--agent-motion-out, 80ms) var(--ui-exit-ease, ease-in) both;
+}
+@keyframes acpmux-tick-in {
+  from {
+    opacity: 0;
+    translate: 0 0.4em;
+  }
+}
+@keyframes acpmux-tick-out {
+  to {
+    opacity: 0;
+    translate: 0 -0.4em;
+  }
 }
