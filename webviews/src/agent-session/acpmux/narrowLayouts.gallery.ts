@@ -407,18 +407,20 @@ export default agentPaneEntry({
       },
     },
     "controls-single-row": {
-      note: "The chat composer with the plain footer off: every chip, the bolt, the mic and Send in one row.",
+      note: "The chat composer with plain footer styling off: the model and mode keep the shared footer, while mic and Send stay in the box.",
       snapshot: withControls(chat(finished)),
       play: async (ctx) => {
-        // Each variant loads its own page, so the setting stays off for the stage's own checks too.
+        // The legacy variant id stays stable, but both looks now anchor model and mode in the footer.
         setComposerSettings({ plainFooter: false });
-        await ctx.waitFor(
-          () =>
-            ctx.document.querySelector(".acpmux-composer-foot") === null &&
-            ctx.document.querySelector(".acpmux-composer-bar .acpmux-model") !== null,
-        );
-        // The swap is a layout change of its own (the quiet row goes, the box's row takes the chips,
-        // the transcript's inset follows): let it settle before the step that measures shifts.
+        await ctx.waitFor(() => {
+          const footer = ctx.document.querySelector(".acpmux-composer-foot");
+          return (
+            footer?.getAttribute("data-footer-look") === null &&
+            footer.querySelector(".acpmux-model") !== null &&
+            ctx.document.querySelector(".acpmux-composer-box .acpmux-model") === null
+          );
+        });
+        // Toggling the plain style is a layout change: settle before measuring the control rows.
         const view = ctx.document.defaultView!;
         await new Promise((done) => view.setTimeout(done, 600));
         await new Promise((done) => view.requestAnimationFrame(() => view.requestAnimationFrame(done)));
