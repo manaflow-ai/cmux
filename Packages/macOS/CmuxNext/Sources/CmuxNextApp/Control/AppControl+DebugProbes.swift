@@ -98,7 +98,7 @@ extension AppControl {
             // Each workspace switch's own time: input to shown content, and to its commit (perf-budgets.py).
             .mainActor("debug.workspace_switch") { call in .value(DebugWorkspaceSwitch.timer.handle(call.params, key: "switches")) },
             // Each new workspace's own time: its create (with the press's age) to its sidebar row drawn, and the walks between (perf-gate.py).
-            .mainActor("debug.new_workspace") { call in .value(PendingWorkspaceRows.shared.newRows.timer.handle(call.params, key: "creates")) },
+            .mainActor("debug.new_workspace") { [weak services] call in .value(services?.pendingWorkspaceRows.newRows.timer.handle(call.params, key: "creates") ?? .null) },
             // Work per layout change: pane snapshots, applies, topology sends (bench_pane_scale.py).
             .mainActor("debug.layout_counters") { [weak services] call in
                 let roots = services?.windows.controllers.flatMap { $0.mountedContents.map(\.layoutView) } ?? []

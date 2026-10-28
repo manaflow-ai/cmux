@@ -36,11 +36,11 @@ struct CmdNRowSlotTests {
             layout.rows.compactMap { if case let .workspace(id) = $0.key { id.rawValue } else { nil } }
         }
         func settled(_ count: Int) -> Bool {
-            services.windows.registry.members(of: window).count >= count && PendingWorkspaceRows.shared.rows(in: window).isEmpty
+            services.windows.registry.members(of: window).count >= count && services.pendingWorkspaceRows.rows(in: window).isEmpty
                 && rows(list.displayed).count >= count
         }
         func describe() -> String {
-            "members \(services.windows.registry.members(of: window).count), pending \(PendingWorkspaceRows.shared.rows(in: window).count), drawn \(rows(list.displayed))"
+            "members \(services.windows.registry.members(of: window).count), pending \(services.pendingWorkspaceRows.rows(in: window).count), drawn \(rows(list.displayed))"
         }
         // Three more workspaces, so the row below the anchor is not the end of the list.
         let start = services.windows.registry.members(of: window).count

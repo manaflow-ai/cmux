@@ -8,11 +8,11 @@ import Observation
 /// placeholder bar), at the slot the workspace will take, under the
 /// workspace's own id, so the workspace's row replaces it in place with no
 /// change on screen once the window lists it. A close that takes the create,
-/// or a create that fails, removes the row (it closes like any row).
+/// or a create that fails, removes the row (it closes like any row). The app's
+/// one instance is `AppServices.pendingWorkspaceRows`, passed to each window's
+/// sidebar and to the creates.
 @MainActor @Observable
 final class PendingWorkspaceRows {
-    static let shared = PendingWorkspaceRows(newRows: SidebarNewRowTimer())
-
     /// Times each row from its create to the commit that first lists it (`create.workspace`); each window's
     /// sidebar list reports to it (`SidebarBridge`), and `debug.new_workspace` reads its recorder.
     let newRows: SidebarNewRowTimer

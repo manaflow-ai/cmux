@@ -128,6 +128,7 @@ final class AppServices {
     private(set) lazy var addDevice = AddDeviceCard(services: .app(self), mainWork: mainWork)
     private(set) lazy var devices = DeviceDirectory.app(self)
     let machineHealth = MachineHealthStore()
+    private(set) lazy var pendingWorkspaceRows = PendingWorkspaceRows(newRows: SidebarNewRowTimer()) // creates' rows, from the press
     /// Layout passes and tree changes of off-screen workspaces, all windows (`debug.layout_counters`).
     let hiddenLayoutWork = HiddenLayoutWork()
     /// What the visibility tree ran for what shows (`appearance_applies`); every root the app makes counts here.

@@ -75,7 +75,7 @@ final class SidebarBridge {
         rowFeed = SidebarRowFeed(cause: { causes.currentCause }, schedule: { cause, work in frames.queue.enqueue(cause: cause, work) },
                                  observations: services.mainWork.observationOwner("SidebarRows"))
         container = SidebarContainerView(model: model, deadlines: services.mainDeadlines, appEvents: services.appEvents,
-                                         newRows: PendingWorkspaceRows.shared.newRows)
+                                         newRows: services.pendingWorkspaceRows.newRows)
         // Only the rows the clip shows get views until startup completes (p08-startup-064); the counts go to `debug.startup` and the bench.
         container.sidebarView.followLaunch(services.launchStartup) { [values = services.launchValues] in values.recordSidebarLaunchRows(built: $0.built, visible: $0.visible) }
         container.resizeFrameInput = services.dragFrameInput // the resize edge, once per frame (`pointerFrameDrags`)
@@ -154,6 +154,7 @@ final class SidebarBridge {
         let agentTabs = services.agentTabs
         let notifications = services.notifications
         let creations = services.cloud.creations
+        let pendingRows = services.pendingWorkspaceRows
         let services = services
         guard let windowState = state else { return }
         // Decorations go on after the feed: the pass names rows by stub (no title yet), and a patched row is undecorated.
@@ -182,16 +183,16 @@ final class SidebarBridge {
                 tabTitle: Self.tabTitle(services), rows: feed.laneRowSource,
                 groupConfig: services.settings?.snapshot.workspaceGroups ?? WorkspaceGroupConfig())
             // Not the creates' rows (PendingWorkspaceRows): they draw from the press (its redraws below), and a walk reads them as it shows.
-            return ((PendingWorkspaceRows.shared.listing(listed, in: windowState.id, machines: machines), services.sidebarCustomization.rowDecorations), launching, failed, SidebarSpaceBar.profiles(machines.local), SidebarProfileKey(windowState.profileID.rawValue),
+            return ((pendingRows.listing(listed, in: windowState.id, machines: machines), services.sidebarCustomization.rowDecorations), launching, failed, SidebarSpaceBar.profiles(machines.local), SidebarProfileKey(windowState.profileID.rawValue),
                     SidebarRows.visibleLayout(layout.document, window: windowState.id, machines: machines, registry: registry.value))
         }) { [weak self] value in
             let ((sections, decorations), launching, failed, profiles, active, shown) = value
             guard let self else { return }
             self.showProfiles(profiles, active: active, launching: launching)
-            self.show(SidebarSection.decorated(feed.fill(sections), decorations), layout: shown, launching: launching, failed: failed, creating: PendingWorkspaceRows.shared.rows(in: windowState.id))
+            self.show(SidebarSection.decorated(feed.fill(sections), decorations), layout: shown, launching: launching, failed: failed, creating: pendingRows.rows(in: windowState.id))
             // A workspace the window lists shows its own row from here on (cx-9a7wx). No create waits: no walk of every row.
-            guard !PendingWorkspaceRows.shared.rows.isEmpty else { return }
-            PendingWorkspaceRows.shared.forget(in: windowState.id, listed: Set(sections.flatMap(\.workspaces).map(\.id.rawValue)),
+            guard !pendingRows.rows.isEmpty else { return }
+            pendingRows.forget(in: windowState.id, listed: Set(sections.flatMap(\.workspaces).map(\.id.rawValue)),
                                                held: { machines.workspace(id: $0) != nil }) { id in
                 if let owner = registry.value.owner(of: id), owner != windowState.id { return true }
                 guard let workspace = WindowProfiles.qualified(id, machines: machines),
@@ -199,9 +200,9 @@ final class SidebarBridge {
                 return pin != windowState.profileID
             }
         }
-        PendingWorkspaceRows.shared.redraws.add(self) { [weak self] in
-            guard let self, let id = self.state?.id else { return }
-            rows.show(creating: (PendingWorkspaceRows.shared.rows(in: id), NewWorkspacePlacements.home(services.machines)))
+        pendingRows.redraws.add(self) { [weak self, weak pendingRows] in
+            guard let self, let pendingRows, let id = self.state?.id else { return }
+            rows.show(creating: (pendingRows.rows(in: id), NewWorkspacePlacements.home(services.machines)))
             self.selectionHold.flush() // a selection waiting on the new row takes it in this turn, as `show` does
             container.sidebarView.renderNow() // in this turn, so its frame draws the row
         }

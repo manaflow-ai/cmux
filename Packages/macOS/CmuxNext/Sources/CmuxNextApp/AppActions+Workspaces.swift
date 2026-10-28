@@ -228,7 +228,7 @@ extension AppActions {
         let window = services.windows.active?.state.id
         let lanes = WorkspaceLanes.shared
         if invocation.target == nil, invocation["workspace"] == nil, let window,
-           lanes.closeNewestCreate(in: window, listed: { services.workspace(id: $0) != nil }, taken: PendingWorkspaceRows.shared.remove) { return }
+           lanes.closeNewestCreate(in: window, listed: { services.workspace(id: $0) != nil }, taken: services.pendingWorkspaceRows.remove) { return }
         guard let workspace = scope(services, invocation).workspace, let key = workspace.key,
               !ClosingWorkspaces.shared.ids.contains(workspace.id), !WorkspaceCloseFlow.running.contains(workspace.id)
         else { return } // a second press during the close sends nothing

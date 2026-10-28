@@ -58,13 +58,13 @@ struct WorkspaceSpawner {
         let rule = spawn.slot == nil && spawn.placesBySetting ? NewWorkspacePlacements.rule(for: windowID, in: windows) : nil
         // Only a create with a row names itself here; another keeps the daemon's own numbering.
         let name = spawn.name ?? windowID.map { _ in
-            SidebarMapping.nextWorkspaceName(in: daemon.store, reserved: PendingWorkspaceRows.shared.reservedNames(on: machine) { services.workspace(id: $0) != nil })
+            SidebarMapping.nextWorkspaceName(in: daemon.store, reserved: services.pendingWorkspaceRows.reservedNames(on: machine) { services.workspace(id: $0) != nil })
         }
         let named = renamed(name)
         if let windowID, let name {
             let opensPage = WorkspaceCreation.opensPage(spawn, on: daemon, tabs: services.agentTabs)
             let face = SidebarMapping.shared.creatingRow(id: key.rawValue, machine: machine, name: name, opensPage: opensPage)
-            PendingWorkspaceRows.shared.add(.init(id: key.rawValue, window: windowID, machine: machine, face: face,
+            services.pendingWorkspaceRows.add(.init(id: key.rawValue, window: windowID, machine: machine, face: face,
                                                   slot: spawn.slot, byDefault: rule), name: name, inputTimestamp: spawn.inputTimestamp)
         }
         WorkspaceLanes.shared.prune(windowID ?? "") { services.workspace(id: $0) != nil }
@@ -79,7 +79,7 @@ struct WorkspaceSpawner {
                     }
                 }, settle: { await Self.settled(on: daemon) }) { try await named.create(key, rule: rule) }
             } catch {
-                PendingWorkspaceRows.shared.remove(key.rawValue)
+                services.pendingWorkspaceRows.remove(key.rawValue)
                 throw error
             }
         }
@@ -124,7 +124,7 @@ struct WorkspaceSpawner {
             } catch {
                 shown.abandon()
                 windows.pendingPlacements[key.rawValue] = nil
-                PendingWorkspaceRows.shared.remove(key.rawValue)
+                services.pendingWorkspaceRows.remove(key.rawValue)
                 throw error
             }
         }

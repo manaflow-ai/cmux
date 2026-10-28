@@ -251,7 +251,7 @@ struct RapidWorkspaceCreateTests {
         var firstDrawn: [String: ContinuousClock.Instant] = [:]
         var misordered: [[Int]] = []
         func sample() {
-            for row in PendingWorkspaceRows.shared.rows(in: window) where !keys.contains(row.id) { keys.append(row.id) }
+            for row in services.pendingWorkspaceRows.rows(in: window) where !keys.contains(row.id) { keys.append(row.id) }
             let now = ContinuousClock.now, rows = drawn()
             for id in rows where firstDrawn[id] == nil { firstDrawn[id] = now }
             let order = rows.compactMap { keys.firstIndex(of: $0) }
@@ -270,7 +270,7 @@ struct RapidWorkspaceCreateTests {
         while !settled, ContinuousClock.now < settleBy {
             sample()
             let members = Set(services.windows.registry.members(of: window))
-            settled = keys.count == presses && keys.allSatisfy(members.contains) && PendingWorkspaceRows.shared.rows(in: window).isEmpty
+            settled = keys.count == presses && keys.allSatisfy(members.contains) && services.pendingWorkspaceRows.rows(in: window).isEmpty
             try? await Task.sleep(for: .milliseconds(5))
         }
         let settle = ContinuousClock.now - pressed[0]
@@ -318,7 +318,7 @@ struct RapidWorkspaceCreateTests {
         let list = controller.sidebar.container.sidebarView.list
         let store = services.daemon.store
         func settled(_ count: Int) -> Bool {
-            PendingWorkspaceRows.shared.rows(in: window).isEmpty && store.workspaces.count >= count
+            services.pendingWorkspaceRows.rows(in: window).isEmpty && store.workspaces.count >= count
                 && !store.workspaces.contains(where: \.isProvisional)
         }
         // Rows to land above: three earlier workspaces, the middle one marked unread.
@@ -352,7 +352,7 @@ struct RapidWorkspaceCreateTests {
             let rowed = Set(personal.workspaces.map(\.workspaceKey.rawValue))
             let path = SidebarDocStore.current?.shown == nil ? "personal" : "doc"
             let members = Set(services.windows.registry.members(of: window))
-            let pending = Set(PendingWorkspaceRows.shared.rows(in: window).map(\.id))
+            let pending = Set(services.pendingWorkspaceRows.rows(in: window).map(\.id))
             let room = services.windows.states[window]?.profileID ?? .defaultProfile
             let docOrder = SidebarDocWiring.sections(of: services.machines.local, room: room, machines: services.machines)?
                 .flatMap(\.workspaces).map(\.id).filter { $0 != home }
@@ -366,7 +366,7 @@ struct RapidWorkspaceCreateTests {
             }))
         }
         var keys: [String] = []
-        func noteKeys() { for row in PendingWorkspaceRows.shared.rows(in: window) where !keys.contains(row.id) { keys.append(row.id) } }
+        func noteKeys() { for row in services.pendingWorkspaceRows.rows(in: window) where !keys.contains(row.id) { keys.append(row.id) } }
         var work: [ActionWork] = []
         for press in 1...5 {
             work += services.registry.capturingWork {
