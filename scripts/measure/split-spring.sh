@@ -39,13 +39,17 @@
 #                   Event.ScrollJank.*, per scroll target with real trackpad gestures at the display rate; DC4); the
 #                   other options go to it (--sessions=light,stress, --stall=none,50ms/100ms, --targets=sidebar,strip).
 #                   Real input needs the Accessibility grant as above.
+#   --suite=first5s  the first 5 s of typing after a new terminal tab, split, New Tab page and browser tab
+#                   (scripts/cmux-next/first-5s-typing.py through split-spring-terminal.py; --apps-sha256=A,B measures
+#                   fleet builds; its sender reports its own lateness, `--self-check` checks it with no app).
+#   --suite=bench-idle  idle wakeups and CPU (scripts/cmux-next/bench_idle.py; its options follow, e.g. --scenarios=...).
 # On exit, TERM, INT or HUP (a cancelled step) the script stops the bench, ends the tag's app and daemons
 # (scripts/cmux-next/tag_teardown.py, exact PIDs of the app bundle) and the virtual display.
 set -euo pipefail
 # The measurement's version (scripts/cmux-next/perf-cron.py MEASURE_VERSION_RE): the perf cron measures and compares only
 # commits whose version is the tip's. Bump it in an edit that changes what is measured or how (the build, the display,
 # the suites, the args); a comment, log or report-key edit keeps it, so it keeps the history measurable.
-SPLIT_SPRING_MEASURE_VERSION=4  # 4: STRESS sessions open their extra terminal, Chromium and WebKit tabs (add_tab had a pane target the actions refuse; 3: the virtual display is 1920x1200)
+SPLIT_SPRING_MEASURE_VERSION=5  # 5: suites first5s (first-5s-typing.py) and bench-idle (bench_idle.py); 4: STRESS sessions open their extra terminal, Chromium and WebKit tabs (add_tab had a pane target the actions refuse; 3: the virtual display is 1920x1200)
 cd "$(git rev-parse --show-toplevel)"
 build_only=0 app_cache=0 vdisplay_hz="" vdisplay_hold=1200 vdisplay_size=1920x1200 args=() reload_config=()
 bench_script=scripts/cmux-next/split-spring-terminal.py
