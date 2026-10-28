@@ -2390,8 +2390,9 @@ export function VirtualTranscript({
   }
   const drawnRef = useRef(drawn);
   drawnRef.current = drawn;
-  const rowWidthRef = useRef(transcriptRowWidth(width));
-  rowWidthRef.current = transcriptRowWidth(width);
+  const scaledRowWidth = transcriptRowWidth(width, chatColumnOf(chatWidth, chatLook));
+  const rowWidthRef = useRef(scaledRowWidth);
+  rowWidthRef.current = scaledRowWidth;
   const rowsRef = useRef(rows);
   rowsRef.current = rows;
   // Keyboard focus is a roving tab stop. A range is kept as stable row ids rather than DOM nodes
@@ -2795,7 +2796,7 @@ export function VirtualTranscript({
   // A row that draws moves only the rows below it: place them again, measuring none.
   const measured = useMemo(() => {
     const layoutStart = acpmuxPerf.enabled ? performance.now() : 0;
-    const rowWidth = transcriptRowWidth(width);
+    const rowWidth = scaledRowWidth;
     const last = lastPlaced.current;
     // The ids flushed into `drawn` since the last placement; kept until `drawn` itself changes.
     const drawnChanged = drawn !== last?.drawn;
@@ -2860,7 +2861,7 @@ export function VirtualTranscript({
       held: last?.held ?? [],
     };
     return { layout, ms: acpmuxPerf.enabled ? performance.now() - layoutStart : 0 };
-  }, [estimated, drawn, registry, rows, sessionId, width, chatLook]);
+  }, [estimated, drawn, registry, rows, sessionId, width, chatLook, scaledRowWidth]);
   // The transcript's height is the rows' as drawn, under the thread's top padding: the rows' total
   // alone placed the latest row's bottom that far under the view.
   // The bottom stack's room follows the rows, so the latest row ends above it.
@@ -4147,7 +4148,7 @@ export function VirtualTranscript({
                       index={absoluteIndex}
                       setSize={canLoadOlder ? -1 : rows.length}
                       top={layout.tops[absoluteIndex]}
-                      rowWidth={transcriptRowWidth(width)}
+                      rowWidth={scaledRowWidth}
                       expanded={isExpanded}
                       observer={observer}
                       report={reportDrawn}
