@@ -1,5 +1,6 @@
-import { createHash } from "node:crypto"
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs"
+import { createHash, randomBytes } from "node:crypto"
+import { createReadStream, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs"
+import { open } from "node:fs/promises"
 import { dirname, join, relative, sep } from "node:path"
 
 /** What the attachment code reads back from a stored object (the R2 subset it uses). */
@@ -8,6 +9,11 @@ interface StoredMeta {
   readonly size: number
   readonly contentType?: string
   readonly uploaded: number
+}
+
+interface MultipartMeta {
+  readonly key: string
+  readonly contentType?: string
 }
 
 /** A stored object as R2 returns it, with a body when it was a `get`. */
@@ -29,14 +35,38 @@ const safeKey = (key: string) => {
   return key
 }
 
-const toBytes = async (value: unknown): Promise<Uint8Array> => {
-  if (value === null || value === undefined) return new Uint8Array()
-  if (typeof value === "string") return new TextEncoder().encode(value)
-  if (value instanceof ArrayBuffer) return new Uint8Array(value)
-  if (ArrayBuffer.isView(value)) return new Uint8Array(value.buffer, value.byteOffset, value.byteLength)
-  if (value instanceof ReadableStream) return new Uint8Array(await new Response(value).arrayBuffer())
-  if (value instanceof Blob) return new Uint8Array(await value.arrayBuffer())
+const bodyStream = (value: unknown): ReadableStream<Uint8Array> => {
+  if (value instanceof ReadableStream) return value
+  if (value instanceof Blob) return value.stream()
+  if (value === null || value === undefined) return new Blob().stream()
+  if (typeof value === "string" || value instanceof ArrayBuffer) return new Blob([value]).stream()
+  if (ArrayBuffer.isView(value)) return new Blob([new Uint8Array(new Uint8Array(value.buffer, value.byteOffset, value.byteLength))]).stream()
   throw new TypeError("unsupported object body")
+}
+
+/** Drain to disk with bounded memory, including short filesystem writes. */
+const writeStream = async (path: string, stream: ReadableStream<Uint8Array>): Promise<{ etag: string; size: number }> => {
+  const file = await open(path, "w")
+  const reader = stream.getReader()
+  const hash = createHash("md5")
+  let size = 0
+  try {
+    for (;;) {
+      const next = await reader.read()
+      if (next.done) break
+      hash.update(next.value)
+      for (let offset = 0; offset < next.value.byteLength;) {
+        const { bytesWritten } = await file.write(next.value.subarray(offset))
+        if (bytesWritten === 0) throw new Error("filesystem write made no progress")
+        offset += bytesWritten
+      }
+      size += next.value.byteLength
+    }
+    return { etag: hash.digest("hex"), size }
+  } finally {
+    await reader.cancel().catch(() => undefined)
+    await file.close()
+  }
 }
 
 /**
@@ -74,18 +104,110 @@ export class FsBucket {
     }
   }
 
+  private multipartPath(uploadId: string) {
+    safeKey(uploadId)
+    return join(this.root, ".multipart", uploadId)
+  }
+
+  private multipartMetaPath(uploadId: string) {
+    return `${this.multipartPath(uploadId)}.json`
+  }
+
+  readMultipart(uploadId: string): MultipartMeta {
+    const path = this.multipartMetaPath(uploadId)
+    if (!existsSync(path)) throw new Error("multipart upload is missing or already closed")
+    return JSON.parse(readFileSync(path, "utf8")) as MultipartMeta
+  }
+
   async put(key: string, value: unknown, options: { httpMetadata?: { contentType?: string }; onlyIf?: { etagDoesNotMatch?: string } } = {}): Promise<FsObject | null> {
     const file = this.path(key)
     if (options.onlyIf?.etagDoesNotMatch === "*" && existsSync(file)) return null
-    const bytes = await toBytes(value)
     mkdirSync(dirname(file), { recursive: true })
-    const etag = createHash("md5").update(bytes).digest("hex")
-    const meta: StoredMeta = { etag, size: bytes.byteLength, ...(options.httpMetadata?.contentType ? { contentType: options.httpMetadata.contentType } : {}), uploaded: Date.now() }
     const tmp = `${file}.tmp-${process.pid}-${Math.random().toString(36).slice(2)}`
-    writeFileSync(tmp, bytes)
+    let stored: { etag: string; size: number }
+    try { stored = await writeStream(tmp, bodyStream(value)) } catch (error) {
+      rmSync(tmp, { force: true })
+      throw error
+    }
+    const meta: StoredMeta = { ...stored, ...(options.httpMetadata?.contentType ? { contentType: options.httpMetadata.contentType } : {}), uploaded: Date.now() }
     renameSync(tmp, file)
     writeFileSync(`${file}.meta.json`, JSON.stringify(meta))
     return this.object(key, meta)
+  }
+
+  async createMultipartUpload(key: string, options: { httpMetadata?: { contentType?: string } } = {}): Promise<FsMultipartUpload> {
+    safeKey(key)
+    const uploadId = Array.from(randomBytes(16), (byte) => byte.toString(16).padStart(2, "0")).join("")
+    mkdirSync(join(this.root, ".multipart"), { recursive: true })
+    writeFileSync(this.multipartMetaPath(uploadId), JSON.stringify({ key, ...(options.httpMetadata?.contentType ? { contentType: options.httpMetadata.contentType } : {}) } satisfies MultipartMeta))
+    return new FsMultipartUpload(this, uploadId, key)
+  }
+
+  resumeMultipartUpload(key: string, uploadId: string): FsMultipartUpload {
+    safeKey(key)
+    return new FsMultipartUpload(this, uploadId, key)
+  }
+
+  async completeMultipart(uploadId: string, uploadedParts: Array<{ partNumber: number; etag: string }>): Promise<FsObject> {
+    const meta = this.readMultipart(uploadId)
+    const output = this.path(meta.key)
+    mkdirSync(dirname(output), { recursive: true })
+    const tmp = `${output}.multipart-${process.pid}-${Math.random().toString(36).slice(2)}`
+    const target = await open(tmp, "w")
+    const hash = createHash("md5")
+    let size = 0
+    try {
+      for (const part of uploadedParts) {
+        const partPath = this.multipartPath(uploadId) + `.part.${part.partNumber}`
+        if (!existsSync(partPath)) throw new Error("multipart part is missing")
+        const expected = part.etag.replace(/"/g, "")
+        const partHash = createHash("md5")
+        for await (const chunk of createReadStream(partPath)) {
+          partHash.update(chunk)
+          hash.update(chunk)
+          for (let offset = 0; offset < chunk.byteLength;) {
+            const { bytesWritten } = await target.write(chunk.subarray(offset))
+            if (bytesWritten === 0) throw new Error("filesystem write made no progress")
+            offset += bytesWritten
+          }
+          size += chunk.byteLength
+        }
+        if (partHash.digest("hex") !== expected) throw new Error("multipart part etag mismatch")
+      }
+      await target.close()
+      renameSync(tmp, output)
+    } catch (error) {
+      await target.close().catch(() => undefined)
+      rmSync(tmp, { force: true })
+      throw error
+    }
+    const etag = hash.digest("hex")
+    const stored: StoredMeta = { etag, size, ...(meta.contentType ? { contentType: meta.contentType } : {}), uploaded: Date.now() }
+    writeFileSync(`${output}.meta.json`, JSON.stringify(stored))
+    await this.abortMultipart(uploadId)
+    return this.object(meta.key, stored)
+  }
+
+  async uploadMultipartPart(uploadId: string, partNumber: number, value: unknown): Promise<{ partNumber: number; etag: string }> {
+    // R2 numbers parts 1 to 10,000.
+    if (!Number.isSafeInteger(partNumber) || partNumber <= 0 || partNumber > 10_000) throw new Error("invalid multipart part")
+    this.readMultipart(uploadId)
+    const partPath = this.multipartPath(uploadId) + `.part.${partNumber}`
+    try {
+      const { etag } = await writeStream(partPath, bodyStream(value))
+      return { partNumber, etag }
+    } catch (error) {
+      rmSync(partPath, { force: true })
+      throw error
+    }
+  }
+
+  async abortMultipart(uploadId: string): Promise<void> {
+    const dir = join(this.root, ".multipart")
+    rmSync(this.multipartMetaPath(uploadId), { force: true })
+    if (existsSync(dir)) for (const name of readdirSync(dir, { withFileTypes: true })) {
+      if (name.isFile() && name.name.startsWith(uploadId + ".part.")) rmSync(join(dir, name.name), { force: true })
+    }
   }
 
   async head(key: string): Promise<FsObject | null> {
@@ -98,18 +220,18 @@ export class FsBucket {
     if (!meta) return null
     // A failed precondition answers the object without a body, as R2 does.
     if (options.onlyIf?.etagMatches && options.onlyIf.etagMatches.replace(/"/g, "") !== meta.etag) return this.object(key, meta)
-    const bytes = readFileSync(this.path(key))
     let offset = 0
-    let length = bytes.byteLength
+    let length = meta.size
     if (options.range) {
-      if (options.range.suffix !== undefined) [offset, length] = [Math.max(0, bytes.byteLength - options.range.suffix), Math.min(options.range.suffix, bytes.byteLength)]
+      if (options.range.suffix !== undefined) [offset, length] = [Math.max(0, meta.size - options.range.suffix), Math.min(options.range.suffix, meta.size)]
       else {
         offset = options.range.offset ?? 0
-        length = options.range.length ?? bytes.byteLength - offset
+        length = options.range.length ?? meta.size - offset
       }
     }
-    const slice = bytes.subarray(offset, offset + length)
-    return this.object(key, meta, new Blob([slice]).stream(), options.range ? { offset, length: slice.byteLength } : undefined)
+    length = Math.max(0, Math.min(length, meta.size - offset))
+    const body = Bun.file(this.path(key)).slice(offset, offset + length).stream()
+    return this.object(key, meta, body, options.range ? { offset, length } : undefined)
   }
 
   async delete(keys: string | ReadonlyArray<string>): Promise<void> {
@@ -136,11 +258,29 @@ export class FsBucket {
     }
     walk(this.root)
     out.sort((a, b) => (a.key < b.key ? -1 : 1))
-    const start = options.cursor ? Number(options.cursor) : 0
+    const start = options.cursor ? out.findIndex((object) => object.key > options.cursor!) : 0
+    if (start < 0) return { objects: [], truncated: false, delimitedPrefixes: [] }
     const limit = options.limit ?? 1000
     const page = out.slice(start, start + limit)
     const truncated = start + limit < out.length
-    return { objects: page, truncated, ...(truncated ? { cursor: String(start + limit) } : {}), delimitedPrefixes: [] }
+    return { objects: page, truncated, ...(truncated ? { cursor: page.at(-1)!.key } : {}), delimitedPrefixes: [] }
+  }
+}
+
+/** R2 multipart handle backed by bounded files under `.multipart`. */
+export class FsMultipartUpload {
+  constructor(private readonly bucket: FsBucket, readonly uploadId: string, readonly key: string) {}
+
+  async uploadPart(partNumber: number, value: ReadableStream | ArrayBuffer | ArrayBufferView | string | Blob): Promise<{ partNumber: number; etag: string }> {
+    return this.bucket.uploadMultipartPart(this.uploadId, partNumber, value)
+  }
+
+  async abort(): Promise<void> {
+    await this.bucket.abortMultipart(this.uploadId)
+  }
+
+  async complete(uploadedParts: Array<{ partNumber: number; etag: string }>): Promise<FsObject> {
+    return this.bucket.completeMultipart(this.uploadId, uploadedParts)
   }
 }
 
