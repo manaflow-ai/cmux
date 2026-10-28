@@ -18,7 +18,8 @@ import Testing
     @Test(arguments: ["com.cmuxterm.app.next", "com.cmuxterm.app.debug.tag"])
     func theFirstComponentCheckWaitsFiveMinutes(bundle: String) {
         let entries = Self.arguments(bundle: bundle).filter { $0.hasPrefix(Self.prefix) }
-        // One entry: Chromium reads the last value of a switch given twice.
+        // One entry: Chromium reads the last value of a switch given twice. A Debug CMUX_NEXT_CEF_EXTRA_SWITCHES
+        // value comes later and replaces it (devtools-device-mode-live.py passes `fast-update`).
         #expect(entries == ["component-updater=initial-delay=300"], "\(entries)")
     }
 
