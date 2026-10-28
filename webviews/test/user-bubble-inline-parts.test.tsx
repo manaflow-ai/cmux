@@ -189,6 +189,29 @@ try {
     expect(body.classList.contains("is-clamped")).toBe(false);
     expect(host.querySelector(".cv-user__paste-text")?.textContent).toBe("pasted details");
   });
+  // acpmux records a prompt's text blocks joined by a newline (hub/session.rs prompt_text): the
+  // strip view's bubble, with the image moved to the band, reads that text, not "beforeafter".
+  test("strip: the bubble keeps the separator between text blocks an image stood between", async () => {
+    clearImageEntries();
+    resetTranscriptDisclosure();
+    await act(async () => setComposerSettings({ attachmentView: "strip" }));
+    try {
+      await render(
+        prompt("strip-separators", "before\nafter", [
+          { kind: "text", text: "before" },
+          { kind: "image", id: "between", mimeType: "image/png", name: "between.png" },
+          { kind: "text", text: "after" },
+        ]),
+      );
+      expect(
+        [...host.querySelectorAll("[data-inline-attachment-strip] img")].map((img) => img.getAttribute("alt")),
+      ).toEqual(["between.png"]);
+      expect(host.querySelector(".cv-user__text")?.textContent).toBe("before\nafter");
+    } finally {
+      await act(async () => setComposerSettings({ attachmentView: "inline" }));
+    }
+  });
+
   test("Find in an ordered pasted block opens both the chip and its enclosing fold", async () => {
     resetTranscriptDisclosure();
     const text = Array.from({ length: 30 }, (_, index) => `line ${index + 1}`).join("\n");
