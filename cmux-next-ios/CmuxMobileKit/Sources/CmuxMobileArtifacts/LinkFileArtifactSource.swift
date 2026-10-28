@@ -5,14 +5,17 @@ import Foundation
 /// one channel per file, opened with `{"path": <absolute path>}`, data frames
 /// until the Mac closes it with `eof`. The Mac confines reads to workspace
 /// roots and refuses folders, so folders and paths outside a root explain why.
+/// A file of any size opens: its bytes go to a local copy in the temporary
+/// folder as they arrive, and the preview reads that copy.
 public struct LinkFileArtifactSource: ArtifactSource {
     /// The connected Mac's link, or nil while offline.
     let link: @Sendable () async -> (any MacLink)?
     /// Resolves relative references (the session's working directory).
     let baseDirectory: String?
     let macName: String
-    /// Largest file the preview reads (the rest is never requested).
-    public static let maxBytes = 24 << 20
+    /// Largest text, image or PDF the preview decodes in memory; a larger one
+    /// opens in Quick Look from its local copy (not a size cap).
+    public static let inMemoryBytes: Int64 = 24 << 20
 
     public init(macName: String, baseDirectory: String?, link: @escaping @Sendable () async -> (any MacLink)?) {
         self.link = link
@@ -36,8 +39,8 @@ public struct LinkFileArtifactSource: ArtifactSource {
         guard let link = await link() else {
             throw ArtifactUnavailable("Connect to \(macName) to open \(artifact.name).")
         }
-        let data = try await Self.read(path: path, over: link, macName: macName)
-        return try Self.content(for: artifact, data: data)
+        let url = try await Self.read(path: path, over: link, macName: macName, for: artifact)
+        return try Self.content(for: artifact, file: url)
     }
 
     /// Absolute path for a reference: absolute stays, `./x` and `x/y` join the base; `~` can't be resolved here.
@@ -48,46 +51,54 @@ public struct LinkFileArtifactSource: ArtifactSource {
         return ((base as NSString).appendingPathComponent(relative) as NSString).standardizingPath
     }
 
-    static func read(path: String, over link: any MacLink, macName: String) async throws -> Data {
+    /// Reads `path` into the artifact's local copy and returns the copy's URL. The bytes
+    /// land in a part file first, so a failed read never leaves a short copy behind.
+    static func read(path: String, over link: any MacLink, macName: String, for artifact: TerminalArtifact) async throws -> URL {
         let channel: any LinkChannel
         do {
             channel = try await link.openChannel(service: "file", args: ["path": path])
         } catch let error as LinkError {
             throw Self.unavailable(error, path: path, macName: macName)
         }
-        var data = Data()
-        do {
-            while let chunk = try await Self.receive(channel, within: idleTimeout, macName: macName) {
-                data.append(chunk)
-                if data.count > maxBytes {
-                    await channel.close(code: "cancelled", reason: "preview limit")
-                    throw ArtifactUnavailable("This file is larger than \(maxBytes >> 20) MB, too large to preview on the phone.")
-                }
-            }
-        } catch let error as LinkError {
-            throw Self.unavailable(error, path: path, macName: macName)
-        }
-        // The Mac refuses by closing the channel (outside the shared
-        // folders, missing, a folder): without this the refusal read as an
-        // empty file and the preview stayed blank.
-        if let closed = channel.closedBy, !closed.code.isEmpty, closed.code != "eof" {
-            throw Self.unavailable(closed, path: path, macName: macName)
-        }
-        return data
+        let url = try ArtifactLocalCopy.destination(for: artifact, defaultExtension: artifact.kind == .video ? "mp4" : nil)
+        let part = url.deletingLastPathComponent().appendingPathComponent(".\(UUID().uuidString).part")
+        defer { try? FileManager.default.removeItem(at: part) }
+        _ = try await download(channel, to: part, path: path, macName: macName)
+        try? FileManager.default.removeItem(at: url)
+        try FileManager.default.moveItem(at: part, to: url)
+        return url
     }
 
-    /// The rest of `channel` written to `destination`; returns the bytes written.
+    /// Writes the rest of `channel` to `destination`, one message at a time (the phone never
+    /// holds more than one), and returns the bytes written. A refusal or a failed read
+    /// removes the file and throws.
     static func download(_ channel: any LinkChannel, to destination: URL, path: String, macName: String) async throws -> Int64 {
-        var data = Data()
-        while let chunk = try await Self.receive(channel, within: idleTimeout, macName: macName) {
-            data.append(chunk)
-            if data.count > maxBytes {
-                await channel.close(code: "cancelled", reason: "preview limit")
-                throw ArtifactUnavailable("This file is larger than \(maxBytes >> 20) MB, too large to preview on the phone.")
-            }
+        guard FileManager.default.createFile(atPath: destination.path, contents: nil) else {
+            throw ArtifactUnavailable("Couldn't save \((path as NSString).lastPathComponent) on this iPhone.")
         }
-        try data.write(to: destination)
-        return Int64(data.count)
+        var written: Int64 = 0
+        do {
+            let handle = try FileHandle(forWritingTo: destination)
+            defer { try? handle.close() }
+            do {
+                while let chunk = try await Self.receive(channel, within: idleTimeout, macName: macName) {
+                    try handle.write(contentsOf: chunk)
+                    written += Int64(chunk.count)
+                }
+            } catch let error as LinkError {
+                throw Self.unavailable(error, path: path, macName: macName)
+            }
+            // The Mac refuses by closing the channel (outside the shared
+            // folders, missing, a folder): without this the refusal read as an
+            // empty file and the preview stayed blank.
+            if let closed = channel.closedBy, !closed.code.isEmpty, closed.code != "eof" {
+                throw Self.unavailable(closed, path: path, macName: macName)
+            }
+        } catch {
+            try? FileManager.default.removeItem(at: destination)
+            throw error
+        }
+        return written
     }
 
     /// How long a read may wait for its next bytes before the preview gives up (a Mac that
@@ -142,6 +153,21 @@ public struct LinkFileArtifactSource: ArtifactSource {
         }
     }
 
+    /// The preview for a local copy: text, images and PDFs up to ``inMemoryBytes`` are read
+    /// into memory, everything else (and anything larger) previews from the file itself.
+    static func content(for artifact: TerminalArtifact, file url: URL) throws -> ArtifactContent {
+        let size = (try FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?.int64Value ?? 0
+        switch artifact.kind {
+        case .video:
+            return size == 0 ? try content(for: artifact, data: Data()) : .file(url)
+        case .audio, .document, .binary:
+            return size == 0 ? try content(for: artifact, data: Data()) : .quickLook(url)
+        default:
+            guard size <= inMemoryBytes else { return .quickLook(url) }
+            return try content(for: artifact, data: Data(contentsOf: url))
+        }
+    }
+
     /// Decodes bytes into the preview the kind wants.
     public static func content(for artifact: TerminalArtifact, data: Data) throws -> ArtifactContent {
         if data.isEmpty {
@@ -185,14 +211,23 @@ public struct ArtifactLocalCopy: Sendable {
     ///   - name: the file name the copy carries (a path separator in it is dropped).
     ///   - key: what makes two copies distinct (a reference or an attachment id).
     public init(data: Data, name: String, key: String, defaultExtension: String? = nil) throws {
+        let url = try Self.destination(name: name, key: key, defaultExtension: defaultExtension)
+        try data.write(to: url, options: .atomic)
+        self.url = url
+    }
+
+    /// Where an artifact's copy goes (its folder is created), for a copy streamed to disk.
+    static func destination(for artifact: TerminalArtifact, defaultExtension: String? = nil) throws -> URL {
+        try destination(name: artifact.name, key: artifact.reference, defaultExtension: defaultExtension)
+    }
+
+    static func destination(name: String, key: String, defaultExtension: String?) throws -> URL {
         var safe = name.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: "-")
         if safe.isEmpty || safe == "." || safe == ".." { safe = "file" }
         if (safe as NSString).pathExtension.isEmpty, let defaultExtension { safe += "." + defaultExtension }
-        let folder = Self.root.appendingPathComponent(Self.digest(key + "\u{0}" + safe), isDirectory: true)
+        let folder = root.appendingPathComponent(digest(key + "\u{0}" + safe), isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        let url = folder.appendingPathComponent(safe)
-        try data.write(to: url, options: .atomic)
-        self.url = url
+        return folder.appendingPathComponent(safe)
     }
 
     /// A stable folder name for a key (FNV-1a, hex): the same file reuses its copy.

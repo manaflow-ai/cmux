@@ -547,6 +547,8 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   256 KiB arrives as several data frames, and the receiver joins frames until
   they parse as one JSON value (at most 32 MiB from the phone).
 - `file`: `{"path"}` read-only stream of a file inside a workspace root, for artifact preview.
+  Any size: data frames until `eof`, up to the size the file had when it was opened. A host
+  before 2026-10-28 refuses a file over 64 MiB with `too_large`.
 - `upload`: `{"name","size","cwd"?}` (`size` a number or a decimal string).
   The phone sends exactly `size` bytes as data frames. The Mac writes them to
   a new file and answers one data frame `{"path","size"}`, then `eof`. With

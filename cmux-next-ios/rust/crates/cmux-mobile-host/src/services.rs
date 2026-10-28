@@ -785,9 +785,6 @@ pub fn confine(roots: &[PathBuf], requested: &Path) -> Result<PathBuf, Refusal> 
     Ok(resolved)
 }
 
-/// Largest file the `file` service streams (artifact previews, not transfers).
-pub const MAXIMUM_FILE_BYTES: u64 = 64 << 20;
-
 /// The open file's real path (`F_GETPATH`) must still be inside a root.
 #[cfg(target_vendor = "apple")]
 fn confine_open(roots: &[PathBuf], file: &tokio::fs::File) -> Result<(), Refusal> {
@@ -872,8 +869,8 @@ pub fn shared_file_roots(file_roots: &[PathBuf], folders: Vec<PathBuf>, home: &P
     roots
 }
 
-/// `file`: stream one regular file inside a workspace root, then close
-/// with `eof`. The roots are the Chat Folders, then (only when the file is
+/// `file`: stream one regular file of any size inside a workspace root, then
+/// close with `eof`. The roots are the Chat Folders, then (only when the file is
 /// outside them) the Mac's workspace folders as they are now.
 async fn file(config: &ServiceConfig, args: &Value, sender: &ChannelSender) -> Result<(), Refusal> {
     let requested = args
@@ -895,7 +892,7 @@ async fn file(config: &ServiceConfig, args: &Value, sender: &ChannelSender) -> R
     };
     // Non-blocking, so a FIFO inside a root cannot hold the open; the checks below
     // refuse anything that is not a regular file.
-    let mut file = tokio::fs::OpenOptions::new()
+    let file = tokio::fs::OpenOptions::new()
         .read(true)
         .custom_flags(libc::O_NONBLOCK)
         .open(&resolved)
@@ -908,9 +905,11 @@ async fn file(config: &ServiceConfig, args: &Value, sender: &ChannelSender) -> R
     if !metadata.is_file() {
         return Err(Refusal::new("bad_request", "not a regular file"));
     }
-    if metadata.len() > MAXIMUM_FILE_BYTES {
-        return Err(Refusal::new("too_large", "file is larger than 64 MiB"));
-    }
+    // Any size streams (Leo: "arbitrarily large files of any type"): one buffer at a time,
+    // each send waiting for room in the channel's bounded queue, so memory stays bounded
+    // whatever the file's size. The read stops at the size the file had when it was
+    // opened, so a file that keeps growing (a log) still ends.
+    let mut file = file.take(metadata.len());
     let mut buffer = vec![0u8; 64 * 1024];
     loop {
         let read = file.read(&mut buffer).await.map_err(|e| Refusal::new("io", e.to_string()))?;
