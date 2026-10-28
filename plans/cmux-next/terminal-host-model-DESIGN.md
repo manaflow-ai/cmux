@@ -1,6 +1,7 @@
 # Terminal host model: one holder for every PTY, one parser in the daemon
 
-Status: decided 2026-10-23 (PL-daemon, perf lead batch 1); slices in section 6. Ask (Lawrence):
+Status: decided 2026-10-23 (PL-daemon, perf lead batch 1); slices in section 6; the
+process-model program's phase A (D, default) and phase B (sandboxed workers, behind a flag) in section 8. Ask (Lawrence):
 "one process per terminal ... the original rationale was to make it more resilient in case a
 terminal process crashed, but maybe there's another way we can handle it safely?" Related:
 [pty-holder.md](pty-holder.md) (frozen tiny holder, D1-D6), [holder-protocol-v1.md](holder-protocol-v1.md)
@@ -227,3 +228,67 @@ waited for it (same fleet mini, new browser tab 4.2 ms p50 without, 22-25 ms wit
 about 11 ms with F_BARRIERFSYNC). Before: each commit F_FULLFSYNCed inside the registry lock (about
 4.5 ms on a fleet M4 Pro, 20 ms on a busy Apple SSD), 1-3 per create or close reply, and every
 request that needed the lock waited behind it.
+
+## 8. The process-model program: phase A default, phase B behind a flag (p01-process-161)
+
+Recorded 2026-10-27 at perf/chrome-parity 611363dd393 for
+[chrome-parity/p01-process.md](chrome-parity/p01-process.md) (section 7, "VT parsing" and "Holder
+ring to the app"). Measured rows: [perf-lead.md](perf-lead.md), "Process-model done checks". This
+section and those rows are an interim record: p01-process-161 is not done, because its dependencies
+100, 137 and 241 have not landed (last item).
+
+- **Phase A is the default: option D as decided in section 3.** The holder keeps only raw output
+  (Lawrence 2026-10-23, pty-holder.md D2: "the daemon parses; the holder keeps only raw output").
+  The daemon parses on a vt-pool of threads in two groups (visible terminals at user-initiated,
+  hidden ones at utility; p01-process.md 3.5). A parse task is at most 64 KiB or 1 ms and goes to the
+  back of its queue after that, so a hidden flood delays a visible chunk by one slice at most. This is
+  Chromium's sequenced work on a thread pool with priorities (`base/task/thread_pool/`), not one
+  thread for each terminal.
+- **Phase B is option E as processes ("E-process"), behind `CMUX_TUI_VT_WORKERS=process`.** It uses
+  sandboxed `cmux-vt-worker` processes, one trust class to a shard (local; SSH, remote and cloud;
+  agent-fetched). Screens and terminal modes go into seqlock pages, so a screen read or a key encode
+  never waits for a worker. The owner checks every event a worker sends and ends a worker that sends
+  a bad one (Chromium's `bad_message` rule). On Linux the sandbox is seccomp and landlock. The flag is
+  on in DEV only after the phase B rows pass (task 137). It stays off in NIGHTLY and Release. Threads
+  mode stays as the fallback for one release.
+- **Why phase B exists although section 3 chose D.** Chromium's Rule of 2
+  (`docs/security/rule-of-2.md`): code may have at most two of untrustworthy input, an unsafe
+  implementation language and high privilege. Chromium sends such parsers to a sandboxed utility
+  process (the Data Decoder Service, `services/data_decoder/`). Terminal output is untrustworthy: a
+  `curl`, an `ssh` session or an agent's tool output can print any bytes. Ghostty's VT parser, Kitty
+  graphics and OSC handling are Zig and C, which are unsafe languages. The daemon has high privilege:
+  it holds every session, the agent CDP links and the long-lived children. So phase A has all three
+  in the daemon. A phase B worker drops privilege, so it has two. The phase A parse stays the
+  default because the daemon still has the protections of section 3: custody dups keep every
+  shell, and a poison pill gets two strikes and then a prologue-only restore. Phase B is a flag
+  because its protection is not complete until the app stops parsing (next item). Its cost is the
+  worker hop, and the seqlock pages take that hop off screen reads.
+- **The app-side gap until task 241.** The app's Ghostty surface parses the same bytes again
+  (`GHOSTTY_SURFACE_IO_MANUAL_MIRROR`), and the app has every TCC grant and the keychain. In both
+  phases the app is still a Rule-of-2 violation. Output that crashes ghostty-vt in the app ends
+  the app, but no shell (the holder and the daemon hold every master). Parses per byte: today 3
+  with terminal hosts, 2 with the holder (daemon + app), and 2 in phase B (worker + app). Only task
+  241 (the app draws from the worker's screen pages and damage list, and parses no bytes) makes it 1.
+  It also makes "a crash corpus ends only one shard while the app keeps running" true. This record
+  does not claim that protection before 241 lands. 241's spike numbers: none yet. The spike has
+  not run at 5121ebcdb33: no `cmux-vt-worker` crate, no `screen_page.rs`, no
+  `TerminalOutputRingMapping.swift`. The second pass of p01-process-161 puts them here after 241
+  runs: parses per byte, app-side copies per chunk, key-to-frame p50/p99 light and STRESS, and
+  whether a crash corpus ends only one shard, each with host, macOS version, display Hz and sha.
+- **Why the ring from the holder to the app was dropped (old tasks 130 and 132).** The app would
+  map the holder's ring and parse straight from it, without the daemon hop. This was dropped for
+  four reasons. (1) It conflicts with D3, whose offsets and daemon-side output ring
+  (app-daemon-connection-DESIGN.md) the app reads already. (2) It needs holder wire v5 and new
+  CUT/CAN correction frames, because the daemon's parse position and the app's would no longer be
+  the same. (3) The app would still parse raw bytes, so it does not close the gap above. (4) Task 241
+  is the better end state. The app reads D3's ring by copying first and checking second (task 131):
+  the writer can overwrite the ring during a parse, and a torn read cannot be undone. Reopen 130 and
+  132 only if `trace.py` shows the daemon hop over 1 ms p99 on echo after D3 lands.
+- **State at 611363dd393.** Phase A is the decided default, but the code for it is not on
+  perf/chrome-parity. `terminalHolder` (schemas/features/features.d/terminalHolder.json) is off in
+  dev, nightly and release. No vt-pool and no `CMUX_TUI_VT_WORKERS` exist yet. Tasks 100 (host
+  mode in DEV, via `cefHelperHost`, which is bench-only and off), 137 and 241 have not landed, and
+  they are still not on perf/chrome-parity at 5121ebcdb33. The rows in perf-lead.md give a number
+  for each check where one could be measured (7 of 22), and name the run that fills in the rest.
+  So p01-process-161 stays open. Its acceptance ("each done check has a number") is met only
+  when its second pass, after 100, 137 and 241, fills the other 15 rows from those fleet runs.

@@ -117,15 +117,15 @@ pub(super) fn focus_pane_plan(
 ) -> anyhow::Result<ResourceMutationPlan> {
     let (workspace_index, screen_index) =
         state.screen_of(pane).context("resolved pane has no screen")?;
-    let workspace_id = state.workspaces[workspace_index].public_id.clone();
-    let screen_id = state.workspaces[workspace_index].screens[screen_index].public_id.clone();
-    let pane_id = state.resource_indexes.pane_ids[&pane].clone();
+    let workspace_id = state.workspace_at(workspace_index)?.public_id.clone();
+    let screen_id = state.screen_at(workspace_index, screen_index)?.public_id.clone();
+    let pane_id = state.live_pane_public_id(pane)?.clone();
     let topology = registry.resource_topology_snapshot()?;
     let previous = topology.active_workspace.clone();
     let mut after = topology.clone();
     after.active_workspace = Some(workspace_id.clone());
     set_active_screen(&mut after, &workspace_id, Some(screen_id.clone()));
-    let current = &state.workspaces[workspace_index].screens[screen_index];
+    let current = state.screen_at(workspace_index, screen_index)?;
     let mut focused_layout = current.layout_snapshot();
     let previous_pane = focused_layout.active_pane;
     if focused_layout.layout_columns.is_empty() {
@@ -154,7 +154,7 @@ pub(super) fn focus_pane_plan(
         .context("pane screen is absent from durable topology")? = durable_screen.clone();
     let deltas = focus_deltas(state, &topology, &after, previous, Some(workspace_id.clone()))?;
     let workspace_record =
-        registry_workspace(state, workspace_index, registry.session_id().as_str());
+        registry_workspace(state, workspace_index, registry.session_id().as_str())?;
     let result = json!({"pane":pane_id,"screen":screen_id});
     let mux = Arc::clone(mux);
     Ok(ResourceMutationPlan::new(
@@ -176,10 +176,10 @@ pub(super) fn focus_pane_plan(
 }
 
 pub(super) fn apply_focus_path(mux: &Mux, state: &mut State, pane: PaneId) {
-    let (workspace, screen) = state.screen_of(pane).expect("planned pane remains in its screen");
+    let (workspace, screen) = state.planned_screen_of(pane);
     state.active_workspace = workspace;
-    state.workspaces[workspace].active_screen = screen;
-    let current = &mut state.workspaces[workspace].screens[screen];
+    state.planned_workspace_mut(workspace).active_screen = screen;
+    let current = state.planned_screen_mut(workspace, screen);
     let previous = current.active_pane;
     if current.layout_columns_active() {
         let mut expanded = false;
