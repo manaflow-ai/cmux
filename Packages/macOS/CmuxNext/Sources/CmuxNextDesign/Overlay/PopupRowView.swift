@@ -121,7 +121,7 @@ open class PopupRowView: NSView {
         setAccessibilityRole(interactive ? .button : .staticText)
         setAccessibilityLabel([title, subtitle].compactMap(\.self).filter { !$0.isEmpty }.joined(separator: ", "))
         if interactive {
-            addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect], owner: self))
+            addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeForHover, .inVisibleRect], owner: self))
         }
     }
 
