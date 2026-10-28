@@ -17,6 +17,8 @@ import Testing
 /// from the snapshot before the App could check its live tabs; now the App decides it.
 @MainActor @Suite(.serialized)
 struct AgentChatTargetAppTests {
+    typealias JSONValue = CmuxNextSettings.JSONValue
+
     private actor NoHost: AgentPaneHostProviding {
         func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw AgentPaneHostError.daemonStopped }
     }
