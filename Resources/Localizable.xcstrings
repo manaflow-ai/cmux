@@ -671695,7 +671695,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 창에는 전체 화면 앱이 표시되어 있어 tmux 기록이 없습니다"
+            "value": "이 패널에는 전체 화면 앱이 표시되어 있어 tmux 기록이 없습니다"
           }
         },
         "zh-Hans": {
@@ -671872,7 +671872,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 창의 tmux 기록 전체를 검색하고 있습니다. 다시 불러오려면 클릭하세요."
+            "value": "이 패널의 tmux 기록 전체를 검색하고 있습니다. 다시 불러오려면 클릭하세요."
           }
         },
         "zh-Hans": {
@@ -671990,7 +671990,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 창의 tmux 기록 중 최신 부분을 불러왔습니다. 다시 불러오려면 클릭하세요."
+            "value": "이 패널의 tmux 기록 중 최신 부분을 불러왔습니다. 다시 불러오려면 클릭하세요."
           }
         },
         "zh-Hans": {
@@ -672167,7 +672167,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "창 %@"
+            "value": "패널 %@"
           }
         },
         "zh-Hans": {
@@ -672462,7 +672462,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "tmux 기록 전체를 포함한 창 내용 검색 (tmux -C)"
+            "value": "tmux 기록 전체를 포함한 패널 내용 검색 (tmux -C)"
           }
         },
         "zh-Hans": {
@@ -672757,7 +672757,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "창 이름, 창 제목, 창 내용 찾기"
+            "value": "창 이름, 패널 제목, 패널 내용 찾기"
           }
         },
         "zh-Hans": {
@@ -672816,7 +672816,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "각 창의 tmux 기록을 읽는 중"
+            "value": "각 패널의 tmux 기록을 읽는 중"
           }
         },
         "zh-Hans": {
@@ -672875,7 +672875,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "일부 창의 기록을 읽을 수 없습니다"
+            "value": "일부 패널의 기록을 읽을 수 없습니다"
           }
         },
         "zh-Hans": {
@@ -673229,7 +673229,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "창 제목 검색 (tmux -T)"
+            "value": "패널 제목 검색 (tmux -T)"
           }
         },
         "zh-Hans": {
