@@ -70,20 +70,36 @@ function boxes(css: string) {
   return found;
 }
 
+function capsules(css: string) {
+  return [...boxes(css)].flatMap(([selector, box]) => {
+    if (SHAPES.has(selector)) return [];
+    const radius = px(box.radius?.split(/\s+/)[0]);
+    const height = px(box.height);
+    const width = px(box.width);
+    if (radius === undefined) return [];
+    const square = height !== undefined && width !== undefined && Math.abs(width - height) < 1;
+    const capsule = radius >= 999 || (height !== undefined && !square && radius >= height / 2 - 0.5);
+    return capsule ? [`${selector} (radius ${box.radius}, height ${box.height ?? "auto"})`] : [];
+  });
+}
+
+describe("capsule detection", () => {
+  test.each([
+    ["a circle", ".control { width: 32px; height: 32px; border-radius: 999px; }", false],
+    ["a small-radius rectangle", ".control { width: 60px; height: 24px; border-radius: 4px; }", false],
+    ["a fully rounded rectangle", ".control { width: 60px; height: 24px; border-radius: 999px; }", true],
+    ["a half-height radius", ".control { width: 60px; height: 24px; border-radius: 12px; }", true],
+    ["an auto-height pill", ".control { border-radius: 999px; }", true],
+    ["a toggle track", ".acpmux-quick-fast-toggle { width: 30px; height: 20px; border-radius: 999px; }", false],
+  ])("classifies %s", (_name, css, expected) => {
+    expect(capsules(css).length > 0).toBe(expected);
+  });
+});
+
 describe.skipIf(!built)("agent pane page", () => {
   test("rounds its controls as small-radius rects, not capsules", () => {
     const html = fs.readFileSync(page, "utf8");
     const css = html.slice(html.indexOf("<style>") + "<style>".length, html.indexOf("</style>"));
-    const capsules = [...boxes(css)].flatMap(([selector, box]) => {
-      if (SHAPES.has(selector)) return [];
-      const radius = px(box.radius?.split(/\s+/)[0]);
-      const height = px(box.height);
-      const width = px(box.width);
-      if (radius === undefined) return [];
-      const square = height !== undefined && width !== undefined && Math.abs(width - height) < 1;
-      const capsule = radius >= 999 || (height !== undefined && !square && radius >= height / 2 - 0.5);
-      return capsule ? [`${selector} (radius ${box.radius}, height ${box.height ?? "auto"})`] : [];
-    });
-    expect(capsules).toEqual([]);
+    expect(capsules(css)).toEqual([]);
   });
 });
