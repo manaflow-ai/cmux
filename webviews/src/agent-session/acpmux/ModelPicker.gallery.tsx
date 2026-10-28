@@ -484,7 +484,7 @@ export default componentEntry<GalleryProps>({
     curated: { props: curated, play: openModels },
     // Current-family recommendation order: Claude's selected Sonnet family remains first while
     // the remaining curated families stay in the provider's order (older releases under More).
-    "family-recommendations-claude": { props: familyRecommendationsClaude, play: recommendationPlay("Sonnet 5.5", "Opus 4.6") },
+    "family-recommendations-claude": { props: familyRecommendationsClaude, play: recommendationPlay("Opus 5.5", "Opus 4.6") },
     // Codex uses the same rule with its selected Sol family and its own curated lineup.
     "family-recommendations-codex": { props: familyRecommendationsCodex, play: recommendationPlay("GPT-6.1 Sol", "GPT-6 Sol") },
     // A Codex chat with a message (Leo 2026-10-19): its harness is fixed, so the menu is search,
