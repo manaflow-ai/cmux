@@ -770,7 +770,7 @@ struct MachinesPanelView: View {
 
             do {
                 guard coderouterStore.isCurrentAddTask(addGeneration), currentCoderouterScope == scope else { return }
-                try await coordinator.launchAccountTerminal(in: workspace.id)
+                try coordinator.launchAccountTerminal(in: workspace.id)
                 launched = true
             } catch {
                 viewModel.noteTreeFailure(error.localizedDescription)

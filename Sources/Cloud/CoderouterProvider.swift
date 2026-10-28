@@ -187,17 +187,31 @@ struct CoderouterSetupWorkspaceCoordinator {
         return .created(workspace: workspace, manager: manager)
     }
 
-    /// Opens the next interactive setup terminal in the resolved workspace.
-    func launchAccountTerminal(in workspaceID: UUID) async throws {
-        _ = try await TerminalController.surfaceNewTerminal(
-            machine: .local,
-            command: ["sh", "-lc", initialTerminalCommand ?? provider.addCommand],
-            cwd: nil,
-            name: "CodeRouter",
-            remoteWorkspaceID: nil,
-            destination: .workspace(id: workspaceID, placement: .split),
+    /// Admits and creates setup directly in its local destination in one main
+    /// actor turn. Staging a running shell elsewhere before projecting it can
+    /// fail after launch, making the caller delete a configuration still in use.
+    func launchAccountTerminal(in workspaceID: UUID) throws {
+        guard let manager = AppDelegate.shared?.tabManagerFor(tabId: workspaceID),
+              !manager.isFinalizedForWindowClose,
+              let workspace = manager.tabs.first(where: { $0.id == workspaceID }),
+              Self.isLocal(workspace) else {
+            throw SurfacePaneFactory.FactoryError.workspaceNotFound(workspaceID)
+        }
+        let command = ["sh", "-lc", initialTerminalCommand ?? provider.addCommand]
+        let created = try SurfacePaneFactory.makeTerminalPane(
+            initialCommand: command.map(LocalSurfaceProvider.shellQuote).joined(separator: " "),
+            workingDirectory: nil,
+            at: .workspace(id: workspaceID, placement: .split),
             focus: true
         )
+        // Match the local provider's terminal name without pinning a custom
+        // tab title that would prevent the shell from updating its own title.
+        let catalog = SurfaceCatalog.shared
+        let resourceID = LocalSurfaceProvider.resourceID(forTerminalPanel: created.panelID)
+        if var resource = catalog.resources[resourceID] {
+            resource.title = "CodeRouter"
+            catalog.upsert(resource)
+        }
     }
 
     private static func persistedLocalWorkspace(
