@@ -124,14 +124,17 @@ jobs:
         env:
           DEV_SNAPSHOT: ${{ inputs.dev_snapshot }}
           FLAG_INPUTS: ${{ (inputs.agent_tools || inputs.team_vm || inputs.dev_tree || inputs.probes) && 'set' || '' }}
+          # Whether each production secret is set, never its value: the copy is only useful once promote can run too.
           HAS_KEY: ${{ secrets.FREESTYLE_API_KEY != '' && 'yes' || '' }}
+          HAS_EMAIL: ${{ secrets.CMUX_UITEST_STACK_EMAIL != '' && 'yes' || '' }}
+          HAS_PASSWORD: ${{ secrets.CMUX_UITEST_STACK_PASSWORD != '' && 'yes' || '' }}
         run: |
           set -euo pipefail
           refuse() { echo "::error title=Production copy::$1"; exit 1; }
           [ "$GITHUB_REF" = refs/heads/feat-cmux-next ] || refuse "dispatch from feat-cmux-next, not $GITHUB_REF"
           [[ "$DEV_SNAPSHOT" =~ ^sh-[0-9a-f]{32}$ ]] || refuse "dev_snapshot must be the dev image's snapshot id (sh-...)"
           [ -z "$FLAG_INPUTS" ] || refuse "agent_tools, team_vm, dev_tree and probes come from the dev image's record in prod-copy mode; leave them off"
-          [ -n "$HAS_KEY" ] || refuse "cmux-next-vm-image-prod has no FREESTYLE_API_KEY (the production account's key); nothing was created"
+          [ -n "$HAS_KEY" ] && [ -n "$HAS_EMAIL" ] && [ -n "$HAS_PASSWORD" ] || refuse "cmux-next-vm-image-prod needs FREESTYLE_API_KEY (production account), CMUX_UITEST_STACK_EMAIL and CMUX_UITEST_STACK_PASSWORD; nothing was created"
 
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2

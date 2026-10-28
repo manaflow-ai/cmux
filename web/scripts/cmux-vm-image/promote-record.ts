@@ -43,8 +43,9 @@ export function historyEntry(candidate: Json, snapshot: string, run: string): Js
   return entry;
 }
 
+/** The bake fields only: promotion_smokes and names (the per-channel copies) are added to an entry after it is recorded. */
 const same = (a: Json, b: Json) => {
-  const { promotion_smokes: _, ...rest } = a;
+  const { promotion_smokes: _, names: _names, ...rest } = a;
   return JSON.stringify(Object.entries(rest).sort()) === JSON.stringify(Object.entries(b).sort());
 };
 

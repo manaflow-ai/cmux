@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { bakeOptionsFromArgv } from "../scripts/cmux-vm-image/bake";
 import { imageResourceName, lockDigest } from "../scripts/cmux-vm-image/lock";
 import { accountCheck, planCopy, recordedFlags } from "../scripts/cmux-vm-image/prod-copy";
-import { recordProductionCopy } from "../scripts/cmux-vm-image/promote-record";
+import { recordCandidate, recordProductionCopy } from "../scripts/cmux-vm-image/promote-record";
 import { runChild } from "./helpers/run-child";
 
 // The production image channel (cloud-vm-image-bake.yml mode prod-copy, cloud-vm-image-promote.yml
@@ -202,12 +202,29 @@ describe("prod-copy.ts account-check", () => {
     await expect(accountCheck(root, async (n) => (n === "cmuxnp-dev-vmimg-ci-100-1" ? ID(100) : undefined))).rejects.toThrow(/dev account's key/);
   });
 
-  test("passes a key that does not see the dev snapshot (another account)", async () => {
+  test("before any production snapshot is recorded, only the dev key is refused (the first copy's channel PR records one)", async () => {
     const { root } = fakeRoot([]);
     const asked: string[] = [];
-    expect(await accountCheck(root, async (n) => (asked.push(n), undefined))).toContain("account check passed");
+    expect(await accountCheck(root, async (n) => (asked.push(n), undefined))).toContain("no production snapshot is recorded yet");
     expect(await accountCheck(root, async () => ID(5))).toContain("account check passed");
     expect(asked).toEqual(["cmuxnp-dev-vmimg-ci-100-1"]);
+  });
+
+  test("once production snapshots are recorded, the key must resolve one of them to its id: a third account is refused", async () => {
+    const { root, lock } = fakeRoot([]);
+    const recorded = { snapshot: "cmuxnp-prod-vmimg-ci-400-1", snapshot_id: ID(400) };
+    const dev = JSON.parse(readFileSync(path.join(root, "images/cmux-vm/channels/dev.json"), "utf8"));
+    dev.history = [devEntry(lock, { names: { production: recorded } })];
+    writeFileSync(path.join(root, "images/cmux-vm/channels/dev.json"), JSON.stringify(dev));
+    const prodAccount = async (n: string) => (n === recorded.snapshot ? recorded.snapshot_id : undefined);
+    expect(await accountCheck(root, prodAccount)).toContain(`${recorded.snapshot} resolves to the recorded ${recorded.snapshot_id}`);
+    await expect(accountCheck(root, async () => undefined)).rejects.toThrow(/not the production account's key/);
+    // A slug re-baked on another account resolves to another id: refused.
+    await expect(accountCheck(root, async (n) => (n === recorded.snapshot ? ID(401) : undefined))).rejects.toThrow(/not the production account's key/);
+    // The serving production pointer counts too, and a dev-named entry there is never an anchor.
+    writeFileSync(path.join(root, "images/cmux-vm/channels/production.json"), JSON.stringify({ snapshot: "cmuxnp-prod-vmimg-ci-500-1", snapshot_id: ID(500), previous: { snapshot: "cmuxnp-dev-vmimg-ci-100-1", snapshot_id: ID(100) } }));
+    expect(await accountCheck(root, async (n) => (n === "cmuxnp-prod-vmimg-ci-500-1" ? ID(500) : undefined))).toContain("account check passed");
+    await expect(accountCheck(root, async (n) => (n === "cmuxnp-dev-vmimg-ci-100-1" ? ID(100) : undefined))).rejects.toThrow(/dev account's key/);
   });
 
   test("fails closed without a dev pointer to check against", async () => {
@@ -243,6 +260,15 @@ describe("promote-record.ts --production-copy", () => {
     expect(devHistory(root)).toEqual([{ ...devEntry(lock), names: { production: recorded } }]);
     expect(recordProductionCopy(root, copy(lock), ID(300), "400")).toEqual({ var: "CLOUD_FREESTYLE_SNAPSHOT", appended: false });
     expect(() => recordProductionCopy(root, copy(lock, { snapshot_id: ID(401) }), ID(300), "400")).toThrow(/never replaced/);
+  });
+
+  test("the dev candidate still re-records (a dev promote re-run) after its production copy is recorded", () => {
+    const { root, lock } = fakeRoot([]);
+    const candidate = { schema: 1, env: "dev", ...devEntry(lock) };
+    expect(recordCandidate(root, candidate, ID(300), "300").appended).toBe(true);
+    expect(recordProductionCopy(root, copy(lock), ID(300), "400").appended).toBe(true);
+    expect(recordCandidate(root, candidate, ID(300), "300")).toEqual({ var: "CLOUD_FREESTYLE_SNAPSHOT", appended: false });
+    expect(devHistory(root).at(-1)!.names).toBeDefined();
   });
 
   const refused: Array<[string, (lock: string) => Record<string, unknown>, string?, string?]> = [

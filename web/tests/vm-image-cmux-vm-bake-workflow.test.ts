@@ -31,10 +31,12 @@ const BASE: Inputs = { mode: "bake", clones: "2", keep_snapshot: true, probes: f
 const PROD_COPY: Inputs = { mode: "prod-copy", clones: "2", keep_snapshot: false, probes: false, agent_tools: false, team_vm: false, dev_tree: false, dev_snapshot: `sh-${"3".repeat(32)}` };
 
 /** Evaluates the expression forms this workflow uses in env values. */
-function evaluate(value: string, ctx: { inputs: Inputs; out: string; snapshot: string; key: string; plan: Record<string, string> }): string {
+function evaluate(value: string, ctx: { inputs: Inputs; out: string; snapshot: string; key: string; plan: Record<string, string>; missing?: string }): string {
   return value.replace(/\$\{\{\s*(.+?)\s*\}\}/g, (_, expr: string) => {
     if (expr === "(inputs.agent_tools || inputs.team_vm || inputs.dev_tree || inputs.probes) && 'set' || ''") return ctx.inputs.agent_tools || ctx.inputs.team_vm || ctx.inputs.dev_tree || ctx.inputs.probes ? "set" : "";
     if (expr === "secrets.FREESTYLE_API_KEY != '' && 'yes' || ''") return ctx.key ? "yes" : "";
+    const presence = expr.match(/^secrets\.(CMUX_UITEST_STACK_EMAIL|CMUX_UITEST_STACK_PASSWORD) != '' && 'yes' \|\| ''$/);
+    if (presence) return ctx.missing === presence[1] ? "" : "yes";
     const plan = expr.match(/^steps\.plan\.outputs\.(\w+)$/);
     if (plan) return ctx.plan[plan[1]!] ?? "";
     const ternary = expr.match(/^inputs\.(\w+) && '([^']*)' \|\| '([^']*)'$/);
@@ -55,14 +57,14 @@ function evaluate(value: string, ctx: { inputs: Inputs; out: string; snapshot: s
   });
 }
 
-async function runStep(name: string, inputs: Inputs, dir: string, snapshot = "sh-test", extra: { key?: string; plan?: Record<string, string>; ref?: string; bunOut?: string } = {}) {
+async function runStep(name: string, inputs: Inputs, dir: string, snapshot = "sh-test", extra: { key?: string; plan?: Record<string, string>; ref?: string; bunOut?: string; missing?: string } = {}) {
   const out = path.join(dir, "cmux-vm-image-out");
   const bin = path.join(dir, "bin");
   mkdirSync(bin, { recursive: true });
   const stub = path.join(bin, "bun");
   writeFileSync(stub, `#!/usr/bin/env bash\nprintf '%s\\n' "$*" >> "${path.join(dir, "bun.argv")}"\ncase "$1" in *bake.ts) echo "IMAGE_ID ${snapshot}";; *prod-copy.ts) [ "$2" != plan ] || printf '%b' '${extra.bunOut ?? ""}';; esac\n`);
   chmodSync(stub, 0o755);
-  const ctx = { inputs, out, snapshot, key: extra.key ?? "", plan: extra.plan ?? {} };
+  const ctx = { inputs, out, snapshot, key: extra.key ?? "", plan: extra.plan ?? {}, missing: extra.missing };
   const env: Record<string, string> = { PATH: `${bin}:${process.env.PATH}`, GITHUB_OUTPUT: path.join(dir, "github-output"), GITHUB_SHA: "0123456789abcdef0123456789abcdef01234567", GITHUB_REF: extra.ref ?? "refs/heads/feat-cmux-next", RUNNER_TEMP: dir };
   for (const [k, v] of Object.entries(job.env)) env[k] = evaluate(v, ctx);
   for (const [k, v] of Object.entries(step(name).env ?? {})) env[k] = evaluate(v, ctx);
@@ -175,8 +177,10 @@ describe("cloud-vm-image-bake.yml mode prod-copy", () => {
     dirs.push(dir);
     return dir;
   };
-  const refusals: Array<[string, Partial<Inputs>, { key?: string; ref?: string }]> = [
+  const refusals: Array<[string, Partial<Inputs>, { key?: string; ref?: string; missing?: string }]> = [
     ["no production key", {}, { key: "" }],
+    ["no test profile email", {}, { key: "k", missing: "CMUX_UITEST_STACK_EMAIL" }],
+    ["no test profile password", {}, { key: "k", missing: "CMUX_UITEST_STACK_PASSWORD" }],
     ["a dispatch from another branch", {}, { key: "k", ref: "refs/heads/main" }],
     ["a dev_snapshot that is not an id", { dev_snapshot: "cmuxnp-dev-vmimg-x" }, { key: "k" }],
     ["agent_tools set by hand", { agent_tools: true }, { key: "k" }],

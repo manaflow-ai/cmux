@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { deleteSnapshot, snapshotReferences } from "../scripts/cmux-vm-image/cleanup";
-import { recordCandidate, recordProductionCopy } from "../scripts/cmux-vm-image/promote-record";
+import { recordCandidate } from "../scripts/cmux-vm-image/promote-record";
 import { runChild } from "./helpers/run-child";
 
 // .github/workflows/cloud-vm-image-promote.yml runs only on dispatch with the cmux-next dev

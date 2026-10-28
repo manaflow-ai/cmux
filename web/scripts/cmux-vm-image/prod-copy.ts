@@ -11,19 +11,24 @@
  *     entry that is not a PASSED CI bake, one whose lock differs from this checkout's lock, a dev tree
  *     bake, an unknown flag, and an entry that already records names.production. No provider access.
  *   bun scripts/cmux-vm-image/prod-copy.ts account-check
- *     Refuses a dev account key (FREESTYLE_API_KEY or FREESTYLE_API_KEY_FILE): a key that resolves the
- *     dev channel's snapshot name to its recorded id is the dev account's. Read-only, one GET.
+ *     Checks the key (FREESTYLE_API_KEY or FREESTYLE_API_KEY_FILE) is the production account's. Refuses the
+ *     dev account's key: it resolves the dev channel's snapshot name to its recorded id. Once a production
+ *     snapshot is recorded (channels/production.json, or names.production in dev.json history), the key must
+ *     also resolve one of them to its recorded id, so a third account's key is refused too. The first
+ *     production copy has no such record: only the dev key is refused then, and the copy's channel PR is
+ *     the reviewed step that records the account's first snapshot. Read-only GETs.
  */
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { SNAPSHOT_ID } from "./cleanup";
 import { argValue, freestyleApiKey } from "./guest";
-import { lockDigest } from "./lock";
+import { lockDigest, PROD_IMAGE_PREFIX } from "./lock";
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const DEV = "images/cmux-vm/channels/dev.json";
 const LOCK = "images/cmux-vm/inputs.lock.json";
+const PRODUCTION = "images/cmux-vm/channels/production.json";
 /** bake.ts flags a production copy may repeat; --dev-tree and anything else is refused. */
 const COPYABLE = ["--agent-tools", "--team-vm"] as const;
 
@@ -65,16 +70,38 @@ export function planCopy(root: string, devSnapshot: string): CopyPlan {
   return { flags: ["--prod-copy", ...flags!], var: v as CopyPlan["var"], lockSha256: lock };
 }
 
-/** Throws when `resolve` (one account's view) finds the dev channel's snapshot under its recorded id: that is the dev key. */
+type Pointer = { snapshot: string; snapshot_id: string };
+const isPointer = (p: unknown, prefix: string): p is Pointer => {
+  const r = p as Json | undefined;
+  return typeof r?.snapshot === "string" && r.snapshot.startsWith(prefix) && /^[a-z0-9-]+$/.test(r.snapshot) && typeof r.snapshot_id === "string" && SNAPSHOT_ID.test(r.snapshot_id);
+};
+
+/** Production snapshots the repo records (channels/production.json pointers and previous, names.production in dev.json history). */
+export function productionAnchors(root: string): Pointer[] {
+  const file = path.join(root, PRODUCTION);
+  const prod = existsSync(file) ? (JSON.parse(readFileSync(file, "utf8")) as Json) : {};
+  const team = (prod.team_vm as Json | undefined) ?? {};
+  const history = readDev(root).history;
+  const candidates = [prod, prod.previous, team, team.previous, ...(Array.isArray(history) ? (history as Json[]).map((h) => (h.names as Json | undefined)?.production) : [])];
+  const byId = new Map<string, Pointer>();
+  for (const p of candidates) if (isPointer(p, PROD_IMAGE_PREFIX) && !byId.has(p.snapshot_id)) byId.set(p.snapshot_id, p);
+  return [...byId.values()];
+}
+
+/**
+ * Throws unless `resolve` (one account's view of snapshot names) is the production account's: it must not resolve
+ * the dev channel's snapshot to its recorded id, and, once production snapshots are recorded, must resolve one of them.
+ */
 export async function accountCheck(root: string, resolve: (name: string) => Promise<string | undefined>): Promise<string> {
   const dev = readDev(root);
-  const name = dev.snapshot;
-  const id = dev.snapshot_id;
-  if (typeof name !== "string" || !/^cmuxnp-dev-vmimg-[a-z0-9-]+$/.test(name) || typeof id !== "string" || !SNAPSHOT_ID.test(id)) {
-    throw new Error(`${DEV} has no dev snapshot name and id to check the key against; refusing`);
+  if (!isPointer(dev, "cmuxnp-dev-vmimg-")) throw new Error(`${DEV} has no dev snapshot name and id to check the key against; refusing`);
+  if ((await resolve(dev.snapshot)) === dev.snapshot_id) {
+    throw new Error(`the Freestyle key resolves the dev channel's ${dev.snapshot} to ${dev.snapshot_id}: it is the dev account's key, not production's; refusing`);
   }
-  if ((await resolve(name)) === id) throw new Error(`the Freestyle key resolves the dev channel's ${name} to ${id}: it is the dev account's key, not production's; refusing`);
-  return `account check passed: ${name} is not ${id} on this account`;
+  const anchors = productionAnchors(root);
+  if (!anchors.length) return `account check passed: not the dev account (${dev.snapshot} is not ${dev.snapshot_id} here); no production snapshot is recorded yet to identify the account by`;
+  for (const a of anchors) if ((await resolve(a.snapshot)) === a.snapshot_id) return `account check passed: not the dev account, and ${a.snapshot} resolves to the recorded ${a.snapshot_id}`;
+  throw new Error(`the Freestyle key resolves none of the ${anchors.length} recorded production snapshots (${anchors.map((a) => a.snapshot).join(", ")}) to its id: it is not the production account's key; refusing`);
 }
 
 /** `GET /v5/snapshots/{slug}`: the id, or undefined on 404. The key is read here and never printed. */
