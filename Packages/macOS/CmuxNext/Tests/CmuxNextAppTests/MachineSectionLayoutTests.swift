@@ -1,0 +1,151 @@
+import AppKit
+@testable import CmuxNextServer
+import Foundation
+import Testing
+
+/// The right sidebar's Machines section groups (cloud sidebar redesign, ask-2663fecb03): every style keeps
+/// every machine, this Mac comes first with no header, and the kinds follow in one fixed order.
+@Suite struct MachineSectionLayoutTests {
+    private static let local = MachineSectionRow(id: "local", name: "This Mac", isConnected: true, isLocal: true)
+    /// Out of kind order on purpose: grouping must not depend on the registry's order.
+    private static let rows = [local] + [
+        MachineSectionRow(id: "s1", name: "studio", isConnected: true, isLocal: false, kind: .server),
+        MachineSectionRow(id: "h1", name: "linux-box", isConnected: true, isLocal: false, kind: .ssh),
+        MachineSectionRow(id: "c1", name: "atlas-web", isConnected: true, isLocal: false, kind: .cloud),
+        MachineSectionRow(id: "c2", name: "gpu-box", isConnected: false, isLocal: false, kind: .cloud, isConnecting: true),
+    ]
+
+    @Test func groupedStylesPutThisMacFirstThenCloudSSHAndServersUnderHeaders() {
+        for style in [MachineSectionStyle.compact, .grouped] {
+            let groups = style.groups(Self.rows)
+            #expect(groups.map(\.kind) == [nil, .cloud, .ssh, .server])
+            #expect(groups.map { $0.rows.map(\.id) } == [["local"], ["c1", "c2"], ["h1"], ["s1"]])
+            #expect(groups[0].title == nil)
+            #expect(groups[1].title == AddMachineStrings.group(.cloud))
+            #expect(Set(groups.map(\.id)).count == groups.count)
+        }
+    }
+
+    @Test func aKindWithNoMachineHasNoGroup() {
+        #expect(MachineSectionStyle.compact.groups([Self.local]).map(\.kind) == [nil])
+        #expect(MachineSectionStyle.compact.groups([]).isEmpty)
+        #expect(MachineSectionStyle.flat.groups([]).isEmpty)
+    }
+
+    @Test func theFlatStyleIsOneUntitledListInTheGivenOrder() {
+        let groups = MachineSectionStyle.flat.groups(Self.rows)
+        #expect(groups.count == 1)
+        #expect(groups[0].title == nil)
+        #expect(groups[0].rows == Self.rows)
+    }
+
+    @Test func everyStyleKeepsEveryMachine() {
+        for style in MachineSectionStyle.allCases {
+            #expect(style.groups(Self.rows).flatMap(\.rows).count == Self.rows.count)
+        }
+        #expect(MachineSectionStyle.compact.showsStateLine == false)
+        #expect(MachineSectionStyle.grouped.showsStateLine && MachineSectionStyle.flat.showsStateLine)
+    }
+
+    @Test func aRowsKindAndStateFollowItsLink() {
+        #expect(Self.local.kind == .local)
+        #expect(MachineSectionRow(id: "x", name: "x", isConnected: false, isLocal: false).kind == .ssh)
+        let connecting = MachineSectionRow(id: "c", name: "c", isConnected: false, isLocal: false, kind: .cloud, isConnecting: true)
+        #expect(connecting.isConnecting && connecting.stateText == AddMachineStrings.connecting)
+        // A connected link is never "connecting", whatever the caller passed.
+        let connected = MachineSectionRow(id: "c", name: "c", isConnected: true, isLocal: false, kind: .cloud, isConnecting: true)
+        #expect(!connected.isConnecting && connected.stateText == AddMachineStrings.connected)
+        #expect(MachineSectionRow(id: "o", name: "o", isConnected: false, isLocal: false).stateText == AddMachineStrings.offline)
+        #expect(Set(MachineKind.allCases.map(\.icon)).count == MachineKind.allCases.count)
+    }
+
+    @Test func theFixtureHasEveryRemoteKindAndState() {
+        let fixture = MachineSectionModel.fixtureRows
+        #expect(Set(fixture.map(\.kind)) == [.cloud, .ssh, .server])
+        #expect(fixture.contains { $0.isConnecting })
+        #expect(fixture.contains { !$0.isConnected && !$0.isConnecting })
+        #expect(Set(fixture.map(\.id)).count == fixture.count)
+        #expect(!fixture.contains { $0.isLocal })
+    }
+}
+
+/// The Machines section is AppKit (no-swiftui-DESIGN wave 1): its rows react to model changes, its
+/// buttons run their actions, and New Workspace shows only under the pointer or while the row's menu is open.
+@MainActor @Suite struct MachineSectionViewTests {
+    private static let rows = [
+        MachineSectionRow(id: "local", name: "This Mac", isConnected: true, isLocal: true),
+        MachineSectionRow(id: "c1", name: "atlas-web", isConnected: true, isLocal: false, kind: .cloud),
+        MachineSectionRow(id: "c2", name: "gpu-box", isConnected: false, isLocal: false, kind: .cloud, isConnecting: true),
+        MachineSectionRow(id: "h1", name: "build-host", isConnected: false, isLocal: false, kind: .ssh),
+    ]
+
+    private static func section(_ opened: @escaping @MainActor (String) -> Void = { _ in },
+                                add: @escaping @MainActor () -> Void = {}) -> MachineSectionView {
+        let view = MachineSectionView(actions: MachineSectionView.Actions(newWorkspace: opened, addMachine: add))
+        view.frame = NSRect(x: 0, y: 0, width: 280, height: 400)
+        return view
+    }
+
+    @Test func eachStyleShowsItsHeadersAndStates() {
+        let view = Self.section()
+        view.update(Self.rows, style: .compact)
+        #expect(view.shownLines == ["This Mac", AddMachineStrings.group(.cloud)!, "atlas-web", "gpu-box",
+                                    AddMachineStrings.group(.ssh)!, "build-host · \(AddMachineStrings.offline)", AddMachineStrings.addMachine])
+        view.update(Self.rows, style: .flat)
+        #expect(view.shownLines == ["This Mac · \(AddMachineStrings.connected)", "atlas-web · \(AddMachineStrings.connected)",
+                                    "gpu-box · \(AddMachineStrings.connecting)", "build-host · \(AddMachineStrings.offline)",
+                                    AddMachineStrings.addMachine])
+    }
+
+    @Test func rowsFollowTheModelAndKeepTheirViews() {
+        let view = Self.section()
+        view.update(Self.rows, style: .compact)
+        let kept = view.rowViews["c1"]
+        view.update(Array(Self.rows.prefix(2)), style: .compact)
+        #expect(view.rowViews.keys.sorted() == ["c1", "local"])
+        #expect(view.rowViews["c1"] === kept)
+        #expect(!view.shownLines.contains(AddMachineStrings.group(.ssh)!))
+        view.layoutSubtreeIfNeeded()
+        let frames = view.subviews.map(\.frame)
+        #expect(frames.allSatisfy { $0.width == 280 })
+        #expect(zip(frames, frames.dropFirst()).allSatisfy { $0.maxY <= $1.minY })
+    }
+
+    @Test func newWorkspaceShowsUnderThePointerAndRunsOnlyWhenConnected() throws {
+        var opened: [String] = []
+        let view = Self.section { opened.append($0) }
+        view.update(Self.rows, style: .compact)
+        let row = try #require(view.rowViews["c1"])
+        #expect(!row.revealsNewWorkspace)
+        row.setPointerInside(true)
+        #expect(row.revealsNewWorkspace)
+        row.newButton.performClick(nil)
+        row.setPointerInside(false)
+        #expect(!row.revealsNewWorkspace)
+        let down = try #require(view.rowViews["h1"])
+        #expect(!down.newButton.isEnabled)
+        #expect(down.newButton.accessibilityPerformPress() == false)
+        #expect(down.contextMenu().items.first?.isEnabled == false)
+        #expect(opened == ["c1"])
+        #expect(row.contextMenu().items.map(\.title) == [AddMachineStrings.newWorkspace])
+    }
+
+    @Test func addMachineRunsItsAction() {
+        var added = 0
+        let view = Self.section(add: { added += 1 })
+        view.update(Self.rows, style: .grouped)
+        #expect(view.addRow.accessibilityPerformPress())
+        #expect(added == 1)
+    }
+
+    @Test func theSectionAndItsHostImportNoSwiftUI() throws {
+        let sources = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().appending(path: "Sources")
+        for path in ["CmuxNextServer/AddMachine/MachineSectionView.swift", "CmuxNextServer/AddMachine/MachineSection.swift",
+                     "CmuxNextApp/RightSidebar/MachineSectionHostView.swift"] {
+            let source = try String(contentsOf: sources.appending(path: path), encoding: .utf8)
+            #expect(!source.contains("import SwiftUI"), "\(path)")
+            #expect(!source.contains("NSHostingView"), "\(path)")
+        }
+    }
+}
