@@ -568,7 +568,6 @@ async fn launch_warm_reports_an_explicit_stop_during_start() {
     let id = made["sessionId"].as_str().unwrap().to_owned();
     let session = hub.resolve(&id).unwrap();
     hub.detach_child(&session).await;
-    hub.config.write().await.agent_start_timeout_ms = Some(1000);
     let warmer = {
         let hub = hub.clone();
         let id = id.clone();
@@ -584,16 +583,15 @@ async fn launch_warm_reports_an_explicit_stop_during_start() {
         assert!(std::time::Instant::now() < deadline, "warm load never started");
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
-    // `kill` increments the stop generation before it waits for the gated loader to exit.
-    // Run it concurrently so the gate can open and the stop can complete deterministically.
-    let stopping = {
-        let hub = hub.clone();
-        let session = session.clone();
-        tokio::spawn(async move { hub.kill(&session, false).await })
-    };
-    tokio::time::sleep(Duration::from_millis(50)).await;
+    // No idle pass holds the harness lease in this fixture. Poll the stop through that
+    // uncontended read and its generation increment before opening the load gate.
+    let mut stopping = Box::pin(hub.kill(&session, false));
+    let stopped = futures::poll!(stopping.as_mut());
     std::fs::write(&gate, "ready").unwrap();
-    stopping.await.unwrap().unwrap();
+    match stopped {
+        std::task::Poll::Ready(result) => result.unwrap(),
+        std::task::Poll::Pending => stopping.await.unwrap(),
+    }
     let (warmed, failed) = warmer.await.unwrap();
     assert!(warmed.is_empty());
     assert_eq!(failed.len(), 1);

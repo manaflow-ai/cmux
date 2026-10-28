@@ -174,3 +174,23 @@ async fn warm_stop_drains_a_start_without_reopening_a_newer_close() {
     assert!(session.closing.load(Ordering::SeqCst));
     assert!(!has_live_child(&session).await);
 }
+
+/// An idle pass owns the harness until its hibernation mark is stored. End Sessions waits for
+/// that pass, then clears the mark so a later click/typing does not undo the stop.
+#[tokio::test]
+async fn warm_stop_waits_for_hibernation_and_clears_its_wake_state() {
+    let (hub, session) = chat().await;
+    let before = session.stops.load(Ordering::SeqCst);
+    let idle_pass = session.harness_use.write().await;
+    let mut stopping = Box::pin(hub.warm_stop(&session.id));
+    assert!(futures::poll!(stopping.as_mut()).is_pending());
+    assert_eq!(session.stops.load(Ordering::SeqCst), before, "stop ran during the idle pass");
+    session.hibernated_at.store(1, Ordering::SeqCst);
+    session.meta.lock().unwrap().hibernated_ms = 1;
+    drop(idle_pass);
+    assert_eq!(stopping.await["status"], "idle");
+    assert!(!hub.waking(&session), "a click would wake the stopped chat");
+    assert_eq!(session.meta().hibernated_ms, 0, "a restart would restore the stale wake state");
+    assert!(!has_live_child(&session).await);
+    hub.shutdown_all().await;
+}
