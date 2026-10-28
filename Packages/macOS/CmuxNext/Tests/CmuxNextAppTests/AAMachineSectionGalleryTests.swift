@@ -1,5 +1,7 @@
 import AppKit
+import CmuxNextDesign
 @testable import CmuxNextServer
+import CmuxTheme
 import Foundation
 import Testing
 
@@ -18,10 +20,15 @@ import Testing
         let root = NSView(frame: NSRect(x: 0, y: 0, width: width, height: height))
         root.wantsLayer = true
         root.appearance = window.appearance
-        root.appearance?.performAsCurrentDrawingAppearance {
-            root.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
-        }
         window.contentView = root
+        // The shipped Soft Blue themes, as the sidebar galleries draw: the inks come from the theme.
+        let theme = appearance == .darkAqua ? "Soft Blue" : "Soft Blue Light"
+        let input = try AANestedGroupsGalleryTests.input(theme)
+        _ = ThemeScope.app.store.apply(input)
+        let scope = ThemeScope(level: .room)
+        scope.setOverride(ThemeSpec(theme), input: input, animated: false)
+        scope.root(root)
+        root.layer?.backgroundColor = scope.perform { Palette.windowBackground.withAlphaComponent(1) }.cgColor
         let section = MachineSectionView(actions: MachineSectionView.Actions(newWorkspace: { _ in }, addMachine: {}))
         section.update([MachineSectionRow(id: "local", name: "This Mac", isConnected: true, isLocal: true)] + MachineSectionModel.fixtureRows,
                        style: style)
