@@ -9,9 +9,13 @@ impl Surface {
     /// Returns whether a clamped size change was applied or accepted. Browser
     /// reconfiguration completes on its worker and emits the final size there.
     /// A live resize (a drag) starts or ends: while it runs, byte mirrors
-    /// get no replay; its end gives them one, at the final grid. Red-commit
-    /// stub: it does nothing yet.
-    pub(crate) fn set_live_resize(&self, _live: bool) {}
+    /// get no replay; its end gives them one, at the final grid
+    /// (`PtySurface::set_live_resize`). No-op for a browser surface.
+    pub(crate) fn set_live_resize(&self, live: bool) {
+        if let Some(pty) = self.as_pty() {
+            pty.terminal.set_live_resize(live);
+        }
+    }
 
     pub fn resize(&self, cols: u16, rows: u16) -> anyhow::Result<bool> {
         match self {

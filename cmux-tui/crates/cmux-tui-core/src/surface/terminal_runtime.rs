@@ -316,6 +316,10 @@ pub struct PtyTerminalRuntime {
     /// Set when output arrived since the last render; cleared by the
     /// frontend when it draws.
     pub(super) dirty: AtomicBool,
+    /// A live resize runs (a drag the app marks live): byte mirrors' replays
+    /// wait for its end. The generation of the live resize that set it, so a
+    /// settle deadline of an earlier one leaves a newer one alone.
+    pub(super) live_resize: AtomicU64,
     pub(super) title: RankedMutex<String>,
     pub(super) pwd: Mutex<Option<String>>,
     pub(super) published_directory: Mutex<PublishedDirectory>,

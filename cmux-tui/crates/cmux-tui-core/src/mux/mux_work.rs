@@ -62,6 +62,24 @@ impl Mux {
         self.work.post(priority, lane, shutdown, move || body(&mux))
     }
 
+    /// Runs `settle`, the end of a live resize whose own end did not come
+    /// ([`crate::surface::LIVE_RESIZE_SETTLE`]), once `delay` has passed.
+    /// False when it cannot be posted (shutting down).
+    pub(crate) fn post_live_resize_settle(
+        &self,
+        delay: Duration,
+        settle: Box<dyn FnOnce() + Send>,
+    ) -> bool {
+        self.post_mux_work_after(
+            delay,
+            Priority::UserVisible,
+            Lane::Cpu,
+            Shutdown::SkipOnShutdown,
+            move |_| settle(),
+        )
+        .is_ok()
+    }
+
     /// [`Self::post_mux_work`] once `delay` has passed
     /// ([`cmux_threads::work::Work::post_delayed`]).
     pub(super) fn post_mux_work_after(

@@ -79,6 +79,7 @@ fn attachment_leases_fence_independent_same_connection_views() {
             cols: 110,
             rows: 35,
             stream: None,
+            live: None,
         },
         &writer,
     )
@@ -97,6 +98,7 @@ fn attachment_leases_fence_independent_same_connection_views() {
             cols: 70,
             rows: 20,
             stream: None,
+            live: None,
         },
         &writer,
     )
@@ -120,6 +122,7 @@ fn attachment_leases_fence_independent_same_connection_views() {
                 cols: 40,
                 rows: 10,
                 stream: None,
+                live: None,
             },
             &writer,
         )
@@ -139,6 +142,7 @@ fn attachment_leases_fence_independent_same_connection_views() {
             cols: 40,
             rows: 10,
             stream: None,
+            live: None,
         },
         &foreign_writer,
     )
@@ -183,6 +187,7 @@ fn attachment_leases_fence_independent_same_connection_views() {
             cols: 60,
             rows: 18,
             stream: None,
+            live: None,
         },
         Command::ReleaseAttachedViewSize {
             surface: surface.id,
@@ -206,6 +211,7 @@ fn attachment_leases_fence_independent_same_connection_views() {
             cols: 90,
             rows: 28,
             stream: None,
+            live: None,
         },
         &writer,
     )
@@ -225,6 +231,7 @@ fn attachment_leases_fence_independent_same_connection_views() {
             cols: 55,
             rows: 16,
             stream: None,
+            live: None,
         },
         &writer,
     )
@@ -322,6 +329,7 @@ fn attachment_resize_waits_for_detach_lifecycle_and_becomes_superseded() {
                 cols: 80,
                 rows: 24,
                 stream: None,
+                live: None,
             },
             &resize_writer,
         );
@@ -400,6 +408,7 @@ fn terminal_view_leases_converge_after_500_rapid_attach_resize_detach_cycles() {
                 cols: resized.0,
                 rows: resized.1,
                 stream: None,
+                live: None,
             },
             &writer,
         )
@@ -418,6 +427,7 @@ fn terminal_view_leases_converge_after_500_rapid_attach_resize_detach_cycles() {
                 cols: 40,
                 rows: 10,
                 stream: None,
+                live: None,
             },
             &writer,
         )

@@ -829,11 +829,20 @@ pub(super) fn handle_command_with_cancellation(
         Command::ResizeSurface { surface, cols, rows } => {
             cmd_sizing::resize_surface(mux, client, surface, cols, rows)
         }
-        Command::ResizeAttachedView { surface, lease, view, identity, cols, rows, stream } => {
+        Command::ResizeAttachedView {
+            surface,
+            lease,
+            view,
+            identity,
+            cols,
+            rows,
+            stream,
+            live,
+        } => {
             let lease =
                 attach_streams::checked_view_lease(mux, client, writer, surface, stream, lease)?;
-            cmd_sizing::resize_attached_view(
-                mux, client, surface, lease, view, identity, cols, rows,
+            cmd_sizing::resize_attached_view_live(
+                mux, client, surface, lease, view, identity, cols, rows, live,
             )
         }
         Command::ReleaseSurfaceSize { surface } => {

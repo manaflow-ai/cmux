@@ -26,11 +26,20 @@ public nonisolated protocol TerminalAttachLink: AnyObject, Sendable {
     func detachNow()
     /// Ranks the link's stream against the other views of its connection (`set-stream-priority`).
     func sendStreamPriority(_ priority: TerminalStreamPriority)
+    /// The grids this view sends next are steps of a live resize, or (false) the next one ends it
+    /// (`live-resize-v1`).
+    func setResizeLive(_ live: Bool)
+    /// Ends a live resize whose last step already sent the settled grid (the machine sends no
+    /// claim for an unchanged grid): reports that grid once more with `live: false`.
+    func endLiveResize()
 }
 
 public nonisolated extension TerminalAttachLink {
     /// A link with no stream to rank.
     func sendStreamPriority(_ priority: TerminalStreamPriority) {}
+    /// A link whose daemon takes no live resize.
+    func setResizeLive(_ live: Bool) {}
+    func endLiveResize() {}
 }
 
 /// Runs a ``TerminalAttachMachine`` against real attachments: one reducer
@@ -162,7 +171,19 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
 
     public func start() { send(.start) }
     public func input(_ data: Data) { send(.input(data)) }
-    public func resize(_ size: CellSize) { send(.resize(size)) }
+    public func resize(_ size: CellSize) { resize(size, live: false) }
+
+    /// A grid of a live resize (`live`, a divider or window edge drag) or a settled one: the live
+    /// link reports it as a step, or as the grid that ends the live resize (`live-resize-v1`). A
+    /// link that opens later reports its first grid as settled.
+    public func resize(_ size: CellSize, live: Bool) {
+        let link = core.withLock { $0.machine.liveLink }?.link
+        link?.setResizeLive(live)
+        send(.resize(size))
+        // An end whose grid the machine did not send again (unchanged) still ends the live resize;
+        // a no-op when the claim above already ended it.
+        if !live { link?.endLiveResize() }
+    }
     public func setVisible(_ visible: Bool) {
         send(.visibility(visible))
         syncStreamPriority()

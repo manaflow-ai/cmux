@@ -108,6 +108,7 @@ impl AttachFrameReceiver {
     /// queue lock before it builds the replay.
     fn take_due_replay(&self, queue: &mut AttachTapQueue) -> Option<PendingReplay> {
         if !queue.needs_replay
+            || queue.replay_held
             || queue.replay_building
             || !queue.sender_alive
             || queue.popped < queue.replay_after
@@ -623,6 +624,9 @@ pub(super) struct AttachTapQueue {
     /// `pushed` when `needs_replay` was set: the replay is due once `popped`
     /// reaches it.
     replay_after: u64,
+    /// A live resize runs: the replay waits for its end
+    /// ([`AttachTap::release_live_replay`]), however many steps it takes.
+    replay_held: bool,
 }
 
 impl AttachTapQueue {
@@ -860,6 +864,7 @@ impl AttachTap {
                 pushed: 0,
                 popped: 0,
                 replay_after: 0,
+                replay_held: false,
             }),
             ready: Condvar::new(),
             ready_hook: Default::default(),
@@ -891,7 +896,7 @@ impl AttachTap {
     /// A geometry change: a replay viewer waits for one replay at a later cut
     /// (see `needs_replay`). No-op for a snapshot viewer. False when the
     /// viewer is gone.
-    pub(super) fn request_replay(&self) -> bool {
+    pub(super) fn request_replay(&self, live: bool) -> bool {
         if self.lifecycle.is_canceled() {
             return false;
         }
@@ -901,7 +906,13 @@ impl AttachTap {
             self.lifecycle.cancel();
             return false;
         }
-        if queue.snapshot_mode || queue.needs_replay {
+        if queue.snapshot_mode {
+            return true;
+        }
+        // During a live resize the replay waits for its end; output keeps
+        // flowing to the viewer meanwhile, as it does while a replay waits.
+        queue.replay_held |= live;
+        if queue.needs_replay {
             return true;
         }
         queue.needs_replay = true;
@@ -909,6 +920,22 @@ impl AttachTap {
         drop(queue);
         self.state.wake_one();
         true
+    }
+
+    /// A live resize ended: a replay it held is due now (once the frames
+    /// queued before the mark are taken). False when the viewer is gone.
+    pub(super) fn release_live_replay(&self) -> bool {
+        if self.lifecycle.is_canceled() {
+            return false;
+        }
+        let mut queue = self.state.queue.lock().recover_poison();
+        if !std::mem::take(&mut queue.replay_held) {
+            return queue.receiver_alive;
+        }
+        let alive = queue.receiver_alive;
+        drop(queue);
+        self.state.wake_all();
+        alive
     }
 
     /// Whether this replay viewer waits for a replay.

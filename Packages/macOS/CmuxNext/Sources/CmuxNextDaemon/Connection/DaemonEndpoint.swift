@@ -79,6 +79,10 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// the grid (`TerminalAttachment.sendHidden`). The GUI reads it from `identify`; it does not
     /// advertise it back (that would subscribe its streams to `size-state` events).
     case sharedSizing = "shared-sizing-v1"
+    /// `live` on `resize-attached-view` (H10): a live resize's grids apply at once and the
+    /// terminal's byte mirrors get one replay, at the grid reported with `live: false`. Read from
+    /// `identify`; a daemon without it gets no `live` field.
+    case liveResize = "live-resize-v1"
     /// `name` on `move-tab-to-new-workspace`: the new workspace takes the
     /// moved tab's name in the same commit (else the app renames after).
     case tabWorkspaceName = "tab-workspace-name-v1"
@@ -518,7 +522,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .viewAttachmentDetach, .attachInitialSize:
             return .required
         case .workspaceGroups, .workspaceMetadata, .workspaceNameSource, .tabMetadata, .frontendBrowserTabs,
-             .frontendBrowserTabKeys, .frontendBrowserHistory, .frontendBrowserTabProfile, .tabDrag, .sharedSizing,
+             .frontendBrowserTabKeys, .frontendBrowserHistory, .frontendBrowserTabProfile, .tabDrag, .sharedSizing, .liveResize,
              .tabWorkspaceName, .notificationAck, .feedLocalOwner, .tabGroups, .savedTabGroups, .workspacePin,
              .workspaceChecklist, .notificationMarkUnread, .tabMarkUnread, .workspaceDescription, .workspaceStatus,
              .screenMetadata, .screenGroups, .stateResources, .windowRecords, .terminalEnv, .terminalPlacementEnv,
@@ -596,7 +600,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
         !notAdvertised.contains($0)
     }
     private static let notAdvertised: Set<String> = Set(names([.terminalFrontendShellIntegration, .placementShift,
-                                                               .sharedSizing, .diagnosticSites]))
+                                                               .sharedSizing, .liveResize, .diagnosticSites]))
 
     /// What a connection echoes in `set-client-info`.
     ///

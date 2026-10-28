@@ -288,6 +288,12 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
         driver.resize(size)
     }
 
+    /// Called by `ResizeCoordinator` for a step of a live resize (a drag): the daemon applies it
+    /// and rebuilds byte mirrors once, at the settled grid that ends it (`live-resize-v1`).
+    @MainActor func applyLive(_ size: CellSize) {
+        driver.resize(size, live: true)
+    }
+
     @MainActor var awaitsEcho: Bool { !driver.machine.echoesDue.isEmpty }
 
     /// A visible live view holds geometry until another client's grid is

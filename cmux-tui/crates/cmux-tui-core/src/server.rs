@@ -383,6 +383,10 @@ pub const VIEW_ATTACHMENT_DETACH_CAPABILITY: &str = "view-attachment-detach-v1";
 /// sub-views on `resize-attached-view`, client identity on `set-client-info`,
 /// and `reason`/`by` on `detached`.
 pub const SHARED_SIZING_CAPABILITY: &str = "shared-sizing-v1";
+/// `resize-attached-view` takes `live`: the grids of a live resize (a drag)
+/// apply at once, and byte mirrors get one replay, at the grid reported
+/// without `live` (or after a 2 s settle when that report never comes).
+pub const LIVE_RESIZE_CAPABILITY: &str = "live-resize-v1";
 /// A client that lists this in `set-client-info` survives losing its own
 /// view of a terminal: `detach-client` naming that view's participant
 /// detaches the view only (event `detached` with `scope:"view"`) and keeps
@@ -1957,6 +1961,10 @@ enum Command {
         /// attach-streams-v1: the view's client-minted stream, checked.
         #[serde(default)]
         stream: Option<u16>,
+        /// live-resize-v1: this grid is a step of a live resize (a drag);
+        /// byte mirrors get their replay once, at the report without it.
+        #[serde(default)]
+        live: Option<bool>,
     },
     /// Stop this client from contributing a size for a surface while
     /// retaining its attach stream for cached rendering.

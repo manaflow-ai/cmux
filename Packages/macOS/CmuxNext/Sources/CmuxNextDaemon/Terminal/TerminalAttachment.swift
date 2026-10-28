@@ -73,6 +73,25 @@ public actor TerminalAttachment: TerminalByteChannel {
         var detached = false
         /// The daemon takes `set-size-counts` for this lease (`shared-sizing-v1`).
         var hidesInPlace = false
+        /// The daemon takes `live` on `resize-attached-view` (`live-resize-v1`).
+        var resizesLive = false
+        /// The grids reported now are steps of a live resize (``setResizeLive(_:)``).
+        var resizeLive = false
+        /// The last grid this view sent was a live step: the next one sent without
+        /// ``resizeLive`` ends the live resize (`live: false`).
+        var inLiveResize = false
+
+        /// A grid reported now ends a live resize.
+        var endsLiveResize: Bool { resizesLive && inLiveResize && !resizeLive }
+
+        /// The `live` field of the grid reported now: true for a step, false for the grid that
+        /// ends a live resize, nil otherwise or when the daemon lacks `live-resize-v1`.
+        mutating func takeLiveFlag() -> Bool? {
+            guard resizesLive else { return nil }
+            let flag: Bool? = resizeLive ? true : (inLiveResize ? false : nil)
+            inLiveResize = resizeLive
+            return flag
+        }
         /// This view's sizing participant (the attach reply's `participant`); nil until then.
         var participant: String?
         /// The newest size state this view passed on, and one that came before the reply named
@@ -182,6 +201,8 @@ public actor TerminalAttachment: TerminalByteChannel {
         let request = try Self.attachRequest(target, identity: identity, size: size, snapshotVersion: snapshotVersion,
                                              localHistory: localHistory, images: images, stream: nil)
         let response = try await DaemonConnection.perform(request, on: transport, timeout: Self.attachTimeout)
+        let resizesLive = identity.supports(DaemonCapability.liveResize.rawValue)
+        control.value.withLock { $0.resizesLive = resizesLive }
         try await adopt(response, size: size, sharedSizing: identity.supports(DaemonCapability.sharedSizing.rawValue),
                         claimGeometry: claimGeometry, target: target.surface, createIntent: createIntent)
     }
@@ -280,34 +301,54 @@ public actor TerminalAttachment: TerminalByteChannel {
 
     // MARK: Synchronous commands (any thread, sent in call order)
 
-    /// Passive grid report. Skipped when it equals the last report.
+    /// Passive grid report. Skipped when it equals the last report, unless it ends a live resize.
     public nonisolated func sendResize(_ size: CellSize) {
         let size = CellSize(cols: max(1, size.cols), rows: max(1, size.rows))
-        let lease = control.value.withLock { control -> String?? in
-            guard control.lastReported != size else { return .none }
+        let report = control.value.withLock { control -> (lease: String?, live: Bool?)? in
+            guard control.lastReported != size || control.endsLiveResize else { return nil }
             control.lastReported = size
-            return .some(control.lease)
+            return (control.lease, control.takeLiveFlag())
         }
-        guard case .some(let lease) = lease else { return }
-        if let lease {
+        guard let report else { return }
+        if let lease = report.lease {
             fireAndForget(ResizeAttachedViewRequest(surface: surface, lease: lease, cols: size.cols, rows: size.rows,
-                                                    stream: stream?.id))
+                                                    stream: stream?.id, live: report.live))
         } else {
             fireAndForget(ResizeSurfaceRequest(surface: surface, cols: size.cols, rows: size.rows))
         }
+    }
+
+    /// The grids this view reports from now on are steps of a live resize (a divider or window
+    /// edge drag) until it is called with false; the first grid reported after that ends the live
+    /// resize, so the daemon rebuilds byte mirrors once, at that grid (`live-resize-v1`, H10).
+    /// Set in the caller's order before the grid it applies to.
+    public nonisolated func setResizeLive(_ live: Bool) {
+        control.value.withLock { $0.resizeLive = live }
+    }
+
+    /// Ends a live resize still open after its last step (its settled grid equals the last step,
+    /// so no claim went): reports the last grid with `live: false`. No-op otherwise.
+    public nonisolated func endLiveResize() {
+        let report = control.value.withLock { control -> (String, CellSize, Bool?)? in
+            guard control.endsLiveResize, let lease = control.lease, let size = control.lastReported else { return nil }
+            return (lease, size, control.takeLiveFlag())
+        }
+        guard let (lease, size, live) = report else { return }
+        fireAndForget(ResizeAttachedViewRequest(surface: surface, lease: lease, cols: size.cols, rows: size.rows,
+                                                stream: stream?.id, live: live))
     }
 
     /// Reports `size` (or the last reported size), then claims canonical
     /// geometry. The daemon accepts a claim only from a view that already
     /// reported a size on this attachment, so the report always goes first.
     public nonisolated func claimGeometry(reporting size: CellSize?) {
-        let (lease, report) = control.value.withLock { control -> (String?, CellSize?) in
+        let (lease, report, live) = control.value.withLock { control -> (String?, CellSize?, Bool?) in
             if let size { control.lastReported = CellSize(cols: max(1, size.cols), rows: max(1, size.rows)) }
-            return (control.lease, control.lastReported)
+            return (control.lease, control.lastReported, control.takeLiveFlag())
         }
         if let report, let lease {
             fireAndForget(ResizeAttachedViewRequest(surface: surface, lease: lease, cols: report.cols, rows: report.rows,
-                                                    stream: stream?.id))
+                                                    stream: stream?.id, live: live))
         }
         fireAndForget(SetClientSizingRequest(surface: surface, enabled: true, exclusive: true))
     }

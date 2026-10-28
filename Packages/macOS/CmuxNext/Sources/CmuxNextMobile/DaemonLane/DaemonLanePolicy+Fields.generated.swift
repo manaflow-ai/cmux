@@ -94,7 +94,7 @@ extension DaemonLanePolicy {
         "rename-workspace": ["expected_generation", "expected_name_revision", "expected_revision", "key", "mutation_id", "name", "origin", "release", "source", "workspace"],
         "reopen-saved-tab-group": ["pane", "saved", "transaction"],
         "report-focus": ["client_id", "pane", "tab"],
-        "resize-attached-view": ["cols", "identity", "lease", "rows", "stream", "surface", "view"],
+        "resize-attached-view": ["cols", "identity", "lease", "live", "rows", "stream", "surface", "view"],
         "resize-surface": ["cols", "rows", "surface"],
         "resolve-terminal": ["terminal_id"],
         "restart-tab": ["surface"],

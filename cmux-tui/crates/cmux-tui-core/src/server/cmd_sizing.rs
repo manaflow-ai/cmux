@@ -316,6 +316,39 @@ pub(super) fn resize_surface(
     }))
 }
 
+/// [`resize_attached_view`] of a view grid that may be a step of a live
+/// resize (`live-resize-v1`): with `live`, the terminal's byte mirrors wait
+/// for its end; a report without it (or `live: false`) ends it, after the
+/// resize, so the mirrors' one replay is of this final grid.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn resize_attached_view_live(
+    mux: &Arc<Mux>,
+    client: u64,
+    surface: SurfaceId,
+    lease: Option<String>,
+    view: Option<String>,
+    identity: Option<ClientIdentityWire>,
+    cols: u16,
+    rows: u16,
+    live: Option<bool>,
+) -> anyhow::Result<Value> {
+    let target = mux.surface(surface);
+    if live == Some(true)
+        && let Some(target) = target.as_ref()
+    {
+        target.set_live_resize(true);
+    }
+    let result = resize_attached_view(mux, client, surface, lease, view, identity, cols, rows);
+    // Only a client that speaks live-resize-v1 ends one; an old client never
+    // started one.
+    if live == Some(false)
+        && let Some(target) = target.as_ref()
+    {
+        target.set_live_resize(false);
+    }
+    result
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(super) fn resize_attached_view(
     mux: &Arc<Mux>,

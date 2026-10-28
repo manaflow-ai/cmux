@@ -19253,6 +19253,20 @@
       "constraints": [
        "With attach-streams-v1, the attach stream this request acts on: it must be open on this connection (unknown_stream) and view surface (stream_surface_mismatch). Without lease and view it selects that stream's lease (stream_has_no_lease when it has none); with lease, the lease must be that stream's (stream_lease_mismatch)."
       ]
+     },
+     "live": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "live-resize-v1",
+      "constraints": [
+       "live-resize-v1: true marks this grid a step of a live resize (a drag): the grid applies at once, and the terminal's byte mirrors get one replay, at the report with false (or after a 2 s settle when that report never comes). Absent: not part of a live resize."
+      ]
      }
     },
     "additional_properties": false

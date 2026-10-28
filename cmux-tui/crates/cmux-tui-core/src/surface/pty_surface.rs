@@ -690,7 +690,49 @@ impl PtyTerminalRuntime {
     /// of the terminal at a later cut ([`AttachTap::request_replay`]). The
     /// caller holds the terminal lock.
     fn request_attach_replays(&self) {
-        self.taps.lock().recover_poison().retain(AttachTap::request_replay);
+        let live = self.live_resize.load(Ordering::Acquire) != 0;
+        self.taps.lock().recover_poison().retain(|tap| tap.request_replay(live));
+    }
+
+    /// A live resize starts (`live`) or ends. While it runs, byte mirrors'
+    /// replays wait (the resize applies the grid; output keeps flowing);
+    /// its end makes the one replay of the final grid due, which the
+    /// viewer's drain builds. A live resize whose end does not come in
+    /// [`LIVE_RESIZE_SETTLE`] (the app crashed mid-drag) ends on its own.
+    pub(super) fn set_live_resize(self: &Arc<Self>, live: bool) {
+        if !live {
+            self.live_resize.store(0, Ordering::Release);
+            self.release_live_replays();
+            return;
+        }
+        static NEXT: AtomicU64 = AtomicU64::new(1);
+        let generation = NEXT.fetch_add(1, Ordering::Relaxed);
+        self.live_resize.store(generation, Ordering::Release);
+        let runtime = Arc::downgrade(self);
+        let settle = move || {
+            let Some(runtime) = runtime.upgrade() else { return };
+            // A newer live resize keeps its own deadline.
+            if runtime
+                .live_resize
+                .compare_exchange(generation, 0, Ordering::AcqRel, Ordering::Acquire)
+                .is_ok()
+            {
+                runtime.release_live_replays();
+            }
+        };
+        // A delayed work item at the deadline, not a thread waiting for it:
+        // an end that came first makes it a no-op.
+        let posted = self.mux.upgrade().is_some_and(|mux| {
+            mux.post_live_resize_settle(LIVE_RESIZE_SETTLE, Box::new(settle.clone()))
+        });
+        if !posted {
+            // No owner to keep a deadline: a held replay would never come.
+            settle();
+        }
+    }
+
+    fn release_live_replays(&self) {
+        self.taps.lock().recover_poison().retain(AttachTap::release_live_replay);
     }
 
     /// Build the replay the waiting replay viewers need, once for all of

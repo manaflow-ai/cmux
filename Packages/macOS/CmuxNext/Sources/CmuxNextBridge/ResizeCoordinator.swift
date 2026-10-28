@@ -6,6 +6,10 @@ import CmuxNextWakeups
 /// A view whose settled grid goes to the PTY owner (`DaemonTerminalIO`).
 @MainActor public protocol ResizeTarget: AnyObject {
     func applySettled(_ size: CellSize)
+    /// A grid sent while its window resizes live (a divider or window edge drag): a step of one
+    /// live resize, which the next ``applySettled(_:)`` ends (`live-resize-v1`, H10). The default
+    /// sends it as a settled grid.
+    func applyLive(_ size: CellSize)
     /// The daemon has not echoed this view's last grid yet.
     var awaitsEcho: Bool { get }
 }
@@ -33,6 +37,10 @@ public final class ResizeCoordinator {
     private var targets: [ObjectIdentifier: any ResizeTarget] = [:]
     private var windows: [ObjectIdentifier: WeakWindow] = [:]
     private var waited: [ObjectIdentifier: Int] = [:]
+    /// Terminals whose last grid went as a live step, with their window and that grid: when the
+    /// window stops resizing live, each sends its grid once more, settled, which ends the live
+    /// resize at the daemon (`live-resize-v1`).
+    private var liveTargets: [ObjectIdentifier: (target: any ResizeTarget, window: WeakWindow?, size: CellSize)] = [:]
     /// Whether sizes in a window wait: its full screen enter or exit, or, with the
     /// feature `windowFrameAnimationHoldsContent`, a frame animation cmux started on
     /// it (a Zoom, the floating chat's fold; `Motion.holdsContentResize(_:)`). AppKit animates a snapshot to the
@@ -43,13 +51,30 @@ public final class ResizeCoordinator {
     /// the frame after it ends. Terminals in other windows do not wait
     /// (PL-burst M6), and a drag stays real time (it does not hold).
     private let holds: (NSWindow?) -> Bool
+    /// Whether `window`'s panes resize live now (`Motion.resizesLive`); tests pass their own.
+    private let resizesLive: (NSWindow?) -> Bool
 
     /// One coordinator for the app, made by its composition root (`AppServices`); pane sizes span
     /// windows, so the frames run on the app scheduler.
     /// - Parameter holds: Whether sizes in a window wait this frame; nil (the app) holds a window's
     ///   sizes during its full screen transition or frame animation, tests pass their own.
-    public init(holds: ((NSWindow?) -> Bool)? = nil) {
+    public init(holds: ((NSWindow?) -> Bool)? = nil, resizesLive: ((NSWindow?) -> Bool)? = nil) {
         self.holds = holds ?? { Motion.holdsContentResize($0) }
+        self.resizesLive = resizesLive ?? { Motion.resizesLive($0) }
+    }
+
+    /// Ends the live resize of every terminal whose window stopped resizing live and that has no
+    /// newer grid waiting: its last grid goes again, settled. Runs each frame while one is open.
+    private func endLiveResizes() {
+        for (key, live) in liveTargets where !resizesLive(live.window?.window) {
+            liveTargets[key] = nil
+            // A grid still waiting (an unechoed one, a held window) settles it when it goes.
+            guard targets[key] == nil else { continue }
+            Self.sent &+= 1
+            onSend?(key, live.size)
+            live.target.applySettled(live.size)
+        }
+        if !liveTargets.isEmpty { frames.activate() }
     }
 
     // Motion rate: a divider drag is real time (perf I7).
@@ -88,6 +113,7 @@ public final class ResizeCoordinator {
             targets[key] = nil
             windows[key] = nil
             waited[key] = nil
+            liveTargets[key] = nil
             Self.sent &+= 1
             onSend?(key, size)
             io.applySettled(size)
@@ -102,6 +128,7 @@ public final class ResizeCoordinator {
         targets[key] = nil
         windows[key] = nil
         waited[key] = nil
+        liveTargets[key] = nil
     }
 
     /// Whether no grid waits to go to its PTY: none submitted and unsent (`debug.burst status`).
@@ -121,14 +148,27 @@ public final class ResizeCoordinator {
                 continue
             }
             waited[key] = nil
-            windows[key] = nil
+            let window = windows.removeValue(forKey: key)?.window
             guard let target = targets.removeValue(forKey: key) else { continue }
             Self.sent &+= 1
             onSend?(key, size)
-            target.applySettled(size)
+            if resizesLive(window) {
+                // A step of the drag: the daemon applies it and leaves the byte mirrors' replay to
+                // the drag's end. The end sends this terminal's grid once more, settled.
+                target.applyLive(size)
+                liveTargets[key] = (target, window.map(WeakWindow.init(window:)), size)
+            } else {
+                liveTargets[key] = nil
+                target.applySettled(size)
+            }
         }
-        return !settle.isIdle
+        endLiveResizes()
+        return !settle.isIdle || !liveTargets.isEmpty
     }
+}
+
+extension ResizeTarget {
+    public func applyLive(_ size: CellSize) { applySettled(size) }
 }
 
 /// A terminal's window, held weakly (`ResizeCoordinator`): a closed window holds nothing.

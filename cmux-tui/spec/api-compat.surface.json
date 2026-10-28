@@ -12495,6 +12495,10 @@
         "ty": "string",
         "nullable": true
       },
+      "/live": {
+        "ty": "boolean",
+        "nullable": true
+      },
       "/rows": {
         "ty": "uint16",
         "required": true

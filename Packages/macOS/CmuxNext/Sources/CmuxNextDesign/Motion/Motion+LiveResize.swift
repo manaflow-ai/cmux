@@ -36,6 +36,23 @@ extension Motion {
     /// Ends one ``beginFrameAnimation(_:)`` of `window`.
     public static func endFrameAnimation(_ window: NSWindow) { LiveResizeWindows.shared.endFrameAnimation(of: window) }
 
+    /// A pointer gesture that resizes panes in `window` (a divider drag) starts: until the matching
+    /// ``endResizeGesture(_:)``, ``resizesLive(_:)`` is true for it, so terminal grids reach the daemon
+    /// as steps of one live resize and its byte mirrors get one replay, at the end (H10, Chrome
+    /// coalesces resize to the frame and settles at the end). Calls nest; a close ends them all.
+    public static func beginResizeGesture(_ window: NSWindow) { LiveResizeWindows.shared.beginGesture(of: window) }
+
+    /// Ends one ``beginResizeGesture(_:)`` of `window`.
+    public static func endResizeGesture(_ window: NSWindow) { LiveResizeWindows.shared.endGesture(of: window) }
+
+    /// Whether panes in `window` are being resized by the user right now: a live window resize
+    /// (an edge or corner drag) or a ``beginResizeGesture(_:)`` gesture. `ResizeCoordinator` marks
+    /// the grids it sends then as live (`live-resize-v1`).
+    public static func resizesLive(_ window: NSWindow?) -> Bool {
+        guard let window else { return false }
+        return window.inLiveResize || LiveResizeWindows.shared.isGesturing(window)
+    }
+
     /// Whether content sized by `window` holds its resize until the window lands at its size: a full
     /// screen transition or a frame animation cmux started (``beginFrameAnimation(_:)``).
     /// `ResizeCoordinator` holds terminal grids while it is true.
@@ -121,6 +138,15 @@ final class LiveResizeWindows {
     private var lastTransitionWaiterID: UInt64 = 0
     /// The windows whose frame AppKit animates for cmux, with how many of those animations are open.
     private var frameAnimations: [ObjectIdentifier: Int] = [:]
+    /// Open ``Motion/beginResizeGesture(_:)`` calls per window.
+    private var gestures: [ObjectIdentifier: Int] = [:]
+    func isGesturing(_ window: NSWindow) -> Bool { gestures[ObjectIdentifier(window)] != nil }
+    func beginGesture(of window: NSWindow) { gestures[ObjectIdentifier(window), default: 0] += 1 }
+    func endGesture(of window: NSWindow) {
+        let id = ObjectIdentifier(window)
+        guard let open = gestures[id] else { return }
+        gestures[id] = open > 1 ? open - 1 : nil
+    }
 
     /// A frame animation does not count: it holds only its own window's content (``isFrameAnimating(_:)``).
     var isActive: Bool { !resizing.isEmpty || !transitioning.isEmpty }
@@ -187,6 +213,7 @@ final class LiveResizeWindows {
                     if closes {
                         self?.transitioning.remove(id)
                         self?.frameAnimations[id] = nil
+                        self?.gestures[id] = nil
                     }
                 }
             }
