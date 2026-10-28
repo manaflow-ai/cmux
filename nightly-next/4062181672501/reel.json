@@ -1,0 +1,461 @@
+{
+  "version": 1,
+  "build": "4062181672501",
+  "notes": "notes/4062181672501.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 26502,
+      "title": "fix(auth): ignore disabled Claude provider settings",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26338,
+      "title": "test(cmux-next layout): the divider-under-dock tests pin a style that draws divider lines",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26071,
+      "title": "Fix the composer model picker's harness entries and readability",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26320,
+      "title": "cmux-next: FolderChanges arms its watches before events() returns",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26416,
+      "title": "cmux NEXT Home: one Chief name on every surface, live (Fixes #26393)",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26410,
+      "title": "Fixes #26395: chat file attachments look like Messages' file cards",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26407,
+      "title": "Fixes #26394: read the desktop picture off the main thread",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26483,
+      "title": "devbox bake: write the team vm-kind after the agent-config check; verify checks the owner and team paths",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26491,
+      "title": "ci(nightly-next): one Mac job on the release-pool path; the final DMG is checked in verify-final",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26377,
+      "title": "Chat toolbar: one compact group with SF Symbols",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26372,
+      "title": "Session Info: keep header tools fixed with Push always",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26361,
+      "title": "ci(cmux-next): path routing's tree probe fetches run commits by exact SHA, bounded, and fails open",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26485,
+      "title": "ci: every scripts/ci killpg cleanup tolerates macOS EPERM, with a guard",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26457,
+      "title": "Sidebar tab groups: focused tab mark, click to fold, chevron up, ✕ at the end",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26482,
+      "title": "ci: helper prebuild cleanup treats EPERM from killpg as an exited group",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26461,
+      "title": "feat(acpmux): serve authenticated tailnet WSS ingress",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26460,
+      "title": "feat(tailnet): make daemon node lifecycle cancellable",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26445,
+      "title": "feat(pairing): bind tickets to acpmux identity",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26443,
+      "title": "feat(tailnet): add embedded node foundation",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26330,
+      "title": "Cloud VM: a chat move in and folder trust need the caller's vmKind owner, never the VM's record",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26472,
+      "title": "cmux NEXT: fleet rule lints (no fleet sudo keychain reads, no new kill by name, nothing on the personal workstation)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26465,
+      "title": "web: add B2's run_model enums/expand/validate migrations to next, byte for byte as on main",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26462,
+      "title": "ci: no job runs on GitHub-hosted Ubuntu outside a reasoned allowlist; the guard drops its nightly, notarization and test-ios exemptions",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26476,
+      "title": "rebake: pin the branch's newest cmux-tui build with acpmux (main's latest has none)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26431,
+      "title": "Stream file-backed image metadata sanitization",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26385,
+      "title": "Home: show a spinner while the Chief is working",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26415,
+      "title": "Sidebar: listed tab rows drop repeats and add their status and one detail",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26440,
+      "title": "Cloud: rebake the devbox image in CI when its sources change; version, smoke test, keep N",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26389,
+      "title": "ci(guards): each runner guard check runs and is compared on its own; chief-evals on Blacksmith",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26453,
+      "title": "test: expect the Blacksmith overflow failover in three runner pins",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26390,
+      "title": "cmux NEXT: ship dev-only surfaces off by default",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26451,
+      "title": "ci(nightly-next): the build picker offers the dedicated builder only for a run it admits",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26327,
+      "title": "cmux NEXT tests: a parked workspace's apply test counts its own controller's applies and topologies",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26326,
+      "title": "cmux NEXT layout: a new screen joins the window before its first frame, so a pane it takes over never leaves the window",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26449,
+      "title": "test(webviews): model reader input when restoring transcript scroll",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26448,
+      "title": "test(webviews): align Cards assertions with shared Claude footer",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26444,
+      "title": "runs: move Run create, read, wait and cancel into modules (B3, 4 of 4)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26423,
+      "title": "Stream Chief attachment downloads to verified files",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26427,
+      "title": "ci(ios internal): the archive never waits on the dedicated mini",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26436,
+      "title": "web: make next's first two Run migrations replay-safe onto main's Run model (B1)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26437,
+      "title": "runs: move the repository's event journal and terminal attach into modules (B3, 3 of 4)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26419,
+      "title": "ci: base-red check reads the previous tip's job log (token off the blob redirect, timestamps stripped)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26403,
+      "title": "ci: PR size check fails an oversized PR unless its body has a Size: reason",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26439,
+      "title": "ci: hard-coded Blacksmith Linux runs-on fail over to another Blacksmith size",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26425,
+      "title": "[cx-euyvvp] NEXT: stream large Cloud Chief attachment originals",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26433,
+      "title": "runs: move the repository's attempt lease and VM cleanup into modules (B3, 2 of 4)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26116,
+      "title": "fix(measure): stream the tagged build's output instead of hiding it until reload ends",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26369,
+      "title": "cmux NEXT test: sidebar render counts measure in a child process, away from other suites' sidebars",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26428,
+      "title": "runs: move the repository's shared helpers and sandbox sweep into modules (B3, 1 of 4)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26312,
+      "title": "cmux-next: Deliver Secrets to Machine draws lock.rectangle.stack, not Enroll Machine's key",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26429,
+      "title": "test(webviews): follow current pane rendering contracts",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26418,
+      "title": "test(nightly): the ghostty helper's unsigned-run route is Blacksmith Linux",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25889,
+      "title": "Home: a deleted Chief leaves every device's list, the iPhone's too",
+      "author": "Abdulaziz Albahar",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26356,
+      "title": "AppEnvironment.captureShellHome: check the folder through FileManager.checked",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26388,
+      "title": "test(ci): exempt the light nightly jobs that take Blacksmith macOS during a Linux outage from Xcode selection",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26074,
+      "title": "ci(nightly-next): the dedicated builder builds each tip on its kept DerivedData",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26379,
+      "title": "fix(sidebar): stop springs on recycled rows",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26331,
+      "title": "acpmux: a fenced line its host still queues across a restart is held again, so an off push waits for it or ends that host (#23322 a3 fence, #26241 residual risk)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26044,
+      "title": "ci(nightly): build-nightly-app stops once its run can no longer publish",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26362,
+      "title": "test(cmux-next): socket and Codex pipe tests wait for their reply, not a wall-clock limit",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26060,
+      "title": "cmux next: computer use works on macOS 26: setup asks in the chat, the helper runs from a verified copy, restarts itself and acts fast",
+      "author": "Lucas Ribeiro",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25701,
+      "title": "cmux NEXT: pane attention is one on/off state, cleared on selection (Fixes #25662)",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25621,
+      "title": "cmux NEXT Cloud: a Cloud workspace keeps its window across a relaunch while its machine is paused",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25637,
+      "title": "Chief: start cmux Cloud workspaces for a task",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25689,
+      "title": "cmux next focus: no reclaim inside the grant of a page that still has focus",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25741,
+      "title": "Fixes #25666",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25197,
+      "title": "cmux NEXT: a closed window's pages fade with it",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25619,
+      "title": "cmux NEXT: several shortcuts per action with {\"any\": [...]}",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25669,
+      "title": "cmux NEXT: empty workspace groups pin, read pinned and unpin; Pin/Unpin Group takes a pinned state",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26383,
+      "title": "ci(nightly): nightly.yml's hosted Ubuntu jobs take Blacksmith Linux",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26323,
+      "title": "Cloud link: the attested vmKind decides the VM boundary and app-started chats (owner only)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26064,
+      "title": "ci(nightly-next): the warm builder's git fetch and submodule update are bounded and retried",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26276,
+      "title": "acpmux: the guest takes its caller's VM boundary, per session (vmBoundary on session/new)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25618,
+      "title": "cmux NEXT Chief: chats answer the first message, reconnect after relaunch, keep full history",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26277,
+      "title": "acpmux: an older daemon's vmHost-era approve-all asks after the upgrade; policies record who set them",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
