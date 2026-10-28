@@ -91,6 +91,7 @@ extension TabStripView {
         setHoveredChip(nil)
         hoverCards.dismiss(.action)
         if target.index != dropPlaceholderIndex || target.groupID != dropPlaceholderGroup || groupWidth != groups.phantomWidth {
+            phantomWork.relayouts += 1
             dropPlaceholderIndex = target.index
             dropPlaceholderGroup = target.groupID
             groups.phantomWidth = groupWidth
@@ -103,6 +104,7 @@ extension TabStripView {
     func updatePhantomPosition(at point: CGPoint) {
         let resolved = resolvePhantom(at: point, groupWidth: groups.phantomWidth)
         if resolved.index != dropPlaceholderIndex || resolved.groupID != dropPlaceholderGroup {
+            phantomWork.relayouts += 1
             dropPlaceholderIndex = resolved.index
             dropPlaceholderGroup = resolved.groupID
             relayout(animated: !reduceMotion)
@@ -116,11 +118,9 @@ extension TabStripView {
         guard point.x >= 0, point.x <= bounds.width, point.y >= -verticalSlop, point.y <= bounds.height + verticalSlop else {
             return nil
         }
-        let resolved = resolvePhantom(at: point, groupWidth: groupWidth)
-        var items = baseLayoutItems()
-        let placeholder = TabLayoutItem(id: Self.placeholderID, groupID: resolved.groupID, fixedWidth: groupWidth)
-        items.insertPlaceholder(placeholder, atTabIndex: resolved.index)
-        let layout = TabLayoutEngine.layout(items: items, availableWidth: viewportWidth, style: model.style, metrics: metrics)
+        let items = baseLayoutItems()
+        let resolved = resolvePhantom(at: point, groupWidth: groupWidth, items: items)
+        let layout = gapLayout(items, resolved: resolved, groupWidth: groupWidth)
         guard let slot = layout.slot(Self.placeholderID) else { return nil }
         let offset = TabScrollMath.clamp(scrollOffset, contentWidth: layout.contentWidth, viewportWidth: viewportWidth)
         let mapping = TabScrollMapping(result: layout, viewportWidth: viewportWidth, minimumScrollable: metrics.minActiveTabWidth, offset: offset)
@@ -141,8 +141,9 @@ extension TabStripView {
 
     /// Index (in `displayed`) and group for a gap at `point`. Tabs resolve
     /// group membership with hysteresis; groups only land between units.
-    func resolvePhantom(at point: CGPoint, groupWidth: CGFloat?) -> TabGroupDropResolution {
-        let base = TabLayoutEngine.layout(items: baseLayoutItems(), availableWidth: viewportWidth, style: model.style, metrics: metrics)
+    /// `items`: `baseLayoutItems()`, when the caller has them.
+    func resolvePhantom(at point: CGPoint, groupWidth: CGFloat?, items: [TabLayoutItem]? = nil) -> TabGroupDropResolution {
+        let base = baseLayout(items ?? baseLayoutItems())
         let pinnedCount = displayed.count(where: \.isPinned)
         let entries = base.slots.filter { !$0.isPinned }
         let start = entries.first?.x ?? (base.contentWidth + (pinnedCount > 0 ? metrics.pinnedGroupGap : 0))
@@ -162,4 +163,51 @@ extension TabStripView {
         )
         return TabGroupDropResolution(index: pinnedCount + resolved.index, groupID: resolved.groupID)
     }
+
+    // MARK: - Layouts
+
+    /// The strip's layout without a gap, kept while its inputs hold: a pointer move computes none.
+    func baseLayout(_ items: [TabLayoutItem]) -> TabLayoutResult {
+        let inputs = TabPhantomWork.Inputs(items: items, width: viewportWidth, style: model.style, metrics: metrics)
+        if let base = phantomWork.base, base.inputs == inputs { return base.layout }
+        let layout = TabLayoutEngine.layout(items: items, availableWidth: viewportWidth, style: model.style, metrics: metrics)
+        phantomWork.layouts += 1
+        phantomWork.base = (inputs, layout)
+        return layout
+    }
+
+    /// The layout with the gap at `resolved`, computed once per gap position.
+    func gapLayout(_ items: [TabLayoutItem], resolved: TabGroupDropResolution, groupWidth: CGFloat?) -> TabLayoutResult {
+        let inputs = TabPhantomWork.Inputs(items: items, width: viewportWidth, style: model.style, metrics: metrics)
+        if let gap = phantomWork.gap, gap.inputs == inputs, gap.index == resolved.index, gap.groupID == resolved.groupID,
+           gap.groupWidth == groupWidth {
+            return gap.layout
+        }
+        var placed = items
+        placed.insertPlaceholder(TabLayoutItem(id: Self.placeholderID, groupID: resolved.groupID, fixedWidth: groupWidth), atTabIndex: resolved.index)
+        let layout = TabLayoutEngine.layout(items: placed, availableWidth: viewportWidth, style: model.style, metrics: metrics)
+        phantomWork.layouts += 1
+        phantomWork.gap = (inputs, resolved.index, resolved.groupID, groupWidth, layout)
+        return layout
+    }
+}
+
+/// The phantom's work for an external drag, counted for the drag's work budget (TabDragWorkTests), and
+/// the two layouts its hit test keeps while their inputs hold.
+public struct TabPhantomWork: Sendable {
+    /// Layout engine runs for the gap's hit test.
+    public internal(set) var layouts = 0
+    /// Strip relayouts for a gap that moved.
+    public internal(set) var relayouts = 0
+
+    /// What a phantom layout reads.
+    struct Inputs: Equatable {
+        var items: [TabLayoutItem]
+        var width: CGFloat
+        var style: TabStripStyle
+        var metrics: TabStripMetrics
+    }
+
+    var base: (inputs: Inputs, layout: TabLayoutResult)?
+    var gap: (inputs: Inputs, index: Int, groupID: TabGroupID?, groupWidth: CGFloat?, layout: TabLayoutResult)?
 }

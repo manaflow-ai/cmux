@@ -1,9 +1,8 @@
-import AppKit
-import CmuxNextBridge
-import CmuxNextWakeups
+public import AppKit
 import CmuxNextDesign
-import QuartzCore
 import CmuxNextTabs
+public import CmuxNextWakeups
+import QuartzCore
 
 /// The drag ghost: one borderless, non-activating panel that ignores the
 /// mouse and floats above every window. It draws the dragged tab's image
@@ -16,8 +15,8 @@ import CmuxNextTabs
 ///
 /// The panel has a fixed size (the largest card plus shadow room) and only
 /// moves, so a frame costs one window move and a few layer frames.
-final class TabDragGhostPanel {
-    let panel: NSPanel
+public final class TabDragGhostPanel {
+    public let panel: NSPanel
     private let root: GhostRootView
     private let glass: GlassPanelView
     private let tabLayer = CALayer()
@@ -34,12 +33,26 @@ final class TabDragGhostPanel {
     private let inset: CGFloat
     /// The tab image stands on the glass (a translucent window): the glass shows at every
     /// cardness, and the glass edge, not a shadow, lifts it.
-    let onGlass: Bool
+    public let onGlass: Bool
+    /// Frames laid out and panel moves sent to the window server (TabDragWorkTests).
+    public private(set) var renders = 0
+    public private(set) var panelMoves = 0
+    /// The card the tab image is drawn on, in `tabSize` points (y down, as the image); its shadow
+    /// follows that rounded rect instead of the image's alpha, which Core Animation would render
+    /// offscreen every frame.
+    private let tabCard: (rect: CGRect, cornerRadius: CGFloat)?
+    /// What the panel last showed: a frame that changes neither moves nor fades the panel.
+    private var shownOrigin: CGPoint?
+    private var shownShadowSize: CGSize?
 
     /// - Parameter onGlass: The image was rendered without a card (`WindowBackdrop.dragCardFill`)
     ///   in the scope it was lifted from, not the app's: a workspace can pin its own background.
-    init(tabImage: CGImage?, tabSize: CGSize, grabOffset: CGPoint, aspect: CGFloat?, scale: CGFloat, onGlass: Bool) {
+    /// - Parameter tabCard: The rounded card under the image (`TabStripMetrics.pillFrame`), when it
+    ///   has one; nil shadows the image's alpha.
+    public init(tabImage: CGImage?, tabSize: CGSize, grabOffset: CGPoint, aspect: CGFloat?, scale: CGFloat, onGlass: Bool,
+                tabCard: (rect: CGRect, cornerRadius: CGFloat)? = nil) {
         self.onGlass = onGlass
+        self.tabCard = tabCard
         self.tabSize = tabSize
         self.grabOffset = grabOffset
         pad = DragTunables.ghostPanelPad.value
@@ -96,29 +109,29 @@ final class TabDragGhostPanel {
     }
 
     /// The live content preview, when the snapshot arrives.
-    func setThumbnail(_ image: CGImage?) {
+    public func setThumbnail(_ image: CGImage?) {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         thumbLayer.contents = image
         CATransaction.commit()
     }
 
-    func show() {
+    public func show() {
         if !panel.isVisible { panel.orderFrontRegardless() }
     }
 
-    func close() {
+    public func close() {
         panel.orderOut(nil)
     }
 
     /// A frame client of the ghost panel's own FrameScheduler (its screen,
     /// 120 Hz on ProMotion).
-    func makeFrameClient(owner: String, onFrame: @escaping @MainActor (FrameTick) -> Bool) -> FrameClient {
+    public func makeFrameClient(owner: String, onFrame: @escaping @MainActor (FrameTick) -> Bool) -> FrameClient {
         FrameClient(owner: owner, view: root, onFrame: onFrame)
     }
 
     /// The ghost's screen geometry for `motion`.
-    func layout(_ motion: TabDragGhostMotion) -> TabDragGhostLayout {
+    public func layout(_ motion: TabDragGhostMotion) -> TabDragGhostLayout {
         TabDragGhostLayout(motion: motion, cardSize: cardSize, inset: inset, grabOffset: grabOffset, tabSize: tabSize)
     }
 
@@ -126,13 +139,18 @@ final class TabDragGhostPanel {
     /// (`TabDragGhostLayout`): the card unfolds around the tab image, which
     /// never moves under the pointer, and a shrink pivots on the grabbed
     /// point.
-    func render(_ motion: TabDragGhostMotion) {
+    public func render(_ motion: TabDragGhostMotion) {
         let layout = layout(motion)
         let tab = layout.tab
         let c = layout.cardness
         let origin = CGPoint(x: (tab.minX - pad).rounded(), y: (tab.maxY + pad - panelSize.height).rounded())
-        panel.setFrameOrigin(origin)
-        panel.alphaValue = motion.presentedOpacity
+        renders += 1
+        if origin != shownOrigin {
+            shownOrigin = origin
+            panelMoves += 1
+            panel.setFrameOrigin(origin)
+        }
+        if panel.alphaValue != motion.presentedOpacity { panel.alphaValue = motion.presentedOpacity }
 
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -145,6 +163,14 @@ final class TabDragGhostPanel {
                                   width: max(0, current.width - inset * 2), height: thumbHeight)
         thumbLayer.opacity = Float(c)
         tabLayer.frame = tabLocal
+        if let tabCard, tabLocal.size != shownShadowSize, tabSize.width > 0, tabSize.height > 0 {
+            shownShadowSize = tabLocal.size
+            let sx = tabLocal.width / tabSize.width, sy = tabLocal.height / tabSize.height
+            let card = CGRect(x: tabCard.rect.minX * sx, y: (tabSize.height - tabCard.rect.maxY) * sy,
+                              width: tabCard.rect.width * sx, height: tabCard.rect.height * sy)
+            let radius = min(tabCard.cornerRadius * min(sx, sy), card.width / 2, card.height / 2)
+            tabLayer.shadowPath = CGPath(roundedRect: card, cornerWidth: radius, cornerHeight: radius, transform: nil)
+        }
         tabLayer.shadowOpacity = onGlass ? 0 : Float(PopupStyle.elevation2.alpha * (1 - c))
         let s = layout.scale
         if s != 1 {

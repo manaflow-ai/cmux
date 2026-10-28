@@ -5,6 +5,7 @@ import CmuxNextDesign
 import CmuxNextTabs
 import CmuxNextWakeups
 import CmuxNextCompat
+import Observation
 
 /// One drag, every destination (plans/cmux-next/REWRITE.md "Tab drag").
 ///
@@ -72,7 +73,12 @@ final class TabDragSession: NSObject {
         let content = pane?.view.bounds ?? window?.content?.layoutView.bounds ?? .zero
         let aspect = content.width > 0 ? (content.height - Metrics.tabStripHeight) / content.width : nil
         let scale = window?.window?.backingScaleFactor ?? 2
-        let ghost = TabDragGhostPanel(tabImage: image, tabSize: frame.size, grabOffset: grabOffset, aspect: aspect, scale: scale, onGlass: onGlass)
+        // A strip's tab image stands on its strip's rounded card (`TabSnapshotRenderer`): the shadow follows it.
+        // A group's image (chip and members) keeps the alpha shadow, and a drag with no image (a sidebar
+        // row's handoff) has no card to shadow.
+        let card: TabStripMetrics? = if case .tab = item, image != nil { pane?.view.stripView.metrics } else { nil }
+        let ghost = TabDragGhostPanel(tabImage: image, tabSize: frame.size, grabOffset: grabOffset, aspect: aspect, scale: scale, onGlass: onGlass,
+                                      tabCard: card.map { (rect: $0.pillFrame(slotWidth: frame.width, height: frame.height), cornerRadius: $0.cornerRadius) })
         var motion = TabDragGhostMotion(rect: frame, cardness: 0, reduceMotion: !Motion.tabs.animatesMovement,
                                         rectSpring: Motion.tabs.spring(.track), morphSpring: Motion.tabs.spring(.appear))
         // The card unfolds once its content preview arrives (`loadThumbnail`).
@@ -137,8 +143,22 @@ final class TabDragSession: NSObject {
     /// from the live strip model, not from the drag's start.
     func liveContext(_ drag: Drag) -> TabDragContext {
         guard let pane = drag.source.pane else { return drag.source.context }
+        drag.work.contextBuilds += 1
         var context = Self.context(of: pane, item: drag.source.item, draggedCount: drag.source.context.draggedTabCount)
         context.sourceWindowWorkspaceCount = drag.source.context.sourceWindowWorkspaceCount
+        return context
+    }
+
+    /// `liveContext` for a hit test, kept until something it read changes (a tab or pane added,
+    /// closed or moved, by any client): the observation marks it, and the next hit test builds it again.
+    /// A commit reads `liveContext` itself.
+    func cachedContext(_ drag: Drag) -> TabDragContext {
+        guard let pane = drag.source.pane else { return drag.source.context }
+        let owners = [ObjectIdentifier(pane.pane), pane.workspace.map { ObjectIdentifier($0.workspace) }]
+        if let kept = drag.keptContext, !kept.changed.isSet, kept.owners == owners { return kept.context }
+        let changed = TabDragChangeFlag()
+        let context = withObservationTracking { liveContext(drag) } onChange: { changed.set() }
+        drag.keptContext = (context, changed, owners)
         return context
     }
 
@@ -157,7 +177,7 @@ final class TabDragSession: NSObject {
     func handle(_ event: NSEvent) -> NSEvent? {
         switch event.type {
         case .leftMouseDragged:
-            update(Self.screenPoint(of: event))
+            move(to: Self.screenPoint(of: event))
             return nil
         case .leftMouseUp:
             update(Self.screenPoint(of: event))
@@ -185,12 +205,36 @@ final class TabDragSession: NSObject {
 
     // MARK: Hit testing
 
+    /// Hit tests `point` now and shows the ghost there: the drag's start, its release, a test.
     func update(_ point: CGPoint) {
         guard let drag else { return }
+        track(point, drag: drag)
+        resolve(drag)
+        render(drag)
+    }
+
+    /// A drag event. The pointer is recorded now (the release velocity samples every event) and hit
+    /// tested once, on the next display frame, at the latest point: input can come faster than frames
+    /// (Chrome aligns input to the begin-frame; `tick`).
+    func move(to point: CGPoint) {
+        guard let drag else { return }
+        track(point, drag: drag)
+        drag.pointerMoved = true
+        wake(drag)
+    }
+
+    func track(_ point: CGPoint, drag: Drag) {
         drag.point = point
         drag.samplePointer(point, at: CACurrentMediaTime())
+    }
+
+    /// Hit tests the drag's point and sets the ghost's target (`present`); the caller renders.
+    func resolve(_ drag: Drag) {
+        drag.pointerMoved = false
+        drag.work.hitTests += 1
+        let point = drag.point
         if case .workspaces = drag.source.item { return updateWorkspaces(point, drag: drag) }
-        let context = liveContext(drag)
+        let context = cachedContext(drag)
         let hit = hitTest(point, drag: drag, context: context)
         // The layout adapter's preview is ended by `outline`, so a move from
         // a pane zone to a strip slot animates instead of fading out and in.
@@ -240,12 +284,22 @@ final class TabDragSession: NSObject {
     /// through (`TabDragWindowPick`).
     func window(at point: CGPoint) -> WindowController? {
         let controllers = services.windows.controllers
-        let ordered = NSApp.orderedWindows.map { window in
+        let windows = controllers.compactMap(\.window)
+        // The drag's window order is read once and again only when it changes (`TabDragWindowOrder`).
+        let ordered: [NSWindow]
+        if let current = drag ?? landing {
+            let reads = current.windowOrder.reads
+            ordered = current.windowOrder.frontToBack(windows)
+            current.work.windowOrderReads += current.windowOrder.reads - reads
+        } else {
+            ordered = NSApp.orderedWindows
+        }
+        let candidates = ordered.map { window in
             TabDragWindowPick.Candidate(frame: window.frame,
                                         controllerID: controllers.first { $0.window === window }.map { $0.state.id },
                                         isVisible: window.isVisible && !window.isMiniaturized)
         }
-        guard let id = TabDragWindowPick.frontmost(at: point, in: ordered) else { return nil }
+        guard let id = TabDragWindowPick.frontmost(at: point, in: candidates) else { return nil }
         return controllers.first { $0.state.id == id }
     }
 
