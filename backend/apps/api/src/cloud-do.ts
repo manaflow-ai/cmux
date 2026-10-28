@@ -300,7 +300,11 @@ export class CloudDO extends CloudIdle {
     if (!entity || !this.isBound(entity)) return
     const rows = this.bind(entity).rows
     const driver = await Promise.resolve(this.driverFor({ transport: "direct" }, "cleanup")).catch(() => null)
-    if (!driver) return
+    if (!driver) {
+      // No provider right now: whatever waits for its delete is tried again later.
+      if (this.clientIdentityStore().pending()) this.retryClientIdentities()
+      return
+    }
     if (await sweepClientIdentities(this.clientIdentityStore(), (id) => rows.get<MachineRow>(TABLE_MACHINE, id)?.row, driver, now)) this.retryClientIdentities()
   }
 

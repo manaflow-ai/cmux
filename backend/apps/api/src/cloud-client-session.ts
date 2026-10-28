@@ -4,7 +4,7 @@ import type { ClientSessionGrant, GuardedCloudDriver } from "./cloud-driver.ts"
 import type { MachineRow } from "./domains/cloud.ts"
 import type { Env } from "./env.ts"
 import { ssoGate } from "./policy-gate.ts"
-import { DriverError } from "./team-vm-driver.ts"
+import { ClientIdentityLeft, DriverError } from "./providers/contract.ts"
 import { principalForOwner, selectTeam, TEAM_HEADER } from "./team-select.ts"
 
 /**
@@ -106,6 +106,15 @@ export class ClientIdentityStore {
     return this.sql.exec<{ identity: string }>(`SELECT identity FROM cloud_client_identity_retired ORDER BY at LIMIT ?`, limit).map((r) => r.identity)
   }
 
+  /** Retires the current identity of (machine, user) and forgets it. */
+  forget(machine: string, user: string, at: number): void {
+    this.sql.transaction(() => {
+      const current = this.get(machine, user)
+      if (current) this.retire(current.identity, at)
+      this.sql.exec(`DELETE FROM cloud_client_identity WHERE machine = ? AND user = ?`, machine, user)
+    })
+  }
+
   dropped(identity: string): void {
     this.sql.exec(`DELETE FROM cloud_client_identity_retired WHERE identity = ?`, identity)
   }
@@ -195,6 +204,10 @@ export const mintClientSessionOn = async (host: ClientSessionHost, p: Principal,
     try {
       minted = await driver.clientSession(row.provider_name, { team: host.team, machine }, CLIENT_SESSION_LINUX_USER, expiresAt, host.identities.get(machine, user))
     } catch (e) {
+      if (e instanceof ClientIdentityLeft) {
+        host.identities.retire(e.identity, host.now())
+        host.retryLater()
+      }
       // Only a code: a DriverError's message names the step and status, never a body or a token.
       const code = e instanceof DriverError ? e.code : "cloud.provider.unavailable"
       host.audit({ op: "client_session", machine, by: p.identity, user, install: p.install ?? null, outcome: code, at: host.now() })
@@ -203,6 +216,13 @@ export const mintClientSessionOn = async (host: ClientSessionHost, p: Principal,
     const { grant, stale } = minted
     host.identities.put(machine, user, grant.identity, grant.vmId, host.now())
     if (stale) host.identities.retire(stale, host.now())
+    // A member who left while the provider call ran gets nothing: the new identity is retired and deleted.
+    if (!(await host.member(user).catch(() => false))) {
+      host.identities.forget(machine, user, host.now())
+      host.audit({ op: "client_session", machine, by: p.identity, user, install: p.install ?? null, outcome: "auth.forbidden", at: host.now() })
+      if (await sweepClientIdentities(host.identities, host.machine, driver, host.now()).catch(() => true)) host.retryLater()
+      return refuse("forbidden")
+    }
     host.audit({ op: "client_session", machine, by: p.identity, user, install: p.install ?? null, linux_user: grant.linuxUser, expires_at: grant.expiresAt, outcome: "minted", at: host.now() })
     if (await sweepClientIdentities(host.identities, host.machine, driver, host.now()).catch(() => true)) host.retryLater()
     return {

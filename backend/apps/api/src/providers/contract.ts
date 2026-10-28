@@ -10,6 +10,16 @@ export class DriverError extends Error {
   }
 }
 
+/** A client-session mint failed after making an identity it could not delete again: the caller retires `identity`. */
+export class ClientIdentityLeft extends DriverError {
+  constructor(
+    readonly identity: string,
+    cause: DriverError
+  ) {
+    super(cause.code, cause.message, cause.final)
+  }
+}
+
 /**
  * The provider contract behind CloudDO (state-placement.md 5.2, 5.3): every machine provider (each
  * folder under providers/, wired in providers/index.ts; the VM API transport; the test fake)

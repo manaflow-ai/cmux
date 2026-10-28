@@ -1,6 +1,6 @@
 import type { Env } from "../../env.ts"
 import { redactReason } from "../../cloud-redact.ts"
-import { DriverError, type ClientSessionGrant, type CloudProvider, type CloudProviderCapabilities, type CreateOptions, type EdgeTlsRule, type VmResources, type VmTag } from "../contract.ts"
+import { ClientIdentityLeft, DriverError, type ClientSessionGrant, type CloudProvider, type CloudProviderCapabilities, type CreateOptions, type EdgeTlsRule, type VmResources, type VmTag } from "../contract.ts"
 import { createBody } from "./cloud-body.ts"
 import { freestyleExecStdin } from "./exec.ts"
 import type { CloudProviderWiring } from "../index.ts"
@@ -155,9 +155,10 @@ export class FreestyleCloudProvider implements CloudProvider {
       if (!t.token) this.fail(t.status, {}, "mint client token")
       return grant(handle, t.token)
     } catch (e) {
-      // Nothing half-made survives: an identity without its grant or token is deleted again.
-      await this.dropClientIdentity(handle).catch(() => undefined)
-      throw e
+      // Nothing half-made survives: an identity without its grant or token is deleted again, and
+      // one whose delete fails goes back to the caller to retire, so it is never forgotten.
+      if (await this.dropClientIdentity(handle).then(() => true, () => false)) throw e
+      throw new ClientIdentityLeft(handle, e instanceof DriverError ? e : new DriverError("cloud.provider.unavailable", "client session", false))
     }
   }
 

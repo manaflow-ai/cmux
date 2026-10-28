@@ -3,7 +3,8 @@ import { runInDurableObject } from "cloudflare:test"
 import type { Principal } from "@cmux/ownership"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { GuardedCloudDriver } from "../src/cloud-driver.ts"
-import { CLIENT_SESSION_LINUX_USER, ClientIdentityStore, clientSessionTtl, sweepClientIdentities } from "../src/cloud-client-session.ts"
+import { CLIENT_SESSION_LINUX_USER, ClientIdentityStore, clientSessionTtl, mintClientSessionOn, sweepClientIdentities, type ClientSessionHost } from "../src/cloud-client-session.ts"
+import { ClientIdentityLeft, DriverError } from "../src/providers/contract.ts"
 import { FreestyleCloudProvider } from "../src/providers/freestyle/cloud.ts"
 import { bindBody, bindFile, cloudStub, createdAndBound, installOf, person, post, sessionToken, worker } from "./cloud-bind-support.ts"
 
@@ -30,7 +31,7 @@ describe("the Freestyle provider's client session", () => {
   const NAME = `${PREFIX}vm-${"a".repeat(20)}`
   const TAG = { team: `team_${"t".repeat(20)}`, machine: `vm_${"m".repeat(20)}` }
   const SECRET = "fs-token-secret-value-0123456789"
-  const mock = (opts: { grantStatus?: number; tokenStatus?: number } = {}) => {
+  const mock = (opts: { grantStatus?: number; tokenStatus?: number; deleteStatus?: number } = {}) => {
     const calls: Array<{ method: string; path: string; body: any }> = []
     const identities = new Set<string>()
     let n = 0
@@ -45,6 +46,7 @@ describe("the Freestyle provider's client session", () => {
       if (path === "/v5/identities" && req.method === "POST") return identities.add(`fsid-${++n}`), json({ id: `fsid-${n}`, managed: false })
       const m = path.match(/^\/v5\/identities\/([^/]+)(?:\/(permissions\/vm|tokens))?$/)
       if (m && !identities.has(m[1]!)) return json({ code: "NOT_FOUND", message: "no identity" }, 404)
+      if (m && req.method === "DELETE" && opts.deleteStatus) return json({ code: "UNAVAILABLE" }, opts.deleteStatus)
       if (m && req.method === "DELETE") return identities.delete(m[1]!), new Response(null, { status: 204 })
       if (m?.[2] === "permissions/vm") return json({ id: "perm-1", identityId: m[1], vmId: body.vmId, allowedLinuxUsers: body.allowedLinuxUsers }, opts.grantStatus ?? 200)
       // A refused mint still echoes a token-shaped value: no error may carry it.
@@ -88,6 +90,12 @@ describe("the Freestyle provider's client session", () => {
     expect(e).toBeInstanceOf(Error)
     expect(String((e as Error).message)).not.toContain(SECRET)
     expect(refusedToken.identities.size).toBe(0)
+    // A half-made identity whose delete fails goes back to the caller to retire.
+    const stuck = mock({ tokenStatus: 500, deleteStatus: 503 })
+    const left = await stuck.driver.clientSession(NAME, TAG, "cmux", Date.now() + 60_000, null).catch((x: Error) => x)
+    expect(left).toBeInstanceOf(ClientIdentityLeft)
+    expect(left).toMatchObject({ identity: "fsid-1", code: "cloud.provider.unavailable" })
+    expect(String((left as Error).message)).not.toContain(SECRET)
   })
 
   it("refuses another environment's name or another team's VM before any identity call", async () => {
@@ -119,6 +127,52 @@ describe("retired identities", () => {
       expect(dropped.sort()).toEqual(["fsid-a", "fsid-c"])
       expect(store.retired(10)).toEqual([])
       expect(store.get("vm_live", "cmux")).toEqual({ identity: "fsid-b", vmId: "fsvm-2" })
+    })
+  })
+
+  it("a mint keeps an identity the provider could not delete, and a member who left during the mint gets nothing", async () => {
+    const ns = (env as unknown as { CLOUD_DO: DurableObjectNamespace }).CLOUD_DO
+    await inDO(ns.get(ns.idFromName(`client-identity-${crypto.randomUUID()}`)), async (_i, state) => {
+      const store = new ClientIdentityStore({ exec: <T>(q: string, ...p: Array<unknown>) => state.storage.sql.exec(q, ...p).toArray() as Array<T>, transaction: <T>(fn: () => T) => state.storage.transactionSync(fn) })
+      const team = `team_${"t".repeat(20)}`
+      const machine = `vm_${"m".repeat(20)}`
+      const p = { identity: "session:user_a", kind: "session", user: "user_a", team } as Principal
+      const row = { id: machine, creator: "user_a", status: "running", provider_name: "cmuxnp-test-cld-vm-x" }
+      let mint: () => Promise<unknown> = async () => Promise.reject(new ClientIdentityLeft("fsid-left", new DriverError("cloud.provider.unavailable", "mint client token: 503", false)))
+      const dropped: Array<string> = []
+      let dropFails = true
+      const driver = {
+        capabilities: { clientSession: true },
+        clientSession: () => mint(),
+        dropClientIdentity: async (id: string) => (dropFails ? Promise.reject(new Error("503")) : void dropped.push(id))
+      } as unknown as GuardedCloudDriver
+      let members = [true]
+      let retries = 0
+      const host: ClientSessionHost = {
+        team,
+        machine: (id) => (id === machine ? (row as never) : undefined),
+        member: async () => members.shift() ?? false,
+        plan: async () => true,
+        limit: async () => true,
+        driver: async () => driver,
+        identities: store,
+        audit: () => undefined,
+        now: () => 1000,
+        retryLater: () => void retries++,
+        inflight: new Map()
+      }
+      expect(await mintClientSessionOn(host, p, machine, 600)).toEqual({ ok: false, refusal: "provider_failed" })
+      expect(store.retired(10)).toEqual(["fsid-left"])
+      expect(retries).toBe(1)
+
+      // The member check passes before the provider call and fails after it: no token, and the new identity goes.
+      dropFails = false
+      members = [true, false]
+      mint = async () => ({ grant: { identity: "fsid-new", token: "tok-secret", expiresAt: 601_000, vmId: "fsvm-1", linuxUser: "cmux", apiBaseUrl: "https://freestyle.test", ssh: null }, stale: null })
+      expect(await mintClientSessionOn(host, p, machine, 600)).toEqual({ ok: false, refusal: "forbidden" })
+      expect(store.get(machine, "user_a")).toBeNull()
+      expect(dropped.sort()).toEqual(["fsid-left", "fsid-new"])
+      expect(store.retired(10)).toEqual([])
     })
   })
 })
