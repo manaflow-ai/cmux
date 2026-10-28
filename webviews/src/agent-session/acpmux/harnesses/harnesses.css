@@ -7,7 +7,6 @@
 .acpmux-harnesses-close:hover{background:var(--agent-control-hover);color:var(--agent-text)}
 .acpmux-harnesses-list{display:flex;flex-direction:column;margin:0;padding:0;list-style:none}
 .acpmux-harness-row{display:flex;align-items:center;gap:10px;min-height:40px;padding:4px 6px;border-radius:8px}
-.acpmux-harness-row:hover{background:var(--agent-control-hover)}
 .acpmux-harness-text{flex:1;min-width:0;display:flex;flex-direction:column}
 .acpmux-harness-name{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .acpmux-harness-status{color:var(--agent-muted);font-size:var(--text-detail);line-height:var(--text-detail--line-height);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;letter-spacing:var(--text-detail--letter-spacing)}
