@@ -148,6 +148,11 @@ export const checkSubmission = async (body: unknown): Promise<{ ok: true; value:
   const version = typeof m.version === "string" ? m.version : ""
   if (!SEMVER.test(version)) return refuse(400, "registry.manifest", "manifest version must be semver")
   if (!textOk(m.name) || !textOk(m.description)) return refuse(400, "registry.manifest", "manifest name and description are required (1 to 300 characters)")
+  // The daemon's manifest rule (cmux-app-manifest rules.rs): a store app names a GitHub
+  // repository whose owner is its publisher, or its bundle never installs.
+  const repository = typeof m.repository === "string" ? m.repository : ""
+  const owner = repository.startsWith("https://github.com/") ? (repository.split("/")[3] ?? "").toLowerCase() : ""
+  if (owner !== publisher) return refuse(400, "registry.repository", `repository must be https://github.com/${publisher}/<repo>`)
   if (notes !== undefined && notes !== null && (typeof notes !== "string" || notes.length > MAX_NOTES)) return refuse(400, "registry.notes", `notes must be a string of at most ${MAX_NOTES} characters`)
   if (!files || typeof files !== "object" || Array.isArray(files)) return refuse(400, "registry.files", "files must be an object {path: base64}")
   const entries = Object.entries(files as Record<string, unknown>)

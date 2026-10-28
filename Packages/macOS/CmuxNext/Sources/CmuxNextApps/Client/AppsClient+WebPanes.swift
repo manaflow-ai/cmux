@@ -39,4 +39,17 @@ extension AppsClient {
         }
         refresh()
     }
+
+    /// The local `app` packed for the App Store's review queue under `publisher`, read off
+    /// the main thread.
+    public func registrySubmission(app: String, publisher: String) async throws(AppRegistrySubmission.Failure) -> AppRegistrySubmission {
+        guard let bundle = bundleDirectory(for: app) else { throw AppRegistrySubmission.Failure("the app has no folder") }
+        return try await Self.pack(bundle: bundle, app: app, publisher: publisher)
+    }
+
+    @concurrent nonisolated private static func pack(bundle: URL, app: String, publisher: String) async throws(AppRegistrySubmission.Failure)
+        -> AppRegistrySubmission {
+        // concurrency-allow: @concurrent, so the package walk never runs on the main actor
+        try AppRegistrySubmission(bundle: bundle, localID: app, publisher: publisher)
+    }
 }

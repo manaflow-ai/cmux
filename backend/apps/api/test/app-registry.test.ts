@@ -45,6 +45,7 @@ const manifestOf = (id: string, version: string) => ({
   engines: { cmux: "^2.0" },
   runtime: { web: { root: "web/" } },
   implements: { "cmux.pane/1": { web: "web/index.html", title: "Workspace Board" } },
+  repository: `https://github.com/${id.split("/")[0]}/board`,
   files: ["web/"]
 })
 const bundle = (id: string, version: string, extra: Record<string, string> = {}) => {
@@ -97,6 +98,10 @@ describe("app registry submit", () => {
 
   it("refuses reserved publishers and another person's publisher", async () => {
     for (const p of ["cmux", "manaflow-ai", "local"]) expect((await submit("app_dev_carol", bundle(`${p}/thing`, "1.0.0"))).body.error.code).toBe("registry.publisher_reserved")
+    const elsewhere = bundle("carol/one", "1.0.0")
+    const moved = { ...elsewhere.manifest, repository: "https://github.com/dave/board" }
+    const movedBody = { ...elsewhere, manifest: moved, files: { ...elsewhere.files, "cmux-app.v2.json": b64(JSON.stringify(moved)) } }
+    expect((await submit("app_dev_carol", movedBody)).body.error.code).toBe("registry.repository")
     expect((await submit("app_dev_carol", bundle("carol/one", "1.0.0"))).status).toBe(201)
     const other = await submit("app_dev_dave", bundle("carol/two", "1.0.0"))
     expect(other).toMatchObject({ status: 403, body: { error: { code: "registry.publisher_taken" } } })

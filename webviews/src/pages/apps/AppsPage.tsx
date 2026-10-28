@@ -5,17 +5,22 @@ import { useRef, useSyncExternalStore, type KeyboardEvent } from "react";
 import type { Strings } from "../shared/i18n";
 import { AppDetailView } from "./AppDetailView";
 import { CloudFeature } from "./CloudFeature";
+import { CommunitySection } from "./Community";
 import { InstalledView } from "./InstalledView";
 import { CategoryBar, ItemCard, ItemRow } from "./items";
 import type { StoreTab } from "./model";
-import type { AppsSnapshot, AppsStore } from "./store";
+import { ReviewView } from "./ReviewView";
+import { NO_REGISTRY, type AppsSnapshot, type AppsStore } from "./store";
 import { useUiDirection } from "../../ui/UiProvider";
 
 export function AppsPage({ store, strings }: { store: AppsStore; strings: Strings }) {
   const snap = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
   const tabRefs = useRef<Partial<Record<StoreTab, HTMLButtonElement>>>({});
   const { t } = strings;
-  const tabs: StoreTab[] = ["discover", "installed"];
+  // Review is a tab only for a registry reviewer; `#/review` for anyone else shows Discover.
+  const reviewer = (snap.registry ?? NO_REGISTRY).me?.reviewer === true;
+  const tabs: StoreTab[] = reviewer ? ["discover", "installed", "review"] : ["discover", "installed"];
+  const shown: StoreTab = snap.tab === "review" && !reviewer ? "discover" : snap.tab;
   const direction = useUiDirection() === "rtl" ? -1 : 1;
   const moveTab = (event: KeyboardEvent<HTMLButtonElement>, tab: StoreTab) => {
     if (event.metaKey || event.ctrlKey || event.altKey) return;
@@ -41,9 +46,9 @@ export function AppsPage({ store, strings }: { store: AppsStore; strings: String
               ref={(element) => {
                 tabRefs.current[tab] = element ?? undefined;
               }}
-              tabIndex={snap.tab === tab ? 0 : -1}
-              aria-selected={snap.tab === tab}
-              className={`apps-tab${snap.tab === tab ? " selected" : ""}`}
+              tabIndex={shown === tab ? 0 : -1}
+              aria-selected={shown === tab}
+              className={`apps-tab${shown === tab ? " selected" : ""}`}
               onClick={() => store.setTab(tab)}
               onKeyDown={(event) => moveTab(event, tab)}
             >
@@ -89,8 +94,10 @@ export function AppsPage({ store, strings }: { store: AppsStore; strings: String
           <strong>{t("store.window.title")}</strong>
           <span>{t("store.disconnected")}</span>
         </output>
-      ) : snap.tab === "installed" ? (
+      ) : shown === "installed" ? (
         <InstalledView snap={snap} store={store} strings={strings} />
+      ) : shown === "review" ? (
+        <ReviewView snap={snap} store={store} strings={strings} />
       ) : (
         <Discover snap={snap} store={store} strings={strings} />
       )}
@@ -176,6 +183,7 @@ function Discover({ snap, store, strings }: { snap: AppsSnapshot; store: AppsSto
           )}
         </>
       )}
+      <CommunitySection snap={snap} store={store} strings={strings} />
     </div>
   );
   if (snap.layout !== "split") return <div className="apps-scroll">{listing}</div>;
