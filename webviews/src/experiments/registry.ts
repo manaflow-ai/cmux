@@ -7,6 +7,7 @@ import { chiefDock } from "../agent-session/acpmux/chiefDock.experiment";
 import { newTabHeadline } from "../agent-session/acpmux/newtab/headline.experiment";
 import { hoverActions } from "../ui/hoverActions.experiment";
 import { toolErrorLook } from "../agent-session/acpmux/conversation/toolError.experiment";
+import { autoScopeLook } from "../agent-session/acpmux/autoScope.experiment";
 import { threadMinimapLayout } from "../agent-session/acpmux/threadMinimap/layout.experiment";
 import { threadMinimapHeight } from "../agent-session/acpmux/threadMinimap/height.experiment";
 import { threadMinimapLit } from "../agent-session/acpmux/threadMinimap/lit.experiment";
@@ -38,6 +39,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   chromiumGlassUnderlay,
   questionPreviewLayout,
   toolErrorLook,
+  autoScopeLook,
   trayPanelLook,
 ];
 

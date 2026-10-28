@@ -410,10 +410,12 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       },
     },
     "environment-picker": {
+      height: 640,
       note: "Preview: the computer is the environment picker, one searchable list in Local, SSH and Cloud sections with ⌥⌘1–9; New Cloud Machine ends the Cloud section and New environment (SSH…, Connect Phone…) comes last. gpu-box is connected (a filled dot), Cloud machine is not (a ring); this Mac has no status.",
       props: {
         ...baseProps,
         environments: true,
+        auto: { detail: "This Mac", kind: "local", selected: true, onPick: () => undefined },
         peers: ["gpu-box", "Cloud machine"],
         peerKinds: { "gpu-box": "ssh", "Cloud machine": "cloud" },
         peerConnected: { "gpu-box": true, "Cloud machine": false },
@@ -423,9 +425,62 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
         await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [role="option"]'));
       },
     },
+    "environment-picker-auto-local": {
+      height: 640,
+      note: "New chat default: Auto is selected at the top of the picker, with a quiet one-line note that the prompt chooses the destination; explicit machines remain below.",
+      props: {
+        ...baseProps,
+        environments: true,
+        auto: { detail: "This Mac", kind: "local", selected: true, onPick: () => undefined },
+        peers: ["gpu-box", "Cloud machine"],
+        peerKinds: { "gpu-box": "ssh", "Cloud machine": "cloud" },
+        peerConnected: { "gpu-box": true, "Cloud machine": true },
+      },
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: /^Environment/ });
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [role="option"]'));
+      },
+    },
+    "environment-picker-auto-cloud": {
+      height: 640,
+      note: "Auto remains selected for a prompt that asks for cloud work (or a folder whose last chat went to Cloud): it goes to the Cloud row, which stays unchecked under Auto, a one-click override like the machines.",
+      props: {
+        ...baseProps,
+        environments: true,
+        auto: { detail: "Cloud", kind: "cloud", selected: true, onPick: () => undefined },
+        runMode: { mode: "cloud", onMode: () => undefined, onDefault: () => undefined },
+        peers: ["Cloud machine", "gpu-box"],
+        peerKinds: { "gpu-box": "ssh", "Cloud machine": "cloud" },
+        peerConnected: { "gpu-box": true, "Cloud machine": true },
+      },
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: /^Environment/ });
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [role="option"]'));
+      },
+    },
+    "environment-picker-auto-named": {
+      height: 640,
+      note: "Auto names the requested machine in the same quiet line; opening it keeps the explicit alternatives available.",
+      props: {
+        ...baseProps,
+        environments: true,
+        auto: { detail: "gpu-box", kind: "ssh", selected: true, onPick: () => undefined },
+        peers: ["gpu-box", "Cloud machine"],
+        peerKinds: { "gpu-box": "ssh", "Cloud machine": "cloud" },
+        peerConnected: { "gpu-box": true, "Cloud machine": true },
+      },
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: /^Environment/ });
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [role="option"]'));
+      },
+    },
     "environment-picker-sandboxed-option": {
       note: "Labs (hq#3367): Sandboxed is New Cloud Machine's other face, with no row of its own. Holding ⌥ while the list is open shows it, as a Mac menu's alternate: a pick runs the new chat's first message once on a throwaway Cloud VM.",
-      props: { ...baseProps, environments: true, runMode: { mode: "persistent", onMode: () => undefined } },
+      props: {
+        ...baseProps,
+        environments: true,
+        runMode: { mode: "persistent", onMode: () => undefined },
+      },
       play: async (ctx) => {
         await ctx.click({ role: "button", name: /^Environment/ });
         await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [role="option"]'));
@@ -435,7 +490,11 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
     },
     "environment-picker-sandboxed-search": {
       note: "Labs (hq#3367): searching for it shows Sandboxed in New Cloud Machine's place.",
-      props: { ...baseProps, environments: true, runMode: { mode: "persistent", onMode: () => undefined } },
+      props: {
+        ...baseProps,
+        environments: true,
+        runMode: { mode: "persistent", onMode: () => undefined },
+      },
       play: async (ctx) => {
         await ctx.click({ role: "button", name: /^Environment/ });
         await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [role="option"]'));
@@ -445,7 +504,11 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
     },
     "environment-picker-sandboxed-picked": {
       note: "Labs (hq#3367): Sandboxed picked. The control names it where the machine was, and its row stays checked in New Cloud Machine's place; any machine goes back to a Persistent chat.",
-      props: { ...baseProps, environments: true, runMode: { mode: "sandboxed", onMode: () => undefined } },
+      props: {
+        ...baseProps,
+        environments: true,
+        runMode: { mode: "sandboxed", onMode: () => undefined },
+      },
       play: async (ctx) => {
         await ctx.click({ role: "button", name: /^Environment/ });
         await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [data-mode="sandboxed"]'));
