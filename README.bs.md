@@ -384,7 +384,7 @@ Da, cmux je besplatan za korištenje. Izvorni kod je dostupan na [GitHub-u](http
 
 ### Kako mogu podržati cmux?
 
-cmux je besplatan i otvorenog koda, i uvijek će biti. Ako želite podržati razvoj i dobiti rani pristup onome što slijedi, uključujući cmux AI, iOS aplikaciju i Cloud VMs, pogledajte [cmux Founders Edition](https://github.com/manaflow-ai/cmux#founders-edition).
+cmux je besplatan i otvorenog koda, i uvijek će biti.
 
 ### Imam zahtjev za funkciju ili sam pronašao grešku?
 
@@ -423,19 +423,6 @@ Načini da se uključite:
   <strong>WeChat:</strong> Skenirajte QR kod da se pridružite zajednici.<br />
   <img src="./docs/assets/wechat-community-qr.jpg" alt="WeChat QR kod za pridruživanje cmux zajednici" width="240" />
 </p>
-
-## Osnivačko izdanje
-
-cmux je besplatan, otvorenog koda i uvijek će biti. Ako želite podržati razvoj i dobiti rani pristup onome što dolazi:
-
-**[Nabavite Osnivačko izdanje](https://buy.stripe.com/3cI00j2Ld0it5OU33r5EY0q)**
-
-- **Prioritetni zahtjevi za funkcije/ispravke grešaka**
-- **Rani pristup: cmux AI koji vam daje kontekst o svakom radnom prostoru, tabu i panelu**
-- **Rani pristup: iOS aplikacija sa terminalima sinhroniziranim između desktopa i telefona**
-- **Rani pristup: Cloud VM-ovi**
-- **Rani pristup: Glasovni režim**
-- **Moj lični iMessage/WhatsApp**
 
 ## Licenca
 
