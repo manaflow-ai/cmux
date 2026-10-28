@@ -785,7 +785,7 @@ function LocationPicker({
             return (
               // tooltip-allow: the row shows the folder's name; the tooltip is its full path
                 <span
-                className={kind === "computer" ? "acpmux-location-row" : "acpmux-menu-text acpmux-location-name"}
+                className={kind === "computer" ? "acpmux-location-row acpmux-location-name" : "acpmux-menu-text acpmux-location-name"}
                 title={path}
                 data-section={section}
                 data-first-section={section && index === 0 ? "" : undefined}
