@@ -1255,20 +1255,22 @@ check_tmux_terminal_nightly_isolation() {
 
 check_no_github_hosted_runners() {
   # Nightly workflows (*nightly*.yml, *notarization*.yml) may still name these
-  # GitHub-hosted Linux and Windows images. Never a GitHub-hosted Mac: nightly
-  # macOS jobs take the owned minis or Blacksmith (Leo, 2026-10-27: "THE GITHUB
-  # HOSTED MACS / ARE THE SLOWEST THINGS / THEY PREVIOUSLY WREN'T EVEN UNDER
-  # CONSIDERATINO").
-  local nightly_hosted="(^|[^A-Za-z0-9_-])'?(ubuntu-24[.]04(-arm)?|windows-2025)'?([^A-Za-z0-9_.-]|$)"
+  # GitHub-hosted macOS and Windows images (tests/test_ci_no_github_hosted_macos.py
+  # holds macOS on its own). Hosted Ubuntu is no longer exempt there: nightly
+  # Linux jobs take Blacksmith like every other Linux job (Leo, 2026-10-27:
+  # "just put it on blacksmith / 16vcpu blacksmiths do exist").
+  local nightly_hosted="(^|[^A-Za-z0-9_-])'?(macos-(15|26)|windows-2025)'?([^A-Za-z0-9_.-]|$)"
   # A GitHub billing block or a GitHub-hosted outage must never stop CI, so no
   # job in manaflow-ai may select a GitHub-hosted runner (ubuntu-*, macos-*,
   # windows-*). Jobs run on Blacksmith labels, the CI_TRUSTED_RUNNER selector
   # (Blacksmith by default), or owned pools reached through the pickers.
   # A `# github-hosted-required:` comment is no longer an exemption.
+  # No route reaches GitHub-hosted macOS, script-computed labels included
+  # (Leo, 2026-10-27: "THE GITHUB HOSTED MACS / ARE THE SLOWEST THINGS";
+  # tests/test_ci_no_github_hosted_macos.py reads scripts/ and runners.json too).
   # Allowed GitHub-hosted forms:
   #   - the fork branch `github.repository_owner != 'manaflow-ai' && '<label>'`
   #     (and `&& matrix.hosted_runner`), which never evaluates in manaflow-ai;
-  #   - fork-only `hosted_runner` matrix values;
   #   - the label list inside the exact CI_TRUSTED_RUNNER selector, where
   #     GitHub-hosted is an operator choice and Blacksmith is the default;
   #   - the exact lines in `exceptions` below, each with the reason it cannot move.
@@ -1279,6 +1281,9 @@ check_no_github_hosted_runners() {
   local fork_branch="github[.]repository_owner != 'manaflow-ai' [&][&] ('[A-Za-z0-9._-]+'|matrix[.]hosted_runner)"
   local trusted_list='fromJSON[(]'"'"'[[]"ubuntu-24[.]04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"[]]'"'"'[)], vars[.]CI_TRUSTED_RUNNER'
   # "<workflow>:<line content>" -> why it stays GitHub-hosted. Exact lines only.
+  # This is the whole allowlist: every other Linux job takes a Blacksmith label
+  # sized to the job (Leo, 2026-10-27: "just put it on blacksmith / 16vcpu
+  # blacksmiths do exist"), with LINUX_RUNNER or the overflow switch behind it.
   local -a exceptions=(
     # npm trusted publishing and --provenance accept only GitHub-hosted runners.
     "sdk-bootstrap-npm.yml:    runs-on: ubuntu-latest # github-hosted-required: npm provenance publishing"
@@ -1289,16 +1294,19 @@ check_no_github_hosted_runners() {
     "coderouter-publish-npm.yml:    runs-on: ubuntu-latest # github-hosted-required: npm provenance needs a GitHub-hosted runner"
     # PyPI trusted publishing accepts only GitHub-hosted runners too.
     "coderouter-publish-pypi.yml:    runs-on: ubuntu-latest # github-hosted-required: PyPI trusted publishing needs a GitHub-hosted runner"
+    # The packages' attestations are verified with --deny-self-hosted-runners,
+    # so they must be signed on a GitHub-hosted runner.
     "cmux-tui-build-package.yml:    runs-on: ubuntu-latest # github-hosted-required: artifact attestations need GitHub OIDC"
-    # validate-cla-policy.rb pins these to ubuntu-24.04 until #17453 lands.
-    "cla.yml:    runs-on: ubuntu-24.04 # github-hosted-required: write token on fork pull requests"
-    "cla-policy-guard.yml:    runs-on: ubuntu-24.04"
-    # pull_request_target with a write token (test_ci_fork_runner_routing).
-    "cmux-next-pr-merge-tree.yml:    runs-on: ubuntu-24.04 # github-hosted-required: pull_request_target write token"
-    # Registry provenance and trusted publishing accept only GitHub-hosted runners.
-    "coderouter-publish-npm.yml:    runs-on: ubuntu-latest # github-hosted-required: npm provenance needs a GitHub-hosted runner"
-    "coderouter-publish-pypi.yml:    runs-on: ubuntu-latest # github-hosted-required: PyPI trusted publishing needs a GitHub-hosted runner"
   )
+  # An exception that names no workflow line is stale: it would quietly allow
+  # the line if it came back. Each one must match a line exactly.
+  local stale_exception
+  for stale_exception in "${exceptions[@]}"; do
+    if ! grep -qxF -- "${stale_exception#*:}" "$ROOT_DIR/.github/workflows/${stale_exception%%:*}" 2>/dev/null; then
+      echo "FAIL: GitHub-hosted runner exception matches no workflow line; remove it: $stale_exception" | cut -c1-260
+      exit 1
+    fi
+  done
   local probe
   for probe in 'runs-on: ubuntu-24.04' 'runs-on: ubuntu-latest # github-hosted-required: x' \
                "runs-on: \${{ vars.X || 'ubuntu-24.04' }}" '- os: macos-15' '          - windows-latest' \
@@ -1320,36 +1328,124 @@ check_no_github_hosted_runners() {
     fi
   done
 
-  # A nightly workflow may not name a GitHub-hosted Mac, not even as a fallback.
-  for probe in 'runs-on: macos-26' "runs-on: \${{ vars.X || 'macos-15' }}"; do
-    if ! printf '%s\n' "$probe" | sed -E "s/$nightly_hosted//g; s/$fork_branch//g" | grep -Eq "$hosted"; then
-      echo "FAIL: GitHub-hosted runner guard self-test let a nightly workflow keep a GitHub-hosted Mac: $probe"
-      exit 1
-    fi
-  done
-
-  local line file content stripped exception allowed failed=0
-  while IFS= read -r line; do
-    file="${line%%:*}"
-    content="${line#*:*:}"
-    [[ "$content" =~ ^[[:space:]]*# ]] && continue
-    # Nightly workflows may name hosted Linux and Windows images; their macOS
-    # jobs take the trusted minis or Blacksmith (tests/test_ci_nightly_off_blacksmith.py).
-    if [[ "$(basename "$file")" == *nightly*.yml || "$(basename "$file")" == *notarization*.yml ]]; then
-      content="$(printf '%s\n' "$content" | sed -E "s/$nightly_hosted//g")"
-    fi
-    # Fork-only matrix rows: read only through the fork branch above.
-    [[ "$content" =~ (^|[^A-Za-z_])\"?hosted_runner\"?:[[:space:]] ]] && continue
-    stripped="$(printf '%s\n' "$content" | sed -E "s/$fork_branch//g; s/$trusted_list//g")"
-    printf '%s\n' "$stripped" | grep -Eq "$hosted" || continue
-    allowed=0
-    for exception in "${exceptions[@]}"; do
-      if [[ "$(basename "$file"):$content" == "$exception" ]]; then allowed=1; break; fi
-    done
-    [[ "$allowed" -eq 1 ]] && continue
-    echo "FAIL: GitHub-hosted runner label: ${line#"$ROOT_DIR"/}" | cut -c1-260
+  # The scan over one workflow directory: prints a FAIL line per hosted label
+  # in a runner-selection position that is not an exact exception. It is run
+  # on fixtures first, so a narrowed key pattern cannot pass vacuously.
+  hosted_scan() {
+    local dir="$1" line file content stripped exception allowed
+    # A runner selection spread over several lines (a block scalar, or a
+    # plain or quoted scalar that wraps) is invisible to the line scan below.
+    # YAML parses each workflow, and a multi-line value under runs-on, os or a
+    # *runner* key fails when its joined text names a hosted label (the same
+    # fork-branch and nightly rules; no exact-line exception can name it).
+    python3 -W ignore::FutureWarning - "$dir" "$ROOT_DIR" "$hosted" "$fork_branch" "$trusted_list" "$nightly_hosted" <<'PY'
+import pathlib, re, sys, yaml
+root, repo = pathlib.Path(sys.argv[1]), sys.argv[2]
+hosted, fork, trusted, nightly = (re.compile(p) for p in sys.argv[3:7])
+key = re.compile(r"^(runs-on|runs_on|os|labels|group|[A-Za-z0-9_-]*runner[A-Za-z0-9_-]*)$", re.IGNORECASE)
+def spans(node):
+    """A scalar under a runner key that starts and ends on different lines."""
+    if isinstance(node, yaml.MappingNode):
+        for k, v in node.value:
+            if isinstance(k, yaml.ScalarNode) and key.match(str(k.value)):
+                for leaf in ([v] if isinstance(v, yaml.ScalarNode) else
+                             [x for x in v.value if isinstance(x, yaml.ScalarNode)] if isinstance(v, yaml.SequenceNode) else []):
+                    if leaf.end_mark.line > leaf.start_mark.line and (leaf.end_mark.column > 0 or leaf.end_mark.line > leaf.start_mark.line + 1):
+                        yield k.value, leaf.start_mark.line + 1, str(leaf.value)
+            yield from spans(v)
+    elif isinstance(node, yaml.SequenceNode):
+        for v in node.value:
+            yield from spans(v)
+for f in sorted(root.rglob("*.y*ml")):
+    try:
+        doc = yaml.compose(f.read_text(encoding="utf-8"))
+    except yaml.YAMLError:
+        continue
+    is_nightly = re.search(r"(nightly|notarization)[^/]*[.]yml$", f.name) is not None
+    for name, line, text in spans(doc):
+        text = " ".join(text.split())
+        if is_nightly:
+            text = nightly.sub("", text)
+        if not hosted.search(trusted.sub("", fork.sub("", text))):
+            continue
+        print(f"FAIL: multi-line runner selection (write it on one line so this guard can read it): "
+              f"{str(f).removeprefix(repo + '/')}:{line}: {name}"[:260])
+PY
+    while IFS= read -r line; do
+      file="${line%%:*}"
+      content="${line#*:*:}"
+      [[ "$content" =~ ^[[:space:]]*# ]] && continue
+      # Nightly workflows may name hosted macOS and Windows images (above);
+      # their Linux jobs take Blacksmith.
+      if [[ "$(basename "$file")" == *nightly*.yml || "$(basename "$file")" == *notarization*.yml ]]; then
+        content="$(printf '%s\n' "$content" | sed -E "s/$nightly_hosted//g")"
+      fi
+      stripped="$(printf '%s\n' "$content" | sed -E "s/$fork_branch//g; s/$trusted_list//g")"
+      printf '%s\n' "$stripped" | grep -Eq "$hosted" || continue
+      allowed=0
+      for exception in "${exceptions[@]}"; do
+        if [[ "$(basename "$file"):$content" == "$exception" ]]; then allowed=1; break; fi
+      done
+      [[ "$allowed" -eq 1 ]] && continue
+      echo "FAIL: GitHub-hosted runner label: ${line#"$ROOT_DIR"/}" | cut -c1-260
+    done < <(grep -rnE "(runs-on:|^[[:space:]]+(labels|group):|[[:space:]\"](os|runs_on|runs-on|[A-Za-z0-9_-]*[Rr]unner)\"?:[[:space:]]|[A-Za-z0-9_-]*RUNNER[A-Za-z0-9_-]*:[[:space:]]|^[[:space:]]*-[[:space:]]+[A-Za-z0-9._-]+[[:space:]]*$|^[[:space:]]+default:[[:space:]])" "$dir")
+  }
+  local fixture scan_out failed=0
+  fixture="$(mktemp -d)"
+  cat > "$fixture/caught.yml" <<'YAML'
+jobs:
+  a:
+    runs-on: ubuntu-24.04
+  b:
+    runs-on: ${{ vars.X || 'ubuntu-24.04' }}
+  c:
+    uses: ./.github/workflows/x.yml
+    with:
+      linux-arm64-runner: ubuntu-24.04-arm
+      linux_runner: ubuntu-latest
+      LINUX_BUILD_RUNNER: ubuntu-22.04
+  g:
+    strategy:
+      matrix:
+        include:
+          - hosted_runner: ubuntu-latest
+    runs-on: ${{ matrix.hosted_runner }}
+  e:
+    runs-on: ${{ vars.LINUX_RUNNER ||
+      'ubuntu-24.04' }}
+  f:
+    uses: ./.github/workflows/x.yml
+    with:
+      linux_runner: >-
+        ${{ vars.X || 'ubuntu-24.04' }}
+YAML
+  cat > "$fixture/clean-nightly.yml" <<'YAML'
+jobs:
+  a:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+  b:
+    runs-on: blacksmith-16vcpu-ubuntu-2404
+  c:
+    runs-on: >-
+      ${{ vars.X || 'blacksmith-4vcpu-ubuntu-2404' }}
+  d:
+    env:
+      CMUX_CI_RUNNER_VARIABLES: |
+        LINUX_RUNNER=${{ vars.LINUX_RUNNER }}
+        MACOS_RUNNER_26=${{ vars.MACOS_RUNNER_26 }}
+YAML
+  scan_out="$(hosted_scan "$fixture")"
+  rm -rf "$fixture"
+  if [[ "$(grep -c '^FAIL:' <<<"$scan_out")" -ne 8 ]] || grep -q 'clean-nightly.yml' <<<"$scan_out"; then
+    echo "FAIL: GitHub-hosted runner guard self-test: the scan must flag exactly the eight hosted selections in its fixture and nothing in the clean one:"
+    echo "$scan_out"
+    exit 1
+  fi
+  scan_out="$(hosted_scan "$ROOT_DIR/.github/workflows")"
+  if [[ -n "$scan_out" ]]; then
+    echo "$scan_out"
     failed=1
-  done < <(grep -rnE "(runs-on:|^[[:space:]]+(labels|group):|[[:space:]\"](os|runner|runs_on|runs-on|macos_runner|linux_runner|windows_runner)\"?:[[:space:]]|[A-Za-z_]*RUNNER[A-Za-z_]*:[[:space:]]|^[[:space:]]*-[[:space:]]+[A-Za-z0-9._-]+[[:space:]]*$|^[[:space:]]+default:[[:space:]])" "$ROOT_DIR/.github/workflows")
+  fi
   # The capability map's manaflow-ai fleet feeds runs-on through resolve-runners.yml.
   local owner_fleet fleet_hits
   owner_fleet="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d["owners"]["manaflow-ai"])' "$ROOT_DIR/.github/runners.json")"
