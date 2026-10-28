@@ -545,7 +545,9 @@ public final class MobileSSHComputers {
         // reconnect during slow teardown must not be removed by this close.
         autoConnectTasks.removeValue(forKey: hostID)?.cancel()
         connectionAttempts.cancel(hostID: hostID)
-        providers[hostID] = nil
+        // Keep the provider alive until its terminal/browser detach callbacks
+        // have run; tmux pane teardown calls back through a weak provider.
+        let provider = providers.removeValue(forKey: hostID)
         let connection = connections.removeValue(forKey: hostID)
         let surfaceIDs = Set(attachments.keys)
             .union(attachTasks.keys)
@@ -564,6 +566,7 @@ public final class MobileSSHComputers {
 
         for terminal in terminals { await terminal.detach() }
         for browser in browsers { await browser.detach() }
+        _ = provider
         await connection?.close()
     }
 
