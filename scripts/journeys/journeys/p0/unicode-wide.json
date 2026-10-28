@@ -1,0 +1,39 @@
+{
+  "id": "unicode-wide",
+  "priority": "P0",
+  "title": "Accented, CJK and emoji characters render at their width and the cursor stays aligned",
+  "why": "CJK and emoji take two cells. If the terminal (the app's view or the daemon's screen) gives one a different width than programs do, every cursor move after it lands in the wrong cell: text after the characters is misplaced and line editing garbles. The bar is placed by an absolute cursor move after the wide characters and must touch the last one; a prompt of wide characters must keep an in-line edit in place.",
+  "source": "everyday terminal use (holistic-quality.md 1: Unicode/emoji/CJK/wide chars)",
+  "budget_seconds": 60,
+  "steps": [
+    {"do": "new_terminal", "name": "jr-unicode-wide"},
+    {"do": "neutral_prompt"},
+    {"do": "type", "text": "export LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8", "enter": true, "mark": "locale"},
+    {"do": "expect", "title": "the shell runs in a UTF-8 locale", "since": "locale", "timeout": 10,
+     "all": [{"daemon_prompt": true}]},
+
+    {"do": "type", "text": "printf 'W\\344\\270\\255\\346\\226\\207\\360\\237\\230\\200\\303\\251\\r\\033[8C|wide-${nonce}\\n'", "enter": true, "mark": "wide"},
+    {"do": "expect", "title": "W, two CJK characters (2 cells each), an emoji (2 cells) and an accented letter fill 8 cells; the bar moved to column 9 touches them", "since": "wide", "within": 3, "timeout": 10,
+     "all": [
+       {"daemon_line": "W中文😀é|wide-${nonce}"},
+       {"app_text_line": "W中文😀é|wide-${nonce}"},
+       {"daemon_prompt": true},
+       {"frame_text": "|wide-${nonce}"}
+     ]},
+
+    {"do": "type", "text": "PS1=$'\\344\\270\\255\\346\\226\\207\\360\\237\\230\\200> '", "enter": true, "mark": "ps1"},
+    {"do": "expect", "title": "the prompt is now CJK and an emoji", "since": "ps1", "timeout": 10,
+     "all": [{"daemon_line": "中文😀>"}]},
+    {"do": "type", "text": "echo ab-${nonce}-cd"},
+    {"do": "key", "key": "left"}, {"do": "key", "key": "left"},
+    {"do": "type", "text": "X", "enter": true, "mark": "edit"},
+    {"do": "expect", "title": "an edit after a wide prompt lands in place, on screen and in the command", "since": "edit", "within": 3, "timeout": 10,
+     "all": [
+       {"daemon_line": "中文😀> echo ab-${nonce}-Xcd"},
+       {"app_text_line": "中文😀> echo ab-${nonce}-Xcd"},
+       {"daemon_line": "ab-${nonce}-Xcd"},
+       {"app_text_line": "ab-${nonce}-Xcd"},
+       {"frame_text": "ab-${nonce}-Xcd"}
+     ]}
+  ]
+}

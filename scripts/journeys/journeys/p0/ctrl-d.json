@@ -1,0 +1,85 @@
+{
+  "id": "ctrl-d",
+  "priority": "P0",
+  "title": "Ctrl+D sends end-of-file: it ends input to a program, ends a nested shell, and exits a tab's shell, which closes that tab",
+  "why": "Ctrl+D is the EOF character of the terminal's line discipline: with no controlling tty or a wrong key mapping it never reaches the program, so wc never counts, a nested shell never ends and a person cannot log out of a tab. wc prints eof-N-3 only if it read the three typed lines and then the end of file. A tab's shell that exits must close its tab (on_exit close, the daemon default) in the app and in the daemon, and give the pane back to the other tab, focused and typing.",
+  "source": "everyday terminal use (holistic-quality.md 1: Ctrl+D)",
+  "budget_seconds": 90,
+  "steps": [
+    {"do": "new_terminal", "name": "jr-ctrl-d", "as": "first"},
+    {"do": "neutral_prompt"},
+    {"do": "type", "text": "wc -l | tr -d ' ' | sed 's/^/eof-${nonce}-/'", "enter": true, "mark": "wc"},
+    {"do": "expect", "title": "wc reads the terminal in the foreground", "since": "wc", "timeout": 10,
+     "all": [{"process_present": {"match": "^wc -l$", "bind": "wc", "foreground": true}}]},
+    {"do": "type", "text": "one", "enter": true},
+    {"do": "type", "text": "two", "enter": true},
+    {"do": "type", "text": "three", "enter": true},
+    {"do": "key", "key": "d", "modifiers": ["control"], "mark": "eof-wc"},
+    {"do": "expect", "title": "Ctrl+D ends wc's input: it counts the three lines and the prompt returns", "since": "eof-wc", "within": 1.0, "timeout": 5,
+     "all": [
+       {"process_gone": "wc"},
+       {"daemon_line": "eof-${nonce}-3"},
+       {"daemon_prompt": true},
+       {"app_text_line": "eof-${nonce}-3"},
+       {"app_prompt": true}
+     ]},
+
+    {"do": "type", "text": "PS1='sub> ' /bin/sh", "enter": true, "mark": "nested"},
+    {"do": "expect", "title": "a nested shell waits for input in the foreground", "since": "nested", "timeout": 10,
+     "all": [
+       {"process_present": {"match": "^/bin/sh$", "bind": "nested", "foreground": true}},
+       {"daemon_line": "sub>"}
+     ]},
+    {"do": "key", "key": "d", "modifiers": ["control"], "mark": "eof-nested"},
+    {"do": "expect", "title": "Ctrl+D ends the nested shell and the outer prompt returns", "since": "eof-nested", "within": 1.0, "timeout": 5,
+     "all": [
+       {"process_gone": "nested"},
+       {"daemon_prompt": true},
+       {"app_prompt": true}
+     ]},
+    {"do": "type", "text": "echo keep-${nonce}-$((6*7))", "enter": true, "mark": "keep"},
+    {"do": "expect", "title": "the outer shell takes input again", "since": "keep", "within": 3, "timeout": 10,
+     "all": [
+       {"daemon_line": "keep-${nonce}-42"},
+       {"app_text_line": "keep-${nonce}-42"},
+       {"frame_text": "keep-${nonce}-42"}
+     ]},
+
+    {"do": "key", "key": "`", "modifiers": ["control"], "mark": "new-tab"},
+    {"do": "focused_terminal", "as": "second"},
+    {"do": "neutral_prompt"},
+    {"do": "type", "text": "echo two-${nonce}-$((6*7))", "enter": true, "mark": "two"},
+    {"do": "expect", "title": "a second tab in the same pane answers; its shell waits at the prompt in the foreground", "since": "two", "timeout": 10,
+     "all": [
+       {"daemon_line": "two-${nonce}-42"},
+       {"app_tab_pane": {"same_as": "first"}},
+       {"app_layout": {"workspace": "jr-ctrl-d", "panes": 1, "tabs": 2, "selected": true}},
+       {"process_present": {"match": "(^|[ /-])(zsh|bash)( |$)", "bind": "shell", "foreground": true}}
+     ]},
+    {"do": "key", "key": "d", "modifiers": ["control"], "mark": "eof-shell"},
+    {"do": "expect", "title": "Ctrl+D at the prompt exits the second tab's shell; the tab closes in the app and in the daemon", "since": "eof-shell", "within": 2, "timeout": 10,
+     "all": [
+       {"process_gone": "shell"},
+       {"app_tab_gone": "second"},
+       {"daemon_terminal_gone": "second"}
+     ]},
+    {"do": "use", "name": "first"},
+    {"do": "expect", "title": "the first tab is back: shown, focused, connected, with its text", "since": "eof-shell", "timeout": 10,
+     "all": [
+       {"app_layout": {"workspace": "jr-ctrl-d", "panes": 1, "tabs": 1, "selected": true}},
+       {"app_pane": {"focused": true, "link": "connected"}},
+       {"app_text_line": "keep-${nonce}-42"},
+       {"daemon_line": "keep-${nonce}-42"},
+       {"frame_screen": {"shows": ["keep-${nonce}-42"], "lacks": ["two-${nonce}-42"]}}
+     ]},
+    {"do": "outwait_hold"},
+    {"do": "type", "text": "echo after-${nonce}-$((6*7))", "enter": true, "mark": "after"},
+    {"do": "expect", "title": "typing goes to the remaining tab", "since": "after", "within": 3, "timeout": 10,
+     "all": [
+       {"daemon_line": "after-${nonce}-42"},
+       {"app_text_line": "after-${nonce}-42"},
+       {"daemon_prompt": true},
+       {"frame_text": "after-${nonce}-42"}
+     ]}
+  ]
+}

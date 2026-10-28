@@ -67,7 +67,9 @@ KIND = {"daemon_line": "daemon", "daemon_contains": "daemon", "daemon_prompt": "
         # App life (journeys/p0/app-life-*.json): layout, working directories, restore and settings.
         "daemon_cwd": "daemon", "daemon_grid": "daemon", "daemon_pane_ready": "daemon",
         "app_cwd": "app", "app_layout": "app", "app_tab_pane": "app", "app_tab_gone": "app", "app_rpc": "app",
-        "app_grid": "app"}
+        "app_grid": "app",
+        # Terminal input (journeys/p0/ctrl-d.json): a shell's exit as the daemon records it.
+        "daemon_terminal_gone": "daemon"}
 # Conditions an extension module adds (ext_*.py beside this file, load_extensions): name -> fn(journey, want, cache).
 EXT_CONDITIONS = {}
 # The extension conditions that are negative (an extension's NEGATIVE): read again every poll, never latched.
@@ -407,7 +409,7 @@ def negative(name, want):
                                        or (name == "app_rows" and bool(want.get("hold"))))
 # The app-life conditions (Journey.evaluate_life).
 LIFE_CONDITIONS = {"daemon_cwd", "daemon_grid", "daemon_pane_ready", "app_cwd", "app_layout", "app_tab_pane",
-                   "app_tab_gone", "app_rpc", "app_grid"}
+                   "app_tab_gone", "app_rpc", "app_grid", "daemon_terminal_gone"}
 
 
 def same_dir(got, wanted):
@@ -1441,6 +1443,19 @@ class Journey:
                 return False, {"error": f"no terminal named {want!r}"}
             place = self.place_of(self.aliases[want]["term"], topo())
             return place is None, {"tab": place[2].get("id") if place else None}
+        if name == "daemon_terminal_gone":
+            # The daemon's terminal list has no live terminal N: it is gone (on_exit close, the default) or
+            # its lifecycle says it ended (on_exit keep).
+            if want not in self.aliases:
+                return False, {"error": f"no terminal named {want!r}"}
+            term = self.aliases[want]["term"]
+            rows = self.app.cmux("terminal", "list")
+            if isinstance(rows, dict):
+                rows = next((rows[k] for k in ("terminals", "value", "result") if isinstance(rows.get(k), list)), [])
+            row = next((r for r in rows or [] if isinstance(r, dict) and r.get("id") == term), None)
+            state = str((row or {}).get("lifecycle") or (row or {}).get("state") or "").lower()
+            return row is None or state in ("exited", "closed", "dead"), {"terminal": term, "row": row,
+                                                                          "terminals": len(rows or [])}
         if name == "app_rpc":
             reply = self.app.rpc(want["method"], want.get("params") or {})
             got = dig(reply, want.get("path", ""))
