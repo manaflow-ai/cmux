@@ -16,5 +16,8 @@ export const isPattern = (regExp: RegExp, annotations?: Parameters<typeof Schema
  * `minLength: n`. Effect 4.0 exports `ceil(n / 2)`, because JSON Schema counts code points and a
  * JavaScript length counts UTF-16 units; for ASCII the two agree.
  */
-export const isMinLength = (minLength: number) =>
-  Schema.isMinLength(minLength, { toJsonSchema: () => ({ minLength }) })
+export const isMinLength = (minLength: number) => {
+  // Effect normalizes the bound before it validates; take only bounds it keeps as they are.
+  if (!Number.isSafeInteger(minLength) || minLength < 0) throw new RangeError(`isMinLength: ${minLength} is not a length`)
+  return Schema.isMinLength(minLength, { toJsonSchema: () => ({ minLength }) })
+}
