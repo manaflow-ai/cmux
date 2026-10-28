@@ -19,6 +19,11 @@ pub struct Session {
     /// Held while a child is spawned and initialized, so concurrent
     /// requests for a stopped session start one agent, not several.
     pub(super) spawn_lock: Mutex<()>,
+    /// Held shared by a request that reaches the harness outside a turn (a start, a mode
+    /// change); the idle pass takes it exclusively while it lists and ends the harness.
+    pub(super) harness_use: tokio::sync::RwLock<()>,
+    /// The hub clock's time of the last log of why the idle harness stays up (`idle_census.rs`).
+    pub(super) idle_refusal_logged: AtomicU64,
     pub(super) seq: AtomicU64,
     /// Held from sequence allocation until the record is stored and sent,
     /// so the log and fan-out always see sequences in order.
@@ -179,6 +184,16 @@ pub struct Session {
     /// The hub clock's time (`Hub::clock_now`) of the last record or
     /// attach change; the idle harness exit counts from it (`idle.rs`).
     pub(super) last_active: AtomicU64,
+    /// The hub clock's time (`Hub::clock_now`) at which the idle exit hibernated its harness
+    /// (`idle.rs`), or 0: the next start of its agent is a wake, logged with its cause and how
+    /// long it took.
+    pub(super) hibernated_at: AtomicU64,
+    /// What asked for the agent the next wake starts (`idle.rs` `wake_cause`): `typing`, `prompt`,
+    /// else a request that needs the agent.
+    pub(super) wake_cause: StdMutex<Option<&'static str>>,
+    /// The agent's own requests (a file read, a terminal, a permission) whose task has not
+    /// ended: the idle exit waits for none of them, it keeps the agent (`idle.rs`).
+    pub(super) agent_requests: std::sync::atomic::AtomicUsize,
     /// Web control ended: the mode left the asking table (`web_control.rs`).
     pub(super) web_control_ended: AtomicBool,
     /// The remote floor's per-session marks (`remote_floor.rs`).

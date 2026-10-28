@@ -113,6 +113,19 @@ test("a sent message reads its target, how it was taken and its first line, and 
   expect(container.querySelector(".cv-shell")?.textContent).toContain("acpmux send --no-wait coord-deputy");
 });
 
+test("a direct recorded heredoc send stays compact and opens to rendered Markdown", async () => {
+  const container = await line(
+    bash("acpmux send --no-wait coord-deputy - <<'EOF'\n## Ready\n\n- checks pass\nEOF", { output: "queued" }),
+  );
+  const row = container.querySelector<HTMLElement>(".cv-sent")!;
+  expect(row.textContent).toContain("Sent message to coord-deputy");
+  expect(row.textContent).not.toContain("cat > /tmp/review.md");
+  await act(async () => row.click());
+  expect(container.querySelector(".cv-subsession__under h2")?.textContent).toBe("Ready");
+  expect(container.querySelectorAll(".cv-subsession__under li").length).toBe(1);
+  expect(container.querySelector(".cv-subsession__under")?.textContent).toContain("checks pass");
+});
+
 test("in flight it is live, with the spinner", async () => {
   const running = await line(bash("acpmux send lane 'status?'", { status: "in_progress" }));
   const row = running.querySelector<HTMLButtonElement>(".cv-sent")!;
