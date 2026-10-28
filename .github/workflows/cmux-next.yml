@@ -120,6 +120,8 @@ on:
       - scripts/cmux-next/ci-target-graph.py
       - tests/test_ci_target_graph.py
       - scripts/cmux-next/check-package-dependency-lists.py
+      - scripts/ci/display_suites.py
+      - scripts/ci/display-suites.txt
       - scripts/cmux-next/regenerate-action-contracts.sh
       - scripts/cmux-next/regenerate-settings-exports.sh
       - scripts/cmux-next/settings-exports.txt
@@ -374,6 +376,8 @@ on:
       - scripts/cmux-next/ci-target-graph.py
       - tests/test_ci_target_graph.py
       - scripts/cmux-next/check-package-dependency-lists.py
+      - scripts/ci/display_suites.py
+      - scripts/ci/display-suites.txt
       - scripts/cmux-next/regenerate-action-contracts.sh
       - scripts/cmux-next/regenerate-settings-exports.sh
       - scripts/cmux-next/settings-exports.txt
@@ -1866,6 +1870,15 @@ jobs:
           python3 scripts/cmux-next/check-package-dependency-lists.py
           python3 scripts/cmux-next/tests/test_check_package_dependency_lists.py
 
+      # cmux-ci sends a package-test-lane suite step that names a display suite to a display
+      # worker; the list it reads is derived from the suites' own display skip traits.
+      - name: Display suite list matches the traits
+        id: display-suites
+        continue-on-error: true
+        run: |
+          python3 scripts/ci/display_suites.py --check
+          python3 tests/test_ci_display_suites.py
+
       # The web bundle source key covers every file outside webviews/ that a bundle
       # imports, and the publish and routing path lists name each one (cx-wtsf3).
       - name: Web bundle key inputs
@@ -2089,6 +2102,7 @@ jobs:
             ${{ steps.checks-structure.outcome }}|Checks job structure
             ${{ steps.tier-routing.outcome }}|Tier routing
             ${{ steps.package-dependency-lists.outcome }}|Package dependency lists sorted
+            ${{ steps.display-suites.outcome }}|Display suite list matches the traits
             ${{ steps.web-bundle-key-inputs.outcome }}|Web bundle key inputs
             ${{ steps.web-bundles-from.outcome }}|Prebuilt web bundles install and stamp
             ${{ steps.web-ota-pointer.outcome }}|Web update pointer
