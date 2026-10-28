@@ -5,6 +5,9 @@ import CmuxNextWakeups
 @MainActor public protocol AgentPaneFrameTicks: AnyObject {
     /// Called once per display frame while active.
     var onTick: (@MainActor () -> Void)? { get set }
+    /// One frame of the display the ticks come from, in seconds (its vsync interval); nil while not known
+    /// (no window or screen yet). Read on each delivery, so it follows the window to another screen.
+    var frameInterval: TimeInterval? { get }
     func activate()
     func deactivate()
 }
@@ -20,8 +23,13 @@ import CmuxNextWakeups
 /// - A call in flight (until the page has run it): new frames wait and go together in the next
 ///   call, at most 512 frames each (``AgentPaneTransport/Limits``).
 /// - Under load (a call finished less than one display frame after the previous one began): wait
-///   for the next display frame, so a burst is at most one call per frame.
-/// - The display link does not fire (an occluded or hidden window): after ``fallbackDelay`` the
+///   for the next display frame, so a burst is at most one call per frame. The frame is the one of the
+///   display the pane's window is on (``AgentPaneFrameTicks/frameInterval``: 16.7 ms on a 60 Hz display,
+///   8.3 ms on ProMotion), as Chrome's begin-frame interval is its display's vsync interval, never a
+///   constant (`BeginFrameArgs::interval`, components/viz/common/frame_sinks/begin_frame_args.h, set from
+///   the display link by `ExternalBeginFrameSourceMac`, components/viz/service/frame_sinks/external_begin_frame_source_mac.cc).
+/// - The display link does not fire (an occluded or hidden window): after ``fallbackDelay`` (more on a
+///   display slower than 60 Hz: ``missedFrameDelay(frameInterval:)``) the
 ///   frames go at once, and until a frame ticks again a later call goes on the next turn, or under
 ///   sustained load (this delivery and the one before found frames waiting within one frame
 ///   interval) one frame interval after the previous call began, on the fallback deadline. So
@@ -47,10 +55,14 @@ import CmuxNextWakeups
 /// and its fallback a `visible` ``MainDeadline``, on the app's scheduling (``AgentPaneMainThread``): what a shown
 /// chat streams is what it shows, and no input of the person's caused it.
 @MainActor public final class AgentPaneFramePacer: AgentPaneTransportPacer {
-    /// One display frame at the slowest rate the pacer assumes.
-    public static let frameInterval: TimeInterval = 1.0 / 120
-    /// Longest wait for a display frame before the pacer treats the link as stalled.
+    /// One display frame while the display's is not known (``AgentPaneFrameTicks/frameInterval`` is nil):
+    /// the fastest rate, so an unknown display never holds a call back.
+    public static let defaultFrameInterval: TimeInterval = 1.0 / 120
+    /// Longest wait for a display frame before the pacer treats the link as stalled, on a display of
+    /// 60 Hz or faster: a 60 Hz frame and a fifth.
     public static let fallbackDelay: Duration = .milliseconds(20)
+    /// The wait for a display frame in frames: the margin ``fallbackDelay`` gives a 60 Hz frame.
+    private static let missedFrameFrames = 1.2
     /// Shortest time between two calls to a pane nobody can see.
     public static let hiddenInterval: TimeInterval = 0.25
 
@@ -144,22 +156,36 @@ import CmuxNextWakeups
             thawCall = false
             return
         }
+        let interval = frameInterval
         let since = now() - lastCall + 1e-6 // a microsecond of rounding is a full frame
-        let loaded = since < Self.frameInterval
+        let loaded = since < interval
         let sustained = loaded && loadedBefore
         loadedBefore = loaded
         if linkStalled, !sustained {
             scheduleNextTurn()
         } else if linkStalled {
             waitingForInterval = true
-            fallback.schedule(after: .nanoseconds(Int64((Self.frameInterval - since) * 1e9))) { [weak self] in self?.intervalPassed() }
-        } else if since >= Self.frameInterval {
+            fallback.schedule(after: .nanoseconds(Int64((interval - since) * 1e9))) { [weak self] in self?.intervalPassed() }
+        } else if since >= interval {
             call()
         } else {
             waitingForFrame = true
             frames.activate()
-            fallback.schedule(after: Self.fallbackDelay) { [weak self] in self?.missedFrame() }
+            fallback.schedule(after: Self.missedFrameDelay(frameInterval: interval)) { [weak self] in self?.missedFrame() }
         }
+    }
+
+    /// One frame of the display the pane's window is on, else ``defaultFrameInterval``.
+    var frameInterval: TimeInterval {
+        guard let interval = frames.frameInterval, interval > 0 else { return Self.defaultFrameInterval }
+        return interval
+    }
+
+    /// The longest wait for a display frame whose interval is `interval` before the link counts as stalled:
+    /// ``fallbackDelay``, or on a display slower than 60 Hz the same margin over its frame (40 ms at 30 Hz),
+    /// so a frame that comes on time is never taken for a stalled link.
+    static func missedFrameDelay(frameInterval interval: TimeInterval) -> Duration {
+        max(fallbackDelay, .nanoseconds(Int64((interval * missedFrameFrames * 1e9).rounded())))
     }
 
     public func reset() {

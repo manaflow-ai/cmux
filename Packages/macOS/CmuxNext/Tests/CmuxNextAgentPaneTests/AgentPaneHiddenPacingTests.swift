@@ -11,6 +11,7 @@ import Testing
 struct AgentPaneHiddenPacingTests {
     final class Ticks: AgentPaneFrameTicks {
         var onTick: (@MainActor () -> Void)?
+        var frameInterval: TimeInterval?
         func activate() {}
         func deactivate() {}
     }
