@@ -281,7 +281,7 @@ fn ssh_failures_reach_host_ls_without_remote_output_or_credentials() {
     {
         for configured in [false, true] {
             let tag = format!("ssh-reason-{index}-{configured}");
-            let dir = tempfile::tempdir().unwrap();
+            let dir = cmux_unix_socket::short_test_dir("acpmux-ssh-reason");
             let script = dir.path().join("ssh");
             std::fs::write(&script, format!(
                 "#!/usr/bin/env python3\nimport sys\nsys.stderr.write({diagnostic:?} + '\\nsecret-do-not-publish\\n')\nsys.exit(255)\n"
