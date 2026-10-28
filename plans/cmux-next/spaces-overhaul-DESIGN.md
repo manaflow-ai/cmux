@@ -34,7 +34,10 @@ sidebar-owner.md. The reorder-to-first bug belongs to another agent and is not t
    CLI `space open-in-new-window`, MCP. The new window shows the space; the original keeps it. A
    drag of a space dot out of the switcher and released outside every window runs the same action;
    a drop inside the switcher still reorders (the drag only turns into "open" once the pointer
-   leaves the window).
+   leaves the window). Until rule 6's second view exists, a workspace is in one window: the new window
+   takes the space's workspaces that no window showing the space lists (hidden ones), else starts with
+   a new workspace of the space. Default picked: the drop must be outside the window (as a browser tab
+   tears off), so a drop inside the window never opens one by accident.
 5. **A Home per space.** The Home chat (Chief and DMs) is one, shared by every space. What a person
    builds around it (a split, a browser opened with Cmd-D in Home) belongs to the space's Home only:
    the Home workspace's panes beyond the chat dock are stored per space (the daemon's Home
@@ -52,7 +55,7 @@ sidebar-owner.md. The reorder-to-first bug belongs to another agent and is not t
      two windows needs a second view of the same workspace (a parked companion in the second
      window, as multi-view already builds). Not built yet (Open).
 7. **Every space action on every surface.** Each `space.*` action, the space keys, Pin/Unpin
-   Workspace, Move to Space and the space Home action have a Cmd-Shift-P entry, a `cmux space …`
+   Workspace, Move to Space, Hide / Show Spaces and New Window have a Cmd-Shift-P entry, a `cmux space …`
    CLI verb and an MCP tool. No exemption is allowed for them; `SpaceSurfacesTests` checks all
    three over every catalog action whose id starts with `space.` plus the named cross-domain ones.
    The color shortcuts (Space Color: Red, …) get their own verbs too.
@@ -70,8 +73,28 @@ The old space keys keep working: Opt-Cmd-[ / ] stay as aliases of previous / nex
 stays the digit scheme's space key (ShortcutDigitScheme, onboarding's Number Keys card). Each key
 follows its action: rebinding or unbinding the action in Settings or `cmux.json`
 (`shortcuts.bindings["space.next"]`) drops the default and its aliases. `KeyBindingCollisionTests`
-checks the shipped table: no two default entries with the same keys and an overlapping `when`
-run different actions, and no space key is a reserved Ghostty key.
+checks the shipped table: no two default entries with the same keys and the same `when` run
+different actions. `SpaceKeysTests` checks that the space keys win in a terminal, a page and an
+agent chat, that the asked keys keep their pane meaning, and that no space key is Ctrl alone.
+
+## Plan for the unbuilt rules
+
+- **Incognito spaces (rule 2).** New Incognito Space (`space.newIncognito`, palette, CLI, MCP,
+  sidebar "+" menu) creates a space with the eyeglasses icon and opens it in an incognito window
+  (`WindowRegistry.markIncognito`, the off-the-record browser profile, no restore, workspaces close
+  with the window). The app keeps the incognito space ids in a ledger beside the incognito workspace
+  ledger and runs Delete Space on them at quit and at the next launch, so nothing outlives the
+  session. Open: a normal window that switches to an incognito space, and a workspace moved in or
+  out (refused, as for incognito windows today).
+- **A Home per space (rule 5).** Needs the daemon: `ensure_home {profile}` returns a Home workspace
+  per space (`kind: home`, pinned to the space); the chat dock column (`HomeDock`) holds the one
+  shared Chief conversation tab in each, keyed so the store never duplicates a conversation.
+  Splits and browsers made in Home land in that space's Home workspace. A daemon without the field
+  keeps one Home for every space.
+- **Two windows on one space (rule 6).** `WindowRegistry` gives a workspace one owner. A second
+  window on the same space gets view-only companions of the owner's workspaces (the multi-view
+  parked controllers), drawing the same daemon terminals. Browser tabs in a companion show the
+  last snapshot and a Show Here button that moves the live page (the existing tab move path).
 
 ## Slices
 
@@ -81,7 +104,7 @@ run different actions, and no space key is a reserved Ghostty key.
 4. New Window is a new space; Open Space in New Window (menu, palette, CLI, MCP) (rules 3, 4).
 5. Drag a space out of the switcher (rule 4).
 6. Incognito spaces, a Home per space, two windows on one space (rules 2, 5, 6): need daemon
-   fields and a second view of a workspace; later slices.
+   fields and a second view of a workspace; later slices (plan above).
 
 ## Open
 
