@@ -606,7 +606,9 @@ export default componentEntry<HeaderToolsProps>({
       props: {
         ...base,
         menu: () =>
-          withMachine(cloudMachineRows({ id: "vm_1", name: "dev-vm-2", stage: "ready" }, true, galleryT, noCall, noop, noStop)),
+          withMachine(
+            cloudMachineRows({ id: "vm_1", name: "dev-vm-2", stage: "ready" }, true, galleryT, noCall, noop, noStop),
+          ),
       },
       play: openMenu,
     },

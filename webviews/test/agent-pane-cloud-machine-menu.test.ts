@@ -7,11 +7,7 @@
 // checks the click) and reads the account's list again, whatever the app answered. Stop and
 // Pause pauses only once the turn has ended; the list is read until the machine's stage moves.
 import { expect, test } from "bun:test";
-import {
-  chatCloudMachine,
-  cloudMachineRows,
-  createStopWaiter,
-} from "../src/agent-session/acpmux/cloudMachineMenu";
+import { chatCloudMachine, cloudMachineRows, createStopWaiter } from "../src/agent-session/acpmux/cloudMachineMenu";
 import {
   ACTION_READS_MS,
   readUntilMoved,

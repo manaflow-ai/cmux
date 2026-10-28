@@ -29,7 +29,8 @@ export function createStopWaiter(): StopWaiter {
   const waiting = new Set<() => void>();
   return {
     ended() {
-      for (const done of [...waiting]) done();
+      // A Set may lose its current entry while it is iterated (each wait removes itself).
+      for (const done of waiting) done();
     },
     wait(working, ms = STOP_WAIT_MS) {
       if (!working()) return Promise.resolve(true);
