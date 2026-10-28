@@ -314,6 +314,16 @@ jobs:
           chmod +x "$wrapper_dir/create-dmg"
           echo "$wrapper_dir" >> "$GITHUB_PATH"
 
+      - name: Set up Go for bundled daemons
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          # The exact Go of the shipped cmuxd-remote (its go.mod `toolchain` line);
+          # build_remote_daemon_release_assets.sh refuses any other.
+          go-version-file: daemon/remote/go.mod
+          cache: false
+
+
       - name: Build in-tree acpmux for the app bundle
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         env:
@@ -359,14 +369,6 @@ jobs:
           echo "Derived Sparkle public key: $DERIVED_PUBLIC_KEY"
           echo "SPARKLE_PUBLIC_KEY=$DERIVED_PUBLIC_KEY" >> "$GITHUB_ENV"
 
-      - name: Set up Go for the SSH daemon assets
-        if: steps.guard_release_assets.outputs.skip_all != 'true'
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          # The exact Go of the shipped cmuxd-remote (its go.mod `toolchain` line);
-          # build_remote_daemon_release_assets.sh refuses any other.
-          go-version-file: daemon/remote/go.mod
-          cache: false
 
       # The Embed CEF phase embeds the pinned Chromium engine
       # (scripts/cmux-next/cef-manifest.json) from the ensure-cef cache. This
