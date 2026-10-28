@@ -71,6 +71,19 @@ test("accepted debt needs a reason and a non-negative limit", () => {
   expect(parseConfig({ ...config(), acceptedFindings: { existing: { maxDeltaPx: 0, reason: "documented" } } }).acceptedFindings?.existing?.maxDeltaPx).toBe(0);
 });
 
+test("font weight evidence is numeric and square geometry is valid", async () => {
+  for (const fontWeight of [[400], new Number(400), "400", NaN, Infinity]) {
+    const value = artifact(); Object.assign(value.elements[0]!, { style: { fontWeight } });
+    expect(() => parseArtifact(value)).toThrow("fontWeight");
+  }
+  const value = artifact();
+  value.elements.forEach((element) => { element.secondary = true; element.style = { fontWeight: 400, color: "#777", borderRadius: 0 }; });
+  const radius: GeometryRule = { id: "square", kind: "style-token", group: "icons", tolerancePx: 0, property: "borderRadius", tokensPx: [0] };
+  const secondary: GeometryRule = { id: "weight", kind: "secondary-text", group: "icons", tolerancePx: 0, colors: ["#777"], weights: [400] };
+  expect((await lintGeometry([{ file: "fixture.json", artifact: parseArtifact(value) }], parseConfig(config([radius, secondary])))).passed).toBe(true);
+  for (const token of [-1, NaN, Infinity]) expect(() => parseConfig(config([{ ...radius, tokensPx: [token] }]))).toThrow("tokensPx");
+});
+
 test("individual rules accept one element but still reject absent evidence", async () => {
   const value = artifact();
   value.elements = [{ ...value.elements[0]!, control: true, menuOpen: true, secondary: true, hoverRect: value.elements[0]!.rect, style: { borderRadius: 4, color: "#777", fontWeight: 400 } }];
