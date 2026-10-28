@@ -36,6 +36,7 @@ where
     let (mut sink, mut source) = socket.split();
     let (out_tx, mut out_rx) = mpsc::channel::<Message>(QUEUE);
     let (in_tx, in_rx) = mpsc::channel::<Message>(QUEUE);
+    // supervise-allow: the connection's writer; its end, a panic included, drops `out_rx`, so the Transport's sends fail and the connection ends.
     tokio::spawn(async move {
         let to_ws = |message: Message| match message {
             Message::Text(text) => WsMessage::text(text),
@@ -64,6 +65,7 @@ where
         }
         let _ = sink.close().await;
     });
+    // supervise-allow: the connection's reader; its end, a panic included, drops `in_tx`, so the Transport's receive ends and the connection closes.
     tokio::spawn(async move {
         while let Some(Ok(message)) = source.next().await {
             let message = match message {
@@ -160,11 +162,11 @@ pub async fn serve(
     let policy = Arc::new(policy);
     let handle = |(stream, _): (TcpStream, SocketAddr)| {
         let (provider, verifier, policy) = (provider.clone(), verifier.clone(), policy.clone());
-        tokio::spawn(async move {
+        async move {
             if let Ok((transport, origin)) = accept(stream, &policy).await {
                 let _ = provider.serve(transport, &verifier, origin).await;
             }
-        });
+        }
     };
     let log = crate::net::log_accept_error("provider websocket");
     crate::net::accept_loop(|| crate::net::accept(&listener), handle, log).await;

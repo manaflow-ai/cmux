@@ -80,6 +80,7 @@ impl ImagePasteStore {
         if !state.worker_started {
             let shared = self.shared.clone();
             // Expiry and recovery scans: maintenance no request waits on.
+            // supervise-allow: stopped through state.stopped; it scans under the store's own lock, so a panic poisons that lock and each later paste call fails in its own request (unwrap), never a store that silently stops expiring uploads.
             cmux_threads::spawn(
                 "image-paste-expiry",
                 cmux_threads::ThreadQos::Utility,

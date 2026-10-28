@@ -76,6 +76,7 @@ impl WatcherOwner {
             .try_acquire_owned()
             .map_err(|_| "watch teardown capacity exhausted".to_owned())?;
         let (shutdown, wait) = sync_channel(1);
+        // supervise-allow: one watcher's teardown; it ends when its owner drops, and holds only that watcher and its slot permit.
         std::thread::Builder::new()
             .name("cmux-watch-teardown".to_owned())
             .spawn(move || {

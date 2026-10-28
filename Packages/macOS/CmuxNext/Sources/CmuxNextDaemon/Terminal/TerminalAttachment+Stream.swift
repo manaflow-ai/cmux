@@ -68,7 +68,8 @@ extension TerminalAttachment {
         let attachment = TerminalAttachment(transport: transport, surface: target.surface, stream: handle)
         let sink = attachment.sink
         let owner = StreamOwner(transport: transport, handle: handle, logger: attachment.logger)
-        guard transport.bindAttachStream(handle, { sink.deliver($0, owner: owner) }) else {
+        guard transport.bindAttachStream(handle, AttachStreamSink(dispatch: sink.dispatch) { sink.deliver($0, owner: owner) })
+        else {
             transport.releaseAttachStream(handle)
             throw DaemonError.connectionClosed(reason: "lost before the attach")
         }
@@ -152,7 +153,7 @@ extension TerminalAttachment {
         }
     }
 
-    /// What the reader thread does with one view's items, on its own connection or on a stream: names an
+    /// What the connection's decode lane does with one view's items, on its own connection or on a stream: names an
     /// unplaced target's surface, hands each line to the view's ``TerminalEchoRouter`` (snapshot order, live
     /// output to the lane), passes size states in generation order, and ends the view's channel. Holds no
     /// reference to the attachment, so a transport that outlives it keeps nothing alive.
@@ -172,7 +173,18 @@ extension TerminalAttachment {
             self.decoder = decoder
         }
 
-        /// Reader thread: one attach line.
+        /// How the reader hands this view's lines to its connection's decode lane (p05-ipc-144): a snapshot, a
+        /// replay or a large line always decodes on the lane, small output inline while the lane is idle; after
+        /// each line the reader waits for the view (its queue's bound, its output lane, a held marker), so a lane
+        /// item never waits on it.
+        var dispatch: EventDispatch {
+            let queue = queue
+            return EventDispatch(weigh: { name, line in TerminalAttachment.eventWeight(name: name, line: line) },
+                                 readerWait: { queue.waitWhileFull() })
+        }
+
+        /// The connection's decode lane (inline on the reader while it is idle), in wire order: one attach line.
+        /// Never waits: the reader runs ``dispatch``'s wait after the line.
         func deliver(name: String, line: Data) {
             var surface = resolvedSurface.value.withLock { $0 }
             if surface == TerminalAttachment.unresolvedSurface,
@@ -182,13 +194,14 @@ extension TerminalAttachment {
             }
             guard let decoded = TerminalAttachment.decodeAttachLine(name: name, line: line, surface: surface, decoder: decoder)
             else { return }
-            router.receive(decoded) { state, selfParticipant in
+            router.admit(decoded) { state, selfParticipant in
                 // Pushed under the same lock that orders generations (see admitSizeState).
                 self.admitSizeState(state, selfParticipant: selfParticipant)
             }
         }
 
-        /// Reader thread: one item of the view's stream. The stream's queue never holds the shared reader at its
+        /// The connection's decode lane, in wire order: one item of the view's stream. The stream's queue never
+        /// holds the shared reader at its
         /// high water (``TerminalAttachment/Delivery/sharedStream(stream:)``): a snapshot view that falls behind
         /// drops its live output and asks for a fresh READY on its stream, and a byte view loses the stream
         /// (`overflow`), which the daemon is told with `cancel-stream`, and reattaches as it does when the daemon
