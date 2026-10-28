@@ -92,7 +92,7 @@ jobs:
           set -euo pipefail
           refuse() { echo "::error title=Production environment::$1"; exit 1; }
           [ "$GITHUB_REF" = refs/heads/feat-cmux-next ] || refuse "dispatch from feat-cmux-next, not $GITHUB_REF"
-          inert="production stays off until $PROD_ENV exists, allows branch feat-cmux-next only, and holds FREESTYLE_API_KEY (production account), CMUX_UITEST_STACK_EMAIL and CMUX_UITEST_STACK_PASSWORD; nothing ran"
+          inert="production stays off until $PROD_ENV exists, allows branch feat-cmux-next only, and holds FREESTYLE_API_KEY (production account), CMUX_UITEST_STACK_EMAIL and CMUX_UITEST_STACK_PASSWORD, plus variable FREESTYLE_PROD_ANCHOR (<slug> <sh-id> of a production account snapshot) until a production snapshot is recorded; nothing ran"
           gh api "repos/$GITHUB_REPOSITORY/environments/$PROD_ENV" > "$RUNNER_TEMP/prod-env.json" 2> /dev/null || refuse "$PROD_ENV does not exist or cannot be read: $inert"
           [ "$(jq -r '.deployment_branch_policy | "\(.custom_branch_policies // false) \(.protected_branches // false)"' "$RUNNER_TEMP/prod-env.json")" = "true false" ] || refuse "$PROD_ENV has no custom branch policy (or also allows protected branches): $inert"
           gh api "repos/$GITHUB_REPOSITORY/environments/$PROD_ENV/deployment-branch-policies" --jq '[.branch_policies[] | "\(.type // "branch"):\(.name)"] | sort | join(",")' > "$RUNNER_TEMP/prod-env-branches.txt" || refuse "cannot read the branch policies of $PROD_ENV: $inert"
