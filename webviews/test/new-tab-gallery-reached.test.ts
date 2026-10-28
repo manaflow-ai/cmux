@@ -64,7 +64,7 @@ await requireBrowserLane("new-tab-gallery-reached.test.ts", async () => {
           ).cmuxGalleryPlayReport,
           headline: document.querySelector(".nt-headline-text")?.textContent ?? "",
           menu: document.querySelector(".acpmux-project-menu") !== null,
-          attach: document.querySelector(".acpmux-newtab-plus [data-value=attach]") !== null,
+          attach: document.querySelector('.acpmux-newtab-plus [data-value="add.files"]') !== null,
           multi: document.querySelector<HTMLInputElement>(".nt-composer .acpmux-attach-input")?.multiple ?? false,
           threads: document.querySelector(".nt-style input[value=threads]:checked") !== null,
         }));
