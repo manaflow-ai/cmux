@@ -11,13 +11,19 @@ import CmuxMemoryPressure
 #endif
 
 private final class WarningSignalRecorder: @unchecked Sendable {
+    // The synchronous signal seam can be called off the main actor. The lock
+    // protects every access to recorded; the configured result is immutable.
     private let lock = NSLock()
     private var recorded: [(processGroupID: Int, signal: Int32)] = []
+    private let succeeds: Bool
 
-    func record(_ processGroupID: Int, _ signal: Int32) {
+    init(succeeds: Bool = true) { self.succeeds = succeeds }
+
+    func record(_ processGroupID: Int, _ signal: Int32) -> Bool {
         lock.lock()
         recorded.append((processGroupID, signal))
         lock.unlock()
+        return succeeds
     }
 
     func groups(for signal: Int32) -> [Int] {
@@ -75,11 +81,11 @@ struct RunawayPaneWarningCenterTests {
         )
     }
 
-    private func process(_ pid: Int, parent: Int, name: String = "node", group: Int, bytes: Int64) -> CmuxTopProcessInfo {
+    private func process(_ pid: Int, parent: Int, name: String = "node", group: Int, bytes: Int64, device: Int64 = warningPaneTTY, started: Int64 = 1_000) -> CmuxTopProcessInfo {
         CmuxTopProcessInfo(
             pid: pid,
-            processIdentity: AgentPIDProcessIdentity(pid: pid_t(pid), startSeconds: 1_000, startMicroseconds: 0),
-            parentPID: parent, name: name, path: nil, ttyDevice: warningPaneTTY,
+            processIdentity: AgentPIDProcessIdentity(pid: pid_t(pid), startSeconds: started, startMicroseconds: 0),
+            parentPID: parent, name: name, path: nil, ttyDevice: device,
             cmuxWorkspaceID: nil, cmuxSurfaceID: nil, cmuxAttributionReason: nil,
             processGroupID: group, terminalProcessGroupID: 300, cpuPercent: 0,
             memoryBytes: bytes, memorySource: .physicalFootprint,
@@ -93,15 +99,17 @@ struct RunawayPaneWarningCenterTests {
     private func census(
         workers: Int,
         workerBytes: Int64 = 1_000_000,
-        jobGroup: Int = 300
+        jobGroup: Int = 300,
+        device: Int64 = warningPaneTTY,
+        rootStarted: Int64 = 1_000
     ) -> CmuxTopProcessSnapshot {
         var processes = [
-            process(100, parent: Self.appPID, name: "login", group: 100, bytes: 4_000_000),
-            process(200, parent: 100, name: "zsh", group: 200, bytes: 8_000_000),
-            process(300, parent: 200, group: jobGroup, bytes: 200_000_000),
+            process(100, parent: Self.appPID, name: "login", group: 100, bytes: 4_000_000, device: device, started: rootStarted),
+            process(200, parent: 100, name: "zsh", group: 200, bytes: 8_000_000, device: device),
+            process(300, parent: 200, group: jobGroup, bytes: 200_000_000, device: device),
         ]
         for index in 0..<workers {
-            processes.append(process(1_000 + index, parent: 300, group: jobGroup, bytes: workerBytes))
+            processes.append(process(1_000 + index, parent: 300, group: jobGroup, bytes: workerBytes, device: device))
         }
         return CmuxTopProcessSnapshot(
             processes: processes,
@@ -114,7 +122,8 @@ struct RunawayPaneWarningCenterTests {
     private func makeCenter(
         source: WarningSnapshotSource,
         freshSource: WarningSnapshotSource? = nil,
-        recorder: WarningSignalRecorder
+        recorder: WarningSignalRecorder,
+        graceElapses: Bool = true
     ) -> RunawayPaneWarningCenter {
         let snapshot: @Sendable () async -> CmuxTopProcessSnapshot = { source.current() }
         let freshSource = freshSource ?? source
@@ -129,9 +138,13 @@ struct RunawayPaneWarningCenterTests {
             terminator: RunawayPaneTreeTerminator(
                 snapshotProvider: freshSnapshot,
                 signalProcessGroup: { recorder.record($0, $1) },
-                waitForGraceDeadline: { true }
+                waitForGraceDeadline: { graceElapses }
             ),
-            ttyDevice: { $0 == warningPaneTTYName ? warningPaneTTY : nil },
+            ttyDevice: {
+                if $0 == warningPaneTTYName { return warningPaneTTY }
+                if $0 == "/dev/ttys004" { return warningPaneTTY + 1 }
+                return nil
+            },
             appProcessID: Self.appPID,
             appProcessGroupID: Self.appPID
         )
@@ -190,10 +203,73 @@ struct RunawayPaneWarningCenterTests {
         center.stopProcessTree(warning)
         await center.stopTasks[warning.key]?.value
 
-        #expect(center.warnings.isEmpty)
+        #expect(center.warnings.map(\.key) == [warning.key], "signal delivery alone is not measured recovery")
         #expect(recorder.groups(for: SIGTERM) == [300])
         #expect(recorder.groups(for: SIGKILL) == [300], "the survivors were still running after the grace deadline")
         #expect(center.stopTasks.isEmpty)
+        source.set(census(workers: 0))
+        await evaluate(center)
+        #expect(center.warnings.isEmpty)
+    }
+
+    @Test
+    func skippedEscalationDoesNotSuppressTheWarning() async throws {
+        let center = makeCenter(
+            source: WarningSnapshotSource(census(workers: 1_200)),
+            recorder: WarningSignalRecorder(), graceElapses: false
+        )
+        await evaluate(center)
+        let warning = try #require(center.warnings.first)
+        center.stopProcessTree(warning)
+        await center.stopTasks[warning.key]?.value
+        await evaluate(center)
+        #expect(center.warnings.map(\.key) == [warning.key])
+    }
+
+    @Test
+    func noPanesNeverCapturesAProcessCensus() async {
+        let empty = census(workers: 0)
+        let center = RunawayPaneWarningCenter(snapshotProvider: {
+            Issue.record("No pane needs a process census")
+            return empty
+        })
+        center.paneProvider = { [] }
+        await evaluate(center)
+        #expect(center.evaluationTask == nil)
+    }
+
+    @Test
+    func newTTYInTheSamePaneStartsANewWarningEpisode() async throws {
+        let source = WarningSnapshotSource(census(workers: 1_200))
+        let center = makeCenter(source: source, recorder: WarningSignalRecorder())
+        var notified = 0
+        center.onNewWarning = { _ in notified += 1 }
+        await evaluate(center)
+        center.dismiss(try #require(center.warnings.first))
+        let newPane = PaneMemoryDescriptor(
+            workspaceId: workspaceID, panelId: paneID, workspaceTitle: "my-app", paneTitle: "new session",
+            ttyName: "/dev/ttys004", foregroundPID: 300
+        )
+        center.paneProvider = { [newPane] }
+        source.set(census(workers: 1_200, device: warningPaneTTY + 1))
+        await evaluate(center)
+        #expect(center.warnings.count == 1)
+        #expect(center.warnings.first?.ttyDevice == warningPaneTTY + 1)
+        #expect(notified == 2)
+    }
+
+    @Test
+    func reusedTTYWithANewRootDoesNotInheritDismissal() async throws {
+        let source = WarningSnapshotSource(census(workers: 1_200))
+        let center = makeCenter(source: source, recorder: WarningSignalRecorder())
+        var notified = 0
+        center.onNewWarning = { _ in notified += 1 }
+        await evaluate(center)
+        center.dismiss(try #require(center.warnings.first))
+        source.set(census(workers: 1_200, rootStarted: 2_000))
+        await evaluate(center)
+        #expect(center.warnings.count == 1)
+        #expect(notified == 2)
     }
 
     @Test
@@ -217,6 +293,34 @@ struct RunawayPaneWarningCenterTests {
         await center.stopTasks[warning.key]?.value
 
         #expect(recorder.groups(for: SIGTERM) == [400])
+    }
+
+    @Test
+    func failedSignalKeepsTheWarningVisible() async throws {
+        let recorder = WarningSignalRecorder(succeeds: false)
+        let center = makeCenter(source: WarningSnapshotSource(census(workers: 1_200)), recorder: recorder)
+        await evaluate(center)
+        let warning = try #require(center.warnings.first)
+        center.stopProcessTree(warning)
+        await center.stopTasks[warning.key]?.value
+        #expect(center.warnings.map(\.key) == [warning.key])
+        #expect(center.warnings.first?.canStop == false)
+        #expect(recorder.groups(for: SIGKILL).isEmpty)
+    }
+
+    @Test
+    func closingPaneWhileStopLoadsItsCensusNeverSignals() async throws {
+        let recorder = WarningSignalRecorder()
+        let center = makeCenter(source: WarningSnapshotSource(census(workers: 1_200)), recorder: recorder)
+        await evaluate(center)
+        let warning = try #require(center.warnings.first)
+        center.stopProcessTree(warning)
+        // The task has been scheduled but cannot signal until it revalidates
+        // this pane after the fresh census returns.
+        center.paneProvider = { [] }
+        await center.stopTasks[warning.key]?.value
+        #expect(recorder.groups(for: SIGTERM).isEmpty)
+        #expect(recorder.groups(for: SIGKILL).isEmpty)
     }
 
     @Test

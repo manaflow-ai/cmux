@@ -2,6 +2,7 @@ import XCTest
 import CmuxBrowser
 import CmuxTerminal
 import AppKit
+import CmuxSettings
 import Carbon.HIToolbox
 import Combine
 import SwiftUI
@@ -117,29 +118,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     // Optional, not IUO: setUpWithError() can XCTSkip before this is assigned,
     // and tearDown() still runs after a skip, so it must tolerate a nil here.
     private var originalSettingsFileStore: KeyboardShortcutSettingsFileStore?
-
-    private func makeKeyEvent(
-        modifierFlags: NSEvent.ModifierFlags,
-        characters: String,
-        charactersIgnoringModifiers: String,
-        keyCode: UInt16
-    ) -> NSEvent {
-        guard let event = NSEvent.keyEvent(
-            with: .keyDown,
-            location: .zero,
-            modifierFlags: modifierFlags,
-            timestamp: ProcessInfo.processInfo.systemUptime,
-            windowNumber: 0,
-            context: nil,
-            characters: characters,
-            charactersIgnoringModifiers: charactersIgnoringModifiers,
-            isARepeat: false,
-            keyCode: keyCode
-        ) else {
-            fatalError("Failed to construct key event")
-        }
-        return event
-    }
+    private var originalChiefEnabled: Any?
 
     private func ghosttyConfigKeyIsBinding(
         _ config: ghostty_config_t,
@@ -172,6 +151,11 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
     override func setUpWithError() throws {
         try super.setUpWithError()
+        let defaults = UserDefaults.standard
+        originalChiefEnabled = defaults.object(forKey: ChiefCatalogSection().enabled.userDefaultsKey)
+        // These fixtures exercise numbered terminal workspaces and closing the
+        // last workspace; the persistent Home anchor is outside that topology.
+        ChiefSettings.setEnabled(false, in: defaults)
         // Prevent a single hanging test from consuming the entire CI timeout budget.
         executionTimeAllowance = 30
         AppDelegate.installWindowResponderSwizzlesForTesting()
@@ -229,6 +213,13 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         Self.retainedTextBoxUndoWindows.removeAll()
         Self.retainedTextBoxRenderScrollViews.removeAll()
         Self.retainedTextBoxRestoreViews.removeAll()
+        let defaults = UserDefaults.standard
+        let chiefEnabledKey = ChiefCatalogSection().enabled.userDefaultsKey
+        if let originalChiefEnabled {
+            defaults.set(originalChiefEnabled, forKey: chiefEnabledKey)
+        } else {
+            defaults.removeObject(forKey: chiefEnabledKey)
+        }
         super.tearDown()
     }
 

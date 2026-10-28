@@ -14,6 +14,8 @@ struct RunawayPaneWarning: Equatable, Identifiable, Sendable {
     /// runs in the shell's own process group, or after a stop found nothing
     /// to signal.
     var canStop: Bool
+    /// The session root's PID and birth time distinguish TTY-device reuse.
+    var sessionIdentifier: String? = nil
 
     var id: PaneMemoryPaneKey { key }
     var workspaceId: UUID { key.workspaceId }

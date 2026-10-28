@@ -18,7 +18,7 @@ import CmuxMemoryPressure
 final class RunawayPaneTreeMemoryPressureResponder: MemoryPressureResponder {
     typealias SnapshotProvider = @Sendable () async -> CmuxTopProcessSnapshot
     typealias AggregateProvider = @Sendable (Date) async -> MemoryPressureAggregateSnapshot
-    typealias ProcessGroupSignaller = @Sendable (_ processGroupID: Int, _ signal: Int32) -> Void
+    typealias ProcessGroupSignaller = RunawayPaneTreeTerminator.ProcessGroupSignaller
     typealias GraceDeadline = @Sendable () async -> Bool
     typealias TTYDeviceResolver = @Sendable (String) -> Int64?
 
@@ -63,7 +63,7 @@ final class RunawayPaneTreeMemoryPressureResponder: MemoryPressureResponder {
             return MemoryPressureAggregatePolicy.default.evaluate(sample: sample)
         },
         signalProcessGroup: @escaping ProcessGroupSignaller = { processGroupID, signal in
-            _ = kill(pid_t(-processGroupID), signal)
+            kill(pid_t(-processGroupID), signal) == 0
         },
         waitForGraceDeadline: @escaping GraceDeadline = {
             do {
@@ -135,7 +135,10 @@ final class RunawayPaneTreeMemoryPressureResponder: MemoryPressureResponder {
                 waitForGraceDeadline: waitForGraceDeadline,
                 ttyDevice: ttyDevice,
                 shouldTerminate: { await MainActor.run { isEnabled() } },
-                shouldEscalate: { await MainActor.run { isEnabled() } }
+                shouldEscalate: { await MainActor.run { isEnabled() } },
+                isTargetLive: { [weak self] target in
+                    await self?.isTargetLive(target) == true
+                }
             )
             self?.evaluationTask = nil
             guard !targets.isEmpty else { return }
@@ -166,6 +169,12 @@ final class RunawayPaneTreeMemoryPressureResponder: MemoryPressureResponder {
         aggregate.isActionable && aggregate.severity == .critical
     }
 
+    private func isTargetLive(_ target: RunawayPaneTreeTarget) -> Bool {
+        paneProvider().contains { descriptor in
+            descriptor.key == target.key && descriptor.ttyName.flatMap(ttyDevice) == target.selection.ttyDevice
+        }
+    }
+
     /// Re-checks aggregate pressure, selects runaway panes from a fresh census,
     /// sends SIGTERM, and after the grace deadline sends SIGKILL to the selected
     /// groups that are still signallable on the same tty, unless
@@ -186,7 +195,8 @@ final class RunawayPaneTreeMemoryPressureResponder: MemoryPressureResponder {
         waitForGraceDeadline: @escaping GraceDeadline,
         ttyDevice: TTYDeviceResolver,
         shouldTerminate: @Sendable () async -> Bool = { true },
-        shouldEscalate: @Sendable () async -> Bool = { true }
+        shouldEscalate: @Sendable () async -> Bool = { true },
+        isTargetLive: @Sendable (RunawayPaneTreeTarget) async -> Bool = { _ in true }
     ) async -> [RunawayPaneTreeTarget] {
         let aggregate: MemoryPressureAggregateSnapshot
         if let knownAggregate {
@@ -218,14 +228,21 @@ final class RunawayPaneTreeMemoryPressureResponder: MemoryPressureResponder {
         var actedOn: [RunawayPaneTreeTarget] = []
         for target in targets {
             guard await shouldTerminate(), !Task.isCancelled else { break }
-            await terminator.terminate(
+            let didSignal = await terminator.terminate(
                 processGroupIDs: target.selection.processGroupIDs,
                 ttyDevice: target.selection.ttyDevice,
                 census: census,
                 selector: selector,
-                shouldEscalate: shouldEscalate
+                shouldTerminate: {
+                    guard await shouldTerminate() else { return false }
+                    return await isTargetLive(target)
+                },
+                shouldEscalate: {
+                    guard await shouldEscalate() else { return false }
+                    return await isTargetLive(target)
+                }
             )
-            actedOn.append(target)
+            if didSignal { actedOn.append(target) }
         }
         return actedOn
     }

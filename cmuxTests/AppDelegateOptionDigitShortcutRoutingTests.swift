@@ -716,45 +716,6 @@ struct AppDelegateOptionDigitShortcutRoutingTests {
         }
     }
 
-    private func withIsolatedShortcutRoutingState(_ body: () async throws -> Void) async throws {
-        try await AppContextSerialGate.withExclusiveAppContext {
-            let actionsWithPersistedShortcut = Set(
-                KeyboardShortcutSettings.Action.allCases.filter {
-                    UserDefaults.standard.object(forKey: $0.defaultsKey) != nil
-                }
-            )
-            let savedShortcutsByAction = Dictionary(
-                uniqueKeysWithValues: actionsWithPersistedShortcut.map { action in
-                    (action, KeyboardShortcutSettings.shortcut(for: action))
-                }
-            )
-            KeyboardShortcutRecorderActivity.resetForTesting()
-            AppDelegate.shared?.debugResetShortcutRoutingStateForTesting()
-            let originalSettingsFileStore = KeyboardShortcutSettings.installIsolatedTestFileStore(
-                prefix: "cmux-option-digit-shortcut-routing"
-            )
-            KeyboardShortcutSettings.resetAll()
-            AppDelegate.shared?.debugResetShortcutRoutingStateForTesting()
-
-            defer {
-                KeyboardShortcutRecorderActivity.resetForTesting()
-                AppDelegate.shared?.debugResetShortcutRoutingStateForTesting()
-                KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
-                for action in KeyboardShortcutSettings.Action.allCases {
-                    if actionsWithPersistedShortcut.contains(action),
-                       let savedShortcut = savedShortcutsByAction[action] {
-                        KeyboardShortcutSettings.setShortcut(savedShortcut, for: action)
-                    } else {
-                        KeyboardShortcutSettings.resetShortcut(for: action)
-                    }
-                }
-                AppDelegate.shared?.debugResetShortcutRoutingStateForTesting()
-            }
-
-            try await body()
-        }
-    }
-
     private func withTemporaryShortcut(
         action: KeyboardShortcutSettings.Action,
         shortcut: StoredShortcut,

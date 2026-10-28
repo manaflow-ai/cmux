@@ -42,6 +42,8 @@ final class RunawayPaneWarningCenter {
     @ObservationIgnored
     private var measuredTTYDevices: [PaneMemoryPaneKey: Int64] = [:]
     @ObservationIgnored
+    private var measuredSessions: [PaneMemoryPaneKey: String] = [:]
+    @ObservationIgnored
     private var timer: DispatchSourceTimer?
     @ObservationIgnored
     private let timerQueue = DispatchQueue(label: "com.cmux.runaway-pane-warning", qos: .utility)
@@ -63,11 +65,7 @@ final class RunawayPaneWarningCenter {
     @ObservationIgnored
     private let appProcessGroupID: Int
 
-    private struct Measurement: Sendable {
-        let warnings: [PaneMemoryPaneKey: RunawayPaneWarning]
-        let unavailableKeys: Set<PaneMemoryPaneKey>
-        let recoveredKeys: Set<PaneMemoryPaneKey>
-    }
+    private typealias Measurement = RunawayPaneWarningMeasurement
 
     init(
         thresholdBytes: @escaping @MainActor () -> Int64 = { PaneMemoryGuardrail.configuredThresholdBytes() },
@@ -113,6 +111,13 @@ final class RunawayPaneWarningCenter {
     func evaluate() {
         guard evaluationTask == nil else { return }
         let descriptors = paneProvider?() ?? []
+        guard !descriptors.isEmpty else {
+            tracker = RunawaySessionWarningTracker()
+            measuredTTYDevices.removeAll()
+            measuredSessions.removeAll()
+            if !warnings.isEmpty { warnings = [] }
+            return
+        }
         let selector = makeSelector()
         let policy = RunawaySessionWarningPolicy(
             memoryThresholdBytes: selector.thresholdBytes,
@@ -137,6 +142,7 @@ final class RunawayPaneWarningCenter {
             self.evaluationTask = nil
             let liveKeys = Set(self.paneProvider?().map(\.key) ?? [])
             self.measuredTTYDevices = self.measuredTTYDevices.filter { liveKeys.contains($0.key) }
+            self.measuredSessions = self.measuredSessions.filter { liveKeys.contains($0.key) }
             self.warnings.removeAll { !liveKeys.contains($0.key) }
             _ = self.tracker.ingest([:], unavailableKeys: liveKeys, policy: policy)
             // An unavailable census is no evidence either way; keep state for
@@ -154,8 +160,8 @@ final class RunawayPaneWarningCenter {
 
     /// Stops every job in the warned terminal (SIGTERM, then SIGKILL to
     /// survivors), leaving its login and shell running. The warning goes away
-    /// once a job was signalled; when the pane is gone, its tty changed, or
-    /// nothing can be signalled, it stays and shows that it can't be stopped.
+    /// only after a later measurement confirms recovery. If no signal is
+    /// accepted, it stays visible and shows that it can't be stopped.
     func stopProcessTree(_ warning: RunawayPaneWarning) {
         let key = warning.key
         guard stopTasks[key] == nil else { return }
@@ -172,14 +178,15 @@ final class RunawayPaneWarningCenter {
             let didSignal = await Self.stop(
                 ttyDevice: ttyDevice,
                 selector: selector,
-                terminator: terminator
+                terminator: terminator,
+                sessionIdentifier: warning.sessionIdentifier,
+                isPaneLive: { [weak self] in
+                    await self?.isPaneLive(key: key, device: ttyDevice) == true
+                }
             )
             guard let self else { return }
             self.stopTasks[key] = nil
-            if didSignal {
-                self.tracker.dismiss(key)
-                self.warnings.removeAll { $0.key == key }
-            } else {
+            if !didSignal {
                 self.markUnstoppable(key)
             }
         }
@@ -188,6 +195,12 @@ final class RunawayPaneWarningCenter {
     private func markUnstoppable(_ key: PaneMemoryPaneKey) {
         guard let index = warnings.firstIndex(where: { $0.key == key }) else { return }
         warnings[index].canStop = false
+    }
+
+    private func isPaneLive(key: PaneMemoryPaneKey, device: Int64) -> Bool {
+        guard let descriptor = paneProvider?().first(where: { $0.key == key }),
+              let ttyName = descriptor.ttyName else { return false }
+        return ttyDevice(ttyName) == device
     }
 
     private func makeSelector() -> RunawaySessionSelector {
@@ -211,8 +224,16 @@ final class RunawayPaneWarningCenter {
         for key in measurement.recoveredKeys.intersection(liveKeys) {
             tracker.reset(key)
             measuredTTYDevices.removeValue(forKey: key)
+            measuredSessions.removeValue(forKey: key)
         }
         for (key, warning) in measured {
+            if let previousDevice = measuredTTYDevices[key], previousDevice != warning.ttyDevice {
+                tracker.reset(key)
+            }
+            if let session = warning.sessionIdentifier {
+                if let previous = measuredSessions[key], previous != session { tracker.reset(key) }
+                measuredSessions[key] = session
+            }
             measuredTTYDevices[key] = warning.ttyDevice
         }
         let usages = measured.mapValues {
@@ -299,7 +320,8 @@ final class RunawayPaneWarningCenter {
                 command: command,
                 processCount: usage.processCount,
                 memoryBytes: usage.memoryBytes,
-                canStop: !signallableGroups.isEmpty
+                canStop: !signallableGroups.isEmpty,
+                sessionIdentifier: census.sessionIdentifier(ttyDevice: device, appProcessID: selector.appProcessID)
             )
         }
         return Measurement(warnings: measured, unavailableKeys: unavailableKeys, recoveredKeys: recoveredKeys)
@@ -316,17 +338,24 @@ final class RunawayPaneWarningCenter {
     nonisolated static func stop(
         ttyDevice: Int64,
         selector: RunawaySessionSelector,
-        terminator: RunawayPaneTreeTerminator
+        terminator: RunawayPaneTreeTerminator,
+        sessionIdentifier: String? = nil,
+        isPaneLive: @Sendable () async -> Bool = { true }
     ) async -> Bool {
         guard let census = await terminator.snapshotProvider().runawaySessionCensus(),
               let groups = selector.signallableProcessGroupIDs(ttyDevice: ttyDevice, in: census),
               !groups.isEmpty else { return false }
-        await terminator.terminate(
+        if let sessionIdentifier,
+           census.sessionIdentifier(ttyDevice: ttyDevice, appProcessID: selector.appProcessID) != sessionIdentifier {
+            return false
+        }
+        return await terminator.terminate(
             processGroupIDs: groups.sorted(),
             ttyDevice: ttyDevice,
             census: census,
-            selector: selector
+            selector: selector,
+            shouldTerminate: isPaneLive,
+            shouldEscalate: isPaneLive
         )
-        return true
     }
 }

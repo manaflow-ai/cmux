@@ -181,4 +181,21 @@ struct RunawaySessionSelectorTests {
 
         #expect(after.continuingProcessGroupIDs([300, 400, 500], since: before) == [300])
     }
+
+    @Test("TTY reuse is a new session only with a known root birth time")
+    func sessionIdentityUsesTheRootGeneration() throws {
+        func root(started: Int64?) -> RunawaySessionProcess {
+            RunawaySessionProcess(
+                pid: 100, parentPID: Self.appPID, name: "login", processGroupID: 100,
+                ttyDevice: Self.tty, memoryBytes: 1, startMicroseconds: started
+            )
+        }
+        let first = RunawaySessionCensus(processes: [root(started: 10)])
+        let reused = RunawaySessionCensus(processes: [root(started: 20)])
+        let unknown = RunawaySessionCensus(processes: [root(started: nil)])
+        let firstID = try #require(first.sessionIdentifier(ttyDevice: Self.tty, appProcessID: Self.appPID))
+        #expect(reused.sessionIdentifier(ttyDevice: Self.tty, appProcessID: Self.appPID) != firstID)
+        #expect(unknown.sessionIdentifier(ttyDevice: Self.tty, appProcessID: Self.appPID) == nil)
+        #expect(first.sessionIdentifier(ttyDevice: Self.tty + 1, appProcessID: Self.appPID) == nil)
+    }
 }

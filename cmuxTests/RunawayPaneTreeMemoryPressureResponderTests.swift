@@ -14,10 +14,11 @@ private final class SignalRecorder: @unchecked Sendable {
     private let lock = NSLock()
     private var recorded: [(processGroupID: Int, signal: Int32)] = []
 
-    func record(_ processGroupID: Int, _ signal: Int32) {
+    func record(_ processGroupID: Int, _ signal: Int32) -> Bool {
         lock.lock()
         recorded.append((processGroupID, signal))
         lock.unlock()
+        return true
     }
 
     func groups(for signal: Int32) -> [Int] {
@@ -38,7 +39,9 @@ private final class SnapshotSequence: @unchecked Sendable {
     private var snapshots: [CmuxTopProcessSnapshot]
 
     init(_ snapshots: [CmuxTopProcessSnapshot]) {
-        self.snapshots = snapshots
+        // Selection and pre-SIGTERM revalidation see the initial state; the
+        // next fixture state represents what happened during the grace period.
+        self.snapshots = Array(snapshots.prefix(1)) + snapshots
     }
 
     func next() -> CmuxTopProcessSnapshot {
