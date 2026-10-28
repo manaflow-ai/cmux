@@ -71,3 +71,34 @@ fn one_pass_replays_equal_the_two_pass_bytes_on_the_corpus() {
         }
     }
 }
+
+/// Bench: one replay build of a 120x40 terminal with 10,000 lines of history,
+/// one pass against two. Run with --release --ignored --nocapture.
+#[test]
+#[ignore = "bench: prints replay build times"]
+fn replay_build_bench_one_pass_against_two() {
+    let mut one = terminal_with(120, 40, &history_text(10_000));
+    let mut two = terminal_with(120, 40, &history_text(10_000));
+    let mut sample = |term: &mut Terminal, two_pass: bool| {
+        let mut times: Vec<f64> = (0..30)
+            .map(|_| {
+                let started = std::time::Instant::now();
+                let _ = if two_pass {
+                    term.vt_replay_bounded_two_pass_for_test(15 * 1024 * 1024)
+                } else {
+                    term.vt_replay_bounded(15 * 1024 * 1024)
+                }
+                .unwrap();
+                started.elapsed().as_secs_f64() * 1000.0
+            })
+            .collect();
+        times.sort_by(f64::total_cmp);
+        (times[15], times[28])
+    };
+    let (two_p50, two_p95) = sample(&mut two, true);
+    let (one_p50, one_p95) = sample(&mut one, false);
+    eprintln!(
+        "REPLAY-BUILD-BENCH 120x40 10k lines: two-pass p50 {two_p50:.1} ms p95 {two_p95:.1} ms; \
+         one-pass p50 {one_p50:.1} ms p95 {one_p95:.1} ms"
+    );
+}
