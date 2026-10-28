@@ -163,8 +163,7 @@ import { descendants, subagentChangesFolder, type SubagentScope } from "./inspec
 import { pendingToolCalls, waitingSubagents } from "./summary/SubagentStatusList";
 import { AgentsPill } from "./subagents/AgentsPill";
 import { SubagentTray } from "./subagents/SubagentTray";
-import { SubagentDoneLine } from "./subagents/SubagentDoneLine";
-import { configureWorkflowCardOpen, WorkflowCard } from "./summary/WorkflowCard";
+import { configureWorkflowCardOpen } from "./summary/WorkflowCard";
 import {
   type DoneLineCache,
   configureSubagentTray,
@@ -340,7 +339,6 @@ import { type ChatAccounts, ChatAccountsContext, ownRouteOf, readChatAccounts } 
 import { HostError } from "./HostError";
 import { SHELL_ROW, ShellRuns, shellContextAttachments, withShellRows } from "./shell/shellRuns";
 import { SUBAGENTS, type Subagent } from "./subagents/subagentFold";
-import { AgentRunCard } from "./subagents/AgentRunCard";
 import { restartOwner, restartPrompt, restartReaches } from "./subagents/restart";
 import {
   SUBAGENT_DONE,
@@ -349,18 +347,14 @@ import {
   WORKFLOW_CARD,
   type SubagentRows,
   childView,
-  isRunGroup,
   runningGroups,
   subagentRowsFrom,
   subagentsIn,
 } from "./subagents/subagentRows";
 import { knownMark } from "../shared/AgentMark";
 import {
-  SubagentGroupHeader,
   SubagentHarnessContext,
-  SubagentListRow,
   SubagentNavContext,
-  SubagentOfRow,
   SubagentPaneContext,
   SubagentClockContext,
   SubagentStopContext,
@@ -455,6 +449,11 @@ import { PermissionAsk } from "./rows/PermissionAsk";
 import { PermissionRow } from "./rows/PermissionRow";
 import { QuestionRecordRow } from "./rows/QuestionRecordRow";
 import { PermissionRecordRow } from "./rows/PermissionRecordRow";
+import { SubagentGroupRow } from "./rows/SubagentGroupRow";
+import { SubagentRow } from "./rows/SubagentRow";
+import { SubagentDoneRow } from "./rows/SubagentDoneRow";
+import { WorkflowCardRow } from "./rows/WorkflowCardRow";
+import { SubagentOfPillRow } from "./rows/SubagentOfPillRow";
 
 /// The changes view comes in its own chunk (bd cx-z9kz0): it carries the diff and file-tree
 /// packages, which a New Tab page never shows, so the page's first script parses without them.
@@ -841,52 +840,6 @@ const PREVIEW_TURNS = 8;
 /// How long a running line count's reveal holds a run open while its row draws (WorkingFor.tsx).
 const REVEAL_HOLD_MS = 2_000;
 
-/// A batch of subagents (subagents/SubagentGroup.tsx); opening it lists them below.
-const SubagentGroupRow = memo(
-  function SubagentGroupRow({ row, onToggleActivity, expanded }: RowProps) {
-    // An agent a shell call started (`codex exec`) draws as its own card where it started.
-    if (isRunGroup(row)) return <AgentRunCard agent={row.subagents![0]!} />;
-    return <SubagentGroupHeader row={row} expanded={expanded} onToggle={() => onToggleActivity(row.id)} />;
-  },
-  (a, b) =>
-    a.row.id === b.row.id &&
-    a.row.version === b.row.version &&
-    a.expanded === b.expanded &&
-    a.onToggleActivity === b.onToggleActivity,
-);
-const SubagentRow = memo(
-  function SubagentRow({ row }: RowProps) {
-    return <SubagentListRow row={row} />;
-  },
-  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
-);
-/// Where a subagent ended, while running ones sit in the tray (subagents/SubagentDoneLine.tsx).
-const SubagentDoneRow = memo(
-  function SubagentDoneRow({ row }: RowProps) {
-    return <SubagentDoneLine row={row} />;
-  },
-  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
-);
-/// A Claude workflow's card where it started (Labs, summary/WorkflowCard.tsx).
-const WorkflowCardRow = memo(
-  function WorkflowCardRow({ row }: RowProps) {
-    return (
-      <>
-        {(row.subagents ?? []).map((node) => (
-          <WorkflowCard key={node.id} node={node} />
-        ))}
-      </>
-    );
-  },
-  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
-);
-/// The child view's "Subagent of" pill; a click goes back to the parent's view.
-const SubagentOfPillRow = memo(
-  function SubagentOfPillRow({ row }: RowProps) {
-    return <SubagentOfRow row={row} />;
-  },
-  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version && a.row.text === b.row.text,
-);
 /// The edited-files card (conversation/EditedFilesCard.tsx, data in turnChanges/).
 const EditedFilesRow = memo(
   function EditedFilesRow({ row, sessionId, onOpenDiff }: RowProps) {
