@@ -93,7 +93,7 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
       const chip = await bounds(page, "button[data-menu=model]");
       expect(menu.y).toBeGreaterThan(chip.y);
       expect(menu.y + menu.height - fast.y - fast.height).toBeLessThan(12);
-      expect(await page.locator(".acpmux-quick-rail-tab").count()).toBe(10);
+      expect(await page.locator(".acpmux-quick-rail-tab").count()).toBe(11);
       expect(await page.locator(".acpmux-quick-fast").innerText()).toBe("Fast mode");
       expect(await page.locator(".acpmux-quick-list").innerText()).toContain("Claude subscription");
     } finally {

@@ -736,6 +736,7 @@ export function QuickModelMenu({
                 <button
                   type="button"
                   className="acpmux-quick-rail-tab acpmux-quick-rail-add"
+                  tabIndex={-1}
                   aria-label={t("modelPicker.addHarness")}
                   title={t("modelPicker.addHarness")}
                   onClick={() => {
