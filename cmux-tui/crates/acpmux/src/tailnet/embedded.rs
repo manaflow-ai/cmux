@@ -458,7 +458,7 @@ impl Controller {
         let hostname = self.hostname.clone();
         let stopping = self.stopping.clone();
         #[cfg(test)]
-        let factory = self.node_factory.lock().unwrap().take();
+        let factory = self.node_factory.lock().unwrap_or_else(PoisonError::into_inner).take();
         let node = match tokio::task::spawn_blocking(move || {
             #[cfg(test)]
             if let Some(factory) = factory {
@@ -797,7 +797,7 @@ impl Controller {
 
     async fn close_node(&self, node: Arc<Node>) -> Result<Result<(), String>, String> {
         #[cfg(test)]
-        let before_close = self.before_close.lock().unwrap().take();
+        let before_close = self.before_close.lock().unwrap_or_else(PoisonError::into_inner).take();
         tokio::task::spawn_blocking(move || {
             #[cfg(test)]
             if let Some(before_close) = before_close {
