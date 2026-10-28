@@ -6,7 +6,7 @@
 // mark jumps to it (a prompt as the compact rail's click does); a click on the track jumps there;
 // dragging anywhere scrubs the transcript. Geometry is the transcript's layout (mapGeometry.ts).
 import React, { memo, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { transcriptColumn, type AcpmuxRow, type ConversationLayout } from "../model";
+import { transcriptColumn, type AcpmuxRow, readGeometry, type LayoutSource } from "../model";
 import { useT } from "../i18n";
 import { layoutScrollTop, physicalScrollTop } from "../conversation/scrollCoordinates";
 import { MinimapTick } from "../../../ui/MinimapTick";
@@ -55,7 +55,7 @@ const within = (element: Element | null, to: EventTarget | null) =>
 export function ScrollMap({
   rows,
   turns,
-  layout,
+  layout: layoutSource,
   scroller,
   viewportHeight,
   scrolls,
@@ -65,7 +65,7 @@ export function ScrollMap({
 }: {
   rows: readonly AcpmuxRow[];
   turns: readonly MinimapTurn[];
-  layout: ConversationLayout;
+  layout: LayoutSource;
   scroller: React.RefObject<HTMLElement | null>;
   viewportHeight: number;
   scrolls: boolean;
@@ -74,6 +74,7 @@ export function ScrollMap({
   /// The compact rail's jump to a prompt (ThreadMinimap), so a click lands and flashes the same.
   jump: (turn: number, how: "click" | "scrub") => number | undefined;
 }) {
+  const layout = readGeometry(layoutSource);
   const t = useT();
   const height = Math.max(0, Math.floor(viewportHeight - 2 * MAP_MARGIN));
   const marks = useMemo(() => mapMarks(rows, turns, layout, height), [rows, turns, layout, height]);
@@ -168,7 +169,7 @@ export function ScrollMap({
       physicalScrollTop(
         node,
         Math.min(
-          Math.max(0, THREAD_PADDING_TOP + (layout.tops[mark.row] ?? 0) - LANDING_OFFSET),
+          Math.max(0, THREAD_PADDING_TOP + layout.topAt(mark.row) - LANDING_OFFSET),
           Math.max(0, layout.totalHeight - node.clientHeight),
         ),
       );

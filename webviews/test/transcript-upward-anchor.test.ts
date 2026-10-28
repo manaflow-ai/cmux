@@ -39,6 +39,47 @@ await requireBrowserLane("transcript-upward-anchor.test.ts", async () => {
     await vite?.close();
   });
 
+  test("first input captures live geometry while later layout shifts still fail", async () => {
+    const page = await browser!.newPage();
+    try {
+      await page.setContent(
+        `<div class="acpmux-scroll" style="height:100px;width:100px;overflow:auto;position:relative;overflow-anchor:none"><div style="height:1000px"></div><div class="acpmux-row" data-row-id="anchor" style="position:absolute;top:210px;height:80px;width:20px"></div></div>`,
+      );
+      await page.evaluate(() => {
+        const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+        const row = document.querySelector<HTMLElement>(".acpmux-row")!;
+        scroller.scrollTop = 200;
+        scroller.addEventListener("wheel", () => {
+          scroller.dataset.inputY ??= String(row.getBoundingClientRect().top - scroller.getBoundingClientRect().top);
+          scroller.dataset.inputTop ??= String(scroller.scrollTop);
+          row.style.top = `${Number.parseFloat(row.style.top) + 0.5}px`;
+        });
+        window.cmuxAfterPaint = (read, drive) => {
+          row.style.top = "220.5px"; // Startup settlement before any input.
+          for (let frame = 0; frame < 2; frame += 1) {
+            if (frame === 1) row.style.top = `${Number.parseFloat(row.style.top) + 2}px`;
+            drive?.(frame);
+            if (read(frame) === false) break;
+          }
+          return () => {};
+        };
+      });
+      const result = await page.evaluate(traceUpwardAnchors, { steps: [-10, -10], restFrames: 0 });
+      const live = await page.locator(".acpmux-scroll").evaluate((node) => ({
+        y: Number((node as HTMLElement).dataset.inputY),
+        top: Number((node as HTMLElement).dataset.inputTop),
+      }));
+      expect(result.firstInput?.scrollTop).toBe(live.top);
+      expect(result.firstInput?.visible[0]?.y).toBe(live.y);
+      expect(result.firstInput?.visible[0]?.y).not.toBe(result.preInput.visible[0]?.y);
+      expect(result.frames).toBe(2);
+      expect(result.samples.map((sample) => sample.drift)).toEqual([0.5, 2.5]);
+      expect(result.maxDrift).toBeGreaterThan(1 / 64);
+    } finally {
+      await page.close();
+    }
+  });
+
   test("cold 3k-turn upward wheels preserve the visible row's position", async () => {
     const { port } = vite!.httpServer!.address() as { port: number };
     const captureDir = process.env.CMUX_SCROLL_CAPTURE_DIR;

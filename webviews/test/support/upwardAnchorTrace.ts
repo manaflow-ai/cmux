@@ -67,6 +67,18 @@ export async function traceUpwardAnchors({ steps, restFrames = 24 }: { steps: nu
     return { mounted: new Map(mounted.map((row) => [row.id, row])), visible };
   };
   let previous = read();
+  const snapshot = () => ({ scrollTop: scroller.scrollTop, visible: previous.visible });
+  const preInput = snapshot();
+  let firstInput: ReturnType<typeof snapshot> | undefined;
+  // Cold follow can settle between starting this trace and the first wheel. Capture the
+  // live anchor at that input's window-capture boundary, before React or the default write.
+  // Only the first baseline moves: every subsequent painted shift remains in the oracle.
+  const captureFirstInput = (event: WheelEvent) => {
+    if (firstInput || event.deltaY >= 0 || !(event.target instanceof Node) || !scroller.contains(event.target)) return;
+    previous = read();
+    firstInput = snapshot();
+  };
+  window.addEventListener("wheel", captureFirstInput, { capture: true, passive: true });
   const samples: UpwardAnchorFrame[] = [];
   let cancelledWheels = 0;
   const commands = [...steps, ...Array.from({ length: restFrames }, () => 0)];
@@ -100,6 +112,7 @@ export async function traceUpwardAnchors({ steps, restFrames = 24 }: { steps: nu
         });
         previous = current;
         if (samples.length === commands.length) {
+          window.removeEventListener("wheel", captureFirstInput, true);
           resolve();
           return false;
         }
@@ -130,6 +143,8 @@ export async function traceUpwardAnchors({ steps, restFrames = 24 }: { steps: nu
   });
   const compared = samples.filter((sample) => sample.drift !== null);
   return {
+    preInput,
+    firstInput,
     frames: samples.length,
     compared: compared.length,
     missingAnchors: samples.length - compared.length,

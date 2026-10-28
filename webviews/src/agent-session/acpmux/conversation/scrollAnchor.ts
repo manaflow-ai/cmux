@@ -1,5 +1,5 @@
-import type { AcpmuxRow, ConversationLayout } from "../model";
-import { visibleLayoutRange } from "../model";
+import type { AcpmuxRow, LayoutSource } from "../model";
+import { visibleLayoutRange, readGeometry } from "../model";
 
 /** The offset to correct from for one placement pass. */
 export function scrollAnchorBase(liveTop: number, acknowledgedTop: number, readerLeft: boolean): number {
@@ -24,8 +24,8 @@ export function preserveScrollAnchorTop({
   liveTop,
   anchorTop,
 }: {
-  oldLayout: ConversationLayout;
-  newLayout: ConversationLayout;
+  oldLayout: LayoutSource;
+  newLayout: LayoutSource;
   oldRows: readonly Pick<AcpmuxRow, "id">[];
   newRows: readonly Pick<AcpmuxRow, "id">[];
   liveTop: number;
@@ -41,7 +41,7 @@ export function preserveScrollAnchorTop({
     // scan on every token; the fallback is only for an insertion/removal.
     const newIndex = newRows[oldIndex]?.id === id ? oldIndex : newRows.findIndex((row) => row.id === id);
     if (newIndex < 0) continue;
-    return anchorTop + newLayout.tops[newIndex]! - oldLayout.tops[oldIndex]!;
+    return anchorTop + readGeometry(newLayout).topAt(newIndex) - readGeometry(oldLayout).topAt(oldIndex);
   }
   return undefined;
 }

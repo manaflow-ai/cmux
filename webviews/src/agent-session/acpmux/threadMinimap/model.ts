@@ -1,6 +1,6 @@
 // The thread minimap's model: one tick per user message at the transcript's left edge
 // (the Codex desktop app's prompt rail). Pure functions, so geometry and previews need no DOM.
-import type { AcpmuxRow } from "../model";
+import type { AcpmuxRow, LayoutGeometry } from "../model";
 import { opensTurn } from "../turnStart";
 import { MOTION_MS } from "../../../motion/scale.generated";
 
@@ -517,7 +517,7 @@ function ticksOf(turns: readonly MinimapTurn[], previous: readonly MinimapTick[]
 /// The turn the reader is in: the last prompt above a third of the way down the viewport.
 export function currentTurn(
   turns: readonly MinimapTurn[],
-  tops: Float64Array,
+  tops: LayoutGeometry | ArrayLike<number>,
   scrollTop: number,
   viewportHeight: number,
 ): number {
@@ -526,7 +526,8 @@ export function currentTurn(
   let high = turns.length;
   while (low < high) {
     const middle = (low + high) >>> 1;
-    if ((tops[turns[middle].index] ?? 0) <= anchor) low = middle + 1;
+    const top = "topAt" in tops ? tops.topAt(turns[middle].index) : (tops[turns[middle].index] ?? 0);
+    if (top <= anchor) low = middle + 1;
     else high = middle;
   }
   return Math.max(0, low - 1);
@@ -541,7 +542,7 @@ export function currentTurn(
 /// counts once its bubble is on screen: our turns have no block above the bubble to show first.
 export function visibleTurns(
   turns: readonly MinimapTurn[],
-  tops: Float64Array,
+  tops: LayoutGeometry | ArrayLike<number>,
   totalHeight: number,
   scrollTop: number,
   viewportHeight: number,
@@ -549,14 +550,20 @@ export function visibleTurns(
   const bottom = scrollTop + viewportHeight - THREAD_PADDING_TOP;
   const first = currentTurn(turns, tops, scrollTop + LANDING_OFFSET, 0);
   let last = first;
-  while (last + 1 < turns.length && (tops[turns[last + 1].index] ?? totalHeight) < bottom) last += 1;
+  while (last + 1 < turns.length) {
+    const next = turns[last + 1]!.index;
+    const top = "topAt" in tops ? tops.topAt(next) : (tops[next] ?? totalHeight);
+    if (top >= bottom) break;
+    last += 1;
+  }
   return { first, last };
 }
 
 /// The scroll offset that lands a turn's prompt row (its images, else its bubble) LANDING_OFFSET
 /// below the viewport's top.
-export function turnScrollTop(turn: MinimapTurn, tops: Float64Array): number {
-  return Math.max(0, THREAD_PADDING_TOP + (tops[turn.index] ?? 0) - LANDING_OFFSET);
+export function turnScrollTop(turn: MinimapTurn, tops: LayoutGeometry | ArrayLike<number>): number {
+  const top = "topAt" in tops ? tops.topAt(turn.index) : (tops[turn.index] ?? 0);
+  return Math.max(0, THREAD_PADDING_TOP + top - LANDING_OFFSET);
 }
 
 /// The start of a reply as blocks with bold/code spans; fenced code, heading marks and link targets drop.
