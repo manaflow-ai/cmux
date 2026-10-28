@@ -791,7 +791,7 @@ impl Hub {
                 Ok(withdrawn_reply(prompt_id, &removed.turn_id))
             };
             if let Some((_, outcome)) = ledger.iter().find(|(id, _)| id == prompt_id) {
-                outcome.send_replace(Some(answer));
+                prompt_ledger::settle_once(outcome, answer);
             }
             prompt_ledger::prune(ledger);
         }
@@ -1115,7 +1115,7 @@ impl Hub {
                     // A client that resent this prompt id waits on the entry `restore_queues` made.
                     let mut ledger = session.prompts.lock().unwrap_or_else(|e| e.into_inner());
                     if let Some((_, outcome)) = ledger.iter().find(|(id, _)| *id == q.prompt_id) {
-                        outcome.send_replace(Some(result.clone()));
+                        prompt_ledger::settle_once(outcome, result.clone());
                     }
                     prompt_ledger::prune(&mut ledger);
                     drop(ledger);

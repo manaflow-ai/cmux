@@ -4,6 +4,12 @@ use super::{Hub, PromptOutcome, Session};
 use serde_json::{Value, json};
 use std::collections::VecDeque;
 
+/// Settles a restored prompt's outcome once: the first settled answer stays (a decline before its
+/// restored task claimed it, `queue_approve.rs`, is never replaced by that task's `withdrawn`).
+pub(super) fn settle_once(outcome: &PromptOutcome, answer: Result<Value, crate::rpc::RpcError>) {
+    outcome.send_if_modified(|settled| settled.is_none() && settled.replace(answer).is_none());
+}
+
 /// Only completed outcomes count against the retry cache's bound. Pending senders
 /// must stay discoverable, including restored prompts whose completion looks them up.
 pub(super) fn prune(ledger: &mut VecDeque<(String, PromptOutcome)>) {
