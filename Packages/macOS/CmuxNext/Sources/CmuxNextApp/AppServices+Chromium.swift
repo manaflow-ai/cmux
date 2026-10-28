@@ -218,7 +218,7 @@ extension AppServices {
             crashRecovery.observe(engine.crashLog, reporter: reporter)
             engine.rendererStability = stability
             AppRunMarker.keepSignalHandlers(crashRecovery.marker, across: engine, reporter: reporter)
-            (NSApp as? CmuxApplication)?.assistiveClientsChanged = { [weak engine] active in engine?.setAssistiveClientActive(active) }
+            (NSApp as? CmuxApplication)?.followAssistiveClients { [weak engine] active in engine?.setAssistiveClientActive(active) }
             routes(engine)
         }
     }

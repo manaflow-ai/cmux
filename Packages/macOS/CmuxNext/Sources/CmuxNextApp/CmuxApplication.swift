@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextBrowser
+import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextCrashReporting
 import CmuxNextDesign
@@ -262,23 +263,19 @@ final class CmuxApplication: NSApplication, CEFAppProtocol, ActivationRefusing {
 
     // MARK: Assistive clients
 
-    /// Set once by `AppServices`: whether an assistive client asks for the app's accessibility
-    /// tree (Chromium pages build theirs only then, `CEFEngine.setAssistiveClientActive`). It is
-    /// told the current state when set, so a client that asked before launch finished counts.
-    var assistiveClientsChanged: ((Bool) -> Void)? {
-        didSet { assistiveClientsChanged?(assistiveRequests.wantsAccessibility) }
+    /// Called once by `AppServices`: `changed` hears whether an assistive client asks for the app's
+    /// accessibility tree (Chromium pages build theirs only then, `CEFEngine.setAssistiveClientActive`).
+    /// It is told the current state at once, so a client that asked before launch finished counts.
+    func followAssistiveClients(_ changed: @escaping @MainActor @Sendable (Bool) -> Void) {
+        assistiveClients.follow(changed)
     }
-    private var assistiveRequests = AssistiveClientRequests()
+    /// The assistive clients' requests on the application element, reached from AppKit's
+    /// nonisolated accessibility calls (``AssistiveClientAccess``).
+    nonisolated private let assistiveClients = AssistiveClientAccess()
 
     nonisolated override func accessibilitySetValue(_ value: Any?, forAttribute attribute: NSAccessibility.Attribute) {
-        guard AssistiveClientRequests.attributes.contains(attribute.rawValue), Thread.isMainThread else {
+        guard assistiveClients.set(value as? NSNumber, for: attribute.rawValue) else {
             return super.accessibilitySetValue(value, forAttribute: attribute)
-        }
-        let number = value as? NSNumber
-        MainActor.assumeIsolated { // main-proof: checked Thread.isMainThread above
-            let wanted = assistiveRequests.wantsAccessibility
-            _ = assistiveRequests.set(number, for: attribute.rawValue)
-            if assistiveRequests.wantsAccessibility != wanted { assistiveClientsChanged?(assistiveRequests.wantsAccessibility) }
         }
     }
 
@@ -287,10 +284,7 @@ final class CmuxApplication: NSApplication, CEFAppProtocol, ActivationRefusing {
     }
 
     nonisolated override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
-        guard AssistiveClientRequests.attributes.contains(attribute.rawValue), Thread.isMainThread else {
-            return super.accessibilityAttributeValue(attribute)
-        }
-        let value = MainActor.assumeIsolated { assistiveRequests.value(for: attribute.rawValue) } // main-proof: checked Thread.isMainThread above
+        guard let value = assistiveClients.value(for: attribute.rawValue) else { return super.accessibilityAttributeValue(attribute) }
         return value.map { NSNumber(value: $0) }
     }
 
@@ -349,6 +343,50 @@ extension CmuxApplication {
     static func dropsCrossWindowKey(_ event: NSEvent, keyWindow: NSWindow?, using keyGuard: ((NSEvent, NSWindow?) -> Bool)?) -> Bool {
         guard let keyGuard, let keyWindow, event.windowNumber != keyWindow.windowNumber else { return false }
         return keyGuard(event, keyWindow)
+    }
+}
+
+/// The seam where AppKit's nonisolated accessibility calls on the application element reach the
+/// assistive clients' requests. Each entry checks the thread first: a call off the main thread is
+/// not one of ours (it answers nil or false and the caller asks super). The requests sit behind a
+/// lock, so the type is Sendable; the follower is main-actor and runs on main only.
+nonisolated final class AssistiveClientAccess: Sendable {
+    private struct State {
+        var requests = AssistiveClientRequests()
+        var changed: (@MainActor @Sendable (Bool) -> Void)?
+    }
+    private let state = Mutex(State())
+
+    /// Follows whether the app wants page accessibility, told the current state at once.
+    @MainActor func follow(_ changed: (@MainActor @Sendable (Bool) -> Void)?) {
+        let wants = state.withLock { state in
+            state.changed = changed
+            return state.requests.wantsAccessibility
+        }
+        changed?(wants)
+    }
+
+    /// Records an assistive client's `value` for `attribute`; false when the call is not one this
+    /// handles (another attribute, or off the main thread).
+    func set(_ value: NSNumber?, for attribute: String) -> Bool {
+        guard AssistiveClientRequests.attributes.contains(attribute), Thread.isMainThread else { return false }
+        let (flipped, changed) = state.withLock { state -> (Bool?, (@MainActor @Sendable (Bool) -> Void)?) in
+            let wanted = state.requests.wantsAccessibility
+            _ = state.requests.set(value, for: attribute)
+            let now = state.requests.wantsAccessibility
+            return (now != wanted ? now : nil, state.changed)
+        }
+        if let flipped, let changed {
+            // main-proof: checked Thread.isMainThread at the top of this function.
+            MainActor.assumeIsolated { changed(flipped) }
+        }
+        return true
+    }
+
+    /// `.some(answer)` for an attribute this handles on the main thread; nil otherwise.
+    func value(for attribute: String) -> Bool?? {
+        guard AssistiveClientRequests.attributes.contains(attribute), Thread.isMainThread else { return nil }
+        return .some(state.withLock { $0.requests.value(for: attribute) })
     }
 }
 
