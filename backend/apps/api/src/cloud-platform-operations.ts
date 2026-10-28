@@ -1,0 +1,207 @@
+import type { SqlStore } from "@cmux/ownership"
+import { ledgerKey } from "./domains/cloud.ts"
+import { platformPrincipal, refused, platformMetadata, platformShape, PLATFORM_MACHINE_LABEL, type PlatformHost, type PlatformReply } from "./cloud-platform.ts"
+import type { PlatformMachine, PlatformShape } from "./platform-machines.ts"
+
+/** Durable continuations above the ordinary Cloud ledger: no provider calls bypass submit.
+ * Terminal records are retained as idempotency fences even after the ordinary ledger is pruned.
+ * A fork's temporary snapshot is retired only after the child's create ledger has settled.
+ */
+interface Operation {
+  key: string
+  user: string
+  name: string
+  source?: string
+  image?: string
+  target: PlatformShape
+  labels: Record<string, string>
+  phase: "capture" | "create" | "size" | "cleanup" | "done" | "failed"
+  snapshot?: string
+  child?: string
+  deadline: number
+  due: number
+  error?: string
+}
+const RETRY_MS = 5_000
+const DEADLINE_MS = 15 * 60_000
+const opKey = (user: string, name: string) => `${user}:${name}`
+const sameShape = (a: PlatformShape, b: PlatformShape) => a.vcpu === b.vcpu && a.memGiB === b.memGiB && a.diskGiB === b.diskGiB
+const larger = (a: PlatformShape, b: PlatformShape) => a.vcpu > b.vcpu || a.memGiB > b.memGiB || a.diskGiB > b.diskGiB
+const labelKey = (labels: Record<string, string> = {}) => JSON.stringify(Object.entries(labels).sort(([a], [b]) => a.localeCompare(b)))
+const terminal = (o: Operation) => o.phase === "done" || o.phase === "failed"
+
+export class PlatformOperations {
+  private readonly flights = new Map<string, Promise<void>>()
+  constructor(private readonly sql: SqlStore) {}
+  private exists() { return Number(this.sql.exec<{ n: number }>("SELECT count(*) AS n FROM sqlite_master WHERE name = 'cloud_platform_operations'")[0]?.n ?? 0) > 0 }
+  private read(key: string): Operation | undefined {
+    if (!this.exists()) return undefined
+    const row = this.sql.exec<{ data: string }>("SELECT data FROM cloud_platform_operations WHERE key = ?", key)[0]
+    return row ? JSON.parse(row.data) as Operation : undefined
+  }
+  private put(o: Operation) {
+    // A destroy may arrive while a provider call is awaited. Its cancellation wins over the
+    // older continuation; retain newly discovered resource IDs so that cleanup can reach them.
+    const prior = this.read(o.key)
+    if (prior?.error && !o.error) { o.error = prior.error; o.phase = "cleanup" }
+
+    this.sql.exec("CREATE TABLE IF NOT EXISTS cloud_platform_operations (key TEXT PRIMARY KEY, child TEXT, due INTEGER, data TEXT NOT NULL)")
+    this.sql.exec("INSERT INTO cloud_platform_operations (key, child, due, data) VALUES (?, ?, ?, ?) ON CONFLICT(key) DO UPDATE SET child = excluded.child, due = excluded.due, data = excluded.data", o.key, o.child ?? null, terminal(o) ? null : o.due, JSON.stringify(o))
+  }
+  dueAt(): number | null {
+    if (!this.exists()) return null
+    const due = this.sql.exec<{ due: number | null }>("SELECT min(due) AS due FROM cloud_platform_operations")[0]?.due
+    return due == null ? null : Number(due)
+  }
+  private forMachine(id: string): Operation | undefined {
+    if (!this.exists()) return undefined
+    const row = this.sql.exec<{ data: string }>("SELECT data FROM cloud_platform_operations WHERE child = ?", id)[0]
+    return row ? JSON.parse(row.data) as Operation : undefined
+  }
+  metadata(host: PlatformHost, id: string): PlatformReply<PlatformMachine> {
+    const m = host.machine(id)
+    if (!m) return refused("cloud.machine.not_found", "no such setup machine in this team", false)
+    const o = this.forMachine(id)
+    if (!o) return platformMetadata(m)
+    const resize = host.ledger(ledgerKey(platformPrincipal(host.team, o.user).identity, this.stepKey(o, "resize")))
+    const actual = platformShape(resize?.state === "pending" && resize.size_before ? resize.size_before : m.size)
+    if (o.phase !== "done") return { ok: true, value: { id, region: "global", state: o.error ? "failed" : "starting", shape: actual ?? o.target, targetShape: o.target } }
+    return platformMetadata(m)
+  }
+  busy(id: string): boolean {
+    const o = this.forMachine(id)
+    return o !== undefined && !terminal(o)
+  }
+  cancel(id: string, now: number) {
+    const o = this.forMachine(id)
+    if (!o || terminal(o)) return
+    o.error = "the machine was deleted before provisioning completed"
+    o.phase = "cleanup"
+    o.due = now
+    this.put(o)
+  }
+  async request(host: PlatformHost, user: string, input: { name: string; shape?: PlatformShape; snapshot?: string; machine?: string; labels?: Record<string, string> }, now: number): Promise<PlatformReply<PlatformMachine>> {
+    const key = opKey(user, input.name)
+    let o = this.read(key)
+    if (o) {
+      if (o.source !== input.machine || o.image !== input.snapshot || (input.shape && !sameShape(o.target, input.shape)) || labelKey(o.labels) !== labelKey(input.labels)) return refused("idempotency.conflict", "this name belongs to another machine request", false)
+    } else {
+      let target = input.shape
+      if (input.machine) {
+        const source = host.machine(input.machine)
+        if (!source || source.platform !== true || source.creator !== user) return refused("cloud.machine.not_found", "no such setup machine in this team", false)
+        if (this.busy(source.id) || (source.status !== "running" && source.status !== "paused")) return refused("cloud.machine.not_running", "the source must finish starting before forking", true)
+        target = platformShape(source.size) ?? undefined
+      }
+      if (!target) return refused("cloud.machine.shape_unknown", "the machine's resources are not known yet", true)
+      // Install the alarm before recording any work; a crash can leave a harmless alarm, never an
+      // unserviced allocating intent. The host binds its engine so OwnerDO's alarm will run.
+      await host.arm(now + RETRY_MS)
+      if (this.read(key)) return this.request(host, user, input, now)
+      o = { key, user, name: input.name, ...(input.machine ? { source: input.machine } : {}), ...(input.snapshot ? { image: input.snapshot } : {}), target, labels: input.labels ?? {}, phase: input.machine ? "capture" : "create", due: now, deadline: now + DEADLINE_MS }
+      this.put(o)
+    }
+    await this.run(host, key, now)
+    o = this.read(key)!
+    if (o.phase === "failed") return refused("cloud.platform.provision_failed", o.error ?? "machine provisioning failed", false)
+    if (o.child && host.machine(o.child)) return this.metadata(host, o.child)
+    if (o.phase === "done") return refused("cloud.machine.not_found", "the machine created under this name is gone", false)
+    return refused("mutation.indeterminate", "the machine request is recorded and still starting; retry with the same name", true)
+  }
+  async wake(host: PlatformHost, now: number) {
+    if (!this.exists()) return
+    const keys = this.sql.exec<{ key: string }>("SELECT key FROM cloud_platform_operations WHERE due <= ? ORDER BY due LIMIT 32", now)
+    for (const { key } of keys) await this.run(host, key, now)
+  }
+  private stepKey(o: Operation, step: string) { return `platform-machine:${o.name}:${step}` }
+  private async run(host: PlatformHost, key: string, now: number): Promise<void> {
+    const active = this.flights.get(key)
+    if (active) return active
+    const work = this.advance(host, key, now)
+    this.flights.set(key, work)
+    try { await work } finally { this.flights.delete(key) }
+  }
+  private async advance(host: PlatformHost, key: string, now: number): Promise<void> {
+    const o = this.read(key)
+    if (!o || terminal(o)) return
+    o.due = now + RETRY_MS
+    this.put(o)
+    const p = platformPrincipal(host.team, o.user)
+    const ledger = (step: string) => host.ledger(ledgerKey(p.identity, this.stepKey(o, step)))
+    const submit = async (op: string, params: unknown, step: string) => {
+      const r = await host.submit(p, { t: "op", op, params, idempotency_key: this.stepKey(o, step), origin: "script" })
+      return r.frames.find(f => f.t === "reject") as { t: "reject"; code: string; message: string; retryable?: boolean } | undefined
+    }
+    const fail = (message: string) => { o.error = message; o.phase = "cleanup"; this.put(o) }
+    // Recover IDs BEFORE membership/deadline cleanup: submit can have committed while its answer
+    // was lost. Skipping this recovery would forget the very resources cleanup must remove.
+    o.child ??= ledger("create")?.machine
+    o.snapshot ??= ledger("capture")?.snapshot
+    this.put(o)
+    if (o.phase !== "cleanup" && (now >= o.deadline || !(await host.mayUse(o.user).catch(() => false)))) fail("machine provisioning expired or the creator lost team access")
+    if (o.phase === "capture") {
+      const existing = ledger("capture")
+      if (!existing) {
+        const r = await submit("cloud.snapshot.create", { machine: o.source, name: PLATFORM_MACHINE_LABEL }, "capture")
+        o.snapshot = ledger("capture")?.snapshot
+        this.put(o)
+        if (r && !r.retryable) fail(r.message)
+      }
+      const l = ledger("capture")
+      const snap = o.snapshot ? host.snapshot(o.snapshot) : undefined
+      if (l && l.state !== "pending" && l.state !== "done") fail(l.error?.message ?? "snapshot capture failed")
+      if (o.phase === "capture" && snap?.status === "ready") { o.phase = "create"; this.put(o) }
+    }
+    if (o.phase === "create") {
+      if (!ledger("create")) {
+        const image = o.snapshot ?? o.image
+        const r = await submit(image ? "cloud.snapshot.restore" : "cloud.machine.create", image ? { snapshot: image, name: PLATFORM_MACHINE_LABEL } : { name: PLATFORM_MACHINE_LABEL, size: { cpu: o.target.vcpu, memory_mb: o.target.memGiB * 1024, disk_mb: o.target.diskGiB * 1024 } }, "create")
+        o.child = ledger("create")?.machine
+        this.put(o)
+        if (r && !r.retryable) fail(r.message)
+      }
+      const l = ledger("create")
+      if (o.phase === "create" && l?.state === "done") { o.phase = "size"; this.put(o) }
+      else if (l && l.state !== "pending") fail(l.error?.message ?? "machine creation failed")
+    }
+    if (o.phase === "size") {
+      const m = o.child ? host.machine(o.child) : undefined
+      const resize = ledger("resize")
+      if (!m || m.status === "failed" || m.status === "deleting") fail("the new machine failed or was deleted")
+      else if (resize?.state === "pending") return
+      else if (resize && resize.state !== "done") fail(resize.error?.message ?? "machine resize failed")
+      else {
+        const actual = platformShape(m.size)
+        if (!actual) return
+        if (larger(actual, o.target)) fail("the image is larger than the requested shape; Freestyle only supports growing")
+        else if (sameShape(actual, o.target)) { o.phase = "cleanup"; this.put(o) }
+        else if (m.status === "running") {
+          const r = await submit("cloud.machine.resize", { machine: m.id, size: { cpu: o.target.vcpu, memory_mb: o.target.memGiB * 1024, disk_mb: o.target.diskGiB * 1024 } }, "resize")
+          if (r && !r.retryable) fail(r.message)
+          // Never publish intent's requested resources as completed; the ledger must confirm it.
+          if (ledger("resize")?.state === "done") { o.phase = "cleanup"; this.put(o) }
+        }
+      }
+    }
+    if (o.phase !== "cleanup") return
+    if (o.error && o.child) {
+      const m = host.machine(o.child)
+      if (m) {
+        if (m.status !== "deleting") await submit("cloud.machine.delete", { machine: m.id }, `delete:${m.revision}`)
+        if (host.machine(o.child)) return
+      }
+    }
+    // A child can still depend on the capture while create is uncertain; ordinary Cloud's
+    // cancelled-create reconciliation owns late VMs. Keep the capture until it has settled.
+    if (ledger("create")?.state === "pending" || ledger("capture")?.state === "pending") return
+    if (o.snapshot) {
+      const s = host.snapshot(o.snapshot)
+      if (s) {
+        if (s.status !== "deleting") await submit("cloud.snapshot.delete", { snapshot: s.id }, `retire:${s.revision}`)
+        if (host.snapshot(o.snapshot)) return
+      }
+    }
+    o.phase = o.error ? "failed" : "done"
+    this.put(o)
+  }
+}

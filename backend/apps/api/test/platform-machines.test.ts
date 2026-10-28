@@ -1,6 +1,7 @@
 import { env, exports } from "cloudflare:workers"
 import { createExecutionContext, runInDurableObject } from "cloudflare:test"
 import { describe, expect, it } from "vitest"
+import { PlatformOperations } from "../src/cloud-platform-operations.ts"
 import { PlatformMachines } from "../src/platform-machines.ts"
 import { personalTeamIdFor } from "../src/domains/user.ts"
 import { fireAlarm } from "./setup/alarm.ts"
@@ -10,7 +11,9 @@ import { ALLOWED_USERS, cloudTestUser, SHARED_TEAM } from "./setup/cloud-teams.t
 /** PlatformMachines (platform-machines.ts): the service-binding entrypoint for the platform Worker's environment setups. */
 type Reply = { ok: boolean; value?: any; code?: string; message?: string; retryable?: boolean }
 interface Rpc {
-  boot(c: unknown, name: string, snapshot?: string | null, shape?: { vcpu: number; memGiB: number; diskGiB: number }): Promise<Reply>
+  boot(c: unknown, name: string, snapshot?: string | null): Promise<Reply>
+  create(c: unknown, name: string, shape: { vcpu: number; memGiB: number; diskGiB: number }, snapshot?: string | null, labels?: Record<string, string>): Promise<Reply>
+  providerInfo(c: unknown): Promise<Reply>
   find(c: unknown, name: string): Promise<Reply>
   get(c: unknown, machine: string): Promise<Reply>
   shape(c: unknown, machine: string): Promise<Reply>
@@ -57,7 +60,7 @@ describe("PlatformMachines (workerd)", { timeout: 60_000 }, () => {
     expect((ctl as any).creates).toBe(1)
     expect(await rpc.find(c, name)).toEqual({ ok: true, value: { id: a.value.id } })
     expect(await rpc.find(c, nameOf())).toEqual({ ok: true, value: null })
-    expect(await rpc.get(c, a.value.id)).toMatchObject({ ok: true, value: { id: a.value.id, state: "provisioning", region: "global" } })
+    expect(await rpc.get(c, a.value.id)).toMatchObject({ ok: true, value: { id: a.value.id, state: "starting", region: "global" } })
     expect(await rpc.shape(c, a.value.id)).toMatchObject({ ok: true, value: { vcpu: expect.any(Number), memGiB: expect.any(Number), diskGiB: expect.any(Number) } })
     // The team sees it like any machine of theirs, labelled; the platform flag stays private.
     const listed = await cloudStub(c.team).readOp(c.team, { identity: `user:${c.user}`, kind: "session", user: c.user, team: c.team }, "cloud.machine.list", {})
@@ -179,7 +182,8 @@ describe("PlatformMachines (workerd)", { timeout: 60_000 }, () => {
     expect(await rpc.pause(c, "vm_x")).toMatchObject({ ok: false, code: "validation.invalid" })
     expect(await rpc.resume(c, "vm_x")).toMatchObject({ ok: false, code: "validation.invalid" })
     expect(await rpc.fork(c, "vm_x", nameOf())).toMatchObject({ ok: false, code: "validation.invalid" })
-    expect(await rpc.boot(c, nameOf(), null, { vcpu: 0, memGiB: 4, diskGiB: 16 })).toMatchObject({ ok: false, code: "validation.invalid" })
+    expect(await rpc.create(c, nameOf(), { vcpu: 0, memGiB: 4, diskGiB: 16 })).toMatchObject({ ok: false, code: "validation.invalid" })
+    expect(await rpc.create(c, nameOf(), { vcpu: 2, memGiB: 4, diskGiB: 16 }, null, { bad: 1 } as never)).toMatchObject({ ok: false, code: "validation.invalid" })
     expect(((await cloudStub(c.team).fakeControl({})) as any).creates).toBe(0)
   })
 
@@ -187,7 +191,103 @@ describe("PlatformMachines (workerd)", { timeout: 60_000 }, () => {
     const off = new PlatformMachines(createExecutionContext(), { ...(env as object), PLATFORM_MACHINES: undefined } as never)
     const c = caller()
     expect(await off.boot(c, nameOf())).toMatchObject({ ok: false, code: "platform.machines_off", retryable: false })
+    expect(await off.providerInfo(c)).toMatchObject({ ok: false, code: "platform.machines_off" })
+    expect(await off.create(c, nameOf(), { vcpu: 2, memGiB: 4, diskGiB: 16 })).toMatchObject({ ok: false, code: "platform.machines_off" })
     expect(await off.destroy(c, `vm_${"a".repeat(20)}`)).toMatchObject({ ok: false, code: "platform.machines_off" })
+  })
+
+  it("grows the snapshot-sized VM only after bind, then returns the exact shape and memory power state", async () => {
+    const c = caller()
+    expect(await rpc.providerInfo(c)).toMatchObject({ ok: true, value: { protocolVersion: 1, provider: "freestyle", available: true, minimumShape: null, shapeSelection: "grow-to-fit", memoryPause: true, fork: true } })
+    const target = { vcpu: 4, memGiB: 8, diskGiB: 32 }
+    const name = nameOf()
+    const labels = { leaseId: "lease1", runId: "run1" }
+    const created = await rpc.create(c, name, target, null, labels)
+    expect(created).toMatchObject({ ok: true, value: { state: "starting", shape: { vcpu: 2, memGiB: 4, diskGiB: 16 }, targetShape: target } })
+    const stub = cloudStub(c.team)
+    const id = created.value.id as string
+    const file = await bindFile(stub, id)
+    const { body } = await bindBody(c, id, file.json.bind_token)
+    expect(await stub.bindMachine(c.team, body)).toMatchObject({ ok: true })
+    // Binding alone does not publish the smaller VM as running or allow a premature exec.
+    expect(await rpc.get(c, id)).toMatchObject({ ok: true, value: { state: "starting" } })
+    expect(await rpc.exec(c, id, "true", null, 1000)).toMatchObject({ ok: false, retryable: true })
+    await stub.fakeControl({ advance_ms: 10_000 })
+    await fireAlarm(stub)
+    expect(await rpc.get(c, id)).toEqual({ ok: true, value: { id, region: "global", state: "running", shape: target } })
+    expect(await rpc.create(c, name, target, null, { runId: "run1", leaseId: "lease1" })).toMatchObject({ ok: true, value: { id, shape: target } })
+    expect(await rpc.create(c, name, target, null, { ...labels, runId: "run2" })).toMatchObject({ ok: false, code: "idempotency.conflict" })
+    expect(await rpc.create(c, name, { ...target, vcpu: 2 }, null, labels)).toMatchObject({ ok: false, code: "idempotency.conflict" })
+    expect(await rpc.pause(c, id)).toMatchObject({ ok: true, value: { id, state: "paused", shape: target } })
+    expect(await rpc.pause(c, id)).toMatchObject({ ok: true, value: { state: "paused" } })
+    expect(await rpc.resume(c, id)).toMatchObject({ ok: true, value: { id, state: "running", shape: target } })
+    expect(await stub.fakeControl({})).toMatchObject({ creates: 1, resizes: 1, pauses: 1, starts: 1 })
+  })
+
+  it("refuses an image larger than the offer and durably removes its VM", async () => {
+    const c = caller()
+    const stub = cloudStub(c.team)
+    await stub.fakeControl({ image_size: { cpu: 8, memory: 16384, storage: 65536 } })
+    const name = nameOf()
+    const target = { vcpu: 2, memGiB: 4, diskGiB: 16 }
+    expect(await rpc.create(c, name, target)).toMatchObject({ ok: false, code: "cloud.platform.provision_failed", retryable: false })
+    expect(await stub.fakeControl({})).toMatchObject({ creates: 1, deletes: 1, vms: [] })
+    expect(await rpc.create(c, name, target)).toMatchObject({ ok: false, retryable: false })
+    expect(await stub.fakeControl({})).toMatchObject({ creates: 1 })
+  })
+
+  it("recovers a lost fork capture answer without its source and retires the snapshot after restore", async () => {
+    const c = caller()
+    const { machine, stub } = await bootAndBind(c)
+    const name = nameOf()
+    await inDO(stub, async instance => {
+      const original = instance.submit.bind(instance)
+      instance.submit = async (entity: string, principal: unknown, f: { op: string }) => {
+        const r = await original(entity, principal, f)
+        if (f.op === "cloud.snapshot.create") { instance.submit = original; throw new Error("lost answer after capture commit") }
+        return r
+      }
+    })
+    expect(await rpc.fork(c, machine, name)).toMatchObject({ ok: false, code: "owner.unreachable" })
+    expect(await rpc.destroy(c, machine)).toMatchObject({ ok: true })
+    // A fresh orchestrator has no in-memory request state. The alarm recovers its snapshot ID
+    // from the ledger; no caller retry and no surviving source is needed to finish the fork.
+    await inDO(stub, async instance => { instance.platformOperations = new PlatformOperations(instance.sqlStore) })
+    await stub.fakeControl({ advance_ms: 10_000 })
+    await fireAlarm(stub)
+    const forked = await rpc.fork(c, machine, name)
+    expect(forked).toMatchObject({ ok: true, value: { state: "starting", shape: { vcpu: 2, memGiB: 4, diskGiB: 16 } } })
+    expect(await rpc.fork(c, machine, name)).toEqual(forked)
+    expect(await stub.fakeControl({})).toMatchObject({ creates: 2, snapshots: [] })
+    expect(await rpc.destroy(c, forked.value.id)).toMatchObject({ ok: true })
+    expect(await rpc.fork(c, machine, name)).toMatchObject({ ok: false, code: "cloud.machine.not_found", retryable: false })
+    expect(await stub.fakeControl({})).toMatchObject({ creates: 2 })
+  })
+
+  it("retries temporary snapshot retirement in the alarm after the caller disappears", async () => {
+    const c = caller()
+    const { machine, stub } = await bootAndBind(c)
+    await stub.fakeControl({ snapshot_delete_refuse: 1 })
+    const forked = await rpc.fork(c, machine, nameOf())
+    expect(forked).toMatchObject({ ok: true, value: { state: "starting", targetShape: { vcpu: 2, memGiB: 4, diskGiB: 16 } } })
+    expect(((await stub.fakeControl({})) as any).snapshots).toHaveLength(1)
+    await stub.fakeControl({ advance_ms: 10_000 })
+    await fireAlarm(stub)
+    expect(await stub.fakeControl({})).toMatchObject({ creates: 2, snapshots: [] })
+    expect((await rpc.get(c, forked.value.id)).value.targetShape).toBeUndefined()
+  })
+
+  it("times out an unbound resize reservation and cleans up without a client retry", async () => {
+    const c = caller()
+    const stub = cloudStub(c.team)
+    const name = nameOf()
+    const target = { vcpu: 4, memGiB: 8, diskGiB: 32 }
+    const created = await rpc.create(c, name, target)
+    expect(created).toMatchObject({ ok: true })
+    await stub.fakeControl({ advance_ms: 16 * 60_000 })
+    await fireAlarm(stub)
+    expect(await stub.fakeControl({})).toMatchObject({ creates: 1, deletes: 1, vms: [] })
+    expect(await rpc.create(c, name, target)).toMatchObject({ ok: false, code: "cloud.platform.provision_failed", retryable: false })
   })
 
   it("is not reachable over HTTP", async () => {

@@ -18,10 +18,20 @@ import { refused, type PlatformCall, type PlatformReply } from "./cloud-platform
  * PLATFORM_MACHINES is "on" (development today): elsewhere every call is refused before any lookup.
  */
 export class PlatformMachines extends WorkerEntrypoint<Env> {
-  boot(caller: PlatformCaller, name: string, snapshot?: string | null, shape?: PlatformShape): Promise<PlatformReply<{ id: string }>> {
+  boot(caller: PlatformCaller, name: string, snapshot?: string | null): Promise<PlatformReply<{ id: string }>> {
     if (snapshot !== undefined && snapshot !== null && !matches(SNAPSHOT, snapshot)) return invalid("snapshot")
-    if (shape !== undefined && !validShape(shape)) return invalid("shape")
-    return this.call(caller, { op: "boot", name, ...(snapshot ? { snapshot } : {}), ...(shape ? { shape } : {}) }) as Promise<PlatformReply<{ id: string }>>
+    return this.call(caller, { op: "boot", name, ...(snapshot ? { snapshot } : {}) }) as Promise<PlatformReply<{ id: string }>>
+  }
+
+  providerInfo(caller: PlatformCaller): Promise<PlatformReply<PlatformProviderInfo>> {
+    return this.call(caller, { op: "providerInfo" }) as Promise<PlatformReply<PlatformProviderInfo>>
+  }
+
+  create(caller: PlatformCaller, name: string, shape: PlatformShape, snapshot?: string | null, labels: Record<string, string> = {}): Promise<PlatformReply<PlatformMachine>> {
+    if (!validShape(shape)) return invalid("shape")
+    if (!validLabels(labels)) return invalid("labels")
+    if (snapshot !== undefined && snapshot !== null && !matches(SNAPSHOT, snapshot)) return invalid("snapshot")
+    return this.call(caller, { op: "create", name, shape, labels, ...(snapshot ? { snapshot } : {}) }) as Promise<PlatformReply<PlatformMachine>>
   }
 
   find(caller: PlatformCaller, name: string): Promise<PlatformReply<{ id: string } | null>> {
@@ -36,16 +46,16 @@ export class PlatformMachines extends WorkerEntrypoint<Env> {
     return this.call(caller, { op: "shape", machine }) as Promise<PlatformReply<PlatformShape>>
   }
 
-  pause(caller: PlatformCaller, machine: string): Promise<PlatformReply<{ id: string }>> {
-    return this.call(caller, { op: "pause", machine }) as Promise<PlatformReply<{ id: string }>>
+  pause(caller: PlatformCaller, machine: string): Promise<PlatformReply<PlatformMachine>> {
+    return this.call(caller, { op: "pause", machine }) as Promise<PlatformReply<PlatformMachine>>
   }
 
-  resume(caller: PlatformCaller, machine: string): Promise<PlatformReply<{ id: string }>> {
-    return this.call(caller, { op: "resume", machine }) as Promise<PlatformReply<{ id: string }>>
+  resume(caller: PlatformCaller, machine: string): Promise<PlatformReply<PlatformMachine>> {
+    return this.call(caller, { op: "resume", machine }) as Promise<PlatformReply<PlatformMachine>>
   }
 
-  fork(caller: PlatformCaller, machine: string, name: string): Promise<PlatformReply<{ id: string }>> {
-    return this.call(caller, { op: "fork", machine, name }) as Promise<PlatformReply<{ id: string }>>
+  fork(caller: PlatformCaller, machine: string, name: string): Promise<PlatformReply<PlatformMachine>> {
+    return this.call(caller, { op: "fork", machine, name }) as Promise<PlatformReply<PlatformMachine>>
   }
 
   exec(caller: PlatformCaller, machine: string, command: string, stdin: string | null, timeoutMs: number): Promise<PlatformReply<{ exitCode: number; stdout: string; stderr: string }>> {
@@ -92,8 +102,22 @@ export interface PlatformShape {
 
 export interface PlatformMachine {
   readonly id: string
-  readonly state: string
+  readonly state: "starting" | "running" | "paused" | "stopped" | "failed" | "gone"
   readonly region: "global"
+  readonly shape: PlatformShape
+  /** While starting: requested reservation, not confirmation of a completed resize. */
+  readonly targetShape?: PlatformShape
+}
+
+export interface PlatformProviderInfo {
+  readonly protocolVersion: 1
+  readonly provider: "freestyle"
+  readonly region: "global"
+  readonly available: boolean
+  readonly shapeSelection: "grow-to-fit"
+  readonly minimumShape: PlatformShape | null
+  readonly memoryPause: true
+  readonly fork: true
 }
 
 const TEAM = /^team_[A-Za-z0-9]{1,64}$/
@@ -108,7 +132,13 @@ const MAX_STDIN = 64 * 1024
 const matches = (re: RegExp, v: unknown): v is string => typeof v === "string" && re.test(v)
 const validShape = (shape: PlatformShape): boolean =>
   shape !== null && typeof shape === "object" &&
-  Number.isSafeInteger(shape.vcpu) && shape.vcpu > 0 &&
-  Number.isSafeInteger(shape.memGiB) && shape.memGiB > 0 &&
-  Number.isSafeInteger(shape.diskGiB) && shape.diskGiB > 0
+  Number.isSafeInteger(shape.vcpu) && shape.vcpu > 0 && shape.vcpu <= Number.MAX_SAFE_INTEGER &&
+  Number.isSafeInteger(shape.memGiB) && shape.memGiB > 0 && shape.memGiB <= Number.MAX_SAFE_INTEGER / 1024 &&
+  Number.isSafeInteger(shape.diskGiB) && shape.diskGiB > 0 && shape.diskGiB <= Number.MAX_SAFE_INTEGER / 1024
+/** Intent metadata stays in CloudDO; it is not forwarded as provider VM tags. */
+const validLabels = (labels: Record<string, string>): boolean => {
+  if (labels === null || typeof labels !== "object" || Array.isArray(labels)) return false
+  const entries = Object.entries(labels)
+  return entries.length <= 32 && entries.every(([k, v]) => k.length > 0 && k.length <= 128 && typeof v === "string" && v.length <= 1024) && JSON.stringify(labels).length <= 16 * 1024
+}
 const invalid = (what: string) => Promise.resolve(refused("validation.invalid", `invalid ${what}`, false))

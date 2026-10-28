@@ -4,6 +4,8 @@ import { asWorkUser } from "./cloud-env-sandbox.ts"
 import type { GuestExecResult } from "./providers/contract.ts"
 import { ledgerKey, PLATFORM_IDENTITY_PREFIX, type LedgerRow, type MachineRow } from "./domains/cloud.ts"
 import type { SnapshotRow } from "./domains/cloud-snapshot.ts"
+import type { PlatformMachine, PlatformShape, PlatformProviderInfo } from "./platform-machines.ts"
+import type { PlatformOperations } from "./cloud-platform-operations.ts"
 
 /**
  * Machines for the platform Worker's environment setups (PlatformMachines, platform-machines.ts):
@@ -26,7 +28,9 @@ export const PLATFORM_MACHINE_LABEL = "Environment setup"
 export const PLATFORM_EXEC_MAX_MS = 300_000
 
 export type PlatformCall =
-  | { readonly op: "boot"; readonly name: string; readonly snapshot?: string; readonly shape?: { readonly vcpu: number; readonly memGiB: number; readonly diskGiB: number } }
+  | { readonly op: "boot"; readonly name: string; readonly snapshot?: string }
+  | { readonly op: "providerInfo" }
+  | { readonly op: "create"; readonly name: string; readonly shape: PlatformShape; readonly snapshot?: string; readonly labels: Record<string, string> }
   | { readonly op: "find"; readonly name: string }
   | { readonly op: "get"; readonly machine: string }
   | { readonly op: "shape"; readonly machine: string }
@@ -43,6 +47,11 @@ export type PlatformReply<T = unknown> = { readonly ok: true; readonly value: T 
 /** What a platform call needs of the team's CloudDO. */
 export interface PlatformHost {
   readonly team: string
+  readonly operations: PlatformOperations
+  readonly now: number
+  providerInfo(): PlatformProviderInfo
+  /** Bind the engine and durably schedule continuation before recording a new operation. */
+  arm(at: number): Promise<void>
   /** The user may use this team's machines now (personal team, or a member with team.resources). */
   mayUse(user: string): Promise<boolean>
   submit(principal: Principal, frame: { t: "op"; op: string; params: unknown; idempotency_key: string; origin: "script" }): Promise<SubmitResult>
@@ -58,7 +67,6 @@ export interface PlatformHost {
 export const platformPrincipal = (team: string, user: string): Principal => ({ identity: `${PLATFORM_IDENTITY_PREFIX}${user}`, kind: "session", user, team })
 const key = (kind: "boot" | "snapshot" | "destroy", name: string) => `platform-env:${kind}:${name}`
 const machineKey = (kind: "pause" | "resume", machine: string, revision: string) => `platform-env:${kind}:${machine}:${revision}`
-const forkKey = (kind: "snapshot" | "restore" | "cleanup", name: string) => `platform-env:fork:${kind}:${name}`
 const ok = <T>(value: T): PlatformReply<T> => ({ ok: true, value })
 export const refused = (code: string, message: string, retryable: boolean): PlatformReply<never> => ({ ok: false, code, message, retryable })
 type Reply = { t: "result"; value?: any } | { t: "reject"; code: string; message: string; retryable?: boolean }
@@ -79,6 +87,19 @@ const snapshotReply = (s: SnapshotRow | undefined): PlatformReply<{ id: string }
       ? refused("mutation.indeterminate", "the snapshot is still being taken; retry with the same name", true)
       : refused("cloud.snapshot.failed", "the snapshot failed", false)
 
+/** Resources are optional until the provider answers. Never turn an absent size into NaN. */
+export const platformShape = (size: MachineRow["size"]): PlatformShape | null => {
+  const { cpu, memory_mb, disk_mb } = size
+  return typeof cpu === "number" && Number.isFinite(cpu) && cpu > 0 && typeof memory_mb === "number" && Number.isFinite(memory_mb) && memory_mb > 0 && typeof disk_mb === "number" && Number.isFinite(disk_mb) && disk_mb > 0
+    ? { vcpu: cpu, memGiB: memory_mb / 1024, diskGiB: disk_mb / 1024 } : null
+}
+export const platformMetadata = (m: MachineRow): PlatformReply<PlatformMachine> => {
+  const shape = platformShape(m.size)
+  if (!shape) return refused("cloud.machine.shape_unknown", "the provider has not reported the machine's resources yet", true)
+  const state = m.status === "provisioning" || m.status === "starting" || m.status === "pausing" ? "starting" : m.status === "deleting" ? "stopped" : m.status
+  return ok({ id: m.id, region: "global", state, shape })
+}
+
 export const platformCall = async (host: PlatformHost, user: string, call: PlatformCall): Promise<PlatformReply> => {
   // Find and delete reach only this user's own platform boots, and a delete only stops cost: both work
   // after the user lost access to the team, so a setup's cleanup always deletes its builder.
@@ -92,10 +113,15 @@ export const platformCall = async (host: PlatformHost, user: string, call: Platf
     return m && m.platform === true && m.creator === user ? m : refused("cloud.machine.not_found", "no such setup machine in this team", false)
   }
   switch (call.op) {
+    case "providerInfo": return ok(host.providerInfo())
+    case "create":
+    case "fork": {
+      if (!host.providerInfo().available) return refused("cloud.provider.unavailable", "the Freestyle provider is not configured on this deployment", false)
+      return host.operations.request(host, user, call, host.now)
+    }
     case "boot": {
       const k = key("boot", call.name)
-      const size = call.shape ? { cpu: call.shape.vcpu, memory_mb: call.shape.memGiB * 1024, disk_mb: call.shape.diskGiB * 1024 } : {}
-      const r = await (call.snapshot ? submit("cloud.snapshot.restore", { snapshot: call.snapshot, name: PLATFORM_MACHINE_LABEL }, k) : submit("cloud.machine.create", { name: PLATFORM_MACHINE_LABEL, size }, k))
+      const r = await (call.snapshot ? submit("cloud.snapshot.restore", { snapshot: call.snapshot, name: PLATFORM_MACHINE_LABEL }, k) : submit("cloud.machine.create", { name: PLATFORM_MACHINE_LABEL, size: {} }, k))
       if (r?.t !== "result") return fromReject(r)
       const id = r.value?.machine?.id as string | undefined
       const m = id ? host.machine(id) : undefined
@@ -106,57 +132,30 @@ export const platformCall = async (host: PlatformHost, user: string, call: Platf
     case "get": {
       const m = own(call.machine)
       if ("ok" in m) return m
-      if (m.status === "failed" || m.status === "deleting") return notRunning(m)
-      return ok({ id: m.id, state: m.status, region: "global" })
+      return host.operations.metadata(host, m.id)
     }
     case "shape": {
       const m = own(call.machine)
       if ("ok" in m) return m
-      return ok({ vcpu: m.size.cpu, memGiB: m.size.memory_mb / 1024, diskGiB: m.size.disk_mb / 1024 })
+      const metadata = host.operations.metadata(host, m.id)
+      return metadata.ok ? ok(metadata.value.shape) : metadata
     }
     case "pause":
     case "resume": {
       const m = own(call.machine)
       if ("ok" in m) return m
+      if (host.operations.busy(m.id)) return refused("mutation.indeterminate", "the machine is still provisioning", true)
       const wantPause = call.op === "pause"
-      if (wantPause && m.status === "paused") return ok({ id: m.id })
-      if (!wantPause && m.status === "running") return ok({ id: m.id })
+      if (wantPause && m.status === "paused") return host.operations.metadata(host, m.id)
+      if (!wantPause && m.status === "running") return host.operations.metadata(host, m.id)
       if ((wantPause && m.status === "pausing") || (!wantPause && m.status === "starting")) return refused("mutation.indeterminate", "the machine power change is still running; retry", true)
       const op = wantPause ? "cloud.machine.pause" : "cloud.machine.start"
       const k = machineKey(call.op, m.id, m.revision)
       const r = await submit(op, { machine: m.id }, k)
       const now = host.machine(m.id)
-      if (now?.status === (wantPause ? "paused" : "running")) return ok({ id: m.id })
+      if (now?.status === (wantPause ? "paused" : "running")) return host.operations.metadata(host, m.id)
       if (now?.status === (wantPause ? "pausing" : "starting")) return refused("mutation.indeterminate", "the machine power change is still running; retry", true)
       return r?.t === "reject" ? fromReject(r) : refused("cloud.provider.unavailable", "the machine power change did not settle", true)
-    }
-    case "fork": {
-      const source = own(call.machine)
-      if ("ok" in source) return source
-      if (source.status !== "running" && source.status !== "paused") return notRunning(source)
-      const sk = ledgerKey(p.identity, forkKey("snapshot", call.name))
-      let snapshot = host.ledger(sk)?.row.snapshot ? host.snapshot(host.ledger(sk)!.row.snapshot!) : undefined
-      if (!snapshot) {
-        const created = await submit("cloud.snapshot.create", { machine: source.id, name: PLATFORM_MACHINE_LABEL }, forkKey("snapshot", call.name))
-        const l = host.ledger(sk)
-        snapshot = l?.row.snapshot ? host.snapshot(l.row.snapshot) : undefined
-        if (created?.t !== "result" && !snapshot) return fromReject(created)
-      }
-      if (snapshot && snapshot.machine !== source.id) return refused("idempotency.conflict", "this fork name already belongs to another source machine", false)
-      if (!snapshot || snapshot.status !== "ready") return refused("mutation.indeterminate", "the fork snapshot is still being taken; retry", true)
-      const childKey = ledgerKey(p.identity, forkKey("restore", call.name))
-      const existing = host.ledger(childKey)?.row
-      if (!existing) {
-        const restored = await submit("cloud.snapshot.restore", { snapshot: snapshot.id, name: PLATFORM_MACHINE_LABEL }, forkKey("restore", call.name))
-        if (restored?.t !== "result") return fromReject(restored)
-      }
-      const child = host.ledger(childKey)?.row
-      const childMachine = child ? host.machine(child.machine) : undefined
-      if (!childMachine) return refused("mutation.indeterminate", "the fork machine is still starting; retry", true)
-      const deleted = await submit("cloud.snapshot.delete", { snapshot: snapshot.id }, forkKey("cleanup", `${call.name}:${snapshot.revision}`))
-      if (host.snapshot(snapshot.id)) return refused("mutation.indeterminate", "the fork snapshot cleanup is still running; retry", true)
-      if (deleted?.t !== "result") return fromReject(deleted)
-      return ok({ id: childMachine.id })
     }
     case "find": {
       const l = host.ledger(ledgerKey(p.identity, key("boot", call.name)))
@@ -166,6 +165,7 @@ export const platformCall = async (host: PlatformHost, user: string, call: Platf
     case "exec": {
       const m = own(call.machine)
       if ("ok" in m) return m
+      if (host.operations.busy(m.id)) return refused("mutation.indeterminate", "the machine is still provisioning", true)
       if (m.status !== "running") return notRunning(m)
       const stdin = call.stdin ? new TextEncoder().encode(call.stdin) : null
       const r = await host.exec(m, asWorkUser(call.command), stdin, Math.min(Math.max(1, call.timeoutMs), PLATFORM_EXEC_MAX_MS))
@@ -193,6 +193,7 @@ export const platformCall = async (host: PlatformHost, user: string, call: Platf
       if (!m) return ok({ deleted: true })
       const mine = own(call.machine)
       if ("ok" in mine) return mine
+      host.operations.cancel(m.id, host.now)
       // Deleted only once the machine is gone (its tombstone): a delete still running is asked again.
       const deleting = refused("mutation.indeterminate", "the machine is still being deleted; retry", true)
       if (m.status === "deleting") return deleting
