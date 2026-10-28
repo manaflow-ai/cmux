@@ -57,6 +57,22 @@ struct SplitFadeWindowTests {
         }
     }
 
+    /// The pane comes in on its own background from the key's turn (the terminal host paints its theme background,
+    /// or the window's sheet shows through it): its fade starts in that turn, with no hold at opacity 0 waiting for
+    /// its content. Content that has not drawn yet fades in on its own when it does (`paneArrived`), so no frame
+    /// shows the pane's background popping in or its text popping in late.
+    @Test func theNewPaneFadesFromTheKeysTurnWithNoHold() throws {
+        try with {
+            let split = Split(renderServer: false)
+            defer { split.close() }
+            split.root.context.splitArrival = { .fade }
+            split.split()
+            let layer = try #require(try split.host("b").layer)
+            #expect(!(layer.animationKeys() ?? []).contains("cmux.fadeIn.hold"), "the pane waits at 0 for its content")
+            #expect(keyPaths(layer) == ["opacity"], "the new pane animates \(keyPaths(layer))")
+        }
+    }
+
     /// The panes category off: the split shows in one frame, nothing animates.
     @Test func withThePanesCategoryOffTheSplitShowsInOneFrame() throws {
         try with(disabled: [.panes]) {
