@@ -321,7 +321,7 @@ final class TerminalNotificationStore: ObservableObject {
 
     let userNotificationCenter: UserNotificationCenterService
     private let authorizationNotificationCenter: NotificationCenter
-    private let authorizationStatusProvider: @MainActor () async -> Result<UserNotificationAuthorizationStatus, UserNotificationCenterFailure>
+    private let authorizationStatusProvider: @MainActor @Sendable () async -> Result<UserNotificationAuthorizationStatus, UserNotificationCenterFailure>
     private lazy var authorizationRefreshCoordinator = NotificationAuthorizationRefreshCoordinator(
         statusProvider: authorizationStatusProvider,
         publish: { [weak self] state in self?.authorizationState = state }
@@ -388,13 +388,17 @@ final class TerminalNotificationStore: ObservableObject {
     private let inFlightPolicyRequests = TerminalNotificationPolicyInFlightStore()
     init(
         userNotificationCenter: UserNotificationCenterService,
-        authorizationStatusProvider: (@MainActor () async -> Result<UserNotificationAuthorizationStatus, UserNotificationCenterFailure>)? = nil,
+        authorizationStatusProvider: (@MainActor @Sendable () async -> Result<UserNotificationAuthorizationStatus, UserNotificationCenterFailure>)? = nil,
         authorizationNotificationCenter: NotificationCenter = .default
     ) {
         self.userNotificationCenter = userNotificationCenter
         self.authorizationNotificationCenter = authorizationNotificationCenter
-        self.authorizationStatusProvider = authorizationStatusProvider ?? {
-            await userNotificationCenter.authorizationStatus()
+        if let authorizationStatusProvider {
+            self.authorizationStatusProvider = authorizationStatusProvider
+        } else {
+            self.authorizationStatusProvider = { @MainActor in
+                await userNotificationCenter.authorizationStatus()
+            }
         }
         nativeNotificationDeliveryHooks = NativeNotificationDeliveryHooks(
             userNotificationCenter: userNotificationCenter
