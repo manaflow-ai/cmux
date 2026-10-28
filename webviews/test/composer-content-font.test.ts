@@ -4,6 +4,7 @@ import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
+import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
@@ -110,9 +111,22 @@ await requireBrowserLane("composer-content-font.test.ts", async () => {
             }
           }
           // Shell mode is another editor in the same box and must keep the chosen size.
-          const prompt = page.locator(context === "new-tab" ? ".nt-field" : ".acpmux-md").first();
-          await prompt.fill("");
-          await prompt.press("!");
+          if (context === "new-tab") {
+            const prompt = page.locator(".nt-field");
+            await prompt.fill("");
+            await prompt.press("!");
+          } else {
+            // Use the editor's typing API: DOM fill can race ProseMirror's mutation observer,
+            // leaving its document nonempty when the following beforeinput arrives.
+            await page
+              .locator(".acpmux-composer-prompt")
+              .first()
+              .evaluate((element) => {
+                const field = (element as MarkdownFieldElement).acpmuxMarkdownField;
+                if (!field?.type("")) throw new Error("The composer editor is not ready");
+                field.insertTyped("!");
+              });
+          }
           const shell = page.locator(
             context === "new-tab" ? ".nt-screen[data-shell] .nt-field" : ".acpmux-shell-field",
           );
