@@ -12,7 +12,13 @@ test("a Cloud start sends the prompt, folder, agent and model with a key, and an
   expect(calls).toEqual([
     [
       "cloud.startChat",
-      { task: "fix it", cwd: "/Users/me/paint", harness: "codex", model: "gpt-6-astra", key: "00000000-0000-4000-8000-000000000001" },
+      {
+        task: "fix it",
+        cwd: "/Users/me/paint",
+        harness: "codex",
+        model: "gpt-6-astra",
+        key: "00000000-0000-4000-8000-000000000001",
+      },
     ],
   ]);
 });
@@ -31,6 +37,11 @@ test("a refusal keeps its code and the host's words; only a start the host ran w
 });
 
 test("a Cloud chat takes text only for now", () => {
-  expect(cloudPageRefusal(0)).toBeUndefined();
-  expect(cloudPageRefusal(2)).toBe("cloud_attachments");
+  expect(cloudPageRefusal(true, 0)).toBeUndefined();
+  expect(cloudPageRefusal(true, 2)).toBe("cloud_attachments");
+});
+
+test("Cloud picked but no longer offered refuses the send, never sending it as a chat here", () => {
+  expect(cloudPageRefusal(false, 0)).toBe("cloud_not_now");
+  expect(cloudPageRefusal(false, 2)).toBe("cloud_not_now");
 });

@@ -159,7 +159,13 @@ export type NewTabScreenActions = {
   onSandbox?(harness: string, text: string, attachments: ComposerAttachment[]): boolean | string;
   /// Cloud is the mode (cloudRun.ts): Enter hands the prompt, its folder and model to `onCloud`,
   /// which opens the chat on a Cloud machine; a string is a refusal said over the box.
-  onCloud?(harness: string, text: string, cwd: string | undefined, model: string | undefined, attachments: ComposerAttachment[]): boolean | string;
+  onCloud?(
+    harness: string,
+    text: string,
+    cwd: string | undefined,
+    model: string | undefined,
+    attachments: ComposerAttachment[],
+  ): boolean | string;
   /// The page goes with an unsent draft (a typed prompt, staged attachments): handed over so the
   /// view that replaces it can keep it (the tab's Sandboxed run taking the chat view).
   onLeaveDraft?(text: string, attachments: ComposerAttachment[]): void;

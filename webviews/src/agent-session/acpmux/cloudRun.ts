@@ -12,9 +12,15 @@ export type CloudStart = { task: string; cwd?: string; harness?: string; model?:
 /// The host's answer: ok, or a code with the host's own words when it has them.
 export type CloudStartAnswer = { ok: true } | { ok: false; code: string; message?: string };
 
-/// A page-side refusal before anything goes to the host: a Cloud chat takes text only for now
-/// (the folder is copied; a pasted file is not).
-export function cloudPageRefusal(attachmentCount: number): "cloud_attachments" | undefined {
+/// A page-side refusal before anything goes to the host: Cloud is picked but not offered now (Labs
+/// went off, a chat is starting here), or attachments, since a Cloud chat takes text only for now
+/// (the folder is copied; a pasted file is not). Either way the prompt stays; nothing is sent as a
+/// chat here instead.
+export function cloudPageRefusal(
+  offered: boolean,
+  attachmentCount: number,
+): "cloud_not_now" | "cloud_attachments" | undefined {
+  if (!offered) return "cloud_not_now";
   return attachmentCount > 0 ? "cloud_attachments" : undefined;
 }
 
@@ -33,7 +39,11 @@ export async function startCloudChat(
     await call("cloud.startChat", params);
     return { ok: true };
   } catch (error) {
-    const { code, message, userMessage } = (error ?? {}) as { code?: unknown; message?: unknown; userMessage?: unknown };
+    const { code, message, userMessage } = (error ?? {}) as {
+      code?: unknown;
+      message?: unknown;
+      userMessage?: unknown;
+    };
     const words = typeof userMessage === "string" ? userMessage : typeof message === "string" ? message : undefined;
     return {
       ok: false,

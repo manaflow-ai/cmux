@@ -5909,14 +5909,14 @@ function AcpmuxPane() {
     sandboxPageRefusal(attachmentCount, harness) ?? sandbox.send(text, sandboxAgent(harness));
   /// Cloud picked (cloudRun.ts): the first send goes to the host, which opens the chat on a Cloud
   /// machine and closes this tab. False keeps the prompt in the composer meanwhile; a string is a
-  /// refusal said here. The host says its own progress and failures (toasts).
-  /// Cloud picked but not offered now (as `sandboxPickedNotOffered`): a send is refused, never sent
-  /// as a chat here instead.
+  /// refusal said here, also while Cloud is picked but not offered now (as `sandboxPickedNotOffered`).
+  /// The host says its own progress and failures (toasts).
   const cloudPicked = sandbox.mode === "cloud" && !snapshot.sessionId;
   const cloudPickedNotOffered = cloudPicked && !sandboxOffered;
   const sendToCloud = (text: string, attachmentCount: number, start: Omit<CloudStart, "task">): string | false => {
-    if (!sandboxOffered) return translate("composer.offloadNotRun", { action: translate("composer.cloud") });
-    const refused = cloudPageRefusal(attachmentCount);
+    const refused = cloudPageRefusal(sandboxOffered, attachmentCount);
+    if (refused === "cloud_not_now")
+      return translate("composer.offloadNotRun", { action: translate("composer.cloud") });
     if (refused) return translate("composer.cloudAttachments");
     void startCloudChat(callNative, { task: text, ...start }).then((answer) => {
       if (!answer.ok && !cloudStartToasted(answer))
@@ -9813,7 +9813,13 @@ function AcpmuxPane() {
                     runMode: sandboxModeRows,
                     // A page-side refusal goes to the chat view, which says why (SandboxRunView), with
                     // the prompt and attachments put back in its composer.
-                    onCloud: (harness: string, text: string, cwd: string | undefined, model: string | undefined, attachments: ComposerAttachment[]) =>
+                    onCloud: (
+                      harness: string,
+                      text: string,
+                      cwd: string | undefined,
+                      model: string | undefined,
+                      attachments: ComposerAttachment[],
+                    ) =>
                       sendToCloud(text, attachments.length, {
                         harness,
                         ...(cwd ? { cwd } : {}),

@@ -527,7 +527,10 @@ export function EnvironmentPicker({
             : undefined
         }
         data-first-section={
-          sectionStart && index === 0 && savedShown.length === 0 && !(cloudRunShown && sectionOf(environment) === "fleet")
+          sectionStart &&
+          index === 0 &&
+          savedShown.length === 0 &&
+          !(cloudRunShown && sectionOf(environment) === "fleet")
             ? ""
             : undefined
         }
