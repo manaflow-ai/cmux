@@ -425,7 +425,11 @@ class Harness:
         """A background job in its own process group (`&` in an interactive shell with job control) and, for the
         first --servers terminals, a listening TCP server (a dev server). Each carries this run's marker in its argv,
         so the process table names it after its shell is gone and it is re-parented to launchd."""
-        text = f"sh -c 'sleep 86400; : {self.marker}-job-{index}' &\r"
+        # a plain job (the shell hangs it up on SIGHUP), and the jobs that escape that: nohup (ignores SIGHUP) and a
+        # disowned job (the shell no longer knows it), as `npm run dev &` then `disown` (audit C1)
+        text = (f"sh -c 'sleep 86400; : {self.marker}-job-{index}' &\r"
+                f"nohup sh -c 'sleep 86400; : {self.marker}-nohup-{index}' >/dev/null 2>&1 &\r"
+                f"sh -c 'sleep 86400; : {self.marker}-disown-{index}' & disown\r")
         if index < self.opts.servers:
             text += (f"python3 -c 'import socket,time;s=socket.socket();s.bind((\"127.0.0.1\",0));s.listen();"
                      f"time.sleep(86400)' {self.marker}-server-{index} &\r")
