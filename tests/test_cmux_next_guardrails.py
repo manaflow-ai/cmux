@@ -952,7 +952,10 @@ class ImplicitWindowRuleTests(Fixture):
                      "let w = NSApp.windows.first(where: { $0.isVisible && $0.canBecomeMain })",
                      "let target = windows.targetWindow(preferring: windows.active?.state.id)",
                      "let target = windows.targetWindow(preferring: context.activeWindow?.state.id)",
-                     "let target = windows.targetWindow(preferring: nil)"):
+                     "let target = windows.targetWindow(preferring: nil)",
+                     "guard let window = services.keyWindowSource() else { return }",
+                     "let window = WindowTargeting.current(visible)", "let c = controllers.last",
+                     "let c = controllers.first(where: { $0.state.id == id || id == nil })"):
             with self.subTest(code=code):
                 self.assertEqual(self.add(f"func run() {{\n    {code}\n}}\n"),
                                  [("implicit-window", [f"HomeHandlers.swift: {code}"])])
@@ -963,10 +966,19 @@ class ImplicitWindowRuleTests(Fixture):
                      "let target = windows.targetWindow(preferring: target.id)",
                      "let target = windows.targetWindow(preferring: windows.registry.value.owner(of: workspace.id))",
                      "let i = windows.firstIndex(where: { $0.id == id })", "let w = target.window",
-                     "let w = event.window", "let first = rows.first", "// NSApp.keyWindow is the wrong window here",
+                     "let w = event.window", "let first = rows.first",
+                     "services.keyWindowSource = { [window] in window }", "// NSApp.keyWindow is the wrong window here",
                      "let note = \"NSApp.keyWindow\""):
             with self.subTest(code=code):
                 self.assertEqual(self.add(f"func run() {{\n    {code}\n}}\n"), [])
+
+    def test_an_application_alias_is_the_application(self):
+        for bind in ("let app = NSApplication.shared", "guard let app = NSApp else { return }",
+                     "let app: NSApplication? = NSApp"):
+            with self.subTest(bind=bind):
+                self.assertEqual(self.add(f"func f() {{\n    {bind}\n    let w = app.keyWindow ?? app.mainWindow\n}}\n"),
+                                 [("implicit-window", ["HomeHandlers.swift: let w = app.keyWindow ?? app.mainWindow"])])
+        self.assertEqual(self.add("func f(_ app: Host) {\n    let w = app.keyWindow\n    let d = NSApp.delegate\n}\n"), [])
 
     def test_an_if_let_first_opens_its_body_and_is_refused(self):
         self.assertEqual(self.add("func run() {\n    if let c = controllers.first { c.show() }\n}\n"),
@@ -1000,6 +1012,11 @@ class ImplicitWindowRuleTests(Fixture):
             self.assertEqual(self.refused_lines(), [])
             self.assertEqual(self.add(text, f"{APP}/Windows/Other.swift"),
                              [("implicit-window", ["Other.swift: NSApp.keyWindow?.identifier?.rawValue"])])
+
+    def test_the_named_resolver_is_the_conversion_agents_file(self):
+        self.assertEqual(guardrails.IMPLICIT_WINDOW_RESOLVERS, (f"{APP}/Windows/WindowTarget.swift",))
+        self.assertEqual(self.add("func resolve() -> NSWindow? {\n    NSApp.keyWindow\n}\n",
+                                  f"{APP}/Windows/WindowTarget.swift"), [])
 
     def test_base_debt_is_not_new_and_an_edit_of_it_adds_none(self):
         old = "func f() {\n    let w = NSApp.keyWindow\n}\n"
@@ -1044,6 +1061,13 @@ class ImplicitWindowRuleTests(Fixture):
         self.assertEqual(guardrails.implicit_window_rows((self.repo / self.RECORD).read_text()),
                          {self.APP_FILE: (1, 2), other: (1, 3)})
         self.commit("records the move")
+        self.assertEqual(self.refused_lines(), [])
+
+    def test_a_branch_without_the_record_is_judged_by_the_line_rule_alone(self):
+        # The installed hook carries the rule before a branch has merged the record: a move must still pass.
+        self.rebase_on({self.APP_FILE: "func f() {\n    let w = NSApp.keyWindow\n}\n"}, "a lookup, no record")
+        self.git("mv", self.APP_FILE, f"{APP}/Handlers/MovedHandlers.swift")
+        self.commit("moves it")
         self.assertEqual(self.refused_lines(), [])
 
     def test_the_record_never_rises(self):

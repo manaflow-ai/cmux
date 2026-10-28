@@ -41,6 +41,7 @@ Packages/macOS/CmuxNext/Sources/CmuxNextApp/Focus/KeyRouter+NativePaletteKeys.sw
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Focus/KeyRouter+NewTabInput.swift	4
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Focus/Keybindings/KeybindingControl.swift	1
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Focus/NSResponder+OwnsTypedText.swift	1
+Packages/macOS/CmuxNext/Sources/CmuxNextApp/Focus/WindowKeyTable.swift	1
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Focus/WindowScopedShortcutHintModifierMonitor.swift	1
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/AppActionContext+Targets.swift	3
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/BrowserProfileOpenHandlers.swift	1
@@ -48,6 +49,7 @@ Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/CLIInstallHandlers.swift	1
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/IconHistory.swift	1
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/KeymapHandlers.swift	1
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/LinkHandlers.swift	1
+Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/ListHandlers.swift	1
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/MachineIconHandlers.swift	1
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/NowPlayingCardHandlers.swift	1
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/OnboardingHandlers.swift	3
@@ -55,6 +57,7 @@ Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/PaneBackgroundHandlers.swif
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/RoomHandlers.swift	1
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/RoomMoveHandlers.swift	1
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/TabIconHandlers.swift	1
+Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/WindowHandlers.swift	1
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/WindowTargeting.swift	1
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/WorkspaceGroupHandlers.swift	1
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/WorkspaceHandlers.swift	1
@@ -99,8 +102,9 @@ Packages/macOS/CmuxNext/Sources/CmuxNextApp/Viewers/ViewerService.swift	1
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/WebInspection/WebInspectorTargets.swift	1
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Windows/WindowController.swift	2
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Windows/WindowInvariants.swift	2
+Packages/macOS/CmuxNext/Sources/CmuxNextApp/Windows/WindowManager+EventOrigin.swift	1
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Windows/WindowManager+FullScreen.swift	1
-Packages/macOS/CmuxNext/Sources/CmuxNextApp/Windows/WindowManager.swift	1
+Packages/macOS/CmuxNext/Sources/CmuxNextApp/Windows/WindowManager.swift	2
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/WorkspaceSpawn.swift	1
 Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFExtensionPrompts.swift	1
 Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFPumpBoard.swift	1
@@ -122,6 +126,7 @@ Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/HomeChiefSettingsPopover.swif
 Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/HomeChiefSettingsView+Engine.swift	1
 Packages/macOS/CmuxNext/Sources/CmuxNextImportCards/ImportSuggestionsCenter.swift	1
 Packages/macOS/CmuxNext/Sources/CmuxNextOnboarding/System/BrowserFolderAccess.swift	1
+Packages/macOS/CmuxNext/Sources/CmuxNextPalette/PaletteController.swift	1
 Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/SettingsDiagnosticToastPresenter.swift	1
 Packages/macOS/CmuxNext/Sources/CmuxNextWakeups/WindowServerInputEvents.swift	1
 Packages/macOS/CmuxNext/Sources/CmuxNextWebUpdates/WebUpdates.swift	1

@@ -5029,32 +5029,42 @@ RULES += AWAITED_LOW_PRIORITY_RULES
 # less IMPLICIT_WINDOW_RESOLVERS, the one file that resolves a WindowTarget (empty until the conversion lands it:
 # nothing new is allowed anywhere until then).
 # The block owns its lines from here to `RULES += IMPLICIT_WINDOW_RULES`.
-IMPLICIT_WINDOW_RESOLVERS: tuple[str, ...] = ()  # the WindowTarget resolver (multiwindow-result.md names it)
+# The one WindowTarget resolver (the conversion's slice 1 adds it; until then nothing new is allowed anywhere).
+IMPLICIT_WINDOW_RESOLVERS: tuple[str, ...] = (APP + "Windows/WindowTarget.swift",)
 IMPLICIT_WINDOW_BASELINE = "scripts/cmux-next/implicit-window-baseline.tsv"
 IMPLICIT_WINDOW_MEMO = "implicit-window-record"
 IMPLICIT_WINDOW_ALLOW = re.compile(r"//\s*window-allow:\s*\S")
 NSAPP_WINDOW = re.compile(r"\b(?:NSApp|NSApplication\s*\.\s*shared)\s*[?!]?\s*\.\s*(?:keyWindow|mainWindow|orderedWindows)\b")
-FIRST_WINDOW = re.compile(r"\b(?:controllers|windows)\s*\.\s*first\b")
+FIRST_WINDOW = re.compile(r"\b(?:controllers|windows)\s*\.\s*(?:first|last)\b")
+# `let app = NSApplication.shared` / `if let app = NSApp` (the package idiom: NSApp is nil in package tests), then
+# `app.keyWindow`: the alias names are read from the file (implicit_window_aliases).
+APP_ALIAS = re.compile(r"\b(?:let|var)\s+(\w+)\s*(?::\s*NSApplication\s*[?!]?\s*)?=\s*(?:NSApp|NSApplication\s*\.\s*shared)\b(?!\s*[?!]?\s*\.)")
+WINDOW_MEMBER = re.compile(r"\b(\w+)\s*[?!]?\s*\.\s*(?:keyWindow|mainWindow|orderedWindows)\b")
+# The app's own "current window" helpers: the key-window seam (AppServices.keyWindowSource, `{ NSApp.keyWindow }`)
+# called, and WindowTargeting.current's frontmost-visible pick.
+WINDOW_HELPER = re.compile(r"\bkeyWindowSource\s*\(\s*\)|\bWindowTargeting\s*\.\s*current\b")
 ACTIVE_FALLBACK = re.compile(r"\bwindows\s*\.\s*active\s*(?:\?\s*\.\s*\w+(?:\s*\.\s*\w+)*\s*)?\?\?")
 # A `.first` predicate that still takes whichever window comes first: an absent target matches every window
 # (`windowID == nil || ...`, `.map { ... } ?? true`), or it picks by focus or visibility, the current window again.
-IMPLICIT_PREDICATE = re.compile(r"==\s*nil\s*\|\||\bnil\s*==|\?\?\s*true\b|\b(?:isKeyWindow|isMainWindow|isVisible|"
+IMPLICIT_PREDICATE = re.compile(r"==\s*nil\s*\|\||\|\|\s*\w+\s*==\s*nil\b|\bnil\s*==|\?\?\s*true\b|\b(?:isKeyWindow|isMainWindow|isVisible|"
                                 r"canBecomeMain|canBecomeKey)\b")
 TARGET_WINDOW = re.compile(r"\btargetWindow\(\s*preferring:\s*(?P<arg>(?:[^()]|\([^()]*\))*)")
 IMPLICIT_ARGUMENT = re.compile(r"^\s*nil\b|\bactive(?:Window)?\b")
 CONDITION_START = re.compile(r"\b(?:if|while|guard)\b")
-IMPLICIT_WINDOW_LINE = re.compile("|".join(p.pattern for p in (NSAPP_WINDOW, FIRST_WINDOW, ACTIVE_FALLBACK)) +
-                                  r"|\btargetWindow\(\s*preferring:")
+IMPLICIT_WINDOW_LINE = re.compile("|".join(p.pattern for p in (NSAPP_WINDOW, FIRST_WINDOW, ACTIVE_FALLBACK, WINDOW_HELPER,
+                                                                 WINDOW_MEMBER)) + r"|\btargetWindow\(\s*preferring:")
 
 
-def implicit_window_code(code: str) -> bool:
+def implicit_window_code(code: str, aliases: frozenset[str] = frozenset()) -> bool:
     """Whether CODE (a line's code: comments dropped, strings blanked) looks a window up implicitly.
 
     `controllers.first(where:)` and a trailing-closure `controllers.first { $0.state.id == id }` name their window
     and pass, unless the predicate still takes the first window (IMPLICIT_PREDICATE); a `{` after `.first` in an `if`/`while`/`guard` condition opens the body, so `if let c =
     controllers.first {` is the first window. `targetWindow(preferring:)` is implicit when its argument is `nil` or
     reads the active window (`windows.active?.state.id`, `context.activeWindow`)."""
-    if NSAPP_WINDOW.search(code) or ACTIVE_FALLBACK.search(code):
+    if NSAPP_WINDOW.search(code) or ACTIVE_FALLBACK.search(code) or WINDOW_HELPER.search(code):
+        return True
+    if aliases and any(m.group(1) in aliases for m in WINDOW_MEMBER.finditer(code)):
         return True
     for match in FIRST_WINDOW.finditer(code):
         rest = code[match.end():].lstrip()
@@ -5075,8 +5085,17 @@ def balanced_prefix(text: str) -> str:
     return text
 
 
+def implicit_window_aliases(version: Version) -> frozenset[str]:
+    """The names VERSION's file binds to the application (APP_ALIAS), read once per side."""
+    if IMPLICIT_WINDOW_MEMO + ":aliases" not in version.memo:
+        text = "\n".join(version.lines)
+        version.memo[IMPLICIT_WINDOW_MEMO + ":aliases"] = (
+            frozenset(APP_ALIAS.findall(text)) if "NSApp" in text or "NSApplication" in text else frozenset())
+    return version.memo[IMPLICIT_WINDOW_MEMO + ":aliases"]
+
+
 def implicit_window_debt(version: Version, index: int) -> tuple[bool, list[int]]:
-    return implicit_window_code(code_of(version.lines[index])), []
+    return implicit_window_code(code_of(version.lines[index]), implicit_window_aliases(version)), []
 
 
 IMPLICIT_WINDOW_MATCHER = Matcher(IMPLICIT_WINDOW_LINE, IMPLICIT_WINDOW_ALLOW, implicit_window_debt)
@@ -5125,6 +5144,8 @@ def implicit_window_record(changes: list[FileChange], moved: collections.Counter
     if memo is None:
         return []
     base_text, head_text = memo
+    if base_text is None and head_text is None:
+        return []  # a branch from before the record (the installed hook has it): the line rule alone judges it
     hits: list[Added] = []
     try:
         head_rows = implicit_window_rows(head_text)
@@ -5174,7 +5195,8 @@ def implicit_window_record(changes: list[FileChange], moved: collections.Counter
 
 def implicit_window_tree(repo: Path, rev: str) -> dict[str, int]:
     """{path: implicit lookups} of every Sources file at REV with at least one."""
-    listed = git(repo, "grep", "-l", "-E", r"keyWindow|mainWindow|orderedWindows|\.first|\.active|targetWindow", rev,
+    listed = git(repo, "grep", "-l", "-E", r"keyWindow|mainWindow|orderedWindows|\.first|\.active|targetWindow|"
+                 r"WindowTargeting", rev,
                  "--", SWIFT_SOURCES, check=False)
     paths = sorted({line.split(":", 1)[1] for line in listed.split("\n") if ":" in line})
     texts = blobs(repo, [(rev, p) for p in paths])
@@ -5225,8 +5247,8 @@ IMPLICIT_WINDOW_FIX = ("take the window from the input: the WindowTarget its ent
                        "== id }`, `controllers.first(where:)`), never take the first or the key window")
 IMPLICIT_WINDOW_RULES = (
     Rule("implicit-window", "An implicit window lookup: `NSApp.keyWindow` / `mainWindow` / `orderedWindows` (or "
-         "`NSApplication.shared`'s), `controllers.first`, `windows.first`, `windows.active ??`, or "
-         "`targetWindow(preferring:)` handed nil or the active window",
+         "`NSApplication.shared`'s), `controllers.first`, `windows.first`, `windows.active ??`, "
+         "`targetWindow(preferring:)` handed nil or the active window, `keyWindowSource()` or `WindowTargeting.current`",
          "it acts on whichever window is key or first at that moment, not the one the input came from: with a "
          "second window, a sheet, a panel or a focus race the command lands in the wrong window (keys dead in a new "
          "window, Home or a workspace click switching another window, the \"No workspaces\" launch window)",
