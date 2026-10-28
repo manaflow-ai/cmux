@@ -41,6 +41,7 @@ use zeroize::Zeroizing;
 use super::CloudError;
 use super::service::{CloudBackend, CloudWire, ConnectError, EventSink, WireRecv};
 use super::session::{token_account, token_agent, token_claim, validate_api_base_url};
+use crate::panic_free::JsonFields as _;
 
 mod ask;
 mod chief;
@@ -356,6 +357,7 @@ impl HostReplica {
         }
         let inner = self.inner.clone();
         // Publishing the cloud's read copy: background sync no request waits on.
+        // supervise-allow: owned by HostReplica (its handle stays in `driver`); a panic ends the cloud read copy's publishing only, the daemon's own sessions keep serving, and the cloud asks for a new lease (cloud-host-replica-needed).
         *driver = Some(cmux_threads::spawn(
             "mux-host-replica",
             cmux_threads::ThreadQos::Utility,
@@ -462,23 +464,23 @@ impl HostReplica {
         let state = self.inner.lock();
         let mut status = json!({ "state": state.phase.name() });
         if let Some(lease) = &state.lease {
-            status["api_base_url"] = json!(lease.origin);
-            status["expires_at"] = json!(lease.expires_at);
-            status["host_name"] = json!(lease.host_name);
+            status.insert("api_base_url", json!(lease.origin));
+            status.insert("expires_at", json!(lease.expires_at));
+            status.insert("host_name", json!(lease.host_name));
         }
         if let Some(host) = &state.host {
-            status["host"] = json!(host);
-            status["stream"] = json!(stream_of(host));
-            status["seq"] = json!(state.published_seq);
+            status.insert("host", json!(host));
+            status.insert("stream", json!(stream_of(host)));
+            status.insert("seq", json!(state.published_seq));
         }
         if state.purge {
-            status["purge_pending"] = json!(true);
+            status.insert("purge_pending", json!(true));
         }
         if state.purge_unconfirmed {
-            status["purge_unconfirmed"] = json!(true);
+            status.insert("purge_unconfirmed", json!(true));
         }
         if let Some(error) = &state.last_error {
-            status["last_error"] = json!(error);
+            status.insert("last_error", json!(error));
         }
         status
     }
@@ -788,9 +790,15 @@ impl Driver {
             403 => return Err(Err(Phase::Forbidden)),
             status => return Err(Ok(format!("host.enroll answered HTTP {status}"))),
         }
-        let id = reply.body["value"]["id"].as_str().filter(|id| valid_host_id(id));
+        let id = reply.body.field("value").field("id").as_str().filter(|id| valid_host_id(id));
         let Some(id) = id else {
-            let code = reply.body["error"]["code"].as_str().unwrap_or("invalid reply").to_string();
+            let code = reply
+                .body
+                .field("error")
+                .field("code")
+                .as_str()
+                .unwrap_or("invalid reply")
+                .to_string();
             return Err(Ok(format!("host.enroll: {code}")));
         };
         let mut state = self.inner.lock();
@@ -813,8 +821,8 @@ impl Driver {
             match wire.recv(poll) {
                 WireRecv::Text(text) => {
                     let frame: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
-                    if frame["t"] == "welcome" && frame["role"] == "publisher" {
-                        break frame["heads"].clone();
+                    if frame.field("t") == "welcome" && frame.field("role") == "publisher" {
+                        break frame.field("heads").clone();
                     }
                 }
                 WireRecv::Idle if Instant::now() < deadline => {}
@@ -829,14 +837,15 @@ impl Driver {
             let mut state = self.inner.lock();
             // A stream the replica does not hold starts at the wall clock, so
             // it is ahead of any cursor a reader kept from before a purge.
-            let floor = match heads[&stream].as_u64() {
+            let floor = match heads.field(&stream).as_u64() {
                 Some(head) => head,
                 None => (self.inner.options.now_ms)(),
             };
             state.seq = state.seq.max(floor);
         }
         let chief = chief_stream_of(host);
-        let chief_floor = heads[&chief].as_u64().unwrap_or_else(|| (self.inner.options.now_ms)());
+        let chief_floor =
+            heads.field(&chief).as_u64().unwrap_or_else(|| (self.inner.options.now_ms)());
         self.chief_seq = self.chief_seq.max(chief_floor);
         self.chief_last = None;
         // A snapshot after every connect: the replica holds exactly this state.
@@ -884,7 +893,7 @@ impl Driver {
                 WireRecv::Text(text) => {
                     let frame_stream = serde_json::from_str::<Value>(&text)
                         .ok()
-                        .and_then(|f| f["stream"].as_str().map(str::to_owned));
+                        .and_then(|f| f.field("stream").as_str().map(str::to_owned));
                     let target = if frame_stream.as_deref() == Some(chief.as_str()) {
                         &chief
                     } else {
@@ -974,14 +983,15 @@ impl Driver {
     ) -> Result<(), String> {
         let Ok(frame) = serde_json::from_str::<Value>(text) else { return Ok(()) };
         let is_chief = stream.ends_with(&format!("/{CHIEF_STREAM_SUFFIX}"));
-        match frame["t"].as_str() {
+        match frame.field("t").as_str() {
             Some("snapshot.request") if is_chief => {
                 self.chief_snapshot_request(stream, wire, &frame)
             }
             Some("snapshot.request") => {
-                if let Some(to) = frame["to"].as_str() {
+                if let Some(to) = frame.field("to").as_str() {
                     // A reader's pending keys: only the host knows its decided keys.
-                    let pending: Vec<&str> = frame["pending"]
+                    let pending: Vec<&str> = frame
+                        .field("pending")
                         .as_array()
                         .map(|keys| keys.iter().filter_map(Value::as_str).take(1000).collect())
                         .unwrap_or_default();
@@ -1010,7 +1020,7 @@ impl Driver {
             }
             Some("op") => self.on_op(lease, stream, wire, &frame),
             Some("error") => {
-                let code = frame["code"].as_str().unwrap_or("error");
+                let code = frame.field("code").as_str().unwrap_or("error");
                 self.inner.set_phase(Phase::Online, Some(format!("replica refused: {code}")));
                 Ok(())
             }

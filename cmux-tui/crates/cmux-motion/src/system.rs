@@ -84,6 +84,7 @@ mod platform {
     const KEY: &str = "enable-animations";
 
     pub fn start() {
+        // supervise-allow: the system Reduce Motion watcher; a panic keeps the last value it read, as when the thread cannot start.
         let _ = std::thread::Builder::new().name("cmux-motion-reduce".into()).spawn(|| {
             if let Some(v) = gsettings_get().or_else(gtk_ini) {
                 super::REDUCE.store(v, Ordering::Relaxed);
@@ -156,6 +157,7 @@ mod platform {
     pub fn start() {
         // First value now, so the first policy read is already right.
         read();
+        // supervise-allow: the system Reduce Motion watcher; a panic keeps the last value it read, as when the thread cannot start.
         let _ = std::thread::Builder::new().name("cmux-motion-reduce".into()).spawn(listen);
     }
 

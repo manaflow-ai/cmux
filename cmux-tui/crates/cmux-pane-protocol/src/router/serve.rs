@@ -53,6 +53,7 @@ impl Router {
         let stream = UnixStream::from_std(ours)?;
         let router = self.clone();
         let admission = Admission::Spawned(app_id.to_owned());
+        // supervise-allow: the spawned provider's one connection; it ends when the provider's socket closes, and a panic ends it the same way (the router serves its other connections on).
         tokio::spawn(router.serve_connection(transport::unix(stream), admission));
         Ok(child)
     }
@@ -86,9 +87,7 @@ pub fn listen(router: Arc<Router>, path: &Path) -> std::io::Result<tokio::task::
     cmux_threads::checked::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
     Ok(tokio::spawn(async move {
         let handle = |(stream, _): (UnixStream, tokio::net::unix::SocketAddr)| {
-            let connection =
-                router.clone().serve_connection(transport::unix(stream), Admission::SelfStarted);
-            tokio::spawn(connection);
+            router.clone().serve_connection(transport::unix(stream), Admission::SelfStarted)
         };
         let log = crate::net::log_accept_error("router unix socket");
         crate::net::accept_loop(|| listener.accept(), handle, log).await;

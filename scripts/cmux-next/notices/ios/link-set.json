@@ -214,9 +214,9 @@
     "zutil.o"
   ],
   "pin": {
-    "ghostty_revision": "7d5fa1573a7202ed7ae508f0aa70d2295712527e",
-    "sha256": "4398bf681a37c4185cb8f37b267bfe6d49ce852c1e723f3c1c23276ec67031e4",
-    "url": "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-7d5fa1573a7202ed7ae508f0aa70d2295712527e-apple-v6/GhosttyNextKit.xcframework.zip"
+    "ghostty_revision": "ef6ce279aefa467c2f7fd735c85fdb7d40860a0d",
+    "sha256": "d514c2d95c6ce6cef93f52c3f3f3daba3450b5d2da8b487bf4ae1f361c5403ab",
+    "url": "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-ef6ce279aefa467c2f7fd735c85fdb7d40860a0d-apple-v6/GhosttyNextKit.xcframework.zip"
   },
   "schema": 1,
   "slice": "ios-arm64",

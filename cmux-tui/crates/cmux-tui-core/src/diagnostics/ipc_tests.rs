@@ -114,6 +114,35 @@ fn a_nested_scope_keeps_its_parses_apart_from_the_outer_one() {
     assert_eq!(inner_stats.snapshot().parses.frames.json_parses, 2);
 }
 
+/// A request handed to another thread (a line queued on its connection's
+/// control sequence) counts once, where it began, with the parses of both
+/// threads; one whose handoff is dropped unrun adds no parse.
+#[test]
+fn a_handed_off_request_counts_once_with_both_threads_parses() {
+    let stats = IpcStats::default();
+    let handoff = {
+        let _scope = JsonParseScope::enter(&stats, IpcTransport::Lines);
+        note_json_parse();
+        JsonParseScope::handoff()
+    };
+    assert_eq!(stats.snapshot().parses.lines.requests, 1, "the reader's scope counts it");
+    std::thread::spawn(move || {
+        let _resumed = JsonParseScope::resume(handoff).expect("a scope was open");
+        note_json_parse();
+    })
+    .join()
+    .unwrap();
+    {
+        let _scope = JsonParseScope::enter(&stats, IpcTransport::Lines);
+        note_json_parse();
+        drop(JsonParseScope::handoff());
+    }
+    assert_eq!(
+        stats.snapshot().parses.lines,
+        IpcParseSnapshot { requests: 2, json_parses: 3, json_parses_per_request: 1.5 }
+    );
+}
+
 /// Takes at most `chunk` bytes per call, like a socket with a full buffer.
 struct Chunked {
     chunk: usize,
