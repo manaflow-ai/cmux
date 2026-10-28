@@ -157,34 +157,42 @@ impl Hub {
     }
 
     /// `_acpmux/bg/stop`: asks the task's runner to stop it (SIGTERM to the task's group, SIGKILL
-    /// after the grace) and waits until the runner is gone, at most the two graces and 10 s.
+    /// to the group after the grace) and waits until the runner is gone, at most [`STOP_WAIT`].
     pub async fn bg_stop(&self, session: &Session, id: &str) -> Result<Value, RpcError> {
         let (dir, record) = self.bg_record(session, id)?;
         if bg_run::request_stop(&dir, id) {
-            let lock = bg_run::lock_path(&dir, id);
-            let gone = tokio::task::spawn_blocking(move || bg_wait_unlocked(&lock));
-            let _ = tokio::time::timeout(bg_run::GRACE * 2 + START_WAIT, gone).await;
+            bg_wait_gone(&dir, id).await;
         }
         let record = bg_run::read_record(&dir, id).unwrap_or(record);
         Ok(bg_view(&dir, &record, LIST_TAIL))
     }
 
-    /// A purged chat's tasks are stopped, each waited for (at most its two graces and 10 s, all
-    /// at once), and its folder goes: a chat that later takes its id (an import) finds none.
+    /// A purged chat's tasks are stopped and waited for (at most [`STOP_WAIT`], all at once).
+    /// Its folder then goes, so a chat that later takes its id (an import) finds none, unless a
+    /// runner outlived the wait: then the folder stays, the runner's record and FIFO with it.
+    /// It holds the start lock, so a start in flight is either seen here or sees the chat closing.
     pub(super) async fn bg_purge(&self, session: &Session) {
+        let _one = self.bg_starts.lock().await;
         let dir = self.bg_dir(session);
         let mut gone = Vec::new();
         for record in self.bg_records(&dir) {
-            if bg_run::request_stop(&dir, &record.id) {
-                let lock = bg_run::lock_path(&dir, &record.id);
-                gone.push(tokio::task::spawn_blocking(move || bg_wait_unlocked(&lock)));
-            }
+            bg_run::request_stop(&dir, &record.id);
+            let dir = dir.clone();
+            gone.push(async move { bg_wait_gone(&dir, &record.id).await });
         }
-        let all = futures::future::join_all(gone);
-        let _ = tokio::time::timeout(bg_run::GRACE * 2 + START_WAIT, all).await;
-        let _ = std::fs::remove_dir_all(&dir);
+        if futures::future::join_all(gone).await.into_iter().all(|g| g) {
+            let _ = std::fs::remove_dir_all(&dir);
+        } else {
+            tracing::warn!(dir = %dir.display(), "a purged chat's background task outlived its stop");
+        }
     }
 }
+
+/// How long a stop waits for the task's runner to exit: its two graces and 10 s.
+const STOP_WAIT: std::time::Duration =
+    std::time::Duration::from_secs(bg_run::GRACE.as_secs() * 2 + START_WAIT.as_secs());
+/// How often that wait looks at the lock.
+const STOP_LOOK: std::time::Duration = std::time::Duration::from_millis(50);
 
 /// Whether the task's runner still holds its lock.
 fn bg_live(dir: &std::path::Path, id: &str) -> bool {
@@ -202,14 +210,17 @@ fn bg_live(dir: &std::path::Path, id: &str) -> bool {
     }
 }
 
-/// Blocks until nothing holds `lock` (the runner exited).
-fn bg_wait_unlocked(lock: &std::path::Path) {
-    #[cfg(unix)]
-    if let Ok(file) = std::fs::File::open(lock) {
-        use std::os::fd::AsRawFd;
-        // SAFETY: a blocking flock on a descriptor this function owns, dropped right after.
-        unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_SH) };
+/// Waits until the task's runner exited (nothing holds its lock), at most [`STOP_WAIT`]: a
+/// non-blocking look every [`STOP_LOOK`], so no thread or descriptor outlives the wait.
+async fn bg_wait_gone(dir: &std::path::Path, id: &str) -> bool {
+    let deadline = tokio::time::Instant::now() + STOP_WAIT;
+    while bg_live(dir, id) {
+        if tokio::time::Instant::now() >= deadline {
+            return false;
+        }
+        tokio::time::sleep(STOP_LOOK).await;
     }
+    true
 }
 
 /// A task as the wire carries it: `state` is `running`, `exited`, `stopped`, `killed` (a signal
@@ -228,6 +239,8 @@ fn bg_view(dir: &std::path::Path, r: &Record, tail: u64) -> Value {
         "state": state, "pid": r.pid, "startedAt": r.started_at, "endedAt": r.ended_at,
         "exitCode": r.exit_code, "signal": r.signal, "totalBytes": read.total,
         "keptFromByte": read.kept_from, "tail": String::from_utf8_lossy(&read.data),
+        // Set when the spool failed (a full disk): output after it is gone, so it is incomplete.
+        "outputError": r.output_error,
     })
 }
 

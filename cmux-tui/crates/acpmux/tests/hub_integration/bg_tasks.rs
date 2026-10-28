@@ -159,6 +159,13 @@ async fn a_connection_that_proved_nothing_reaches_no_task() {
     }
 }
 
+/// The task's whole output so far, as text.
+fn text(r: &Rig, id: &str, task: &str) -> String {
+    let s = r.hub.resolve(id).unwrap();
+    let read = r.hub.bg_output(&s, task, Some(0), None).unwrap();
+    read["text"].as_str().unwrap_or_default().to_owned()
+}
+
 /// Output a child writes after the leader exited is kept (the task runs until the pipe ends);
 /// a task that ignores SIGTERM is killed after the grace; a purge stops the chat's tasks and
 /// removes their folder.
@@ -173,14 +180,38 @@ async fn late_output_is_kept_a_stubborn_task_is_killed_and_a_purge_clears_the_fo
     r.until("the task never ended", || state(&r, &id, &late) == "exited").await;
     let read = output(&mut r, &id, &late, Some(0)).await;
     assert_eq!(read["text"], "early\nlate\n", "{read}");
-    let stubborn = start(&mut r, &id, "trap '' TERM; while :; do sleep 0.1; done").await;
+    let stubborn =
+        start(&mut r, &id, "trap '' TERM; echo ready; while :; do sleep 0.1; done").await;
     let (task, pid) =
         (stubborn["id"].as_str().unwrap().to_owned(), stubborn["pid"].as_u64().unwrap());
+    // Its trap is set before the stop, so only the SIGKILL can end it.
+    r.until("the stubborn task never set its trap", || text(&r, &id, &task) == "ready\n").await;
     let stopped = r.c.request(method::MUX_BG_STOP, json!({"sessionId": id, "id": task})).await;
-    assert_eq!(stopped.unwrap()["state"], "stopped");
+    let stopped = stopped.unwrap();
+    assert_eq!(stopped["state"], "stopped");
+    assert_eq!(stopped["signal"], libc::SIGKILL, "{stopped}");
     assert!(!alive(pid as u32), "a task that ignored SIGTERM outlived its stop");
     let running = start(&mut r, &id, "sleep 600").await["pid"].as_u64().unwrap();
     r.c.request(method::MUX_KILL, json!({"sessionId": id, "purge": true})).await.unwrap();
     r.until("a purge left its task running", || !alive(running as u32)).await;
     assert!(!acpmux::config::home().join("bg").join(&id).exists(), "a purge left the folder");
+}
+
+/// A child that ignores SIGTERM and sends its output elsewhere holds no pipe, so the pipe ends
+/// when the stop's SIGTERM ends the shell: the stop still SIGKILLs the child.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_stop_kills_a_child_that_ignores_sigterm_and_holds_no_pipe() {
+    let mut r = rig(PermissionPolicy::ApproveAll).await;
+    r.hub.set_bg_runner(RUNNER.into(), acpmux::bg_run::SEGMENT);
+    let id = new_session(&mut r.c, "quiet").await;
+    let quiet = "(trap '' TERM; echo child-$BASHPID; exec >/dev/null 2>&1; \
+        while :; do sleep 0.1; done) & wait";
+    let task = start(&mut r, &id, quiet).await["id"].as_str().unwrap().to_owned();
+    r.until("the child never said its pid", || text(&r, &id, &task).ends_with('\n')).await;
+    let said = text(&r, &id, &task);
+    let child: u32 = said.trim().strip_prefix("child-").unwrap().parse().unwrap();
+    let stopped = r.c.request(method::MUX_BG_STOP, json!({"sessionId": id, "id": task})).await;
+    assert_eq!(stopped.unwrap()["state"], "stopped");
+    r.until("a child that ignored SIGTERM outlived the stop", || !alive(child)).await;
 }
