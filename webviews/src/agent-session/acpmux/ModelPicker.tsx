@@ -136,7 +136,9 @@ function sectionsFor(entry: HarnessChoice | undefined): { latest: ModelChoice[];
         name: model.shortName || model.name || model.id,
         ...(model.family ? { family: model.family } : {}),
         ...(model.unavailable ? { unavailable: model.unavailable } : {}),
-        ...(model.efforts !== undefined ? { efforts: model.efforts } : {}),
+        // Catalog normalization materializes omitted capabilities as []; only preserve an empty
+        // list when the source explicitly declared that the model has no effort choices.
+        ...(model.effortsDeclared || (model.efforts?.length ?? 0) > 0 ? { efforts: model.efforts } : {}),
         ...(model.effortsDeclared ? { effortsDeclared: true } : {}),
         ...(model.fast !== undefined ? { fast: model.fast } : {}),
         ...(model.release ? { release: model.release } : {}),

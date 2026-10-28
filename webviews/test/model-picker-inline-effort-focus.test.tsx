@@ -80,10 +80,20 @@ afterAll(() => {
   }
 });
 
-async function openPicker(efforts: string[] | undefined, inline: boolean, effortPicks: string[] = []) {
+async function openPicker(
+  efforts: string[] | undefined,
+  inline: boolean,
+  effortPicks: string[] = [],
+  effortsDeclared = false,
+) {
   const { ModelPicker } = await import("../src/agent-session/acpmux/ModelPicker");
   const { PromptFocus } = await import("../src/agent-session/acpmux/promptFocus");
-  const model = { id: "claude-opus-5-5", name: "Opus 5.5", ...(efforts === undefined ? {} : { efforts }) };
+  const model = {
+    id: "claude-opus-5-5",
+    name: "Opus 5.5",
+    efforts: efforts ?? [],
+    ...(effortsDeclared ? { effortsDeclared: true } : {}),
+  };
   root = (await import("react-dom/client")).createRoot(host);
   await act(async () =>
     root!.render(
@@ -137,7 +147,7 @@ test.each([
   { capability: "absent", inline: false },
   { capability: "empty", inline: false },
 ])("ModelPicker preserves $capability efforts with inline=$inline", async ({ capability, inline }) => {
-  await openPicker(capability === "empty" ? [] : undefined, inline);
+  await openPicker(capability === "empty" ? [] : undefined, inline, [], capability === "empty");
   expect(document.querySelector(".acpmux-quick-menu")).not.toBeNull();
   expect(document.querySelectorAll(".acpmux-quick-effort-segment")).toHaveLength(
     capability === "absent" && inline ? 3 : 0,
