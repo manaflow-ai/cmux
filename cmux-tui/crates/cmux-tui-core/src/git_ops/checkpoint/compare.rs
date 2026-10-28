@@ -42,13 +42,6 @@ pub(super) fn diff(
     let Some(target) = target(mux, store, request, OPERATION, false)? else {
         return Err(not_found(from_id));
     };
-    if let Some(mut value) = diff::continuation(&target.repository, &request.fields, OPERATION)? {
-        value["from"] = json!(from_id);
-        if let Some(to_id) = to_id {
-            value["to"] = json!(to_id);
-        }
-        return Ok(value);
-    }
     let load = |id: &str| {
         let stored = store
             .load(&target.repository_id, id)
@@ -59,6 +52,15 @@ pub(super) fn diff(
     };
     let (from_object, from_complete) = load(from_id)?;
     let to_object = to_id.map(load).transpose()?;
+    if let Some(mut value) = diff::continuation(&target.repository, &request.fields, OPERATION)? {
+        value["from"] = json!(from_id);
+        value["complete"] =
+            json!(from_complete && to_object.as_ref().map_or(true, |(_, complete)| *complete));
+        if let Some(to_id) = to_id {
+            value["to"] = json!(to_id);
+        }
+        return Ok(value);
+    }
     let hooks = store.hooks();
     let git = writer(&target, &hooks);
     let scratch = store.scratch().map_err(|error| io_failed(OPERATION, &error))?;

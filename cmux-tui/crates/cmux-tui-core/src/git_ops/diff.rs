@@ -111,6 +111,19 @@ pub(super) fn continuation(
     let Some(key) = fields.get("patch_key").and_then(Value::as_str) else {
         return Ok(None);
     };
+    let parsed: Value = serde_json::from_str(key).unwrap_or(Value::Null);
+    let Some(parts) = parsed.as_array() else {
+        return Ok(None);
+    };
+    if parts.first().and_then(Value::as_str) != Some(repository.root.as_str())
+        || parts.get(1).and_then(Value::as_str) != Some(operation)
+    {
+        return Err(ResourceError::operation_failed(
+            operation,
+            "the patch capture does not belong to this repository or operation",
+            json!({"code":"patch_expired"}),
+        ));
+    }
     let revision = fields.get("patch_revision").and_then(Value::as_str).unwrap_or_default();
     let Some((window, mut metadata)) = super::diff_pages::get(key, revision) else {
         return Err(ResourceError::operation_failed(
@@ -136,7 +149,8 @@ pub(super) fn read(
 ) -> Result<Value, ResourceError> {
     let scope = fields.get("scope").and_then(Value::as_str).unwrap_or("uncommitted");
     pathspecs(fields)?;
-    if let Some(value) = continuation(repository, fields, OPERATION)? {
+    if let Some(mut value) = continuation(repository, fields, OPERATION)? {
+        value["scope"] = json!(scope);
         return Ok(value);
     }
     let comparison = comparison(repository, scope)?;
