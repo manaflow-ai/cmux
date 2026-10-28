@@ -274,6 +274,14 @@ class DanglingSubmodules(unittest.TestCase):
         self.assertEqual(retry.drop_dangling_submodules(self.repo, self.logs.append), [self.repo / "ghostty"])
         self.assertTrue((outside / "ghostty" / "objects").is_dir())
 
+    def test_only_limits_the_drop_to_the_named_paths(self) -> None:
+        shutil.rmtree(self.repo / ".git" / "modules")
+        (self.repo / "ghostty" / "cache").write_text("warm\n")
+        self.assertEqual(retry.drop_dangling_submodules(self.repo, self.logs.append, only=["ghostty-next"]), [])
+        self.assertEqual((self.repo / "ghostty" / "cache").read_text(), "warm\n")
+        self.assertEqual(retry.drop_dangling_submodules(self.repo, self.logs.append, only=["ghostty"]),
+                         [self.repo / "ghostty"])
+
     def test_the_cli_only_drops(self) -> None:
         shutil.rmtree(self.repo / ".git" / "modules")
         result = subprocess.run([sys.executable, str(ROOT / "scripts/ci/git_fetch_retry.py"),

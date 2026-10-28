@@ -231,21 +231,26 @@ def inside(path: Path, root: Path) -> bool:
     return path.resolve() != root.resolve() and root.resolve() in path.resolve().parents
 
 
-def drop_dangling_submodules(repo: Path, log: Callable[[str], None] = print) -> list[Path]:
+def drop_dangling_submodules(repo: Path, log: Callable[[str], None] = print,
+                             only: Sequence[str] = ()) -> list[Path]:
     """Remove submodule checkouts whose `.git` file names a git dir that is gone or has no HEAD.
 
     `submodule update --init --force` cannot repair such a checkout ("could not get a repository
     handle", "not a git repository"); with the checkout gone it clones the submodule again. A
     half-made git dir it named is removed too when it is under this repository's own .git/modules.
     Only paths inside the repository with no symlink on the way are touched. Checkouts are visited
-    top-down, so a nested one under a removed checkout is not visited.
+    top-down, so a nested one under a removed checkout is not visited. With `only`, just those top-level
+    paths (and submodules inside them) are looked at.
     """
     removed: list[Path] = []
     repo = Path(os.path.abspath(repo))
+    scopes = [repo / path for path in only]
     modules = repo / ".git" / "modules"
     own_modules = (repo / ".git").is_dir() and not (repo / ".git").is_symlink()
     for worktree in submodule_worktrees(repo):
         if any(parent in removed for parent in worktree.parents) or not inside(worktree, repo):
+            continue
+        if scopes and not any(worktree == scope or scope in worktree.parents for scope in scopes):
             continue
         target = gitfile_target(worktree)
         if target is None or (target / "HEAD").is_file():
@@ -343,10 +348,12 @@ def main(argv: Sequence[str]) -> int:
     parser.add_argument("--repo", type=Path, default=Path("."))
     parser.add_argument("--drop-dangling-submodules", action="store_true",
                         help="only remove submodule checkouts whose git dir is gone, then exit")
+    parser.add_argument("--only", action="append", default=[], metavar="PATH",
+                        help="with --drop-dangling-submodules: only this submodule path (repeatable)")
     parser.add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args(argv)
     if args.drop_dangling_submodules:
-        drop_dangling_submodules(args.repo)
+        drop_dangling_submodules(args.repo, only=args.only)
         return 0
     command = args.command[1:] if args.command[:1] == ["--"] else args.command
     if args.tries < 1 or args.timeout is None or args.timeout <= 0 or not command:
