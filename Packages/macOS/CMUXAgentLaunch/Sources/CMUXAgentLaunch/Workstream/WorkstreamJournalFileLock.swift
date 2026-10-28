@@ -12,25 +12,6 @@ import Glibc
 /// and is never removed. Kernel lock acquisition runs on a private queue rather
 /// than blocking a Swift cooperative executor.
 final class WorkstreamJournalFileLock: @unchecked Sendable {
-    final class Lease: @unchecked Sendable {
-        private var descriptor: Int32?
-
-        init(descriptor: Int32) {
-            self.descriptor = descriptor
-        }
-
-        deinit {
-            release()
-        }
-
-        func release() {
-            guard let descriptor else { return }
-            _ = flock(descriptor, LOCK_UN)
-            _ = close(descriptor)
-            self.descriptor = nil
-        }
-    }
-
     private let lockURL: URL
     private let fileManager: FileManager
     private let queue = DispatchQueue(label: "com.cmuxterm.workstream-journal-lock")
@@ -40,7 +21,7 @@ final class WorkstreamJournalFileLock: @unchecked Sendable {
         self.fileManager = fileManager
     }
 
-    func acquire() async throws -> Lease {
+    func acquire() async throws -> WorkstreamJournalFileLockLease {
         try await withCheckedThrowingContinuation { continuation in
             queue.async {
                 do {
@@ -61,7 +42,7 @@ final class WorkstreamJournalFileLock: @unchecked Sendable {
                         _ = close(descriptor)
                         throw error
                     }
-                    continuation.resume(returning: Lease(descriptor: descriptor))
+                    continuation.resume(returning: WorkstreamJournalFileLockLease(descriptor: descriptor))
                 } catch {
                     continuation.resume(throwing: error)
                 }
