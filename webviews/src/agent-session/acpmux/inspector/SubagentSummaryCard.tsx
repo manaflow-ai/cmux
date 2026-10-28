@@ -2,7 +2,7 @@
 // intact; clicking this card opens the matching detail section.
 import { useMemo } from "react";
 import { useT } from "../i18n";
-import { AgentAvatarStack } from "../summary/SubagentStack";
+import { AgentAvatarStack, AGENT_STACK_LIMIT } from "../summary/SubagentStack";
 import { tally } from "../summary/foldWorkflows";
 import type { WorkflowSummary } from "../summary/workflow";
 import type { Subagent } from "../subagents/subagentFold";
@@ -11,14 +11,24 @@ import type { StartedSession } from "../started/startedSessions";
 import { subagentTally, subsessionTally } from "./SubagentsSection";
 import "./SubagentSummaryCard.css";
 
-type Props = {
+/// Shared input contract for Session Info, SummaryCard, and agent-mesh consumers.
+/// Pass App.tsx's folded arrays; this component owns no subscriptions or agent state.
+export type SubagentSummaryCardProps = {
+  /// Ordinary subagents; workflow container nodes must be omitted when workflows is supplied.
   agents: readonly Subagent[];
+  /// IDs of ordinary subagents waiting for input.
   waiting: ReadonlySet<string>;
+  /// Existing started-chat records, distinct from acpmux start_session rows.
   sessions: readonly StartedSession[];
+  /// App.tsx chatSubsessions.rows, including nested rows.
   subsessions?: readonly SubsessionRow[];
+  /// App.tsx workflows; callers must pass none when the workflow Labs gate is off.
   workflows?: readonly WorkflowSummary[];
+  /// Reveal the host surface's existing detail. Absent for a read-only preview.
   onOpen?: () => void;
+  /// Gallery alternatives; production uses the default line treatment.
   variant?: "line" | "segmented" | "chips";
+  /// Gallery empty-state preview; production hides an empty card.
   showEmpty?: boolean;
 };
 
@@ -31,8 +41,26 @@ export function SubagentSummaryCard({
   onOpen,
   variant = "line",
   showEmpty = false,
-}: Props) {
+}: SubagentSummaryCardProps) {
   const t = useT();
+  // Only collect what the bounded avatar preview draws, even in a forty-agent workflow.
+  const identities: string[] = [];
+  const remaining = Math.max(0, AGENT_STACK_LIMIT - agents.length);
+  for (const row of sessions) {
+    if (identities.length >= remaining) break;
+    identities.push(`started:${row.sessionId}`);
+  }
+  for (const row of subsessions) {
+    if (identities.length >= remaining) break;
+    identities.push(`session:${row.sessionId}`);
+  }
+  for (const workflow of workflows) {
+    if (identities.length >= remaining) break;
+    for (const agent of workflow.agents) {
+      if (identities.length >= remaining) break;
+      identities.push(`workflow:${workflow.id}:${agent.id}`);
+    }
+  }
   const counts = useMemo(() => {
     const source = subagentTally(agents, waiting, sessions);
     const sub = subsessionTally(subsessions);
@@ -61,9 +89,7 @@ export function SubagentSummaryCard({
   const labels = countItems.map((item) => item.text);
   const runningWorkflow = workflows.find((workflow) => workflow.state === "running");
   const runningPhase = runningWorkflow?.phases.find((phase) => phase.state === "running");
-  const detail = runningWorkflow
-    ? [runningWorkflow.title, runningPhase?.name].filter(Boolean).join(" · ")
-    : undefined;
+  const detail = runningWorkflow ? [runningWorkflow.title, runningPhase?.name].filter(Boolean).join(" · ") : undefined;
   if (total === 0 && !showEmpty) return null;
   return (
     <button
@@ -73,7 +99,7 @@ export function SubagentSummaryCard({
       onClick={onOpen}
       disabled={!onOpen}
     >
-      <AgentAvatarStack agents={agents} />
+      <AgentAvatarStack agents={agents} identities={identities} />
       <span className="acpmux-chat-inspector-agent-summary__body">
         {variant === "line" && (
           <span className="acpmux-chat-inspector-agent-summary__counts">
@@ -81,22 +107,29 @@ export function SubagentSummaryCard({
           </span>
         )}
         {variant === "segmented" && (
-          <span className="acpmux-chat-inspector-agent-summary__bar" aria-label={labels.join(" · ")}>
-            {countItems.map((item) => (
-              <span key={item.key} data-status={item.key} style={{ flexGrow: item.count }} />
-            ))}
-          </span>
+          <>
+            <span className="acpmux-chat-inspector-agent-summary__counts">{labels.join(" · ")}</span>
+            <span className="acpmux-chat-inspector-agent-summary__bar" aria-label={labels.join(" · ")}>
+              {countItems.map((item) => (
+                <span key={item.key} data-status={item.key} style={{ flexGrow: item.count }} />
+              ))}
+            </span>
+          </>
         )}
         {variant === "chips" && (
           <span className="acpmux-chat-inspector-agent-summary__chips">
             {countItems.map((item) => (
-              <span key={item.key} data-status={item.key}>{item.text}</span>
+              <span key={item.key} data-status={item.key}>
+                {item.text}
+              </span>
             ))}
           </span>
         )}
         {detail && <span className="acpmux-chat-inspector-agent-summary__workflow">{detail}</span>}
       </span>
-      <span className="acpmux-chat-inspector-agent-summary__chevron" aria-hidden="true">›</span>
+      <span className="acpmux-chat-inspector-agent-summary__chevron" aria-hidden="true">
+        ›
+      </span>
     </button>
   );
 }

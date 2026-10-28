@@ -22,7 +22,12 @@ import { agentTone } from "../subagents/agentTones";
 import type { Subagent } from "../subagents/subagentFold";
 import { retrying, retryLabel, sessionRetry } from "../subagents/retryState";
 import { SUBSESSION_STATE_LABEL, type SubsessionRow, waitingLine } from "../subagents/subsessions";
-import { SUBSESSION_STATUS, subagentStateText, subagentStatus, type SubagentStatus } from "../summary/SubagentStatusList";
+import {
+  SUBSESSION_STATUS,
+  subagentStateText,
+  subagentStatus,
+  type SubagentStatus,
+} from "../summary/SubagentStatusList";
 import { orderedSessions, sessionStatus, sessionStateText } from "./ChildSessionRows";
 import "./SubagentsSection.css";
 import { InspectorFold } from "./InspectorSection";
@@ -46,7 +51,7 @@ export function subagentTally(
     out[status] += 1;
   };
   agents.forEach((agent) => add(subagentStatus(agent, waiting)));
-  sessions.forEach((session) => add(sessionStatus(session)));
+  sessions.forEach((session) => add(session.waitsForSlot ? "waiting" : sessionStatus(session)));
   return out;
 }
 
@@ -56,8 +61,9 @@ export function subsessionTally(rows: readonly SubsessionRow[] = NO_SUBSESSIONS)
   const out: SubagentTally = { waiting: 0, running: 0, failed: 0, stopped: 0, done: 0 };
   rows.forEach((row) => {
     const retry = sessionRetry(row);
-    if (retry.kind === "retrying" || row.state === "working") out.running += 1;
-    else if (row.state === "input" || row.slot) out.waiting += 1;
+    if (row.slot) out.waiting += 1;
+    else if (retry.kind === "retrying" || row.state === "working") out.running += 1;
+    else if (row.state === "input") out.waiting += 1;
     else if (row.state === "done") out.done += 1;
     else out.failed += 1;
   });
@@ -247,19 +253,31 @@ export function SubagentsSection({
   );
   const children = orderedSessions(sessions);
   const runningLines = [
-    ...subsessions.filter((session) => {
-      const phase = sessionRetry(session);
-      return phase.kind === "retrying" || SUBSESSION_STATUS[session.state] === "waiting" || SUBSESSION_STATUS[session.state] === "running";
-    }).map(subsessionLine),
+    ...subsessions
+      .filter((session) => {
+        const phase = sessionRetry(session);
+        return (
+          phase.kind === "retrying" ||
+          SUBSESSION_STATUS[session.state] === "waiting" ||
+          SUBSESSION_STATUS[session.state] === "running"
+        );
+      })
+      .map(subsessionLine),
     ...children.filter((child) => sessionStatus(child) === "waiting").map(sessionLine),
     ...runningAgents,
     ...children.filter((child) => sessionStatus(child) === "running").map(sessionLine),
   ];
   const endedLines = [
-    ...subsessions.filter((session) => {
-      const phase = sessionRetry(session);
-      return phase.kind !== "retrying" && SUBSESSION_STATUS[session.state] !== "waiting" && SUBSESSION_STATUS[session.state] !== "running";
-    }).map(subsessionLine),
+    ...subsessions
+      .filter((session) => {
+        const phase = sessionRetry(session);
+        return (
+          phase.kind !== "retrying" &&
+          SUBSESSION_STATUS[session.state] !== "waiting" &&
+          SUBSESSION_STATUS[session.state] !== "running"
+        );
+      })
+      .map(subsessionLine),
     ...agents.filter((agent) => !live(subagentStatus(agent, waiting))).map((agent) => agentLine(agent, 0)),
     ...children.filter((child) => !live(sessionStatus(child))).map(sessionLine),
   ].sort((a, b) => ENDED_RANK[a.status] - ENDED_RANK[b.status] || b.at - a.at);

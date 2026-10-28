@@ -46,6 +46,7 @@ type Props = ComponentProps<typeof ChatInspector> & {
   ceiling?: string;
   /// Compact agent summary card studies, kept beside the full Inspector variants.
   cardDemo?: "zero" | "one" | "five" | "forty" | "segmented" | "chips";
+  cardCount?: 0 | 1 | 5 | 40;
 };
 
 const edit = (path: string, oldText: string | undefined, newText: string) =>
@@ -102,13 +103,20 @@ function GalleryInspector({
   tones,
   ceiling,
   cardDemo,
+  cardCount,
   ...props
 }: Props) {
+  if (cardDemo)
+    return (
+      <div className="acpmux-shell">
+        <SummaryCardDemo demo={cardDemo} count={cardCount} />
+      </div>
+    );
   return (
-    <div className="acpmux-shell" style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", justifyContent: "flex-end", height: "100%", ...tones }}>
+    <div className="acpmux-shell" style={{ display: "flex", justifyContent: "flex-end", height: "100%", ...tones }}>
       {ceiling ? <style>{`.acpmux-chat-inspector[data-placement]{max-height:${ceiling}}`}</style> : null}
       {transcript ? <Transcript /> : null}
-      {cardDemo && <SummaryCardDemo demo={cardDemo} />}
+
       <InspectorPanel
         width={320}
         placement={placement}
@@ -126,17 +134,18 @@ function GalleryInspector({
   );
 }
 
-function SummaryCardDemo({ demo }: { demo: NonNullable<Props["cardDemo"]> }) {
+function SummaryCardDemo({ demo, count: size }: { demo: NonNullable<Props["cardDemo"]>; count?: Props["cardCount"] }) {
   const variant = demo === "segmented" ? "segmented" : demo === "chips" ? "chips" : "line";
-  const count = demo === "zero" ? 0 : demo === "one" ? 1 : demo === "five" ? 5 : 40;
+  const count = size ?? (demo === "zero" ? 0 : demo === "one" ? 1 : demo === "five" ? 5 : 40);
   return (
     <div style={{ width: 320, alignSelf: "flex-end", padding: "8px 8px 0" }}>
       <SubagentSummaryCard
-        agents={agents.slice(0, count)}
-        waiting={new Set()}
+        agents={agents.slice(0, count).map((agent, index) => ({ ...agent, harness: index % 2 ? "codex" : "claude" }))}
+        waiting={new Set(count > 1 ? ["agent-1"] : [])}
         sessions={[]}
         variant={variant}
         showEmpty={count === 0}
+        onOpen={() => undefined}
       />
     </div>
   );
@@ -580,6 +589,30 @@ export default componentEntry<Props>({
     "summary-card-chips": {
       note: "Alternative C: per-state count chips. Each status is easy to scan, but the chips wrap sooner in a narrow rail.",
       props: { cardDemo: "chips" },
+    },
+    "summary-card-segmented-0": {
+      note: "Segmented alternative with 0 agents.",
+      props: { cardDemo: "segmented", cardCount: 0 },
+    },
+    "summary-card-segmented-1": {
+      note: "Segmented alternative with 1 agents.",
+      props: { cardDemo: "segmented", cardCount: 1 },
+    },
+    "summary-card-segmented-5": {
+      note: "Segmented alternative with 5 agents.",
+      props: { cardDemo: "segmented", cardCount: 5 },
+    },
+    "summary-card-chips-0": {
+      note: "Chips alternative with 0 agents.",
+      props: { cardDemo: "chips", cardCount: 0 },
+    },
+    "summary-card-chips-1": {
+      note: "Chips alternative with 1 agents.",
+      props: { cardDemo: "chips", cardCount: 1 },
+    },
+    "summary-card-chips-5": {
+      note: "Chips alternative with 5 agents.",
+      props: { cardDemo: "chips", cardCount: 5 },
     },
     "subagents-done": {
       note: "A busy chat with Environment, Context, Outputs and 31 completed subagents: four static harness avatars beside the count, opening the named list.",

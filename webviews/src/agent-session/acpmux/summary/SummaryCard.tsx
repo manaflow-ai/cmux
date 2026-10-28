@@ -214,6 +214,7 @@ export function SummaryCard({
   const hasAgentWork = hasSubagents || (workflows?.length ?? 0) > 0;
   const workflowIds = new Set((workflows ?? []).map((workflow) => workflow.id));
   const summaryAgents = workflowIds.size > 0 ? agents.filter((agent) => !workflowIds.has(agent.id)) : agents;
+  const hasSummaryDetails = summaryAgents.length + children.length + subsessionRows.length > 0;
   return (
     <>
       <aside
@@ -323,7 +324,18 @@ export function SummaryCard({
                   sessions={children}
                   subsessions={subsessionRows}
                   workflows={workflows}
-                  onOpen={agents.length > 0 ? () => setTab("subagents") : onOpenWorkflow}
+                  onOpen={() => {
+                    // Keep all of the existing detail visible, including started chats and
+                    // sub-sessions which the Subagents tab does not list.
+                    const detail = panel.current?.querySelector<HTMLElement>(
+                      hasSummaryDetails ? ".acpmux-summary-agents" : ".acpmux-workflow",
+                    );
+                    if (!hasSummaryDetails && onOpenWorkflow) return onOpenWorkflow();
+                    const toggle = detail?.querySelector<HTMLButtonElement>(".acpmux-workflow__row");
+                    if (toggle?.getAttribute("aria-expanded") === "false") toggle.click();
+                    detail?.scrollIntoView({ block: "nearest" });
+                    detail?.querySelector<HTMLElement>("button:not(:disabled)")?.focus({ preventScroll: true });
+                  }}
                 />
                 {hasSubagents && (
                   <SubagentStatusList

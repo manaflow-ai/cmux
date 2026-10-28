@@ -51,9 +51,13 @@ export function slotCounts(
     else if (child.state === "running" || child.state === "waiting") running += 1;
   }
   for (const child of subsessions) {
-    if (child.slot || child.state === "input") queued += 1;
-    else if (sessionRetry(child).kind === "retrying" || child.state === "working") running += 1;
+    // Descendants occupy their own parent's slots, not this chat's.
+    if (child.depth !== 0) continue;
+    if (child.slot) queued += 1;
+    else if (sessionRetry(child).kind === "retrying" || child.state === "working" || child.state === "input")
+      running += 1;
   }
-  if (sessions.length === 0 && subsessions.length === 0) return { running: limits.running ?? 0, queued: limits.queued ?? 0 };
+  if (sessions.length === 0 && subsessions.length === 0)
+    return { running: limits.running ?? 0, queued: limits.queued ?? 0 };
   return { running, queued };
 }

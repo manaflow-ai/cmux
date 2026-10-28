@@ -1205,18 +1205,20 @@ export function ChatInspector({
       )}
     </InspectorSection>
   );
-  const agentSummary = listedAgents.length + sessions.length + subsessions.length > 0 || workflows.some((workflow) => workflow.agents.length > 0) ? (
-    <SubagentSummaryCard
-      agents={listedAgents}
-      waiting={waiting}
-      sessions={sessions}
-      subsessions={subsessions}
-      workflows={workflows}
-      onOpen={() =>
-        fold(listedAgents.length + sessions.length + subsessions.length > 0 ? "subagents" : "tasks")(true)
-      }
-    />
-  ) : null;
+  const agentSummary =
+    listedAgents.length + sessions.length + subsessions.length > 0 ||
+    workflows.some((workflow) => workflow.agents.length > 0) ? (
+      <SubagentSummaryCard
+        agents={listedAgents}
+        waiting={waiting}
+        sessions={sessions}
+        subsessions={subsessions}
+        workflows={workflows}
+        onOpen={() =>
+          fold(listedAgents.length + sessions.length + subsessions.length > 0 ? "subagents" : "tasks")(true)
+        }
+      />
+    ) : null;
   // The dev servers are background commands too: their rows head the one Background tasks section
   // (they were a card of their own, most often one row). Every server runs.
   const running = runningTasks + servers.length + workflows.filter((workflow) => workflow.state === "running").length;

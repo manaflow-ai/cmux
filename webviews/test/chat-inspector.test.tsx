@@ -36,6 +36,10 @@ import {
   resetInspectorState,
   setInspectorSection,
 } from "../src/agent-session/acpmux/inspector/inspectorState";
+import { SubagentSummaryCard } from "../src/agent-session/acpmux/inspector/SubagentSummaryCard";
+import { translate } from "../src/agent-session/acpmux/i18n";
+import type { SubsessionRow } from "../src/agent-session/acpmux/subagents/subsessions";
+import type { WorkflowSummary } from "../src/agent-session/acpmux/summary/workflow";
 import { sessionEntry } from "../src/agent-session/acpmux/sessionList";
 import {
   spawnedSessions,
@@ -1060,4 +1064,71 @@ test("a Cloud VM chat's children, as its machine's daemon lists them with the ch
   ]);
   await click(subagents.querySelector<HTMLButtonElement>("button.acpmux-agent-line__button")!);
   expect(opened).toEqual(["vm-sub"]);
+});
+
+
+const compactWorkflow: WorkflowSummary = {
+  id: "workflow-summary", title: "Review workflow", state: "running",
+  phases: [{ id: "review", name: "Review phase", state: "running", agentIds: ["worker"] }],
+  agents: [{ id: "worker", name: "Worker", state: "running" }],
+};
+const compactButton = (container: HTMLElement) =>
+  container.querySelector<HTMLButtonElement>(".acpmux-chat-inspector-agent-summary")!;
+
+test("compact counts combine sources with slot waits queued and failed retries running", async () => {
+  const container = installDom(true);
+  const subsessions: SubsessionRow[] = [
+    { sessionId: "slot", name: "Slot queue", state: "working", slot: true, depth: 0 },
+    { sessionId: "retry", name: "Retry", state: "failed", retry: { attempt: 1, of: 4 }, depth: 0 },
+    { sessionId: "ended", name: "Ended", state: "done", depth: 0 },
+  ];
+  await act(async () => {
+    root = createRoot(container);
+    root.render(<SubagentSummaryCard
+      agents={[subagent(0, "running"), subagent(1, "failed"), subagent(2, "completed")]}
+      waiting={new Set()} sessions={[{ sessionId: "started", title: "Started", state: "idle" }]}
+      subsessions={subsessions} workflows={[compactWorkflow]} onOpen={noop} />);
+  });
+  expect(compactButton(container).querySelector(".acpmux-chat-inspector-agent-summary__counts")?.textContent).toBe([
+    translate("summary.subagents.running", { n: 3 }), translate("workflow.queued", { n: 1 }),
+    translate("summary.subagents.done", { n: 3 }), translate("summary.subagents.failed", { n: 1 }),
+  ].join(" · "));
+  expect(compactButton(container).textContent).toContain("Review workflow · Review phase");
+  await act(async () => {
+    root!.render(<ChatInspector subsessions={subsessions} />);
+  });
+  expect(meta(section(container, "subagents"))).toBe([
+    translate("summary.subagents.waiting", { n: 1 }), translate("summary.subagents.running", { n: 1 }),
+    translate("summary.subagents.done", { n: 1 }),
+  ].join(" · "));
+});
+
+test("the compact Inspector card reveals the matching existing detail and leaves no empty group", async () => {
+  const container = installDom(true);
+  const opened: string[] = [];
+  const onSection = (id: string, open: boolean) => { if (open) opened.push(id); };
+  await act(async () => {
+    root = createRoot(container);
+    root.render(<ChatInspector agents={[subagent(0, "running")]} workflows={[compactWorkflow]} onSection={onSection} />);
+  });
+  await click(compactButton(container));
+  expect(opened).toContain("subagents");
+  opened.length = 0;
+  await act(async () => root!.render(<ChatInspector workflows={[compactWorkflow]} onSection={onSection} />));
+  await click(compactButton(container));
+  expect(opened).toContain("tasks");
+  await act(async () => root!.render(<ChatInspector />));
+  expect(compactButton(container)).toBeNull();
+  expect(container.querySelector('[data-group="running"]')).toBeNull();
+});
+
+test("a forty-agent compact card keeps four avatars and the full count", async () => {
+  const container = installDom(true);
+  await act(async () => {
+    root = createRoot(container);
+    root.render(<SubagentSummaryCard agents={Array.from({ length: 40 }, (_, i) => subagent(i, "completed"))}
+      waiting={new Set()} sessions={[]} onOpen={noop} />);
+  });
+  expect(compactButton(container).querySelectorAll(".acpmux-summary-avatar")).toHaveLength(4);
+  expect(compactButton(container).textContent).toContain(translate("summary.subagents.done", { n: 40 }));
 });
