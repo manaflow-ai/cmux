@@ -507,6 +507,14 @@ mod tests {
         assert_eq!(reply_body_window(true), UPLOAD_REPLY);
     }
 
+    /// Review of #26498 at d79ff855: a derived image's (bytes) reply body was
+    /// read within the stall window, not the reply window, though its whole
+    /// request has UPLOAD_TIMEOUT (10 min).
+    #[test]
+    fn a_byte_uploads_reply_body_has_the_reply_window_too() {
+        assert_eq!(reply_body_window(false), UPLOAD_REPLY);
+    }
+
     /// Serves one raw HTTP/1.1 exchange and hands back the request head.
     fn one_http_exchange(reply: &'static str) -> (String, mpsc::Receiver<(String, String)>) {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
