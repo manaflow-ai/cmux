@@ -174,20 +174,48 @@ final class CardResidency {
 /// A grid card, in the tree only while its slot is built (or a gesture or
 /// the zoom holds it). The card's view is made in this body, so an unbuilt
 /// card costs the grid's body nothing (a built value per card was made for
-/// all 80 cards on every zoom frame).
+/// all 80 cards on every zoom frame). An unbuilt card is still in the
+/// accessibility tree: a bare element in its slot, named after its tab, that
+/// opens it, so swiping through the cards with VoiceOver reaches every tab
+/// (scrolling to one builds it).
 struct ResidentCard<Content: View>: View {
     let slot: CardSlot
     let held: Bool
+    let standIn: CardStandIn
     let content: () -> Content
 
-    init(slot: CardSlot, held: Bool, @ViewBuilder content: @escaping () -> Content) {
+    init(slot: CardSlot, held: Bool, standIn: CardStandIn, @ViewBuilder content: @escaping () -> Content) {
         self.slot = slot
         self.held = held
+        self.standIn = standIn
         self.content = content
     }
 
     var body: some View {
-        if slot.built || held { content() }
+        if slot.built || held {
+            content()
+        } else {
+            standIn
+        }
+    }
+}
+
+/// An unbuilt card's accessibility element: no pixels, no touches.
+struct CardStandIn: View {
+    var label: String
+    var rect: CGRect
+    var open: () -> Void
+
+    var body: some View {
+        Color.clear
+            .frame(width: rect.width, height: rect.height + OverviewLayout.titleRow)
+            .offset(x: rect.minX, y: rect.minY)
+            .allowsHitTesting(false)
+            .accessibilityElement()
+            .accessibilityLabel(Text(label))
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction(named: "Open", open)
+            .accessibilityAction(.default, open)
     }
 }
 #endif
