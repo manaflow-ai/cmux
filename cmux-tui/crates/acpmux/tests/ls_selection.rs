@@ -18,6 +18,7 @@ fn scratch() -> PathBuf {
     let _ = fs::remove_dir_all(&root);
     fs::create_dir_all(root.join("sessions")).unwrap();
     fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
+    fs::set_permissions(root.join("sessions"), fs::Permissions::from_mode(0o700)).unwrap();
     root
 }
 
@@ -29,13 +30,14 @@ fn write_sessions(home: &Path, count: usize) {
         let id = format!("01a16c00-0000-7000-8000-{i:012x}");
         let dir = home.join("sessions").join(&id);
         fs::create_dir_all(&dir).unwrap();
+        fs::set_permissions(&dir, fs::Permissions::from_mode(0o700)).unwrap();
         let at = if i + 1 == count { now } else { now.saturating_sub(2 * 86_400_000) + i as u64 };
         let row = json!({
             "schema": "acpmux.session.v1", "id": id, "name": format!("lane-{i}"),
             "harness": "claude", "model": "sonnet", "cwd": "/tmp", "status": "idle",
             "createdAt": at, "updatedAt": at, "turnCount": 1, "lastSeq": 0,
-            "eventCount": 0, "tags": {"area": {"value": "cli"}},
-            "lastPrompt": "x".repeat(3650)
+            "eventCount": 0,
+            "tags": {"area": {"value": "cli"}, "pad": {"value": "x".repeat(3650)}}
         });
         fs::write(dir.join("session.json"), row.to_string()).unwrap();
         fs::set_permissions(dir.join("session.json"), fs::Permissions::from_mode(0o600)).unwrap();
