@@ -89,6 +89,35 @@ struct SidebarTabMiddleClickTests {
         #expect(row.closeButton.isHidden, "the ✕ stayed after the hover ended")
     }
 
+    /// With #26622's column: a tab row's unread dot alone sits on the trailing column; on hover the ✕ takes it and
+    /// the dot gives way at once, never both; leaving hides the ✕ and the dot is back. A dot beside a status stays
+    /// left of the column, where the status gave way to the ✕.
+    @Test func theCloseTakesTheColumnFromTheTabsMark() throws {
+        let workspace = Fixture.shown, section = SectionID.machine(.local)
+        for working in [false, true] {
+            let tab = SidebarTrailingColumnTests.tab(TabID("tab-mark"), "zsh", unread: true, working: working)
+            let key = SidebarRowKey.tab(workspace, tab.id)
+            let view = SidebarTabRowView(key: key)
+            view.frame = NSRect(x: 0, y: 0, width: 260, height: 28)
+            view.configure(tab, row: SidebarRow(key: key, y: 0, height: 28, section: section, workspace: workspace, siblingIndex: 0,
+                                                isLastInGroup: true, isCollapsed: false, childCount: 1))
+            view.onClose = {}
+            view.layoutSubtreeIfNeeded()
+            let column = SidebarStyle.rowCloseFrame(rowWidth: 260, centerY: 14)
+            let dot = try #require(view.subviews.first { $0 is UnreadBadgeView })
+            #expect(dot.frame.midX == column.midX || working, "a lone dot is off the column")
+            view.isHovered = true
+            view.layoutSubtreeIfNeeded()
+            #expect(!view.closeButton.isHidden && view.closeButton.frame == column)
+            let onColumn = view.subviews.filter { $0 !== view.closeButton && !$0.isHidden && $0.alphaValue > 0 && $0.frame.intersects(column) }
+            #expect(onColumn.isEmpty, "the ✕ shares the column with \(onColumn)")
+            #expect(dot.alphaValue == (working ? 1 : 0))
+            view.isHovered = false
+            view.layoutSubtreeIfNeeded()
+            #expect(view.closeButton.isHidden && dot.alphaValue == 1, "leaving left the ✕ up or the dot down")
+        }
+    }
+
     // MARK: - Search Tabs rows
 
     private final class ThreeRows: NSObject, NSTableViewDataSource {
