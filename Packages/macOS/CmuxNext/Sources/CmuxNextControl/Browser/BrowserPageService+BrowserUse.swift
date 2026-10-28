@@ -196,21 +196,26 @@ extension BrowserPageService {
     static func streamUpload(_ engine: any BrowserPageEngine, _ call: ControlCall, selector: String) async throws -> JSONValue {
         let files = try Self.uploadFiles(call)
         let metadata = files.map { (name: $0.name, type: $0.type) }
+        let uploadID = UUID().uuidString
         do {
-            _ = try await Self.runInput(engine, call, BrowserPageScripts.startUpload(selector, files: metadata)) { _ in nil }
+            try Task.checkCancellation()
+            _ = try await Self.runInput(engine, call, BrowserPageScripts.startUpload(selector, id: uploadID, files: metadata)) { _ in nil }
             for (index, file) in files.enumerated() {
                 let handle = try FileHandle(forReadingFrom: file.url)
                 defer { try? handle.close() }
-                while let chunk = try handle.read(upToCount: uploadChunkBytes), !chunk.isEmpty {
+                while true {
+                    try Task.checkCancellation()
+                    guard let chunk = try handle.read(upToCount: uploadChunkBytes), !chunk.isEmpty else { break }
                     let encoded = chunk.base64EncodedString()
-                    _ = try await Self.runInput(engine, call, BrowserPageScripts.uploadChunk(selector, index: index, base64: encoded)) { _ in nil }
+                    _ = try await Self.runInput(engine, call, BrowserPageScripts.uploadChunk(selector, id: uploadID, index: index, base64: encoded)) { _ in nil }
                 }
             }
-            return try await Self.runInput(engine, call, BrowserPageScripts.finishUpload(selector)) {
+            try Task.checkCancellation()
+            return try await Self.runInput(engine, call, BrowserPageScripts.finishUpload(selector, id: uploadID)) {
                 .from(kind: .click, answer: $0)
             }
         } catch {
-            _ = try? await Self.runInput(engine, call, BrowserPageScripts.cancelUpload(selector)) { _ in nil }
+            _ = try? await Self.runInput(engine, call, BrowserPageScripts.cancelUpload(selector, id: uploadID)) { _ in nil }
             throw error
         }
     }

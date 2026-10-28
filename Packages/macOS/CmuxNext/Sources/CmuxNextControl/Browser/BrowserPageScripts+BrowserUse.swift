@@ -48,19 +48,20 @@ extension BrowserPageScripts {
     /// Starts a chunked upload into a file input. The chunks are appended by
     /// ``uploadChunk`` and committed by ``finishUpload``; keeping the parts on
     /// the page avoids putting an arbitrarily large file in one evaluation.
-    static func startUpload(_ selector: String, files: [(name: String, type: String)]) -> String {
+    static func startUpload(_ selector: String, id: String, files: [(name: String, type: String)]) -> String {
         return wrap(find(selector) + """
         const W = (el.ownerDocument && el.ownerDocument.defaultView) || window;
         if (!(el instanceof W.HTMLInputElement) || String(el.type).toLowerCase() !== 'file') { return { error: 'Element is not a file input: ' + raw, code: 'not_file_input' }; }
-        el.__cmuxUpload = { files: [\(files.map { "{ name: \(literal($0.name)), type: \(literal($0.type)), parts: [] }" }.joined(separator: ", "))], at: cmuxAt(el) };
-        return { value: { started: true }, at: el.__cmuxUpload.at };
+        const uploads = el.__cmuxUploads || (el.__cmuxUploads = Object.create(null));
+        uploads[\(literal(id))] = { files: [\(files.map { "{ name: \(literal($0.name)), type: \(literal($0.type)), parts: [] }" }.joined(separator: ", "))], at: cmuxAt(el) };
+        return { value: { started: true }, at: uploads[\(literal(id))].at };
         """)
     }
 
     /// Appends one base64 chunk to the file at `index` in a started upload.
-    static func uploadChunk(_ selector: String, index: Int, base64: String) -> String {
+    static func uploadChunk(_ selector: String, id: String, index: Int, base64: String) -> String {
         wrap(find(selector) + """
-        const state = el && el.__cmuxUpload;
+        const state = el && el.__cmuxUploads && el.__cmuxUploads[\(literal(id))];
         if (!state || !state.files[\(index)]) { return { error: 'Upload is not active', code: 'upload_not_started' }; }
         const bytes = Uint8Array.from(atob(\(literal(base64))), (c) => c.charCodeAt(0));
         state.files[\(index)].parts.push(bytes);
@@ -70,10 +71,10 @@ extension BrowserPageScripts {
 
     /// Builds the files from their chunks, assigns them to the input and fires
     /// the same events as the old single-evaluation fallback.
-    static func finishUpload(_ selector: String) -> String {
+    static func finishUpload(_ selector: String, id: String) -> String {
         wrap(find(selector) + """
         const W = (el.ownerDocument && el.ownerDocument.defaultView) || window;
-        const state = el && el.__cmuxUpload;
+        const state = el && el.__cmuxUploads && el.__cmuxUploads[\(literal(id))];
         if (!state) { return { error: 'Upload is not active', code: 'upload_not_started' }; }
         const dt = new W.DataTransfer();
         for (const f of state.files) dt.items.add(new W.File(f.parts, f.name, { type: f.type }));
@@ -81,16 +82,16 @@ extension BrowserPageScripts {
         el.files = dt.files;
         el.dispatchEvent(new Event('input', { bubbles: true }));
         el.dispatchEvent(new Event('change', { bubbles: true }));
-        delete el.__cmuxUpload;
+        delete el.__cmuxUploads[\(literal(id))];
         return { value: { files: Array.from(el.files).map((f) => f.name) }, at: cmuxAt(el) };
         """)
     }
 
     /// Discards a partially streamed upload after an evaluation or file read
     /// fails.
-    static func cancelUpload(_ selector: String) -> String {
+    static func cancelUpload(_ selector: String, id: String) -> String {
         wrap(find(selector) + """
-        if (el) delete el.__cmuxUpload;
+        if (el && el.__cmuxUploads) delete el.__cmuxUploads[\(literal(id))];
         return { value: { cancelled: true } };
         """)
     }

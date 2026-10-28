@@ -103,8 +103,46 @@ import Testing
 
         #expect(engine.uploads.first?.within == .milliseconds(500))
         #expect(engine.scripts.count > 2, "the file is streamed in chunks instead of one capped script")
-        #expect(engine.scripts.first?.contains("__cmuxUpload") == true)
+        #expect(engine.scripts.first?.contains("__cmuxUploads") == true)
         #expect(engine.scripts.last?.contains("new W.DataTransfer()") == true)
+    }
+
+    @Test func concurrentFallbackUploadsUseDistinctPageState() async throws {
+        let (folder, paths) = try scratch(["a.txt", "b.txt"])
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let engine = ChooserEngine(chooser: "withdrawn", fileInput: true)
+        let router = install(engine)
+
+        async let first = call(router, "browser.page.upload", ["selector": "#f", "files": [paths[0]]])
+        async let second = call(router, "browser.page.upload", ["selector": "#f", "files": [paths[1]]])
+        _ = await (first, second)
+
+        let starts = engine.scripts.filter { $0.contains("__cmuxUploads") }
+        #expect(starts.count == 2)
+        #expect(Set(starts).count == 2, "overlapping uploads need separate page state identities")
+    }
+
+    @Test func cancelledStreamRunsIdentityScopedCleanup() async throws {
+        let (folder, paths) = try scratch(["a.txt"])
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let engine = ChooserEngine(chooser: "withdrawn", fileInput: true, delay: .milliseconds(100))
+        let snapshot = ControlSnapshot.sample()
+        let call = ControlCall(
+            request: ControlRequest(method: "browser.page.upload", params: ["selector": "#f", "files": [paths[0]]]),
+            snapshot: snapshot,
+            connection: ControlConnectionID(rawValue: 1),
+            deadline: .now + .seconds(10)
+        )
+        let task = Task {
+            try? await BrowserPageService.streamUpload(engine, call, selector: "#f")
+        }
+        try await Task.sleep(for: .milliseconds(20))
+        task.cancel()
+        _ = await task.value
+
+        let scripts = engine.scripts
+        #expect(scripts.first?.contains("__cmuxUploads") == true)
+        #expect(scripts.last?.contains("delete el.__cmuxUploads[") == true)
     }
 
     @Test func aClickThatOpensNoChooserOnAnythingElseIsAnError() async throws {
