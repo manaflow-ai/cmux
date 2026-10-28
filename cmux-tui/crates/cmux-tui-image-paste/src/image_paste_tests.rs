@@ -5,6 +5,8 @@ use std::sync::mpsc;
 
 const ID: &str = "0123456789abcdef0123456789abcdef";
 const PNG: &[u8] = b"\x89PNG\r\n\x1a\nimage-paste-fixture";
+/// A declared size far above any old per-image or per-daemon byte budget.
+const LARGE: usize = 1 << 30;
 
 fn owner() -> ImagePasteOwner {
     ImagePasteOwner {
@@ -104,9 +106,7 @@ fn cloud_image_paste_rejects_foreign_identity_and_out_of_order_chunks() {
 #[test]
 fn cloud_image_paste_rejects_size_type_bad_data_and_incomplete_upload() {
     let store = ImagePasteStore::with_recovery(None);
-    for size in [0, MAX_IMAGE_BYTES + 1, usize::MAX] {
-        assert!(store.begin(owner(), ID, "image/png", size).is_err());
-    }
+    assert!(store.begin(owner(), ID, "image/png", 0).is_err());
     assert!(store.begin(owner(), ID, "image/svg+xml", 20).is_err());
     assert!(store.begin(owner(), "../../user-file", "image/png", 20).is_err());
     store.begin(owner(), ID, "image/png", 20).unwrap();
@@ -165,23 +165,70 @@ fn cloud_image_paste_cleanup_does_not_follow_a_replacement_symlink() {
 }
 
 #[test]
-fn cloud_image_paste_reservations_are_bounded_before_receiving_bytes() {
+fn cloud_image_paste_reservations_are_bounded_by_count_not_size() {
     let store = ImagePasteStore::with_recovery(None);
-    for id in 0..6 {
-        store.begin(owner(), &format!("{id:032x}"), "image/png", MAX_IMAGE_BYTES).unwrap();
+    for id in 0..8 {
+        store.begin(owner(), &format!("{id:032x}"), "image/png", LARGE).unwrap();
     }
-    assert!(store.begin(owner(), ID, "image/png", MAX_IMAGE_BYTES).is_err());
+    assert_eq!(
+        store.begin(owner(), ID, "image/png", 1).unwrap_err().to_string(),
+        "image-capacity-limit"
+    );
     store.disconnect(1);
-    store.begin(owner(), ID, "image/png", MAX_IMAGE_BYTES).unwrap();
+    store.begin(owner(), ID, "image/png", LARGE).unwrap();
+}
+
+/// An image over the old 20 MiB per-image limit arrives whole in sequential
+/// chunks and is pasted by path; it was refused at begin with image-size-limit.
+#[test]
+fn cloud_image_paste_accepts_an_image_over_twenty_mebibytes() {
+    let store = ImagePasteStore::with_recovery(None);
+    let mut image = PNG.to_vec();
+    image.resize(20 * 1024 * 1024 + 1, 0x5a);
+    store.begin(owner(), ID, "image/png", image.len()).unwrap();
+    let mut offset = 0;
+    for chunk in image.chunks(MAX_CHUNK_BYTES) {
+        let encoded = base64::engine::general_purpose::STANDARD.encode(chunk);
+        store.append(&owner(), ID, offset, &encoded).unwrap();
+        offset += chunk.len();
+    }
+    let path = store.shared.state.lock().unwrap().uploads[&(1, ID.into())].file.path().unwrap();
+    let mut pasted = String::new();
+    store
+        .commit(&owner(), ID, |text| {
+            pasted = text.into();
+            Ok(())
+        })
+        .unwrap();
+    assert_eq!(pasted, format!("'{}'", path.display()));
+    assert!(fs::read(&path).unwrap() == image, "the pasted file holds the whole image");
+    store.close_terminal("term_1");
+    assert!(!path.exists());
+}
+
+/// A large upload that keeps sending chunks is not expired by the transfer
+/// deadline: each accepted chunk restarts it, so slow links finish big images.
+#[test]
+fn cloud_image_paste_chunk_progress_extends_the_upload_deadline() {
+    let store = ImagePasteStore::with_recovery(None);
+    store.begin(owner(), ID, "image/png", LARGE).unwrap();
+    let begun = store.shared.state.lock().unwrap().uploads[&(1, ID.into())].deadline;
+    std::thread::sleep(Duration::from_millis(5));
+    store.append(&owner(), ID, 0, &base64::engine::general_purpose::STANDARD.encode(PNG)).unwrap();
+    ImagePasteStore::reap(&mut store.shared.state.lock().unwrap(), begun);
+    store
+        .append(&owner(), ID, PNG.len(), &base64::engine::general_purpose::STANDARD.encode(PNG))
+        .unwrap();
+    store.cancel(&owner(), ID).unwrap();
 }
 
 #[test]
 fn cloud_image_paste_failed_cleanup_keeps_its_reservation_and_cannot_commit() {
     let store = ImagePasteStore::with_recovery(None);
     let mut blockers = Vec::new();
-    for index in 0..6 {
+    for index in 0..8 {
         let id = format!("{index:032x}");
-        store.begin(owner(), &id, "image/png", MAX_IMAGE_BYTES).unwrap();
+        store.begin(owner(), &id, "image/png", LARGE).unwrap();
         let directory = store.shared.state.lock().unwrap().uploads[&(1, id.clone())]
             .file
             .directory()
@@ -199,8 +246,8 @@ fn cloud_image_paste_failed_cleanup_keeps_its_reservation_and_cannot_commit() {
         assert_eq!(fs::read_to_string(&blocker).unwrap(), "user file must not be replaced");
         blockers.push(blocker);
     }
-    assert_eq!(store.shared.state.lock().unwrap().uploads.len(), 6);
-    assert!(store.begin(owner(), ID, "image/png", MAX_IMAGE_BYTES).is_err());
+    assert_eq!(store.shared.state.lock().unwrap().uploads.len(), 8);
+    assert!(store.begin(owner(), ID, "image/png", 1).is_err());
     for blocker in blockers {
         fs::remove_file(blocker).unwrap();
     }
@@ -209,7 +256,7 @@ fn cloud_image_paste_failed_cleanup_keeps_its_reservation_and_cannot_commit() {
         Instant::now() + Duration::from_secs(2),
     );
     assert!(store.shared.state.lock().unwrap().uploads.is_empty());
-    store.begin(owner(), ID, "image/png", MAX_IMAGE_BYTES).unwrap();
+    store.begin(owner(), ID, "image/png", LARGE).unwrap();
 }
 
 #[test]
