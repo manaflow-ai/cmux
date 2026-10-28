@@ -1,9 +1,9 @@
 import AppKit
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 import CmuxNextDesign
 import QuartzCore
 
-/// The sidebar's show and hide on the render server (chrome-parity p03-rendering-100, on with
+/// The sidebar's show and hide on the render server (on with
 /// `motion.renderServer`). The toggle's turn sets the width constant once and lays the window out once
 /// at rest, so every pane, terminal grid and page takes its final size now, once. One group of
 /// additive `RenderSpring`s then carries what moved from where it showed: the clip's frame, the panel in

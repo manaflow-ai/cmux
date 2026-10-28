@@ -129,6 +129,7 @@ fn serve_host(
         supports_trace_control: true,
         supports_input_flow: true,
         supports_thread_qos: true,
+        supports_input_stages: true,
         orphan_grace_secs: host_orphan_grace().map(|grace| grace.as_secs()),
     };
     let record_root = Path::new(&launch.record_path)
@@ -195,8 +196,9 @@ fn serve_host(
     // The discovery files' remaining syncs, after Ready: they only order
     // the files on disk for a power cut, which also ends this host.
     let record_dir = Path::new(&launch.record_path).parent().map(Path::to_path_buf);
-    let _ = supervised::spawn(
+    let _ = supervised::spawn_at(
         "terminal-host-publication-sync",
+        cmux_threads::ThreadQos::UserInitiated,
         Fatal,
         ShutdownBehavior::Continue,
         move || {
@@ -340,9 +342,15 @@ fn wait_at_test_gate(variable: &str) {
         return;
     };
     let (opened, wait) = std::sync::mpsc::channel();
-    let _ = supervised::spawn("host-test-gate", Fatal, ShutdownBehavior::Continue, move || {
-        let _ = files::open(&gate);
-        let _ = opened.send(());
-    });
+    let _ = supervised::spawn_at(
+        "host-test-gate",
+        cmux_threads::ThreadQos::Utility,
+        Fatal,
+        ShutdownBehavior::Continue,
+        move || {
+            let _ = files::open(&gate);
+            let _ = opened.send(());
+        },
+    );
     let _ = waits::recv_timeout(&wait, Duration::from_secs(30));
 }

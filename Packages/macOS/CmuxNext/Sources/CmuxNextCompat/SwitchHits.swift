@@ -1,5 +1,5 @@
 /// Every guarded refactor-switch site's count of the arm it ran, for `debug.oracle.switch_hits`
-/// (p15-oracle-027, plans/cmux-next/chrome-parity/p15-oracle.md section 3F.2). The composition root
+/// (plans/cmux-next/chrome-parity/p15-oracle.md section 3F.2). The composition root
 /// owns the one value and hands each site its ``RefactorSwitchHit``; there is no shared instance.
 ///
 /// It counts only in builds that serve `debug.*` methods (`counting`, the router's

@@ -2,9 +2,9 @@ import AppKit
 @testable import CmuxNextBrowser
 import Testing
 
-/// The window's page update request (`BrowserPageUpdates`) and what the fork's page tracker reads
-/// from a host view (`ChildWindowPageFallback`, p03-rendering-053). Every request here goes to a
-/// private center, so no other test's observers hear it.
+/// The window's page update request (`ChildPageGeometryRegistry`) and what the fork's page tracker reads
+/// from a host view (`ChildWindowPageFallback`). Each test makes its own windows, and a
+/// request reaches only its window's registry, so no other test's pages hear it.
 @MainActor
 @Suite struct ChildWindowPageFallbackTests {
     /// A window with native overlays that take the mouse over its content (dividers, the switcher).
@@ -20,43 +20,40 @@ import Testing
         return window
     }
 
-    @Test func aRequestReachesTheObserverOfItsWindowWithItsForceFlag() {
-        let center = NotificationCenter()
+    @Test func aRequestReachesThePagesOfItsWindowWithItsForceFlag() {
         let window = makeWindow(), other = makeWindow()
         defer { window.close(); other.close() }
         var seen: [Bool] = []
-        let observation = BrowserPageUpdates.observe(of: window, center: center) { update in
-            #expect(update.window === window)
-            seen.append(update.force)
+        var registration: ChildPageGeometryRegistry.Registration? = ChildPageGeometryRegistry.of(window).register { force in
+            seen.append(force)
+            return force
         }
-        window.updateBrowserPageGeometry(center: center)
-        window.updateBrowserPageGeometry(force: true, center: center)
-        other.updateBrowserPageGeometry(force: true, center: center)
+        #expect(window.updateBrowserPageGeometry() == 0, "the page reported no change")
+        #expect(window.updateBrowserPageGeometry(force: true) == 1)
+        other.updateBrowserPageGeometry(force: true)
         #expect(seen == [false, true], "another window's request does not reach this window's pages")
-        observation.cancel()
-        window.updateBrowserPageGeometry(center: center)
-        #expect(seen.count == 2, "a cancelled observation hears nothing")
+        withExtendedLifetime(registration) {}
+        registration = nil
+        window.updateBrowserPageGeometry()
+        #expect(seen.count == 2, "a released registration hears nothing")
+        #expect(ChildPageGeometryRegistry.of(window).count == 0)
     }
 
-    @Test func anObserverOfEveryWindowGetsTheRequestingWindow() {
-        let center = NotificationCenter()
+    /// A window no page ever registered in gets no registry from a request.
+    @Test func aRequestToAWindowWithNoPagesDoesNothing() {
         let window = makeWindow()
         defer { window.close() }
-        var windows: [NSWindow?] = []
-        let observation = BrowserPageUpdates.observe(of: nil, center: center) { windows.append($0.window) }
-        window.updateBrowserPageGeometry(center: center)
-        #expect(windows.count == 1 && windows.first.flatMap { $0 } === window)
-        _ = observation
+        #expect(window.updateBrowserPageGeometry(force: true) == 0)
+        #expect(ChildPageGeometryRegistry.existing(for: window) == nil)
     }
 
     /// The fork gets the chrome's holes and the window's overlays over the page, in the host's
     /// coordinates and inside its bounds; a hole inside another goes, or an even-odd mask would show
     /// the page there again.
     @Test func occlusionRectsConvertTheWindowsOverlaysIntoTheHostAndKeepTheOutermost() throws {
-        let center = NotificationCenter()
         let window = makeWindow()
         defer { window.close() }
-        let host = CEFHostView(frame: CGRect(x: 20, y: 10, width: 200, height: 100), pageUpdateCenter: center)
+        let host = CEFHostView(frame: CGRect(x: 20, y: 10, width: 200, height: 100))
         let content = try #require(window.contentView)
         content.addSubview(host)
         defer { host.removeFromSuperview() }
@@ -73,13 +70,12 @@ import Testing
     /// A page its ancestors clip away entirely is hidden by one hole over all of it, the fork's way
     /// to keep a page from showing; the clip path the fork gets is nil then.
     @Test func aHostClippedToNothingIsOneHoleOverItsBounds() throws {
-        let center = NotificationCenter()
         let window = makeWindow()
         defer { window.close() }
         let clip = NSView(frame: CGRect(x: 0, y: 0, width: 100, height: 100))
         clip.wantsLayer = true
         clip.layer?.masksToBounds = true
-        let host = CEFHostView(frame: CGRect(x: 150, y: 0, width: 80, height: 60), pageUpdateCenter: center)
+        let host = CEFHostView(frame: CGRect(x: 150, y: 0, width: 80, height: 60))
         try #require(window.contentView).addSubview(clip)
         clip.addSubview(host)
         defer { clip.removeFromSuperview() }

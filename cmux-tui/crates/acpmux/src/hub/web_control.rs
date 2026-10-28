@@ -18,6 +18,7 @@
 //! as `Control::Web`.
 
 use super::*;
+use crate::no_panic::JsonExt;
 use crate::web_modes::WebModeTable;
 
 /// What the table was built from (`webAskingModes` and the refused
@@ -73,11 +74,16 @@ impl Hub {
         };
         let m = s.meta();
         let family = crate::web_modes::family_of(&m);
-        out["session"] =
-            json!({"sessionId": s.id, "family": family, "mode": crate::web_modes::mode_of(&m)});
+        out.set(
+            "session",
+            json!({"sessionId": s.id, "family": family, "mode": crate::web_modes::mode_of(&m)}),
+        );
         let text = |k: &str| params.get(k).and_then(Value::as_str);
         if let (Some(id), Some(value)) = (text("configId"), text("value")) {
-            out["session"]["asks"] = json!(table.config_value_asks(&family, Some(id), Some(value)));
+            out.set_path(
+                &["session", "asks"],
+                json!(table.config_value_asks(&family, Some(id), Some(value))),
+            );
         }
         Ok(out)
     }
@@ -330,13 +336,13 @@ impl Hub {
                 -32000,
                 format!(
                     "this session's permission settings do not ask before it acts ({}); a paired device cannot prompt it or answer its permissions until the local user sets ask or deny-all",
-                    why["why"].as_str().unwrap_or_default()
+                    why.field("why").as_str().unwrap_or_default()
                 ),
             )
             .with_data(json!({
                 "reason": "remote.policy_not_asking",
-                "policy": why["policy"],
-                "rules": why["rules"],
+                "policy": why.field("policy"),
+                "rules": why.field("rules"),
                 "harness": meta.harness,
             })));
         }

@@ -1,6 +1,7 @@
 //! Terminal moves between workspaces and their projection into the destination workspace state.
 
 use super::*;
+use std::sync::PoisonError;
 
 impl Mux {
     #[allow(clippy::too_many_arguments)]
@@ -25,18 +26,20 @@ impl Mux {
             "incarnation":expected_incarnation,
         });
         let (terminal, terminal_revision, replayed, changed, placement, topology_changed) = {
-            let mut registry = self.workspace_registry.lock().unwrap();
+            let mut registry =
+                self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
             // Registry -> state is the global writer order. Holding both from
             // canonical commit through projection prevents move B / move C
             // from projecting C and then stale B, and serializes moves with a
             // concurrent workspace close.
-            let mut state = self.lock_state_pinned(&registry).unwrap();
+            let mut state =
+                self.lock_state_pinned(&registry).unwrap_or_else(PoisonError::into_inner);
             if let Some(replay) = registry.replay_terminal(mutation, &fingerprint)? {
                 let terminal = registry
                     .terminal_record(terminal_id)?
                     .ok_or_else(|| anyhow::anyhow!("unknown terminal {terminal_id}"))?;
                 let current_revision = registry.terminal_revision()?;
-                let changed = replay.result["changed"].as_bool().unwrap_or(true);
+                let changed = replay.result.get("changed").and_then(Value::as_bool).unwrap_or(true);
                 #[cfg(test)]
                 if let Some(hook) = self.terminal_move_before_projection.lock().unwrap().clone() {
                     hook();
@@ -156,12 +159,12 @@ impl Mux {
             .position(|workspace| workspace.key == workspace_key)
             .ok_or_else(|| anyhow::anyhow!("unknown workspace key {workspace_key}"))?;
         if let Some(current) = run_placement_for_surface(state, surface)
-            && current.workspace == state.workspaces[destination].id
+            && current.workspace == state.workspace_at(destination)?.id
         {
             return Ok((Some(current), false));
         }
         let target_pane = if let Some(pane) =
-            state.workspaces[destination].active_screen_ref().map(|screen| screen.active_pane)
+            state.workspace_at(destination)?.active_screen_ref().map(|screen| screen.active_pane)
         {
             pane
         } else {
@@ -178,7 +181,7 @@ impl Mux {
                 // identity below; this destination starts unfocused.
                 focused_at: 0,
             });
-            state.workspaces[destination].screens.push(Screen {
+            state.workspace_at_mut(destination)?.screens.push(Screen {
                 id: screen,
                 public_id: ScreenPublicId::random()?,
                 name: None,
@@ -192,7 +195,7 @@ impl Mux {
                 layout_revision: 0,
                 layout_undo: Default::default(),
             });
-            state.workspaces[destination].active_screen = 0;
+            state.workspace_at_mut(destination)?.active_screen = 0;
             pane
         };
         if state.pane_of(surface).is_some() {

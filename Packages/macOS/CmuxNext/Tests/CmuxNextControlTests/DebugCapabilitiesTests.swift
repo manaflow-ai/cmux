@@ -3,7 +3,7 @@ import CmuxNextSettings
 import CmuxNextSignposts
 import Testing
 
-/// `debug.capabilities` (p12-perf-process-211): the build's registered `debug.*` methods, emitted signposts and
+/// `debug.capabilities`: the build's registered `debug.*` methods, emitted signposts and
 /// probe launch variables, read-only and with no params, so the perf lab can tell a build that cannot measure a
 /// story from a regression.
 @Suite struct DebugCapabilitiesTests {

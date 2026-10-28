@@ -239,7 +239,7 @@ fn terminal_resource_attach_acknowledges_before_styled_snapshot_and_cancels() {
         item["item"]["render"]["rows"].as_array().unwrap().len(),
         item["item"]["render"]["size"]["rows"].as_u64().unwrap() as usize
     );
-    // p04-input-084, p05-ipc-080: the stream worker that sent the snapshot
+    // The stream worker that sent the snapshot
     // is registered as a control stream (user-initiated): it waits for its
     // attach to commit, so it is not an echo path thread.
     let workers: Vec<_> = cmux_threads::snapshot()
@@ -573,53 +573,6 @@ fn browser_resource_frame_couples_exact_nullable_pointer_authority() {
 
     let retained = browser_resource_frame(&frame, None);
     assert_eq!(retained.get("pointer_frame_seq"), Some(&Value::Null));
-}
-
-#[test]
-fn browser_attach_stream_publishes_frame_before_positive_state_authority() {
-    let outbound = Arc::new(BoundedOutbound::default());
-    let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
-    let stream = writer.start_stream(&json!({"event": "overflow"})).unwrap();
-    let frame = BrowserFrame {
-        session_id: "session-test".to_string(),
-        data_b64: "AAAA".to_string(),
-        css_width: 80,
-        css_height: 48,
-        image_width: 80,
-        image_height: 48,
-        seq: 7,
-    };
-    let update = BrowserAttachUpdate {
-        frame: Some(BrowserFrameUpdate {
-            frame: frame.clone(),
-            status: BrowserStatus::Live,
-            pointer_frame_floor_seq: Some(7),
-            pointer_frame_seq: Some(7),
-        }),
-        state: Some(BrowserAttachState {
-            url: "https://example.test".to_string(),
-            title: "example".to_string(),
-            cols: 10,
-            rows: 5,
-            status: BrowserStatus::Live,
-            frame: Some(frame),
-            pointer_frame_floor_seq: Some(7),
-            pointer_frame_seq: Some(7),
-            frames_stalled: false,
-        }),
-    };
-
-    let encoded = encode_browser_attach_update(&writer, 1, update, &stream);
-    send_encoded_browser_attach_update(&writer, encoded, &stream).unwrap();
-    let first: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
-    let second: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
-
-    assert_eq!(first["event"], "frame");
-    assert_eq!(first["pointer_frame_floor_seq"], 7);
-    assert_eq!(first["pointer_frame_seq"], 7);
-    assert_eq!(second["event"], "browser-state");
-    assert_eq!(second["pointer_frame_floor_seq"], 7);
-    assert_eq!(second["pointer_frame_seq"], 7);
 }
 
 #[test]

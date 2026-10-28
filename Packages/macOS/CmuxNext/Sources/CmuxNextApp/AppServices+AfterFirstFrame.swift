@@ -4,7 +4,7 @@ import CmuxNextLaunch
 import CmuxNextSettings
 import CmuxNextWakeups
 
-// Launch work no first frame needs, one StartupScheduler post per service (`LaunchServicePosts`, p08-startup-017).
+// Launch work no first frame needs, one StartupScheduler post per service (`LaunchServicePosts`).
 extension AppServices {
     /// The starts `init` does not make (`serviceStartPosts()`), then the free-tier attest, SSH, server reach, the updater (Sparkle) and the empty-workspace
     /// repair (built here when no window's content built it first).
@@ -16,7 +16,7 @@ extension AppServices {
                                     emptyWorkspaceRepair: { [weak self] in _ = self?.emptyWorkspaces }).post(on: startup)
     }
 
-    /// The service starts `init` used to make, one post each (p08-startup-031; startup-DESIGN.md section 5, S6
+    /// The service starts `init` used to make, one post each (startup-DESIGN.md section 5, S6
     /// to S10). `init` keeps their wiring: the updater's and the tips' closures, the Restart cmux-tui… binding,
     /// the no-activate keyboard guard and the notifications' `services`.
     func serviceStartPosts() -> LaunchServicePosts {
@@ -31,13 +31,13 @@ extension AppServices {
     /// Warm-ups for later tabs (WebKit for agent pages, Chromium, the New Tab spare, page preloads), the agent tab
     /// import and the right sidebar's icons (on the cpu lane; a panel built first posted them already), through
     /// ``LaterTabWarmups`` on this app (`AppServices+LaterTabWarmupHost`). No WebKit view is made by these before
-    /// startup completes (p08-startup-042). The warm-up makes no WebKit page when a shown agent tab made its view
+    /// startup completes. The warm-up makes no WebKit page when a shown agent tab made its view
     /// or agent pages open in Chromium (`AgentPageWarmup.start(webUI:)` decides when it runs).
     func postLaterTabWarmups(on startup: StartupScheduler) {
         LaterTabWarmups(host: self).posts().post(on: startup)
     }
 
-    /// The platform services (p08-startup-029). Now, before the windows build and the restore mounts a page:
+    /// The platform services. Now, before the windows build and the restore mounts a page:
     /// what the first frame or the restore reads (the glass mode, the notification preferences and the Chief
     /// pet that takes arrivals, the updater's settings, so `Updater.start` runs on the person's schedule and
     /// ring, and the hibernation the restored pages report their hides to). Then one post each: the hot keys

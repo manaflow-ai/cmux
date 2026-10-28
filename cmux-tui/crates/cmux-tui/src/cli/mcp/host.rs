@@ -40,6 +40,7 @@ use super::super::caller_env::{self, CallerEnv};
 use super::super::{GlobalArgs, OutputMode};
 use super::catalog::SharedCatalog;
 use super::{Backend, client_server, watch};
+use crate::cli::json_fields::JsonFields;
 
 /// `cmux mcp __host-start PATH`: starts the host in its own session
 /// and exits, so the host is no child of an agent's relay.
@@ -142,15 +143,19 @@ enum Greeting {
 
 /// `cmux-tui-host` beside this executable (never from `PATH`), a regular file.
 fn relay_binary() -> Option<PathBuf> {
-    let own = std::fs::canonicalize(std::env::current_exe().ok()?).ok()?;
+    let own = cmux_blocking::fs::canonicalize(std::env::current_exe().ok()?).ok()?;
     let relay = own.parent()?.join(RELAY_BINARY);
-    std::fs::symlink_metadata(&relay).is_ok_and(|meta| meta.file_type().is_file()).then_some(relay)
+    cmux_blocking::fs::symlink_metadata(&relay)
+        .is_ok_and(|meta| meta.file_type().is_file())
+        .then_some(relay)
 }
 
 /// The host's socket for this build and the caller's process-wide settings,
 /// in the user's private runtime directory.
 fn socket_path() -> Result<PathBuf, String> {
-    let exe = std::env::current_exe().and_then(std::fs::canonicalize).map_err(|e| e.to_string())?;
+    let exe = std::env::current_exe()
+        .and_then(cmux_blocking::fs::canonicalize)
+        .map_err(|e| e.to_string())?;
     let name = format!("mcp-{}.sock", host_key(&exe, |key| std::env::var_os(key)));
     let preferred = cmux_tui_core::platform::runtime_dir();
     let dir = if preferred.join(&name).as_os_str().len() < 100 {
@@ -181,11 +186,11 @@ fn host_key(exe: &Path, env: impl Fn(&str) -> Option<std::ffi::OsString>) -> Str
 /// `dir`, made if missing: a directory of this user that no one else may write.
 fn private_dir(dir: &Path) -> io::Result<()> {
     use std::os::unix::fs::{DirBuilderExt, MetadataExt};
-    match std::fs::DirBuilder::new().mode(0o700).create(dir) {
+    match crate::blocking::fs::create_dir_with(std::fs::DirBuilder::new().mode(0o700), dir) {
         Err(error) if error.kind() != io::ErrorKind::AlreadyExists => return Err(error),
         _ => {}
     }
-    let meta = std::fs::symlink_metadata(dir)?;
+    let meta = cmux_blocking::fs::symlink_metadata(dir)?;
     // SAFETY: getuid has no preconditions and cannot fail.
     let uid = unsafe { libc::getuid() };
     if !meta.is_dir() || meta.uid() != uid || meta.mode() & 0o022 != 0 {
@@ -203,7 +208,7 @@ fn connect_or_start(socket: &Path) -> Result<UnixStream, String> {
         }
         if !start_host(socket)? && attempt < START_ATTEMPTS {
             // wakeup-allow: backoff another host holds the lock while it starts or exits; at most 3 short waits
-            std::thread::sleep(START_RETRY * attempt);
+            cmux_blocking::thread::sleep(START_RETRY * attempt);
         }
     }
     Err(last)
@@ -256,7 +261,7 @@ fn log_path(socket: &Path) -> PathBuf {
 fn host_log(socket: &Path) -> cmux_process::Stdio {
     use std::os::unix::fs::OpenOptionsExt;
     let path = log_path(socket);
-    let full = std::fs::metadata(&path).is_ok_and(|meta| meta.len() > 1 << 20);
+    let full = cmux_blocking::fs::metadata(&path).is_ok_and(|meta| meta.len() > 1 << 20);
     let mut options = std::fs::OpenOptions::new();
     options.create(true).mode(0o600);
     if full {
@@ -264,7 +269,8 @@ fn host_log(socket: &Path) -> cmux_process::Stdio {
     } else {
         options.append(true);
     }
-    options.open(&path).map_or_else(|_| cmux_process::Stdio::null(), cmux_process::Stdio::from)
+    crate::blocking::fs::open_with(&options, &path)
+        .map_or_else(|_| cmux_process::Stdio::null(), cmux_process::Stdio::from)
 }
 
 /// The client's hello line: who calls, with which options and settings file.
@@ -301,12 +307,12 @@ fn greet(stream: &mut UnixStream, hello: &str) -> Result<(), Greeting> {
     }
     let _ = stream.set_read_timeout(None);
     let answer: Value = serde_json::from_slice(&answer).map_err(|error| Lost(error.to_string()))?;
-    if answer["ok"] == true {
+    if answer.field("ok") == true {
         return Ok(());
     }
     Err(Refused(format!(
         "the MCP host refused: {}",
-        answer["error"].as_str().unwrap_or("no reason")
+        answer.field("error").as_str().unwrap_or("no reason")
     )))
 }
 
@@ -391,15 +397,15 @@ struct Hello {
 
 fn parse_hello(line: &[u8]) -> Result<Hello, String> {
     let value: Value = serde_json::from_slice(line).map_err(|error| error.to_string())?;
-    if value["hello"] != HELLO {
+    if value.field("hello") != HELLO {
         return Err(format!("this host speaks {HELLO}"));
     }
     let bad = |field: &str| format!("the hello has no valid {field}");
     Ok(Hello {
-        global: global_from_json(&value["global"]).ok_or_else(|| bad("global"))?,
-        config: value["config"].as_str().map(PathBuf::from).ok_or_else(|| bad("config"))?,
-        code_mode: value["code_mode"].as_bool().ok_or_else(|| bad("code_mode"))?,
-        caller: CallerEnv::from_json(&value["caller"]).ok_or_else(|| bad("caller"))?,
+        global: global_from_json(value.field("global")).ok_or_else(|| bad("global"))?,
+        config: value.field("config").as_str().map(PathBuf::from).ok_or_else(|| bad("config"))?,
+        code_mode: value.field("code_mode").as_bool().ok_or_else(|| bad("code_mode"))?,
+        caller: CallerEnv::from_json(value.field("caller")).ok_or_else(|| bad("caller"))?,
     })
 }
 
@@ -431,6 +437,9 @@ pub(super) fn start_detached(socket: &Path) -> i32 {
 /// grace.
 pub(super) fn run(socket: &Path) -> i32 {
     let _ = crate::restore_default_termination_signals();
+    // The host serves every relayed client, so its panics go to the same
+    // `mcp-panics.jsonl` as an in-process `serve`.
+    super::panic_log::install();
     let _lock = match take_lock(socket) {
         Ok(Some(lock)) => lock,
         Ok(None) => {
@@ -458,7 +467,7 @@ pub(super) fn run(socket: &Path) -> i32 {
     release_stdout();
     eprintln!("cmux mcp host: serving {}", socket.display());
     serve_clients(&listener, &catalog, &idle);
-    let _ = std::fs::remove_file(socket);
+    let _ = cmux_blocking::fs::remove_file(socket);
     1
 }
 
@@ -473,12 +482,10 @@ fn idle_grace() -> Duration {
 /// another host holds it.
 fn take_lock(socket: &Path) -> io::Result<Option<std::fs::File>> {
     use std::os::unix::fs::OpenOptionsExt;
-    let file = std::fs::OpenOptions::new()
-        .create(true)
-        .write(true)
-        .truncate(false)
-        .mode(0o600)
-        .open(socket.with_extension("lock"))?;
+    let file = crate::blocking::fs::open_with(
+        std::fs::OpenOptions::new().create(true).write(true).truncate(false).mode(0o600),
+        socket.with_extension("lock"),
+    )?;
     // SAFETY: flock on a descriptor this function owns.
     if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
         return Ok(Some(file));
@@ -487,14 +494,11 @@ fn take_lock(socket: &Path) -> io::Result<Option<std::fs::File>> {
     if error.kind() == io::ErrorKind::WouldBlock { Ok(None) } else { Err(error) }
 }
 
-/// Listens on `socket` (the lock holder removes a stale file first), read
-/// and write for this user only.
+/// Listens on `socket` (the lock holder replaces a stale file), read and
+/// write for this user only from the moment it exists (cmux-unix-socket
+/// `bind_private`).
 fn bind(socket: &Path) -> io::Result<UnixListener> {
-    use std::os::unix::fs::PermissionsExt;
-    let _ = std::fs::remove_file(socket);
-    let listener = UnixListener::bind(socket)?;
-    std::fs::set_permissions(socket, std::fs::Permissions::from_mode(0o600))?;
-    Ok(listener)
+    crate::blocking::fs::bind_private_socket(socket)
 }
 
 fn say(line: &str) {
@@ -505,7 +509,9 @@ fn say(line: &str) {
 /// Points stdout at /dev/null once the starter has its line, so the host
 /// never writes into a pipe nobody reads.
 fn release_stdout() {
-    if let Ok(null) = std::fs::OpenOptions::new().write(true).open("/dev/null") {
+    if let Ok(null) =
+        crate::blocking::fs::open_with(std::fs::OpenOptions::new().write(true), "/dev/null")
+    {
         // SAFETY: dup2 of a descriptor this function owns onto stdout; `null`
         // closes its own copy when dropped.
         unsafe { libc::dup2(null.as_raw_fd(), libc::STDOUT_FILENO) };
@@ -607,7 +613,7 @@ fn serve_client(stream: UnixStream, seat: &mut Seat) {
             Ok(()) => json!({"ok": true}),
             Err(why) => json!({"ok": false, "error": why}),
         };
-        if writeln!(&stream, "{answer}").is_err() || answer["ok"] != true {
+        if writeln!(&stream, "{answer}").is_err() || answer.field("ok") != true {
             return;
         }
         let output = watch::Output::new(stream);
@@ -658,7 +664,7 @@ impl Idle {
             if wait_for_idle(&counted, &woken, grace) {
                 // Unlinked first: a client that comes now starts a new host,
                 // which takes the lock once this process is gone.
-                let _ = std::fs::remove_file(&socket);
+                let _ = cmux_blocking::fs::remove_file(&socket);
                 crate::client_log::exit(0);
             }
         })?;
@@ -688,13 +694,13 @@ impl Idle {
 fn wait_for_idle(live: &AtomicUsize, woken: &mpsc::Receiver<()>, grace: Duration) -> bool {
     loop {
         if live.load(Ordering::Acquire) != 0 {
-            if woken.recv().is_err() {
+            if cmux_blocking::sync::recv(woken).is_err() {
                 return false;
             }
             continue;
         }
         // wakeup-allow: deadline the idle exit: one wait, only while no client is connected
-        match woken.recv_timeout(grace) {
+        match crate::blocking::sync::recv_timeout(woken, grace) {
             Ok(()) => {}
             Err(mpsc::RecvTimeoutError::Timeout) => {
                 if live.compare_exchange(0, CLOSED, Ordering::AcqRel, Ordering::Acquire).is_ok() {

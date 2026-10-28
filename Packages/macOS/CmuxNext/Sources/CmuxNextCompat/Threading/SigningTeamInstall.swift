@@ -1,5 +1,5 @@
+import CmuxNextCompatCore
 import Foundation
-import Security
 
 /// This process's code-signing team, read once on the system lane and then held in memory: the acpmux launch
 /// check (`AcpmuxEnvironment.resolve`, `AcpmuxServerPeer.executableSignedByAppTeam`) and the Computer Use
@@ -7,7 +7,7 @@ import Security
 ///
 /// The composition root loads it at launch (`work.post(.userVisible, mayBlock: .system) { install.load() }`);
 /// a read before that asks securityd itself through the checked Security seams (``PreloadedValue``). It
-/// replaces the static initializers that asked securityd on whichever thread came first (p02-threads-122).
+/// replaces the static initializers that asked securityd on whichever thread came first.
 public nonisolated final class SigningTeamInstall: Sendable {
     /// The process's install: the running code's team is the same for every reader.
     public static let process = SigningTeamInstall()
@@ -28,19 +28,9 @@ public nonisolated final class SigningTeamInstall: Sendable {
     /// Reads the team so later reads find it in memory. It asks securityd: call it on the system lane.
     public func load() { slot.load() }
 
-    /// Reads the running code's team from its signature through the checked Security seams.
+    /// Reads the running code's team from its signature (CmuxNextCompatCore's `RunningCodeSigningTeam`, the read
+    /// the privileged server helper shares) through this module's checked seam: the detector sees each Security call.
     public static func readRunningCode() -> String? {
-        var code: SecCode?
-        // SAFETY: SecCodeCopySelf writes one retained SecCode reference into `code`, a local optional.
-        guard unsafe blockingSecCodeCopySelf([], &code) == errSecSuccess, let code else { return nil }
-        var staticCode: SecStaticCode?
-        // SAFETY: SecCodeCopyStaticCode writes one retained SecStaticCode reference into `staticCode`, a local optional.
-        guard unsafe blockingSecCodeCopyStaticCode(code, [], &staticCode) == errSecSuccess, let staticCode else { return nil }
-        var info: CFDictionary?
-        // SAFETY: SecCodeCopySigningInformation writes one retained CFDictionary reference into `info`, a local optional.
-        guard unsafe blockingSecCodeCopySigningInformation(staticCode, SecCSFlags(rawValue: kSecCSSigningInformation), &info)
-                == errSecSuccess, let info = info as? [String: Any] else { return nil }
-        let team = info[kSecCodeInfoTeamIdentifier as String] as? String
-        return team?.isEmpty == false ? team : nil
+        RunningCodeSigningTeam(blockingCall: { body in CmuxNextCompat.blockingCall(CmuxNextCompat.BlockingKind.systemCall, body) }).read()
     }
 }

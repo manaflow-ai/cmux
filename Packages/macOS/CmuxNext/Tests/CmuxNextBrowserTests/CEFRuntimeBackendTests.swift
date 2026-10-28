@@ -243,7 +243,7 @@ import Testing
         #expect(runtime.shim == nil)
     }
 
-    /// p08-startup-044: a start marks `cef.initialize_started` and `cef.initialize_ended` around its
+    /// A start marks `cef.initialize_started` and `cef.initialize_ended` around its
     /// initialize, once: host mode loads no library (no preload or load marks), and a second start
     /// marks nothing. The first page paint then names the start's trigger.
     @Test func aStartMarksItsInitializeOnce() async throws {
@@ -262,7 +262,7 @@ import Testing
                               "cef.first_page_paint", "cef.first_page_paint.trigger.restoredTab"])
     }
 
-    /// p14-energy-030: the ready hooks start Chromium's Energy Saver with the runtime's policy, and what
+    /// The ready hooks start Chromium's Energy Saver with the runtime's policy, and what
     /// `debug.energy` reads (`CEFEngine.energySaverApplied`, ``CEFEnergySaver/applied(by:)``) is the fork's
     /// answer: applied when it took the state, not when it refused, and nothing before the start.
     @Test func theReadyHooksStartTheEnergySaverAndReportTheForksAnswer() async throws {

@@ -2,7 +2,7 @@ import AppKit
 import CmuxNextInput
 import Testing
 
-/// Event identity outside a handler's own event (p04-input-068, DC7): AppKit's current event counts
+/// Event identity outside a handler's own event (DC7): AppKit's current event counts
 /// only when a tracking loop took it after the last dispatched event (a menu item's mouse-up, a
 /// control's release); the dispatched event itself, or an older one, reads nil, as a socket or CLI
 /// run after a click must.

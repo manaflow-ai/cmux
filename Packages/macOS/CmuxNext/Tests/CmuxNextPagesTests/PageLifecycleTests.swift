@@ -12,7 +12,7 @@ import WebKit
 
 /// ``PageLifecycle`` takes show and hide from its caller (the content lifecycle), runs the planner
 /// only at its one one-shot deadline, thaws a page before its show returns, and does O(changed pages)
-/// work per event (p13-webui-022). The deadline is a real ``MainDeadline`` on a wake-up queue whose
+/// work per event. The deadline is a real ``MainDeadline`` on a wake-up queue whose
 /// timer and uptime only the test moves: a pass runs only when that wake fires.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(1)))
 struct PageLifecycleTests {
@@ -21,7 +21,7 @@ struct PageLifecycleTests {
         let name: String
         let log: Log
         var reasons: Set<PageLifecyclePlanner.KeepReason> = []
-        /// Its ``PageKeepReasons``, as a ``PageWebView`` holds them (p13-webui-032).
+        /// Its ``PageKeepReasons``, as a ``PageWebView`` holds them.
         let keep = PageKeepReasons()
         var reasonReads = 0
         /// The page refuses its discard (it still shows): the lifecycle must keep its state.
@@ -408,7 +408,7 @@ struct PageLifecycleTests {
         #expect(lifecycle.state(of: "tab") == nil)
     }
 
-    // MARK: Keep reasons (p13-webui-032)
+    // MARK: Keep reasons
 
     /// A host hold (a confirmation sheet) on a frozen page thaws it at the next pass, which it arms
     /// for now; its end arms a pass, and the page freezes again with no show or hide.

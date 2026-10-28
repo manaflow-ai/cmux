@@ -1,6 +1,6 @@
 public import AppKit
 
-// The event an action answers (p04-input-067, plans/cmux-next/chrome-parity/p04-input.md "EVENT IDENTITY"):
+// The event an action answers (plans/cmux-next/chrome-parity/p04-input.md "EVENT IDENTITY"):
 // what handlers read instead of `NSApp.currentEvent`, which keeps the last dequeued event after its dispatch,
 // so a socket or CLI run would read an old click or key press as its own.
 @MainActor

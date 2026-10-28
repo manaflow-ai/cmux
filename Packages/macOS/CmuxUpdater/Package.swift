@@ -15,7 +15,7 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.9.6"),
-        // The portable Mutex the channel-switch download delegate's state lives in (p10-stability-172).
+        // The portable Mutex the channel-switch download delegate's state lives in.
         .package(path: "../../Shared/CmuxSafeConcurrency"),
     ],
     targets: [

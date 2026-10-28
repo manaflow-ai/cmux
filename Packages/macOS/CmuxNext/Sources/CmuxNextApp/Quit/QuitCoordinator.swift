@@ -1,6 +1,6 @@
 import struct CmuxSafeConcurrency.OwnerReference
 import AppKit
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDesign
@@ -249,11 +249,12 @@ final class QuitCoordinator {
                 // A Chief home whose acpmux is the attached daemon (`CMUX_NEXT_ACPMUX_ATTACH`) ends nothing there.
                 if !QuitAgents.isAttached(acpmux, to: services.home.chief.home.acpmuxHome) {
                     await ChiefHostStop.endChiefSessions(home: services.home.chief.home,
-                                                         bundledBin: Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true))
+                                                         bundledBin: Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true),
+                                                         runner: services.work)
                 }
                 await services.home.chief.shutdownForEndSessions()
                 let keep = ChiefHostStop.appAcpmuxEndKeep(chiefUsesAppAcpmux: services.home.chief.home.usesAppAcpmux)
-                return await QuitAgents.end(acpmux, keep: keep, waitForShutdown: attempts.isRetry())
+                return await QuitAgents.end(acpmux, runner: services.work, keep: keep, waitForShutdown: attempts.isRetry())
             },
             // Drafts typed after the save step (while "Some sessions did not end" waited) reach disk
             // before the engines stop: nothing the user asked for comes after that (QuitSteps).
@@ -290,7 +291,7 @@ final class QuitCoordinator {
         }
     }
 
-    /// Each open window's picture (p08-startup-057), from the pane pictures this quit took already, so nothing is
+    /// Each open window's picture, from the pane pictures this quit took already, so nothing is
     /// captured twice. Side-by-side windows show panes of other workspaces than `content`'s: they leave none. A
     /// window showing a top page or the empty state leaves one with no pane (`WindowPictureMeta.ContentArea`).
     private static func windowPictureShots(_ services: AppServices, terminals: [String: NSImage], agents: [String: NSImage],

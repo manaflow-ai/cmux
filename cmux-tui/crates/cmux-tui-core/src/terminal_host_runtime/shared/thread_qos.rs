@@ -1,4 +1,4 @@
-//! `SetThreadQos` (p02-threads-236): the daemon tells a terminal's host the
+//! `SetThreadQos`: the daemon tells a terminal's host the
 //! class its PTY reader and parser threads run at, utility while no view
 //! shows the terminal. The host stores it in [`HostShared::thread_qos`];
 //! each thread applies it itself after its next wake, so the message wakes

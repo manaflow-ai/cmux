@@ -2,8 +2,8 @@ import CoreGraphics
 @testable import CmuxNextRemoteView
 import Testing
 
-/// The system shortcut tap's event tap callback takes a CallbackRegistry token as its refcon
-/// (p10-stability-081): a callback that fires after `remove()` (the tap's entry is gone) lets
+/// The system shortcut tap's event tap callback takes a CallbackRegistry token as its refcon:
+/// a callback that fires after `remove()` (the tap's entry is gone) lets
 /// the event through unchanged and is counted, where an unretained instance pointer would have
 /// been a use after free.
 @MainActor @Suite struct RemoteSystemShortcutTapCallbackTests {

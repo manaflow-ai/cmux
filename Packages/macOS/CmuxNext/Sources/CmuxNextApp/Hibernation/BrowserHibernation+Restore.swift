@@ -251,7 +251,7 @@ extension BrowserHibernation {
     }
 }
 
-/// The intent prewarm's warmer (p04-input-042/043): a frozen or hibernated hidden page is cold. Its prewarm
+/// The intent prewarm's warmer: a frozen or hibernated hidden page is cold. Its prewarm
 /// fits a frozen page to its target size and thaws it; for a hibernated page it records the target size,
 /// decodes its cover off the main thread, then restores it hidden (`warm`) with both
 /// (``IntentPrewarmKinds``). A prewarm adds no hold, so a cancelled one drops its kinds and plans again:

@@ -28,6 +28,11 @@
    the budget, and a run with no answer or no frame fails it.
 11. `own_responsibility` (p01-process-089) spawns the app with responsibility disclaimed (a fake libsystem records the
    calls), refuses to launch when this system cannot disclaim, and its stand-in Popen reaps and signals the child.
+12. `after-kill` (p01-process-152): each relaunch after SIGKILL of the app was a clean launch, reattached to the
+   running daemon and drew every terminal screen within the budget of its first frame; a run that started a daemon,
+   sent no drawn mark, came up in restart-loop safe mode or (with relaunchReattach on) drew an earlier quit's terminal
+   frame or window picture fails it. Each app lives past the quick-crash window before its kill. The flow kills only
+   the app it started.
 
 Runs on any Mac, no GUI session or build needed (the session read is injected or the check is `--socket-only`, and a
 copy of /bin/sleep stands in for the app's executable). Signals only the processes it starts. On Linux, 8 and 9 and
@@ -739,7 +744,7 @@ class LeftDaemonTests(unittest.TestCase):
 
 
 PERF_RESULT_PATH = ROOT / "scripts/perf-lab/perf_result.py"
-perf_result = bl.load_by_path("perf_result", str(PERF_RESULT_PATH))  # the real writer (p12-perf-process-001)
+perf_result = bl.load_by_path("perf_result", str(PERF_RESULT_PATH))  # the real writer
 store = bl.load_by_path("perf_lab_store", str(ROOT / "scripts/perf-lab/store.py"))
 HOST = bl.host_record("Apple M4 Pro", 48 * 2**30, "26.1", "25B78", 120)
 FEATURES = ({"perfLabKillProbe": {"state": "off", "source": "remote"},
@@ -918,7 +923,7 @@ class RecordTests(unittest.TestCase):
             config("lie2", "release", marker=True)
 
     def test_a_tagged_bench_build_names_its_own_config(self):
-        # p12-perf-process-147: bench and bench-checks executables look alike; reload.sh stamps the config.
+        # Bench and bench-checks executables look alike; reload.sh stamps the config.
         def config(want, stated=None, **kwargs):
             app = record_bundle(os.path.join(self.folder, f"{want}-{stated}"), "cfg", commit="b" * 40, **kwargs)
             return bl.build_config(app, os.path.join(app, "Contents/MacOS/cmux DEV"), stated)
@@ -1312,6 +1317,206 @@ class SocketProbeTests(unittest.TestCase):
             result = json.loads(f.read())
         self.assertEqual(result["answer_after_frame_p50_ms"], 30)
         self.assertEqual(len(result["per_run"]), 3)
+
+
+class AfterKillTests(unittest.TestCase):
+    """11. The relaunch after kill -9 of the app (bench_launch after-kill: after_kill_row, after_kill_summary)."""
+
+    MARKS = {"first_window_frame_committed": 180.0, "launch.visible_panes_shown": 300.0,
+             "launch.visible_terminals_drawn": 390.0, "daemon_reattached": 150.0, "relaunch.saved_frames_skipped": 90.0,
+             "relaunch.rings_unavailable": 90.0, "relaunch.host_unavailable": 90.0}
+
+    LAYOUT = {"terminals": 2, "surface_swaps": 0, "extra_resizes": 0, "one_layout": True}
+
+    @staticmethod
+    def surfaces(*terminals):
+        """A `debug.surfaces` reply with one terminal pane per (surface_swaps, full_resize) and a browser pane."""
+        panes = [{"attach": "attached", "surface_swaps": swaps, "surface": {"render_counters": {"full_resize": resizes}}}
+                 for swaps, resizes in terminals]
+        return {"windows": [{"window": "1", "panes": panes + [{"kind": "browser"}]}]}
+
+    def row(self, marks=None, recovery="clean", layout=LAYOUT):
+        return bl.after_kill_row(self.MARKS if marks is None else marks, recovery, layout)
+
+    def test_a_row_times_the_screens_from_the_first_frame_and_says_how_the_daemon_was_found(self):
+        row = self.row()
+        self.assertEqual(row["screens_after_first_frame_ms"], 210.0)
+        self.assertEqual(row["panes_shown_ms"], 300.0)
+        self.assertTrue(row["reattached"])
+        self.assertFalse(row["daemon_started"])
+        self.assertTrue(row["saved_frames_skipped"])
+        self.assertFalse(row["saved_frame_shown"])
+        self.assertFalse(row["saved_picture_shown"])
+        self.assertEqual(row["recovery"], "clean")
+        self.assertEqual(row["takeover"], {"rings": "unavailable", "host": "unavailable"})
+        cold = self.row({"first_window_frame_committed": 180.0, "daemon.spawned": 40.0})
+        self.assertIsNone(cold["screens_after_first_frame_ms"], "no drawn mark: not measured")
+        self.assertTrue(cold["daemon_started"])
+        self.assertFalse(cold["reattached"])
+        self.assertEqual(cold["takeover"], {"rings": None, "host": None})
+
+    def test_content_queued_with_no_frame_drawn_is_not_measured(self):
+        queued = self.row({k: v for k, v in self.MARKS.items() if k != "launch.visible_terminals_drawn"})
+        self.assertIsNone(queued["screens_after_first_frame_ms"],
+                          "launch.visible_panes_shown is the content queued, not the screens drawn")
+        self.assertFalse(bl.after_kill_summary([queued])["ok"])
+
+    def test_the_verdict_is_every_relaunch_reattached_and_within_the_budget(self):
+        good = [self.row(), self.row({**self.MARKS, "launch.visible_terminals_drawn": 470.0})]
+        summary = bl.after_kill_summary(good)
+        self.assertTrue(summary["ok"])
+        self.assertEqual(summary["screens_after_first_frame_max_ms"], 290.0)
+        self.assertEqual(summary["budget_ms"], 300)
+        slow = good + [self.row({**self.MARKS, "launch.visible_terminals_drawn": 481.0})]
+        self.assertFalse(bl.after_kill_summary(slow)["ok"], "301 ms after the first frame")
+        started = [self.row({**self.MARKS, "daemon.spawned": 40.0})]
+        started[0]["reattached"] = False
+        self.assertFalse(bl.after_kill_summary(started)["ok"], "a relaunch that started the daemon lost the terminals")
+        unmeasured = good + [self.row({"first_window_frame_committed": 180.0, "daemon_reattached": 1.0})]
+        self.assertFalse(bl.after_kill_summary(unmeasured)["ok"])
+        self.assertFalse(bl.after_kill_summary([])["ok"])
+
+    def test_a_safe_mode_or_unread_recovery_run_fails_the_verdict(self):
+        safe = [self.row(), self.row(recovery="restartedSafely")]
+        summary = bl.after_kill_summary(safe)
+        self.assertFalse(summary["ok"], "a restart-loop safe mode is another launch path than one kill -9")
+        self.assertEqual(summary["not_clean_runs"], 1)
+        self.assertFalse(bl.after_kill_summary([self.row(recovery=None)])["ok"], "a run whose recovery was not read")
+        self.assertFalse(bl.after_kill_summary([self.row(recovery="restarted")])["ok"])
+
+    def test_an_earlier_quits_frame_or_picture_fails_only_with_the_feature_on(self):
+        for mark in ("terminal.launch_frame_shown", "launch_picture_shown"):
+            stale = [self.row({**self.MARKS, mark: 200.0})]
+            self.assertFalse(bl.after_kill_summary(stale, feature="on")["ok"], mark)
+            self.assertEqual(bl.after_kill_summary(stale, feature="on")["stale_frame_runs"], 1, mark)
+            self.assertTrue(bl.after_kill_summary(stale, feature="off")["ok"], "the off arm measures the old behavior")
+
+    def test_the_terminals_must_lay_out_once_with_the_feature_on(self):
+        once = bl.after_kill_layout(self.surfaces((0, 1), (0, 0)))
+        self.assertEqual(once, {"terminals": 2, "surface_swaps": 0, "extra_resizes": 0, "one_layout": True})
+        swapped = bl.after_kill_layout(self.surfaces((1, 1), (0, 1)))
+        self.assertFalse(swapped["one_layout"], "a replay swapped in a fresh surface: the terminal was rebuilt")
+        resized = bl.after_kill_layout(self.surfaces((0, 2)))
+        self.assertEqual(resized["extra_resizes"], 1)
+        self.assertFalse(resized["one_layout"], "a second grid size is a second layout")
+        self.assertIsNone(bl.after_kill_layout({"windows": [{"panes": [{"kind": "browser"}]}]}))
+        self.assertIsNone(bl.after_kill_layout(None))
+        self.assertTrue(bl.after_kill_summary([self.row()])["ok"])
+        for layout in (swapped, resized, None):
+            summary = bl.after_kill_summary([self.row(layout=layout)])
+            self.assertFalse(summary["ok"], layout)
+            self.assertEqual(summary["relaid_out_runs"], 1)
+            self.assertTrue(bl.after_kill_summary([self.row(layout=layout)], feature="off")["ok"], "the off arm")
+
+    def test_the_run_is_complete_only_when_the_rings_and_the_host_were_taken_over(self):
+        self.assertFalse(bl.after_kill_summary([self.row()])["complete"], "stand-in steps: not the whole task")
+        took_over = {**self.MARKS, "relaunch.rings_mapping": 91.0, "relaunch.host_adopting": 92.0}
+        del took_over["relaunch.rings_unavailable"], took_over["relaunch.host_unavailable"]
+        summary = bl.after_kill_summary([self.row(took_over)])
+        self.assertTrue(summary["complete"])
+        self.assertEqual(summary["takeover_runs"], 1)
+        self.assertFalse(bl.after_kill_summary([self.row(took_over)], feature="off")["complete"])
+
+    def test_the_setup_splits_the_first_workspace_until_it_has_the_terminals(self):
+        made = ["surface:1"]
+        calls = []
+
+        def cli(*args):
+            calls.append(args)
+            if args[0] == "list-workspaces":
+                return "* workspace:3 main\n  workspace:4 other\n"
+            if args[0] == "tree":
+                return "".join(f'surface {ref} [terminal] "zsh" [selected]\n' for ref in made)
+            if args[0] == "new-split":
+                made.append(f"surface:{len(made) + 1}")
+            return ""
+
+        found = bl.after_kill_setup(cli, 3, poll=lambda _: None)
+        self.assertEqual(found, ["surface:1", "surface:2", "surface:3"])
+        splits = [call for call in calls if call[0] == "new-split"]
+        self.assertEqual(len(splits), 2)
+        self.assertTrue(all(call[2:6] == ("--workspace", "workspace:3", "--surface", call[5]) for call in splits))
+        self.assertEqual(bl.after_kill_setup(lambda *a: "", 2, poll=lambda _: None, seconds=0),
+                         "the launch shows no terminal in its first workspace")
+
+    def test_the_command_kills_only_its_app_relaunches_on_the_kept_state_and_stops_once(self):
+        events = []
+
+        class Process:
+            def send_signal(self, sig):
+                events.append(("signal", sig))
+
+            def wait(self, timeout=None):
+                return -9
+
+        class StubApp:
+            def __init__(self, app, out=None, local_features=None):
+                events.append(("features", local_features))
+                self.fresh_state = True
+                self.teardown = None
+                self.process = Process()
+                self.launches = 0
+
+            def launch(self, timeout):
+                self.launches += 1
+                events.append(("launch", self.fresh_state))
+
+            def quit_keep_sessions(self):
+                events.append(("quit",))
+                return {"quit": True, "seconds": 0.1, "error": ""}
+
+            def rpc(self, method, params=None, timeout=60):
+                events.append(("rpc", method))
+                if method == "debug.crashes":
+                    return {"launch": {"recovery": "clean"}}
+                if method == "debug.surfaces":
+                    return AfterKillTests.surfaces((0, 1), (0, 1))
+                assert method == "debug.timings"
+                return {"launch_ms_since_process_start": dict(AfterKillTests.MARKS)}
+
+            def stop(self):
+                events.append(("stop",))
+
+        def run_cli(app, *args):
+            if args[0] == "list-workspaces":
+                return "workspace:1\n"
+            if args[0] == "tree":
+                return 'surface surface:1 [terminal] "a"\nsurface surface:2 [terminal] "b"\n'
+            return ""
+
+        out = tempfile.mkdtemp(prefix="after-kill-")
+        self.addCleanup(shutil.rmtree, out, True)
+        opts = mock.Mock(app="/x/cmux DEV t.app", out=None, runs=2, terminals=2, feature="on", timeout=10, settle=0,
+                         mark_timeout=1, budget_ms=300, survive=62, json=os.path.join(out, "out.json"))
+        now = [1000.0]
+
+        def poll(seconds):
+            events.append(("poll", seconds))
+            now[0] += seconds
+
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            code = bl.after_kill(opts, make_app=StubApp, run_cli=run_cli, poll=poll, clock=lambda: now[0])
+        self.assertEqual(code, 0)
+        self.assertEqual(events[0], ("features", {"relaunchReattach": True}))
+        self.assertEqual([e for e in events if e[0] in ("launch", "quit", "signal", "stop")],
+                         [("launch", True), ("quit",), ("launch", False), ("signal", signal.SIGKILL), ("launch", False),
+                          ("signal", signal.SIGKILL), ("launch", False), ("stop",)])
+        # Each app lives past the quick-crash window before its kill, so every relaunch is the launch after one kill -9.
+        kills = [i for i, e in enumerate(events) if e[0] == "signal"]
+        for kill in kills:
+            self.assertIn(("poll", 62), events[kill - 2:kill], "the kill came inside the quick-crash window")
+        self.assertEqual(sum(1 for e in events if e == ("rpc", "debug.crashes")), 2, "each run reads its recovery")
+        with open(opts.json) as f:
+            result = json.loads(f.read())
+        self.assertEqual(result["runs"], 2)
+        self.assertEqual(result["reattached_runs"], 2)
+        self.assertTrue(result["ok"])
+
+    def test_the_task_spelling_runs_the_same_command(self):
+        with mock.patch.object(bl, "after_kill", return_value=0) as run:
+            self.assertEqual(bl.main(["--after-kill", "--app", "/x/cmux DEV t.app", "--runs", "1"]), 0)
+        self.assertEqual(run.call_args[0][0].runs, 1)
+        self.assertEqual(run.call_args[0][0].feature, "on")
 
 
 if __name__ == "__main__":

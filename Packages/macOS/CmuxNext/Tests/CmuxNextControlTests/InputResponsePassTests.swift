@@ -4,7 +4,7 @@ import Foundation
 import Observation
 import Testing
 
-/// The input-response pass (p06-scheduler-206): in a key's turn, the person's dirty observations
+/// The input-response pass: in a key's turn, the person's dirty observations
 /// (``VisibleObservation`` through the scheduler's ``ObservationCauses``) and batch items apply
 /// before the commit; automation's wait for their class; nothing is on the
 /// run loop outside the person's turn. The keys follow the App's order (`InputDispatchContext`):

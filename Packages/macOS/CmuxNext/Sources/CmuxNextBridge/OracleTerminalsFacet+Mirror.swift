@@ -4,7 +4,7 @@ public import CmuxNextInputModel
 public import CmuxNextOracle
 
 extension TerminalAttachMachine.Phase {
-    /// The `terminals` facet's attach state (p15-oracle-044): a link live, opening, gone or never made, or the
+    /// The `terminals` facet's attach state: a link live, opening, gone or never made, or the
     /// terminal's process ended.
     public nonisolated var oracleAttach: OracleTerminalsFacet.Attach {
         switch self {
@@ -17,7 +17,7 @@ extension TerminalAttachMachine.Phase {
 }
 
 extension OracleTerminalsFacet {
-    /// The facet's main-actor read (p15-oracle-044) of one daemon mirror: every terminal tab's mirror values, never a
+    /// The facet's main-actor read of one daemon mirror: every terminal tab's mirror values, never a
     /// Ghostty surface; the attach state and the screen are closures the facet runs off the main actor. A
     /// remote-terminal tab's terminal is another session's, and a tab with no public terminal id (`term_<hex>`, the
     /// schema's `terminal` id kind) has no terminal made yet: neither is listed.

@@ -7,7 +7,7 @@ import CmuxNextTabs
 import Foundation
 import Testing
 
-/// p10-stability-090: back-references whose owner can be freed first are no longer `unowned` (an
+/// back-references whose owner can be freed first are no longer `unowned` (an
 /// `unowned` read after the owner's deinit traps). A workspace content reads its window state after
 /// the window let go of it (a create's task or a `ScreenRef` still holds the content), and a screen
 /// hover card's thumbnail task asks its preview source after the workspace content was freed.

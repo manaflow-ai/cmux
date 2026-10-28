@@ -1,4 +1,4 @@
-// The Passwords page keeps its search, sort and list scroll across a discard (p13-webui-082), and
+// The Passwords page keeps its search, sort and list scroll across a discard, and
 // never a password: the hide saves only what the person typed in the search field.
 import { describe, expect, test } from "bun:test";
 import { BridgePageClient, type ReplyHandler } from "../shared/pageClient";

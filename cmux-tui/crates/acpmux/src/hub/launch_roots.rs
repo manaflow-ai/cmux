@@ -119,14 +119,17 @@ pub fn launch_roots(
 /// spawn env and a leading `~/` from `home`. None when the entry names no
 /// spawn variable (the device index already resolves it from the login
 /// env) or a variable it names is unset.
-fn expand_spawn_root(entry: &str, env: &BTreeMap<String, String>, home: &Path) -> Option<PathBuf> {
+pub(super) fn expand_spawn_root(
+    entry: &str,
+    env: &BTreeMap<String, String>,
+    home: &Path,
+) -> Option<PathBuf> {
     let mut out = String::new();
     let mut rest = entry;
     let mut named = false;
-    while let Some(start) = rest.find("${") {
-        out.push_str(&rest[..start]);
-        let end = rest[start..].find('}')? + start;
-        let inner = &rest[start + 2..end];
+    while let Some((before, after)) = rest.split_once("${") {
+        out.push_str(before);
+        let (inner, after_var) = after.split_once('}')?;
         let (key, default) = match inner.split_once(":-") {
             Some((k, d)) => (k, Some(d)),
             None => (inner, None),
@@ -138,7 +141,7 @@ fn expand_spawn_root(entry: &str, env: &BTreeMap<String, String>, home: &Path) -
             }
             None => out.push_str(default?),
         }
-        rest = &rest[end + 1..];
+        rest = after_var;
     }
     out.push_str(rest);
     if !named {

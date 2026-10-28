@@ -1,4 +1,4 @@
-//! The bus fan-out (p06-scheduler-224): scoped subscribers indexed by
+//! The bus fan-out: scoped subscribers indexed by
 //! surface, one shared event per emit, delivery outside `Mux::state` in
 //! state order, the frontend served first, and per-subscriber order kept.
 

@@ -119,7 +119,7 @@ struct ServerReachAdmissionTests {
         var user: String? = "fixture-user"
     }
 
-    // MARK: Scheduler sweep (p06-scheduler-313): service observations and the activation notice
+    // MARK: Scheduler sweep: service observations and the activation notice
 
     @Test func signingOutClosesTheServersOnTheFlushNotInTheChangesTurn() throws {
         let h = Harness(); defer { h.stop() }

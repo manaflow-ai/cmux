@@ -136,6 +136,13 @@ public final class TerminalLaunchFrames {
         dropRead()
     }
 
+    /// The saved frames are not this session's last screens (the run after the quit that saved them ended without a
+    /// quit: `kill -9`, a crash, power loss): no pane gets one, the panes that asked already included, and no read
+    /// starts later. Each terminal stays held clear until its live content draws, as with no saved frame.
+    public func discardLaunchRead() {
+        dropRead()
+    }
+
     /// Ends once the launch read's lane has its result, apart from the main-actor handoff to the waiting panes
     /// (tests); nil with no read.
     var launchReadLaneEnd: (@Sendable () async -> Void)? {
@@ -217,7 +224,8 @@ public final class TerminalLaunchFrames {
             let surface = session.surfaceView
             // visibility-walk-allow: the quit saves the frame each terminal shows on screen, the view state AppKit composites; read once per terminal at quit
             guard surface.window?.isVisible == true, !surface.isHiddenOrHasHiddenAncestor, surface.bounds.width > 0,
-                  let frame = await session.snapshotInBackground(maxPixelSize: .greatestFiniteMagnitude) else { continue }
+                  // What the pane shows: a terminal still held over its slow attach saves its held frame.
+                  let frame = await session.shownFrameInBackground(maxPixelSize: .greatestFiniteMagnitude) else { continue }
             frames[key] = NSImage(cgImage: frame, size: surface.bounds.size)
         }
         return frames
@@ -254,16 +262,15 @@ public final class TerminalLaunchFrames {
     }
 
     private nonisolated static func write(_ frames: [String: CGImage], to directory: URL) {
-        let manager = FileManager.default
-        try? manager.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-        for old in (try? manager.contentsOfDirectory(atPath: directory.path)) ?? [] where frames[old] == nil {
-            try? manager.removeItem(at: directory.appending(path: old))
+        try? FileManager.checked.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        for old in (try? FileManager.checked.contentsOfDirectory(atPath: directory.path)) ?? [] where frames[old] == nil {
+            try? FileManager.checked.removeItem(at: directory.appending(path: old))
         }
         for (name, frame) in frames {
             let url = directory.appending(path: name)
             guard let data = NSBitmapImageRep(cgImage: frame).representation(using: .jpeg, properties: [.compressionFactor: 0.9]),
                   (try? data.write(to: url, options: [.atomic])) != nil else { continue }
-            try? manager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+            try? FileManager.checked.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
         }
     }
 

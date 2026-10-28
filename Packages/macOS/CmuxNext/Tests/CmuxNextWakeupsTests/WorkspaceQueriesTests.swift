@@ -4,6 +4,7 @@ import AppKit
 #else
 import CmuxNextCompat
 #endif
+import CmuxNextCompatAppKit
 import CmuxNextWakeups
 import CmuxNextWakeupsTestSupport
 import Foundation

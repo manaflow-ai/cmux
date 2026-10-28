@@ -29,12 +29,14 @@ pub(crate) use ipc::note_json_parse;
 pub use ipc::{
     CountedWrite, IpcKindSnapshot, IpcParseSnapshot, IpcParsesSnapshot, IpcSnapshot, IpcStats,
     IpcStreamsSnapshot, IpcTransport, IpcWritesSnapshot, JsonParseHandoff, JsonParseScope,
-    OpenStream, WRITE_STALL_THRESHOLD,
+    OpenStream, OwnedOpenStream, WRITE_STALL_THRESHOLD,
 };
 mod owner_panic_log;
 #[cfg(debug_assertions)]
 pub use owner_panic_log::spawn_owner_hang_test;
-pub use owner_panic_log::{owner_hang_log_path, owner_log_dir, owner_panic_log_path};
+pub use owner_panic_log::{
+    HelperPanicLog, owner_hang_log_path, owner_log_dir, owner_panic_log_path,
+};
 mod diagnostic_sites;
 pub use diagnostic_sites::{DiagnosticSite, DiagnosticSites, MAX_DIAGNOSTIC_SITES};
 mod slow_requests;

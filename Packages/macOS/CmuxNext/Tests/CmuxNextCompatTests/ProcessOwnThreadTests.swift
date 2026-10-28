@@ -1,9 +1,10 @@
 import CmuxNextCompat
+import CmuxNextCompatCore
 import Darwin
 import Foundation
 import Testing
 
-/// `Process.runOnOwnThread` (p02-threads-040): the privileged server helper's spawn runs on a thread of its own at
+/// `Process.runOnOwnThread`: the privileged server helper's spawn runs on a thread of its own at
 /// the QoS it names, never on the caller's thread (Chromium's launcher thread,
 /// content/browser/child_process_launcher_helper.cc), and the child itself runs at that QoS.
 @Suite(.timeLimit(.minutes(1)))

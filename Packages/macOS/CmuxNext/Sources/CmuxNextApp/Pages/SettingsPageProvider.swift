@@ -1,5 +1,5 @@
 import AppKit
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 import CmuxNextDesign
 import CmuxNextPages
 import CmuxNextSettings
@@ -459,7 +459,7 @@ enum SettingsPageDomains {
     }()
 
     /// The sounds in /System/Library/Sounds, listed on the files lane while the page's snapshot waits (a
-    /// directory read: never a static initializer on whichever thread reads it first, p02-threads-122).
+    /// directory read: never a static initializer on whichever thread reads it first).
     static func sounds(work: BackgroundWork) async -> [String] {
         let folder = URL(fileURLWithPath: "/System/Library/Sounds")
         let urls = (try? await work.run(.userVisible, mayBlock: .files) {

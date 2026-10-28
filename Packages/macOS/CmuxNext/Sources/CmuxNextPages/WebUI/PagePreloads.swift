@@ -5,7 +5,7 @@ public import CmuxNextSettings
 public import CmuxNextWakeups
 
 /// Settings, History and Cloud through the app's one preload slot (``WebUIHost/preload``,
-/// p13-webui.md 3.D, p13-webui-045; feature `pagePreload`, default off). It replaces PageHostPool,
+/// p13-webui.md 3.D; feature `pagePreload`, default off). It replaces PageHostPool,
 /// which built a WebKit Settings host at every launch, even when pages show in Chromium and could
 /// never take it.
 ///
@@ -19,8 +19,8 @@ public import CmuxNextWakeups
 ///   parked (``PageOpenRequest/parked``), in the page's own engine, in this coordinator's parking in
 ///   the target window, at the size of that window's focused pane, with the document attributes a
 ///   cold open gives it. Nothing preloads at launch.
-/// - It preloads only into an empty slot, as `PreloadSelector` (p13-webui-042) decides: a held page
-///   is never replaced, so it never evicts New Tab's preload (p13-webui-044), and New Tab never
+/// - It preloads only into an empty slot, as `PreloadSelector` decides: a held page
+///   is never replaced, so it never evicts New Tab's preload, and New Tab never
 ///   evicts it. When the slot empties (a claim or a drop), it arms its next page again.
 /// - No page preloads while its owner keeps a view that the next open shows again (Settings).
 /// - The next open of that page takes it in its own turn and binds its routes to it; the tab content

@@ -2,9 +2,9 @@ import AppKit
 @testable import CmuxNextBrowser
 import Testing
 
-/// A pane's tabs on Chromium's own attached view (p03-rendering-045, Track B), through the fork seam: the fake
+/// A pane's tabs on Chromium's own attached view (Track B), through the fork seam: the fake
 /// attach call adds a stand-in for the tab's `WebContentsViewCocoa` below the host view's subviews and answers
-/// 1 or 0, as the fork's `cmux_browser_attach_view` (p03-rendering-044) does. No Chromium.
+/// 1 or 0, as the fork's `cmux_browser_attach_view` does. No Chromium.
 @MainActor
 @Suite struct CEFAttachedPagesTests {
     /// Chromium's page view: it takes the first click and makes itself first responder on a mouse down, as
@@ -64,7 +64,7 @@ import Testing
         let turn = turn
         let hosting = CEFLayerHosting(isEnabled: { true }, schedule: { turn.add($0) },
                                       makePage: { ChromiumHostPageView(frame: $0, inputTarget: .pageWindow, makeLayerHost: { _ in CALayer() }) })
-        return CEFHostView(frame: NSRect(x: 0, y: 0, width: 400, height: 300), pageUpdateCenter: NotificationCenter(), layerHosting: hosting)
+        return CEFHostView(frame: NSRect(x: 0, y: 0, width: 400, height: 300), layerHosting: hosting)
     }
 
     func attached(_ host: CEFHostView, _ browser: Int32) -> FakeChromiumView? {

@@ -2,7 +2,7 @@
 import CmuxNextOracle
 import Testing
 
-/// The windows facet (p15-oracle-041): windows front to back, key and main, and each frame as fractions of its
+/// The windows facet: windows front to back, key and main, and each frame as fractions of its
 /// screen at 2 dp, never points. Run: `swift test --filter OracleWindowsFacetTests`.
 @MainActor
 struct OracleWindowsFacetTests {

@@ -16,7 +16,7 @@
 #   --artifact=PATH   the step's --artifact, a relative artifacts/oracle/<name>.tar.gz (required)
 #   --config=C        bench (default) or debug: reload.sh --config and oracle.py --build
 #   --dry-run         plan the shard and write its receipt; build and launch nothing
-#   --mutant=PATH     a seeded fault, tests/oracle/mutants/app/<name>.patch of this checkout (p15-oracle-026):
+#   --mutant=PATH     a seeded fault, tests/oracle/mutants/app/<name>.patch of this checkout:
 #                     applied to the checkout before the build and reverted on exit; a dry run only checks it applies
 # The checkout is the worker's reused one, so a build runs only on clean product sources (no tracked change under
 # Packages or cmux-tui), and fleet-step.json records the sha256 of what was built over HEAD ("none" when clean).
@@ -135,8 +135,12 @@ diff = sys.stdin.buffer.read()
 print(hashlib.sha256(diff).hexdigest() if diff else "none")')"
 step+=(--source-diff "$source_diff")
 build_start=$SECONDS
+# The checkout is reused: a submodule an earlier step initialized stays at that step's commit, so it is moved to
+# this commit's gitlink whenever it differs (fleet.py refuses a build whose submodules are off their gitlinks).
 for sub in ghostty ghostty-next; do
-  [ -e "$sub/.git" ] || git submodule update --init --depth 1 "$sub"
+  if [ ! -e "$sub/.git" ] || [ "$(git -C "$sub" rev-parse HEAD)" != "$(git rev-parse "HEAD:$sub")" ]; then
+    git submodule update --init --depth 1 "$sub"
+  fi
 done
 if [ ! -f GhosttyKit.xcframework/Info.plist ]; then
   rm -rf GhosttyKit.xcframework

@@ -9,7 +9,7 @@ public import IOSurface
 /// Purgeable pages and the app-wide hidden frame list (`HiddenFrameLRU`, `memoryHiddenFrameLRU`) work
 /// together: the kernel takes a volatile frame's pages when it needs them, and the list drops the frame
 /// itself (its soft limit, its 5 min cull, a warning level), so neither waits for the other. Pictures that
-/// are not IOSurfaces keep their bytes in ``PurgeablePages`` (p07-memory-107).
+/// are not IOSurfaces keep their bytes in ``PurgeablePages``.
 extension IOSurface {
     /// kIOSurfacePurgeable* by value (IOSurfaceTypes.h): the imported Swift names differ by SDK.
     public static let purgeableNonVolatile: UInt32 = 0

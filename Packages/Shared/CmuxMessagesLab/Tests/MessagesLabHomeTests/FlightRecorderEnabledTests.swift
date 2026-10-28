@@ -4,7 +4,7 @@ import CmuxHomeRender
 import Testing
 @testable import MessagesLabHome
 
-/// The flight recorder costs nothing while its policy is off (p14-energy-051): no display link, no dump and
+/// The flight recorder costs nothing while its policy is off: no display link, no dump and
 /// so no capture burst. It reads the policy live, so a link that runs when the policy turns off stops on its
 /// next frame. Each test gives its own recorder its own policy (the app's `shared` reads HomeFlightRecorder).
 @MainActor @Suite struct FlightRecorderEnabledTests {

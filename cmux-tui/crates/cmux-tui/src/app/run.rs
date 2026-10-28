@@ -84,7 +84,8 @@ pub fn run_with_machine_updates(request: RunRequest) -> anyhow::Result<RunOutcom
     let panic_diagnostic_hook = panic_diagnostic.clone();
     std::panic::set_hook(Box::new(move |info| {
         if std::thread::current().id() == run_thread {
-            *panic_diagnostic_hook.lock().unwrap() = Some(format_panic_diagnostic(info));
+            *panic_diagnostic_hook.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
+                Some(format_panic_diagnostic(info));
         } else {
             previous_panic_hook_for_threads(info);
         }
@@ -95,7 +96,9 @@ pub fn run_with_machine_updates(request: RunRequest) -> anyhow::Result<RunOutcom
     std::panic::set_hook(Box::new(move |info| previous_panic_hook(info)));
 
     let result = report_after_unwind(result, || {
-        if let Some(diagnostic) = panic_diagnostic.lock().unwrap().take() {
+        if let Some(diagnostic) =
+            panic_diagnostic.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take()
+        {
             eprint!("{diagnostic}");
         }
     });
@@ -305,7 +308,7 @@ pub(super) fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Res
     } else {
         None
     };
-    let graphics_shutdown = graphics_writer.as_ref().map(GraphicsWriter::shutdown_control);
+    let graphics_shutdown = graphics_writer.as_ref().and_then(GraphicsWriter::shutdown_control);
     terminal_restore.set_graphics_shutdown(graphics_shutdown.clone());
 
     // Restore the host terminal even if we panic mid-frame.

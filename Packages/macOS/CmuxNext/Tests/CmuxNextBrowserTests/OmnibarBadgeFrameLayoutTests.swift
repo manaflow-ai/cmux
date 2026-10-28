@@ -3,7 +3,7 @@ import AppKit
 import CmuxNextDesign
 import Testing
 
-/// p03-rendering-073: the omnibar's machine, profile and focus-mode badges and its bookmark star lay out by frames
+/// The omnibar's machine, profile and focus-mode badges and its bookmark star lay out by frames
 /// (``ChipLayout``), not Auto Layout. Each holds no constraint of its own and reports its size
 /// through its intrinsic size, which the omnibar's badge row reads.
 @MainActor @Suite struct OmnibarBadgeFrameLayoutTests {

@@ -1,4 +1,4 @@
-//! Write batching (p05-ipc-088): queued messages leave in one gathered write
+//! Write batching: queued messages leave in one gathered write
 //! per 256 KiB, in the order single pops write them, and a chunk of a long
 //! frame ends its batch so a reply waits for at most one chunk.
 
@@ -20,7 +20,7 @@ fn payload(service: &RenderService, len: usize) -> Arc<BudgetedText> {
 
 fn stream_on(service: &RenderService, id: u64, lane: StreamLane) -> OutboundStream {
     let overflow = service.serialize_control(&json!({"event": "overflow", "stream": id})).unwrap();
-    OutboundStream { lane, ..OutboundStream::new(id, overflow) }
+    OutboundStream::with_sequence(id, overflow, false, lane)
 }
 
 /// Queues `count` messages on `outbound`: replies, stream lines and frames

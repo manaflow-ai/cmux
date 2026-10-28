@@ -4,7 +4,7 @@ import Foundation
 /// Inflates a compressed `snapshot {phase: "history"}` chunk
 /// (`terminal-snapshot-history-v1`). The host compresses each chunk on its
 /// own, so each inflates alone. Runs on the attach connection's decode lane
-/// (``DecodeLane``), never on its reader or the main thread (p05-ipc-144).
+/// (``DecodeLane``), never on its reader or the main thread.
 enum TerminalSnapshotInflate {
     /// `compression` values this view inflates. `deflate` is raw DEFLATE
     /// (RFC 1951, no zlib or gzip framing), what COMPRESSION_ZLIB reads.

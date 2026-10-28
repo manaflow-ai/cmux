@@ -4,7 +4,7 @@ import Foundation
 import Testing
 @testable import MessagesLabHome
 
-/// Strict memory safety (p10-stability-073): the pointer-free wrappers (`Cmux/MemorySafeCalls.swift`,
+/// Strict memory safety: the pointer-free wrappers (`Cmux/MemorySafeCalls.swift`,
 /// `AssociationKey`) and the vendored code moved off raw pointers (LinkGuard's address bytes, GlassKeyFix's
 /// over-blend maps, LongText's byte scan) give the results the pointer code gave.
 @MainActor @Suite(.serialized) struct MemorySafeCallsTests {

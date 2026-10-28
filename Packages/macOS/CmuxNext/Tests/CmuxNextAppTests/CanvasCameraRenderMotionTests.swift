@@ -4,7 +4,7 @@ import CmuxNextDesign
 import QuartzCore
 import Testing
 
-/// The canvas camera's render-server springs as values (chrome-parity p03-rendering-031): a hand-off from
+/// The canvas camera's render-server springs as values: a hand-off from
 /// the main thread follows the main thread's path, a retarget keeps value and velocity, a take-back hands
 /// the main thread what shows, and the springs land on the target.
 @Suite struct CanvasCameraRenderSpringTests {

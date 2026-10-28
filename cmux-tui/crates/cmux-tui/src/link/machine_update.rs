@@ -41,6 +41,7 @@
 
 pub(crate) mod apply;
 
+use crate::json_fields::JsonFields;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -97,7 +98,7 @@ pub(super) fn run(args: &[String]) -> i32 {
     };
     match update(&socket, to_bundled) {
         Ok(mut line) => {
-            line["ok"] = json!(true);
+            line.insert("ok", json!(true));
             println!("{line}");
             0
         }
@@ -138,7 +139,7 @@ fn update(socket: &Path, to_bundled: bool) -> Result<Value, Failed> {
             "the machine's daemon does not run from ~/.cmux/bin/cmux-tui; recreate the machine",
         )
     })?;
-    let daemon_pid = before["pid"].as_u64().ok_or_else(|| {
+    let daemon_pid = before.field("pid").as_u64().ok_or_else(|| {
         Failed::new("machine_update_unsupported", "the machine daemon named no pid")
     })?;
     let (payload, sha256) = pinned_payload()?;
@@ -158,7 +159,7 @@ fn update(socket: &Path, to_bundled: bool) -> Result<Value, Failed> {
                "name": "cmux machine update"}),
     );
     let terminal = match created {
-        Ok(data) => data["terminal_id"].as_str().map(str::to_owned),
+        Ok(data) => data.field("terminal_id").as_str().map(str::to_owned),
         Err(error) => {
             let _ = super::sync_cli::delete_remote(socket, &staged);
             return Err(Failed::new(
@@ -231,23 +232,24 @@ fn stage(
     let local = std::env::temp_dir().join(format!("cmux-machine-update-{nonce}"));
     let copy = local.join("cmux-tui");
     // A fresh private folder: never one somebody planted.
-    let staged_locally = std::fs::DirBuilder::new()
-        .mode(0o700)
-        .create(&local)
-        .and_then(|()| std::fs::copy(payload, &copy))
-        .and_then(|_| std::fs::set_permissions(&copy, std::fs::Permissions::from_mode(0o755)));
+    let staged_locally =
+        crate::blocking::fs::create_dir_with(std::fs::DirBuilder::new().mode(0o700), &local)
+            .and_then(|()| cmux_blocking::fs::copy(payload, &copy))
+            .and_then(|_| {
+                crate::blocking::fs::set_permissions(&copy, std::fs::Permissions::from_mode(0o755))
+            });
     let checked = staged_locally.and_then(|()| apply::file_sha256(&copy));
     match checked {
         Ok(actual) if actual == sha256 => {}
         Ok(_) => {
-            let _ = std::fs::remove_dir_all(&local);
+            let _ = cmux_blocking::fs::remove_dir_all(&local);
             return Err(Failed::new(
                 "machine_update_payload_rejected",
                 "the build's copy does not match its pin",
             ));
         }
         Err(error) => {
-            let _ = std::fs::remove_dir_all(&local);
+            let _ = cmux_blocking::fs::remove_dir_all(&local);
             return Err(Failed::new(
                 "machine_update_failed",
                 format!("cannot stage the build here: {error}"),
@@ -255,7 +257,7 @@ fn stage(
         }
     }
     let written = super::sync_cli::copy_file(socket, &copy, staged);
-    let _ = std::fs::remove_dir_all(&local);
+    let _ = cmux_blocking::fs::remove_dir_all(&local);
     written.map_err(|e| {
         Failed::new("machine_update_failed", format!("cannot copy the build to the machine: {e:#}"))
     })
@@ -267,9 +269,9 @@ fn wait_for_outcome(socket: &Path, result: &str, daemon_pid: u64) -> Result<Stri
     let deadline = Instant::now() + OUTCOME_TIMEOUT;
     let mut new_seen: Option<Instant> = None;
     while Instant::now() < deadline {
-        std::thread::sleep(Duration::from_secs(1));
+        cmux_blocking::thread::sleep(Duration::from_secs(1));
         if let Some(outcome) = read_outcome(socket, result) {
-            return match outcome["state"].as_str() {
+            return match outcome.field("state").as_str() {
                 Some("updated") => Ok(own.to_owned()),
                 Some("pending") => Err(Failed::new(
                     "machine_update_pending",
@@ -290,7 +292,9 @@ fn wait_for_outcome(socket: &Path, result: &str, daemon_pid: u64) -> Result<Stri
             };
         }
         let Some(now) = machine_gate::identify(socket) else { continue };
-        if machine_gate::build_id(&now) == Some(own) && now["pid"].as_u64() != Some(daemon_pid) {
+        if machine_gate::build_id(&now) == Some(own)
+            && now.field("pid").as_u64() != Some(daemon_pid)
+        {
             let seen = *new_seen.get_or_insert_with(Instant::now);
             if seen.elapsed() > OUTCOME_GRACE {
                 return Ok(own.to_owned());
@@ -315,8 +319,8 @@ fn read_outcome(socket: &Path, result: &str) -> Option<Value> {
         json!({"path": result, "offset": 0, "max_bytes": 64 * 1024}),
     )
     .ok()?;
-    let outcome: Value = serde_json::from_str(data["text"].as_str()?).ok()?;
-    (outcome["state"].as_str()? != "running").then_some(outcome)
+    let outcome: Value = serde_json::from_str(data.field("text").as_str()?).ok()?;
+    (outcome.field("state").as_str()? != "running").then_some(outcome)
 }
 
 /// 16 random hex digits, naming this update's outcome file.

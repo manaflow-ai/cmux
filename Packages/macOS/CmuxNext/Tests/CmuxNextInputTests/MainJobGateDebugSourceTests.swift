@@ -5,7 +5,7 @@ import CmuxNextSettings
 import Foundation
 import Testing
 
-/// `debug.input` section `gate` from the MainJobGate (p04-input-076; DC10): the gate's counters by
+/// `debug.input` section `gate` from the MainJobGate (DC10): the gate's counters by
 /// origin and by exempt rule reach the section's JSON keys, `reset` starts them over, and no gate
 /// (the feature off) reads as zero.
 @MainActor @Suite

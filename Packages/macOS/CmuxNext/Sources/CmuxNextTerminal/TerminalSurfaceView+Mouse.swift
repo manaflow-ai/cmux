@@ -159,7 +159,7 @@ extension TerminalSurfaceView {
     // MARK: Cursor
 
     /// The pointer entered the surface's cursor area (``addCursorUpdateArea(_:)`` in init, active in the
-    /// key window as the cursor rect was). No cursor rects (p04-input-090): a pane resize or a divider
+    /// key window as the cursor rect was). No cursor rects: a pane resize or a divider
     /// drag rebuilds none of the window's.
     public override func cursorUpdate(with event: NSEvent) {
         cursor.set()

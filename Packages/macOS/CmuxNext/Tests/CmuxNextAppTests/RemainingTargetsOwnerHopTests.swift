@@ -8,7 +8,7 @@ import CoreGraphics
 import Foundation
 import Testing
 
-/// p06-scheduler-346 (rule 9): the owners whose makers now pass the app's scheduler. Each one's off-main work lands
+/// The owners whose makers now pass the app's scheduler. Each one's off-main work lands
 /// as a task with a class on the scheduler it was given, not as an unattributed main-actor resume.
 ///
 /// - A hover card's sample report waits in the visible class, and its next sample waits on its visible deadline.
@@ -71,7 +71,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: folder) }
         try Data().write(to: folder.appending(path: "old"))
         let watcher = OwnerHopFolderFeed()
-        let model = FileBrowserModel(folder: folder, work: linklessMainWork(), watcher: watcher)
+        let model = FileBrowserModel(folder: folder, work: linklessMainWork(), watcher: watcher, lanes: BackgroundWork(label: "test.files-model"))
         await model.reload()
         #expect(model.entries.map(\.name) == ["old"])
 

@@ -14,7 +14,7 @@
 //! `snapshot {phase: "history", generation, offset, version, compression:
 //! "deflate", raw_bytes, data, done}` chunks at that READY's generation and
 //! offset. Each chunk is at most [`HISTORY_CHUNK_BYTES`] of history,
-//! compressed alone as raw DEFLATE (level 1) on the worker thread, outside
+//! compressed alone as raw DEFLATE (level 1) by the viewer's drain, outside
 //! the terminal lock. The inflated chunks concatenated are the rest of the
 //! same COMPLETE encode (HISTORY manifests, scrollback pages, FINISH), which
 //! a viewer feeds to its restore after READY. History has lower priority than live
@@ -72,8 +72,7 @@ use super::render_messages::snapshot_frames::SnapshotEvent;
 use super::terminal_io_wire::{AttachSurfaceParams, SnapshotRequestParams, wire_usize};
 use super::{
     MarkedClientAttach, MessageWriter, OutboundStream, get_surface, handle_attach_send_error,
-    mark_client_attached, require_pty, rollback_failed_attach, spawn_attach_notification_stream,
-    terminal_colors_json,
+    mark_client_attached, require_pty, rollback_failed_attach, terminal_colors_json,
 };
 use crate::surface::snapshot_attach::{
     DEFAULT_VIEWER_BACKLOG_BYTES, LocalReadySnapshot, SnapshotAdmission, SnapshotImages,
@@ -552,8 +551,8 @@ fn frame_json(
     }
 }
 
-/// One `output` event; `flow` (the key press it echoes,
-/// p09-observability-018) only when it is not 0.
+/// One `output` event; `flow` (the key press it echoes)
+/// only when it is not 0.
 fn output_json(
     surface: SurfaceId,
     output: &[u8],
@@ -659,21 +658,7 @@ fn attach(
             surface.snapshot_stream_position().unwrap_or_default()
         }
     };
-    // An attach stream's drain takes the notifications itself.
-    let on_pool = outbound_stream.client_stream.is_some();
-    if !on_pool
-        && let Err(error) = spawn_attach_notification_stream(
-            mux.clone(),
-            surface_id,
-            writer.clone(),
-            lifecycle.clone(),
-            outbound_stream.clone(),
-        )
-    {
-        lifecycle.cancel();
-        rollback_failed_attach(mux, client, surface_id, outbound_stream.id, size_rollback);
-        return Err(error.into());
-    }
+    // The viewer's drain on the sequenced pool takes the notifications too.
     mux.control_clients.snapshot_viewers.register(
         client,
         surface_id,
@@ -687,7 +672,7 @@ fn attach(
         surface,
         writer: writer.clone(),
         outbound_stream,
-        receiver: stream.receiver,
+        receiver: Arc::new(stream.receiver),
         lifecycle: stream.lifecycle,
         gate: stream.requests,
         generation,
@@ -695,7 +680,6 @@ fn attach(
         tail,
         images_cap,
         digest_at: None,
-        on_pool,
     };
     snapshot_attach_out::start(
         worker,

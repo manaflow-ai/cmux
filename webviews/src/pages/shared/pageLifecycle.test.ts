@@ -1,5 +1,5 @@
 // A page saves its state when it hides (visibilitychange), never when the host discards it: a frozen
-// page cannot answer the host (p13-webui-088).
+// page cannot answer the host.
 //
 // The page lifecycle (plans/cmux-next/chrome-parity/p13-webui.md 3.C, task 033): pages follow
 // `document.visibilityState` and the standard `freeze`/`resume` events, with no native stream. No

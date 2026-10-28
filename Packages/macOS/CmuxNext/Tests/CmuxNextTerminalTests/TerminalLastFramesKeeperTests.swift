@@ -3,8 +3,8 @@ import CmuxNextCompat
 import IOSurface
 import Testing
 
-/// Evicted terminals' last frames under the app-wide hidden frame list (p03-rendering-099,
-/// `memoryHiddenFrameLRU`): each stored frame is one unlocked frame of the list, a reader locks it,
+/// Evicted terminals' last frames under the app-wide hidden frame list
+/// (`memoryHiddenFrameLRU`): each stored frame is one unlocked frame of the list, a reader locks it,
 /// the list's eviction drops it, a frame that leaves the store on its own leaves the list, and the
 /// warm set's capacity stays the upper bound.
 @MainActor @Suite(.timeLimit(.minutes(1)))

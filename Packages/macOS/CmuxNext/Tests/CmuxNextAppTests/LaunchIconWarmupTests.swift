@@ -1,11 +1,10 @@
-import CmuxNextActions
 import CmuxNextCompat
-@testable import CmuxNextApp
 import CmuxNextIcons
+import CmuxNextLaunch
 import Foundation
 import Testing
 
-/// p08-startup-039: the icon pack and catalog (367 KB of JSON, a `swift_once` each) decode on the
+/// The icon pack and catalog (367 KB of JSON, a `swift_once` each) decode on the
 /// launch's icon warm-up thread, not on main at the first tab or sidebar icon before the first frame.
 /// The decode and the launch-mark sink are injected: the process-wide icon globals may already be
 /// decoded by another suite, so reading them here would prove nothing about where the decode ran.
@@ -56,16 +55,15 @@ struct LaunchIconWarmupTests {
     @Test("Launch warm-up starts the icon decode and marks icons_decoded when it ends")
     func launchStartsIconDecodeAndMarksIt() {
         let log = Log()
-        // Built before the start, so the launch thread claims no build and marks nothing: only the icon mark is seen.
-        let catalog = ActionCatalogLaunch()
-        catalog.build()
+        // No warm-up work (the App's catalog build marks only when it claims the build): only the icon mark is seen.
         LaunchWarmup(
+            work: {},
             decodeIcons: { decoded in
                 log.record(.startedIconDecode)
                 log.hold(decoded)
             },
             markLaunch: { log.record(.marked($0)) }
-        ).start(catalog: catalog)
+        ).start()
         // Not marked before the decode ends.
         #expect(log.recorded == [.startedIconDecode])
         log.finishHeldDecode()

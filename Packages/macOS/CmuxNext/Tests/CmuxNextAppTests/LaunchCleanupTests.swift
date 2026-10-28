@@ -1,8 +1,9 @@
 @testable import CmuxNextApp
+import CmuxNextLaunch
 import CmuxNextWakeups
 import Testing
 
-/// The launch's temporary-file cleanup is an afterStartup post (p08-startup-016): it never competes
+/// The launch's temporary-file cleanup is an afterStartup post: it never competes
 /// with the first window and its first content, and runs once after startup completes.
 @MainActor @Suite(.timeLimit(.minutes(1))) struct LaunchCleanupTests {
     @Test func theCleanupRunsOnceAfterStartupCompletes() {

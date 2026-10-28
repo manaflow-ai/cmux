@@ -103,7 +103,7 @@ import CmuxNextCompat
     private var deliveryCounts: [Notification.Name: Int] = [:]
     private var deferrals = 0
     #if DEBUG || CMUX_BENCH_HOOKS
-    /// Whose arm census records each observer this fan-out makes (p08-startup-085); nil records none.
+    /// Whose arm census records each observer this fan-out makes; nil records none.
     private let observerLedger: WakeupLedger?
     #endif
 

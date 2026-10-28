@@ -5,7 +5,7 @@ import Foundation
 import Testing
 @testable import CmuxNextAgentPane
 
-/// The daemon socket retry and the handoff's exit wait run on an injected clock (p14-energy-019c).
+/// The daemon socket retry and the handoff's exit wait run on an injected clock.
 @MainActor
 struct AcpmuxBoundedWaitClockTests {
     /// The socket retry waits 100, 200, 400, then 500 ms, each with Backoff's tolerance, never past

@@ -1,6 +1,6 @@
 public import AppKit
 import CoreImage
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 public import CmuxNextWakeups
 public import CmuxNextDesignTokens
 public import CmuxNextAppearance

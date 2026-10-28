@@ -79,7 +79,7 @@ final class NotificationCenterService {
     @ObservationIgnored let finishedBursts = FinishedBannerBursts()
     /// The Chief pet's notices (`NotificationCenterService+ChiefPet`); nil while it is off.
     @ObservationIgnored var chiefPet: ChiefPetController?
-    /// The newest notification handled; 0 at `start` (its launch post, p08-startup-031), so a live one that came before it still arrives.
+    /// The newest notification handled; 0 at `start` (its launch post), so a live one that came before it still arrives.
     @ObservationIgnored var lastSeen: UInt64 = 0
     /// The Dock badge this service set last (nil: none).
     @ObservationIgnored var dockBadgeLabel: String?
@@ -147,7 +147,7 @@ final class NotificationCenterService {
     }
 
     /// Starts the banners, rings, sounds and the Dock badge from the store's notifications, once (the
-    /// `Notifications.start` launch post, p08-startup-031). Needs `wire(services:)` first.
+    /// `Notifications.start` launch post). Needs `wire(services:)` first.
     func start() {
         guard let services, !isStarted else { return }
         isStarted = true

@@ -1,5 +1,6 @@
 import CryptoKit
 public import Foundation
+import CmuxNextCompat
 
 /// Per-installation Cloud state: the WireGuard key, device id, completed
 /// config, hub socket, and cmux-tui link client state. Owner-only (0700
@@ -61,7 +62,7 @@ public struct CloudPaths: Sendable {
     func writeSecret(_ text: String, to url: URL) throws {
         let temporary = url.appendingPathExtension("tmp")
         FileManager.default.createFile(atPath: temporary.path, contents: Data(text.utf8), attributes: [.posixPermissions: 0o600])
-        guard rename(temporary.path, url.path) == 0 else {
+        guard blockingRename(temporary.path, url.path) == 0 else {
             throw CocoaError(.fileWriteUnknown, userInfo: [NSFilePathErrorKey: url.path])
         }
     }
@@ -92,7 +93,7 @@ public struct CloudPaths: Sendable {
         return id
     }
 
-    /// ``loadOrCreateDeviceID()`` as a value a launch read gives the main thread (p08-startup-076). It blocks:
+    /// ``loadOrCreateDeviceID()`` as a value a launch read gives the main thread. It blocks:
     /// run it on a `BackgroundWork` files lane.
     public func deviceIDResult() -> Result<String, CloudDeviceIDError> {
         do {
@@ -111,7 +112,7 @@ public enum CloudDeviceIDError: Error, Equatable, Sendable {
     case unwritable(String)
 }
 
-/// This Mac's install id as the launch's read of it has it (p08-startup-076): `main` reads (or makes) `device-id` on a
+/// This Mac's install id as the launch's read of it has it: `main` reads (or makes) `device-id` on a
 /// launch lane with ``CloudPaths/deviceIDResult()``, and the main thread asks this, which never touches the disk.
 ///
 /// ```swift

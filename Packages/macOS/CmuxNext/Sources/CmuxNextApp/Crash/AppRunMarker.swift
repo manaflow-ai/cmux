@@ -111,16 +111,16 @@ final class AppRunMarker {
     /// normal or requested quit, or on a first launch.
     let previousExit: HistogramID.UncleanExit?
     /// The previous run as its marker left it, whatever its end; nil on a first launch. Its crash event, sent at
-    /// this launch, gets its crash keys and black box (`AppCrashReporting`, p09-observability-079).
+    /// this launch, gets its crash keys and black box (`AppCrashReporting`).
     let previousRun: PreviousRun?
     /// The previous run when it ended with no handler of its own (killed, or the Mac shut down), so no crash report
-    /// covers it; its fatal-hang record, if any, is reported (p09-observability-110). Nil after a quit, a crash or none.
+    /// covers it; its fatal-hang record, if any, is reported. Nil after a quit, a crash or none.
     let previousUnreported: PreviousRun?
     /// The crash keys the previous run's crash path wrote (`run.crashkeys`), read by the launch read; nil when that
     /// run ended with no crash path (a normal quit, SIGKILL, power loss) or on a first launch.
     let previousCrashKeys: CrashKeys?
     /// Whether this launch reads the launch caches: not after a streak of runs that ended before their startup
-    /// completed (p08-startup-089).
+    /// completed.
     let safeMode: LaunchSafeMode
     private var exceptionFile: URL { directory.appending(path: "run.exception") }
 
@@ -364,14 +364,14 @@ extension PreviousRun {
         uncleanExit(bootSession: current) == .systemShutdown ? nil : self
     }
 
-    /// The launch caches' safe mode after this run, seen from a launch in boot `current` (p08-startup-089).
+    /// The launch caches' safe mode after this run, seen from a launch in boot `current`.
     nonisolated func safeMode(bootSession current: String?) -> LaunchSafeMode {
         LaunchSafeMode.after(startupComplete: startupComplete, incompleteLaunches: incompleteLaunches, endedAsAsked: endedAsAsked,
                              machineRestarted: uncleanExit(bootSession: current) == .systemShutdown)
     }
 
     /// The run, seen from boot `current`, when it ended with no handler of its own and not as asked (killed, or
-    /// the Mac shut down), so no crash report covers its end; nil after a quit or a crash (p09-observability-110).
+    /// the Mac shut down), so no crash report covers its end; nil after a quit or a crash.
     nonisolated func unreported(bootSession current: String?) -> PreviousRun? {
         let exit = uncleanExit(bootSession: current)
         return exit == nil || exit == .crash ? nil : self
@@ -406,7 +406,7 @@ extension AppRunMarker {
 
     /// The launch read's body: blocking, on the files lane. It reads the previous run's files and leaves them as they
     /// are; the only files it writes are this run's spare ones. `processStart` is this process's kernel start, stored
-    /// in its marker so the next launch takes only this process's black box and crash-key page (p09-observability-079).
+    /// in its marker so the next launch takes only this process's black box and crash-key page.
     /// `gate` is the launch caches' decision (``startLaunchRead(directory:in:now:bootSession:gate:)``).
     nonisolated static func prepareLaunch(directory: URL, now: Date, bootSession: String?,
                                           processStart: UInt64? = AppRunMarker.currentProcessStart(),
@@ -436,8 +436,8 @@ extension AppRunMarker {
     /// The file of a launch's first record (`LaunchSafeMode.Beacon`), beside `run.json`.
     nonisolated static let beaconName = "run.launch"
 
-    /// The launch caches' crash-streak decision for this launch, the launch's ``LaunchSafeMode/Gate``'s `decide`
-    /// (p08-startup-089): from the previous run's `run.json`, or from the last launch's `run.launch` when that launch
+    /// The launch caches' crash-streak decision for this launch, the launch's ``LaunchSafeMode/Gate``'s `decide`:
+    /// from the previous run's `run.json`, or from the last launch's `run.launch` when that launch
     /// ended before its marker was written (a cache read that ended it is counted so); then this launch's
     /// `run.launch`, written before it returns. A second call finds that record and gives the same answer. Blocking:
     /// on a launch lane, before any launch cache is read.

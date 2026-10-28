@@ -2,7 +2,7 @@ import CmuxNextSignposts
 import CmuxNextTrace
 import Testing
 
-/// The catalog a ring's creator writes into the header name table (p09-observability-004): every
+/// The catalog a ring's creator writes into the header name table: every
 /// ``SignpostName`` at its pinned id and every category after them, decoded back from the ring alone.
 @Suite("Signpost trace name table")
 struct SignpostTraceNameTableTests {

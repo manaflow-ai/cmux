@@ -3,6 +3,7 @@
 //! dead daemon left open.
 
 use super::*;
+use crate::no_panic::LockExt;
 
 impl Hub {
     /// Personal stats over every session log (`crate::stats`): blocking,
@@ -33,7 +34,7 @@ impl Hub {
         hosted: &std::collections::HashSet<String>,
     ) {
         for id in waiting.iter().filter(|id| !hosted.contains(*id)) {
-            let Some(session) = self.sessions.lock().unwrap().get(id).cloned() else { continue };
+            let Some(session) = self.sessions.lock_or_recover().get(id).cloned() else { continue };
             let status = SessionStatus::Idle.to_string();
             self.append(&session, "mux", "status", json!({"status": status, "detail": "restart"}));
             self.save_meta(&session);

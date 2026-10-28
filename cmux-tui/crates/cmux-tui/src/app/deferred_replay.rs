@@ -116,7 +116,7 @@ impl App {
                         disposition: Self::pointer_replay_barrier(action),
                     });
                 }
-                let pointer = self.pending_pointer_motion.take().unwrap();
+                let Some(pointer) = self.pending_pointer_motion.take() else { break };
                 replayed += 1;
                 let pointer_action = self.handle_replayed_input(
                     TerminalInput::Mouse(pointer.event),
@@ -162,7 +162,7 @@ impl App {
                     });
                 }
                 Some(SemanticDestinationOutcome::Failed) => {
-                    let input = self.deferred_input.pop_front().unwrap();
+                    let Some(input) = self.deferred_input.pop_front() else { break };
                     self.retire_deferred_semantic_result(&input);
                     self.status_message = Some(
                         localization::catalog()
@@ -179,7 +179,7 @@ impl App {
                         && !Self::input_accepts_semantic_destination(&input.event)
                         && self.input_destination(&input.event) != Some(surface) =>
                 {
-                    let input = self.deferred_input.pop_front().unwrap();
+                    let Some(input) = self.deferred_input.pop_front() else { break };
                     self.retire_deferred_semantic_result(&input);
                     self.status_message = Some(
                         localization::catalog()
@@ -210,7 +210,7 @@ impl App {
                     disposition: Self::pointer_replay_barrier(action),
                 });
             }
-            let input = self.deferred_input.pop_front().unwrap();
+            let Some(input) = self.deferred_input.pop_front() else { break };
             replayed += 1;
             let replay_context =
                 ReplayedInputContext { pointer: input.pointer, admission: Some(input.admission) };

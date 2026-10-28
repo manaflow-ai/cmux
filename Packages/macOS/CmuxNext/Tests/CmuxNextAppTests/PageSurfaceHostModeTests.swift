@@ -7,7 +7,7 @@ import CmuxNextScreenshots
 import CmuxNextSettings
 import Testing
 
-/// p01-process-223: with the Chromium Host every page is a view of its window (`ChromiumHostPageView`),
+/// With the Chromium Host every page is a view of its window (`ChromiumHostPageView`),
 /// so the child-window machinery of in-process Chromium is off: no child window but a content panel is
 /// a page, the overlay planes stay in the window's view tree, no divider catcher panel is made, the
 /// window's notices run no child order check, the layout takes no other window's scroll, and a

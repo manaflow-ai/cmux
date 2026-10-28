@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The remote shim (Packages/macOS/CmuxNext/ChromiumHost/client, task p01-process-014) has the
+# The remote shim (Packages/macOS/CmuxNext/ChromiumHost/client) has the
 # in-process shim's ABI: it exports every cmux_shim_ function of cmux_cef_shim.h and no other,
 # with the header's cmux_shim_abi_id, and its generated exports never wait. Then
 # tests/remote_shim_test.cpp drives it against a fake host on a socket pair.

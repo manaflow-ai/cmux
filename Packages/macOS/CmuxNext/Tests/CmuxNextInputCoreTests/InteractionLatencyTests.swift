@@ -1,7 +1,7 @@
 @testable import CmuxNextInputCore
 import Testing
 
-/// cmux's INP (p04-input-097): events pair into interactions as Chromium's
+/// cmux's INP: events pair into interactions as Chromium's
 /// responsiveness_metrics.cc pairs them, an interaction is its longest event, and the session's
 /// high percentile ignores one interaction for each 50 from a fixed list of the 11 worst
 /// (responsiveness_metrics_normalization.cc); the ledger folds them from its slots and a report

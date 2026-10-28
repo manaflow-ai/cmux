@@ -11,8 +11,8 @@ public protocol PageRelayListeners: AnyObject {
     func stopListener(_ id: UInt64)
 }
 
-/// One provider's relay streams (the app's `DaemonPageRelay`), paused while the page is frozen
-/// (p13-webui-066). A freeze pauses every stream's channel listener, so a frozen page keeps no
+/// One provider's relay streams (the app's `DaemonPageRelay`), paused while the page is frozen.
+/// A freeze pauses every stream's channel listener, so a frozen page keeps no
 /// daemon listen and its channel closes when idle; a thaw resumes each and gives it one
 /// `{resync: true}`, which the page answers with a fresh read of what it missed. Chrome's WebUI
 /// handlers drop their observers in `OnJavascriptDisallowed` and re-read in `OnJavascriptAllowed`

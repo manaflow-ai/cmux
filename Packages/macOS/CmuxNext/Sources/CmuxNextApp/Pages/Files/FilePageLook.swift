@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextDiff
 import CmuxNextSettings
 import CmuxNextWakeups
@@ -199,7 +200,7 @@ final class FilePageLook {
 
     /// The theme file's text, "" when it cannot be read; on the files lane.
     private nonisolated static func theme(at file: URL) -> String {
-        (try? String(contentsOf: file, encoding: .utf8)) ?? ""
+        (try? String(blockingContentsOf: file, encoding: .utf8)) ?? ""
     }
 
     /// Sends the keys that changed since the last event.

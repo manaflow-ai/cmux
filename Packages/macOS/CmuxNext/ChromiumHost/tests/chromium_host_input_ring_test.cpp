@@ -4,7 +4,7 @@
 // (HostInput: a batch in flight refuses, the UI thread's ring takes the reader
 // on) over 1,000,000 frames, and a process pair that moves 1,000,000 frames
 // with no loss and in order, and the acks the host sends for a dispatched batch (AckBatch,
-// host_input.h, task p01-process-042). Run by
+// host_input.h). Run by
 // scripts/cmux-next/tests/chromium-host-input-ring.test.sh; on macOS the
 // doorbell is the real Mach port, elsewhere a pipe.
 #include "../src/chromium_host_input_ring.h"

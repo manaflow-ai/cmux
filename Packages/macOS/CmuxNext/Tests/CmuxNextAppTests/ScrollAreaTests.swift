@@ -7,7 +7,7 @@ import CoreGraphics
 import QuartzCore
 import Testing
 
-/// Scroll areas pan by translation (p04-input-050): with `motion.renderServer` on, an area's hosts and
+/// Scroll areas pan by translation: with `motion.renderServer` on, an area's hosts and
 /// dividers sit in its motion container, which clips them to the area's window (no host carries a mask
 /// for it), and an area pan event sets the translation of the container's layer and of its rings'
 /// plane: no host frame set, no clip recomputed, no tracking area rebuilt. A press during the pan lands

@@ -3,7 +3,7 @@ import CmuxNextTerminalGeometry
 
 /// What one session's events loop and output lane changed for the main actor since its last pass:
 /// the announced grid, the connection status, the "Sized for" chip, an exit, queued content and the
-/// restore counters, latest wins per field (p03-rendering-085).
+/// restore counters, latest wins per field.
 ///
 /// The loop never waits for main: it posts here and goes on with the next event, and the first post
 /// after a pass asks for one main turn (``deliver``), which the session runs on its frame through the

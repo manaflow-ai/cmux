@@ -22,9 +22,9 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../CmuxVNC"),
-        // The portable Mutex the shared session state lives in (p10-stability-172).
+        // The portable Mutex the shared session state lives in.
         .package(path: "../CmuxSafeConcurrency"),
-        // cmux-vnc-host's blockingCall (p02-threads-130, 146).
+        // cmux-vnc-host's blockingCall.
         .package(path: "../CmuxThreading"),
     ],
     targets: [

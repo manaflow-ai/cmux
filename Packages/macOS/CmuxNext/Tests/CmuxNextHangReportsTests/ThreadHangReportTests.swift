@@ -2,7 +2,7 @@
 import Foundation
 import Testing
 
-/// A watched thread's hang in an opt-in hang report (p09-observability-068): one `hangwatch` hang entry that names
+/// A watched thread's hang in an opt-in hang report: one `hangwatch` hang entry that names
 /// the registration and its kind, with the thread's frames, in wire schema 3 only (the deployed schema-2 server
 /// refuses the source and the key), a name outside the catalog shape written as `other`, in slots of their own so
 /// they never push a main-thread hang out.
@@ -112,7 +112,7 @@ struct ThreadHangReportTests {
         #expect(collector.takeBlackBox() == [event])
     }
 
-    /// The Chromium Host's UI hangs (p01-process-084): the host measured them and sends no stack, so each is kept
+    /// The Chromium Host's UI hangs: the host measured them and sends no stack, so each is kept
     /// frameless as a hang of `chromium-host.ui`, in the thread slots, never among the app's own hangs; a schema-2
     /// collector keeps none, and a schema-3 report with one passes the server's rules.
     @Test func aChromiumHostHangIsKeptAsTheHostsUIThread() throws {

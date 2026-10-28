@@ -42,6 +42,7 @@ mod grants;
 mod requests;
 mod uploads;
 
+use crate::json_fields::JsonFields;
 use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
@@ -140,9 +141,9 @@ fn shared_file(folder: &Path, relative: &str, git: bool) -> bool {
         return true;
     }
     let mut at = folder.to_path_buf();
-    names[..names.len().saturating_sub(1)].iter().all(|name| {
+    names.iter().take(names.len().saturating_sub(1)).all(|name| {
         at.push(name);
-        std::fs::symlink_metadata(&at).is_ok_and(|meta| meta.file_type().is_dir())
+        cmux_blocking::fs::symlink_metadata(&at).is_ok_and(|meta| meta.file_type().is_dir())
     })
 }
 
@@ -274,7 +275,11 @@ pub(super) fn run(args: &[String]) -> i32 {
                 eprintln!("{USAGE}");
                 return 64;
             };
-            grant(socket, machine, session, &root, mode, Path::new(&positional[0]))
+            let [file] = positional.as_slice() else {
+                eprintln!("{USAGE}");
+                return 64;
+            };
+            grant(socket, machine, session, &root, mode, Path::new(file))
         }
         ("sync", Args { socket: Some(socket), machine: Some(machine), positional, .. })
             if positional.is_empty() =>
@@ -293,9 +298,13 @@ pub(super) fn run(args: &[String]) -> i32 {
         ("request", Args { positional, secret, .. })
             if positional.len() + usize::from(secret.is_some()) == 1 =>
         {
-            let what = match secret {
-                Some(name) => requests::Asked::Secret(name),
-                None => requests::Asked::File(&positional[0]),
+            let what = match (secret, positional.as_slice()) {
+                (Some(name), _) => requests::Asked::Secret(name),
+                (None, [file]) => requests::Asked::File(file),
+                (None, _) => {
+                    eprintln!("{USAGE}");
+                    return 64;
+                }
             };
             requests::request(
                 args.socket.as_deref(),
@@ -375,7 +384,7 @@ pub(super) fn run(args: &[String]) -> i32 {
     };
     match answer {
         Ok(mut line) => {
-            line["ok"] = json!(true);
+            line.insert("ok", json!(true));
             println!("{line}");
             0
         }
@@ -451,7 +460,7 @@ fn grant(
         && mode == Mode::Read
     {
         let back = sync_copy(socket, &folder, &remote, Mode::Write, false);
-        if back["ok"] != json!(true) {
+        if *back.field("ok") != json!(true) {
             return Err(failure_of(&back));
         }
     }
@@ -459,7 +468,7 @@ fn grant(
     // grant holds may have machine work that has not come back.
     let first = !store.grants.iter().any(|kept| kept.machine == machine && kept.remote == remote);
     let mut synced = sync_copy(socket, &folder, &remote, mode, first);
-    if synced["ok"] != json!(true) {
+    if *synced.field("ok") != json!(true) {
         return Err(failure_of(&synced));
     }
     let grant = Grant {
@@ -478,9 +487,9 @@ fn grant(
         && before.remote != grant.remote
     {
         let (removed, _) = forget_copies(&store, Some(socket), &[before]);
-        synced["removed"] = json!(removed);
+        synced.insert("removed", json!(removed));
     }
-    synced["grant"] = grant_json(&grant);
+    synced.insert("grant", grant_json(&grant));
     Ok(synced)
 }
 
@@ -517,9 +526,9 @@ fn sync(socket: &Path, machine: &str, session: Option<&str>) -> Result<Value, Fa
                         "error": format!("{folder} is no longer the shared folder")}),
         };
         drop(store);
-        entry["folder"] = json!(folder);
-        entry["remote"] = json!(remote);
-        entry["mode"] = json!(mode);
+        entry.insert("folder", json!(folder));
+        entry.insert("remote", json!(remote));
+        entry.insert("mode", json!(mode));
         synced.push(entry);
     }
     Ok(json!({ "synced": synced }))
@@ -559,9 +568,9 @@ fn sync_copy(socket: &Path, folder: &Path, remote: &str, mode: Mode, first: bool
     match sync_cli::push_kept(socket, folder, remote, &keep) {
         Ok(summary) => {
             let mut answer = summary.json();
-            answer["ok"] = json!(true);
+            answer.insert("ok", json!(true));
             if !pulled.is_null() {
-                answer["pulled"] = pulled;
+                answer.insert("pulled", pulled);
             }
             answer
         }
@@ -578,7 +587,7 @@ fn revoke(
 ) -> Result<Value, Failure> {
     // A folder that is gone is named as it was shared.
     let folder = folder.map(|folder| {
-        std::fs::canonicalize(folder)
+        cmux_blocking::fs::canonicalize(folder)
             .unwrap_or_else(|_| folder.to_path_buf())
             .to_string_lossy()
             .into_owned()

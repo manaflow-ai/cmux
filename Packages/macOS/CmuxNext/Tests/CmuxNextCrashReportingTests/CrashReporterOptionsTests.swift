@@ -4,7 +4,7 @@ import Sentry
 import Testing
 @testable import CmuxNextCrashReporting
 
-/// p09-observability-076, p14-energy-101: Sentry adds no idle wakeup and no instrumentation the app does not use. Its
+/// Sentry adds no idle wakeup and no instrumentation the app does not use. Its
 /// app-hang tracker (a thread that posts to the main queue every 1.6 s) is off wherever the main-thread watchdog is
 /// the process's one hang watcher (its episodes are the app hangs, `AppHangReporter`), and every option the
 /// short-lived CLI turns off (`CLISentryRuntimePolicy`) is off here too or kept for a named reason.

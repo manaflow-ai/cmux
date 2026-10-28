@@ -10,9 +10,10 @@
 // go to cmux's pushed policy in Chromium's ids, never to a handler; a page's
 // accessibility token comes back in its REPLY; a page window whose layers
 // are hosted is detached; a page view moves only when its geometry changed
-// (task 053); the host holds its App Nap activity while a page shows (task
-// p14-energy-128); the fork's lock delegate reaches cmux as CMUX_SHIM_LOCK
-// while cmux's handler is on (task 229); a bad message ends the host. Run by scripts/cmux-next/tests/chromium-host-dispatch.test.sh.
+// (task 053); the host holds its App Nap activity while a page shows;
+// the fork's lock delegate reaches cmux as CMUX_SHIM_LOCK
+// while cmux's handler is on (task 229); a helper's end goes out as HELPER_EXIT; a bad
+// message ends the host. Run by scripts/cmux-next/tests/chromium-host-dispatch.test.sh.
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
@@ -24,6 +25,7 @@
 #include "chromium_host_input_ring.h"
 #include "cmux_cef_shim.h"
 #include "host_dispatch.h"
+#include "host_helper_exits.h"
 #include "host_page_activity.h"
 #include "host_switches.h"
 
@@ -473,7 +475,8 @@ void MintedWindow() {
   Expect(f.views.calls, {"open 9"}, "the page view token opens a view");
   const std::string minted = std::to_string(kMinted);
   Expect(f.Sent(),
-         TabKeys("mirror", minted, {Key("mirror", kOpLiveBrowserCount), Key("mirror", kOpWindowCount), "event 2 " + minted + " 42", "ack 20"}),
+         TabKeys("mirror", minted, {Key("mirror", kOpLiveBrowserCount), Key("mirror", kOpWindowCount),
+                                        Key("mirror", kOpRendererClientIds, minted), "event 2 " + minted + " 42", "ack 20"}),
          "AFTER_CREATED carries the minted id; its mirrors first, the ack last");
 
   Writer watch;
@@ -495,7 +498,8 @@ void MintedWindow() {
   shim.live = 0;
   Emit(CMUX_SHIM_BEFORE_CLOSE, 3, 0);
   Expect(f.Sent(),
-         TabKeys("forget", minted, {Key("mirror", kOpLiveBrowserCount), Key("mirror", kOpWindowCount), "event 3 " + minted + " 0"}),
+         TabKeys("forget", minted, {Key("mirror", kOpLiveBrowserCount), Key("mirror", kOpWindowCount),
+                                        Key("forget", kOpRendererClientIds, minted), "event 3 " + minted + " 0"}),
          "BEFORE_CLOSE: the tab's keys forgotten, the counts refreshed, then the event");
   Expect(f.views.calls, {"open 9", "close 9"}, "the browser's page view closes with it");
   Expect(f.delegate.calls, {"initialize /root", "closed"}, "the delegate hears of the close");
@@ -515,7 +519,8 @@ void MintedTab() {
   f.host.OnMessages({Op(kOpTabAdd, 30, add)});
   const std::string minted = std::to_string(kMinted + 1);
   Expect(f.Sent(),
-         TabKeys("mirror", minted, {Key("mirror", kOpLiveBrowserCount), Key("mirror", kOpWindowCount), "event 2 " + minted + " 0", "ack 30"}),
+         TabKeys("mirror", minted, {Key("mirror", kOpLiveBrowserCount), Key("mirror", kOpWindowCount),
+                                        Key("mirror", kOpRendererClientIds, minted), "event 2 " + minted + " 0", "ack 30"}),
          "an AFTER_CREATED inside tab_add already carries the minted id");
 }
 
@@ -601,7 +606,7 @@ void DevToolsPlacementView() {
   Check(shim.calls.empty(), "the shim forgets a closed browser's placement itself");
 }
 
-// The host installs no focus handler (task p01-process-032): the shim grants a
+// The host installs no focus handler: the shim grants a
 // focus request only for a page cmux marked embedder-active
 // (CEFShim/src/embedder_focus_policy.h). cmux installing its in-process
 // handler over the wire changes nothing, and embedder-active reaches the shim.
@@ -1389,7 +1394,79 @@ void GeometryStatsReply() {
   Expect(f.delegate.calls, {"initialize /root", "bad a malformed geometry stats request"}, "fields are bad");
 }
 
-// cmux_shim_password_reveal (task p01-process-025): the shim's done answers
+// A helper's end: the event cmux decodes as CEFShimEvent.helperExit, with no
+// browser, the pid as its request, the wait status, the extension flag and the helper's switches.
+void HelperExitGoesOutAsAnEvent() {
+  Fixture f;
+  f.Start();
+  f.host.HelperExited(HelperExit{4242, 9, HelperIdentity{"gpu-process", "", false}});
+  f.host.HelperExited(HelperExit{4243, 1 << 8, HelperIdentity{"renderer", "", true}});
+  f.host.HelperExited(HelperExit{4244, 6, HelperIdentity{"utility", "network.mojom.NetworkService", false}});
+  Check(f.sent.size() == 3, "one event per helper end, got " + std::to_string(f.sent.size()));
+  struct Want {
+    int32_t pid;
+    int64_t status, flags;
+    const char* type;
+    const char* sub_type;
+  };
+  const Want want[] = {{4242, 9, 0, "gpu-process", ""},
+                       {4243, 1 << 8, kHelperExitExtension, "renderer", ""},
+                       {4244, 6, 0, "utility", "network.mojom.NetworkService"}};
+  for (size_t i = 0; i < f.sent.size() && i < 3; ++i) {
+    Reader r(f.sent[i].fields);
+    const int kind = r.I32(), browser = r.I32(), request = r.I32();
+    const int64_t a = r.I64(), b = r.I64();
+    const std::optional<std::string> s1 = r.Str(), s2 = r.Str();
+    Check(f.sent[i].op == kOpEvent && kind == kEventHelperExit && browser == 0 && request == want[i].pid &&
+              a == want[i].status && b == want[i].flags && s1 == std::optional<std::string>(want[i].type) &&
+              s2 == std::optional<std::string>(want[i].sub_type) && r.ok() && r.AtEnd(),
+          "HELPER_EXIT " + std::to_string(i) + " carries pid, status, flags, type and sub type");
+  }
+}
+
+// The children the watcher follows: a helper's argv from KERN_PROCARGS2, its identity, and one
+// end per helper (none for a child that never exec'd a helper, or one not followed).
+void HelperTableFollowsChildren() {
+  std::string buffer("\x03\x00\x00\x00/path/to/cmux Helper (GPU)\0\0\0\0", 4 + 26 + 4);
+  for (const char* argument : {"/path/to/cmux Helper (GPU)", "--type=gpu-process", "--gpu-preferences=x"}) {
+    buffer += argument;
+    buffer.push_back('\0');
+  }
+  buffer += "PATH=/usr/bin";  // the environment after argv
+  buffer.push_back('\0');
+  const std::vector<std::string> argv = ProcArgs(buffer);
+  Expect(argv, {"/path/to/cmux Helper (GPU)", "--type=gpu-process", "--gpu-preferences=x"},
+         "KERN_PROCARGS2 gives argc arguments after the exec path and its padding");
+  Check(ProcArgs(std::string("\x02\x00\x00", 3)).empty(), "a buffer shorter than argc reads nothing");
+  Check(HelperIdentityOf(argv) == std::optional<HelperIdentity>(HelperIdentity{"gpu-process", "", false}),
+        "a GPU helper's identity");
+  Check(HelperIdentityOf({"x", "--type=utility", "--utility-sub-type=network.mojom.NetworkService"}) ==
+            std::optional<HelperIdentity>(HelperIdentity{"utility", "network.mojom.NetworkService", false}),
+        "a utility's sub type");
+  Check(HelperIdentityOf({"x", "--type=renderer", "--extension-process"}) ==
+            std::optional<HelperIdentity>(HelperIdentity{"renderer", "", true}),
+        "an extension renderer");
+  Check(!HelperIdentityOf({"/path/to/cmux Chromium Host"}) && !HelperIdentityOf({"x", "--type="}),
+        "no --type, no helper");
+
+  HelperTable table;
+  table.Watch(10, std::nullopt);  // forked, not exec'd yet
+  table.Watch(11, HelperIdentity{"renderer", "", false});
+  table.Watch(12, std::nullopt);  // never a helper
+  Check(table.size() == 3 && table.Watches(10) && !table.Watches(13), "three children followed");
+  table.Execed(10, HelperIdentity{"gpu-process", "", false});
+  table.Execed(13, HelperIdentity{"utility", "", false});  // not followed: stays out
+  const std::optional<HelperExit> gpu = table.Exited(10, 9);
+  Check(gpu && gpu->pid == 10 && gpu->status == 9 && gpu->identity.type == "gpu-process",
+        "the GPU helper's end with its status");
+  const std::optional<HelperExit> renderer = table.Exited(11, 0);
+  Check(renderer && renderer->identity.type == "renderer", "a renderer's end, normal ones too (cmux judges them)");
+  Check(!table.Exited(12, 9) && !table.Exited(13, 9) && !table.Exited(10, 9),
+        "no end for a child that never became a helper, one not followed, or one already ended");
+  Check(table.size() == 0, "every end leaves the table");
+}
+
+// cmux_shim_password_reveal: the shim's done answers
 // the op's token with one bytes field, or none when it found no password.
 Message RevealRequest(uint32_t token, const char* id) {
   Writer w;
@@ -1520,7 +1597,7 @@ void PageDisplayFollowsCreation() {
   Expect(shim.calls, {"display 3 4 -1440,200"}, "a created browser's display goes to the fork at once");
 }
 
-// The host shim's cmux_shim_set_energy_saver, as SetEnergySaver takes it (task p14-energy-045).
+// The host shim's cmux_shim_set_energy_saver, as SetEnergySaver takes it.
 int RecordEnergySaver(int enabled, const char* exempt_scheme) {
   shim.calls.push_back("saver " + std::to_string(enabled) + " " + (exempt_scheme ? exempt_scheme : "<null>"));
   return 1;
@@ -1722,7 +1799,7 @@ void HostSwitchesFitTheHostsLoop() {
 
 // The log the host's Chromium writes: the spawn's --log-file when INITIALIZE
 // names none, as cmux's runtime does in host mode, so the supervisor finds a
-// crashed host's last lines there (host_switches.h, p01-process-085).
+// crashed host's last lines there (host_switches.h).
 void HostLogFileIsTheSpawnsUnlessInitializeNamesOne() {
   const std::string spawn = "/root/ChromiumHost/chromium-host.log";
   Check(cmux_host::HostLogFile(std::nullopt, spawn) == spawn, "no log in INITIALIZE: the spawn's");
@@ -1760,6 +1837,8 @@ int main() {
   GeometryStatsReply();
   PasswordReveal();
   WipeZeroes();
+  HelperExitGoesOutAsAnEvent();
+  HelperTableFollowsChildren();
   EnergySaverReachesTheFork();
   LocksReachCmux();
   HostSwitchesFitTheHostsLoop();

@@ -370,7 +370,7 @@ import Testing
     #if DEBUG || CMUX_BENCH_HOOKS
     // MARK: Arm census
 
-    /// A deadline armed while its ledger's arm census records (startup-queue.py arms, p08-startup-085) leaves one
+    /// A deadline armed while its ledger's arm census records (startup-queue.py arms) leaves one
     /// record: its owner, the line that made it, the arms before its wake, and the wake.
     @Test func aDeadlineArmedDuringTheLaunchIsInTheArmCensus() throws {
         let harness = DeadlineHarness()

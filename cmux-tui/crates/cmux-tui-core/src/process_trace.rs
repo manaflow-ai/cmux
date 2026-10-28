@@ -1,5 +1,5 @@
 //! One process's trace state as the daemon's `trace-start`, `trace-stop` and
-//! `trace-status` report it (p09-observability-015): the daemon's own, a
+//! `trace-status` report it: the daemon's own, a
 //! terminal host's (its `TraceControlAck`) and acpmux's (`_acpmux/trace`).
 
 use std::path::PathBuf;

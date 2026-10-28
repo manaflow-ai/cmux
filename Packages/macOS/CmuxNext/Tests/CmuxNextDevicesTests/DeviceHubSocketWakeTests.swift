@@ -4,7 +4,7 @@ import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
-/// p14-energy-120: the hub socket pings nothing while the Mac sleeps, keeps pinging while only the
+/// The hub socket pings nothing while the Mac sleeps, keeps pinging while only the
 /// displays sleep, and a wake that finds the network reconnects it exactly once, within the wake's
 /// jitter instead of its backoff.
 @Suite(.timeLimit(.minutes(1)))

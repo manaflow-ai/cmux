@@ -6,7 +6,7 @@ import CmuxNextTabs
 import CmuxNextWakeups
 import Testing
 
-/// chrome-parity p03-rendering-111: the window root, its titlebar, a workspace's content and empty
+/// The window root, its titlebar, a workspace's content and empty
 /// state, and a pane's strip on a browser's band are framed in `layout()` from pure functions of
 /// bounds and metrics, with no Auto Layout solve (Chrome's `BrowserViewLayout::Layout`).
 @MainActor

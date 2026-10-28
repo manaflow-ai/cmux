@@ -10,6 +10,10 @@ public protocol FileOperating: Sendable {
     /// Makes a folder in `folder` under the first free name from `name` ("untitled folder 2").
     func newFolder(in folder: URL, named name: String) async throws -> URL
 
+    /// Writes `contents` as a new file in `folder` under the first free name from `name` ("untitled 2");
+    /// never replaces an item.
+    func newFile(in folder: URL, named name: String, contents: Data) async throws -> URL
+
     /// Copies each item beside itself as "name copy" and returns the copies in order.
     func duplicate(_ urls: [URL]) async throws -> [URL]
 

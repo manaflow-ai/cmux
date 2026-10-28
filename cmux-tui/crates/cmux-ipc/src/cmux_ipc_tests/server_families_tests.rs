@@ -140,7 +140,7 @@ fn server_families_refuse_what_they_cannot_generate() {
     assert_eq!(twice.path, "$.families[1]");
 }
 
-/// p05-ipc-029: the tabs family's field shapes. A nullable field keeps `null`
+/// The tabs family's field shapes. A nullable field keeps `null`
 /// apart from absent where the schema gives it no default, and a required
 /// nullable one must be present.
 #[test]

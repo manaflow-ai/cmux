@@ -1,7 +1,7 @@
 public import CmuxNextWakeups
 import Foundation
 
-/// This Mac's install id on the main thread (p08-startup-076), kept once known, so a focus move does no file I/O.
+/// This Mac's install id on the main thread, kept once known, so a focus move does no file I/O.
 /// The launch's read (``CloudDeviceIDSource``) has it; when that read failed, the next ask reads `device-id` again on
 /// a files lane, so one failure to make it at launch never lasts the session. The main thread never reads the file
 /// itself, except with no launch read of these paths (tests), where the first ask reads it.

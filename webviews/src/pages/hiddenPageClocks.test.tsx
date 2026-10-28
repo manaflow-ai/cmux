@@ -1,5 +1,5 @@
 // The Chief view gallery's minute stamps and the conversation's "Working for" clock run no timer
-// while the page is hidden (p13-webui-036, MQ4 batch C). Chrome throttles a hidden page's timers
+// while the page is hidden (MQ4 batch C). Chrome throttles a hidden page's timers
 // (third_party/blink/renderer/platform/scheduler/main_thread/page_scheduler_impl.cc); a page of
 // ours stops them (usePageInterval, pages/shared/pageLifecycle.ts). Each clock reads the time again
 // when the page shows, so its text is the one a page that never hid shows.

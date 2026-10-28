@@ -8,7 +8,7 @@ import Darwin
 import Foundation
 import Testing
 
-/// p08-startup-046: when the Chromium Host ends, every page it showed shows the crash state of its
+/// When the Chromium Host ends, every page it showed shows the crash state of its
 /// end, every reply still awaited fails, the crash log records the host once, and the runtime leaves
 /// ready: nothing goes to the dead wire, and the next start (a new tab, or a sad tab's Reload) asks the
 /// supervisor for a host again. Against a spy remote shim and a supervisor that reports host ends.
@@ -41,7 +41,7 @@ import Testing
         #expect(HostWire.state.withLock { $0.detaches } == 1, "the remote shim kept the dead wire")
     }
 
-    /// p01-process-085: each attach tells the supervisor its host's fork API, which that host's crash record names.
+    /// Each attach tells the supervisor its host's fork API, which that host's crash record names.
     @Test func theAttachTellsTheSupervisorItsHostsForkAPI() async throws {
         let (runtime, supervisor, wire) = try await Self.startedRuntime(forkAPI: 2)
         defer { wire.close() }
@@ -52,7 +52,7 @@ import Testing
         #expect(supervisor.forkAPIs == [2, 3])
     }
 
-    /// p01-process-085: in host mode Chromium's log is the one the host's spawn names (`--log-file`, whose end the
+    /// In host mode Chromium's log is the one the host's spawn names (`--log-file`, whose end the
     /// supervisor keeps in a crash record), so INITIALIZE names none: the runtime's `cef.log` would take its place.
     @Test func hostModeInitializesChromiumWithNoLogFileOfItsOwn() async throws {
         let (_, _, wire) = try await Self.startedRuntime()
@@ -161,7 +161,7 @@ import Testing
         #expect(runtime.crashLog.records.isEmpty, "a clean end was logged as a crash")
     }
 
-    /// p14-energy-045: an Energy Saver edge while no host runs reaches nobody, so the next host's ready sends the
+    /// An Energy Saver edge while no host runs reaches nobody, so the next host's ready sends the
     /// app's current state again (a host starts with the saver off and the remote shim keeps only the last
     /// state it was given), and `debug.energy`'s `applied` is that host's answer.
     @Test func theNextHostGetsTheSaverStateOfAnEdgeWhileNoHostRan() async throws {
@@ -200,7 +200,7 @@ import Testing
         #expect(threads.onMain.withLock { $0 } == [false, false], "the next host's start did not prepare its own inputs")
     }
 
-    /// p09-observability-060: in host mode as in process, one renderer's end is one `cef.helper_exit` sample however
+    /// In host mode as in process, one renderer's end is one `cef.helper_exit` sample however
     /// many tabs it hosted: the host's shim marks the first browser of the end and the others share it.
     @Test func aRendererSharedByTwoTabsInTheHostIsOneHelperExitSample() async throws {
         let (runtime, _, wire) = try await Self.startedRuntime()
@@ -220,7 +220,7 @@ import Testing
         #expect(samples.count == 1 && samples.sum == 17, "one renderer crash, not one per tab")
     }
 
-    /// p01-process-083: a crash within the restart budget starts the next host at once and brings back every page of
+    /// A crash within the restart budget starts the next host at once and brings back every page of
     /// every window and profile with the navigation its daemon record saved at its address: a shown page asks the new
     /// host for its browser now, a hidden one keeps its crash page until it shows, and each restores its saved
     /// navigation on its new browser (a page with no record loads its address).
@@ -267,7 +267,7 @@ import Testing
         #expect(HostWire.state.withLock { $0.restoredStates } == ["state-1", "state-2"])
     }
 
-    /// p01-process-083: a page sent to a new address while its restore reads its saved navigation (a person's address,
+    /// A page sent to a new address while its restore reads its saved navigation (a person's address,
     /// a script, the CLI or MCP) loads that address on the next host: its restore ends, and its new browser is made
     /// with the new address and restores nothing.
     @Test func aLoadWhileTheRestoreReadsLoadsTheNewAddressOnTheNextHost() async throws {
@@ -298,7 +298,7 @@ import Testing
         #expect(tab.state.url == Self.elsewhere)
     }
 
-    /// p01-process-083: a hidden page whose restore waits for it to show, sent to a new address meanwhile, shows that
+    /// A hidden page whose restore waits for it to show, sent to a new address meanwhile, shows that
     /// address: its browser is made with it and restores nothing. A Reload before then keeps the restore.
     @Test func aLoadOfAHiddenPageWaitingForItsRestoreLoadsTheNewAddressWhenItShows() async throws {
         let (runtime, supervisor, wire) = try await Self.startedRuntime(forkAPI: CEFTab.navigationRestoreForkAPI)
@@ -327,7 +327,7 @@ import Testing
         #expect(tab.state.url == Self.elsewhere, "the address and the page do not match")
     }
 
-    /// p01-process-083: a page that showed a form's result (a POST) is never sent again without the person: it keeps
+    /// A page that showed a form's result (a POST) is never sent again without the person: it keeps
     /// its crash page, shown or hidden, and no host starts for it.
     @Test func aFormResultKeepsItsCrashPageAfterACrashWithinTheBudget() async throws {
         let (runtime, supervisor, wire) = try await Self.startedRuntime(forkAPI: CEFTab.navigationRestoreForkAPI)
@@ -346,7 +346,7 @@ import Testing
         #expect(runtime.hostStart?.pageRestores.phase(of: tab) == nil)
     }
 
-    /// p01-process-083: past the restart budget nothing comes back on its own: each page keeps its crash page and
+    /// Past the restart budget nothing comes back on its own: each page keeps its crash page and
     /// reloads when it shows, as before.
     @Test func aCrashPastTheBudgetRestoresNothing() async throws {
         let (runtime, supervisor, wire) = try await Self.startedRuntime(forkAPI: CEFTab.navigationRestoreForkAPI)
@@ -385,7 +385,7 @@ import Testing
         #expect(runtime.hostStart != nil)
     }
 
-    // MARK: Crash page (p01-process-082)
+    // MARK: Crash page
 
     /// The host's end shows the sad tab in the exit turn, before the chrome's next render: that turn cleared
     /// the page's context, so a render one delivery later would leave a frame of the empty page area. It
@@ -543,7 +543,7 @@ import Testing
 /// runtime sets.
 @MainActor private final class ReportingHost: @MainActor ChromiumHostExitReporting {
     var onHostEnded: (@MainActor (BrowserProcessExit) -> Void)?
-    /// Whether the next reported end is within the restart budget (p01-process-083).
+    /// Whether the next reported end is within the restart budget.
     var lastEndRestoresPages = false
     var savedNavigation: ChromiumHostSavedNavigation?
     private(set) var asked = 0
@@ -572,7 +572,7 @@ import Testing
 
     func hostSaidHello() {}
 
-    /// The fork API each attach read from its host (p01-process-085).
+    /// The fork API each attach read from its host.
     private(set) var forkAPIs: [Int32] = []
 
     func hostRuns(forkAPI: Int32) {

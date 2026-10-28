@@ -5,7 +5,7 @@ import CmuxNextWakeupsTestSupport
 import QuartzCore
 import Testing
 
-/// VSyncHub (p03-rendering-014): each display's only link lives on that display's vsync thread,
+/// VSyncHub: each display's only link lives on that display's vsync thread,
 /// off-main subscribers tick there, and the main frame clock gets one coalesced post per vsync
 /// (Chrome's `ui/display/mac/display_link_mac.mm`). The links are fakes; the hub threads are real.
 @MainActor @Suite(.timeLimit(.minutes(1))) struct VSyncHubTests {

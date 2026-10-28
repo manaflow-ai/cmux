@@ -18,8 +18,14 @@ import os
 /// The kqueue, its source and the watched children are one ``State`` behind a
 /// `Mutex`; only the monitor's queue takes it, so it is never contended. Exits
 /// are reported after the lock is released.
+///
+/// In process only. In host mode the helpers are the Chromium Host's
+/// children: the host watches them the same way (HOST/src/host_helper_exits.h)
+/// and sends each end as HELPER_EXIT, which decodes to the same ``Exit``
+/// (``CEFShimEvent/helperExit(_:)``).
 nonisolated final class CEFChildProcessMonitor: Sendable {
-    struct Exit: Sendable, Equatable {
+    /// One helper's end; also what the Chromium Host's HELPER_EXIT carries (``CEFShimEvent/helperExit(_:)``).
+    nonisolated struct Exit: Sendable, Equatable {
         var pid: Int32
         var processType: String
         var subType: String?
@@ -174,6 +180,17 @@ nonisolated final class CEFChildProcessMonitor: Sendable {
     }
 }
 
+extension CEFChildProcessMonitor.Exit {
+    /// HELPER_EXIT's fields (`cmux_host::kEventHelperExit`): request the pid, a the wait status, bit 1 of
+    /// b an extension renderer (`kHelperExitExtension`), s1 the `--type`, s2 the `--utility-sub-type` (""
+    /// for none). Nil without a pid or a type: the host sends only helpers.
+    nonisolated init?(helperExitPID pid: Int32, status: Int64, flags: Int64, type: String, subType: String) {
+        guard pid > 0, !type.isEmpty else { return nil }
+        self.init(pid: pid, processType: type, subType: subType.isEmpty ? nil : subType, isExtension: flags & 1 != 0,
+                  status: Int32(truncatingIfNeeded: status))
+    }
+}
+
 /// A Chromium helper's `--type` and related switches, read from its argv.
 nonisolated struct CEFHelperIdentity: Equatable, Sendable {
     var processType: String
@@ -211,10 +228,10 @@ nonisolated struct CEFHelperIdentity: Equatable, Sendable {
         var mib: [Int32] = [CTL_KERN, KERN_PROCARGS2, pid]
         var size = 0
         // SAFETY: reads the 3-int name; a NULL old buffer only writes the size it needs into `size`.
-        guard unsafe sysctl(&mib, 3, nil, &size, nil, 0) == 0, size > MemoryLayout<Int32>.size else { return [] }
+        guard unsafe blockingSysctl(&mib, 3, nil, &size, nil, 0) == 0, size > MemoryLayout<Int32>.size else { return [] }
         var buffer = [UInt8](repeating: 0, count: size)
         // SAFETY: `size` is the array's length; the kernel writes at most that many bytes and the length it wrote.
-        guard unsafe sysctl(&mib, 3, &buffer, &size, nil, 0) == 0, size > MemoryLayout<Int32>.size else { return [] }
+        guard unsafe blockingSysctl(&mib, 3, &buffer, &size, nil, 0) == 0, size > MemoryLayout<Int32>.size else { return [] }
         return parseProcArgs(Array(buffer.prefix(size)))
     }
 

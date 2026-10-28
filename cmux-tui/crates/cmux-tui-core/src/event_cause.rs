@@ -83,8 +83,8 @@ impl EventCause {
         self.min(claim)
     }
 
-    /// The class a request with this cause runs at (p06-scheduler-035,
-    /// `cmux_tui_platform::qos::WorkQos`): verified-app requests at
+    /// The class a request with this cause runs at
+    /// (`cmux_tui_platform::qos::WorkQos`): verified-app requests at
     /// USER_INITIATED, automation at UTILITY. `None` for program work: its
     /// thread keeps its own class.
     pub(crate) const fn request_qos(self) -> Option<cmux_threads::ThreadQos> {

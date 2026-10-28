@@ -1,6 +1,7 @@
 import CmuxNextWakeups
 import CoreServices
 public import Foundation
+import CmuxNextCompat
 
 /// What changed in a watched folder.
 public enum FolderChange: Sendable, Equatable {
@@ -32,7 +33,7 @@ public struct FolderWatcher: FolderWatching {
     static let bufferLimit = 64
 
     /// The line that made the watcher: each of its watches is in the arm census under it (Debug and bench builds,
-    /// startup-queue.py arms, p08-startup-085).
+    /// startup-queue.py arms).
     private let file: StaticString
     private let line: UInt
 
@@ -61,7 +62,7 @@ public struct FolderWatcher: FolderWatching {
         let standard = folder.standardizedFileURL
         // SAFETY: realpath reads the NUL-terminated copy of the path made for the call and, given no buffer, returns
         // a NUL-terminated path it allocated, read once here and freed once on return.
-        guard let resolved = unsafe realpath(standard.path, nil) else { return standard }
+        guard let resolved = unsafe blockingRealpath(standard.path, nil) else { return standard }
         defer { unsafe free(resolved) }
         return URL(fileURLWithPath: unsafe String(cString: resolved), isDirectory: true)
     }

@@ -1,4 +1,4 @@
-// What the remote Chief memory inspector keeps across a discard (p13-webui-082): its tab, the turn
+// What the remote Chief memory inspector keeps across a discard: its tab, the turn
 // the Prompt tab shows and the Tree's zoom path. The inspector reads everything else again.
 import { TAB_IDS, type InspectorView } from "../../optchat-inspector/App";
 

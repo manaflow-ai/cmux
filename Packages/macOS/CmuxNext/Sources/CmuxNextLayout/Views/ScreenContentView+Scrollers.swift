@@ -4,8 +4,8 @@ import CmuxNextDesign
 /// One of the strip's nested scrollers: a row column or a scroll area.
 typealias NestedScroller = ScrollerPanContainerView.Scroller
 
-/// Rows and scroll areas pan by translation (p04-input-050, behind `motion.renderServer`), as the strip
-/// does (p03-rendering-026, `ScreenContentView+StripPan.swift`). Each strip column whose rows overflow and
+/// Rows and scroll areas pan by translation (behind `motion.renderServer`), as the strip
+/// does (`ScreenContentView+StripPan.swift`). Each strip column whose rows overflow and
 /// each scroll area of the strip has a motion container (`ScrollerPanContainerView`) that holds its hosts
 /// and dividers, and a chrome plane that holds their rings and dims. A trackpad pan event of the scroller
 /// sets the translation of the two layers and nothing else: no host, divider or ring frame, no layout, no

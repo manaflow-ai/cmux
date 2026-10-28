@@ -7,7 +7,7 @@ import CmuxNextSettings
 import Foundation
 import Testing
 
-/// `debug.memory` (p07-memory-010): the keys of schemas/debug-memory/debug-memory.schema.json,
+/// `debug.memory`: the keys of schemas/debug-memory/debug-memory.schema.json,
 /// unknown counts as `null`, `mode`/`budget`/`consumers` in MemoryReport's own encoding, a shared
 /// process in no tab's bytes, workspace bytes from their tabs, the model read on the main actor and
 /// the processes sampled off it, the applied level's history, an override that `debug.memory` shows,
@@ -145,7 +145,7 @@ import Testing
     }
 
     /// The answer has the histograms the read copied, and a read adds no sample: three reads that
-    /// each sample the processes leave one footprint sample, the emitter's (p07-memory-016).
+    /// each sample the processes leave one footprint sample, the emitter's.
     @Test func readsShowTheHistogramsAndRecordNothing() async throws {
         let pressure = MemoryPressureEvents(source: ManualMemoryPressureSource())
         let histograms = MemoryHistograms(pressure: pressure, discardKinds: ["browser"])
@@ -213,7 +213,7 @@ import Testing
         #expect(json["spares"] == [["pool": "new_tab", "process_kind": "webkit_webcontent", "pid": 950, "bytes": 41_000_000]])
     }
 
-    /// p07-memory-113: `spares` lists the Chromium spares by kind with process and bytes: a spare window
+    /// `spares` lists the Chromium spares by kind with process and bytes: a spare window
     /// by its placeholder's renderer (null with none), and each renderer helper that hosts no frame of any
     /// browser as `chromium_unattributed_renderer`, never as Chromium's spare. A renderer that hosts a frame
     /// of a browser that is no tab (a DevTools front end) is no such row, and extension renderers are none.
@@ -249,12 +249,12 @@ import Testing
         #expect(unread["spares"]?.arrayValue?.count == 2)
     }
 
-    /// p07-memory-113: the app's sample reads the renderers that host a frame on the main actor, after it
+    /// The app's sample reads the renderers that host a frame on the main actor, after it
     /// listed the helpers off it, and carries that read: a renderer that started and committed its page
     /// between the model read and the helper list is in it, so it is no unattributed row.
     @Test func appSampleReadsTheFramedRenderersOnMainAfterTheHelpers() async {
         let threads = Threads()
-        let processes = await AppMemoryModel.processes(Self.snapshot(), rendererClientsWithFrames: {
+        let processes = await AppMemoryModel.processes(Self.snapshot(), helperParent: getpid(), rendererClientsWithFrames: {
             threads.note()
             return [5]
         })

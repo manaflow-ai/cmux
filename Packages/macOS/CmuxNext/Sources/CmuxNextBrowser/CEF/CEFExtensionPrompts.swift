@@ -8,7 +8,7 @@ import CmuxNextDesign
 /// Owns the sheets on screen, by Chromium prompt id.
 @MainActor
 final class CEFExtensionPrompts {
-    /// The runtime, which owns these as `CEFRuntime.extensionPrompts` (p10-stability-091).
+    /// The runtime, which owns these as `CEFRuntime.extensionPrompts`.
     private let runtimeReference: OwnerReference<CEFRuntime>
     /// The runtime; nil (reported) only once it is gone.
     private var runtime: CEFRuntime? { runtimeReference.resolve() }

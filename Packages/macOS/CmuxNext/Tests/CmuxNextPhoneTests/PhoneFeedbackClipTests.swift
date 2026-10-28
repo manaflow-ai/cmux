@@ -38,7 +38,7 @@ import Testing
     }
 
     /// manifest.json is a file: a time or point no recording can have is refused when it is read, so the summary's
-    /// whole-number conversions never see it (p10-stability-093; before, `clock` trapped on `Int(1e300)`).
+    /// whole-number conversions never see it (before, `clock` trapped on `Int(1e300)`).
     @Test func aManifestWithATimeOrPointNoRecordingHasIsRefused() throws {
         let fine = try JSONDecoder().decode(PhoneRecording.self, from: JSONEncoder().encode(recording()))
         #expect(fine.events.count == 3)

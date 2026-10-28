@@ -34,7 +34,7 @@ impl PtyHome {
 pub(crate) enum TerminalMemory {
     /// Live: its pages, per screen, and Kitty images.
     Hot(ghostty_vt::TerminalMemoryUsage),
-    /// Compressed whole by the cold-scrollback codec (p07-memory-041).
+    /// Compressed whole by the cold-scrollback codec.
     Cold {
         /// Bytes it holds: the compressed snapshot and the Kitty replay.
         held_bytes: u64,

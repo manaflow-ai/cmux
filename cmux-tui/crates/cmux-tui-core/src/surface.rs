@@ -190,8 +190,8 @@ use crate::browser::{
 use crate::terminal_host_protocol::PROTOCOL_VERSION;
 #[cfg(any(unix, windows))]
 use crate::terminal_host_protocol::{
-    CLEAR_HISTORY_ACK_OK, FLAG_COLORS_FOLLOW, FLAG_INPUT_FLOW, Frame, MessageKind,
-    decode_terminal_exit, split_flow_trailer,
+    CLEAR_HISTORY_ACK_OK, FLAG_COLORS_FOLLOW, FLAG_INPUT_FLOW, FLAG_INPUT_STAGES, Frame,
+    MessageKind, decode_terminal_exit, split_flow_trailer, split_stages_trailer,
 };
 
 /// Default maximum retained scrollback backing storage per terminal, in bytes:
@@ -306,7 +306,7 @@ pub enum AttachFrame {
     /// PTY output; all viewers of one read share its buffer (attach_tap.rs).
     Output(bytes::Bytes),
     /// [`Self::Output`] of the PTY owner's first read after a `send` with
-    /// key press `flow` (never 0) reached the PTY: its echo (p09-observability-018).
+    /// key press `flow` (never 0) reached the PTY: its echo.
     FlowOutput {
         output: bytes::Bytes,
         flow: u64,
@@ -360,6 +360,7 @@ mod attach_tap;
 pub use attach_tap::AttachFrameReceiver;
 pub(crate) use attach_tap::AttachLifecycle;
 pub(crate) use attach_tap::AttachResize;
+pub(crate) use attach_tap::TapVisibility;
 pub(crate) use attach_tap::ViewerEvent;
 #[cfg(test)]
 use attach_tap::{
@@ -700,6 +701,7 @@ impl Surface {
         let control_responses = attachment.control_responses();
         let smart_renderer = attachment.is_smart_renderer();
         let input_flow = attachment.input_flow;
+        let input_stages = attachment.input_stages;
         let snapshot = attachment.snapshot.clone();
         let applied_color_overrides = snapshot.colors.clone();
         let title_changed = Arc::new(AtomicBool::new(false));
@@ -870,6 +872,7 @@ impl Surface {
                 attach_colors_pending: AtomicBool::new(false),
                 attach_colors_force_pending: AtomicBool::new(false),
                 last_input_flow: Default::default(),
+                input_stages: Default::default(),
                 input_fifo: Default::default(),
                 snapshot_position: Default::default(),
                 last_attach_colors: RankedMutex::new(
@@ -917,6 +920,7 @@ impl Surface {
             protocol_version,
             smart_renderer,
             input_flow,
+            input_stages,
             applied_color_overrides,
             applied_color_revision: initial_color_revision,
             applied_cursor_activity: initial_cursor_activity,
@@ -978,8 +982,9 @@ impl Surface {
             .and_then(|mux| mux.take_test_terminal_host_disconnect_after_spawn())
         {
             let test_surface = surface.clone();
-            let _ = supervised::spawn(
+            let _ = supervised::spawn_at(
                 "terminal-host-test-disconnect",
+                cmux_threads::ThreadQos::Utility,
                 Fatal,
                 ShutdownBehavior::Continue,
                 move || {

@@ -440,18 +440,20 @@ fn smallest_model(meta: &SessionMeta) -> Option<String> {
 /// case and with whitespace around the slash or before `>`
 /// (`</CMUX-btw-context >`), so the chat's text never ends the wrapper. The
 /// slash becomes `\/`.
-fn neutralize_close(text: &str) -> String {
+pub(super) fn neutralize_close(text: &str) -> String {
     const NAME: &str = "cmux-btw-context";
     let mut out = String::with_capacity(text.len());
     let mut rest = text;
-    while let Some(at) = rest.find('<') {
-        out.push_str(&rest[..=at]);
-        rest = &rest[at + 1..];
+    while let Some((before, after)) = rest.split_once('<') {
+        out.push_str(before);
+        out.push('<');
+        rest = after;
         let after_open = rest.trim_start();
         let Some(after_slash) = after_open.strip_prefix('/') else { continue };
         let name = after_slash.trim_start();
         if name.get(..NAME.len()).is_some_and(|n| n.eq_ignore_ascii_case(NAME)) {
-            out.push_str(&rest[..rest.len() - after_open.len()]);
+            // The whitespace between `<` and `/`, as `trim_start` skipped it.
+            out.extend(rest.chars().take_while(|c| c.is_whitespace()));
             out.push_str("\\/");
             rest = after_slash;
         }
@@ -461,13 +463,17 @@ fn neutralize_close(text: &str) -> String {
 }
 
 /// The newest `max` bytes of `text` (whole characters), and whether it was cut.
-fn newest(text: &str, max: usize) -> (bool, &str) {
+pub(super) fn newest(text: &str, max: usize) -> (bool, &str) {
     if text.len() <= max {
         return (false, text);
     }
-    let mut start = text.len() - max;
-    while !text.is_char_boundary(start) {
-        start += 1;
-    }
-    (true, &text[start..])
+    let cut = text.len() - max;
+    // Drop every character that starts before `cut`.
+    let mut skipped = 0;
+    let tail = text.trim_start_matches(|c: char| {
+        let before = skipped < cut;
+        skipped += c.len_utf8();
+        before
+    });
+    (true, tail)
 }

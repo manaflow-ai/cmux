@@ -37,7 +37,7 @@ pub(super) fn spawn(
 /// Gives `event`, just dequeued as the queue's in-flight event, to the
 /// session mutation thread.
 pub(super) fn hand_off(queue: &SharedQueue, event: PtyInputEvent) {
-    let mut state = queue.state.lock().unwrap();
+    let mut state = queue.state.lock().recover_poison();
     debug_assert!(state.session_mutation.is_none(), "one session mutation is in flight at a time");
     state.session_mutation = Some(event);
     queue.session_mutation_ready.notify_one();
@@ -50,7 +50,7 @@ pub(super) struct WorkerDone(pub(super) Arc<SharedQueue>);
 
 impl Drop for WorkerDone {
     fn drop(&mut self) {
-        let mut state = self.0.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut state = self.0.state.lock().recover_poison();
         state.workers_done = true;
         self.0.session_mutation_ready.notify_all();
     }
@@ -59,7 +59,7 @@ impl Drop for WorkerDone {
 fn run(queue: &Arc<SharedQueue>, on_failure: &Arc<dyn Fn(PtyOperationFailure) + Send + Sync>) {
     loop {
         let event = {
-            let mut state = queue.state.lock().unwrap();
+            let mut state = queue.state.lock().recover_poison();
             loop {
                 if let Some(event) = state.session_mutation.take() {
                     break event;
@@ -67,7 +67,9 @@ fn run(queue: &Arc<SharedQueue>, on_failure: &Arc<dyn Fn(PtyOperationFailure) + 
                 if state.workers_done {
                     return;
                 }
-                state = queue.session_mutation_ready.wait(state).unwrap();
+                // The thread's own next event: an idle wait, never a
+                // blocking call.
+                state = queue.session_mutation_ready.idle().wait(state).recover_poison();
             }
         };
         process_event(queue.clone(), on_failure.clone(), event);

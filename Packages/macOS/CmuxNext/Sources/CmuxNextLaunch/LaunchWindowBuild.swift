@@ -24,8 +24,8 @@ public protocol LaunchWindowPane: AnyObject {
     func launchArea(in picture: NSView) -> CGRect
 }
 
-/// Builds the launch window's live views behind its picture, slice by slice (p08-startup-060,
-/// plans/cmux-next/chrome-parity/p08-startup.md section 3A, P4), each slice its own afterFirstFrame post (budgeted
+/// Builds the launch window's live views behind its picture, slice by slice
+/// (plans/cmux-next/chrome-parity/p08-startup.md section 3A, P4), each slice its own afterFirstFrame post (budgeted
 /// per frame at `MainWorkClass.visible`, behind input), so no main turn builds the whole window:
 ///
 /// 1. The window's controller with its sidebar rows (the caller's post, before ``start()``).
@@ -98,7 +98,7 @@ public final class LaunchWindowBuild {
         post(Self.tabStrips) { [self] in mountStrips() }
     }
 
-    /// A key or a click waits on the picture (p08-startup-061, ``LaunchPictureInput``): the tab strips and the focused
+    /// A key or a click waits on the picture (``LaunchPictureInput``): the tab strips and the focused
     /// pane are built in one `urgent` post, never in the input's turn, ahead of the frame-budgeted slices; each slice
     /// still runs once. Later calls do nothing.
     public func raise() {

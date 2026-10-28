@@ -23,7 +23,7 @@
 //! and a refused proof is `client_hello.refused` (no retry). Either prover sets the
 //! connection's `verified_app`; neither changes its `peer_key`.
 //!
-//! Features (p12-perf-process-150): the daemon outlives the app, so a role
+//! Features: the daemon outlives the app, so a role
 //! `main` hello may carry the app's daemon features, `features: {hash,
 //! values: {name: bool}}` (its `daemon` and `both` features). The reply's
 //! `features: {hash, applied, pending}` says what the daemon did
@@ -32,6 +32,17 @@
 //! pending and the daemon keeps its own value for the session. A challenged
 //! step 1 reports with no kill; its step 2, once proved, reports again with
 //! the kills. Nothing here reads a file or the network.
+//!
+//! Bridges (spec/transports.md "Framed IPC grants"): a byte
+//! bridge that splices a far client onto this socket may send `{cmd:
+//! "bridge-hello", features: [name]}` as the connection's very first line.
+//! With `bridge-frames-v1` it says that it reads each `0xFF` message by its
+//! frame header, so the connection may be granted frames but never
+//! descriptors (capabilities.rs `IpcPeer::FramedBridge`). The reply is
+//! `{features}`, the names the daemon took. The far client's own hello
+//! window stays open behind it. Anywhere else it is
+//! `bridge_hello.window_closed`; off a local Unix connection it is
+//! `bridge_hello.local_only`.
 //!
 //! A page relay connection carries only `cmux.protocol/2` requests (pages
 //! speak nothing else through the relay). Every other line on it is refused
@@ -65,6 +76,12 @@ use crate::request_origin::{
 };
 
 const CLIENT_HELLO: &str = "client-hello";
+const BRIDGE_HELLO: &str = "bridge-hello";
+/// What both hellos' names end with: after the window closes, a line without
+/// it (or a page-stream command) is neither, so it skips the JSON parse.
+const HELLO_SUFFIX: &str = "-hello";
+/// Most feature names one bridge hello may carry.
+const MAX_BRIDGE_FEATURES: usize = 16;
 const OPEN_STREAM: &str = "open-stream";
 const CLOSE_STREAM: &str = "close-stream";
 /// Most feature values one hello may carry (the registry has far fewer).
@@ -190,6 +207,8 @@ pub(super) struct HelloGate {
     /// {page}`): only these raw commands reach dispatch; its
     /// `cmux.protocol/2` lines go on to the page's allow list.
     scoped_raw: Option<&'static [&'static str]>,
+    /// The first line was a `bridge-hello`; a second one is refused.
+    bridge_declared: bool,
 }
 
 /// The raw commands a page-bound credential's connection may send, by page:
@@ -235,6 +254,7 @@ impl HelloGate {
             page_streams: false,
             page_events: false,
             scoped_raw: None,
+            bridge_declared: false,
         }
     }
 
@@ -275,7 +295,7 @@ impl HelloGate {
         let open = !matches!(self.window, Window::Closed);
         let looked_at = open
             || self.page_relay
-            || [CLIENT_HELLO, OPEN_STREAM, CLOSE_STREAM].iter().any(|cmd| line.contains(cmd));
+            || [HELLO_SUFFIX, OPEN_STREAM, CLOSE_STREAM].iter().any(|cmd| line.contains(cmd));
         if !looked_at {
             return None;
         }
@@ -311,6 +331,18 @@ impl HelloGate {
                     prove(mux, client, &value, &install_id, &nonce, features.as_ref())
                 }
             },
+            Some(BRIDGE_HELLO) => match window {
+                Window::Open { identified: false } if !self.bridge_declared => {
+                    // The far client's hello may still come: the window stays.
+                    self.window = Window::Open { identified: false };
+                    self.declare_bridge(mux, client, &value)
+                }
+                _ => Err((
+                    "bridge_hello.window_closed",
+                    "bridge-hello must be the connection's first line",
+                    None,
+                )),
+            },
             // Page streams live only on a streamed page relay, never on the
             // main connection (request-origin.md "Page streams").
             Some(OPEN_STREAM | CLOSE_STREAM) if !self.page_streams => {
@@ -343,6 +375,45 @@ impl HelloGate {
                 reply
             }
         })
+    }
+
+    /// A bridge's first line: records `bridge-frames-v1` on the connection
+    /// when its kernel facts allow (origin_gate::declare_frame_bridge).
+    fn declare_bridge(&mut self, mux: &Mux, client: u64, value: &Value) -> Result<Value, Refusal> {
+        if !matches!(self.transport, ClientTransport::Unix) {
+            return Err((
+                "bridge_hello.local_only",
+                "bridge-hello needs a local Unix socket connection",
+                None,
+            ));
+        }
+        let bad = || {
+            (
+                "bridge_hello.bad_request",
+                "bridge-hello features must be an array of at most 16 names of at most 128 characters",
+                Some(json!({"field": "features"})),
+            )
+        };
+        let Some(Value::Array(features)) = value.get("features") else { return Err(bad()) };
+        if features.len() > MAX_BRIDGE_FEATURES {
+            return Err(bad());
+        }
+        let mut frames = false;
+        for feature in features {
+            match feature.as_str() {
+                Some(name) if name.len() <= MAX_FEATURE_TEXT => {
+                    frames |= name == capabilities::BRIDGE_FRAMES_FEATURE;
+                }
+                _ => return Err(bad()),
+            }
+        }
+        self.bridge_declared = true;
+        let taken: &[&str] = if frames && origin_gate::declare_frame_bridge(mux, client) {
+            &[capabilities::BRIDGE_FRAMES_FEATURE]
+        } else {
+            &[]
+        };
+        Ok(json!({"features": taken}))
     }
 
     fn start(

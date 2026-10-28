@@ -300,8 +300,8 @@ pub fn host_name() -> String {
         let mut buf = [0u8; 256];
         // SAFETY: a writable buffer of the length passed; gethostname writes at most that many bytes.
         let rc = unsafe { libc::gethostname(buf.as_mut_ptr().cast(), buf.len()) };
-        let end = buf.iter().position(|b| *b == 0).unwrap_or(buf.len());
-        if rc == 0 { String::from_utf8_lossy(&buf[..end]).into_owned() } else { String::new() }
+        let name = buf.split(|b| *b == 0).next().unwrap_or_default();
+        if rc == 0 { String::from_utf8_lossy(name).into_owned() } else { String::new() }
     };
     #[cfg(not(unix))]
     let name = std::env::var("COMPUTERNAME").unwrap_or_default();

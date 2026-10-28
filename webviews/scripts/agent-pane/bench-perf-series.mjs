@@ -1,4 +1,4 @@
-// The result-v1 series of the agent pane's browser benches (p12-perf-process-219), apart from the
+// The result-v1 series of the agent pane's browser benches, apart from the
 // benches so they are tested without a browser (test/perf-result.test.ts): chat-load/browser_bench.mjs
 // and bench-switch-intent.mjs. A run that hit its limit is recorded at that limit and counted in a
 // .timed_out series, so a regression to never finishing raises the series instead of leaving it.

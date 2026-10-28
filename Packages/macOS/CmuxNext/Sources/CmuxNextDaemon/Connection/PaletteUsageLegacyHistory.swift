@@ -1,3 +1,4 @@
+public import CmuxNextCompat
 public import Foundation
 
 /// The palette's former per-build histories (before `palette-usage-v1`, each
@@ -21,8 +22,14 @@ public struct PaletteUsageLegacyHistory: Sendable, Equatable {
         var entries: [String: Entry]
     }
 
-    /// Every cmux defaults domain under `preferences` with a former history.
-    @concurrent public static func read(preferences: URL, key: String = "cmuxNext.palette.frecency.v1") async -> [PaletteUsageLegacyHistory] {
+    /// Every cmux defaults domain under `preferences` with a former history, read on `runner`'s files lane.
+    public static func read(preferences: URL, key: String = "cmuxNext.palette.frecency.v1",
+                            runner: any MayBlockRunner) async -> [PaletteUsageLegacyHistory] {
+        (try? await runner.runFiles(.bestEffort) { readNow(preferences: preferences, key: key) }) ?? []
+    }
+
+    /// ``read(preferences:key:runner:)`` on the lane thread.
+    private static func readNow(preferences: URL, key: String) -> [PaletteUsageLegacyHistory] {
         let files = (try? FileManager.default.contentsOfDirectory(at: preferences, includingPropertiesForKeys: nil)) ?? []
         return files
             .filter { $0.lastPathComponent.hasPrefix("com.cmuxterm.app") && $0.pathExtension == "plist" }

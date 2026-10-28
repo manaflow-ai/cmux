@@ -413,7 +413,7 @@ fn browser_runtime_reports_why_a_host_did_not_start() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
-/// The SDK schema (spec/sdk-schema.json, p05-ipc-016) describes every
+/// The SDK schema (spec/sdk-schema.json) describes every
 /// command this module serves: local-admin (Unix only), the capability
 /// `identify` advertises, and a method id in the `browser` family. The
 /// names come from serde's own list of the variants, so a new one is

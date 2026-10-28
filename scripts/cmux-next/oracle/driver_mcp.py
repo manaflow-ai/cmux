@@ -75,9 +75,9 @@ COVERAGE_FILE = CORPUS / "coverage.json"
 if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 
-import normalize  # noqa: E402 - sibling of this file (p15-oracle-013)
-import driver_cli  # noqa: E402 - the cli driver's case and receipts (p15-oracle-048)
-import driver_daemon  # noqa: E402 - the daemon driver's case worker (p15-oracle-023)
+import normalize  # noqa: E402 - sibling of this file
+import driver_cli  # noqa: E402 - the cli driver's case and receipts
+import driver_daemon  # noqa: E402 - the daemon driver's case worker
 from driver_cli import CLI_FACET, CliBinary, CliOutput, CliTimeout, VmCli  # noqa: E402
 from driver_daemon import (  # noqa: E402
     DEFAULT_STATE_BASE,

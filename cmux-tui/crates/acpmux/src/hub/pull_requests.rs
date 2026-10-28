@@ -18,6 +18,7 @@ use regex::Regex;
 
 use super::*;
 
+#[allow(clippy::unwrap_used, reason = "a constant pattern that compiles")]
 static PULL_URL: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/[0-9]+$").unwrap() // crash-allow: constant pattern
 });
@@ -32,12 +33,15 @@ fn script(update: &Value) -> Option<String> {
         Some(Value::String(s)) => Some(s.clone()),
         Some(Value::Array(argv)) => {
             let words: Vec<&str> = argv.iter().filter_map(Value::as_str).collect();
-            let shell = words.first().map(|w| w.rsplit('/').next().unwrap_or(w));
-            let dash_c = words.get(1).is_some_and(|f| f.starts_with('-') && f.ends_with('c'));
-            if matches!(shell, Some("bash" | "sh" | "zsh")) && dash_c && words.len() == 3 {
-                Some(words[2].to_owned())
-            } else {
-                Some(words.join(" "))
+            match words.as_slice() {
+                [shell, flag, script]
+                    if matches!(shell.rsplit('/').next(), Some("bash" | "sh" | "zsh"))
+                        && flag.starts_with('-')
+                        && flag.ends_with('c') =>
+                {
+                    Some((*script).to_owned())
+                }
+                _ => Some(words.join(" ")),
             }
         }
         _ => update.get("title").and_then(Value::as_str).map(str::to_owned),
@@ -49,17 +53,17 @@ fn script(update: &Value) -> Option<String> {
 /// `&` in a redirect (`2>&1`, `>&2`, `&>file`) separates nothing.
 fn commands(script: &str) -> Vec<(String, String)> {
     let chars: Vec<char> = script.chars().collect();
-    let mut out = vec![String::new()];
+    // The finished commands, then the one being read.
+    let mut out: Vec<String> = vec![];
+    let mut cur = String::new();
     let mut seps: Vec<String> = vec![];
     // Open quotes (`'`, `"`, `` ` ``) and parentheses (`(`, also `$(`), innermost last.
     let mut open: Vec<char> = vec![];
     // Heredoc words whose bodies start at the next newline.
     let mut heredocs: Vec<String> = vec![];
     let mut i = 0;
-    while i < chars.len() {
-        let c = chars[i];
+    while let Some(&c) = chars.get(i) {
         let next = chars.get(i + 1).copied();
-        let cur = out.last_mut().unwrap(); // crash-allow: out is never empty
         match open.last() {
             Some('\'') => {
                 if c == '\'' {
@@ -109,7 +113,9 @@ fn commands(script: &str) -> Vec<(String, String)> {
                 while chars.get(j) == Some(&' ') {
                     j += 1;
                 }
-                let word: String = chars[j..]
+                let word: String = chars
+                    .get(j..)
+                    .unwrap_or_default()
                     .iter()
                     .take_while(|c| !c.is_whitespace() && !matches!(c, ';' | '&' | '|' | ')'))
                     .filter(|c| !matches!(c, '\'' | '"'))
@@ -122,13 +128,10 @@ fn commands(script: &str) -> Vec<(String, String)> {
                 // Skip each pending heredoc's body through its closing line.
                 let mut j = i + 1;
                 for word in std::mem::take(&mut heredocs) {
-                    while j <= chars.len() {
-                        let end = chars[j..]
-                            .iter()
-                            .position(|&c| c == '\n')
-                            .map_or(chars.len(), |p| j + p);
-                        let line: String = chars[j..end].iter().collect();
-                        j = end + 1;
+                    while let Some(rest) = chars.get(j..) {
+                        let len = rest.iter().position(|&c| c == '\n').unwrap_or(rest.len());
+                        let line: String = rest.iter().take(len).collect();
+                        j += len + 1;
                         if line.trim() == word {
                             break;
                         }
@@ -138,7 +141,8 @@ fn commands(script: &str) -> Vec<(String, String)> {
                 i = j;
                 continue;
             }
-            '&' if i > 0 && matches!(chars[i - 1], '>' | '<') || next == Some('>') => {}
+            '&' if matches!(i.checked_sub(1).and_then(|p| chars.get(p)), Some('>' | '<'))
+                || next == Some('>') => {}
             '&' | '|' | ';' | '\n' if open.is_empty() => {
                 // `&&` or `||` is one separator.
                 let doubled = next == Some(c) && c != ';' && c != '\n';
@@ -146,7 +150,7 @@ fn commands(script: &str) -> Vec<(String, String)> {
                 if doubled {
                     i += 1;
                 }
-                out.push(String::new());
+                out.push(std::mem::take(&mut cur));
                 i += 1;
                 continue;
             }
@@ -155,6 +159,7 @@ fn commands(script: &str) -> Vec<(String, String)> {
         cur.push(c);
         i += 1;
     }
+    out.push(cur);
     seps.push(String::new());
     out.into_iter()
         .zip(seps)

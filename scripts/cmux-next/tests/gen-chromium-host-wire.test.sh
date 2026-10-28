@@ -391,6 +391,38 @@ else
   echo "note: no C++ compiler; the generated .inc files were not compiled" >&2
 fi
 
+# A record struct of numbers only (as cmux_shim_ime_span: int, unsigned int, int64_t) goes field by
+# field with each field's own wire type, and the host keeps no string slots to wipe for it.
+records="$work/records"
+fixture "$records"
+hand_written "$records"
+cat >>"$records/$shimh" <<'EOF'
+typedef struct {
+  int start;
+  unsigned int color;
+  int64_t stamp;
+} cmux_shim_span;
+CMUX_SHIM_EXPORT int cmux_shim_send_spans(int browser_id, const cmux_shim_span* spans, int span_count);
+EOF
+edit_ops "$records" 'd["exports"].append({"name": "cmux_shim_send_spans", "class": "post", "args": [
+    {"name": "browser_id", "type": "int"}, {"name": "spans", "type": "const cmux_shim_span*"},
+    {"name": "span_count", "type": "int"}], "returns": "int", "result_used_by": [], "mirror_key": None,
+    "refresh_events": [], "pending_keys": [], "reply_event": None, "reason": "", "channel": "input"})'
+expect 0 "17/17 exports classified" "a numeric record export is valid" -- --root "$records" --check-ops
+python3 "$gen" --root "$records" >/dev/null
+rclient="$records/${outputs[1]}"
+has "$rclient" 'op_w.I32(arg_spans[i].start);' "a record's int field is not sent as I32"
+has "$rclient" 'op_w.U32(arg_spans[i].color);' "a record's unsigned int field is not sent as U32"
+has "$rclient" 'op_w.I64(arg_spans[i].stamp);' "a record's int64_t field is not sent as I64"
+spans="$(case_of "$records/${outputs[0]}" kOpSendSpans)"
+grep -qF 'arg_spans[i].start = r.I32();' <<<"$spans" || fail "a record's int field is not read as I32"
+grep -qF 'arg_spans[i].color = r.U32();' <<<"$spans" || fail "a record's unsigned int field is not read as U32"
+grep -qF 'arg_spans[i].stamp = r.I64();' <<<"$spans" || fail "a record's int64_t field is not read as I64"
+grep -qE 'arg_spans_s|Wipe' <<<"$spans" && fail "a record without strings keeps string slots"
+if [[ -n "$cxx" ]]; then
+  compile_inc "$records" "numeric records"
+fi
+
 # The result-use check: the fixture caller drops every post result.
 expect 0 "0 stand-in results read" "dropped results pass" -- --root "$base" --check-return-use
 sites="$(python3 "$gen" --root "$base" --swift-sites)"
@@ -520,7 +552,7 @@ expect 1 "CEFReads.swift:7:" "only the head of a site names functions" -- --root
 edit_ops "$rewrite" 'd["host_mode_rewrites"][0]["site"] = "CmuxNextBrowser/CEF/CEFReads.swift: moves() and other()"'
 expect 0 "0 stand-in results read" "a site that names two functions" -- --root "$rewrite" --check-return-use
 
-# --swift-sites drops a site that is done (task p01-process-021): an async call, or a preinit whose
+# --swift-sites drops a site that is done: an async call, or a preinit whose
 # verdict is a wire:REPLY, in the token form
 # (inside a closure handed to sendAsync, siteCall or profileWrite), a mint_returns id call in the mint
 # form (its id keys a `.reply(for:` wait), and a site listed with needs after_attach, host_exit or
@@ -594,7 +626,7 @@ extension CEFRuntime {
 EOF
 listed() { grep -q "CEFAsync.swift:$1"$'\t' <<<"$sites"; }
 sites="$(python3 "$gen" --root "$settled" --swift-sites)"
-# A preinit whose verdict is a wire:REPLY is done in the token form too (task p01-process-070).
+# A preinit whose verdict is a wire:REPLY is done in the token form too.
 for line in 3 9 32 46; do
   listed "$line" && fail "a call in the token or mint form is listed (line $line): $sites"
 done
@@ -613,7 +645,7 @@ sites="$(python3 "$gen" --root "$settled" --swift-sites)"
 listed 42 && fail "a kept site is listed: $sites"
 listed 15 || fail "a reply entry settled a call not in the token form: $sites"
 listed 38 && fail "a host_exit site is listed: $sites"
-# needs client (task p01-process-025): a local export the client defines by hand (HOST/client, outside
+# needs client: a local export the client defines by hand (HOST/client, outside
 # generated/) is the same call in both backends. change names its wire entry point; the site stays
 # listed until HOST/client defines the export and calls that entry point (its own declarations,
 # definitions and member forwarders are no call).
@@ -843,7 +875,7 @@ d["methods"].append({"mojom": "render_widget_host_ns_view.mojom", "interface": "
 json.dump(d, open(sys.argv[1], "w"))
 EOF
 expect 0 "" "all methods mapped" -- --root "$parity" --check-view-parity
-# Counts come from the vendored text, never constants (task p01-process-059).
+# Counts come from the vendored text, never constants.
 expect 0 "1 vendored mojoms at Chromium 154\.0\.8037\.98 \(b859317bf11f\): 3 methods, 1 \[Sync\]; 3 mapped \(op 1, event 1, not_needed 1\)" \
   "counts parsed from the mojom" -- --root "$parity" --check-view-parity
 expect 0 "render_widget_host_ns_view.mojom RenderWidgetHostNSView: 3 methods, 1 \[Sync\]" "counts by interface" \
@@ -888,7 +920,7 @@ echo '{"chromium": "155.0.1.2"}' >"$parity/scripts/cmux-next/cef-manifest.json"
 expect 1 "pins 155.0.1.2: vendor them again" "mojoms the fork pin moved past" -- --root "$parity" --check-view-parity
 echo '{"chromium": "154.0.8037.98"}' >"$parity/scripts/cmux-next/cef-manifest.json"
 expect 0 "" "mojoms at the fork pin" -- --root "$parity" --check-view-parity
-# Each target is checked against what can carry it (task p01-process-055).
+# Each target is checked against what can carry it.
 mkdir -p "$parity/Packages/macOS/CmuxNext/ChromiumHost/src" "$parity/plans/cmux-next/chrome-parity"
 cat >"$parity/Packages/macOS/CmuxNext/ChromiumHost/src/chromium_host_wire.h" <<'EOF'
 // Fixture wire. kNotAKind = 9 in a comment is not a Kind.
@@ -945,7 +977,7 @@ show_row '{"wire": "kFocus", "evnt": "CMUX_SHIM_ADDRESS"}'
 expect 1 "unknown field\\(s\\) evnt" "a misspelled field" -- --root "$parity" --check-view-parity
 show_row '{"wire": "kFocus", "event": "CMUX_SHIM_ADDRESS"}'
 expect 1 "needs exactly one of" "two targets" -- --root "$parity" --check-view-parity
-# A row names a method of the vendored mojom (task p01-process-054: Chromium 154 has PinchEvent, not GestureBegin).
+# A row names a method of the vendored mojom (Chromium 154 has PinchEvent, not GestureBegin).
 show_row '{"wire": "kFocus"}'
 stale_row() { # add|drop: the RenderWidgetHostNSViewHost.GestureBegin row
   python3 - "$parity/plans/cmux-next/chromium-host-view-parity.json" "$1" <<'EOF'
@@ -1002,7 +1034,7 @@ if [[ -f "$repo/$ops" ]]; then
     fail "a click record's browser id reaches the host shim unmapped"
   grep -qF 'arg_windows[i].flags = r.I64();' <<<"$policy" || fail "a plain record field is mapped as a browser id"
   expect 0 "0 mirror reads before attach" "the real startup path" -- --root "$repo" --check-pre-attach
-  # Every vendored remote_cocoa mojom method is mapped (tasks p01-process-055, 059), except pending rows,
+  # Every vendored remote_cocoa mojom method is mapped, except pending rows,
   # which the check counts unmapped until their task names the carrier: no other problem, and the
   # unmapped list is exactly the pending list. The counts are parsed from the vendored files.
   real_parity_code=0

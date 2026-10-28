@@ -7,7 +7,7 @@ import CmuxNextWakeupsTestSupport
 import GhosttyNextKit
 import Testing
 
-/// A terminal's pointer input at most twice per frame (feature `terminalPointerFrames`, p04-input-034;
+/// A terminal's pointer input at most twice per frame (feature `terminalPointerFrames`;
 /// Chromium's rAF-aligned input, `main_thread_event_queue.cc`): a counting surface sees moves and drags
 /// as one `mouse_pos` on a frame interval's first event and one at the frame, at the latest point; a
 /// button sends the latest position before itself; a mouse-reporting trackpad scroll is one

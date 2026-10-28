@@ -123,8 +123,8 @@ struct WebUIHostTests {
         for view in [first, second, alone] { host.close(view) }
     }
 
-    /// A page that shows in Chromium has no WebKit process to share: it has no WebKit view
-    /// (p13-webui-041), and the one a host forces stays out of the group, so it never becomes the
+    /// A page that shows in Chromium has no WebKit process to share: it has no WebKit view,
+    /// and the one a host forces stays out of the group, so it never becomes the
     /// group's first page.
     @Test func aSharedPageInChromiumStaysOutOfTheGroup() async throws {
         defer { try? FileManager.default.removeItem(at: root) }
@@ -142,8 +142,8 @@ struct WebUIHostTests {
 
     /// With `webKitPageProcessGroups` every page of a sharing group joins it without asking, so the
     /// pages of one group start one WebContent process and their crashes count against one budget;
-    /// a solo page keeps its own store and process (p07-memory-087). The group's store is its own,
-    /// not the agent group's the warm-up has: pages of different groups never share localStorage (p13-webui-015).
+    /// a solo page keeps its own store and process. The group's store is its own,
+    /// not the agent group's the warm-up has: pages of different groups never share localStorage.
     @Test func everyPageOfASharingGroupJoinsItWithWebKitPageProcessGroups() throws {
         defer { try? FileManager.default.removeItem(at: root) }
         let host = makeHost(nil, everySharingPage: true)

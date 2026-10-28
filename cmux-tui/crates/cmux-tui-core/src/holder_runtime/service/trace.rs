@@ -1,10 +1,10 @@
 //! The holder's part of a daemon trace recording and of an exact echo flow,
-//! through its capability bits ([`cmux_holder::wire::capability`],
-//! p09-observability-096): only a holder that granted TRACE_CONTROL gets
+//! through its capability bits ([`cmux_holder::wire::capability`]):
+//! only a holder that granted TRACE_CONTROL gets
 //! TRACE_START and TRACE_STOP, only one that granted WRITE_FLOW a flow
 //! trailer. Any other holder is `holder_untraced`. The daemon's
-//! `trace.start`, `trace.stop` and `trace.status` (p09-observability-015)
-//! and the exact echo flow (p09-observability-018) call these.
+//! `trace.start`, `trace.stop` and `trace.status`
+//! and the exact echo flow call these.
 
 use std::io;
 
@@ -172,7 +172,7 @@ mod tests {
         }
     }
 
-    /// p09-observability-096: a holder that granted TRACE_CONTROL and
+    /// A holder that granted TRACE_CONTROL and
     /// WRITE_FLOW gets the recording and the flow mark; a holder that
     /// restarts while the recording runs gets it when its link is
     /// published, without another `trace.start`.
@@ -244,7 +244,7 @@ mod tests {
         }
     }
 
-    /// p09-observability-096: a holder older than the capability bits (its
+    /// A holder older than the capability bits (its
     /// WELCOME has no grant: the v3 and v5 holders already shipped) is
     /// `holder_untraced` and gets neither TRACE_START, TRACE_STOP nor a
     /// WRITE flow trailer. No guess from its version or timing.
@@ -279,7 +279,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// p09-observability-096: a holder that granted TRACE_CONTROL but
+    /// A holder that granted TRACE_CONTROL but
     /// refused the recording (here: its tracer never started) is
     /// `holder_trace_failed` with its message, never `holder_traced`.
     #[test]

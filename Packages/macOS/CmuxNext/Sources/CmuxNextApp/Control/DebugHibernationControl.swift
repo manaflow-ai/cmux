@@ -7,10 +7,12 @@ import CmuxNextSettings
 /// The memory methods of the control socket:
 ///
 /// - `debug.memory` (every build, read-only): ``DebugMemoryControl``.
-/// - `debug.discards` (every build, read-only): cmux's chrome://discards, the nine content kinds and
-///   one row per content the discard planner's owners report (`ContentDiscardReport.report`). Rows
-///   carry tab keys only, no URL, title or path, so release builds serve it, as Chrome ships
-///   chrome://discards.
+/// - `debug.discards` (every build, read-only): cmux's chrome://discards
+///   (`chrome/browser/ui/webui/discards/discards_ui.cc`) over the rows the discard planner's owners
+///   report (``ContentDiscardReport``): the nine content kinds and one row per content.
+///   Its socket policy is `debug.memory`'s (``DebugMemoryControl``): the main-actor
+///   body only copies the report, a value; `kind` is parsed and the answer filtered, redacted
+///   (``MemoryDiagnosticsReport/opaqueToken(_:)`` on every content key) and encoded off the main actor.
 /// - `debug.hibernation.pressure` (DEBUG builds): sets the memory coordinator's pressure override, which
 ///   the coordinator hands to browser tab hibernation (a registered `MemoryLevelConsumer`), so the fleet
 ///   benches (scripts/measure/tab-hibernation.sh) measure pressure without `sudo memory_pressure`.
@@ -22,14 +24,52 @@ import CmuxNextSettings
 enum DebugHibernationControl {
     static func methods(_ services: AppServices) -> [ControlMethod] {
         let memory = DebugMemoryControl(services: services, budget: .forThisMac(gpuResidentAvailable: services.cache.gpuResidency != nil))
-        let discards = ControlMethod.mainActor("debug.discards") { [weak services] call in
-            .value((services?.cache.hibernation?.discards ?? ContentDiscardReport()).report(call.params, now: .now))
-        }.servingRelease()
+        let discards = discardsMethod { [weak services] in services?.cache.hibernation?.discards ?? ContentDiscardReport() }
         #if DEBUG || CMUX_BENCH_HOOKS
         return [memory.method, discards, pressureMethod(services, history: memory.history, histograms: memory.histograms)]
         #else
         return [memory.method, discards]
         #endif
+    }
+
+    /// `debug.discards` over `read`. Before hibernation starts (or once the app's services are gone)
+    /// `read` gives an empty report: the nine kinds, none tracked, and no rows.
+    ///
+    /// - Parameters:
+    ///   - read: The owners' report now, read on the main actor.
+    ///   - now: The time `hidden_for` is measured to.
+    static func discardsMethod(
+        read: @escaping @MainActor @Sendable () -> ContentDiscardReport,
+        now: @escaping @Sendable () -> ContinuousClock.Instant = { .now }
+    ) -> ControlMethod {
+        ControlMethod.mainActor("debug.discards") { call in
+            let report = read()
+            let params = call.params
+            return .followUp { try discardsAnswer(report, params: params, now: now()) }
+        }.servingRelease()
+    }
+
+    /// The `debug.discards` answer for `params` (`{"kind": "<kind>"}` keeps one kind), every key redacted.
+    nonisolated static func discardsAnswer(_ report: ContentDiscardReport, params: [String: JSONValue],
+                                           now: ContinuousClock.Instant) throws -> JSONValue {
+        let only = try discardsKind(params)
+        let kinds = report.kinds.filter { only == nil || $0.kind == only }
+        let rows = report.rows(now: now).filter { only == nil || $0.kind == only }.map { row in
+            var redacted = row
+            redacted.key = MemoryDiagnosticsReport.opaqueToken(row.key)
+            return redacted
+        }
+        return ["kinds": .array(kinds.map(\.json)), "contents": .array(rows.map(\.json))]
+    }
+
+    /// The `kind` parameter of `debug.discards`: nil when absent, else one of the nine kinds.
+    nonisolated static func discardsKind(_ params: [String: JSONValue]) throws -> ContentKind? {
+        guard let raw = params["kind"], !raw.isNull else { return nil }
+        guard let name = raw.stringValue, let kind = ContentKind(rawValue: name) else {
+            throw ControlError.invalidParams("kind must be one of " + ContentKind.allCases.map(\.rawValue).joined(separator: ", "),
+                                             data: ["param": "kind"])
+        }
+        return kind
     }
 
     #if DEBUG || CMUX_BENCH_HOOKS

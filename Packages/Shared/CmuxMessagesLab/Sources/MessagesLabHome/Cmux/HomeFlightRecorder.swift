@@ -31,7 +31,7 @@ public struct HomeFlightRecorder {
         set { policy.withLock { $0.logFolder = newValue } }
     }
 
-    /// The app's policy (p10-stability-055: it was three unchecked globals). The app sets it once
+    /// The app's policy (it was three unchecked globals). The app sets it once
     /// at launch; the recorder reads it after a send, from main and the dump queue.
     private struct Policy: Sendable {
         var isEnabled: @Sendable () -> Bool = { false }

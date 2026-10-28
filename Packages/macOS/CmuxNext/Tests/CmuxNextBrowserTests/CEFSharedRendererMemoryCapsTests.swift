@@ -1,7 +1,7 @@
 import Testing
 @testable import CmuxNextBrowser
 
-/// p07-memory-111: Chromium starts with Chrome's shared-renderer memory caps from the app's budget
+/// Chromium starts with Chrome's shared-renderer memory caps from the app's budget
 /// (`cmux-shared-renderer-memory-limit`, `cmux-shared-renderer-subframe-memory-limit`), which the fork reads in
 /// HasEnoughMemoryForAnotherMainFrame and for a cmux page that joins a live renderer. A bench run may set a lower
 /// cap (bench_renderer_sharing --memory-cap-mb) that replaces the budget's.

@@ -22,6 +22,8 @@
 //! owner, waits for it outside the lock, and never mistakes it for an absent
 //! one.
 
+use crate::json_fields::JsonFields;
+use crate::panic_free::RecoverPoison;
 use std::io;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::PathBuf;
@@ -312,7 +314,7 @@ pub(crate) fn ensure_owner(
             Attempt::Starting(pid) => {
                 progress.restoring(pid);
                 drop(lock);
-                std::thread::sleep(POLL_INTERVAL);
+                cmux_blocking::thread::sleep(POLL_INTERVAL);
                 continue;
             }
             // The lock is released once the spawn is issued. A redundant
@@ -385,7 +387,7 @@ fn wait_while_starting(
         if Instant::now() >= restore_deadline {
             return Err(EnsureError::RestoreTimeout);
         }
-        std::thread::sleep(POLL_INTERVAL);
+        cmux_blocking::thread::sleep(POLL_INTERVAL);
     }
 }
 
@@ -427,7 +429,7 @@ fn wait_until_ready(
         if !seen_alive && now >= contact_deadline {
             return Ok(None);
         }
-        std::thread::sleep(POLL_INTERVAL);
+        cmux_blocking::thread::sleep(POLL_INTERVAL);
     }
 }
 
@@ -524,7 +526,7 @@ fn attempt(
         Err(IdentifyError::Timeout) => return Ok(Attempt::Starting(None)),
         Err(IdentifyError::Failed) => return Ok(Attempt::Unanswered),
     };
-    if identity["app"] != "cmux-tui" {
+    if identity.field("app") != "cmux-tui" {
         return Err(EnsureError::WrongOwner);
     }
     if identity.get("protocol").and_then(Value::as_u64)
@@ -541,7 +543,7 @@ fn attempt(
         Some(Value::Bool(true)) => {}
         _ => return Err(EnsureError::InvalidIdentity),
     }
-    let session = identity["session"].as_str().unwrap_or_default();
+    let session = identity.field("session").as_str().unwrap_or_default();
     if session.is_empty() {
         return Err(EnsureError::InvalidIdentity);
     }
@@ -551,10 +553,11 @@ fn attempt(
     if !serves_requested_state(spec, session, &identity) {
         return Err(EnsureError::DifferentState);
     }
-    let Some(pid) = identity["pid"].as_u64() else {
+    let Some(pid) = identity.field("pid").as_u64() else {
         return Err(EnsureError::InvalidIdentity);
     };
-    let Some(generation) = identity["generation"].as_str().filter(|value| !value.is_empty()) else {
+    let Some(generation) = identity.field("generation").as_str().filter(|value| !value.is_empty())
+    else {
         return Err(EnsureError::InvalidIdentity);
     };
     Ok(Attempt::Ready(ReadyOwner {
@@ -623,10 +626,10 @@ fn identify(stream: Box<dyn transport::Stream>, deadline: Instant) -> Result<Val
         let Ok(response) = serde_json::from_slice::<Value>(&bytes) else {
             return Err(IdentifyError::Failed);
         };
-        if response.get("event").is_some() || response["id"] != 1 {
+        if response.get("event").is_some() || response.field("id") != 1 {
             continue;
         }
-        if response["ok"] == true {
+        if response.field("ok") == true {
             return Ok(response.get("data").cloned().unwrap_or(Value::Null));
         }
         return Err(IdentifyError::Failed);
@@ -679,7 +682,7 @@ impl SpawnedOwner {
         // must terminate the owner even when that thread could not be
         // created. The owner is still unreaped here (the reaper takes the
         // child out of the slot before reaping), so its pid is still its own.
-        let mut child = self.state.child.lock().expect("owner mutex poisoned");
+        let mut child = self.state.child.lock().recover_poison();
         if let Some(mut process) = child.take() {
             let _ = process.kill();
             let _ = process.wait();
@@ -809,7 +812,7 @@ fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<SpawnedOwner> {
     let reaper = move || reap_on_tick(&reaper_state);
     // supervise-allow: reaps one detached owner; it ends when the owner exits, and a panic leaves only that child to init.
     if let Err(_error) =
-        std::thread::Builder::new().name("local-owner-reaper".to_string()).spawn(reaper)
+        cmux_threads::spawn("local-owner-reaper", cmux_threads::ThreadQos::Utility, reaper)
     {
         // If the helper thread cannot be created, reap synchronously before
         // returning. This preserves the no-zombie guarantee even under
@@ -853,7 +856,7 @@ fn reap_on_exit(state: &OwnerProcessState, pid: u32) {
             break;
         }
     }
-    if let Some(mut process) = state.child.lock().expect("owner mutex poisoned").take() {
+    if let Some(mut process) = state.child.lock().recover_poison().take() {
         let _ = process.wait();
     }
 }

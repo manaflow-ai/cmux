@@ -9,8 +9,7 @@ import CmuxNextWakeups
 import Testing
 
 /// The Chromium Host app follows the feature `cefHelperHost`, and Debug Settings
-/// `browserHost.helper` is only its local override, in the feature list's order
-/// (p12-perf-process-101).
+/// `browserHost.helper` is only its local override, in the feature list's order.
 @MainActor
 @Suite struct ChromiumHostSwitchTests {
     /// Debug Settings as the app holds them, with `helper` set when non-nil.
@@ -116,7 +115,7 @@ import Testing
 
     /// The host on alone keeps Chromium tabs in cmux (`debug.chromium_host` beside in-process tabs, as
     /// chromium-host-bench.py's inproc rows need); with `chromiumHostTabs` too, AppServices builds the one
-    /// supervisor every tab attaches through (p01-process-080).
+    /// supervisor every tab attaches through.
     @Test func tabsMoveToTheHostOnlyWithChromiumHostTabs() {
         let work = BackgroundWork(label: "test.chromium-host-switch")
         let mainWork = MainWorkScheduler(budget: MainFrameBudget())

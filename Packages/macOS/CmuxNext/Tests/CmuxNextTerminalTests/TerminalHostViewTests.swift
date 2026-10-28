@@ -4,7 +4,7 @@ import CmuxNextTerminalFind
 import CmuxNextWakeups
 import Testing
 
-/// The terminal host follows its find controller through FrameObservation (p04-input-027), not one
+/// The terminal host follows its find controller through FrameObservation, not one
 /// `withObservationTracking` hop per change: Cmd-F (a person's change) builds the find bar in the
 /// key's own input-response pass, a program's open builds it in the next frame, and a burst of
 /// query changes renders the bar once per frame.
@@ -103,7 +103,7 @@ import Testing
         rig.stop()
     }
 
-    /// Streaming output (p04-input-051): each frame's burst of scrollbar changes places the knob once,
+    /// Streaming output: each frame's burst of scrollbar changes places the knob once,
     /// and a frame with no change places nothing; the scroller adds no frame client of its own.
     @Test func streamingOutputPlacesTheKnobOncePerFrame() throws {
         _ = NSApplication.shared

@@ -45,7 +45,7 @@ public nonisolated struct InputTapDebugSource: DebugInputSource {
     }
 }
 
-/// `debug.input` section `latency`: the input latency ledger (p04-input-002), folded up to the read.
+/// `debug.input` section `latency`: the input latency ledger, folded up to the read.
 nonisolated extension InputLatencyReporter: DebugInputSource {
     public var section: DebugInputSection { .latency }
 
@@ -54,7 +54,7 @@ nonisolated extension InputLatencyReporter: DebugInputSource {
     }
 }
 
-/// `debug.input` section `interactions`: the person's interactions (cmux's INP, p04-input-097) from the
+/// `debug.input` section `interactions`: the person's interactions (cmux's INP) from the
 /// same ledger as `latency`, folded up to the read: the count, the longest, the longest after ignoring
 /// one for each 50, and the kind and target of the longest.
 public nonisolated struct InteractionLatencyDebugSource: DebugInputSource {

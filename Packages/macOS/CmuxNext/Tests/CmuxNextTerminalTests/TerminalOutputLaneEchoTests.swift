@@ -5,8 +5,8 @@ import Foundation
 import GhosttyNextKit
 import Testing
 
-/// The attach reader feeds the output lane directly (``TerminalOutputLane/enqueueEcho(_:flow:wake:)``,
-/// p04-input-083): a chunk is queued at once, and above the lane's capacity the reader is told to wait and
+/// The attach reader feeds the output lane directly (``TerminalOutputLane/enqueueEcho(_:flow:wake:)``):
+/// a chunk is queued at once, and above the lane's capacity the reader is told to wait and
 /// woken exactly once, when the backlog drains to the high water or the lane closes. The lane's parse is the
 /// test's recorder, so no Ghostty surface is made.
 @Suite(.timeLimit(.minutes(1))) struct TerminalOutputLaneEchoTests {

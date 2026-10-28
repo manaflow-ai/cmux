@@ -356,7 +356,7 @@ fn a_holder_shell_that_exits_ends_its_terminal_with_its_status() {
 
 /// The `terminalHolder` feature picks the model (the holder by default since
 /// holder item 5), and the env switch it replaced stays an alias of the
-/// feature lists, whose disable wins (p12-perf-process-105):
+/// feature lists, whose disable wins:
 /// `CMUX_TUI_TERMINAL_HOST_MODEL=hosts` opts out for one release.
 #[test]
 fn the_terminal_holder_feature_and_its_env_alias_pick_the_model() {

@@ -1,4 +1,4 @@
-//! The terminal host's trace slices (p09-observability-016): `task.host_pty_read` per PTY read,
+//! The terminal host's trace slices: `task.host_pty_read` per PTY read,
 //! `task.host_parse` per parser command and `task.host_input_write` per client-input write, each
 //! with the terminal's hash. `task` is recording-only, so the black box never holds them.
 //!

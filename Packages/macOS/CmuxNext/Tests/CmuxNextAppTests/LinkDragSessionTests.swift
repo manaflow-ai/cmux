@@ -5,10 +5,10 @@ import Foundation
 import Testing
 
 /// A link dragged out of a chat hears its events through one input tap intercept that lives for the
-/// drag only (p04-input-015): it takes the drag's moves, its release and Escape, passes other keys
+/// drag only: it takes the drag's moves, its release and Escape, passes other keys
 /// and the press after a lost release on, and every end leaves the tap's intercepts as they were.
 /// With feature `pointerFrameDrags` its moves hit-test on a frame interval's first move and once at
-/// the frame (p04-input-032), and the release hit-tests once at its own point.
+/// the frame, and the release hit-tests once at its own point.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(1)))
 struct LinkDragSessionTests {
     let services = AppServices(environment: AppEnvironment.current([:]))

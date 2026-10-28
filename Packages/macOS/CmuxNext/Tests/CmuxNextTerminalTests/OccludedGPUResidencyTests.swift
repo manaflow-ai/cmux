@@ -5,7 +5,7 @@ import CmuxNextWakeups
 import Foundation
 import Testing
 
-/// p07-memory-097: a terminal shown in a window that stays off screen (minimized, another Space, covered by
+/// A terminal shown in a window that stays off screen (minimized, another Space, covered by
 /// the app's own window) lets its GPU memory go after ``WindowDrawPolicy/offScreenGPUReleaseDelay``, one
 /// deadline armed when the window's occlusion changes, and is resident again before Ghostty draws when the
 /// window comes back. Fake seams: the window's visibility, the deadline and the libghostty switch.
@@ -211,7 +211,7 @@ import Testing
         #expect(session.surfaceView.lastOcclusionVisible == true)
     }
 
-    /// A window fully covered by an opaque cmux window (its occlusion family, p03-rendering-097) counts too.
+    /// A window fully covered by an opaque cmux window (its occlusion family) counts too.
     @Test func aWindowCoveredByTheAppsOwnWindowReleasesAfterTheDelay() throws {
         let policy = PolicySnapshot()
         defer { policy.restore() }

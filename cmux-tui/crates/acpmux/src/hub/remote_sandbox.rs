@@ -46,6 +46,7 @@
 //! `--allow-dangerously-skip-permissions`.
 
 use super::*;
+use crate::no_panic::JsonExt;
 
 /// The checked-in Seatbelt profile.
 pub(super) const PROFILE: &str = include_str!("../../sandbox/remote-chain.sb");
@@ -72,7 +73,7 @@ pub(super) fn claude_settings(endpoint: Option<&str>) -> String {
         "permissions": {"disableBypassPermissionsMode": "disable", "ask": ASK_TOOLS},
     });
     if let Some(url) = endpoint {
-        v["env"] = json!({"ANTHROPIC_BASE_URL": url});
+        v.set("env", json!({"ANTHROPIC_BASE_URL": url}));
     }
     v.to_string()
 }
@@ -700,9 +701,10 @@ impl Hub {
         // A chat moved here in full access (a transfer keeps its mode)
         // starts in Claude's asking default instead.
         if let Some(i) = plan.args.iter().position(|a| a == "--permission-mode")
-            && plan.args.get(i + 1).is_some_and(|m| m == "bypassPermissions")
+            && let Some(mode) = plan.args.get_mut(i + 1)
+            && *mode == "bypassPermissions"
         {
-            plan.args[i + 1] = "default".into();
+            *mode = "default".into();
         }
         let credential = claude_credential(&profile).await.map_err(|why| {
             RpcError::new(-32000, format!("remote chain refused: {why}"))

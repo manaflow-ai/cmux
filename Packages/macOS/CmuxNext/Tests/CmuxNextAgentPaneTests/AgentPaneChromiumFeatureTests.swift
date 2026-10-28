@@ -6,8 +6,8 @@ import Foundation
 import Testing
 @testable import CmuxNextAgentPane
 
-/// The agent page's engine follows the value the app passes for feature `agentChromium`
-/// (p12-perf-process-104), never the Debug tunable `agent.chromium` it replaced: off keeps a new
+/// The agent page's engine follows the value the app passes for feature `agentChromium`,
+/// never the Debug tunable `agent.chromium` it replaced: off keeps a new
 /// page on the page host's WebKit even where Chromium serves it.
 @Suite(.serialized)
 @MainActor
