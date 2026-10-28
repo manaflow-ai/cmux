@@ -21,6 +21,23 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::process::{Child, ChildStdin, ChildStdout, Command};
 use tokio_util::codec::{FramedRead, FramedWrite, LinesCodec};
 
+#[derive(Debug)]
+struct AccountChanged;
+impl std::fmt::Display for AccountChanged {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Codex account changed")
+    }
+}
+impl std::error::Error for AccountChanged {}
+
+fn error_code(error: &anyhow::Error) -> &'static str {
+    if error.is::<AccountChanged>() {
+        "codex_auth_account_changed"
+    } else {
+        "codex_auth_unavailable"
+    }
+}
+
 const LIMIT: usize = 64 * 1024;
 const DEADLINE: Duration = Duration::from_secs(8);
 
@@ -36,7 +53,11 @@ pub async fn run(home: PathBuf, codex: PathBuf) -> Result<()> {
     let checked_home = home.clone();
     let lock = tokio::task::spawn_blocking(move || prepare(&checked_home)).await??;
     let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
-    let mut owner = Owner::start(&home, &codex, &lock).await?;
+    let Some(mut owner) = Owner::start(&home, &codex, &lock, &mut terminate).await? else {
+        // SIGTERM arrived while the managed Codex owner was initializing. The
+        // startup path has already reaped that child before releasing `lock`.
+        return Ok(());
+    };
     let result = tokio::select! {
         result = serve(&mut owner, &home) => result,
         _ = terminate.recv() => Ok(()),
@@ -72,7 +93,7 @@ async fn serve(owner: &mut Owner, home: &Path) -> Result<()> {
             .ok_or_else(|| anyhow!("broker request needs a numeric id"))?;
         let reply = match tokio::time::timeout(DEADLINE, owner.request(home, &request)).await {
             Ok(Ok(result)) => json!({"id": id, "result": result}),
-            Ok(Err(_)) => json!({"id": id, "error": "codex_auth_unavailable"}),
+            Ok(Err(error)) => json!({"id": id, "error": error_code(&error)}),
             Err(_) => {
                 // A timed-out app-server request may still mutate the cache.
                 // End this owned child before releasing the exclusive lock.
@@ -203,6 +224,26 @@ struct Owner {
     account: Option<String>,
 }
 
+enum StartupCancellation<'a> {
+    Signal(&'a mut tokio::signal::unix::Signal),
+    #[cfg(test)]
+    Channel(&'a mut tokio::sync::oneshot::Receiver<()>),
+}
+
+impl StartupCancellation<'_> {
+    async fn wait(&mut self) {
+        match self {
+            Self::Signal(signal) => {
+                let _ = signal.recv().await;
+            }
+            #[cfg(test)]
+            Self::Channel(receiver) => {
+                let _ = (&mut **receiver).await;
+            }
+        }
+    }
+}
+
 impl Owner {
     async fn stop(&mut self) {
         if let Some(pid) = self.child.id() {
@@ -215,7 +256,21 @@ impl Owner {
         }
     }
 
-    async fn start(home: &Path, codex: &Path, lock: &File) -> Result<Self> {
+    async fn start(
+        home: &Path,
+        codex: &Path,
+        lock: &File,
+        terminate: &mut tokio::signal::unix::Signal,
+    ) -> Result<Option<Self>> {
+        Self::start_with_cancel(home, codex, lock, StartupCancellation::Signal(terminate)).await
+    }
+
+    async fn start_with_cancel(
+        home: &Path,
+        codex: &Path,
+        lock: &File,
+        mut cancel: StartupCancellation<'_>,
+    ) -> Result<Option<Self>> {
         let mut command = Command::new(codex);
         command.process_group(0);
         let lock_fd = lock.as_raw_fd();
@@ -257,25 +312,37 @@ impl Owner {
             next_id: 0,
             account: None,
         };
-        let initialized = tokio::time::timeout(
-            DEADLINE,
-            owner.call(
-                "initialize",
-                json!({
-                    "clientInfo": {"name": "cmux-auth-owner", "version": env!("CARGO_PKG_VERSION")}
-                }),
-            ),
-        )
-        .await;
+        let initialized = tokio::select! {
+            result = tokio::time::timeout(
+                DEADLINE,
+                owner.call(
+                    "initialize",
+                    json!({
+                        "clientInfo": {"name": "cmux-auth-owner", "version": env!("CARGO_PKG_VERSION")}
+                    }),
+                ),
+            ) => result,
+            _ = cancel.wait() => {
+                owner.stop().await;
+                return Ok(None);
+            }
+        };
         if !matches!(initialized, Ok(Ok(_))) {
             owner.stop().await;
             return Err(anyhow!("Codex initialization failed"));
         }
-        if owner.input.send(json!({"method": "initialized"}).to_string()).await.is_err() {
+        let initialized_notification = tokio::select! {
+            result = owner.input.send(json!({"method": "initialized"}).to_string()) => result,
+            _ = cancel.wait() => {
+                owner.stop().await;
+                return Ok(None);
+            }
+        };
+        if initialized_notification.is_err() {
             owner.stop().await;
             return Err(anyhow!("Codex initialization failed"));
         }
-        Ok(owner)
+        Ok(Some(owner))
     }
 
     async fn call(&mut self, method: &str, params: Value) -> Result<Value> {
@@ -311,7 +378,9 @@ impl Owner {
     async fn request(&mut self, home: &Path, request: &Value) -> Result<Value> {
         match request.get("method").and_then(Value::as_str) {
             Some("login") => {
-                ensure!(self.account.is_none(), "sign out before changing the broker account");
+                if self.account.is_some() {
+                    return Err(AccountChanged.into());
+                }
                 // Access polling must not return a previous process's cache
                 // before this explicitly requested browser sign-in finishes.
                 self.call("account/logout", json!({})).await?;
@@ -340,11 +409,15 @@ impl Owner {
                 let account = token["chatgptAccountId"]
                     .as_str()
                     .ok_or_else(|| anyhow!("Codex account missing"))?;
-                if let Some(expected) = self.account.as_deref() {
-                    ensure!(account == expected, "Codex account changed");
+                if let Some(expected) = self.account.as_deref()
+                    && account != expected
+                {
+                    return Err(AccountChanged.into());
                 }
-                if let Some(expected) = request.get("previousAccountId").and_then(Value::as_str) {
-                    ensure!(account == expected, "Codex account changed");
+                if let Some(expected) = request.get("previousAccountId").and_then(Value::as_str)
+                    && account != expected
+                {
+                    return Err(AccountChanged.into());
                 }
                 self.account = Some(account.to_owned());
                 Ok(token)

@@ -218,6 +218,12 @@ nonisolated enum CloudActionDescriptions {
             upload. Answers status (started, running or failed) at once; the machine writes the outcome to \
             ~/.cmux/machine-config/status.json, read with `cmux cloud file-read --target machine:<id> --path …`.
             """,
+        "cloudDeliverSecrets": """
+            Sends the values of the secret names the machine's .cmux/machine.toml declares (--target \
+            machine:<id>, --repo OWNER/NAME for repo-scoped ones) from this Mac's Keychain to the machine \
+            over its daemon link, never the Cloud API. Returns status (delivered, unchanged or pending), \
+            delivered and missing names. Values are stored with cmux cloud secret set NAME.
+            """,
         "cloudResizeMachine": """
             Resizes the machine (--target machine:<id> --size small, medium, large or xlarge: 2 vCPU and \
             4 GB, 4 and 8, 8 and 16, or 16 and 24). Answers at once, before the resize is done.

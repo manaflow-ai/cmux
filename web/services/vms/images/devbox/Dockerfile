@@ -347,6 +347,7 @@ RUN mkdir -p /etc/cmux/blesh-cache-seed \
 # proves the persisted-env re-source path, then proves the image itself
 # ships no generated config.
 COPY agent-config.sh /etc/cmux/agent-config.sh
+COPY claude-onboarding.py /etc/cmux/claude-onboarding.py
 # Agent sign-in launchers: /usr/local/bin/<agent> resolves the team or
 # own-login mode per launch (agent-auth.sh) and execs
 # /usr/local/libexec/cmux-<agent>-real. mise's shims come first on PATH, so
@@ -366,7 +367,10 @@ RUN sh -n /etc/cmux/agent-auth.sh && mkdir -p /usr/local/libexec \
        && /usr/local/bin/$a --version >/dev/null || exit 1; \
      done \
   && for a in claude codex opencode; do test "$(readlink -f "$(command -v $a)")" = /etc/cmux/$a || exit 1; done
+# The check below proves the owner path (agent-config.sh keeps a caller's model-plane env
+# only on an owner record); the team record every machine boots with is written further down.
 RUN bash -n /etc/cmux/agent-config.sh \
+  && mkdir -p /etc/cmux && echo owner > /etc/cmux/vm-kind \
   && echo '[ -f /etc/cmux/agent-config.sh ] && . /etc/cmux/agent-config.sh' > /etc/profile.d/cmux-agents.sh \
   && echo '[ -f /etc/cmux/agent-config.sh ] && . /etc/cmux/agent-config.sh' >> /etc/bash.bashrc \
   && echo '[ -f /etc/cmux/agent-config.sh ] && . /etc/cmux/agent-config.sh' >> /etc/skel/.bashrc \

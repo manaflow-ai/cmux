@@ -205,11 +205,55 @@ final class OmnibarFieldEditor: NSTextView {
     }
 }
 
-/// Hands the omnibar its own field editor.
+/// Hands the omnibar its own field editor, and draws the resting text where
+/// that editor draws it, so focus moves no pixel of the address.
+///
+/// `NSTextFieldCell` draws its resting string with string drawing, which
+/// places the baseline from the font's ascender; the field editor lays the
+/// line out with TextKit (`NSLayoutManager`), whose baseline comes from the
+/// typesetter's line height. With the bundled Inter at 14 pt the editor's
+/// baseline sits 1 pt lower, so the address dropped 1 pt on every focus and
+/// rose on blur (the gap changes with the size: -1 to +3 pt from 12 to 18 pt).
+/// The cell now lays its resting line out with the same TextKit path, in the
+/// editor's text container geometry.
 final class AddressFieldCell: NSTextFieldCell {
     let editor = OmnibarFieldEditor()
 
+    /// AppKit puts the field editor's clip view this far left of the title
+    /// rect (its text container then adds the editor's line fragment padding).
+    static let editorLeadingOutset: CGFloat = 3
+
+    private let restStorage = NSTextStorage()
+    private let restLayout = NSLayoutManager()
+    private let restContainer = NSTextContainer()
+
+    override init(textCell string: String) {
+        super.init(textCell: string)
+        restLayout.addTextContainer(restContainer)
+        restStorage.addLayoutManager(restLayout)
+        restContainer.maximumNumberOfLines = 1
+        restContainer.lineBreakMode = .byTruncatingTail
+    }
+
+    @available(*, unavailable)
+    required init(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
     override func fieldEditor(for controlView: NSView) -> NSTextView? { editor }
+
+    override func drawInterior(withFrame cellFrame: NSRect, in controlView: NSView) {
+        let text = attributedStringValue
+        // While editing the field editor draws; an empty field draws its placeholder.
+        guard (controlView as? NSTextField)?.currentEditor() == nil, text.length > 0 else {
+            return super.drawInterior(withFrame: cellFrame, in: controlView)
+        }
+        var origin = titleRect(forBounds: cellFrame).origin
+        origin.x -= Self.editorLeadingOutset
+        restContainer.lineFragmentPadding = editor.textContainer?.lineFragmentPadding ?? 2
+        restContainer.size = NSSize(width: max(0, cellFrame.maxX - origin.x), height: .greatestFiniteMagnitude)
+        restStorage.setAttributedString(text)
+        let glyphs = restLayout.glyphRange(for: restContainer)
+        restLayout.drawGlyphs(forGlyphRange: glyphs, at: origin)
+    }
 }
 
 extension OmnibarInput.Disposition {

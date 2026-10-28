@@ -113,3 +113,40 @@ export const verifyTables = async (pgc: PgLike, my: MyLike, options: { readonly 
   }
   return out
 }
+
+/**
+ * The guarded MySQL upsert for one projected table (the projection's single-writer rule): a row
+ * already at a newer `source_seq` keeps its values, so a copy or repair never moves a row back.
+ */
+export const guardedUpsertMysql = (table: string, columns: ReadonlyArray<string>, rowCount: number): string => {
+  const keys = new Set(PROJECTION_TABLES[table]!.key)
+  const set = [
+    ...columns.filter((c) => !keys.has(c) && c !== "source_seq").map((c) => `\`${c}\` = IF(\`source_seq\` <= VALUES(\`source_seq\`), VALUES(\`${c}\`), \`${c}\`)`),
+    "`source_seq` = GREATEST(`source_seq`, VALUES(`source_seq`))"
+  ].join(", ")
+  const placeholders = Array.from({ length: rowCount }, () => `(${columns.map(() => "?").join(", ")})`).join(", ")
+  return `INSERT INTO \`${table}\` (${columns.map((c) => `\`${c}\``).join(", ")}) VALUES ${placeholders} ON DUPLICATE KEY UPDATE ${set}`
+}
+
+/**
+ * Copies the rows with the given report keys (`a/b` as in ``TableReport``) from Postgres into
+ * MySQL through ``guardedUpsertMysql``. Reads Postgres only; never deletes. Returns the number of
+ * Postgres rows sent (a key gone from Postgres meanwhile is skipped).
+ */
+export const copyKeysToMysql = async (pgc: PgLike, my: MyLike, table: string, keys: ReadonlyArray<string>, batch = 200): Promise<number> => {
+  const spec = PROJECTION_TABLES[table]
+  if (!spec || keys.length === 0) return 0
+  const columns = await sharedColumns(pgc, my, table)
+  let sent = 0
+  for (let i = 0; i < keys.length; i += batch) {
+    const slice = keys.slice(i, i + batch).map((k) => k.split("/"))
+    if (slice.some((parts) => parts.length !== spec.key.length)) throw new Error(`projection key shape: ${table}`)
+    const values: Array<unknown> = []
+    const where = slice.map((parts) => `(${spec.key.map((k, j) => { values.push(NUMERIC_KEYS.has(k) ? Number(parts[j]) : parts[j]); return `"${k}" = $${values.length}` }).join(" AND ")})`).join(" OR ")
+    const rows = (await pgc.query(`SELECT ${columns.map((c) => `"${c}"`).join(", ")} FROM ${table} WHERE ${where}`, values)).rows
+    if (rows.length === 0) continue
+    await my.query(guardedUpsertMysql(table, columns, rows.length), rows.flatMap((r) => columns.map((c) => toMysqlValue(r[c]))))
+    sent += rows.length
+  }
+  return sent
+}

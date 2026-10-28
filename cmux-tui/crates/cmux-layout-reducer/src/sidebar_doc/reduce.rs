@@ -874,7 +874,7 @@ fn unpin(tx: &mut Tx, ids: &[ItemId]) -> Result<(), Refusal> {
         if item.parent.is_some() {
             continue;
         }
-        let machine = tx.doc.item_machine(item).ok_or(Refusal::NoMachine)?;
+        let machine = unpin_machine(tx.doc, item).ok_or(Refusal::NoMachine)?;
         if tx
             .doc
             .section(&item.section)
@@ -895,6 +895,34 @@ fn unpin(tx: &mut Tx, ids: &[ItemId]) -> Result<(), Refusal> {
         place(tx, std::slice::from_ref(id), &target)?;
     }
     Ok(())
+}
+
+/// The machine Unpin returns `item` to: its workspaces' (a group's
+/// members). A group with none (an empty saved group, kept when its
+/// workspaces closed) goes back to the machine section it was pinned from,
+/// else to the first machine section; it was refused (`no_machine`), so an
+/// empty pinned group could never be unpinned.
+fn unpin_machine(doc: &Doc, item: &Item) -> Option<String> {
+    if let Some(machine) = doc.item_machine(item) {
+        return Some(machine);
+    }
+    if !item.body.is_group() {
+        return None;
+    }
+    let machine_of = |section: &Section| section.kind.machine().map(str::to_owned);
+    item.extra
+        .get(UNPIN_TO_KEY)
+        .and_then(|place| place.get("section"))
+        .and_then(Value::as_str)
+        .and_then(|section| doc.section(section))
+        .and_then(machine_of)
+        .or_else(|| {
+            doc.sections()
+                .iter()
+                .filter(|section| section.kind.machine().is_some())
+                .min_by(|a, b| a.order.cmp(&b.order))
+                .and_then(machine_of)
+        })
 }
 
 /// How many members of `group` other than `except` are pinned in it.

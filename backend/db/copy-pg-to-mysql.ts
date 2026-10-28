@@ -19,7 +19,7 @@ import { homedir } from "node:os"
 import { join } from "node:path"
 import mysql from "mysql2/promise"
 import pg from "pg"
-import { PROJECTION_TABLES, sharedColumns, toMysqlValue, verifyTables, type MyLike, type PgLike } from "./projection-compare.ts"
+import { PROJECTION_TABLES, guardedUpsertMysql, sharedColumns, toMysqlValue, verifyTables, type MyLike, type PgLike } from "./projection-compare.ts"
 
 export { verifyTables }
 
@@ -28,12 +28,6 @@ export const copyTables = async (pgc: PgLike, my: MyLike, batch = 500): Promise<
   let total = 0
   for (const [table, spec] of Object.entries(PROJECTION_TABLES)) {
     const columns = await sharedColumns(pgc, my, table)
-    const keys = new Set(spec.key)
-    const guarded = columns.filter((c) => !keys.has(c) && c !== "source_seq")
-    const set = [
-      ...guarded.map((c) => `\`${c}\` = IF(\`source_seq\` <= VALUES(\`source_seq\`), VALUES(\`${c}\`), \`${c}\`)`),
-      "`source_seq` = GREATEST(`source_seq`, VALUES(`source_seq`))"
-    ].join(", ")
     const list = columns.map((c) => `"${c}"`).join(", ")
     const order = spec.key.map((k) => `"${k}"`).join(", ")
     let offset = 0
@@ -41,9 +35,7 @@ export const copyTables = async (pgc: PgLike, my: MyLike, batch = 500): Promise<
     for (;;) {
       const rows = (await pgc.query(`SELECT ${list} FROM ${table} ORDER BY ${order} LIMIT ${batch} OFFSET ${offset}`)).rows
       if (rows.length === 0) break
-      const placeholders = rows.map(() => `(${columns.map(() => "?").join(", ")})`).join(", ")
-      const values = rows.flatMap((r) => columns.map((c) => toMysqlValue(r[c])))
-      await my.query(`INSERT INTO \`${table}\` (${columns.map((c) => `\`${c}\``).join(", ")}) VALUES ${placeholders} ON DUPLICATE KEY UPDATE ${set}`, values)
+      await my.query(guardedUpsertMysql(table, columns, rows.length), rows.flatMap((r) => columns.map((c) => toMysqlValue(r[c]))))
       perTable[table] += rows.length
       total += rows.length
       offset += rows.length

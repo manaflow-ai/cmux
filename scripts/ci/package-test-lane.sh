@@ -918,6 +918,25 @@ run_compile_tests() {
   echo "compile-tests: every planned test target compiled (${#rows[@]})"
 }
 
+# cmux NEXT's tests start acpmux daemons. A lane given no home of its own (a fleet step, `cmux-ci
+# run`) gets one for this run, never the host's ~/.acpmux, and ends that home's daemons and agents
+# and deletes it on exit (tests/test_ci_acpmux_job_home.py). An empty ACPMUX_SOCKET is unset.
+end_own_acpmux_home() {
+  local acpmux
+  acpmux="$(PATH="$PATH:$HOME/.local/bin:$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin" command -v acpmux || true)"
+  [ -z "$acpmux" ] || env -u ACPMUX_SOCKET ACPMUX_HOME="$own_acpmux_home" "$acpmux" daemon shutdown --end-agents >/dev/null 2>&1 || true
+  rm -rf "$own_acpmux_home"
+}
+case "$phase" in
+  suite|packages|run)
+    if [ -z "${ACPMUX_HOME:-}" ]; then
+      own_acpmux_home="$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/acpmux-home.XXXXXX")"
+      export ACPMUX_HOME="$own_acpmux_home" ACPMUX_SOCKET=
+      trap 'status=$?; end_own_acpmux_home; exit "$status"' EXIT
+    fi
+    ;;
+esac
+
 case "$phase" in
   suite)
     run_suite

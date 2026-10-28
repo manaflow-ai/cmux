@@ -196,9 +196,16 @@ public struct RootView: View {
         }
         .onChange(of: auth.teamList) { _, _ in syncTeams() }
         // A Mac's pairing code from the Camera (`cmux-next://pair?…`); never logged, it holds a token.
+        // Any other cmux link (`cmux://tab/…`, Safari, Messages, Notes) opens what it names.
         .onOpenURL { url in
+            if let link = CmuxLink(url: url) { return NotificationRouter.shared.open(link: link) }
             guard let invite = PairInvite(url: url) else { return }
             if let live { live.accept(invite) } else { heldInvite = invite }
+        }
+        // A universal link (`https://cmux.com/link/…`, `/deeplink/agent`, a cloud group's page).
+        .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
+            guard let url = activity.webpageURL, let link = CmuxLink(url: url) else { return }
+            NotificationRouter.shared.open(link: link)
         }
         .onChange(of: auth.teamList.phase, initial: true) { _, _ in planSetup() }
         .onChange(of: asksNotifications) { _, _ in planSetup() }

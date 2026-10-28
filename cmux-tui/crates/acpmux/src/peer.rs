@@ -92,6 +92,10 @@ pub struct Peer {
     person_instance: StdMutex<Option<String>>,
     /// Whether the peer advertised the folder-trust gate in initialize.
     trust_gate: AtomicBool,
+    /// This caller's own opt-out for its remote chains there (`PeerConfig`
+    /// `vmBoundary`, `hub/vm_boundary.rs`): each `session/new` it forwards
+    /// says `vmBoundary: true`.
+    vm_boundary: AtomicBool,
     /// Whether the peer takes `_acpmux/file_put` (`hub/file_uploads.rs`).
     file_put: AtomicBool,
     /// It lists `filePutChunks` (`hub/file_uploads.rs`).
@@ -169,6 +173,7 @@ impl Peer {
             served_as: StdMutex::new(None),
             person_instance: StdMutex::new(None),
             trust_gate: AtomicBool::new(false),
+            vm_boundary: AtomicBool::new(false),
             file_put: AtomicBool::new(false),
             file_put_chunks: AtomicBool::new(false),
             media_read: AtomicBool::new(false),
@@ -411,6 +416,16 @@ impl Peer {
     /// The daemon run the peer named at its last handshake.
     pub fn person_instance(&self) -> Option<String> {
         self.person_instance.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    /// Set before the peer runs (`Hub::spawn_peer`), from its config or lease.
+    pub fn set_vm_boundary(&self, on: bool) {
+        self.vm_boundary.store(on, Ordering::SeqCst);
+    }
+
+    /// Whether this caller opts its remote chains on the peer out of the sandbox.
+    pub fn vm_boundary(&self) -> bool {
+        self.vm_boundary.load(Ordering::SeqCst)
     }
 
     pub fn supports_trust_gate(&self) -> bool {

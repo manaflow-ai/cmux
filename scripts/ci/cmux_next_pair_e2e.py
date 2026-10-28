@@ -225,6 +225,14 @@ def main():
         streams.append(app_out)
         t0 = time.monotonic()
         if not wait_for(lambda: app.poll() is None and "error" not in rpc("debug.focus", timeout=5), 180):
+            try:  # evidence only: a failure here never replaces the error below
+                why = no_answer_evidence(app, ls_env, tag, sock, a.out)
+            except Exception as error:  # noqa: BLE001
+                why = f"no evidence ({type(error).__name__}: {redact(str(error))[:200]})"
+            try:
+                note(f"- Mac app: no answer on its control socket in 180 s; {why}")
+            except OSError:
+                pass
             raise SystemExit("the Mac app never answered on its control socket")
         teardown.remember()
         note(f"- Mac app {mac_bundle}: pid {app.pid}, control socket in {time.monotonic() - t0:.0f} s")
@@ -379,6 +387,47 @@ def forget_keychain(bundle):
             if subprocess.run(["/usr/bin/security", "delete-generic-password", "-s", service],
                               capture_output=True).returncode != 0:
                 break
+
+
+def no_answer_evidence(app, ls_env, tag, sock, out):
+    """Why the Mac app did not answer (step 42cdc9d7, 2026-10-27: alive, silent for 180 s, only an
+    NSXPCSharedListener 'ClientCallsAuxiliary' line on stderr): the session it runs in, where its main
+    thread waits (`sample`), its own unified log and the tail of its debug log, before the teardown
+    ends it. Each read is bounded and best effort; tokens are redacted. Returns the summary's words."""
+    def run(argv, timeout):
+        try:
+            r = subprocess.run(argv, capture_output=True, text=True, errors="replace", timeout=timeout)
+            return r.stdout + r.stderr
+        except (OSError, subprocess.TimeoutExpired) as error:
+            return f"{argv[0]}: {error}\n"
+
+    def save(name, text, lines=400):
+        with open(os.path.join(out, name), "w") as f:
+            f.writelines(redact(line) for line in text.splitlines(keepends=True)[-lines:])
+        return name
+
+    try:  # the worker's rule (build-fleet console_session.go): loginwindow or no key is nobody
+        scutil = subprocess.run(["/usr/sbin/scutil"], input="show State:/Users/ConsoleUser\n",
+                                capture_output=True, text=True, timeout=10).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        scutil = ""
+    console = re.search(r"(?m)^\s*Name : (\S+)", scutil)
+    facts = (f"running {app.poll() is None}, account {pwd.getpwuid(os.getuid()).pw_name}, console user "
+             f"{console.group(1) if console else 'none'}, launchd {run(['/bin/launchctl', 'managername'], 10).strip()}, "
+             f"socket {'present' if os.path.exists(sock) else 'absent'}")
+    files = [save("mac-app-sample.txt", run(["/usr/bin/sample", str(app.pid), "3"], 60), 2000),
+             save("mac-app-unified.log", run(["/usr/bin/log", "show", "--last", "5m", "--style", "compact",
+                                              "--predicate", f"processID == {app.pid}"], 60))]
+    debug_log = ls_env.get("CMUX_DEBUG_LOG") or f"/tmp/cmux-debug-{tag}.log"
+    if os.path.isfile(debug_log):
+        with open(debug_log, "rb") as f:  # only its last 256 KiB: the tail is what shows where launch stopped
+            start = max(0, os.fstat(f.fileno()).st_size - (256 << 10))
+            f.seek(start)
+            tail = f.read(256 << 10).decode(errors="replace")  # bounded: the live app may still append
+        if start:  # a line cut by the seek could start right after `t=`, out of the redactor's reach
+            tail = tail.partition("\n")[2]
+        files.append(save("mac-debug-log-tail.txt", tail, 200))
+    return f"{facts}; {', '.join(files)}"
 
 
 def scanner(udid, shot):
