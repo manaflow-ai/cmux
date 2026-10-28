@@ -196,6 +196,19 @@ import Testing
         #expect(!rules.mayFreeze("popup"))
     }
 
+    /// The rules as Release configures them (`AppServices+Hibernation`, no feature on): a page whose
+    /// site may show notifications, a loading page and a lock holder still stay awake. Release once froze them.
+    @Test func releaseKeepsTheNotificationPageTheLoadingPageAndTheLockHolderAwake() {
+        let rules = FreezeEligibility()
+        rules.configure(isEnabled: false, work: MainWorkScheduler(budget: MainFrameBudget()), isLoading: { $0 == "slow" }, onLoaded: {})
+        defer { rules.stop() }
+        let plan = rules.plan(setting, candidates: [page("chat", notifications: true), page("slow"), page("docs")], frozen: [], groups: { [$0] })
+        #expect(plan.due == ["docs"], "a notification page or a loading page froze")
+        #expect(plan.kept == ["chat": .notifications, "slow": .loading])
+        #expect(!rules.mayFreeze("slow"), "a loading page may freeze when its probe answers")
+        #expect(rules.keeps(PageProbe(heldWebLock: true)), "a Web Lock holder froze")
+    }
+
     /// A page kept for its load is planned again when the load ends: an event, no timer.
     @Test(.timeLimit(.minutes(1))) func theLoadEndPlansAgain() async {
         let load = TestLoad()
