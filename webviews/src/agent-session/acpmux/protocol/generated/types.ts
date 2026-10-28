@@ -249,9 +249,10 @@ export type LastTurn = {
   endedAt: number;
   /**
    * What kind of failure a failed turn was (`recovery.rs`): `disk.full`, `disk.low`,
-   * `peer.unreachable`, `daemon.restarting`, `spawn.failed` or `agent.exited`. A client
-   * treats a kind it does not know as a plain error. The same key is on a request's error
-   * `data` and on the `turn_error` and `turn_result` records.
+   * `peer.unreachable`, `daemon.restarting`, `spawn.failed`, `agent.exited`,
+   * `auth.signed_out` or `auth.expired`. A client treats a kind it does not know as a plain
+   * error. The same key is on a request's error `data` and on the `turn_error` and
+   * `turn_result` records.
    */
   errorKind?: (string | null);
   errorSource?: (string | null);
