@@ -411,7 +411,10 @@ struct AgentChatTurns: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if let first = store.turns.first {
-                Text("Session started \(first.promptAt.formatted(date: .abbreviated, time: .shortened))")
+                // A chat opened on its newest history says where what is shown starts.
+                Text(store.hasEarlierHistory
+                    ? "Showing messages since \(first.promptAt.formatted(date: .abbreviated, time: .shortened))"
+                    : "Session started \(first.promptAt.formatted(date: .abbreviated, time: .shortened))")
                     .font(.footnote)
                     .foregroundStyle(.tertiary)
                     .frame(maxWidth: .infinity)

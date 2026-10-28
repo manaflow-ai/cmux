@@ -158,6 +158,9 @@ public final class AgentChatStore {
     private var fullAccess = false
     public private(set) var currentModeID: String?
     public private(set) var usage: (used: Int, size: Int)?
+    /// The chat opened on its newest history only: older records stay on the Mac, so the
+    /// first turn shown is not where the session started (``AgentSessionEvent/earlierHistory(_:)``).
+    public private(set) var hasEarlierHistory = false
     /// The title the agent gave the session (`session_info_update`).
     public private(set) var sessionTitle: String?
 
@@ -490,6 +493,8 @@ public final class AgentChatStore {
             offeredModes = modes
             self.modes = ACPMode.phoneChoices(modes, current: current, fullAccess: fullAccess)
             currentModeID = current
+        case .earlierHistory(let earlier):
+            hasEarlierHistory = earlier
         case .fullAccess(let on):
             fullAccess = on
             modes = ACPMode.phoneChoices(offeredModes, current: currentModeID, fullAccess: on)

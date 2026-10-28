@@ -218,6 +218,47 @@ import Testing
         #expect(store.turns.count == Self.turns + missedTurns)
     }
 
+    /// A chat whose history is longer than the attach keeps says so: its first turn shown
+    /// is not where the session started. It used to read "Session started <that turn>".
+    @Test(arguments: [true, false])
+    func cappedHistorySaysEarlierMessagesExist(_ long: Bool) async throws {
+        // Pages of 80 turns (400 records), newest first; a long chat has more than the cap.
+        let total = long ? 1000 : 120
+        let link = MockMacLink { _, data in
+            guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let method = object["method"] as? String else { return [] }
+            let id = object["id"].map { "\($0)" } ?? "null"
+            let params = object["params"] as? [String: Any]
+            func reply(_ result: String) -> Data { Data(#"{"jsonrpc":"2.0","id":\#(id),"result":\#(result)}"#.utf8) }
+            // The 80 turns before turn `end` (exclusive), and whether older ones exist.
+            func page(before end: Int) -> (String, Bool) {
+                let start = max(0, end - 80)
+                return ((start..<end).flatMap(Self.turnRecords).joined(separator: ","), start > 0)
+            }
+            switch method {
+            case "initialize": return [reply(#"{"protocolVersion":1}"#)]
+            case "_acpmux/watch": return [reply(#"{"sessions":[{"sessionId":"s1","name":"Fix","harness":"codex","cwd":"/tmp/w","status":"idle"}]}"#)]
+            case "_acpmux/attach":
+                let (records, more) = page(before: total)
+                return [reply(#"{"session":{"sessionId":"s1","status":"idle","pending":[]},"hasMore":\#(more),"events":[\#(records)]}"#)]
+            case "_acpmux/events":
+                let before = (params?["beforeSeq"] as? NSNumber)?.intValue ?? 1
+                let (records, more) = page(before: (before - 1) / 5)
+                return [reply(#"{"hasMore":\#(more),"events":[\#(records)]}"#)]
+            default:
+                return [reply("{}")]
+            }
+        }
+        let hub = AcpmuxHub()
+        await hub.bind(try await link.openChannel(service: "acpmux", args: [:]))
+        let store = AgentChatStore(source: hub.source(sessionID: "s1", summary: Self.summary))
+        let shown = long ? 400 : total  // 2000 records kept: the newest 400 turns
+        for _ in 0..<4000 where store.turns.count < shown { await Task.yield() }
+        #expect(store.turns.count == shown)
+        #expect(store.turns.first?.id == "t\(total - shown)")
+        #expect(store.hasEarlierHistory == long)
+    }
+
     /// A new turn's ask that arrives while the attach is in flight (held), and that the
     /// reply also lists as pending, lands once, on that turn, after its turn exists.
     @Test func askHeldDuringAttachLandsOnItsOwnTurn() async throws {

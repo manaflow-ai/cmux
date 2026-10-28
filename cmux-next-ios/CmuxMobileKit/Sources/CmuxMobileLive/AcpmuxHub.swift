@@ -736,7 +736,9 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                 }
             }
             // First attach: page older records back until the history starts or the cap.
-            if lastSeq == 0, result["hasMore"] == .bool(true) {
+            let firstAttach = lastSeq == 0
+            var earlier = firstAttach && result["hasMore"] == .bool(true)
+            if earlier {
                 while page.count < Self.maxHistory, let oldest = page.first?["seq"]?.numberValue {
                     let older = try await hub.request("_acpmux/events", .object([
                         "sessionId": .string(sessionID), "beforeSeq": .number(oldest),
@@ -744,7 +746,8 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                     ]))
                     let events = older["events"]?.arrayValue ?? []
                     page = events + page
-                    if events.isEmpty || older["hasMore"] != .bool(true) { break }
+                    earlier = !events.isEmpty && older["hasMore"] == .bool(true)
+                    if !earlier { break }
                 }
             }
             log.info("attach \(self.sessionID, privacy: .public) after \(after, privacy: .public): \(page.count, privacy: .public) records, through \(page.last?["seq"]?.numberValue ?? 0, privacy: .public), held \(self.held.count, privacy: .public)")
@@ -758,6 +761,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             // transcript instead of animating every past record in (or, on a reattach, the
             // records missed while the link was down). Records after the reply are live.
             beginHistory()
+            if firstAttach { emit(.earlierHistory(earlier)) }
             for record in page { receive(record: record) }
             // This connection's Full-access setting, before the modes it widens.
             emit(.fullAccess(hub.fullAccess))
