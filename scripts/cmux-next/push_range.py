@@ -4,8 +4,19 @@
 A pushed ref's own changes are those of the commits the remote does not have yet. The push knows commits the
 remote has: the ref's remote head (pre-push stdin, or a --base), the remote-tracking ref of the pushed ref name
 (refs/remotes/<remote>/<name>: the last head this clone saw there), this clone's origin/feat-cmux-next (the shared
-base every branch rebases onto or merges in) and the remote's HEAD (refs/remotes/<remote>/HEAD, main: a main-based
-branch, a tag on main). So
+base every branch rebases onto or merges in), the remote's HEAD (refs/remotes/<remote>/HEAD, main: a main-based
+branch, a tag on main), and the integration branch the pushed branch was cut from:
+- its configured upstream (`<branch>@{upstream}`), when that is a remote-tracking ref: `git worktree add -b topic
+  origin/perf/chrome-parity` and `git checkout -b topic origin/x` record it, so it names any long-lived branch;
+- the known integration refs (INTEGRATION_REFS: origin/perf/chrome-parity, origin/main), for a branch cut with
+  --no-track or whose upstream `git push -u` has since moved to its own name.
+Every one of them is only another `--not` of the walk below, so no rule picks among them: git stops the walk at
+the first commit any of them reaches, which is the nearest integration branch by history, the fact of where the
+branch left it (2026-10-29: a branch cut from perf, 9,426 commits ahead of feat-cmux-next, was judged over all of
+them and refused for debt in files it never touched). Each is a ref the remote has, so none can hide a commit
+the remote does not have: an upstream that is a local branch (`git branch --track topic local-work`) is never
+used, and a ref this clone lacks bounds nothing. With none of them nearer, the base is where HEAD meets
+origin/feat-cmux-next, as before. So
 
     own commits = git rev-list HEAD --not <those refs>
     edges       = the boundary of that walk (the parents of own commits that are not own themselves),
@@ -15,11 +26,13 @@ One edge is the base, and the push's own findings are those of base..HEAD:
 - a second push of N new commits: the remote head, so all N are judged and nothing pushed before;
 - a new branch, or a branch rebased onto origin/feat-cmux-next and force pushed: where HEAD meets it, so the
   rebased commits are judged in full and the upstream commits the rebase brought in are not;
+- a new branch cut from origin/perf/chrome-parity (or tracking another remote branch): where HEAD left it, so
+  only the branch's own commits are judged, not what that branch has over origin/feat-cmux-next;
 - every pushed commit already known: HEAD itself (nothing is new).
 
 Several edges (a branch that merged origin/feat-cmux-next in): the base is the edge on the shared side (an
-ancestor of origin/feat-cmux-next, else of the remote's HEAD), so base..HEAD is the branch's whole delta over the
-upstream it merged. Each other edge X (the old remote head, or another merged base) gives a range the push does not
+ancestor of origin/feat-cmux-next, else of the remote's HEAD, else of the branch's upstream or an integration ref),
+so base..HEAD is the branch's whole delta over the upstream it merged. Each other edge X (the old remote head, or another merged base) gives a range the push does not
 own, merge-base(X, base)..X: what X's side already had over the upstream it started from. The push's own findings
 are those of base..HEAD less those of every such range (less(); a count: own_count()). Both are measured from
 upstream, so upstream's own changes are in neither: an upstream removal of a debt line never pays for a line the
@@ -33,9 +46,10 @@ Fallbacks:
 - that bound gives no edge either, or the walk still reaches a shallow root: own_range raises ValueError (the
   caller refuses the push and says to fetch or unshallow). It never judges HEAD~1 alone.
 
-Limit: a branch stacked on another pushed topic that is not in origin/feat-cmux-next counts that topic's commits
-as its own (only the fallback bounds by every remote ref); the gate prints the own-commit count, so a wide range
-shows. A base named on the command line (`--base A`) is used as given (given_range).
+Limit: a branch stacked on another pushed topic that it does not track counts that topic's commits as its own
+(only the fallback bounds by every remote ref); the gate prints the own-commit count and the refs that bounded
+it, so a wide range shows. A base named on the command line (`--base A`) is used as given (given_range), whatever
+the branch tracks.
 """
 from __future__ import annotations
 
@@ -48,6 +62,9 @@ import subprocess
 from pathlib import Path
 
 UPSTREAM = "origin/feat-cmux-next"
+# Long-lived integration branches with their own merge trains (see the module docstring): a branch cut from one
+# is judged over where it left it, even with no upstream configured. Add a new one here.
+INTEGRATION_REFS = ("origin/perf/chrome-parity", "origin/main")
 DEFAULT_REMOTE = "origin"
 ZERO_SHA = "0" * 40
 
@@ -161,6 +178,24 @@ def tracking_ref(repo: Path, remote: str, remote_ref: str) -> str | None:
     return None
 
 
+def upstream_of(repo: Path, local_ref: str | None) -> str | None:
+    """The configured upstream of local branch LOCAL_REF (`refs/heads/topic` as pre-push stdin names it, or HEAD)
+    when it is a remote-tracking ref (refs/remotes/...), else None: a local branch upstream (remote ".") holds
+    commits the remote may not have, and a tag, a detached HEAD or a sha has no upstream. (`<ref>@{upstream}` does
+    not take a full ref name, so this reads for-each-ref's %(upstream).)"""
+    if not local_ref or local_ref.startswith("-") or re.fullmatch(r"[0-9a-f]{40,64}", local_ref):
+        return None
+    if not local_ref.startswith("refs/heads/"):
+        code, local_ref = _git(repo, "rev-parse", "--quiet", "--symbolic-full-name", local_ref)  # HEAD -> refs/heads/x
+        if code != 0 or not local_ref.startswith("refs/heads/"):
+            return None
+    # The pattern also matches refs/heads/<name>/...: keep the row of LOCAL_REF itself.
+    code, out = _git(repo, "for-each-ref", "--format=%(refname) %(upstream)", local_ref)
+    rows = dict(line.split(" ", 1) for line in out.splitlines() if " " in line) if code == 0 else {}
+    upstream = rows.get(local_ref, "")
+    return upstream if upstream.startswith("refs/remotes/") else None
+
+
 def _shallow_roots(repo: Path) -> set[str]:
     """The commits whose parents this clone cuts off (.git/shallow), empty for a full clone."""
     code, out = _git(repo, "rev-parse", "--git-path", "shallow")
@@ -222,22 +257,29 @@ def _walk(repo: Path, tip: str, negatives: list[str], bound: str | None) -> tupl
 
 
 def own_range(repo: Path, head: str, known: list[str] | tuple[str, ...] = (), upstream_ref: str = UPSTREAM,
-              remote: str | None = DEFAULT_REMOTE, remote_ref: str | None = None) -> OwnRange:
+              remote: str | None = DEFAULT_REMOTE, remote_ref: str | None = None,
+              local_ref: str | None = None) -> OwnRange:
     """The push's own range for HEAD (see the module docstring).
 
     KNOWN are commits the remote has for the pushed ref (its remote head). REMOTE and REMOTE_REF (the pushed ref's
     name there, `refs/heads/topic`) add its remote-tracking ref and the remote's HEAD. UPSTREAM_REF is the shared
-    base. Raises ValueError when HEAD or a KNOWN revision is not a commit of this clone (the caller leaves out a
-    remote head it does not have), and when nothing the remote has bounds the pushed commits.
+    base. LOCAL_REF (the pushed local branch, `refs/heads/topic`; HEAD itself when None) adds its upstream; the
+    INTEGRATION_REFS are added too. Raises ValueError when HEAD or a KNOWN revision is not a commit of this clone
+    (the caller leaves out a remote head it does not have), and when nothing the remote has bounds the pushed
+    commits.
     """
     name = remote_name(repo, remote)
     shown = name or remote or DEFAULT_REMOTE
     tracked_ref = tracking_ref(repo, name, remote_ref) if name and remote_ref else None
     remote_head = f"refs/remotes/{name}/HEAD" if name else None
+    branch_upstream = upstream_of(repo, local_ref or head)
+    cut_from = list(dict.fromkeys(ref for ref in (branch_upstream, *INTEGRATION_REFS)
+                                  if ref and ref not in (upstream_ref, remote_head, tracked_ref)))
     # Every revision in one rev-parse (it was one each: 4 or more git processes per push).
-    resolved = commits_of(repo, [head, *known, tracked_ref, upstream_ref, remote_head])
+    resolved = commits_of(repo, [head, *known, tracked_ref, upstream_ref, remote_head, *cut_from])
     tip, known_shas = resolved[0], resolved[1:1 + len(known)]
-    tracked, upstream_sha, remote_head_sha = resolved[1 + len(known):]
+    tracked, upstream_sha, remote_head_sha = resolved[1 + len(known):4 + len(known)]
+    cut_from_shas = resolved[4 + len(known):]
     if tip is None:
         raise ValueError(f"no commit {head}")
     pushed_before: list[str] = []  # commits the pushed ref had on the remote
@@ -247,8 +289,15 @@ def own_range(repo: Path, head: str, known: list[str] | tuple[str, ...] = (), up
         pushed_before.append(sha)
     if tracked is not None:
         pushed_before.append(tracked)
-    shared = [sha for sha in (upstream_sha, remote_head_sha) if sha is not None]
+    shared = [sha for sha in (upstream_sha, remote_head_sha, *cut_from_shas) if sha is not None]
     negatives = list(dict.fromkeys(pushed_before + shared))
+    # The refs that bound the walk beside today's (named in the report): those this clone has, at another commit.
+    seen = {tracked, upstream_sha, remote_head_sha}
+    bounds = []
+    for ref, sha in zip(cut_from, cut_from_shas):
+        if sha is not None and sha not in seen:
+            seen.add(sha)
+            bounds.append(ref.removeprefix("refs/remotes/") + (" (the branch's upstream)" if ref == branch_upstream else ""))
     every_ref = f"--remotes={name}" if name else "--remotes"
     shallow = _shallow_roots(repo)
     bound = None if negatives else every_ref
@@ -257,11 +306,11 @@ def own_range(repo: Path, head: str, known: list[str] | tuple[str, ...] = (), up
         # Cut at a shallow root, or no history in common with the named refs: every ref of the remote bounds it.
         bound = every_ref
         own, edge = _walk(repo, tip, negatives, bound)
-    how = ""
+    how = f"; the walk also stops at {', '.join(bounds)}" if bounds else ""
     if bound:
         why = (f"no remote head, tracking ref, {upstream_ref} or remote HEAD in this clone" if not negatives
                else "the walk did not meet those refs")
-        how = f"; bounded by every {shown} ref ({why})"
+        how += f"; bounded by every {shown} ref ({why})"
     if not own:
         return OwnRange(tip, tip, (), 0, "every pushed commit is already on the remote" + how)
     if shallow & set(own):
@@ -327,7 +376,7 @@ def pushed_ranges(repo: Path, lines: list[str], remote: str | None = DEFAULT_REM
             continue  # a tag of a tree or blob pushes no commit to judge
         known = [remote_sha] if commit_of(repo, remote_sha) is not None else []
         try:
-            own = own_range(repo, local_sha, known, upstream_ref, remote, pushed_ref)
+            own = own_range(repo, local_sha, known, upstream_ref, remote, pushed_ref, _local_ref)
         except ValueError as error:
             errors.append(f"{pushed_ref} ({local_sha[:11]}): {error}")
             continue
