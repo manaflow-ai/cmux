@@ -343,3 +343,37 @@ test.each([false, true])("native select preserves closeOnPick=%s and enabled opt
   expect(changed).toEqual(["dark"]);
   expect(button.getAttribute("aria-expanded")).toBe(String(!closeOnPick));
 });
+
+test.each(["children", "rail", "footer"] as const)("native select preserves keep-open in %s", async (location) => {
+  const container = installDom();
+  const { host, shown, listeners } = nativeHost();
+  const changed: string[] = [];
+  const action = { id: "dark", kind: "action" as const, label: "Dark" };
+  const model = {
+    side: "bottom" as const,
+    align: "start" as const,
+    width: 220,
+    rows: location === "children" ? [{ id: "themes", kind: "submenu" as const, label: "Themes", children: [action] }] : [],
+    ...(location === "children" ? {} : { [location]: [action] }),
+  };
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <UiProvider container={container} popupHost={host}>
+        <Select value="system" label="Theme" options={[{ value: "dark", label: "Dark" }]}
+          onChange={(value) => changed.push(value)} closeOnPick={false} native={{ model }} />
+      </UiProvider>,
+    );
+  });
+  const button = container.querySelector<HTMLButtonElement>("button")!;
+  await act(async () => button.click());
+  const sent = shown[0]!;
+  const sentAction = location === "children" ? sent.rows[0]!.children![0]! : sent[location]![0]!;
+  expect(sentAction.keepOpen).toBe(true);
+  await act(async () => {
+    for (const listener of listeners)
+      listener({ type: "pick", popupId: sent.id, revision: sent.revision, id: "dark" });
+  });
+  expect(changed).toEqual(["dark"]);
+  expect(button.getAttribute("aria-expanded")).toBe("true");
+});

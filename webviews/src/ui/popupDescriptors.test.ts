@@ -38,6 +38,13 @@ test("combobox descriptors keep pinned actions at the end of keyboard order", ()
   // pickable action, with an optional checkmark for the committed selection.
   expect(d.rows.every((row) => row.kind === "action")).toBe(true);
 });
+test("combobox search IDs do not collide with suggestion IDs", () => {
+  const suggestions = ["query", "query:search", "query:search:search"];
+  const d = comboboxDescription({ suggestions });
+  const ids = [d.search!.id, ...d.rows.map((row) => row.id)];
+  expect(new Set(ids).size).toBe(ids.length);
+  expect(d.rows.map((row) => row.id)).toEqual(suggestions);
+});
 test("context descriptors preserve separators, toggles, and icon metadata", () => {
   const d = contextDescription([
     { id: "copy", label: "Copy", icon: "doc.on.doc" },
