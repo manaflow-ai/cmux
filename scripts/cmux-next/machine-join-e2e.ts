@@ -71,6 +71,8 @@ export interface Deps {
   writeFile(path: string, text: string): void
   now(): number
   sleep(ms: number): Promise<void>
+  /** A signal that aborts `ms` from now, on the same clock as `now` and `sleep`. */
+  timeout(ms: number): AbortSignal
 }
 
 export interface Evidence {
@@ -221,13 +223,18 @@ export async function runE2E(
   let cancelBy = Infinity
   let reserve = 0
   let inFlight = new AbortController()
+  // Resolves on the cancel: every local wait in cleanup races it, so a cancel never waits out a bound.
+  let wake: () => void = () => undefined
+  const woken = new Promise<void>((resolve) => (wake = resolve))
+  const waitAtMost = <T>(work: Promise<T>, ms: number) =>
+    Promise.race([work.then(() => undefined, () => undefined), deps.sleep(ms), woken])
   const left = () => cancelBy - reserve - deps.now()
   const budget = () => (cancelled ? Math.max(250, Math.min(3_000, left())) : 20_000)
   const call = async (url: string, init: { method: string; headers?: Record<string, string>; body?: unknown }) => {
     const res = await deps.fetch(url, {
       method: init.method,
       redirect: "error",
-      signal: AbortSignal.any([AbortSignal.timeout(budget()), inFlight.signal]),
+      signal: AbortSignal.any([deps.timeout(budget()), inFlight.signal]),
       headers: { "user-agent": USER_AGENT, ...(init.body === undefined ? {} : { "content-type": "application/json" }), ...init.headers },
       ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) })
     })
@@ -325,9 +332,15 @@ export async function runE2E(
     try {
       for (let attempt = 0; !machineId; attempt++) {
         if (cancelled ? left() < 500 : attempt >= 6) break
-        if (attempt > 0) await deps.sleep(cancelled ? Math.min(500, Math.max(0, left() - 500)) : 2_000)
-        const found = (await listEntry())?.machineId
-        if (typeof found === "string" && found) machineId = found
+        // The 2 s pause between reads ends early on a cancel; after one, pauses are 0.5 s at most.
+        if (attempt > 0) await (cancelled ? deps.sleep(Math.min(500, Math.max(0, left() - 500))) : Promise.race([deps.sleep(2_000), woken]))
+        try {
+          const found = (await listEntry())?.machineId
+          if (typeof found === "string" && found) machineId = found
+        } catch (e) {
+          // After a cancel a read cut short by its budget is not the end: read again while time remains.
+          if (!cancelled) throw e
+        }
       }
     } finally {
       reserve = 0
@@ -354,14 +367,15 @@ export async function runE2E(
       const stopping = daemon?.stop()
       daemon = undefined
       if (joinStarted) {
-        await killUser("TERM")
-        const bound = cancelled ? 1_000 : 10_000
-        await Promise.race([Promise.all([joining?.catch(() => undefined), stopping]), deps.sleep(bound)])
-        await killUser("KILL")
+        await waitAtMost(killUser("TERM"), 1_000)
+        // Up to 10 s for a clean exit, cut to 1 s (or at once, if the cancel lands meanwhile) after a cancel.
+        await waitAtMost(Promise.all([joining, stopping]), cancelled ? 1_000 : 10_000)
+        await waitAtMost(killUser("KILL"), 1_000)
       }
       if (stopping) {
-        const r = await Promise.race([stopping, deps.sleep(cancelled ? 250 : 1_000).then(() => undefined)])
-        if (r) childText.push(r.stdout, r.stderr)
+        let output: ChildResult | undefined
+        await waitAtMost(stopping.then((r) => (output = r)), cancelled ? 250 : 1_000)
+        if (output) childText.push(output.stdout, output.stderr)
       }
       // A cancel that lands during this pass aborts the request in flight: try again, on the cancel's budget.
       for (;;) {
@@ -400,6 +414,7 @@ export async function runE2E(
     }
     inFlight.abort()
     inFlight = new AbortController()
+    wake()
     return cleanup()
   }
   // The main flow stops at these points once cleanup has begun.
@@ -661,7 +676,8 @@ export function realDeps(): Deps {
       writeFileSync(path, text, { mode: 0o600 })
     },
     now: () => Date.now(),
-    sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+    sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    timeout: (ms) => AbortSignal.timeout(ms)
   }
 }
 

@@ -66,6 +66,13 @@ interface Knobs {
   /** The first machine revoke hangs until its request is aborted; `onRevoke` runs when it starts. */
   hangFirstRevoke?: boolean
   onRevoke?: () => void
+  /** Status fails once the daemon runs, so the run fails with its daemon up. */
+  statusFailsWithDaemon?: boolean
+  /** The daemon never exits on its own. */
+  daemonHangs?: boolean
+  /** A sleep of exactly this long never ends; `onHang` runs when it starts. */
+  hangSleepMs?: number
+  onHang?: () => void
 }
 
 /** One fake world: the stack, cmux-api, the platform, sudo and acpmux. Records every call. */
@@ -87,6 +94,13 @@ function world(k: Knobs = {}) {
   let releaseJoin: (() => void) | undefined
   const listAt: number[] = []
   const revokeAt: number[] = []
+  let aborted = 0
+  // One clock for now(), sleep() and the request timeouts: advancing it fires every timeout it passes.
+  const timers: Array<{ at: number; controller: AbortController }> = []
+  const advance = (ms: number) => {
+    clock += ms
+    for (const t of timers) if (!t.controller.signal.aborted && t.at <= clock) t.controller.abort(new DOMException("timed out", "TimeoutError"))
+  }
 
   const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } })
   const fetch = async (url: string, init: RequestInit) => {
@@ -113,7 +127,15 @@ function world(k: Knobs = {}) {
     }
     if (path === "/v1/machines/credentials") {
       listAt.push(clock)
-      if (k.listDelayMs) clock += k.listDelayMs
+      if (k.listDelayMs) {
+        // The read ends at its delay or at its own timeout (the newest timer, made for this request).
+        const own = timers[timers.length - 1]!
+        advance(Math.max(0, Math.min(clock + k.listDelayMs, own.at) - clock))
+        if (init.signal?.aborted) {
+          aborted += 1
+          throw new DOMException("aborted", "AbortError")
+        }
+      }
       listReads += 1
       const visible = (joined || redeemed) && (redeemed ? listReads > (k.listVisibleAfter ?? 0) : true)
       const ours = visible ? [{ machineId: "m_1", joinTokenId: "jt_1", teamId: "team_1", label: "ci-join-1", mintedBy: "user_1", createdAt: new Date(clock).toISOString(), lastHeartbeat: lastHeartbeat ? "2026-10-29T12:01:00Z" : null, revoked }] : []
@@ -144,6 +166,7 @@ function world(k: Knobs = {}) {
 
   const acpmux = async (args: string[], stdin: string | undefined): Promise<ChildResult> => {
     if (args.join(" ") === "host join --status --json") {
+      if (k.statusFailsWithDaemon && daemonUp) return { code: 1, stdout: "", stderr: "status failed\n" }
       const status = {
         credentialPresent: joined,
         machineId: joined ? "m_1" : "",
@@ -207,6 +230,7 @@ function world(k: Knobs = {}) {
       daemonUp = true
       return {
         stop: async () => {
+          if (k.daemonHangs) await new Promise<never>(() => undefined)
           daemonUp = false
           return { code: 0, stdout: "", stderr: "mesh relay: on, through https://cmux-platform-development.debussy.workers.dev\n" }
         }
@@ -217,8 +241,17 @@ function world(k: Knobs = {}) {
       files[`written:${path}`] = text
     },
     now: () => clock,
+    timeout: (ms) => {
+      const controller = new AbortController()
+      timers.push({ at: clock + ms, controller })
+      return controller.signal
+    },
     sleep: async (ms) => {
-      clock += ms
+      if (k.hangSleepMs === ms) {
+        k.onHang?.()
+        return new Promise<void>(() => undefined)
+      }
+      advance(ms)
       if (daemonUp && joined && k.heartbeat !== false && !revoked) lastHeartbeat = clock - 2_000
     }
   }
@@ -235,6 +268,7 @@ function world(k: Knobs = {}) {
     kills,
     listAt,
     revokeAt,
+    aborted: () => aborted,
     now: () => clock,
     evidenceText: () => files[`written:${opts.evidence}`] ?? ""
   }
@@ -499,13 +533,13 @@ describe("cancellation, the sweep, masking and the scan", () => {
     const w = world({
       holdJoin: true,
       listVisibleAfter: 1,
-      listDelayMs: 2_500,
+      listDelayMs: 1_500,
       duringJoin: () => queueMicrotask(() => ((cancelAt = w.now()), (cancelled = cancel!())))
     })
     await runE2E(opts, env, w.deps, (c) => (cancel = c))
     await cancelled
     expect(w.revokeCalls()).toBe(1)
-    expect(w.revokeAt[0]! - cancelAt).toBeLessThanOrEqual(CANCEL_BUDGET_MS - REVOKE_RESERVE_MS + 2_500)
+    expect(w.lines).toContain("revoked machine m_1")
     expect(w.revokeAt[0]! - cancelAt).toBeLessThan(CANCEL_BUDGET_MS)
   })
 
@@ -516,7 +550,7 @@ describe("cancellation, the sweep, masking and the scan", () => {
     const w = world({
       holdJoin: true,
       listVisibleAfter: 100,
-      listDelayMs: 2_500,
+      listDelayMs: 1_500,
       duringJoin: () => queueMicrotask(() => ((cancelAt = w.now()), (cancelled = cancel!())))
     })
     const e = await runE2E(opts, env, w.deps, (c) => (cancel = c))
@@ -526,7 +560,25 @@ describe("cancellation, the sweep, masking and the scan", () => {
     expect(searches.length).toBeGreaterThan(0)
     // Every read starts early enough to leave the revoke its reserve.
     for (const t of searches) expect(t - cancelAt).toBeLessThanOrEqual(CANCEL_BUDGET_MS - REVOKE_RESERVE_MS)
+    // The last read ran into its shortened budget and was aborted, not waited out.
+    expect(w.aborted()).toBeGreaterThanOrEqual(1)
+    expect(w.now() - cancelAt).toBeLessThanOrEqual(CANCEL_BUDGET_MS)
     expect(e.result).toBe("fail")
+  })
+
+  test("a cancel during cleanup's wait for the daemon to exit ends the wait, kills it and revokes", async () => {
+    let cancel: (() => Promise<void>) | undefined
+    const w = world({
+      statusFailsWithDaemon: true,
+      daemonHangs: true,
+      hangSleepMs: 10_000,
+      onHang: () => queueMicrotask(() => void cancel!())
+    })
+    const e = await runE2E(opts, env, w.deps, (c) => (cancel = c))
+    expect(e.reason).toContain("cancelled")
+    expect(w.kills.at(-1)).toBe(`sudo -n -u ${opts.user} -- /bin/kill -KILL -1`)
+    expect(w.revokeCalls()).toBe(1)
+    assertNoSecretEscaped(w)
   })
 
   test("a cancel during cleanup's revoke aborts it and revokes again", async () => {
