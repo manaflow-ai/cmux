@@ -44,7 +44,8 @@ extension MachineJoinService {
             // A machine connecting or leaving is the mesh change the app sees; the first value
             // (the list as it is now) is not a change.
             meshChanges: {
-                AsyncStream { continuation in
+                // A change only asks for one list read, so a backlog collapses to the newest signal.
+                AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
                     // task-owner: ends when the card's watch stops (the stream's termination cancels it).
                     let follow = Task { @MainActor in
                         var first = true
