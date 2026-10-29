@@ -15,14 +15,16 @@ extension KeyRouter {
     nonisolated static let pageOwnableActions: Set<ActionID> = ["find", "findNext", "findPrevious", "useSelectionForFind"]
 
     /// Whether `candidate` waits for the page in `focus` instead of running first: a content
-    /// action, or one of ``pageOwnableActions``, while a page that reports unhandled keys has the
-    /// keyboard. The DevTools chords keep running first; a Ghostty keybind never waits.
-    nonisolated static func offersToPage(_ candidate: Candidate, focus: FocusState, facts: Facts) -> Bool {
+    /// action, one of ``pageOwnableActions``, or any navigation action typed with one of
+    /// ``BrowserChordTable/pageEditingChords`` (Cmd-B is Bold in Google Docs and Gmail before it
+    /// is Toggle Sidebar), while a page that reports unhandled keys has the keyboard. The
+    /// DevTools chords keep running first; a Ghostty keybind never waits.
+    nonisolated static func offersToPage(_ candidate: Candidate, event: NSEvent, focus: FocusState, facts: Facts) -> Bool {
         guard facts.pageReportsUnhandledKeys, case .browserPage = focus.resolved, !focus.isBrowserFocusModeActive,
               case .registry = candidate.source, !devToolsActions.contains(candidate.id) else { return false }
         switch candidate.tier {
         case .content: return true
-        case .navigation: return pageOwnableActions.contains(candidate.id)
+        case .navigation: return pageOwnableActions.contains(candidate.id) || BrowserChordTable.isPageEditingChord(event)
         case .system: return false
         }
     }
