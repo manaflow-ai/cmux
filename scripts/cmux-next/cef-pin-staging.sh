@@ -16,8 +16,9 @@
 #       scripts/cmux-next/cef-pin-staging.sh pin --arm64 A --x86_64 X --rb-host-step S
 #
 #   cef-pin-staging.sh [check]
-#     The staging check of a tagged app built on the pin: cef-layer-verify.py with layer hosting on and off
-#     (window-server images of the page, real CGEvents at the page's screen points), the app's debug.cef fork API
+#     The staging check of a tagged app built on the pin: cef-layer-verify.py with layer hosting off (window-server
+#     images of the page, real CGEvents at the page's screen points; mode on needs a fork with every Track A call,
+#     fork API 34, so a pin check runs it only by hand), the app's debug.cef fork API
 #     against the manifest's cmux_cef_api_version and the app's fork API gates against its missing_api (fork-api),
 #     then the Chromium page live checks (internal pages, restore). Run inside
 #       nx-remote --needs input --app-from-fleet cmux --tag T --ref SHA -- bash scripts/cmux-next/cef-pin-staging.sh
@@ -44,7 +45,7 @@ run() { # <name> <command...>: its log in $out/<name>.log, the PASS/FAIL rows, a
   if [ $c -ne 0 ]; then echo "   -- last lines of $name.log:"; tail -n 25 "$out/$name.log" | cut -c1-220 | sed 's/^/   | /'; rc=1; fi
 }
 if [[ "$parts" == *",verify,"* ]]; then
-  for m in on off; do
+  for m in off; do
     run "verify-$m" python3 "$here/cef-layer-verify.py" --app "$NX_APP" --tag "$NX_APP_TAG" --out "$out/verify" \
       --mode $m --input "${VERIFY_INPUT:-hid}"
   done
@@ -52,11 +53,11 @@ fi
 if [[ "$parts" == *",api,"* ]]; then
   # The fork API the app runs, from the layer-hosting check's debug.cef facts (its hosted rows alone when the
   # verify part did not run).
-  if [[ ! -f "$out/verify/verify-on.json" ]]; then
+  if [[ ! -f "$out/verify/verify-off.json" ]]; then
     run api-launch python3 "$here/cef-layer-verify.py" --app "$NX_APP" --tag "$NX_APP_TAG" --out "$out/verify" \
-      --mode on --checks hosted --input debug
+      --mode off --checks hosted --input debug
   fi
-  run fork-api python3 "$here/cef_pin_staging.py" fork-api --verify "$out/verify/verify-on.json"
+  run fork-api python3 "$here/cef_pin_staging.py" fork-api --verify "$out/verify/verify-off.json"
 fi
 [[ "$parts" == *",internal,"* ]] && run internal python3 "$here/chrome-internal-pages-live.py" --tag "$NX_APP_TAG" --app "$NX_APP" --out "$out/internal"
 [[ "$parts" == *",restore,"* ]] && run restore python3 "$here/browser-restore-live.py" --tag "$NX_APP_TAG" --app "$NX_APP" --out "$out/restore"

@@ -97,6 +97,5 @@ struct FeatureLaunchLocalOverridesTests {
             ? Feature.Resolution(isEnabled: true, source: .local)
             : Feature.Resolution(isEnabled: false, source: .channelDefault)
         #expect(features.resolution(of: .cefLayerHosting) == expected)
-        #expect(AppServices.hostsEveryPage(features) == false, "the tunable on is not the benches' every-page arm")
     }
 }

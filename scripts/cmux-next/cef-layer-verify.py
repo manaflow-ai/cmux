@@ -4,15 +4,13 @@
 Launches a tagged cmux-next app (scratch config, no activation) with layer hosting set by --mode, opens a probe page
 in a Chromium tab and checks:
 
-  --mode on       the bench-only feature `cefLayerHostingEveryPage` on (its tunable `browserResize.layerHostingEveryPage`):
-                  every page window hosts from fork API 26, DevTools and popups too (the A/B benches' "on")
-  --mode off      both layer hosting features off: no page hosts
-  --mode default  the feature `cefLayerHosting` on (its tunable `browserResize.layerHosting`, p03-rendering-050): a
+  --mode on       the feature `cefLayerHosting` on (its tunable `browserResize.layerHosting`, p03-rendering-050): a
                   pane's page hosts only where the app makes every Track A call for the fork (resize fence, embedder
-                  visibility); DevTools and popups do not host. Expects what mode on expects, so it fails on a fork
-                  without every Track A call (`valid`: hosting_without_track_a)
+                  visibility); DevTools and popups do not host. It fails on a fork without every Track A call
+                  (`valid`: hosting_without_track_a)
+  --mode off      the feature off: no page hosts
 
-Both tunables are features' local overrides (p12-perf-process-100): the app reads them from its debug-tunables.json
+The tunable is the feature's local override (p12-perf-process-100): the app reads it from its debug-tunables.json
 once, at launch, before its features resolve, so a mode is set in the file before the app starts, never live. The
 environment lists (`CMUX_ENABLE_FEATURES`) do not reach the app: its launch strips inherited `CMUX_*` variables.
 
@@ -20,11 +18,11 @@ Input is real HID events (CGEventPost: the pointer moves on the fleet host), bec
 WindowServer still routes the mouse and keys to the transparent page window; debug.mouse would post into the cmux
 window and skip that. The python process needs the host's event-posting permission (a FAIL row says so).
 
-  arm         features.list resolves both layer hosting features as the mode sets them (source `local` where set)
-  valid       the page is Chromium: debug.cef shows no `unavailable` and no `fallback`, and windows.fork_api >= 26
-              in mode on (below 26 the app never hosts, so an "on" number would be an "off" number); in mode default
+  arm         features.list resolves the layer hosting feature as the mode sets it (source `local`)
+  valid       the page is Chromium: debug.cef shows no `unavailable` and no `fallback`, and in mode on
+              windows.fork_api >= 26 (below 26 the app never hosts, so an "on" number would be an "off" number) and
               debug.cef tracker.hosting_without_track_a == 0 (the app makes every Track A call for this fork)
-  hosted      debug.cef tracker.hosted_pages >= 1 (on, default) or == 0 (off), read as soon as the first page of a new pane
+  hosted      debug.cef tracker.hosted_pages >= 1 (on) or == 0 (off), read as soon as the first page of a new pane
               loaded (no tab switch first: the request made at window creation must host it by itself)
   hosted.fork the fork really moved the page's pixels, not only the app's view: debug.layers counts the CALayerHost
               layers (Chromium's GPU output) per shown page; on: >= 1 inside the context the pane hosts
@@ -69,7 +67,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--app", required=True)
 parser.add_argument("--tag", required=True)
 parser.add_argument("--out", default="/tmp")
-parser.add_argument("--mode", default="on", choices=["on", "off", "default"])
+parser.add_argument("--mode", default="on", choices=["on", "off"])
 parser.add_argument("--keep", action="store_true", help="leave the app running")
 parser.add_argument("--input", default="hid", choices=["hid", "debug"],
                     help="hid: real CGEvents (nx-remote --needs input); debug: debug.mouse/debug.key into the app's queue "
@@ -89,12 +87,9 @@ CONFIG = os.path.join(SCRATCH, "cmux.json")
 open(CONFIG, "w").write("{}\n")
 TUNABLES = os.path.join(SCRATCH, "debug-tunables.json")
 KEY = "browserResize.layerHosting"  # feature cefLayerHosting's local override
-EVERY_PAGE_KEY = "browserResize.layerHostingEveryPage"  # bench-only feature cefLayerHostingEveryPage's
-FEATURES = {KEY: "cefLayerHosting", EVERY_PAGE_KEY: "cefLayerHostingEveryPage"}
+FEATURES = {KEY: "cefLayerHosting"}
 # Each mode's tunables: written before the app starts (the features resolve once, at launch).
-ARMS = {"on": {KEY: False, EVERY_PAGE_KEY: True}, "off": {KEY: False, EVERY_PAGE_KEY: False},
-        "default": {KEY: True, EVERY_PAGE_KEY: False}}
-ARM = ARMS[opts.mode]
+ARM = {KEY: opts.mode == "on"}
 json.dump({"version": 1, "values": ARM}, open(TUNABLES, "w"))
 HOSTED = opts.mode != "off"
 WINDOW = (80, 80, 1400, 900)
@@ -321,7 +316,7 @@ def write_build_tunables(path, values):
 
 
 def check_arm():
-    """arm: the launch resolved both layer hosting features as this mode's tunables set them (features.list)."""
+    """arm: the launch resolved the layer hosting feature as this mode's tunable set it (features.list)."""
     listed = rpc("features.list") or {}
     rows = {f.get("name"): f for f in listed.get("features") or [] if isinstance(f, dict)}
     got = {name: {"state": (rows.get(name) or {}).get("state"), "source": (rows.get(name) or {}).get("source")}
@@ -342,8 +337,7 @@ def check_valid_and_hosted():
     FACTS.update({"fork_api": fork_api, "unavailable": unavailable, "fallback": fallback,
                   "hosted_pages": hosted, "hosting_refused": tracker.get("hosting_refused"),
                   "hosting_without_track_a": without_track_a})
-    mode_valid = {"on": fork_api >= LAYER_HOSTING_FORK_API, "off": True,
-                  "default": fork_api >= LAYER_HOSTING_FORK_API and without_track_a == 0}[opts.mode]
+    mode_valid = not HOSTED or (fork_api >= LAYER_HOSTING_FORK_API and without_track_a == 0)
     row("valid", unavailable is None and fallback is None and mode_valid,
         {"fork_api": fork_api, "unavailable": unavailable, "fallback": fallback, "hosting_without_track_a": without_track_a})
     row("hosted", hosted >= 1 if HOSTED else hosted == 0,

@@ -23,9 +23,6 @@ extension CEFLayerHosting {
         var trackA: TrackA?
         /// Feature `cefAttachedPages`: a pane's tabs attach Chromium's own view where the fork can (Track B).
         var attachesViews = false
-        /// Feature `cefLayerHostingEveryPage` (DEBUG and bench builds, the benches' on arm): every page window
-        /// hosts, whatever its widget and Track A calls.
-        var hostsEveryPage = false
     }
 
     /// Whether the tabs of this page window attach Chromium's view (``CEFAttachedPages``): the fork's attach
@@ -77,13 +74,12 @@ extension CEFLayerHosting {
         var showsOneBrowser: Bool { self == .devTools || self == .popupWindow }
     }
 
-    /// Whether the page window hosts. `override` (a test's forced hosting) or
-    /// the fork's ``Fork/hostsEveryPage`` (the benches' arm): every page window
-    /// of a fork from ``forkAPI``. Else the feature `cefLayerHosting`: a page
-    /// window of a kind the fork hosts (``Fork/hostedWidgets``), where the app
-    /// makes every Track A call for the fork.
+    /// Whether the page window hosts. `override` (a test's forced hosting):
+    /// every page window of a fork from ``forkAPI``. Else the feature
+    /// `cefLayerHosting`: a page window of a kind the fork hosts
+    /// (``Fork/hostedWidgets``), where the app makes every Track A call for the fork.
     static func hosting(override: Bool, fork: Fork, widget: Widget) -> Hosting {
-        if override || fork.hostsEveryPage { return .hosted }
+        if override { return .hosted }
         guard let trackA = fork.trackA else { return .off }
         guard fork.hostedWidgets.contains(widget) else { return .widgetFallback }
         return trackA.isSuperset(of: .required) ? .hosted : .missingTrackA

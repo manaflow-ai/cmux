@@ -234,10 +234,9 @@ final class CEFDevToolsController {
         tab.container.layoutContent()
         // An embedded DevTools is its own page window on its own host view, docked in the pane or in cmux's
         // DevTools window: attached or hosted there as a pane's page is where the fork does it for DevTools
-        // (`CEFLayerHosting.Widget.devTools`, ``CEFLayerHosting/Fork/hostedWidgets``; the benches' arm
-        // `cefLayerHostingEveryPage` hosts it on any fork), from this open on. Its view keeps the attached view
-        // or hosted context across dock moves. In host mode it shows in the hosted page view, from the context
-        // the host gives.
+        // (`CEFLayerHosting.Widget.devTools`, ``CEFLayerHosting/Fork/hostedWidgets``), from this open on. Its
+        // view keeps the attached view or hosted context across dock moves. In host mode it shows in the hosted
+        // page view, from the context the host gives.
         if docked, tab.host.isHostMode {
             showHostedContext(of: browser)
         } else if docked {

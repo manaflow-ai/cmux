@@ -2667,27 +2667,9 @@ nonisolated extension Feature {
         replaces: ["browserHost.helper"]
     )
 
-    /// The layer hosting benches' on arm: every Chromium page window from fork API 26, DevTools and popups too, draws in the cmux window's own layer tree without the Track A calls that cefLayerHosting needs. DEBUG and bench builds only.
-    public static let cefLayerHostingEveryPage = Feature(
-        index: 154,
-        name: "cefLayerHostingEveryPage",
-        owner: "PL-cef-layer",
-        description: "The layer hosting benches' on arm: every Chromium page window from fork API 26, DevTools and popups too, draws in the cmux window's own layer tree without the Track A calls that cefLayerHosting needs. DEBUG and bench builds only.",
-        kind: .perfPath,
-        process: .app,
-        chromiumFeature: nil,
-        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
-        expires: "2026-12-20",
-        params: [],
-        stories: ["cef-resize-sync", "cef-resize-sync-stress"],
-        sticky: false,
-        runtimeMutable: false,
-        replaces: ["browserResize.layerHostingEveryPage"]
-    )
-
     /// The Chromium host app quits when its page has been in no window for a while; a closed pane still quits it at once. The next show starts a new host, under the page background only: cmux cannot capture the host's pixels yet.
     public static let chromiumHostIdleExit = Feature(
-        index: 155,
+        index: 154,
         name: "chromiumHostIdleExit",
         owner: "PL-memory",
         description: "The Chromium host app quits when its page has been in no window for a while; a closed pane still quits it at once. The next show starts a new host, under the page background only: cmux cannot capture the host's pixels yet.",
@@ -2710,7 +2692,7 @@ nonisolated extension Feature {
 
     /// With the Chromium host, the warm start keeps no spare Chromium window, so nothing warms a renderer for the first new tab; the bench arm that measures whether the host meets the new tab target without the spare window.
     public static let chromiumHostNoSpareWindow = Feature(
-        index: 156,
+        index: 155,
         name: "chromiumHostNoSpareWindow",
         owner: "PL-cef-layer",
         description: "With the Chromium host, the warm start keeps no spare Chromium window, so nothing warms a renderer for the first new tab; the bench arm that measures whether the host meets the new tab target without the spare window.",
@@ -2727,7 +2709,7 @@ nonisolated extension Feature {
 
     /// After a Chromium Host crash within the restart budget (Chrome's GPU rule), a new host starts at once and every Chromium tab of every window and profile comes back with its history from its daemon record; hidden tabs when shown, form results not resent.
     public static let chromiumHostRestoreTabs = Feature(
-        index: 157,
+        index: 156,
         name: "chromiumHostRestoreTabs",
         owner: "PL-cef-helper",
         description: "After a Chromium Host crash within the restart budget (Chrome's GPU rule), a new host starts at once and every Chromium tab of every window and profile comes back with its history from its daemon record; hidden tabs when shown, form results not resent.",
@@ -2744,7 +2726,7 @@ nonisolated extension Feature {
 
     /// With cefHelperHost on too, every Chromium tab of the launch, of every profile, runs in the one Chromium Host (ChromiumHostSupervisor) instead of cmux's process. Debug builds only; bench builds keep tabs in process.
     public static let chromiumHostTabs = Feature(
-        index: 158,
+        index: 157,
         name: "chromiumHostTabs",
         owner: "PL-cef-helper",
         description: "With cefHelperHost on too, every Chromium tab of the launch, of every profile, runs in the one Chromium Host (ChromiumHostSupervisor) instead of cmux's process. Debug builds only; bench builds keep tabs in process.",
@@ -2762,7 +2744,7 @@ nonisolated extension Feature {
 
     /// Bench builds only: every key-down spins for exactly 2 ms before key dispatch, the known regression the perf lab canary must alert on, bisect to and verify.
     public static let perfLabCanary = Feature(
-        index: 159,
+        index: 158,
         name: "perfLabCanary",
         owner: "Performance Lead",
         description: "Bench builds only: every key-down spins for exactly 2 ms before key dispatch, the known regression the perf lab canary must alert on, bisect to and verify.",
@@ -2779,7 +2761,7 @@ nonisolated extension Feature {
 
     /// Bench builds only: changes nothing and reports its value at launch, so a signed flags document that turns it off proves the kill switch path end to end.
     public static let perfLabKillProbe = Feature(
-        index: 160,
+        index: 159,
         name: "perfLabKillProbe",
         owner: "Performance Lead",
         description: "Bench builds only: changes nothing and reports its value at launch, so a signed flags document that turns it off proves the kill switch path end to end.",
@@ -2952,7 +2934,6 @@ nonisolated extension Feature {
         .windowFrameAnimationHoldsContent,
         .windowOcclusionFamily,
         .cefHelperHost,
-        .cefLayerHostingEveryPage,
         .chromiumHostIdleExit,
         .chromiumHostNoSpareWindow,
         .chromiumHostRestoreTabs,

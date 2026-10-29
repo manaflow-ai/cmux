@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """Chromium in process vs Chromium in its own host app (prototype; plans/cmux-next/cef-helper-app-DESIGN.md).
 
-Launches one tagged Debug cmux-next app with `browserHost.helper` and `browserResize.layerHostingEveryPage` (the
-bench-only feature `cefLayerHostingEveryPage`'s local override: every page window hosts from fork API 26, without the
-Track A calls the shipping feature `cefLayerHosting` needs) on, and measures the same probe page twice. Chromium tabs
+Launches one tagged Debug cmux-next app with `browserHost.helper` and `browserResize.layerHosting` (the feature
+`cefLayerHosting`'s local override) on, and measures the same probe page twice. Chromium tabs
 stay in cmux (`browserHost.tabs` off) except with `--modes profiles`, `--modes tcc`, `--modes agentcdp` and
 `--kill-host`, which need them in the host: profiles, tcc and agentcdp run in a launch without the in-process rows
 (inproc, --baseline, --stress), and
@@ -484,7 +483,7 @@ for (const type of ["mousedown", "mouseup", "click", "auxclick", "contextmenu"])
 addEventListener("wheel", e => { if (e.ctrlKey) __mouse.push({type: "pinch-wheel", dy: e.deltaY}); }, {capture: true, passive: true});
 </script>""".replace("TIP", MOUSE_TOOLTIP)
 
-TUNABLES = {"version": 1, "values": {"browserHost.helper": True, "browserResize.layerHostingEveryPage": True}}
+TUNABLES = {"version": 1, "values": {"browserHost.helper": True, "browserResize.layerHosting": True}}
 
 
 # The modes whose rows need every Chromium tab in the host: profiles (task 080) and tcc (task 089: the host's own

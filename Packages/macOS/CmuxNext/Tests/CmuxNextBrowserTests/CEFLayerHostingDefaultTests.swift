@@ -9,18 +9,17 @@ import Testing
 /// On a fork that hosts only a tab's page, DevTools and popup windows keep their own window (each kind on a fork
 /// that hosts it is `CEFWidgetHostingTests`), and `debug.cef` counts why a page did not host. Only features decide
 /// in the app: the Debug tunable `browserResize.layerHosting` reaches it only as the
-/// feature's local override, resolved at launch; the benches' arm `cefLayerHostingEveryPage` and a test's
-/// `override` seam host every page window from API 26.
+/// feature's local override, resolved at launch; a test's `override` seam hosts every page window from API 26.
 @MainActor
 @Suite(.serialized) struct CEFLayerHostingDefaultTests {
     let view = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
     let fake = CEFLayerHostingTests.FakeFork()
 
-    /// The fake fork's calls with `trackA` as the feature's view of it, and the benches' arm `everyPage`.
-    func fork(trackA: CEFLayerHosting.TrackA?, everyPage: Bool = false) -> CEFLayerHosting.Fork {
+    /// The fake fork's calls with `trackA` as the feature's view of it.
+    func fork(trackA: CEFLayerHosting.TrackA?) -> CEFLayerHosting.Fork {
         let fake = fake
         return CEFLayerHosting.Fork(setLayerHosting: { browser, enabled in fake.fork.setLayerHosting(browser, enabled) },
-                                    trackA: trackA, hostsEveryPage: everyPage)
+                                    trackA: trackA)
     }
 
     func makeHosting(override: Bool = false,
@@ -59,24 +58,7 @@ import Testing
         }
     }
 
-    /// Feature `cefLayerHostingEveryPage`, the benches' on arm (`cef-layer-verify.py --mode on`): reachable while
-    /// no fork has every Track A call, and it hosts what the tunable hosted before p12-perf-process-100.
-    @Test func theBenchArmHostsEveryPageWindowWithoutTrackA() {
-        for widget in CEFLayerHosting.Widget.allCases {
-            for trackA in [nil, [], [.embedderVisibility], CEFLayerHosting.TrackA.required] as [CEFLayerHosting.TrackA?] {
-                #expect(CEFLayerHosting.hosting(override: false, fork: fork(trackA: trackA, everyPage: true), widget: widget) == .hosted)
-            }
-        }
-    }
-
     // MARK: The state machine
-
-    @Test func aDockedDevToolsHostsWithTheBenchArm() throws {
-        let hosting = makeHosting(widget: .devTools)
-        hosting.pageWindowCreated(browser: 5, fork: fork(trackA: nil, everyPage: true))
-        #expect(fake.calls.map(\.enabled) == [true])
-        #expect(try #require(hosting.page).contextID == 7)
-    }
 
     @Test func aDockedDevToolsHostsWithTheForcedOverrideAndNoFeature() throws {
         let hosting = makeHosting(override: true, widget: .devTools)
@@ -168,9 +150,6 @@ import Testing
         #expect(try #require(CEFLayerHosting.Fork(runtime: runtime)).trackA == nil)
         runtime.pageHosting.trackA = [.resizeFence]
         #expect(try #require(CEFLayerHosting.Fork(runtime: runtime)).trackA == [.resizeFence])
-        #expect(try #require(CEFLayerHosting.Fork(runtime: runtime)).hostsEveryPage == false)
-        runtime.pageHosting.hostsEveryPage = true
-        #expect(try #require(CEFLayerHosting.Fork(runtime: runtime)).hostsEveryPage)
     }
 
     // MARK: The owners' widgets

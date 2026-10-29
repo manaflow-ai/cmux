@@ -31,17 +31,6 @@ public nonisolated struct BrowserResizeTunables {
         help: "Overrides the feature cefLayerHosting: a Chromium pane page draws inside the cmux window's own layer tree where the app makes every Track A call for the fork (resize fence, embedder visibility); DevTools and popups keep their own window. Applies at the next launch.",
         default: false, code: "BrowserResizeTunables.layerHosting")
 
-    /// The local override of the bench-only feature `cefLayerHostingEveryPage`
-    /// (`features.d/cefLayerHostingEveryPage.json` `replaces` it), read the same
-    /// way as `layerHosting`: the layer hosting benches' on arm
-    /// (`cef-layer-verify.py --mode on`). Set: every page window from fork API 26
-    /// hosts, DevTools and popups too, without the Track A calls. DEBUG and bench
-    /// builds only (the feature is compiled out of the others).
-    public static let layerHostingEveryPage = Tunable<Bool>.toggle(
-        "browserResize.layerHostingEveryPage", section, "Host every Chromium page window (bench arm)",
-        help: "Overrides the bench-only feature cefLayerHostingEveryPage: every Chromium page window, DevTools and popups too, draws inside the cmux window's own layer tree from fork API 26, without the Track A calls. Debug and bench builds only. Applies at the next launch.",
-        default: false, code: "BrowserResizeTunables.layerHostingEveryPage")
-
     /// While a page is layer hosted (feature `cefLayerHosting`), how long a resize of
     /// its pane may hold the window's frame for Chromium's frame at the new
     /// size (fork API 27 to 31; from API 32 it has no effect), so the page
@@ -73,7 +62,7 @@ public nonisolated struct BrowserResizeTunables {
         default: .once, code: "BrowserResizeTunables.springPageResize")
 
     public static var all: [TunableDescriptor] {
-        [pageBackdrop.descriptor, layerHosting.descriptor, layerHostingEveryPage.descriptor, syncDeadline.descriptor,
-         liveResizeDeadline.descriptor, springPageResize.descriptor]
+        [pageBackdrop.descriptor, layerHosting.descriptor, syncDeadline.descriptor, liveResizeDeadline.descriptor,
+         springPageResize.descriptor]
     }
 }

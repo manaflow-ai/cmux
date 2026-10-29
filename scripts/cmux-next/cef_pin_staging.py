@@ -5,7 +5,7 @@
   cef_pin_staging.py pin --arm64 JOB [--x86_64 JOB] [--rb-host-step STEP] [--min-api N]
                          [--accept-missing-api N,N] [--fork-branch NAME] [--manifest PATH]
                          [--rb-host-pin PATH] [--work DIR]
-  cef_pin_staging.py fork-api --verify verify-on.json [--manifest PATH]
+  cef_pin_staging.py fork-api --verify verify-off.json [--manifest PATH]
 
 `pin` reads each JOB (a finished `cmux-ci build cef --arch <arch>` job), downloads its artifact
 `cef.tar` (`cmux-ci artifact`, checked against the job's sha256) and checks it before it writes

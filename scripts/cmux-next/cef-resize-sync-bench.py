@@ -10,8 +10,8 @@ checks with debug.layers that the fork really moved the page's pixels, `hosted.f
 
   off     layer hosting off: the page is a child window. API 26 and older: Chromium's own wait (up to 500 ms per
           page resize); API 27: no wait
-  on      every page window hosted (cef-layer-verify.py --mode on: the bench-only feature `cefLayerHostingEveryPage`),
-          `browserResize.syncDeadline` at its default (8 ms, capped at half a display frame by
+  on      layer hosting on (cef-layer-verify.py --mode on: the feature `cefLayerHosting`, a pane's page hosts only
+          where the app makes every Track A call), `browserResize.syncDeadline` at its default (8 ms, capped at half a display frame by
           CEFResizeSyncDeadline: 4 ms at 120 Hz)
   on0     the same hosting, syncDeadline 0: the page never holds the commit (it shows its last frame until Chromium
           draws the new size)
@@ -25,9 +25,6 @@ The host modes are not checked with cef-layer-verify.py (it checks in-process la
 layer hosting and deadline tunables removed, and a bench of one counts as valid only when the app reported
 `debug.cef` host_resize at its end (null: Chromium ran in process), for `hostfence` with at least one fenced resize.
 summary.json records the features, the tunables file reset and each bench's host_resize.
-
-The shipping feature `cefLayerHosting` hosts a pane's page only where the app makes every Track A call (resize fence,
-embedder visibility); cef-layer-verify.py --mode default checks it. The modes here measure the hosted resize itself.
 
 Benches per mode: `light` (pane-perf-terminal.py --browser 1x2,4x2: the top-left pane is a Chromium page) and `stress`
 (pane-perf-terminal.py --layouts stress --stress-selected chromium: the STRESS session, every pane a Chromium page),
@@ -56,8 +53,8 @@ from bench_launch import RecordError  # noqa: E402
 from new_tab_bench_report import perf_result, write_all  # noqa: E402
 from sidebar_drag_bench_report import measured_build  # noqa: E402
 
-# The hosting tunables cef-layer-verify.py sets per mode (features' local overrides), removed at the end.
-HOSTING_KEYS = ("browserResize.layerHosting", "browserResize.layerHostingEveryPage")
+# The hosting tunable cef-layer-verify.py sets per mode (the feature's local override), removed at the end.
+HOSTING_KEYS = ("browserResize.layerHosting",)
 DEADLINE_KEY = "browserResize.syncDeadline"
 MODES = {"off": ("off", None), "on": ("on", None), "on0": ("on", 0.0), "host": ("host", None), "hostfence": ("host", None)}
 # The features each host mode starts the app with (pane-perf-terminal.py --enable-features).
