@@ -361,16 +361,15 @@ async fn forward_inner(
                     })?;
         let held = |r: &Value| r.get("events").and_then(Value::as_array).map(Vec::len);
         let before = held(&result);
+        strip_asks(hub, &peer.name, &id, m, &mut result);
         if m == method::MUX_ATTACH
             && peer.link_epoch() == link
             && params.get("beforeSeq").is_none_or(Value::is_null)
         {
-            // The mirror cursor is the greatest record actually returned in
-            // this page. `lastSeq` may include filtered records, so Peer derives
-            // it from `events` rather than advancing past an unseen chunk.
+            // Advance only after permission-history filtering: the mirror cursor
+            // must never skip a record the attached client did not receive.
             peer.note_attached_page(&id, &result);
         }
-        strip_asks(hub, &peer.name, &id, m, &mut result);
         // What the client reads of a peer's chat is kept here too, so the chat
         // paints while the peer is paused or offline (`hub/peer_snapshot.rs`).
         // A page that lost records here no longer holds every seq it covers.
