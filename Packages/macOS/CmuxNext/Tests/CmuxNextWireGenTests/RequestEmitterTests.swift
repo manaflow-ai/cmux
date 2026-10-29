@@ -236,6 +236,19 @@ private func json(_ text: String) throws -> SchemaJSON {
         #expect(command.fields == [RequestSchema.streamField])
     }
 
+    /// A result the schema gives as an inline `opaque_json` (trace-start, trace-stop and
+    /// trace-status, which the app calls) is a JSON document: its Response is JSONValue,
+    /// as the hand-written DaemonTraceLink requests have it.
+    @Test func anInlineOpaqueResultIsAJSONValueResponse() throws {
+        let document = try json(
+            #"{"families": {}, "types": {}, "commands": {"trace-status": {"clients": ["macos"], "#
+                + #""request": {"kind": "object", "fields": {}, "additional_properties": false}, "#
+                + #""result": {"kind": "opaque_json", "reason": "The recorder's own report."}}}}"#
+        )
+        let command = try #require(try RequestSchema(document: document).commands.first)
+        #expect(command.response.swift == "JSONValue")
+    }
+
     // Refusals ----------------------------------------------------------------
 
     private static func refused(_ command: String, types: String = "{}") throws -> String {

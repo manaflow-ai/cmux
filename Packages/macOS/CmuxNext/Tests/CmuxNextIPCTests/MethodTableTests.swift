@@ -129,15 +129,23 @@ private func dense<Entry: Hashable & Sendable>(
     /// The app's `debug.daemon.wire` rows take their `id` from `MethodTable.schema.methods` (the
     /// composition root's list), and the daemon's `server-stats` `ipc_methods` rows take theirs from
     /// sdk-schema.json `method_id` (cmux-tui-core `server_stats_ipc_methods_id_is_the_schema_method_id`):
-    /// for `identify` and `ping` the two are the same join key.
+    /// for every command the app calls (`clients` holds `macos`) the two are the same join key.
+    /// The table holds only those: `ping`, which only the CLI and the SDKs send, has no row.
     @Test func schemaMethodIDsAreTheDaemonsIPCMethodIDs() throws {
         let commands = try #require(try Self.load("sdk-schema.json")["commands"] as? [String: Any])
-        for name in ["identify", "ping"] {
-            let node = try #require(commands[name] as? [String: Any])
-            let schemaID = try #require(node["method_id"] as? Int)
-            let appID = try #require(MethodTable.schema.methods.first { $0.name == name }?.id.rawValue)
+        var joined = 0
+        for (name, value) in commands {
+            let node = try #require(value as? [String: Any])
+            guard let schemaID = node["method_id"] as? Int,
+                  (node["clients"] as? [String])?.contains("macos") == true
+            else { continue }
+            let appID = try #require(MethodTable.schema.methods.first { $0.name == name }?.id.rawValue, "\(name)")
             #expect(Int(appID) == schemaID, "\(name)")
+            joined += 1
         }
+        #expect(joined > 100, "the app calls \(joined) framed commands")
+        #expect(MethodTable.schema.methods.contains { $0.name == "identify" })
+        #expect(!MethodTable.schema.methods.contains { $0.name == "ping" })
     }
 
     @Test func idsSplitIntoFamilyAndOrdinal() {
