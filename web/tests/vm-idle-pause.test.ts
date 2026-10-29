@@ -4,7 +4,9 @@ import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import postgres, { type Sql } from "postgres";
 import { closeCloudDbForTests } from "../db/client";
@@ -512,6 +514,8 @@ function cronFakes(
     readonly duringStatus?: FakeHook;
     /** Runs inside each provider status read, after it has its answer (the caller acts on a stale read). */
     readonly afterStatus?: FakeHook;
+    /** Runs inside a later (plain) provider pause before it lands: an Effect here holds that pause in flight. */
+    readonly holdPause?: () => Effect.Effect<void> | undefined;
     /** Runs right after the provider resumes, before the caller records it. */
     readonly afterResume?: FakeHook;
     /** Runs right after a compensating resume's fence claim succeeds. */
@@ -650,7 +654,7 @@ function cronFakes(
       const paused = recorded.paused.length;
       recorded.paused.push(vmId);
       // Only the cron's first provider pause fails or runs the hook; a later re-pause is plain.
-      if (paused > 0) return Effect.sync(() => providerState.set(vmId, "paused"));
+      if (paused > 0) return (fakeOptions.holdPause?.() ?? Effect.void).pipe(Effect.andThen(Effect.sync(() => providerState.set(vmId, "paused"))));
       if (fakeOptions.pauseFails !== "refused") providerState.set(vmId, "paused");
       return runHook(fakeOptions.duringPause).pipe(
         Effect.andThen(fakeOptions.pauseFails ? Effect.fail(new Error("pause: connection reset")) : Effect.void),
@@ -1482,6 +1486,40 @@ describe("a Go machine's runtime budget after an idle pause recovery", () => {
     expect(recorded.budgets).toEqual([0, null]);
     expect(restoredBefore(recorded.log, "status:running")).toBe(true);
     expect(rows[0].status).toBe("running");
+  });
+
+  test("a person's Pause in flight (cap zero, provider pause not back) during the left-claim recovery keeps its zero cap", async () => {
+    let armed = false;
+    let inFlight: Fiber.RuntimeFiber<void> | null = null;
+    const reached = Effect.runSync(Deferred.make<void>());
+    const release = Effect.runSync(Deferred.make<void>());
+    const { rows, runAt, recorded, providerState } = setup({
+      pauseFails: "refused",
+      // The person's provider pause signals it got there, then waits until the cron run is over.
+      holdPause: () => (armed || inFlight ? Deferred.succeed(reached, undefined).pipe(Effect.andThen(Deferred.await(release))) : undefined),
+      // Next run: after the recovery reads the provider as running, the person's Pause starts and
+      // gets as far as its provider pause (cap zero set) before the recovery goes on.
+      afterStatus: (_repo, ctx) => {
+        if (!armed) return;
+        armed = false;
+        return Effect.gen(function* () {
+          inFlight = yield* Effect.forkDaemon(ctx.userPause("row-1"));
+          yield* Deferred.await(reached);
+        });
+      },
+    });
+    await runAt(T0);
+    expect(rows[0].providerMetadata.cmuxIdlePauseClaim).toBeDefined();
+    armed = true;
+    await runAt(T0 + 5 * MIN);
+    expect(inFlight).not.toBeNull();
+    await Effect.runPromise(Deferred.succeed(release, undefined).pipe(Effect.andThen(Fiber.join(inFlight!))));
+    expect(rows[0].status).toBe("paused");
+    expect(rows[0].providerMetadata.cmuxPauseReason).toBe("user");
+    expect(providerState.get(VM)).toBe("paused");
+    // The person's zero cap is the last cap write: the recovery never cleared it under their pause.
+    expect(recorded.budgets.at(-1)).toBe(0);
+    expect(recorded.resumed).toEqual([]);
   });
 
   test("a person's Pause after the left claim's provider read: their zero cap stays and the machine stays paused", async () => {
