@@ -3,7 +3,8 @@ import Foundation
 import Testing
 @testable import CmuxMobileLive
 
-/// Real controller/clock, with only the transport replaced. A silent link
+/// Real controller with only the transport replaced. The benchmark uses
+/// wall time; lifecycle tests control heartbeat time. A silent link
 /// deliberately ignores the probe deadline, exercising the outer FFI bound.
 private final class RecoveryLink: MacLink, @unchecked Sendable {
     let transport: TransportKind = .wireGuard
@@ -55,8 +56,8 @@ private final class RecoveryDialer: MacLinkDialer, @unchecked Sendable {
 
 @MainActor
 @Suite struct LinkRecoveryTests {
-    private func controller(_ dialer: RecoveryDialer) -> LinkController {
-        let controller = LinkController(transport: .wireGuard, dialer: dialer) { _ in "token" }
+    private func controller(_ dialer: RecoveryDialer, clock: any Clock<Duration> = ContinuousClock()) -> LinkController {
+        let controller = LinkController(transport: .wireGuard, dialer: dialer, clock: clock) { _ in "token" }
         controller.endpoint = {
             LinkEndpoint(baseURL: URL(string: "https://example.invalid")!, teamID: "t", deviceID: "d", macDeviceID: $0)
         }
@@ -64,16 +65,18 @@ private final class RecoveryDialer: MacLinkDialer, @unchecked Sendable {
         return controller
     }
 
-    private func eventually(_ condition: () -> Bool, within: Duration = .seconds(1)) async throws {
+    private func eventually(_ condition: () -> Bool, within: Duration = .seconds(20),
+                            sourceLocation: SourceLocation = #_sourceLocation) async throws {
         let deadline = ContinuousClock.now + within
         while !condition(), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(5)) }
-        #expect(condition())
+        try #require(condition(), "Timed out waiting for test setup or transition", sourceLocation: sourceLocation)
     }
 
     @Test(arguments: [true, false]) func firstProbeWaitsForConnectedState(immediate: Bool) async throws {
         let dialer = RecoveryDialer(immediatelyConnected: immediate)
-        let controller = controller(dialer)
-        defer { controller.send(.target(nil)) }
+        let clock = LinkTestClock()
+        let controller = controller(dialer, clock: clock)
+        defer { controller.send(.target(nil)); clock.stop() }
         try await eventually { controller.link != nil }
         if !immediate {
             #expect(dialer.first.probeCount == 0)
@@ -85,8 +88,9 @@ private final class RecoveryDialer: MacLinkDialer, @unchecked Sendable {
 
     @Test func resumeReplacesStaleLinkWithoutWaitingForAProbe() async throws {
         let dialer = RecoveryDialer()
-        let controller = controller(dialer)
-        defer { controller.send(.target(nil)) }
+        let clock = LinkTestClock()
+        let controller = controller(dialer, clock: clock)
+        defer { controller.send(.target(nil)); clock.stop() }
         try await eventually { dialer.first.probeCount == 1 }
         controller.send(.background)
         dialer.first.dropSilently()
@@ -102,13 +106,19 @@ private final class RecoveryDialer: MacLinkDialer, @unchecked Sendable {
 
     @Test func backgroundBacksOffHeartbeatAndCloseStopsIt() async throws {
         let dialer = RecoveryDialer()
-        let controller = controller(dialer)
+        let clock = LinkTestClock()
+        let controller = controller(dialer, clock: clock)
+        defer { controller.send(.target(nil)); clock.stop() }
         try await eventually { dialer.first.probeCount == 1 }
         controller.send(.background)
-        try await Task.sleep(for: LinkController.heartbeat + .milliseconds(100))
+        let backgroundDeadline = clock.now.advanced(by: LinkController.backgroundHeartbeat)
+        try await eventually { clock.isSleeping(until: backgroundDeadline) }
+        clock.advance(by: LinkController.heartbeat + .milliseconds(100))
         #expect(dialer.first.probeCount == 1)
+        #expect(clock.isSleeping(until: backgroundDeadline))
         controller.send(.target(nil))
         try await eventually { dialer.first.isClosed }
+        #expect(!clock.isSleeping(until: backgroundDeadline))
         #expect(controller.link == nil)
         #expect(dialer.dials == 1)
     }

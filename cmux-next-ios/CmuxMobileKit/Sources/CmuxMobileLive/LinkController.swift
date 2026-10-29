@@ -331,7 +331,7 @@ public final class LinkController {
         heartbeatTask = Task { [weak self] in
             while !Task.isCancelled {
                 do { try await clock.sleep(for: interval) } catch { return }
-                guard let self, generation == self.machine.generation, self.phase.isConnected else { return }
+                guard !Task.isCancelled, let self, generation == self.machine.generation, self.phase.isConnected else { return }
                 self.run(.probe(generation: generation))
             }
         }
