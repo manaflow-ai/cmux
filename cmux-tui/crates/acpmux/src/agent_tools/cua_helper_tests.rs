@@ -62,6 +62,7 @@ impl Fixture {
             secrets: false,
             offers: false,
             subsessions: false,
+            daemon_tools: false,
             displays: None,
         }
     }

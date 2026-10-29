@@ -1,6 +1,8 @@
 import AppKit
 @testable import CmuxNextPages
 import CmuxNextPagesTestSupport
+import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
@@ -21,7 +23,7 @@ struct PageWebViewCrashReloadTests {
     }
 
     private func started(_ hosting: FakeChromiumHosting) async throws -> (PageWebView, FakeChromiumPage) {
-        let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], chromium: hosting))
+        let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], chromium: hosting, deadlines: .testing()))
         view.chromiumDeadlines = LifecycleDeadlineRig.never
         await view.chromiumStart?.value
         let page = try #require(hosting.made.first)

@@ -603,7 +603,10 @@ fn identify_and_ping_return_build_metadata() {
     let revisions = handle_command(
         &mux,
         mux.local_test_client(0),
-        Command::Identify { machine_metadata: false, revisions: true },
+        Command::Identify(super::super::cmd_server::IdentifyParams {
+            revisions: true,
+            ..Default::default()
+        }),
         &test_writer(),
     )
     .unwrap();

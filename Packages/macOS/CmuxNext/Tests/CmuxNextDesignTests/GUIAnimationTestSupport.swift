@@ -20,6 +20,14 @@ enum GUIAnimationTestSupport {
         return true
     }
 
+    /// The animations are queued: a screen that is awake and speed not "off". Checks only what is
+    /// queued, not that the display advances frames, so a Mac mini whose display does not still runs
+    /// a test that reads only the queued animations or the commit order (`MotionCommitProbeTests`).
+    static func queuesAnimations() async -> Bool {
+        guard let screen = NSScreen.main else { return false }
+        return Motion.speed != .off && !DisplaySleep.shared.isAsleep(screen)
+    }
+
     static func animatesHere() async -> Bool {
         guard let screen = NSScreen.main, Motion.speed != .off,
               !DisplaySleep.shared.isAsleep(screen),

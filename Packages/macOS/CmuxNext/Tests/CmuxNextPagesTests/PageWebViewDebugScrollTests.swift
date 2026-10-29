@@ -1,6 +1,8 @@
 #if DEBUG
 @testable import CmuxNextPages
 import CmuxNextPagesTestSupport
+import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
 import CmuxNextSettings
 import Foundation
 import Testing
@@ -10,7 +12,7 @@ import Testing
 @MainActor
 struct PageWebViewDebugScrollTests {
     private let root: URL
-    private let descriptor = PageDescriptor(id: "test.scroll-page", resource: "scroll-page", namespaces: [])
+    private let descriptor = PageDescriptor(id: "test.scroll-page", resource: "scroll-page", processGroup: .solo, namespaces: [])
 
     init() throws {
         root = FileManager.default.temporaryDirectory.appendingPathComponent("page-scroll-\(UUID().uuidString)", isDirectory: true)
@@ -20,8 +22,8 @@ struct PageWebViewDebugScrollTests {
 
     private func chromiumPage(answer: String?) async throws -> (PageWebView, FakeChromiumPage) {
         let hosting = FakeChromiumHosting()
-        let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], route: "#/", chromium: hosting))
-        view.chromiumClock = PageTestClock.never
+        let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], route: "#/", chromium: hosting, deadlines: .testing()))
+        view.chromiumDeadlines = LifecycleDeadlineRig.never
         await view.chromiumStart?.value
         let page = try #require(hosting.made.first)
         page.answer = { method, params in

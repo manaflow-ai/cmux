@@ -316,8 +316,9 @@ mod tests {
             occurred_at_ms: 1,
             bytes: b"x".to_vec(),
         };
-        // A waiter queued behind the background events.
-        let (completion, result) = sync_channel(1);
+        // A waiter queued behind the background events, on the receipt channel a durable
+        // completion takes (`cmux_threads::sync::mpsc`).
+        let (completion, result) = cmux_threads::sync::mpsc::sync_channel(1);
         let barrier = QueuedJournalEvent {
             event: JournalIngressEvent::TerminalBarrier,
             completion: Some(super::super::JournalIngressCompletion::Durable {

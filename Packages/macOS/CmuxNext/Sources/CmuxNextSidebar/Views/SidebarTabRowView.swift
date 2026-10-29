@@ -17,11 +17,9 @@ final class SidebarTabRowView: SidebarRowView {
     private let title = SidebarRowView.label(font: SidebarStyle.subtitleFont)
     private let detail = SidebarRowView.label(font: SidebarStyle.subtitleFont)
     /// The tab's own status, on the trailing column as a workspace row's (the tab bar's dot).
-    private let activity: StatusIndicatorView = {
-        let view = StatusIndicatorView()
-        (view.tracksWindowOcclusion, view.usesStatusColors) = (true, true)
-        return view
-    }()
+    /// Its loop runs only while its visibility node is visible (``StatusIndicatorView``), which an
+    /// occluded window is not.
+    private let activity: StatusIndicatorView = { let view = StatusIndicatorView(); view.usesStatusColors = true; return view }()
     /// Whether the icon is a template agent mark (tinted with the text) rather than a page favicon.
     private var iconIsMark = false
     /// The unread dot: a workspace row's dot (`UnreadBadgeView`, same shape and size) in the quiet, muted look.
@@ -78,7 +76,7 @@ final class SidebarTabRowView: SidebarRowView {
     /// `focused`: the tab its workspace shows (`SidebarWorkspace.focusedTab`).
     func configure(_ tab: SidebarTab, row: SidebarRow, focused: Bool = false) {
         lastConfiguration = (tab, row, focused)
-        let look = SidebarTunablesWatch.shared.tabLook(for: self)
+        let look = SidebarTunablesWatch.shared.tabLook()
         let content = Content(tab: tab, focused: focused, group: row.group, groupColor: row.groupColor, look: look)
         guard needsConfigure(content) else { return }
         isFocusedTab = focused

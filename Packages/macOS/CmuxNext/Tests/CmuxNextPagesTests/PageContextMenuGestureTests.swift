@@ -1,6 +1,8 @@
 import AppKit
 @testable import CmuxNextPages
 import CmuxNextPagesTestSupport
+import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
@@ -15,7 +17,7 @@ struct PageContextMenuGestureTests {
         let hosting = FakeChromiumHosting()
         hosting.preference = chromium ? .chromium : .webkit
         let descriptor = PageDescriptor(id: "test.menu-gesture", resource: "menu-gesture", processGroup: .solo, namespaces: [])
-        let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], chromium: hosting))
+        let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], chromium: hosting, deadlines: .testing()))
         view.chromiumDeadlines = LifecycleDeadlineRig.never
         await view.chromiumStart?.value
         defer { view.close() }

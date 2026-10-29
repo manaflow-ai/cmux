@@ -47,7 +47,8 @@ fn a_wait_on_a_peer_session_wakes_only_on_its_change() {
     let hub = hub();
     paused_runtime().block_on(async {
         let cfg = crate::config::Config::default();
-        let (lease, _) = hub.lease_peer("vm", "ws://127.0.0.1:9", "t".into(), None, &cfg).unwrap();
+        let (lease, _) =
+            hub.lease_peer("vm", "ws://127.0.0.1:9", "t".into(), None, false, &cfg).unwrap();
         hub.apply_peer_notice("vm", lease.generation, PeerNotice::Sessions(vec![row("running")]));
         let params = json!({"sessions": ["m1"], "until": ["ready"]});
         let wakes = Arc::new(Wakes::default());
@@ -79,7 +80,8 @@ fn a_peer_session_forgotten_here_wakes_a_wait_for_its_close() {
     let hub = hub();
     paused_runtime().block_on(async {
         let cfg = crate::config::Config::default();
-        let (lease, _) = hub.lease_peer("vm", "ws://127.0.0.1:9", "t".into(), None, &cfg).unwrap();
+        let (lease, _) =
+            hub.lease_peer("vm", "ws://127.0.0.1:9", "t".into(), None, false, &cfg).unwrap();
         hub.apply_peer_notice("vm", lease.generation, PeerNotice::Sessions(vec![row("idle")]));
         let params = json!({"sessions": ["m1"], "until": ["closed"]});
         let wakes = Arc::new(Wakes::default());
@@ -105,7 +107,8 @@ fn a_wait_on_a_peer_session_answers_at_its_deadline() {
     let hub = hub();
     paused_runtime().block_on(async {
         let cfg = crate::config::Config::default();
-        let (lease, _) = hub.lease_peer("vm", "ws://127.0.0.1:9", "t".into(), None, &cfg).unwrap();
+        let (lease, _) =
+            hub.lease_peer("vm", "ws://127.0.0.1:9", "t".into(), None, false, &cfg).unwrap();
         hub.apply_peer_notice("vm", lease.generation, PeerNotice::Sessions(vec![row("running")]));
         let params = json!({"sessions": ["m1"], "until": ["ready"], "timeoutMs": 5000});
         let wakes = Arc::new(Wakes::default());

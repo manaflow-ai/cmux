@@ -75,11 +75,13 @@ public struct StackSymbolicator: Sendable {
     ///   - returnAddress: The frame is a return address (every frame but the crashed one).
     /// - Returns: The demangled function and the offset into it.
     public func executableFunction(uuid: String, imageOffset: UInt, returnAddress: Bool) -> (symbol: String, offset: UInt)? {
-        guard let header = _dyld_get_image_header(0), let own = AppSymbolMap.uuid(of: header),
+        guard let image = AppSymbolMap.executableImage(), let own = image.uuid,
               own.uuidString.caseInsensitiveCompare(uuid) == .orderedSame else { return nil }
-        let base = UInt(bitPattern: header)
-        let found = frame(index: returnAddress ? 1 : 0, address: base &+ imageOffset, executable: UnsafeRawPointer(header),
-                          functionStarts: { FunctionStarts.read(header: UnsafeRawPointer($0)) })
+        let found = frame(index: returnAddress ? 1 : 0, address: image.loadAddress &+ imageOffset, executable: image.loadAddress,
+                          functionStarts: { base in
+                              // SAFETY: the header of the image dladdr found at `base` (header(at:)).
+                              unsafe Self.header(at: base).flatMap { unsafe FunctionStarts.read(header: $0) }
+                          })
         guard let symbol = found.symbol else { return nil }
         return (symbol, found.offset)
     }

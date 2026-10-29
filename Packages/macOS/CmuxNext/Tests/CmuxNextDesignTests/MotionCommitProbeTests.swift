@@ -72,7 +72,7 @@ import Testing
     /// commit order (one after the probe's `beforeOrder`) it is still clear, and before the run loop
     /// waits it is opaque, so the card shows in the frame of the key that opened it, with no flash and
     /// no extra commit.
-    @Test(.enabled("needs a screen and animation speed on, or every popup snaps") { await PopupGrowMotionTests.queuesAnimations() })
+    @Test(.enabled("needs a screen and animation speed on, or every popup snaps") { await GUIAnimationTestSupport.queuesAnimations() })
     func aPopupTurnsOpaqueRightAfterTheCommitOfItsOpensTurn() throws {
         Motion.reduceMotionOverride = false
         defer { Motion.reduceMotionOverride = nil }

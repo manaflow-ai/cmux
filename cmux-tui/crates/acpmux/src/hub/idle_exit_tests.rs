@@ -116,6 +116,8 @@ async fn idle_exit_a_pending_permission_is_live() {
         decision_nonce: "n1".into(),
         ancestor_may_answer: false,
         prev_status: SessionStatus::Running,
+        agent_request: None,
+        agent_host_incarnation: None,
     };
     session.permissions.lock().unwrap().pending.insert("r1".into(), pending);
     assert_eq!(hub.live_agent_count(), 1);
@@ -162,6 +164,7 @@ async fn idle_exit_a_waiting_continuation_is_live() {
     *session.turn.lock().unwrap() = Some(turn("t1"));
     assert!(hub.take_turn(&session, "t1").is_some());
     let cut = auto_resume::CutTurn {
+        from: None,
         prompt_id: "p1",
         turn_id: "t1",
         control: Control::Local,
