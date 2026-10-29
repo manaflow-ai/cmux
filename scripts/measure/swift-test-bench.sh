@@ -26,8 +26,10 @@
 #          "before" half of an A/B whose harness exists only at the head. Each
 #          PATH must be a file at SHA.
 # config=debug|release
-#          build and run the tests in this configuration (`-c release`); default
-#          debug. A benchmark of optimized code (MainTurnMeterBench) needs release.
+#          build and run the tests in this configuration; default debug. release is
+#          package-test-lane.sh's release suite build: `-c release` with -enable-testing
+#          (@testable imports), -DDEBUG and CopyPropagation off. A benchmark of optimized
+#          code (MainTurnMeterBench) needs it.
 # enable=CMUX_<NAME>_BENCH
 #          set this one benchmark switch to 1 for the test run: a bench suite that
 #          is disabled unless its switch is set (MainTurnMeterBench: CMUX_MAIN_TURN_BENCH).
@@ -36,6 +38,8 @@
 # test fails; it never retries. The checkout goes back to the step's own commit
 # when the script ends.
 set -euo pipefail
+# Byte ranges in the argument checks ([A-Z] matches only ASCII letters), as the controller's.
+export LC_ALL=C
 
 # The whole script is one function, read before it runs: source= replaces the
 # checkout's files, this one included.
@@ -166,7 +170,7 @@ main() {
   note "- measured tree: $(git rev-parse HEAD) (step commit $step_ref)"
   note "- package: $package"
   note "- filter: $filter"
-  note "- configuration: ${config:-debug}${bench_switch:+, $bench_switch=1}"
+  note "- configuration: ${config:-debug}${config_args[*]:+ (${config_args[*]})}${bench_switch:+, $bench_switch=1}"
   if [[ -n "$restore_sha" ]]; then
     note "- restored from $restore_sha: ${restore_paths[*]}"
     git diff --stat HEAD -- "${restore_paths[@]}" | tee -a "$report"
