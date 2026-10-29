@@ -35,7 +35,7 @@ await requireBrowserLane("tray-composer-alignment.test.ts", async () => {
     browser = await chromium.launch({ headless: true });
     await warmGalleryFrame(vite, "agent-pane.subagent-tray", {
       browser,
-      params: { variant: "alignment-collapsed", theme: "Apple System Colors" },
+      params: { variant: "panel-118", theme: "Apple System Colors" },
     });
   });
   afterAll(async () => {
@@ -362,6 +362,15 @@ await requireBrowserLane("tray-composer-alignment.test.ts", async () => {
               await page.evaluate(
                 () => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))),
               );
+              await page.waitForFunction(
+                (expected) => {
+                  const inset = document
+                    .querySelector<HTMLElement>(".acpmux-dock")!
+                    .style.getPropertyValue("--acpmux-tray-end-inset");
+                  return Math.abs(Number.parseFloat(inset) - expected) < 0.05;
+                },
+                Number.parseFloat(beforeActionMutation) - 12,
+              );
               const afterActionMutation = await page.evaluate(() => {
                 const dock = document.querySelector<HTMLElement>(".acpmux-dock")!;
                 return dock.style.getPropertyValue("--acpmux-tray-end-inset");
@@ -526,82 +535,91 @@ await requireBrowserLane("tray-composer-alignment.test.ts", async () => {
 
   // The large fixture opens all 118 rows and scrolls the list. Check both ends of its
   // scroll range: native scrollbars must not move the rows off the pinned header/footer.
-  for (const width of [720, 260])
-    for (const scheme of ["light", "dark"])
-      test(`many subagents (${scheme}, ${width}px): header, rows and footer share the grid`, async () => {
-        const page = await browser!.newPage({ viewport: { width, height: 720 } });
-        try {
-          await page.goto(stageURL("panel-118", scheme));
-          await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
-          await page.locator(".acpmux-running-tray__finished").waitFor();
-          await page.evaluate(() => document.fonts.ready);
-          const problems: string[] = [];
-          for (const scroll of ["top", "bottom"] as const) {
-            await page.locator(".acpmux-running-tray__list").evaluate((list, scroll) => {
-              list.scrollTop = scroll === "top" ? 0 : list.scrollHeight;
-            }, scroll);
-            await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
-            const measured = await page.evaluate(() => {
-              const bounds = (node: Element) => {
-                const box = node.getBoundingClientRect();
-                return {
-                  left: box.left,
-                  right: box.right,
-                  height: box.height,
-                  center: (box.left + box.right) / 2,
-                };
-              };
-              const tray = document.querySelector(".acpmux-running-tray")!;
-              const rows = [
-                ...tray.querySelectorAll(
-                  ".acpmux-running-tray__head, .acpmux-agent-line__button, .acpmux-running-tray__finished",
-                ),
-              ];
-              return {
-                composer: bounds(document.querySelector('[data-alignment-surface="composer"]')!),
-                tray: bounds(tray),
-                rows: rows.map((row) => {
-                  const icon = row.querySelector('[data-alignment-column="left-icon"]');
-                  const chevron = row.querySelector(".acpmux-running-tray__chevron, .acpmux-agent-line__chevron");
-                  const text = row.querySelector(".acpmux-summary-text")!;
+  for (const scrollers of ["overlay", "legacy"])
+    for (const width of [720, 260])
+      for (const scheme of ["light", "dark"])
+        test(`many subagents (${scheme}, ${width}px, ${scrollers}): header, rows and footer share the grid`, async () => {
+          const page = await browser!.newPage({ viewport: { width, height: 720 } });
+          try {
+            await page.goto(stageURL("panel-118", scheme));
+            await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
+            await page.locator(".acpmux-running-tray__finished").waitFor();
+            await page.evaluate(() => document.fonts.ready);
+            await page.evaluate((mode) => {
+              document.documentElement.dataset.scrollers = mode;
+            }, scrollers);
+            const problems: string[] = [];
+            for (const scroll of ["top", "bottom"] as const) {
+              await page.locator(".acpmux-running-tray__list").evaluate((list, scroll) => {
+                list.scrollTop = scroll === "top" ? 0 : list.scrollHeight;
+              }, scroll);
+              await page.evaluate(
+                () => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))),
+              );
+              const measured = await page.evaluate(() => {
+                const bounds = (node: Element) => {
+                  const box = node.getBoundingClientRect();
                   return {
-                    name: row.className,
-                    box: bounds(row),
-                    icon: icon ? bounds(icon) : null,
-                    chevron: chevron ? bounds(chevron) : null,
-                    text: bounds(text),
+                    left: box.left,
+                    right: box.right,
+                    height: box.height,
+                    center: (box.left + box.right) / 2,
                   };
-                }),
-                count: tray.querySelectorAll(".acpmux-agent-line").length,
+                };
+                const tray = document.querySelector(".acpmux-running-tray")!;
+                const rows = [
+                  ...tray.querySelectorAll(
+                    ".acpmux-running-tray__head, .acpmux-agent-line__button, .acpmux-running-tray__finished",
+                  ),
+                ];
+                return {
+                  composer: bounds(document.querySelector(".acpmux-composer-box")!),
+                  tray: bounds(tray),
+                  rows: rows.map((row) => {
+                    const icon = row.querySelector('[data-alignment-column="left-icon"]');
+                    const chevron = row.querySelector(".acpmux-running-tray__chevron, .acpmux-agent-line__chevron");
+                    const text = row.querySelector(".acpmux-summary-text")!;
+                    return {
+                      name: row.className,
+                      box: bounds(row),
+                      icon: icon ? bounds(icon) : null,
+                      chevron: chevron ? bounds(chevron) : null,
+                      text: bounds(text),
+                    };
+                  }),
+                  count: tray.querySelectorAll(".acpmux-agent-line").length,
+                };
+              });
+              const evidenceDir = process.env.CMUX_ALIGNMENT_CAPTURE_DIR ?? "/tmp/grid-stack-columns";
+              await mkdir(evidenceDir, { recursive: true });
+              const key = `panel-118-${scheme}-${width}-${scrollers}-${scroll}`;
+              await page.screenshot({ path: path.join(evidenceDir, `${key}.png`), fullPage: true });
+              await writeFile(path.join(evidenceDir, `${key}.json`), JSON.stringify(measured, null, 2));
+              console.log(JSON.stringify({ variant: "panel-118", scheme, width, scroll, measured }));
+              const check = (name: string, actual: number, expected: number) => {
+                if (Math.abs(actual - expected) > TOLERANCE)
+                  problems.push(`${scroll} ${name}: ${actual}px, expected ${expected}px`);
               };
-            });
-            const evidenceDir = process.env.CMUX_ALIGNMENT_CAPTURE_DIR ?? "/tmp/grid-stack-columns";
-            await mkdir(evidenceDir, { recursive: true });
-            const key = `panel-118-${scheme}-${width}-${scroll}`;
-            await page.screenshot({ path: path.join(evidenceDir, `${key}.png`), fullPage: true });
-            await writeFile(path.join(evidenceDir, `${key}.json`), JSON.stringify(measured, null, 2));
-            console.log(JSON.stringify({ variant: "panel-118", scheme, width, scroll, measured }));
-            const check = (name: string, actual: number, expected: number) => {
-              if (Math.abs(actual - expected) > TOLERANCE)
-                problems.push(`${scroll} ${name}: ${actual}px, expected ${expected}px`);
-            };
-            check("surface left", measured.tray.left, measured.composer.left);
-            check("surface right", measured.tray.right, measured.composer.right);
-            expect(measured.count, "large fixture must render every agent").toBe(118);
-            expect(measured.rows.length, "header plus agents plus footer").toBe(120);
-            for (const [index, row] of measured.rows.entries()) {
-              check(`row ${index} left edge`, row.box.left, measured.composer.left);
-              check(`row ${index} right edge`, row.box.right, measured.composer.right);
-              check(`row ${index} height`, row.box.height, 28);
-              check(`row ${index} text`, row.text.left - measured.composer.left, 44);
-              if (row.icon) check(`row ${index} leading center`, row.icon.center - measured.composer.left, 22);
-              if (row.chevron) check(`row ${index} trailing center`, measured.composer.right - row.chevron.center, 22);
-              else problems.push(`${scroll} row ${index}: missing chevron`);
+              check("surface left", measured.tray.left, measured.composer.left);
+              check("surface right", measured.tray.right, measured.composer.right);
+              expect(measured.count, "large fixture must render every agent").toBe(118);
+              expect(measured.rows.length, "header plus agents plus footer").toBe(120);
+              for (const [index, row] of measured.rows.entries()) {
+                check(`row ${index} left edge`, row.box.left, measured.composer.left);
+                check(`row ${index} right edge`, row.box.right, measured.composer.right);
+                check(`row ${index} height`, row.box.height, 28);
+                check(`row ${index} text`, row.text.left - measured.composer.left, 44);
+                if (row.text.right - row.text.left < 43.5)
+                  problems.push(`row ${index}: text column has no useful width`);
+                if (row.icon) check(`row ${index} leading center`, row.icon.center - measured.composer.left, 22);
+                if (row.chevron)
+                  check(`row ${index} trailing center`, measured.composer.right - row.chevron.center, 22);
+                else problems.push(`${scroll} row ${index}: missing chevron`);
+              }
             }
+            expect(problems).toEqual([]);
+          } finally {
+            await page.close();
           }
-          expect(problems).toEqual([]);
-        } finally {
-          await page.close();
-        }
-      });
+        });
 });

@@ -564,12 +564,12 @@ button.cv-subagent > :last-child {
 .acpmux-running-tray[data-alignment-surface="tray"] .acpmux-running-tray__head {
   position: relative;
   display: grid;
-  grid-template-columns: var(--grid-tray-control) minmax(0, 1fr) minmax(0, var(--acpmux-tray-time-width)) minmax(0, var(--acpmux-tray-status-width)) var(--acpmux-tray-actions-width);
+  grid-template-columns: var(--grid-tray-control) minmax(var(--grid-tray-text), 1fr) minmax(0, var(--acpmux-tray-time-width)) minmax(0, var(--acpmux-tray-status-width)) var(--acpmux-tray-actions-width);
   padding-inline: var(--grid-tray-inset);
 }
 .acpmux-running-tray[data-alignment-surface="tray"] .acpmux-agent-line__button {
   display: grid;
-  grid-template-columns: var(--grid-tray-control) minmax(0, 1fr) minmax(0, var(--acpmux-tray-time-width)) minmax(0, var(--acpmux-tray-status-width));
+  grid-template-columns: var(--grid-tray-control) minmax(var(--grid-tray-text), 1fr) minmax(0, var(--acpmux-tray-time-width)) minmax(0, var(--acpmux-tray-status-width));
   padding-left: var(--grid-tray-inset);
 }
 .acpmux-running-tray[data-alignment-surface="tray"] :is(.acpmux-running-tray__time, .acpmux-running-tray__status, .acpmux-agent-line__time, .acpmux-agent-line__status) {
@@ -837,4 +837,14 @@ button.cv-subagent > :last-child {
     opacity: 0;
     translate: 0 -0.4em;
   }
+}
+
+/* Legacy scrollbars reserve a lane. Rows continue under that lane like transcript
+   rows, so the pinned header/footer and the list keep the same right edge. */
+:root[data-scrollers="legacy"] .acpmux-running-tray__list {
+  overflow-y: scroll;
+  overflow-x: hidden;
+}
+:root[data-scrollers="legacy"] .acpmux-running-tray__list > li {
+  width: calc(100% + var(--cmux-scroller-size));
 }
