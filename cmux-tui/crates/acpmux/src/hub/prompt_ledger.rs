@@ -65,7 +65,8 @@ impl Hub {
         }
         let mut turn_id: Option<String> = None;
         let mut ended: Option<Value> = None;
-        // The inbox digest that took it, once one did (`inbox_digest.rs`).
+        // The inbox digest that took it, once one did (`inbox_digest.rs`). Its turn is the
+        // digest's only once the digest's turn starts: one that never did gave it back.
         let mut digest: Option<String> = None;
         let _ = self.store.scan(&session.id, 0, &mut |rec| {
             let field = |k: &str| rec.msg.get(k).and_then(Value::as_str);
@@ -105,17 +106,14 @@ impl Hub {
                 {
                     turn_id = rec.msg["joinedTurnId"].as_str().map(str::to_owned);
                 }
-                // Taken into an inbox digest (`inbox_digest.rs`): the digest's turn, the one its
-                // `user_message` names (a steer goes into the turn that ran then).
+                // Taken into an inbox digest (`inbox_digest.rs`): its `dequeued` record names it,
+                // and so does the digest's own `queued` record, logged first.
                 ("dequeued", Some(id))
                     if field("turnId") == Some(id.as_str())
                         && field("digestPromptId").is_some() =>
                 {
                     digest = field("digestPromptId").map(str::to_owned);
-                    turn_id = field("digestTurnId").map(str::to_owned);
                 }
-                // The digest's own record names it too, so a stop that cut its `dequeued`
-                // record still finds that turn.
                 ("queued", Some(_))
                     if digest.is_none()
                         && super::digest::inbox_digest::took(&rec.msg)
@@ -123,9 +121,9 @@ impl Hub {
                             .any(|id| id == prompt_id) =>
                 {
                     digest = field("promptId").map(str::to_owned);
-                    turn_id = field("turnId").map(str::to_owned);
-                    ended = None;
                 }
+                // The digest's turn started: the one its `user_message` names (a steer goes into
+                // the turn that ran then) is this prompt's.
                 ("user_message", Some(_))
                     if digest.is_some() && field("promptId") == digest.as_deref() =>
                 {

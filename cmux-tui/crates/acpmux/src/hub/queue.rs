@@ -858,6 +858,7 @@ impl Hub {
         let mut pair_records: Vec<EventRecord> = Vec::new();
         let mut recorded: std::collections::HashSet<String> = Default::default();
         let mut unstarted = lost_start::Unstarted::default();
+        let mut digests = super::digest::inbox_digest::Restore::default();
         let mut branch = session.meta().git_branch;
         let scanned =
             self.store.scan_kinds(&session.id, Self::QUEUE_KINDS, &mut |e: EventRecord| {
@@ -865,6 +866,7 @@ impl Hub {
                     waiting.remove_turn(Some(&turn_id));
                     order.remove(&prompt_id);
                 }
+                digests.read(&e, &mut waiting, &mut order);
                 let turn_id = e.msg.get("turnId");
                 // Queued or run again under another turn id (a daemon that had not restored it
                 // took its id as new): that copy is the prompt's, so this one does not run too.
@@ -892,18 +894,18 @@ impl Hub {
                         {
                             order.prioritize_restart(id);
                         }
-                        // An inbox digest names the messages it took: none runs on its own
-                        // again, even one whose `dequeued` record the stop cut off. It holds the
-                        // queue's order with it in it too, as its `queue_order` record does.
-                        for id in super::digest::inbox_digest::took(&e.msg) {
-                            waiting.remove_prompt(&id);
-                            order.remove(&json!(id));
-                        }
+                        // An inbox digest holds the queue's order with it in it, as its
+                        // `queue_order` record does.
                         if super::digest::inbox_digest::is_digest_record(&e.msg)
                             && let Some(ids) = e.msg.get("order").and_then(Value::as_array)
                         {
                             order.set(ids.iter());
                             unstarted.lead(&mut order);
+                        }
+                        // Put back after a failed turn (`requeue_joined`): this copy replaces
+                        // the one the turn took (an inbox digest's message is still waiting).
+                        if e.msg.get("requeued") == Some(&Value::Bool(true)) {
+                            waiting.remove_turn(turn_id);
                         }
                         waiting.push(e);
                     }
@@ -920,13 +922,9 @@ impl Hub {
                     "dequeued" | "user_message" if unstarted.holds(turn_id) => {
                         unstarted.lead(&mut order);
                     }
-                    // An inbox digest steered in leaves the queue before its steer is written:
-                    // it still waits until its `user_message` (another turn's, so it goes by its
-                    // prompt id above) or a refusal says it went or never will.
-                    "dequeued" if waiting.is_digest_turn(turn_id) => {}
-                    "prompt_refused" if waiting.is_digest_turn(turn_id) => {
-                        waiting.remove_turn(turn_id);
-                    }
+                    // Taken into an inbox digest: it waits until that digest's turn starts
+                    // (`inbox_digest::Restore`).
+                    "dequeued" if e.msg.get("digestPromptId").is_some() => {}
                     "dequeued" | "queue_removed" | "user_message" | "turn_started" => {
                         waiting.remove_turn(turn_id);
                     }
@@ -1000,6 +998,10 @@ impl Hub {
         }
         self.restore_agent_pairs(&session.id, pair_records, &recorded);
         session.moving.lock().unwrap_or_else(|e| e.into_inner()).clone_from(&moving);
+        // An inbox digest whose turn never started gives its messages back in its place.
+        digests.dissolve(&mut waiting, &mut order, |id, order| {
+            unstarted.key(Some(&json!(id)), order).unwrap_or_else(|| order.key(Some(&json!(id))))
+        });
         let mut waiting = waiting.into_records();
         if scanned.is_err() || waiting.is_empty() {
             return;
