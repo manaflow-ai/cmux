@@ -6952,6 +6952,12 @@ function AcpmuxPane() {
   /// Why the host could not hand this pane acpmux (not installed, a daemon that will not start),
   /// in the host's words; cleared once a handshake succeeds.
   const [hostError, setHostError] = useState<string | undefined>();
+  // The host failed before its handshake: the chat view (its error card and composer) takes the
+  // New Tab page's place until a retry answers, then gives it back (`showNewTab`). What was typed
+  // goes along each way (the page's `onLeaveDraft`, `takeDraft`); before, it was dropped both ways.
+  const hostFailedEarly = useRef(false);
+  hostFailedEarly.current = !handshaken && hostError !== undefined;
+  const composerStoodIn = useRef(false);
   /// A daemon/socket is recovering. While true the old error is retained for diagnostics but never
   /// painted as an alert; a successful client clears it, and a non-retryable refusal remains red.
   const [hostRetrying, setHostRetrying] = useState(false);
@@ -8923,6 +8929,17 @@ function AcpmuxPane() {
     (sessionSelection?.state === "pending" || !snapshot.sessionId) &&
     snapshot.rows.length === 0 &&
     (handshaken || hostError === undefined);
+  // The chat view stands in for the New Tab page now: the page takes its composer's draft back.
+  if (newTab !== undefined && !showNewTab && hostFailedEarly.current) composerStoodIn.current = true;
+  else if (snapshot.sessionId) composerStoodIn.current = false;
+  // Read while the page renders, before the composer it replaces unmounts.
+  const takeStandInDraft = useCallback(() => {
+    if (!composerStoodIn.current) return undefined;
+    composerStoodIn.current = false;
+    const text = prompt.current?.value() ?? "";
+    const attachments = composerHandle.current?.wakeState().attachments ?? [];
+    return text.trim() || attachments.length ? { text, attachments } : undefined;
+  }, []);
   useEffect(() => {
     if (inspectorOpen || diffView || artifact || imageView || harnessesOpen || showNewTab || replaying) {
       clearWorkflowSideTab();
@@ -10353,6 +10370,7 @@ function AcpmuxPane() {
                 );
               }}
               key={newTabGeneration}
+              takeDraft={takeStandInDraft}
               environments={preview}
               // The tab's run, found by a read, takes the chat view: the page's draft goes to its composer.
               onLeaveDraft={(text, attachments) => {
@@ -10360,7 +10378,14 @@ function AcpmuxPane() {
                 const handed = newTabSandboxSent.current;
                 newTabSandboxSent.current = false;
                 const view = sandbox.view();
-                if (handed || !view || sandboxRetryable(view)) return;
+                if (handed) return;
+                if (!view || sandboxRetryable(view)) {
+                  // The chat view stands in while the host fails before its handshake: it keeps the draft.
+                  if (!hostFailedEarly.current) return;
+                  if (composerHandle.current) composerHandle.current.restore(text, attachments);
+                  else heldBack.current = [...(heldBack.current ?? []), { text, attachments }];
+                  return;
+                }
                 heldBack.current = [...(heldBack.current ?? []), { text: text.trim() ? text : "", attachments }];
                 setSandboxDraftMoved(true);
               }}
