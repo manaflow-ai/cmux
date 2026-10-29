@@ -321,7 +321,6 @@ pub fn is_tailnet_ip(ip: IpAddr) -> bool {
 #[cfg(all(test, unix))]
 mod cli_tests {
     use super::*;
-    use std::os::unix::fs::PermissionsExt;
 
     /// A fake `tailscale` in a fresh folder: `body` is the shell after `#!/bin/sh`.
     fn fake(name: &str, body: &str) -> PathBuf {
@@ -332,8 +331,7 @@ mod cli_tests {
         ));
         std::fs::create_dir_all(&dir).unwrap();
         let bin = dir.join("tailscale");
-        std::fs::write(&bin, format!("#!/bin/sh\n{body}\n")).unwrap();
-        std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+        crate::test_exec::write_executable(&bin, format!("#!/bin/sh\n{body}\n"));
         bin
     }
 

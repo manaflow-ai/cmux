@@ -409,9 +409,10 @@ pub fn receive(
         let sniffed = crate::hub::prompt_images::sniffed_type(&bytes);
         let mime = sniffed.unwrap_or("application/octet-stream");
         saved.push(format!("- {} ({mime}, {})", path.display(), mib(bytes.len())));
-        blocks[index] = match image_type(&bytes) {
+        let Some(block) = blocks.get_mut(index) else { continue };
+        *block = match image_type(&bytes) {
             Some(mime) => json!({"type": "image", "mimeType": mime, "name": name,
-                                 "data": data_of(&blocks[index]).unwrap_or_default()}),
+                                 "data": data_of(block).unwrap_or_default()}),
             None => {
                 json!({"type": "resource_link", "uri": file_uri(&path), "name": name, "mimeType": mime})
             }

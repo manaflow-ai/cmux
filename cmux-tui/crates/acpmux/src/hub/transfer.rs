@@ -333,7 +333,7 @@ impl Hub {
         let Some(split) = bytes.iter().position(|b| *b == b'\n') else {
             return Err(anyhow::anyhow!("Pi session file has no header"));
         };
-        let mut header: Value = serde_json::from_slice(&bytes[..split])?;
+        let mut header: Value = serde_json::from_slice(bytes.get(..split).unwrap_or_default())?;
         let id = header.get("id").and_then(Value::as_str);
         if header.get("type").and_then(Value::as_str) != Some("session")
             || header.get("cwd").and_then(Value::as_str).is_none()
@@ -346,7 +346,7 @@ impl Hub {
         header["cwd"] = Value::String(cwd.to_string_lossy().into_owned());
         let mut out = serde_json::to_vec(&header)?;
         out.push(b'\n');
-        out.extend_from_slice(&bytes[split + 1..]);
+        out.extend_from_slice(bytes.get(split + 1..).unwrap_or_default());
         Ok(out)
     }
 

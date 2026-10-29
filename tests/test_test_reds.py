@@ -53,6 +53,38 @@ class Replay26346(unittest.TestCase):
         self.assertIn("crashed (signal 6)", json.loads(done.stdout)["reasons"][0])
 
 
+class KnownIssueSuiteCompletion(unittest.TestCase):
+    # Reduced from the #27127 comparison: a completed ClassicUpgradeSimulationTests suite
+    # was treated as unfinished even though its known-issue test and run summary were read.
+    def setUp(self):
+        self.whole = (FIXTURES / "known-issue-suite.log").read_text()
+
+    def test_a_completed_known_issue_suite_does_not_hide_a_shared_red(self):
+        self.assertEqual(reds.read(self.whole).truncated, [])
+        both = log(failed("unrelated()"), SUMMARY) + "\n" + self.whole
+        verdict = reds.classify(both, both)
+        self.assertFalse(verdict.own, verdict.reasons)
+        self.assertEqual(verdict.shared, ["unrelated()"])
+
+    def test_a_known_issue_marker_does_not_excuse_missing_completion(self):
+        for end in ("━ Test aRunCutOffMidwayFinishesWithoutDuplicates() passed",
+                    "━ Suite ClassicUpgradeSimulationTests passed", "━ Test run with"):
+            with self.subTest(end=end):
+                cut = "\n".join(line for line in self.whole.splitlines() if not line.startswith(end))
+                verdict = reds.classify(cut, cut)
+                self.assertTrue(verdict.own)
+                self.assertIn("per-test results are not whole", verdict.reasons[0])
+                if end.startswith("━ Suite"):
+                    self.assertIn("suite(s) started and never finished: ClassicUpgradeSimulationTests",
+                                  verdict.reasons[0])
+
+    def test_a_crash_after_a_completed_known_issue_suite_is_still_its_own(self):
+        crashed = self.whole + "\n" + ABORT
+        verdict = reds.classify(crashed, crashed)
+        self.assertTrue(verdict.own)
+        self.assertIn("crashed (signal 6)", verdict.reasons[0])
+
+
 class PerTest(unittest.TestCase):
     def test_the_same_test_failing_on_both_sides_is_a_base_red(self):
         verdict = reds.classify(log(failed("a()"), SUMMARY), log(failed("a()"), failed("b()"), SUMMARY))

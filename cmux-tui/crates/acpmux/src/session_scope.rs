@@ -489,7 +489,7 @@ const PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
 fn probe(runner: &std::path::Path, properties: &[String], env: &BTreeMap<String, String>) -> bool {
     let mut argv = scope_argv("", None, "acpmux scope probe", properties);
     argv.push("true".to_owned());
-    run_bounded(runner, &argv[1..], env, false).is_some()
+    run_bounded(runner, argv.get(1..).unwrap_or_default(), env, false).is_some()
 }
 
 /// Runs `program args` with `env` on top of the daemon's and no input; its
@@ -855,10 +855,10 @@ mod tests {
         let holder = std::thread::spawn(move || {
             // A `systemctl` that says it started, then stalls.
             let stall = std::env::temp_dir().join(format!("acpmux-stall-{}", std::process::id()));
-            std::fs::write(&stall, format!("#!/bin/sh\n: > '{}'\nsleep 2\n", seen.display()))
-                .unwrap();
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&stall, std::fs::Permissions::from_mode(0o755)).unwrap();
+            crate::test_exec::write_executable(
+                &stall,
+                format!("#!/bin/sh\n: > '{}'\nsleep 2\n", seen.display()),
+            );
             let wanted = [("TasksMax", "1".to_owned())];
             go.send(()).unwrap();
             let _ = limit_slice(&stall, "acpmuxunused.slice", &wanted, &BTreeMap::new());
