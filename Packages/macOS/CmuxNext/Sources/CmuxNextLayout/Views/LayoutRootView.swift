@@ -41,6 +41,21 @@ public final class LayoutRootView: NSView {
     var ownerDecidedAtTouch = false
     /// What focus-follows-mouse reads besides the model (`LayoutRootView+ScrollFocus`).
     let scrollFocusSignals: ScrollFocusSignals
+    /// Asks a web page whether it keeps a Command scroll (`layout.pagesHandleCommandScroll`); nil:
+    /// every Command scroll is the layout's.
+    let pageCommandScroll: (any PageCommandScrollArbiter)?
+    /// The Command scroll from a page window held while its page is asked (`LayoutRootView+PageScroll`).
+    var pageProbe: PageProbe?
+    /// The task that asks the page for ``pageProbe``, and the one that stops waiting for it at
+    /// ``pageProbeDeadline``; tests await them.
+    var pageProbeTask: Task<Void, Never>?
+    var pageProbeDeadlineTask: Task<Void, Never>?
+    /// How long a held Command scroll waits for its page's answer before the columns take it:
+    /// about two frames, longer than a page's answer takes when its renderer is not stuck.
+    var pageProbeDeadline: Duration = .milliseconds(120)
+    var pageProbeGeneration: UInt64 = 0
+    /// The last wheel answer of a page window, reused for the notches of one spin.
+    var wheelPageAnswer: WheelPageAnswer?
     /// The pane the pointer was last over (`layout.focusFollowsMouse` hover): focus moves
     /// only when the pointer enters another pane, so a keyboard move is not undone by a
     /// small pointer twitch inside the pane it left.
@@ -136,11 +151,15 @@ public final class LayoutRootView: NSView {
     /// tests inject a manual clock.
     /// `scrollFocusSignals` feeds focus-follows-mouse (`layout.focusFollowsMouse`);
     /// tests inject fixed values.
+    /// `pageCommandScroll` asks a web page whether it keeps a Command scroll
+    /// (`layout.pagesHandleCommandScroll`); nil gives every Command scroll to the layout.
     public init(model: LayoutModel, contentProvider: any LayoutPaneContentProvider,
                 scrollbarClock: any Clock<Duration> = ContinuousClock(),
-                scrollFocusSignals: ScrollFocusSignals = ScrollFocusSignals()) {
+                scrollFocusSignals: ScrollFocusSignals = ScrollFocusSignals(),
+                pageCommandScroll: (any PageCommandScrollArbiter)? = nil) {
         self.model = model
         self.scrollFocusSignals = scrollFocusSignals
+        self.pageCommandScroll = pageCommandScroll
         self.context = LayoutViewContext(model: model, provider: contentProvider, scrollbarClock: scrollbarClock)
         super.init(frame: .zero)
         wantsLayer = true
