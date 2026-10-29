@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { cloudChatState, type CloudChatIdentity, type CloudChatState } from "./cloudChatRecovery";
 import { postNative } from "./native";
+import { NativeError } from "./nativeError";
 import { useT } from "./i18n";
 
 type Props = {
@@ -19,9 +20,11 @@ export function useCloudChatRecovery({ cloud, session, active, recheck }: Props)
   const [error, setError] = useState(false);
   const [readRevision, setReadRevision] = useState(0);
   const actionGeneration = useRef(0);
+  const resumeInFlight = useRef(false);
   const identity = cloud ? JSON.stringify(cloud) : undefined;
   useEffect(() => {
     actionGeneration.current += 1;
+    resumeInFlight.current = false;
     setResuming(false);
     setError(false);
     return () => {
@@ -30,10 +33,14 @@ export function useCloudChatRecovery({ cloud, session, active, recheck }: Props)
   }, [identity, session]);
   useEffect(() => {
     if (!active) {
+      resumeInFlight.current = false;
       setResuming(false);
       setState(undefined);
     }
   }, [active]);
+  useEffect(() => {
+    if (!resuming) resumeInFlight.current = false;
+  }, [resuming]);
   useEffect(() => {
     let disposed = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -64,7 +71,12 @@ export function useCloudChatRecovery({ cloud, session, active, recheck }: Props)
           return;
         }
         retry();
-      } catch {
+      } catch (cause) {
+        if (resuming && cause instanceof NativeError && cause.retryable === false) {
+          setResuming(false);
+          setError(true);
+          return;
+        }
         retry();
       }
     };
@@ -76,7 +88,8 @@ export function useCloudChatRecovery({ cloud, session, active, recheck }: Props)
   }, [identity, session, active, resuming, recheck, readRevision]);
 
   const resume = () => {
-    if (!cloud || resuming) return;
+    if (!cloud || resuming || resumeInFlight.current) return;
+    resumeInFlight.current = true;
     setError(false);
     // Send the native call synchronously from the click: it consumes this gesture. The existing
     // attach path resumes this machine for either Cloud backend without opening another workspace.
@@ -85,6 +98,7 @@ export function useCloudChatRecovery({ cloud, session, active, recheck }: Props)
     setResuming(true);
     void action.catch(() => {
       if (actionGeneration.current === generation) {
+        resumeInFlight.current = false;
         setResuming(false);
         setError(true);
       }
