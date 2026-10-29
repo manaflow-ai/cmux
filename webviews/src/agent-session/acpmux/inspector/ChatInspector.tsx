@@ -45,7 +45,7 @@ import {
 import { flushSync } from "react-dom";
 import { usePresence, type Presence } from "../../../ui/presence";
 import { useChatDisplay } from "../chatDisplay";
-import { chatColumnOf, useChatWidth, type ChatColumn } from "../chatWidth";
+import { chatColumnOf, useChatSizing, type ChatColumn } from "../chatWidth";
 import { PanelToggle } from "../header/PanelToggle";
 import { useHeaderState, type HeaderPullRequest } from "../header/headerState";
 import { useTabRow } from "../header/tabRow";
@@ -602,7 +602,8 @@ function InspectorPresence({
 }) {
   const { width, sections } = useInspectorState(chat);
   const display = useChatDisplay();
-  const column = chatColumnOf(useChatWidth(), display);
+  const sizing = useChatSizing();
+  const column = chatColumnOf(sizing.width, display, sizing.scale);
   // It slides in from the pane's right edge and back out (ui/presence.ts), keeping its sections
   // while it leaves.
   const presence = usePresence(shown, "right");

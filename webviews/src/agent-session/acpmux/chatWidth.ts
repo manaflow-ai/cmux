@@ -35,7 +35,8 @@ const isChatWidth = (value: unknown): value is ChatWidth =>
 
 let current: ChatWidth = "standard";
 const listeners = new Set<() => void>();
-type Snapshot = { width: ChatWidth; scale: number };
+export type ChatSizing = { width: ChatWidth; scale: number };
+type Snapshot = ChatSizing;
 
 const readUIScale = (): number => {
   if (typeof document === "undefined") return 1;
@@ -118,6 +119,9 @@ const snapshot = () => currentSnapshot;
 
 /// The live choice, so layouts measured at the old column are measured again.
 export const useChatWidth = (): ChatWidth => useSyncExternalStore(subscribe, snapshot, snapshot).width;
+/// The live choice and the effective page zoom it is sized at, as one subscribed snapshot. Pass
+/// `scale` on explicitly: a zero-argument read can be memoized across renders by React Compiler.
+export const useChatSizing = (): ChatSizing => useSyncExternalStore(subscribe, snapshot, snapshot);
 
 /// The effective page zoom currently used by chat sizing, for callers that need the same snapshot
 /// while deriving a secondary layout measurement.
