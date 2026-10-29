@@ -243,6 +243,16 @@ const modelRows = (popup: HTMLElement) => [
 ];
 const modelNames = (popup: HTMLElement) =>
   modelRows(popup).map((row) => row.querySelector(".acpmux-menu-label")?.textContent ?? "");
+const currentEffortSegments = (popup: HTMLElement) => {
+  const row = modelRows(popup).find((item) => item.querySelector(".acpmux-menu-label")?.textContent === "Opus 5.5");
+  return row
+    ? [
+        ...row
+          .closest<HTMLElement>(".acpmux-quick-model-effort")!
+          .querySelectorAll<HTMLElement>(".acpmux-quick-effort-segment"),
+      ]
+    : [];
+};
 const railTabs = () => [...menu()!.querySelectorAll<HTMLElement>(".acpmux-quick-rail-tab")];
 const key = (value: string) =>
   act(async () => {
@@ -293,14 +303,16 @@ test("the compact chip names the model and its effort, and a click opens the sho
   expect(menu()?.querySelector(".ui-menu-group-label")).toBeNull();
   expect(doc().querySelector(".acpmux-mp")).toBeNull();
   const rows = itemsOf(menu()!);
-  expect(rows.some((row) => row?.startsWith("Effort") && row.includes("Medium"))).toBe(true);
+  const segments = currentEffortSegments(menu()!);
+  expect(segments.map((segment) => segment.textContent?.replace(/^✓/, "").trim())).toEqual(["Low", "Medium", "High"]);
+  expect(segments.find((segment) => segment.getAttribute("aria-checked") === "true")?.textContent).toContain("Medium");
   expect(rows.some((row) => row?.startsWith("Provider"))).toBe(true);
-  // Claude Code's order: the models, Effort, More models, then Provider last.
+  // Claude Code's order: the models (with inline effort), More models, then Provider last.
   expect(
     rows
-      .filter((row) => /^(Effort|More models|Provider)/.test(row ?? ""))
-      .map((row) => row?.match(/^(Effort|More models|Provider)/)?.[0]),
-  ).toEqual(["Effort", "More models", "Provider"]);
+      .filter((row) => /^(More models|Provider)/.test(row ?? ""))
+      .map((row) => row?.match(/^(More models|Provider)/)?.[0]),
+  ).toEqual(["More models", "Provider"]);
 });
 
 test("the optional reasoning slider replaces Effort's levels only when enabled", async () => {
@@ -334,11 +346,13 @@ test("a number key picks that model in place", async () => {
 test("Effort lists the model's levels and a pick sends it", async () => {
   const { sent } = await mount({ routes: [] });
   await open();
-  const effort = await openSub("Effort");
-  expect(itemsOf(effort)).toEqual(["Low", "Medium", "High"]);
-  const high = [...effort.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find(
-    (item) => item.textContent?.trim() === "High",
-  )!;
+  const effort = menu()!;
+  expect(currentEffortSegments(effort).map((item) => item.textContent?.replace(/^✓/, "").trim())).toEqual([
+    "Low",
+    "Medium",
+    "High",
+  ]);
+  const high = currentEffortSegments(effort).find((item) => item.textContent?.replace(/^✓/, "").trim() === "High")!;
   await act(async () => high.click());
   await settle();
   expect(sent).toEqual([{ method: "effort", value: "high" }]);
@@ -549,9 +563,7 @@ test("the rail tab and the typed filter survive the composer re-rendering", asyn
 test("typing keeps keyboard focus in the menu when the focused row goes away", async () => {
   await mount({ routes: [] });
   await open();
-  const effort = [...menu()!.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((item) =>
-    item.textContent?.startsWith("Effort"),
-  )!;
+  const effort = modelRows(menu()!)[0]!;
   await act(async () => effort.focus());
   const typeAt = (value: string) =>
     act(async () => {
@@ -699,9 +711,11 @@ test("Fast mode is a checkbox row after Provider, checked from the session, and 
   const fast = () => menu()!.querySelector<HTMLElement>('.acpmux-quick-fast[role="menuitemcheckbox"]')!;
   expect(fast()).not.toBeNull();
   expect(fast().getAttribute("aria-checked")).toBe("false");
-  const effort = await openSub("Effort");
-  expect(effort.textContent).not.toMatch(/fast/i);
-  expect(itemsOf(effort)).toEqual(["Low", "Medium", "High"]);
+  expect(currentEffortSegments(menu()!).map((item) => item.textContent?.replace(/^✓/, "").trim())).toEqual([
+    "Low",
+    "Medium",
+    "High",
+  ]);
   await act(async () => fast().click());
   await settle();
   expect(sent).toEqual([{ method: "effort", value: "on" }]);
