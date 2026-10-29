@@ -1,0 +1,20 @@
+name: Cloud capture account provision
+
+# The real workflow lives on feat-cmux-next (cloud-capture-provision.yml there, docs/ci-sealed-secrets.md):
+# it provisions the staging Cloud capture test account and seals its credential. GitHub registers a dispatch
+# workflow only from the default branch, so this file is on main too. Dispatch it with
+# `--ref feat-cmux-next`; a run on main does nothing.
+
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  provision:
+    if: github.ref == 'refs/heads/feat-cmux-next'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 1
+    steps:
+      - name: Registration stub
+        run: echo "Dispatch with --ref feat-cmux-next; main only registers this workflow."
