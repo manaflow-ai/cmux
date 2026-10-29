@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextDesign
 @testable import CmuxNextApp
@@ -103,6 +104,43 @@ struct SidebarOptimisticSaveTests {
         withExtendedLifetime(window.state) {}
     }
 
+    /// Pin Workspace on a daemon without `workspace-pin-v1`: the row goes back at once, and says why (it was silent).
+    @Test func pinOnADaemonThatCannotPinSaysWhy() throws {
+        let window = try Self.window()
+        let bridge = window.bridge
+        bridge.handle(.setPinned([WorkspaceID("w1")], true))
+        #expect(Self.pinned(bridge).isEmpty, "the pin stayed on a daemon that cannot pin")
+        #expect(window.notices.shown.count == 1, "the refused pin showed no error: \(window.notices.shown)")
+        withExtendedLifetime(window.state) {}
+    }
+
+    /// Pin Group on a home daemon without `workspace-group-pin-v1`: no change, and the person sees why.
+    @Test func groupPinOnADaemonThatCannotPinSaysWhy() throws {
+        let window = try Self.window()
+        let bridge = window.bridge
+        let group = try #require(bridge.model.sections.flatMap(\.nodes).compactMap { node -> GroupID? in
+            if case let .group(group) = node { group.id } else { nil }
+        }.first)
+        bridge.handle(.setGroupPinned(group, true))
+        #expect(window.notices.shown.count == 1, "the refused group pin showed no error: \(window.notices.shown)")
+        withExtendedLifetime(window.state) {}
+    }
+
+    /// Rename Workspace with a name (the palette prompt, the CLI, MCP): the name shows in the input's turn, and a
+    /// failed save takes it back and says why. It waited for the daemon's echo, and a failure was only logged.
+    @Test func renameWithANameShowsAtOnceAndRollsBackWithAnError() async throws {
+        let services = LayoutTemplateTests.services()
+        let id = try LayoutTemplateTests.workspace(services, key: "ws-rename", name: "api")
+        let store = services.machines.local.store
+        let rename = ActionInvocation(target: ActionTargetRef(kind: .workspace, id: id), arguments: ["name": .string("Renamed")], origin: .cli)
+        let work = services.registry.capturingWork { _ = services.registry.perform("renameWorkspace", invocation: rename) }
+        #expect(store.workspaces.first?.name == "Renamed", "the new name waited for the daemon's echo")
+        var failures: [String] = []
+        for task in work { if let failure = await task.value { failures.append(failure.message) } }
+        #expect(store.workspaces.first?.name == "api", "the name stayed after its save failed")
+        #expect(failures.count == 1, "the failed rename reported no error: \(failures)")
+    }
+
     /// Group rename on the personal path already held as a pending edit; its failed save now also says so.
     @Test func groupRenameRollsBackWithAnError() async throws {
         let window = try Self.window()
@@ -187,6 +225,27 @@ struct SidebarDocOptimisticGroupTests {
         let store = try await Self.store()
         Self.send(.ungroup(GroupID("g_g-work")), to: store)
         #expect(Self.groups(store)["g_g-work"] == nil, "Delete Group waited for the daemon's echo")
+    }
+
+    /// A move into a group created a moment ago (its create still in flight) is the document's: it read the
+    /// confirmed records, which do not have the group yet, and fell back to the older path.
+    @Test func aMoveIntoANewGroupIsTakenBeforeItsEcho() async throws {
+        let store = try await Self.store()
+        Self.send(.createGroup(GroupID("g_new"), name: "Fresh", color: .green, workspaces: [WorkspaceID("scratch")]), to: store)
+        let drag = SidebarDocDrag(item: { key in if case let .workspace(id) = key { "w_\(id.rawValue)" } else { nil } }, section: { _ in SidebarGroupDragRailTests.section }, begin: { _ in [:] }, drop: { _, _ in })
+        let handled = store.handle(.move([WorkspaceID("docs")], toGroup: GroupID("g_new")), model: SidebarModel(), drag: drag, pinTitle: "Pin", unpinTitle: "Unpin")
+        #expect(handled, "the document did not take a move into the new group before its echo")
+    }
+
+    /// A collapse the document refuses at once (it is not active yet) says why, as a later refusal does.
+    @Test func aCollapseRefusedAtOnceSaysWhy() {
+        let store = SidebarDocStore(remote: Remote(refuses: false)) // never loaded: not active
+        let refusals = SidebarOptimisticSaveTests.Notices()
+        store.onRefused = { refusals.shown.append($0) }
+        var folded = true
+        store.setGroupCollapsed("g_g-work", true) { folded = false }
+        #expect(!folded, "the refused fold kept its look")
+        #expect(refusals.shown.count == 1, "the refused collapse showed no error")
     }
 
     @Test func aRefusedRenameComesBackWithAnError() async throws {
