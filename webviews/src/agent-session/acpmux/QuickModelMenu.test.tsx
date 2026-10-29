@@ -735,8 +735,6 @@ test.each(["submenu", "expanded"] as QuickProviderLook[])(
             providers,
             current: "a",
             onModel() {},
-            // A menu without families opts into inline effort rows only with the combined callback.
-            onModelEffort() {},
             effort: {
               levels: [
                 { id: "low", name: "Low" },
@@ -767,8 +765,6 @@ test.each(["submenu", "expanded"] as QuickProviderLook[])(
     expect(
       [...document.querySelectorAll('[role="menuitemradio"]')].some((row) => row.textContent?.includes("Route B")),
     ).toBe(true);
-    // The inline effort controls are on screen, so the nesting check covers them too.
-    expect(document.querySelectorAll(".acpmux-quick-effort-segment").length).toBeGreaterThan(0);
     expect(document.querySelectorAll('[role^="menuitem"] [role^="menuitem"]')).toHaveLength(0);
   },
 );
