@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 @testable import CmuxNextAgentPane
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
@@ -153,6 +154,28 @@ struct NewTabHoldFocusTests {
             #expect(seam.stage(.newTab).count == before + 2, "the held keys did not go to the page's field: \(input.log)")
             #expect(window.firstResponder === page.focusTarget, "the page's field never got the keyboard")
             #expect(!input.isHolding(in: window))
+        }
+    }
+
+    /// A dead keyboard on a New Tab page whose field never comes (review finding 6a): keys typed after Cmd-T wait for the
+    /// field, and before, every chord typed after them waited too. An app command (Cmd-B, a key bound to a cmux action)
+    /// acts at once and never waits behind held text. (Whether the action also ends this hold is finding 2's question:
+    /// here the page opened in a pane the focus model had not reached.)
+    @Test func anAppCommandNeverWaitsBehindKeysHeldForAPage() async throws {
+        try await Self.withUnreadyPage { h in
+            let (services, window, other) = (h.services, h.window, h.other)
+            let router = services.keyRouter
+            let input = router.newTabInputCoordinator
+            _ = try #require(input.begin(for: other))
+            input.didShow(in: window)
+            #expect(router.interceptKeyDown(try Self.key("h", keyCode: 4, in: window), in: window), "the hold did not take the key")
+            var ran: [ActionID] = []
+            services.registry.willRunObservers.append { id, _ in ran.append(id) }
+            let sidebar = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.command],
+                                                        timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                                                        context: nil, characters: "b", charactersIgnoringModifiers: "b", isARepeat: false, keyCode: 11))
+            _ = router.interceptKeyDown(sidebar, in: window)
+            #expect(ran.contains("toggleSidebar"), "Cmd-B waited behind the keys held for the page: \(input.log)")
         }
     }
 }

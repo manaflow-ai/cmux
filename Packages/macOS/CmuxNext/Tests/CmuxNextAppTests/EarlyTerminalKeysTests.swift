@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
 import CmuxNextFocus
@@ -450,6 +451,54 @@ struct EarlyTerminalKeysTests {
             #expect(coordinator.replayedCount == before, "keys typed for the terminal the person left ran somewhere: \(Self.held(h))")
             #expect(!next, "the key after the move waited: \(Self.held(h))")
             #expect(coordinator.heldCount(in: window) == 0, "keys typed for the terminal the person left still wait: \(Self.held(h))")
+        }
+    }
+
+    private static func chord(_ characters: String, keyCode: UInt16, _ modifiers: NSEvent.ModifierFlags, in window: NSWindow) throws -> NSEvent {
+        try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: modifiers, timestamp: ProcessInfo.processInfo.systemUptime,
+                                      windowNumber: window.windowNumber, context: nil, characters: characters,
+                                      charactersIgnoringModifiers: characters, isARepeat: false, keyCode: keyCode))
+    }
+
+    /// A dead keyboard (review finding 6, lead's decision 4a): a creation whose focus never lands holds a typed key, and
+    /// before, every later key waited behind it (Escape and Cmd-Q too) with nothing to end the wait. App commands (a
+    /// key bound to a cmux action, a menu key equivalent, Escape) are never held: they act on the model at once, as
+    /// Chrome runs browser shortcuts before the page. Only input for the new target waits (text, Return, Ctrl-C, Cmd-V,
+    /// which the target's view takes). Escape ends the wait: the held key drops with a reason and nothing holds the
+    /// window's keys.
+    @Test func appCommandsAndEscapeNeverWaitBehindAHeldKey() async throws {
+        try await Self.withTerminal { h in
+            let (controller, window) = (h.controller, h.window)
+            let router = h.services.keyRouter
+            let coordinator = router.creationInputCoordinator
+            // A creation whose reply never comes in this test: its target never takes keys.
+            _ = try #require(coordinator.begin(in: window, generation: controller.focus.state.generation))
+            #expect(router.interceptKeyDown(try Self.key("a", keyCode: 0, in: window), in: window), "the key was not held: \(Self.held(h))")
+            let before = coordinator.replayedCount
+            var ran: [ActionID] = []
+            h.services.registry.willRunObservers.append { id, _ in ran.append(id) }
+
+            // Cmd-B (Toggle Sidebar) runs now, not behind the held key.
+            _ = router.interceptKeyDown(try Self.chord("b", keyCode: 11, [.command], in: window), in: window)
+            #expect(ran.contains("toggleSidebar"), "Cmd-B waited behind a held key: \(Self.held(h))")
+            #expect(coordinator.heldCount(in: window) == 1, "Cmd-B was held: \(Self.held(h))")
+
+            // What waits and what acts at once (Cmd-Q is not dispatched here: it would quit the test run).
+            let kind = { (event: NSEvent) in CreationInputCoordinator.heldKeyKind(event, in: window, controller: controller, router: router) }
+            #expect(kind(try Self.chord("q", keyCode: 12, [.command], in: window)) == .command, "Cmd-Q would wait behind held text")
+            #expect(kind(try Self.chord("w", keyCode: 13, [.command], in: window)) == .close)
+            #expect(kind(try Self.key("\u{1b}", keyCode: 53, in: window)) == .command, "Escape would wait behind held text")
+            #expect(kind(try Self.chord("v", keyCode: 9, [.command], in: window)) == .input, "Cmd-V is input for the new target")
+            #expect(kind(try Self.chord("c", keyCode: 8, [.control], in: window)) == .input, "Ctrl-C is input for the new terminal")
+            #expect(kind(try Self.key("x", keyCode: 7, in: window)) == .input)
+
+            // Escape ends the wait: the held key drops with a reason, never runs, and the window holds nothing.
+            #expect(!router.interceptKeyDown(try Self.key("\u{1b}", keyCode: 53, in: window), in: window), "Escape was held: \(Self.held(h))")
+            #expect(coordinator.heldCount(in: window) == 0, "the held key still waits after Escape: \(Self.held(h))")
+            #expect(!coordinator.isHolding(in: window), "the window still holds keys after Escape: \(Self.held(h))")
+            #expect(router.inputQueues.existing(for: window.windowNumber)?.counts.dropped == 1, "the held key did not drop with a reason")
+            #expect(coordinator.replayedCount == before, "the held key ran somewhere")
+            #expect(coordinator.heldKeyProblems().isEmpty, "HK1: \(coordinator.heldKeyProblems())")
         }
     }
 

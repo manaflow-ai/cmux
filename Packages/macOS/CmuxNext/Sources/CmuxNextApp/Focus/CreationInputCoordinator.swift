@@ -318,10 +318,25 @@ final class CreationInputCoordinator {
 
     /// Whether `event`'s binding in `controller`'s focus is a close action (Close Tab, Cmd-W).
     static func closes(_ event: NSEvent, in window: NSWindow, controller: WindowController, router: KeyRouter) -> Bool {
-        guard KeyRouter.isChord(event.modifierFlags) else { return false }
+        heldKeyKind(event, in: window, controller: controller, router: router) == .close
+    }
+
+    /// What a key typed while keys are held is: a close key, an app command, or input for the target it was typed for.
+    enum HeldKeyKind: Equatable {
+        /// A close action (Close Tab, Cmd-W): it acts now on what it closes.
+        case close
+        /// An app command: it acts on the model at once and never waits behind held input.
+        case command
+        /// Input for the target's view: it waits for that target, in typed order.
+        case input
+    }
+
+    /// The kind of `event` in `controller`'s focus.
+    static func heldKeyKind(_ event: NSEvent, in window: NSWindow, controller: WindowController?, router: KeyRouter) -> HeldKeyKind {
+        guard KeyRouter.isChord(event.modifierFlags), let controller else { return .input }
         let context = router.keyContext(for: controller.focus.currentState(), facts: router.facts(in: window, controller: controller))
-        guard let binding = router.resolve(event, context: context) else { return false }
-        return WindowKeyTable.isClose(binding.command)
+        guard let binding = router.resolve(event, context: context) else { return .input }
+        return WindowKeyTable.isClose(binding.command) ? .close : .input
     }
 
     /// Takes `event` while its window holds keys: it waits, stamped with the target it was typed for, unless nothing waits
