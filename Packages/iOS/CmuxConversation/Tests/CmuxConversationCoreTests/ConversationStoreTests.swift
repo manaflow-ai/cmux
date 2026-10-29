@@ -182,7 +182,7 @@ import Testing
         #expect(backend.sentClientIDs == ["client-2", "client-2"])
     }
 
-    @Test func laggedReconnectRebasesOnNewestAndKeepsPendingSends() async throws {
+    @Test func laggedReconnectMergesMissingPagesAndKeepsPendingSends() async throws {
         let backend = ScriptedBackend(total: 50)
         let store = ConversationStore(backend: backend, pageSize: 20, makeClientMessageID: { "client-3" })
         store.apply(.connected(info: backend.info, meID: "me", lagged: false))
@@ -191,8 +191,8 @@ import Testing
         store.send(text: "in flight")
         backend.total = 80
         store.apply(.connected(info: backend.info, meID: "me", lagged: true))
-        try await waitUntil { store.messages.first?.seq == 61 }
-        #expect(store.messages.compactMap(\.seq) == Array(61...80))
+        try await waitUntil { store.message(id: "m80") != nil }
+        #expect(store.messages.compactMap(\.seq) == Array(31...80))
         #expect(store.messages.last?.clientMessageID == "client-3")
         backend.releaseSend()
     }

@@ -17,7 +17,7 @@ public enum ConversationConnectionState: Sendable, Equatable {
 
 /// What changed, so the transcript can anchor scrolling correctly.
 public enum ConversationStoreChange: Sendable, Equatable {
-    /// The whole window was replaced (first load, lagged rebase).
+    /// The whole window was replaced (first load, trimming old history).
     case reset
     /// Older history was inserted above everything loaded.
     case prepended
@@ -556,15 +556,39 @@ public final class ConversationStore {
 
     private func loadNewest(rebase: Bool) {
         newestTask?.cancel()
+        // A reconnect keeps the loaded window visible. Remember its values so
+        // a history reply cannot overwrite a live update or local edit that
+        // lands while the missing pages are being fetched.
+        let retained = rebase && hasLoadedNewest
+            ? Dictionary(uniqueKeysWithValues: messages.map { ($0.id, $0) }) : nil
+        let overlap = retained?.values.compactMap(\.seq).max()
         newestTask = Task { [weak self] in
             var attempt = 0
             while !Task.isCancelled {
                 guard let self else { return }
                 do {
-                    let page = try await self.backend.history(beforeSeq: nil, limit: self.pageSize)
-                    self.applyNewest(page, rebase: rebase)
+                    var page = try await self.backend.history(beforeSeq: nil, limit: self.pageSize)
+                    try Task.checkCancellation()
+                    var pages = [page]
+                    // More than one page may have arrived while disconnected.
+                    // Merge only once the fetched window meets the kept one;
+                    // otherwise the transcript would contain a hidden gap.
+                    while let overlap, page.hasMore {
+                        guard let first = page.messages.compactMap(\.seq).min() else {
+                            throw ConversationBackendError(code: -1, message: "History made no progress while reconnecting")
+                        }
+                        guard first > overlap else { break }
+                        page = try await self.backend.history(beforeSeq: first, limit: self.pageSize)
+                        try Task.checkCancellation()
+                        guard let next = page.messages.compactMap(\.seq).min(), next < first else {
+                            throw ConversationBackendError(code: -1, message: "History made no progress while reconnecting")
+                        }
+                        pages.append(page)
+                    }
+                    self.applyNewest(pages, retained: retained)
                     return
                 } catch {
+                    guard !Task.isCancelled else { return }
                     attempt += 1
                     try? await self.clock.sleep(for: Self.backoff(attempt))
                 }
@@ -572,21 +596,39 @@ public final class ConversationStore {
         }
     }
 
-    private func applyNewest(_ page: ConversationHistoryPage, rebase: Bool) {
-        if rebase || !hasLoadedNewest {
+    private func applyNewest(_ pages: [ConversationHistoryPage], retained: [String: ConversationMessage]?) {
+        guard let newest = pages.first else { return }
+        var inserted: [String] = []
+        if let retained {
+            for page in pages.reversed() {
+                for message in page.messages {
+                    // Current state changed after this fetch began: it wins
+                    // over the snapshot, including a send acknowledged live.
+                    if let current = self.message(id: message.id), current != retained[message.id] { continue }
+                    if upsert(message) { inserted.append(message.rowID) }
+                }
+            }
+            sortAndReindex()
+            // The pager belongs to the oldest kept message, not the newest
+            // fetched page. In particular, an in-flight older page still owns
+            // its loading/retrying state and may land normally after this.
+            if retained.values.allSatisfy({ $0.seq == nil }), older == .idle {
+                older = newest.hasMore ? .idle : .exhausted
+            }
+        } else if !hasLoadedNewest {
             let pending = messages.filter { $0.seq == nil }
             messages = []
             indexByID = [:]
-            for message in page.messages { upsert(message) }
+            for message in newest.messages { upsert(message) }
             for message in pending { upsert(message) }
             sortAndReindex()
+            older = newest.hasMore ? .idle : .exhausted
         }
         hasLoadedNewest = true
         let buffered = bufferedLive
         bufferedLive = []
         for message in buffered { ingestBuffered(message) }
-        older = page.hasMore ? .idle : .exhausted
-        notify(.reset)
+        notify(retained == nil ? .reset : .live(insertedRowIDs: inserted, sentByMe: false))
         refreshReadState()
         if olderWanted { loadOlder() }
     }
