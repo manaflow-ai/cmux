@@ -183,7 +183,8 @@ extension GitHubConnections {
         let auth = cloud.auth
         let transport = InstallHTTPTransport(baseURL: cloud.configuration.ownerAPIBaseURL())
         let current: @MainActor () -> Scope? = {
-            guard !preview, auth.isSignedIn, let user = auth.user?.id else { return nil }
+            guard !preview, auth.isSignedIn, let user = auth.user?.id,
+                  auth.managedTeamID == nil || auth.teamID != nil else { return nil }
             return Scope(user: backendUser(project: auth.configuration.stackProjectID, stackUser: user), team: auth.teamID)
         }
         return GitHubConnections(scope: current, call: { bound, op, params, mutationKey in

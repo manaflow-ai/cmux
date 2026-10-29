@@ -147,6 +147,43 @@ import Testing
         #expect(keys[0] != keys[1])
     }
 
+    @Test func aRefusalFromAnOlderGenerationCannotClearANewKey() async {
+        var current: GitHubConnections.Scope? = self.scope
+        var firstResult: CheckedContinuation<JSONValue, Error>?
+        var secondResult: CheckedContinuation<JSONValue, Error>?
+        var started: CheckedContinuation<Void, Never>?
+        var secondStarted: CheckedContinuation<Void, Never>?
+        var keys: [String] = []
+        let other = GitHubConnections.Scope(user: "other", team: nil)
+        let model = GitHubConnections(scope: { current }, call: { _, op, _, key in
+            if op == "integration.connect" {
+                keys.append(key ?? "")
+                if keys.count == 1 {
+                    started?.resume()
+                    started = nil
+                    return try await withCheckedThrowingContinuation { firstResult = $0 }
+                }
+                secondStarted?.resume()
+                secondStarted = nil
+                return try await withCheckedThrowingContinuation { secondResult = $0 }
+            }
+            return self.listing
+        }, open: { _ in })
+        let first = Task { await model.perform("githubConnect") }
+        await withCheckedContinuation { started = $0 }
+        current = other
+        await model.perform("githubRefresh")
+        current = self.scope
+        let second = Task { await model.perform("githubConnect") }
+        await withCheckedContinuation { secondStarted = $0 }
+        firstResult?.resume(throwing: GitHubConnections.GitHubFailure.refused)
+        await first.value
+        secondResult?.resume(throwing: URLError(.networkConnectionLost))
+        await second.value
+        #expect(keys.count == 2)
+        #expect(keys[0] != keys[1])
+    }
+
     @Test func restoredPendingConnectionDoesNotCreateADuplicate() async {
         var connects = 0
         var opened = 0

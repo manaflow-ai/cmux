@@ -103,7 +103,8 @@ public final class GitHubConnections {
                 connectKeys[bound] = nil
             }
         } catch {
-            if action == "githubConnect", let failure = error as? GitHubFailure, case .refused = failure {
+            if action == "githubConnect", generation == ticket, scope() == bound,
+               let failure = error as? GitHubFailure, case .refused = failure {
                 // A definitive API refusal is replayed under its mutation key.
                 // Transport failures keep the key because the mutation may have succeeded.
                 connectKeys[bound] = nil
