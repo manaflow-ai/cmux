@@ -10,7 +10,7 @@ import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("tray-composer-alignment.test.ts", async () => {
-  const TOLERANCE = 1;
+  const TOLERANCE = 0.5;
   setDefaultTimeout(300_000);
   const webviews = path.resolve(import.meta.dir, "..");
   const { createServer } = await import("vite");
@@ -230,6 +230,31 @@ await requireBrowserLane("tray-composer-alignment.test.ts", async () => {
                     node.closest(".acpmux-agent-line")?.querySelector(".acpmux-agent-line__stop-slot > button"),
                   ),
                 })),
+                headerChevron: (() => {
+                  const node = document.querySelector<HTMLElement>(
+                    '[data-alignment-surface="tray"] .acpmux-running-tray__head .acpmux-running-tray__chevron',
+                  );
+                  return node ? rectFrom(node) : null;
+                })(),
+                footerChevron: (() => {
+                  const node = document.querySelector<HTMLElement>(
+                    '[data-alignment-surface="tray"] .acpmux-running-tray__finished .acpmux-running-tray__chevron',
+                  );
+                  return node ? rectFrom(node) : null;
+                })(),
+                gridRows: [
+                  ...document.querySelectorAll<HTMLElement>(
+                    '[data-alignment-surface="tray"] .acpmux-running-tray__head, [data-alignment-surface="tray"] .acpmux-agent-line__button',
+                  ),
+                ].map((row) => ({
+                  box: rectFrom(row),
+                  icon: rectFrom(row.querySelector<HTMLElement>('[data-alignment-column="left-icon"]')!),
+                })),
+                textColumns: [
+                  ...document.querySelectorAll<HTMLElement>(
+                    '[data-alignment-surface="tray"] .acpmux-running-tray__head .acpmux-running-tray__title, [data-alignment-surface="tray"] .acpmux-running-tray__list .acpmux-summary-text',
+                  ),
+                ].map(rectFrom),
               };
             });
             if (variant === "alignment-collapsed" && width === 720 && plainFooter && scheme === "dark") {
@@ -377,35 +402,24 @@ await requireBrowserLane("tray-composer-alignment.test.ts", async () => {
             const checks = {
               surfaceStart: Math.abs(result.tray.left - result.composer.left),
               surfaceEnd: Math.abs(result.tray.right - result.composer.right),
-              leadingSize: Math.abs(result.plus.width - (width === 260 ? 24 : 28)),
-              trailingSize: Math.abs(result.mic.width - 28),
-              leftColumn: Math.abs(center(result.trayLeft) - center(result.plus)),
-              rightColumn: Math.abs(center(result.trayRight) - center(result.mic)),
-              trayLeftInset: Math.abs(
-                center(result.trayLeft) - result.tray.left - (center(result.plus) - result.composer.left),
-              ),
-              composerLeftInset: Math.abs(
-                center(result.plus) - result.composer.left - (center(result.trayLeft) - result.tray.left),
-              ),
-              trayRightInset: Math.abs(
-                result.tray.right - center(result.trayRight) - (result.composer.right - center(result.mic)),
-              ),
-              composerRightInset: Math.abs(
-                result.composer.right - center(result.mic) - (result.tray.right - center(result.trayRight)),
-              ),
+              leadingSize: Math.abs(result.trayLeft.width - 28),
+              leftColumn: Math.abs(center(result.trayLeft) - result.composer.left - 22),
+              rightColumn: result.headerChevron
+                ? Math.abs(result.composer.right - center(result.headerChevron) - 22)
+                : Infinity,
               ...(result.rowLeft
                 ? {
-                    rowLeftColumn: Math.abs(center(result.rowLeft) - center(result.plus)),
+                    rowLeftColumn: Math.abs(center(result.rowLeft) - result.composer.left - 22),
                   }
                 : {}),
               ...(result.rowRight
                 ? {
-                    rowRightColumn: Math.abs(center(result.rowRight) - center(result.mic)),
+                    rowRightColumn: Math.abs(result.composer.right - center(result.rowRight) - 54),
                   }
                 : {}),
               ...(result.commandStop && result.commandRow
                 ? {
-                    commandRightColumn: Math.abs(center(result.commandStop) - center(result.mic)),
+                    commandRightColumn: Math.abs(result.composer.right - center(result.commandStop) - 54),
                     commandStopWithinRow: Math.max(
                       result.commandRow.top - result.commandStop.top,
                       result.commandStop.bottom - result.commandRow.bottom,
@@ -415,29 +429,42 @@ await requireBrowserLane("tray-composer-alignment.test.ts", async () => {
               ...Object.fromEntries(
                 result.subagentStops.map(({ stop }, index) => [
                   `subagentStopRightColumn${index}`,
-                  Math.abs(center(stop) - center(result.mic)),
+                  Math.abs(result.composer.right - center(stop) - 54),
                 ]),
               ),
               ...(result.noStopRight && result.noStopRow
                 ? {
-                    noStopRightColumn: Math.abs(center(result.noStopRight) - center(result.mic)),
-                    noStopRightInset: Math.abs(
-                      result.tray.right - center(result.noStopRight) - (result.composer.right - center(result.mic)),
-                    ),
+                    noStopRightColumn: Math.abs(result.composer.right - center(result.noStopRight) - 54),
+                    noStopRightInset: Math.abs(result.tray.right - center(result.noStopRight) - 54),
                   }
                 : {}),
               ...(result.finishedRight
-                ? { finishedRightColumn: Math.abs(center(result.finishedRight) - center(result.mic)) }
+                ? {
+                    finishedRightColumn: Math.abs(result.composer.right - center(result.finishedRight) - 22),
+                  }
                 : {}),
               ...Object.fromEntries(
-                result.chevrons.map(({ box, hasStop }, index) => [
+                result.chevrons.map(({ box }, index) => [
                   `chevronRightColumn${index}`,
-                  Math.abs(center(box) - (center(result.mic) - (hasStop ? 32 : 0))),
+                  Math.abs(result.tray.right - center(box) - 22),
                 ]),
               ),
+              headerChevronRightInset: result.headerChevron
+                ? Math.abs(result.tray.right - center(result.headerChevron) - 22)
+                : 0,
+              footerChevronRightInset: result.footerChevron
+                ? Math.abs(result.tray.right - center(result.footerChevron) - 22)
+                : 0,
+              rowHeight: Math.max(...result.gridRows.map(({ box }) => Math.abs(box.height - 28))),
+              rowLeadingCenter: Math.max(
+                ...result.gridRows.map(({ icon }) => Math.abs(center(icon) - result.composer.left - 22)),
+              ),
+              textColumnStart: result.textColumns.length
+                ? Math.max(...result.textColumns.map((text) => Math.abs(text.left - result.tray.left - 44)))
+                : 0,
             };
             console.log(JSON.stringify({ variant, scheme, width, plainFooter, result, checks }));
-            const evidenceDir = "/tmp/nx-tray-composer-align";
+            const evidenceDir = process.env.CMUX_ALIGNMENT_CAPTURE_DIR ?? "/tmp/grid-stack-columns";
             await mkdir(evidenceDir, { recursive: true });
             const evidenceKey = `${variant}-${scheme}-${width}-${plainFooter ? "plain" : "full"}`;
             await page.screenshot({
@@ -459,6 +486,12 @@ await requireBrowserLane("tray-composer-alignment.test.ts", async () => {
               }
             for (const [name, value] of Object.entries(checks))
               expect(value, `${name} drifted by ${value.toFixed(2)}px`).toBeLessThanOrEqual(TOLERANCE);
+            expect(result.headerChevron, "tray header chevron must be measurable").not.toBeNull();
+            if (result.headerChevron)
+              expect(Math.abs(result.tray.right - center(result.headerChevron) - 22)).toBeLessThanOrEqual(TOLERANCE);
+            if (result.footerChevron)
+              expect(Math.abs(result.tray.right - center(result.footerChevron) - 22)).toBeLessThanOrEqual(TOLERANCE);
+            expect(checks.textColumnStart).toBeLessThanOrEqual(TOLERANCE);
             for (const [name, value] of Object.entries(checks).filter(([name]) =>
               name.startsWith("subagentStopRightColumn"),
             ))
@@ -490,4 +523,85 @@ await requireBrowserLane("tray-composer-alignment.test.ts", async () => {
             }
             await page.close();
           });
+
+  // The large fixture opens all 118 rows and scrolls the list. Check both ends of its
+  // scroll range: native scrollbars must not move the rows off the pinned header/footer.
+  for (const width of [720, 260])
+    for (const scheme of ["light", "dark"])
+      test(`many subagents (${scheme}, ${width}px): header, rows and footer share the grid`, async () => {
+        const page = await browser!.newPage({ viewport: { width, height: 720 } });
+        try {
+          await page.goto(stageURL("panel-118", scheme));
+          await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
+          await page.locator(".acpmux-running-tray__finished").waitFor();
+          await page.evaluate(() => document.fonts.ready);
+          const problems: string[] = [];
+          for (const scroll of ["top", "bottom"] as const) {
+            await page.locator(".acpmux-running-tray__list").evaluate((list, scroll) => {
+              list.scrollTop = scroll === "top" ? 0 : list.scrollHeight;
+            }, scroll);
+            await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+            const measured = await page.evaluate(() => {
+              const bounds = (node: Element) => {
+                const box = node.getBoundingClientRect();
+                return {
+                  left: box.left,
+                  right: box.right,
+                  height: box.height,
+                  center: (box.left + box.right) / 2,
+                };
+              };
+              const tray = document.querySelector(".acpmux-running-tray")!;
+              const rows = [
+                ...tray.querySelectorAll(
+                  ".acpmux-running-tray__head, .acpmux-agent-line__button, .acpmux-running-tray__finished",
+                ),
+              ];
+              return {
+                composer: bounds(document.querySelector('[data-alignment-surface="composer"]')!),
+                tray: bounds(tray),
+                rows: rows.map((row) => {
+                  const icon = row.querySelector('[data-alignment-column="left-icon"]');
+                  const chevron = row.querySelector(".acpmux-running-tray__chevron, .acpmux-agent-line__chevron");
+                  const text = row.querySelector(".acpmux-summary-text")!;
+                  return {
+                    name: row.className,
+                    box: bounds(row),
+                    icon: icon ? bounds(icon) : null,
+                    chevron: chevron ? bounds(chevron) : null,
+                    text: bounds(text),
+                  };
+                }),
+                count: tray.querySelectorAll(".acpmux-agent-line").length,
+              };
+            });
+            const evidenceDir = process.env.CMUX_ALIGNMENT_CAPTURE_DIR ?? "/tmp/grid-stack-columns";
+            await mkdir(evidenceDir, { recursive: true });
+            const key = `panel-118-${scheme}-${width}-${scroll}`;
+            await page.screenshot({ path: path.join(evidenceDir, `${key}.png`), fullPage: true });
+            await writeFile(path.join(evidenceDir, `${key}.json`), JSON.stringify(measured, null, 2));
+            console.log(JSON.stringify({ variant: "panel-118", scheme, width, scroll, measured }));
+            const check = (name: string, actual: number, expected: number) => {
+              if (Math.abs(actual - expected) > TOLERANCE)
+                problems.push(`${scroll} ${name}: ${actual}px, expected ${expected}px`);
+            };
+            check("surface left", measured.tray.left, measured.composer.left);
+            check("surface right", measured.tray.right, measured.composer.right);
+            expect(measured.count, "large fixture must render every agent").toBe(118);
+            expect(measured.rows.length, "header plus agents plus footer").toBe(120);
+            for (const [index, row] of measured.rows.entries()) {
+              check(`row ${index} left edge`, row.box.left, measured.composer.left);
+              check(`row ${index} right edge`, row.box.right, measured.composer.right);
+              check(`row ${index} height`, row.box.height, 28);
+              check(`row ${index} text`, row.text.left - measured.composer.left, 44);
+              if (row.icon) check(`row ${index} leading center`, row.icon.center - measured.composer.left, 22);
+              if (row.chevron) check(`row ${index} trailing center`, measured.composer.right - row.chevron.center, 22);
+              else problems.push(`${scroll} row ${index}: missing chevron`);
+            }
+          }
+          expect(problems).toEqual([]);
+        } finally {
+          await page.close();
+        }
+      });
 });

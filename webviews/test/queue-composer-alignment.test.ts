@@ -78,6 +78,16 @@ await requireBrowserLane("queue-composer-alignment.test.ts", async () => {
                   box: rect(".acpmux-composer-box"),
                   queue: rect(".acpmux-composer-queue"),
                   fold: rect(".acpmux-queue-foldbar"),
+                  rows: [...document.querySelectorAll<HTMLElement>(".acpmux-queued")].map((row) => {
+                    const text = row.querySelector<HTMLElement>(".acpmux-queued-text")!;
+                    const actions = [...row.querySelectorAll<HTMLElement>(".acpmux-queued-action")];
+                    const last = actions.at(-1)!.getBoundingClientRect();
+                    return {
+                      text: text.getBoundingClientRect().left,
+                      lastCenter: (last.left + last.right) / 2,
+                      height: row.getBoundingClientRect().height,
+                    };
+                  }),
                   play: (window as Window & { cmuxGalleryPlayReport?: unknown }).cmuxGalleryPlayReport,
                 };
               });
@@ -101,8 +111,20 @@ await requireBrowserLane("queue-composer-alignment.test.ts", async () => {
               ] as const) {
                 for (const edge of ["left", "right"] as const) {
                   const delta = Math.abs(piece[edge] - measured.box[edge]);
-                  if (delta > 1) problems.push(`${state}: ${name} ${edge} differs from box by ${delta}px`);
+                  if (delta > 0.5) problems.push(`${state}: ${name} ${edge} differs from box by ${delta}px`);
                 }
+              }
+              expect(measured.rows.length).toBeGreaterThan(0);
+              for (const [index, row] of measured.rows.entries()) {
+                if (Math.abs(row.text - measured.box.left - 44) > 0.5)
+                  problems.push(
+                    `${state}: row ${index} text is ${row.text - measured.box.left}px from left, expected 44`,
+                  );
+                if (Math.abs(measured.box.right - row.lastCenter - 22) > 0.5)
+                  problems.push(
+                    `${state}: row ${index} final action is ${measured.box.right - row.lastCenter}px from right, expected 22`,
+                  );
+                if (row.height < 27.5) problems.push(`${state}: row ${index} is shorter than 28px`);
               }
               if (measured.fold.top < measured.queue.bottom - 1) problems.push(`${state}: fold overlaps queue`);
             }
@@ -112,4 +134,52 @@ await requireBrowserLane("queue-composer-alignment.test.ts", async () => {
             await page.close();
           }
         });
+  for (const width of [720, 260])
+    for (const scheme of ["light", "dark"])
+      test(`trust stack (${width}px, ${scheme}): surface and text share composer lines`, async () => {
+        const page = await browser.newPage({ viewport: { width, height: 660 } });
+        try {
+          const port = (vite.httpServer!.address() as { port: number }).port;
+          await page.goto(
+            `http://127.0.0.1:${port}` +
+              galleryFrame("agent-pane.bottom-stack", {
+                variant: "trust-permission-queue",
+                width,
+                frame: "component",
+                theme: scheme === "light" ? "Apple System Colors Light" : "Apple System Colors",
+                colorScheme: scheme,
+              }),
+          );
+          await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
+          await page.waitForSelector(".acpmux-trust-ask");
+          await page.evaluate(() => document.fonts.ready);
+          await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+          const measured = await page.evaluate(() => {
+            const rect = (selector: string) => {
+              const box = document.querySelector(selector)!.getBoundingClientRect();
+              return { left: box.left, right: box.right, top: box.top, bottom: box.bottom };
+            };
+            return {
+              composer: rect(".acpmux-composer-box"),
+              trust: rect(".acpmux-trust-ask"),
+              text: rect(".acpmux-trust-ask-text"),
+              stackGap: parseFloat(getComputedStyle(document.querySelector(".acpmux-dock")!).paddingTop),
+            };
+          });
+          const output = process.env.CMUX_ALIGNMENT_CAPTURE_DIR;
+          if (output) {
+            await mkdir(output, { recursive: true });
+            const name = `trust-${width}-${scheme}`;
+            await page.screenshot({ path: path.join(output, `${name}.png`) });
+            await writeFile(path.join(output, `${name}.json`), JSON.stringify(measured, null, 2));
+          }
+          console.log(JSON.stringify({ width, scheme, ...measured }));
+          for (const edge of ["left", "right"] as const)
+            expect(Math.abs(measured.trust[edge] - measured.composer[edge]), `trust ${edge}`).toBeLessThanOrEqual(0.5);
+          expect(Math.abs(measured.text.left - measured.composer.left - 44), "trust text").toBeLessThanOrEqual(0.5);
+          expect(measured.stackGap).toBe(16);
+        } finally {
+          await page.close();
+        }
+      });
 });

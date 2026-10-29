@@ -21,6 +21,8 @@
   display: contents;
 }
 .acpmux-main[data-dock="float"] > .acpmux-dock {
+  box-sizing: border-box;
+  padding-block-start: var(--grid-gap-composer);
   position: absolute;
   right: 0;
   bottom: 0;
@@ -55,13 +57,6 @@
   flex: none;
   display: flex;
   padding: 0 var(--cv-inset-end, var(--cv-inset)) 8px var(--cv-inset);
-}
-.acpmux-dock > .acpmux-agents-pill-anchor[data-alignment-inset="surface"] {
-  padding-inline: var(--acpmux-tray-surface-start, var(--cv-inset)) var(--acpmux-tray-surface-end, var(--cv-inset));
-}
-.acpmux-dock > .acpmux-asks-stack {
-  padding-inline-start: var(--acpmux-tray-surface-start, var(--cv-inset));
-  padding-inline-end: var(--acpmux-tray-surface-end, var(--cv-inset-end, var(--cv-inset)));
 }
 /* The tray of running subagents and background commands (subagents/SubagentTray.tsx), aligned
    with the composer card; in a short pane it gives up its height like the parts below. */
@@ -208,4 +203,18 @@
    cut there. */
 .acpmux-composer-queue > li {
   --ui-enter-distance: 0px;
+}
+
+/* The trust band uses the same observed surface edges as the tray and composer. */
+.acpmux-dock > .acpmux-asks-stack {
+  padding-inline: var(--acpmux-tray-surface-start, var(--cv-inset)) var(--acpmux-tray-surface-end, var(--cv-inset));
+}
+.acpmux-asks-stack > .acpmux-trust-ask {
+  min-height: var(--grid-row);
+  padding-inline: var(--grid-trust-bar-text) var(--grid-trust-bar-inset);
+}
+.acpmux-asks-stack > .acpmux-trust-ask .acpmux-trust-ask-action {
+  min-height: var(--grid-pill);
+  height: auto;
+  padding-block: var(--grid-pill-inset);
 }

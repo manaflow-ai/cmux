@@ -7,6 +7,7 @@
     {"name": "icon-box-comfortable", "pt": 20, "kind": "edge", "scaled": true, "description": "Comfortable sidebar and Home list icon box only"},
     {"name": "glyph", "pt": 12, "kind": "edge", "scaled": true, "description": "Small glyph centered inside its icon box"},
     {"name": "gap", "pt": 8, "kind": "edge", "scaled": true, "description": "Space after an icon or control box"},
+    {"name": "gap-composer", "pt": 16, "kind": "edge", "scaled": true, "description": "Transcript gap above the composer stack"},
     {"name": "row", "pt": 28, "kind": "edge", "scaled": true, "description": "Compact row height"},
     {"name": "row-comfortable", "pt": 32, "kind": "edge", "scaled": true, "description": "Comfortable row height"},
     {"name": "pill-inset", "pt": 2, "kind": "halfStep", "scaled": true, "description": "Vertical inset above and below a row highlight"},

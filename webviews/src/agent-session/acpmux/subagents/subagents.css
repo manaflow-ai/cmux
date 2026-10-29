@@ -429,7 +429,8 @@ button.cv-subagent > :last-child {
 .acpmux-running-tray {
   --acpmux-tray-time-width: 52px;
   --acpmux-tray-status-width: 96px;
-  --acpmux-tray-stop-width: 24px;
+  --acpmux-tray-stop-width: var(--grid-tray-control);
+  --acpmux-tray-actions-width: calc(2 * var(--grid-tray-control) + var(--grid-base));
   box-sizing: border-box;
   padding: 0;
   overflow: hidden;
@@ -555,80 +556,52 @@ button.cv-subagent > :last-child {
 .acpmux-running-tray__finished > svg {
   flex: none;
 }
-/* The tray follows the actual composer edges and leading/trailing control slots. Preserve the
-   tray's time/status tracks and reserved stop slots; only the outer geometry comes from below. */
+/* The observer supplies surface edges; every row uses the shared grid inside them.
+   Disclosure is the final column. Stop occupies the preceding control slot. */
 .acpmux-dock > .acpmux-running-tray[data-alignment-surface="tray"] {
-  --acpmux-tray-stop-width: var(--acpmux-tray-end-size, 28px);
   margin-inline: var(--acpmux-tray-surface-start, var(--cv-inset)) var(--acpmux-tray-surface-end, var(--cv-inset));
 }
 .acpmux-running-tray[data-alignment-surface="tray"] .acpmux-running-tray__head {
-  display: grid;
   position: relative;
-  grid-template-columns: var(--acpmux-tray-start-size, 28px) minmax(0, 1fr) minmax(0, var(--acpmux-tray-time-width)) minmax(0, var(--acpmux-tray-status-width)) var(--acpmux-tray-stop-width);
-  column-gap: 8px;
-  padding-inline: var(--acpmux-tray-start-inset, 8px) var(--acpmux-tray-end-inset, 8px);
+  display: grid;
+  grid-template-columns: var(--grid-tray-control) minmax(0, 1fr) minmax(0, var(--acpmux-tray-time-width)) minmax(0, var(--acpmux-tray-status-width)) var(--acpmux-tray-actions-width);
+  padding-inline: var(--grid-tray-inset);
 }
 .acpmux-running-tray[data-alignment-surface="tray"] .acpmux-agent-line__button {
   display: grid;
-  grid-template-columns: var(--acpmux-tray-start-size, 28px) minmax(0, 1fr) minmax(0, var(--acpmux-tray-time-width)) minmax(0, var(--acpmux-tray-status-width));
-  column-gap: 8px;
-  position: relative;
-  padding-left: var(--acpmux-tray-start-inset, 8px);
-  padding-right: calc(var(--acpmux-tray-end-inset, 8px) + var(--acpmux-tray-stop-width) + 8px);
+  grid-template-columns: var(--grid-tray-control) minmax(0, 1fr) minmax(0, var(--acpmux-tray-time-width)) minmax(0, var(--acpmux-tray-status-width));
+  padding-left: var(--grid-tray-inset);
 }
 .acpmux-running-tray[data-alignment-surface="tray"] :is(.acpmux-running-tray__time, .acpmux-running-tray__status, .acpmux-agent-line__time, .acpmux-agent-line__status) {
   min-width: 0;
   overflow: hidden;
 }
 .acpmux-running-tray[data-alignment-surface="tray"] [data-alignment-column="left-icon"] {
-  width: var(--acpmux-tray-start-size, 28px);
-  flex: 0 0 var(--acpmux-tray-start-size, 28px);
+  width: var(--grid-tray-control);
+  flex: 0 0 var(--grid-tray-control);
   justify-content: center;
 }
 .acpmux-running-tray[data-alignment-surface="tray"] .acpmux-agent-line__stop-slot {
-  right: var(--acpmux-tray-end-inset, 8px);
+  right: calc(var(--grid-tray-inset) + var(--grid-tray-control) + var(--grid-base));
   justify-content: center;
 }
 .acpmux-running-tray[data-alignment-surface="tray"] .acpmux-agent-line__stop-slot > button {
-  width: var(--acpmux-tray-end-size, 28px);
-  height: var(--acpmux-tray-end-size, 28px);
+  width: var(--grid-tray-control);
+  height: var(--grid-pill);
 }
-.acpmux-running-tray[data-alignment-surface="tray"] .acpmux-running-tray__head > .acpmux-running-tray__status {
-  grid-column: 4;
-  justify-content: flex-end;
-}
-.acpmux-running-tray[data-alignment-surface="tray"] .acpmux-running-tray__head > .acpmux-running-tray__status > svg {
+.acpmux-running-tray[data-alignment-surface="tray"] :is(.acpmux-agent-line__chevron, .acpmux-running-tray__chevron) {
   position: absolute;
-  right: calc(var(--acpmux-tray-end-inset, 8px) + (var(--acpmux-tray-end-size, 28px) - var(--grid-glyph, 12px)) / 2);
-}
-.acpmux-running-tray[data-alignment-surface="tray"] .acpmux-running-tray__finished {
-  display: grid;
-  grid-template-columns: var(--acpmux-tray-start-size, 28px) minmax(0, 1fr) var(--acpmux-tray-end-size, 28px);
-  column-gap: 8px;
-  padding-inline: var(--acpmux-tray-start-inset, 8px) var(--acpmux-tray-end-inset, 8px);
-}
-.acpmux-running-tray[data-alignment-surface="tray"] .acpmux-running-tray__finished-text {
-  grid-column: 2;
-  min-width: 0;
-}
-.acpmux-running-tray[data-alignment-surface="tray"] .acpmux-running-tray__finished > [data-alignment-column="right-action"] {
-  grid-column: 3;
-  width: var(--acpmux-tray-end-size, 28px);
-  justify-self: end;
-  display: grid;
-  place-items: center;
-}
-.acpmux-running-tray[data-alignment-surface="tray"] .acpmux-agent-line__chevron {
-  position: absolute;
-  right: var(--acpmux-tray-end-inset, 8px);
-  width: var(--acpmux-tray-end-size, 28px);
-  margin: 0;
-  display: inline-flex;
+  inset-block: 0;
+  right: var(--grid-tray-inset);
+  width: var(--grid-tray-control);
+  display: flex;
   align-items: center;
   justify-content: center;
+  margin: 0;
 }
-.acpmux-running-tray[data-alignment-surface="tray"] .acpmux-agent-line:has(> .acpmux-agent-line__stop-slot > button) .acpmux-agent-line__chevron {
-  right: calc(var(--acpmux-tray-end-inset, 8px) + var(--acpmux-tray-end-size, 28px) + 4px);
+.acpmux-running-tray[data-alignment-surface="tray"] .acpmux-running-tray__finished {
+  position: relative;
+  padding-inline: var(--grid-tray-text) calc(var(--grid-tray-inset) + var(--grid-tray-control));
 }
 
 /* A line (AgentLine.tsx) is its button and, for a running subagent or a registry command, its
@@ -645,7 +618,7 @@ button.cv-subagent > :last-child {
 }
 .acpmux-running-tray .acpmux-agent-line > .acpmux-agent-line__button {
   /* Reserve the final track while keeping the stop control outside the button. */
-  padding-right: calc(var(--acpmux-tray-end-inset, 8px) + var(--acpmux-tray-stop-width) + 8px);
+  padding-right: calc(var(--grid-tray-inset) + var(--acpmux-tray-actions-width) + var(--grid-gap));
 }
 .acpmux-agent-line > .acpmux-agent-line__stop-slot > .cv-subagent__stop {
   position: static;

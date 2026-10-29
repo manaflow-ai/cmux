@@ -580,6 +580,7 @@ label:not([for]):has(:is(input, select, textarea):disabled):not(
   --grid-icon-box-comfortable: calc(20px * var(--cmux-interface-scale, 1)); /* Comfortable sidebar and Home list icon box only. */
   --grid-glyph: calc(12px * var(--cmux-interface-scale, 1)); /* Small glyph centered inside its icon box. */
   --grid-gap: calc(8px * var(--cmux-interface-scale, 1)); /* Space after an icon or control box. */
+  --grid-gap-composer: calc(16px * var(--cmux-interface-scale, 1)); /* Transcript gap above the composer stack. */
   --grid-row: calc(28px * var(--cmux-interface-scale, 1)); /* Compact row height. */
   --grid-row-comfortable: calc(32px * var(--cmux-interface-scale, 1)); /* Comfortable row height. */
   --grid-pill-inset: calc(2px * var(--cmux-interface-scale, 1)); /* Vertical inset above and below a row highlight. */

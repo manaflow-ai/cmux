@@ -659,7 +659,9 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
 .acpmux-queue-foldbar {
   display: flex;
   min-width: 0;
-  padding: 0 6px 2px 12px;
+  min-height: var(--grid-row);
+  align-items: center;
+  padding: 0 var(--grid-queue-inset) 0 var(--grid-queue-text);
   box-sizing: border-box;
   --acpmux-queue-fill: color-mix(in srgb, var(--acpmux-composer-tray) var(--acpmux-queue-glass, 100%), transparent);
   background: var(--acpmux-queue-fill);

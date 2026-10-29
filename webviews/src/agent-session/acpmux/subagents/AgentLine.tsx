@@ -92,7 +92,7 @@ export function AgentLine({
     <button
       type="button"
       className="acpmux-summary-row acpmux-summary-link acpmux-summary-agent acpmux-agent-line__button"
-      style={depth > 0 ? { paddingLeft: 8 + Math.min(depth, 3) * 14 } : undefined}
+      style={!trayColumns && depth > 0 ? { paddingLeft: 8 + Math.min(depth, 3) * 14 } : undefined}
       data-status={status}
       aria-current={current ? "true" : undefined}
       aria-expanded={expanded}

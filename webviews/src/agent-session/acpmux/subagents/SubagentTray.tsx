@@ -260,10 +260,10 @@ export const SubagentTray = memo(function SubagentTray({
       onClick={() => setShowFinished(!showFinished)}
     >
       <Tick
-        className="acpmux-summary-text acpmux-running-tray__finished-text"
+        className="acpmux-summary-text"
         text={showFinished ? t("summary.showFewer") : t("summary.viewAll", { n: finished.length })}
       />
-      <span data-alignment-column="right-action">
+      <span className="acpmux-running-tray__chevron">
         <Icon name={showFinished ? "disclosure.expanded" : "disclosure.collapsed"} size={ROW_ICON} row />
       </span>
     </button>
@@ -300,7 +300,9 @@ export const SubagentTray = memo(function SubagentTray({
             {starts.length > 0 ? formatDuration(Math.max(0, now - Math.min(...starts))) : undefined}
           </span>
           <span className="acpmux-running-tray__status">
-            <Icon name={open ? "disclosure.expanded" : "disclosure.collapsed"} size={ROW_ICON} row />
+            <span className="acpmux-running-tray__chevron">
+              <Icon name={open ? "disclosure.expanded" : "disclosure.collapsed"} size={ROW_ICON} row />
+            </span>
           </span>
           <span className="acpmux-running-tray__stop-slot" data-alignment-column="right-action" aria-hidden="true" />
         </button>

@@ -74,11 +74,7 @@ export const AgentsPill = memo(function AgentsPill({
   ].filter((section) => section.agents.length > 0);
   const title = t("subagents.pill.list");
   return (
-    <div
-      className="acpmux-agents-pill-anchor"
-      data-alignment-surface="subagent-strip"
-      data-alignment-inset="surface"
-    >
+    <div className="acpmux-agents-pill-anchor">
       <button
         ref={button}
         type="button"
