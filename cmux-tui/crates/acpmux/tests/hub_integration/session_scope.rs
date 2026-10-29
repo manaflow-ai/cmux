@@ -118,6 +118,8 @@ async fn no_limits_set_means_no_scope() {
         "nolimits",
         &[
             ("ACPMUX_SESSION_MEMORY_MB", "0"),
+            ("ACPMUX_SESSION_SWAP_MB", "0"),
+            ("ACPMUX_SESSIONS_SWAP_MAX", "0"),
             ("ACPMUX_SESSION_TASKS_MAX", "0"),
             ("ACPMUX_SESSION_CPU_WEIGHT", "0"),
         ],

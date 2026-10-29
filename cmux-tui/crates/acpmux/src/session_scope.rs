@@ -199,7 +199,8 @@ fn without_swap(properties: &[String]) -> Vec<String> {
 }
 
 /// What [`SESSIONS_SLICE`] caps for all sessions together, on a machine
-/// with `memory` bytes, from the daemon's env: `ACPMUX_SESSIONS_MEMORY_MAX`
+/// with `memory` bytes, from the profile's env, then the daemon's:
+/// `ACPMUX_SESSIONS_MEMORY_MAX`
 /// (default 85% of the memory), `ACPMUX_SESSIONS_MEMORY_HIGH` (default 80%)
 /// and `ACPMUX_SESSIONS_TASKS_MAX` (default 16384). A memory value is bytes,
 /// optionally with `K`/`M`/`G`/`T` (powers of 1024) or `%` (1 to 100), a
@@ -346,8 +347,11 @@ fn limit_sessions_slice(
     env: &BTreeMap<String, String>,
     swap_supported: bool,
 ) {
-    let mut wanted =
-        slice_settings_with_swap(&|key| std::env::var(key).ok(), physical_memory(), swap_memory());
+    let mut wanted = slice_settings_with_swap(
+        &|key| env.get(key).cloned().or_else(|| std::env::var(key).ok()),
+        physical_memory(),
+        swap_memory(),
+    );
     if !swap_supported {
         wanted.retain(|(key, _)| *key != "MemorySwapMax");
     }
