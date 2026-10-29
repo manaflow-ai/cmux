@@ -84,5 +84,46 @@ class CleanupTests(unittest.TestCase):
         self.assertEqual(self.lines, [])
 
 
+class TerminalHandoffTests(unittest.TestCase):
+    """--handoff passes a terminal only through a replacement cmux-tui daemon: if acpmux hands off but cmux-tui keeps
+    its original daemon, the original socket still lists the terminal, and that must not certify the handoff."""
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp(prefix="update-harness-handoff-")
+        self.sessions = sys.modules["sessions"]
+        self.saved = self.sessions.wait_path
+        # One look, no waiting (wait_path watches with kqueue).
+        self.sessions.wait_path = lambda path, predicate, timeout: predicate(path) or None
+
+    def tearDown(self):
+        self.sessions.wait_path = self.saved
+        import shutil
+        shutil.rmtree(self.dir, ignore_errors=True)
+
+    def terminal(self, daemons):
+        terminal = self.sessions.Terminal(os.path.join(self.dir, "cmux DEV t.app"), self.dir, lambda *_: None, "cmux-app-t")
+        terminal.socket, terminal.term, terminal.pid, terminal.daemon_pids = "/tmp/old.sock", "term_1", os.getpid(), [10]
+        terminal.daemons = lambda root: daemons
+        terminal.list_quietly = lambda: '{"terminals": ["term_1"]}' if terminal.socket else ""
+        with open(terminal.file, "w") as f:
+            f.write(f"100.0 {os.getpid()}\n101.0 {os.getpid()}\n103.0 {os.getpid()}\n")
+        return terminal
+
+    def test_handoff_without_a_replacement_daemon_fails(self):
+        terminal = self.terminal([(10, "cmux-tui --headless --session cmux-app-t --socket /tmp/old.sock")])
+        record = terminal.check("/app", 100.5, 102.0, handoff=True)
+        # The original daemon still lists the terminal: that lookup must not count.
+        self.assertFalse(record["same_terminal_listed"])
+        self.assertFalse(record["replacement_daemon"])
+        self.assertFalse(run.terminal_survived(record, True))
+
+    def test_handoff_through_a_replacement_daemon_passes(self):
+        terminal = self.terminal([(11, "cmux-tui --headless --session cmux-app-t --socket /tmp/new.sock")])
+        record = terminal.check("/app", 100.5, 102.0, handoff=True)
+        self.assertEqual(record["socket_after"], "/tmp/new.sock")
+        self.assertTrue(record["replacement_daemon"])
+        self.assertTrue(run.terminal_survived(record, True))
+
+
 if __name__ == "__main__":
     unittest.main()
