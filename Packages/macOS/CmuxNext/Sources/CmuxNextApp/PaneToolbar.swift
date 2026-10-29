@@ -105,19 +105,21 @@ final class PaneToolbar {
     }
 
     private static func state(_ pane: PaneController) -> State {
+        let displayed = pane.view.displayedAgentPaneView
+        let displayedModel = displayed?.model
         let pinned = pane.services.settings.map { PaneToolbarButtonsSetting.current($0).pinned } ?? []
         let resolver = TabTitleResolver(services: pane.services)
         let paneKinds = Set(pane.pane.tabs.compactMap { kind($0, isNewTabPage: resolver.isNewTabPage($0)) })
         // The pane's own workspace, not a store scan: this runs for every pane. Whichever tab is
         // selected, so the zoom button's room does not follow the selection.
         let zoomed = pane.workspace?.workspace.screens.contains { $0.zoomedPane == pane.pane.handle } ?? false
-        guard let key = pane.stripModel.selectedID?.rawValue else { return State(zoomed: zoomed, pinned: pinned, paneKinds: paneKinds, nativeItems: pane.view.agentPaneModel?.tabRowTools ?? [], nativeEnabled: ChromeTunables.nativeRowTools.value && pane.view.displayedAgentPaneView?.nativeRowToolsAvailable == true) }
+        guard let key = pane.stripModel.selectedID?.rawValue else { return State(zoomed: zoomed, pinned: pinned, paneKinds: paneKinds, nativeItems: displayedModel?.tabRowTools ?? [], nativeEnabled: ChromeTunables.nativeRowTools.value && displayed?.nativeRowToolsAvailable == true) }
         guard let tab = pane.pane.tabs.first(where: { $0.id == key }) else {
             // A window's own page or browser tab is never in the store: no "…", not a stale bar.
             let local = key.hasPrefix(LocalPageTab.prefix) || key.hasPrefix(LocalBrowserTab.prefix)
             return State(zoomed: zoomed, pinned: pinned, paneKinds: paneKinds, behind: !local, nativeEnabled: ChromeTunables.nativeRowTools.value)
         }
-        return State(target: key, kind: kind(tab, isNewTabPage: resolver.isNewTabPage(tab)), zoomed: zoomed, pinned: pinned, paneKinds: paneKinds, nativeItems: pane.view.agentPaneModel?.tabRowTools ?? [], nativeEnabled: ChromeTunables.nativeRowTools.value && pane.view.displayedAgentPaneView?.nativeRowToolsAvailable == true)
+        return State(target: key, kind: kind(tab, isNewTabPage: resolver.isNewTabPage(tab)), zoomed: zoomed, pinned: pinned, paneKinds: paneKinds, nativeItems: displayedModel?.tabRowTools ?? [], nativeEnabled: ChromeTunables.nativeRowTools.value && displayed?.nativeRowToolsAvailable == true)
     }
 
     static func kind(_ tab: TabModel, isNewTabPage: Bool) -> Kind? {
