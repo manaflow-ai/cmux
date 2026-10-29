@@ -538,7 +538,7 @@ def cmdline(pid):
             raw = f.read()
     except VANISHED:
         return None
-    # Keep empty arguments (`--rcfile ''` takes one); only the final NUL ends the list.
+    # Keep empty arguments (--rcfile '' takes one); only the final NUL ends the list.
     parts = raw.split(b"\0")
     if parts and parts[-1] == b"":
         parts.pop()
@@ -550,7 +550,7 @@ def shell_runs_command(pid):
     # A shell that is itself the command: -c anywhere in its options (alone or
     # in a cluster like -lc), or a script (the first operand after its options).
     # An option's own operand is not one: --rcfile FILE, and one argument per
-    # o or O in a cluster (-o emacs, -io emacs, +O extglob). `--` and a bare `-`
+    # o or O in a cluster (-o emacs, -io emacs, +O extglob). "--" and a bare "-"
     # end the options. A login or interactive shell (-bash, bash, zsh -l,
     # bash -i), or one reading commands from stdin (-s), is a prompt.
     args = cmdline(pid) or []
