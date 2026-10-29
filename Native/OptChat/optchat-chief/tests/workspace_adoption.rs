@@ -75,8 +75,14 @@ fn owner_tree() -> Value {
         {"id": 1, "key": "k-1", "kind": "normal", "name": "a421 · Panes performance", "group": "chief-topic-performance",
          "resource_id": "ws_old1", "screens": [{"panes": [{"id": 5, "tabs": [
             {"kind": "pty", "cwd": "/Users/x/fun/cmux", "title": "x@mac:~/fun/cmux", "dead": false, "conversation": null},
-            {"kind": "conversation", "conversation": {"agent_session": {"host": "chief:h0me", "host_name": "mac", "session": "sess-421", "harness": "claude"}}},
-            {"kind": "browser", "url": "https://example.com/", "browser_engine": "cef", "browser_profile_id": "default", "conversation": null}
+            // A page listed before the chat still moves (it opens after the chat's pane exists).
+            {"kind": "browser", "url": "https://example.com/", "browser_engine": "cef", "browser_profile_id": "default", "conversation": null},
+            {"kind": "conversation", "conversation": {"agent_session": {"host": "chief:h0me", "host_name": "mac", "session": "sess-421", "harness": "claude"}}}
+         ]}]}]},
+        // An idle shell and no chat: nothing worth moving; it stays.
+        {"id": 3, "key": "k-shell", "kind": "normal", "name": "Shell only", "group": null, "resource_id": "ws_old3",
+         "screens": [{"panes": [{"id": 7, "tabs": [
+            {"kind": "pty", "cwd": "/tmp", "title": "x@mac:/tmp", "dead": false, "conversation": null}
          ]}]}]},
         {"id": 2, "key": "k-busy", "kind": "normal", "name": "Busy one", "group": null, "resource_id": "ws_old2",
          "screens": [{"panes": [{"id": 6, "tabs": [
@@ -100,7 +106,7 @@ fn app_answer(chat_ok: bool) -> impl Fn(&Value, &Log) -> Option<Value> + Send + 
                 "generation": "g", "pid": 1, "registry_id": "r", "session": "cmux-app",
                 "terminal_revision": 1, "workspace_revision": 1})),
             (Some("list-workspaces"), _) => Some(json!({"groups": [], "workspaces": if created {
-                json!([{"id": 70, "key": "k-1", "kind": "normal", "name": "Panes performance", "resource_id": "ws_new1", "screens": []}])
+                json!([{"id": 70, "key": "k-1", "kind": "normal", "name": "Panes performance", "resource_id": "ws_new1", "screens": [{"panes": [{"id": 90, "tabs": []}]}]}])
             } else { json!([]) }})),
             (Some("create-workspace"), _) => Some(json!({"workspace": 70, "key": req["key"]})),
             (Some("create-terminal"), _) => {
@@ -151,9 +157,15 @@ fn an_owner_session_workspace_moves_into_the_users_session_with_its_chat() {
         created[0]["name"], "Panes performance",
         "the name the user saw"
     );
-    assert_eq!(sent(&app, "create-terminal")[0]["cwd"], "/Users/x/fun/cmux");
+    // The idle shell is not re-created (Lawrence 2026-10-21): no terminal, no
+    // host, no PTY; the chat goes into the new workspace itself.
+    assert!(
+        sent(&app, "create-terminal").is_empty(),
+        "an idle shell is never re-created: {:?}",
+        sent(&app, "create-terminal")
+    );
     let chat = sent(&app, "new-conversation-tab");
-    assert_eq!(chat[0]["pane"], 90);
+    assert_eq!(chat[0]["workspace"], 70);
     assert_eq!(
         chat[0]["agent_session"]["session"], "sess-421",
         "the same acpmux session"
