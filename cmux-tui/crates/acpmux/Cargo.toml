@@ -28,6 +28,7 @@ cmux-chat-index.workspace = true
 cmux-coderouter.workspace = true
 cmux-local-auth.workspace = true
 cmux-link.workspace = true
+cmux-wg.workspace = true
 cmux-git.workspace = true
 cmux-worktree-care.workspace = true
 anyhow = "1"
@@ -63,6 +64,7 @@ notify.workspace = true
 # Session tokens and secrets (the OS generator on every platform).
 getrandom.workspace = true
 base64 = "0.22"
+url.workspace = true
 # Model-sized copies of large PNG uploads (src/model_copies.rs).
 png.workspace = true
 unicode-width = "0.2"

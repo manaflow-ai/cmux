@@ -85,6 +85,10 @@ pub struct Peer {
     /// new one.
     pub generation: u64,
     pub url: String,
+    /// Labs-only userspace WireGuard is selected by a `wg://` URL. Keeping
+    /// this snapshot on the link makes the default path unchanged when the
+    /// config flag is off or changes during a reconnect.
+    wireguard_enabled: bool,
     token: Option<String>,
     /// The peer's peer token (`server/peer_auth.rs`), sent with `token`.
     peer_token: Option<String>,
@@ -199,11 +203,23 @@ impl Peer {
         peer_token: Option<String>,
         notices: mpsc::Sender<(String, u64, PeerNotice)>,
     ) -> Arc<Self> {
+        Self::new_with_wireguard(name, url, token, peer_token, notices, false)
+    }
+
+    pub fn new_with_wireguard(
+        name: &str,
+        url: &str,
+        token: Option<String>,
+        peer_token: Option<String>,
+        notices: mpsc::Sender<(String, u64, PeerNotice)>,
+        wireguard_enabled: bool,
+    ) -> Arc<Self> {
         let (out, out_rx) = mpsc::channel(1024);
         Arc::new(Self {
             name: name.to_owned(),
             generation: NEXT_GENERATION.fetch_add(1, Ordering::SeqCst),
             url: url.to_owned(),
+            wireguard_enabled,
             token,
             peer_token,
             tunnel: Mutex::new(None),
@@ -899,6 +915,54 @@ impl Peer {
         self: &Arc<Self>,
         out_rx: &mut mpsc::Receiver<Outbound>,
     ) -> Result<(), String> {
+        if self.url.starts_with("wg://") {
+            if !self.wireguard_enabled {
+                return Err("WireGuard peer transport is disabled (set transport.wireguard=true)"
+                    .to_owned());
+            }
+            let spec = crate::wireguard::parse_peer_url(&self.url)?;
+            let key = crate::cli::mesh_node_key::load_or_create().map_err(|e| e.to_string())?;
+            let transport = crate::wireguard::WireGuardTransport::start(
+                crate::wireguard::WireGuardTransportConfig {
+                    enabled: true,
+                    private_key: key.private_key(),
+                    addresses: vec![cmux_wg::InterfaceAddress {
+                        address: spec.local,
+                        prefix: if spec.local.is_ipv4() { 32 } else { 128 },
+                    }],
+                    mtu: 1200,
+                    listen: spec.listen,
+                    peers: vec![crate::wireguard::StaticPeer {
+                        public_key: spec.key,
+                        endpoint: spec.endpoint,
+                        allowed_ips: vec![crate::wireguard::host_route(spec.remote.ip())],
+                        persistent_keepalive: Some(1),
+                    }],
+                },
+            )
+            .await
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| "WireGuard transport disabled".to_owned())?;
+            let req = self.ws_request(
+                &format!("ws://127.0.0.1:{}", spec.remote.port()),
+                self.token.as_deref(),
+                self.peer_token.as_deref(),
+            )?;
+            let connected = tokio::time::timeout(
+                self.timings.connect,
+                tokio_tungstenite::client_async_with_config(
+                    req,
+                    transport.connect(spec.remote).await.map_err(|e| e.to_string())?,
+                    Some(crate::server::ws_config()),
+                ),
+            )
+            .await
+            .map_err(|_| connect_timed_out(self.timings.connect))?
+            .map_err(|e| e.to_string())?;
+            let result = self.serve(connected.0, out_rx).await;
+            transport.shutdown().await;
+            return result;
+        }
         if self.ssh_parts().is_some() {
             let (token, peer_token) = self.remote_tokens_settled().await?;
             *self.presented.lock().unwrap_or_else(|e| e.into_inner()) = peer_token.clone();
@@ -1284,6 +1348,7 @@ fn lends_over(url: &str) -> bool {
     match u.scheme() {
         "ssh" => ssh_target(url).is_ok(),
         "wss" => true,
+        "wg" => crate::wireguard::parse_peer_url(url).is_ok(),
         "ws" => {
             host == "localhost" || host.parse::<std::net::IpAddr>().is_ok_and(|ip| ip.is_loopback())
         }
@@ -1496,7 +1561,7 @@ pub fn carries_peer_token(url: &str) -> bool {
     let Ok(uri) = url.parse::<tokio_tungstenite::tungstenite::http::Uri>() else { return false };
     let host = uri.host().unwrap_or_default().trim_start_matches('[').trim_end_matches(']');
     match uri.scheme_str() {
-        Some("wss") => true,
+        Some("wss") | Some("wg") => true,
         Some("ws") => {
             host.eq_ignore_ascii_case("localhost")
                 || host.parse::<std::net::IpAddr>().is_ok_and(|ip| ip.to_canonical().is_loopback())

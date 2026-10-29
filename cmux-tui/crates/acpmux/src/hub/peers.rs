@@ -62,6 +62,17 @@ impl Hub {
             }
             return tokio::sync::watch::channel(1).1;
         }
+        if url.starts_with("wg://")
+            && let Err(why) = crate::wireguard::parse_peer_url(url)
+        {
+            tracing::warn!(peer = %name, "peer refused: its WireGuard URL is not valid ({why}); fix or remove it");
+            let old = self.peers.lock().unwrap_or_else(|e| e.into_inner()).remove(name);
+            if let Some(old) = old {
+                old.stop();
+                self.note_peer_removed(&old);
+            }
+            return tokio::sync::watch::channel(1).1;
+        }
         self.spawn_peer(name, pc, true).1
     }
 
@@ -74,12 +85,15 @@ impl Hub {
         pc: &crate::config::PeerConfig,
         cached: bool,
     ) -> (u64, tokio::sync::watch::Receiver<u64>) {
-        let peer = crate::peer::Peer::new(
+        let wireguard_enabled =
+            self.config.try_read().map(|config| config.transport.wireguard).unwrap_or(false);
+        let peer = crate::peer::Peer::new_with_wireguard(
             name,
             &pc.url,
             pc.token.clone(),
             pc.peer_token.clone(),
             self.peer_notices.clone(),
+            wireguard_enabled,
         );
         peer.set_vm_boundary(pc.vm_boundary);
         peer.set_github_broker(pc.github_broker);
@@ -136,15 +150,26 @@ impl Hub {
         wait: bool,
     ) -> Result<(), RpcError> {
         crate::session_name::validate(name).map_err(RpcError::invalid_params)?;
-        if !(url.starts_with("ws://") || url.starts_with("wss://") || url.starts_with("ssh://")) {
+        if !(url.starts_with("ws://")
+            || url.starts_with("wss://")
+            || url.starts_with("ssh://")
+            || url.starts_with("wg://"))
+        {
             return Err(RpcError::invalid_params(
-                "peer url must start with ws://, wss://, or ssh://host",
+                "peer url must start with ws://, wss://, ssh://host, or wg://host:port",
             ));
         }
         if url.starts_with("ssh://")
             && let Err(why) = crate::peer::ssh_target(url)
         {
             return Err(RpcError::invalid_params(format!("refusing that ssh peer URL: {why}")));
+        }
+        if url.starts_with("wg://")
+            && let Err(why) = crate::wireguard::parse_peer_url(url)
+        {
+            return Err(RpcError::invalid_params(format!(
+                "refusing that WireGuard peer URL: {why}"
+            )));
         }
         // The config lock is held through starting the peer: a reload never lands between the
         // save and the start (`reload_saved_peers`).
