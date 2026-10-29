@@ -1,0 +1,131 @@
+{
+ "id": "resize-second-window-two-tabs-diag",
+ "priority": "P3",
+ "title": "Diagnosis: in a second window, a second Ctrl-` tab (not from the New Tab page) follows a window resize",
+ "why": "Splits the second-window-resize failure: is it the first terminal made over the New Tab page?",
+ "source": "felt 1e (agent af8ead9045fd2317d)",
+ "budget_seconds": 90,
+ "steps": [
+  {
+   "do": "new_terminal",
+   "name": "jr-diag-e"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "name_pane",
+   "as": "e1"
+  },
+  {
+   "do": "key",
+   "key": "n",
+   "modifiers": [
+    "cmd",
+    "shift"
+   ]
+  },
+  {
+   "do": "adopt_window"
+  },
+  {
+   "do": "wait",
+   "seconds": 4.5
+  },
+  {
+   "do": "key",
+   "key": "`",
+   "modifiers": [
+    "control"
+   ]
+  },
+  {
+   "do": "adopt_pane",
+   "as": "e2",
+   "window": "same"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "key",
+   "title": "Ctrl-` again",
+   "key": "`",
+   "modifiers": [
+    "control"
+   ]
+  },
+  {
+   "do": "wait",
+   "seconds": 3
+  },
+  {
+   "do": "rpc",
+   "title": "e: before place",
+   "method": "debug.surfaces",
+   "params": {}
+  },
+  {
+   "do": "window_place",
+   "fraction": [
+    0.4,
+    0.3,
+    0.45,
+    0.45
+   ]
+  },
+  {
+   "do": "wait",
+   "seconds": 2
+  },
+  {
+   "do": "rpc",
+   "title": "e: after place",
+   "method": "debug.surfaces",
+   "params": {}
+  },
+  {
+   "do": "key",
+   "title": "Ctrl-Shift-Tab to the first tab",
+   "key": "tab",
+   "modifiers": [
+    "control",
+    "shift"
+   ]
+  },
+  {
+   "do": "wait",
+   "seconds": 1
+  },
+  {
+   "do": "rpc",
+   "title": "e: first tab",
+   "method": "debug.surfaces",
+   "params": {}
+  },
+  {
+   "do": "expect",
+   "title": "fits",
+   "timeout": 5,
+   "all": [
+    {
+     "grid_fits": {
+      "pane": "e2"
+     }
+    },
+    {
+     "daemon_prompt": true
+    },
+    {
+     "pane_frame_text": "J>"
+    }
+   ]
+  }
+ ],
+ "finally": [
+  {
+   "do": "close_window",
+   "window": "new"
+  }
+ ]
+}

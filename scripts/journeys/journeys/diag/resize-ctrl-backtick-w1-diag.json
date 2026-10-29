@@ -1,0 +1,80 @@
+{
+ "id": "resize-ctrl-backtick-w1-diag",
+ "priority": "P3",
+ "title": "Diagnosis: a Ctrl-` terminal tab in the first window follows a window resize",
+ "why": "Splits the second-window-resize failure: a Ctrl-` (stand-in) terminal without a second window.",
+ "source": "felt 1e (agent af8ead9045fd2317d)",
+ "budget_seconds": 60,
+ "steps": [
+  {
+   "do": "new_terminal",
+   "name": "jr-diag-c"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "name_pane",
+   "as": "c1"
+  },
+  {
+   "do": "key",
+   "title": "Ctrl-`",
+   "key": "`",
+   "modifiers": [
+    "control"
+   ]
+  },
+  {
+   "do": "wait",
+   "seconds": 3
+  },
+  {
+   "do": "rpc",
+   "title": "c: before place",
+   "method": "debug.surfaces",
+   "params": {}
+  },
+  {
+   "do": "window_place",
+   "fraction": [
+    0.1,
+    0.1,
+    0.45,
+    0.45
+   ]
+  },
+  {
+   "do": "wait",
+   "seconds": 2
+  },
+  {
+   "do": "rpc",
+   "title": "c: after place",
+   "method": "debug.surfaces",
+   "params": {}
+  },
+  {
+   "do": "expect",
+   "title": "c1 pane fits",
+   "timeout": 5,
+   "all": [
+    {
+     "grid_fits": {}
+    },
+    {
+     "pane_frame_text": "J>"
+    },
+    {
+     "daemon_prompt": true
+    }
+   ]
+  }
+ ],
+ "finally": [
+  {
+   "do": "restore_window",
+   "from": "before-place"
+  }
+ ]
+}

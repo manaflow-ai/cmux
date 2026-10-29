@@ -1,0 +1,155 @@
+{
+ "id": "resize-fuzz-ctrl-backtick",
+ "priority": "P1",
+ "title": "Fuzz window and divider resizes with a New Terminal Tab (Ctrl-`) terminal in the right pane",
+ "why": "As resize-fuzz, with the right pane's terminal opened by Ctrl-` (the optimistic stand-in path): from v2.2.5-opt such a terminal keeps the Ghostty grid of its first size (second-window-resize: 110x40 in a 656x408 view).",
+ "source": "felt 1e resize fuzz (agent af8ead9045fd2317d); scripts/journeys/ext_resize.py",
+ "budget_seconds": 240,
+ "steps": [
+  {
+   "do": "new_terminal",
+   "name": "jr-resize-fuzz"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "name_pane",
+   "as": "left"
+  },
+  {
+   "do": "window_place",
+   "title": "set-up: the window at 55% x 60% of the screen",
+   "fraction": [
+    0.05,
+    0.05,
+    0.55,
+    0.6
+   ]
+  },
+  {
+   "do": "type",
+   "text": "for i in $(seq 1 200000); do echo rz-${nonce}-$i; sleep 0.01; done",
+   "enter": true,
+   "mark": "stream"
+  },
+  {
+   "do": "expect",
+   "title": "the left terminal streams output",
+   "since": "stream",
+   "timeout": 10,
+   "all": [
+    {
+     "daemon_contains": "rz-${nonce}-"
+    }
+   ]
+  },
+  {
+   "do": "key",
+   "title": "Cmd-D",
+   "key": "d",
+   "modifiers": [
+    "cmd"
+   ]
+  },
+  {
+   "do": "adopt_pane",
+   "as": "right",
+   "window": "same"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "key",
+   "title": "Ctrl-` in the right pane (New Terminal Tab)",
+   "key": "`",
+   "modifiers": [
+    "control"
+   ]
+  },
+  {
+   "do": "retarget_pane",
+   "as": "right"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "expect",
+   "title": "two fitted panes",
+   "timeout": 10,
+   "all": [
+    {
+     "grid_fits": {
+      "pane": "left"
+     }
+    },
+    {
+     "grid_fits": {
+      "pane": "right"
+     }
+    }
+   ]
+  },
+  {
+   "do": "resize_fuzz",
+   "title": "seed 2: 16 random window and divider resizes",
+   "seed": 2,
+   "ops": 16,
+   "panes": [
+    "left",
+    "right"
+   ],
+   "divider": [
+    "left",
+    "right"
+   ]
+  },
+  {
+   "do": "type",
+   "text": "echo pty-${nonce} $(stty size)",
+   "enter": true,
+   "mark": "after"
+  },
+  {
+   "do": "expect",
+   "title": "the right PTY has the final grid",
+   "since": "after",
+   "timeout": 10,
+   "all": [
+    {
+     "pty_size": {
+      "tag": "pty-${nonce}",
+      "pane": "right"
+     }
+    },
+    {
+     "grid_fits": {
+      "pane": "right"
+     }
+    },
+    {
+     "pane_frame_text": "pty-${nonce}"
+    }
+   ]
+  }
+ ],
+ "finally": [
+  {
+   "do": "use_pane",
+   "pane": "left"
+  },
+  {
+   "do": "key",
+   "key": "c",
+   "modifiers": [
+    "control"
+   ]
+  },
+  {
+   "do": "restore_window",
+   "from": "before-place"
+  }
+ ]
+}

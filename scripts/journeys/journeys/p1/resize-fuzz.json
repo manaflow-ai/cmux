@@ -1,0 +1,140 @@
+{
+ "id": "resize-fuzz",
+ "priority": "P1",
+ "title": "Fuzz window and divider resizes: every terminal ends at the grid its view fits, and the drawn grid follows the view during each drag",
+ "why": "Lawrence 2026-10-29 (felt 1e): 'there are resize bugs where the terminal doesnt resize properly, make sure to fuzz it out. and it needs to be super fluid, like i resize, and the terminal immediately resizes.' A seeded random sequence of corner, edge, tiny, burst, out-and-back, held and minimum-size window drags and divider drags, with one terminal streaming output and one opened with New Terminal Tab (Ctrl-`), must leave every terminal's grid, fitted grid, drawn grid, daemon screen and PTY at the size its view fits; the step reports how long the drawn and owner grids trail the view during the drags.",
+ "source": "felt 1e resize fuzz (agent af8ead9045fd2317d); scripts/journeys/ext_resize.py",
+ "budget_seconds": 240,
+ "steps": [
+  {
+   "do": "new_terminal",
+   "name": "jr-resize-fuzz"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "name_pane",
+   "as": "left"
+  },
+  {
+   "do": "window_place",
+   "title": "set-up: the window at 55% x 60% of the screen",
+   "fraction": [
+    0.05,
+    0.05,
+    0.55,
+    0.6
+   ]
+  },
+  {
+   "do": "type",
+   "text": "for i in $(seq 1 200000); do echo rz-${nonce}-$i; sleep 0.01; done",
+   "enter": true,
+   "mark": "stream"
+  },
+  {
+   "do": "expect",
+   "title": "the left terminal streams output",
+   "since": "stream",
+   "timeout": 10,
+   "all": [
+    {
+     "daemon_contains": "rz-${nonce}-"
+    }
+   ]
+  },
+  {
+   "do": "key",
+   "title": "Cmd-D",
+   "key": "d",
+   "modifiers": [
+    "cmd"
+   ]
+  },
+  {
+   "do": "adopt_pane",
+   "as": "right",
+   "window": "same"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "expect",
+   "title": "two fitted panes",
+   "timeout": 10,
+   "all": [
+    {
+     "grid_fits": {
+      "pane": "left"
+     }
+    },
+    {
+     "grid_fits": {
+      "pane": "right"
+     }
+    }
+   ]
+  },
+  {
+   "do": "resize_fuzz",
+   "title": "seed 1: 16 random window and divider resizes",
+   "seed": 1,
+   "ops": 16,
+   "panes": [
+    "left",
+    "right"
+   ],
+   "divider": [
+    "left",
+    "right"
+   ]
+  },
+  {
+   "do": "type",
+   "text": "echo pty-${nonce} $(stty size)",
+   "enter": true,
+   "mark": "after"
+  },
+  {
+   "do": "expect",
+   "title": "the right PTY has the final grid",
+   "since": "after",
+   "timeout": 10,
+   "all": [
+    {
+     "pty_size": {
+      "tag": "pty-${nonce}",
+      "pane": "right"
+     }
+    },
+    {
+     "grid_fits": {
+      "pane": "right"
+     }
+    },
+    {
+     "pane_frame_text": "pty-${nonce}"
+    }
+   ]
+  }
+ ],
+ "finally": [
+  {
+   "do": "use_pane",
+   "pane": "left"
+  },
+  {
+   "do": "key",
+   "key": "c",
+   "modifiers": [
+    "control"
+   ]
+  },
+  {
+   "do": "restore_window",
+   "from": "before-place"
+  }
+ ]
+}

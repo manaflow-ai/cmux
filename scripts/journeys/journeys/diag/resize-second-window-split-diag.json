@@ -1,0 +1,146 @@
+{
+ "id": "resize-second-window-split-diag",
+ "priority": "P3",
+ "title": "Diagnosis: in a second window, a terminal made by a split (not from the New Tab page) follows a window resize",
+ "why": "Splits the second-window-resize failure by how the terminal was made.",
+ "source": "felt 1e (agent af8ead9045fd2317d)",
+ "budget_seconds": 90,
+ "steps": [
+  {
+   "do": "new_terminal",
+   "name": "jr-diag-b"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "name_pane",
+   "as": "b1"
+  },
+  {
+   "do": "key",
+   "key": "n",
+   "modifiers": [
+    "cmd",
+    "shift"
+   ]
+  },
+  {
+   "do": "adopt_window"
+  },
+  {
+   "do": "wait",
+   "seconds": 4.5
+  },
+  {
+   "do": "key",
+   "key": "`",
+   "modifiers": [
+    "control"
+   ]
+  },
+  {
+   "do": "adopt_pane",
+   "as": "b2",
+   "window": "same"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "key",
+   "title": "Cmd-D",
+   "key": "d",
+   "modifiers": [
+    "cmd"
+   ]
+  },
+  {
+   "do": "adopt_pane",
+   "as": "b3",
+   "window": "same"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "rpc",
+   "title": "b: before place",
+   "method": "debug.surfaces",
+   "params": {}
+  },
+  {
+   "do": "window_place",
+   "fraction": [
+    0.4,
+    0.3,
+    0.45,
+    0.45
+   ]
+  },
+  {
+   "do": "wait",
+   "seconds": 2
+  },
+  {
+   "do": "rpc",
+   "title": "b: after place",
+   "method": "debug.surfaces",
+   "params": {}
+  },
+  {
+   "do": "key",
+   "title": "Cmd-T in the split's pane",
+   "key": "t",
+   "modifiers": [
+    "cmd"
+   ]
+  },
+  {
+   "do": "wait",
+   "seconds": 1
+  },
+  {
+   "do": "key",
+   "title": "Cmd-1 back? no: Ctrl-Tab back to the terminal",
+   "key": "tab",
+   "modifiers": [
+    "control"
+   ]
+  },
+  {
+   "do": "wait",
+   "seconds": 1
+  },
+  {
+   "do": "rpc",
+   "title": "b: after tab away and back",
+   "method": "debug.surfaces",
+   "params": {}
+  },
+  {
+   "do": "expect",
+   "title": "the split's terminal fits",
+   "timeout": 5,
+   "all": [
+    {
+     "grid_fits": {
+      "pane": "b3"
+     }
+    },
+    {
+     "daemon_prompt": true
+    },
+    {
+     "pane_frame_text": "J>"
+    }
+   ]
+  }
+ ],
+ "finally": [
+  {
+   "do": "close_window",
+   "window": "new"
+  }
+ ]
+}

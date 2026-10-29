@@ -1,0 +1,152 @@
+{
+ "id": "resize-second-window-diag",
+ "priority": "P3",
+ "title": "Diagnosis: the second window's terminal surface state around a programmatic window resize",
+ "why": "second-window-resize fails from v2.2.5: the second window's terminal keeps the first window's 110x40 grid in a 656x407 view (Ghostty's fit is stale, the view's bounds are right). This records each pane's full surface state (shown, paused, drawing, occlusion, in window) before and after the place, and after a second place.",
+ "source": "felt 1e resize fuzz (agent af8ead9045fd2317d)",
+ "budget_seconds": 90,
+ "steps": [
+  {
+   "do": "new_terminal",
+   "name": "jr-diag"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "name_pane",
+   "as": "w1"
+  },
+  {
+   "do": "key",
+   "title": "Cmd-Shift-N",
+   "key": "n",
+   "modifiers": [
+    "cmd",
+    "shift"
+   ]
+  },
+  {
+   "do": "adopt_window"
+  },
+  {
+   "do": "wait",
+   "seconds": 4.5
+  },
+  {
+   "do": "rpc",
+   "title": "surfaces after the new window",
+   "method": "debug.surfaces",
+   "params": {}
+  },
+  {
+   "do": "key",
+   "title": "Ctrl-` (New Terminal Tab)",
+   "key": "`",
+   "modifiers": [
+    "control"
+   ]
+  },
+  {
+   "do": "adopt_pane",
+   "as": "w2",
+   "window": "same"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "rpc",
+   "title": "surfaces before the place",
+   "method": "debug.surfaces",
+   "params": {}
+  },
+  {
+   "do": "rpc",
+   "title": "layout counters before",
+   "method": "debug.layout_counters",
+   "params": {}
+  },
+  {
+   "do": "window_place",
+   "fraction": [
+    0.4,
+    0.3,
+    0.45,
+    0.45
+   ]
+  },
+  {
+   "do": "wait",
+   "seconds": 2
+  },
+  {
+   "do": "rpc",
+   "title": "surfaces after the place",
+   "method": "debug.surfaces",
+   "params": {}
+  },
+  {
+   "do": "rpc",
+   "title": "layout counters after",
+   "method": "debug.layout_counters",
+   "params": {}
+  },
+  {
+   "do": "window_place",
+   "fraction": [
+    0.4,
+    0.3,
+    0.5,
+    0.5
+   ]
+  },
+  {
+   "do": "wait",
+   "seconds": 2
+  },
+  {
+   "do": "rpc",
+   "title": "surfaces after a second place",
+   "method": "debug.surfaces",
+   "params": {}
+  },
+  {
+   "do": "use_pane",
+   "pane": "w2",
+   "click": true
+  },
+  {
+   "do": "wait",
+   "seconds": 1
+  },
+  {
+   "do": "rpc",
+   "title": "surfaces after a click into w2",
+   "method": "debug.surfaces",
+   "params": {}
+  },
+  {
+   "do": "expect",
+   "title": "the second window's terminal fits it",
+   "timeout": 5,
+   "all": [
+    {
+     "grid_fits": {}
+    },
+    {
+     "daemon_prompt": true
+    },
+    {
+     "pane_frame_text": "J>"
+    }
+   ]
+  }
+ ],
+ "finally": [
+  {
+   "do": "close_window",
+   "window": "new"
+  }
+ ]
+}
