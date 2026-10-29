@@ -32,6 +32,7 @@ while IFS= read -r remote; do
                         scripts/ci/workload_entrypoints.py
                         scripts/normalize-pbxproj.py
                         scripts/git-hooks/pre-push
+                        scripts/git-hooks/refresh_checks.py
                         scripts/web_lint_prepush.py
                         scripts/lint_swift_namespaces.py
                         scripts/swift_source_mask.py
