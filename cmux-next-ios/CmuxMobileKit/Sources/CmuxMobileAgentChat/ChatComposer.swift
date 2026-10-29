@@ -136,11 +136,12 @@ struct ChatComposer: View {
             // A file copied in Files is its bytes on the pasteboard, not a path.
             let providers = board.itemProviders
             Task {
-                let pasted = await ComposerPastedFiles.load(providers, maxBytes: LinkUpload.maxBytes)
-                attachments += pasted.files.map {
-                    AgentAttachment(kind: $0.type.conforms(to: .image) && UIImage(data: $0.data) != nil ? .image : .file, name: $0.name, data: $0.data)
+                let pasted = await ComposerPastedFiles.load(providers)
+                attachments += pasted.files.map { file in
+                    let image = file.type.conforms(to: .image) ? file.data.flatMap { UIImage(data: $0) } : nil
+                    return AgentAttachment(kind: image == nil ? .file : .image, name: file.name,
+                                           data: file.data, fileURL: file.fileURL, byteCount: file.byteCount)
                 }
-                if let name = pasted.tooLarge.first { store.clientError = "\(name) is larger than \(LinkUpload.maxBytes >> 20) MB." }
                 if let name = pasted.unreadable.first { store.clientError = "Couldn't read \(name)." }
             }
         } else if let urls = board.urls?.filter(\.isFileURL), !urls.isEmpty {
@@ -150,17 +151,26 @@ struct ChatComposer: View {
         }
     }
 
-    /// Picked files with their bytes (read through the picker's
-    /// security-scoped URLs), and the reason when one can't be attached.
+    /// Bytes held in memory for a picked file up to this size (the prompt
+    /// inlines small text files); larger files stream from their URL at send.
+    static let inlineFileBytes = 256 << 10
+
+    /// Picked files, and the reason when one can't be attached. Any size: a
+    /// small file's bytes are read now (through the picker's security-scoped
+    /// URL), a larger one keeps its URL, and each later reader reopens its
+    /// scope (`ScopedFile`): the preview while it is open, the upload while it streams.
     static func readFiles(_ urls: [URL]) -> ([AgentAttachment], String?) {
         var files: [AgentAttachment] = []
         var refused: String?
         for url in urls {
-            let scoped = url.startAccessingSecurityScopedResource()
-            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-            let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
-            guard size <= LinkUpload.maxBytes else {
-                refused = "\(url.lastPathComponent) is larger than \(LinkUpload.maxBytes >> 20) MB."
+            let access = ScopedFile(url).open()
+            defer { access.close() }
+            guard let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize else {
+                refused = "Couldn't read \(url.lastPathComponent)."
+                continue
+            }
+            if size > inlineFileBytes {
+                files.append(AgentAttachment(kind: .file, name: url.lastPathComponent, fileURL: url, byteCount: size))
                 continue
             }
             guard let data = try? Data(contentsOf: url, options: .mappedIfSafe) else {

@@ -12,6 +12,25 @@ fn cli_session_resource_settings_are_config_values() {
     assert_eq!(config.session.memory_mb, None);
 }
 
+#[test]
+fn session_task_caps_are_typed_config_values() {
+    let mut config = Config::default();
+    config.set_session_resource("session.tasks_max", "8192").unwrap();
+    config.set_session_resource("session.sessions-tasks-max", "131072").unwrap();
+    assert_eq!(config.session.tasks_max, Some(8192));
+    assert_eq!(config.session.sessions_tasks_max, Some(131_072));
+    let json = serde_json::to_value(&config.session).unwrap();
+    assert_eq!(json, serde_json::json!({"tasksMax": 8192, "sessionsTasksMax": 131072}));
+    let back: SessionResourceConfig = serde_json::from_value(json).unwrap();
+    assert_eq!(back, config.session);
+    // 0 is no cap; `infinity` is the same.
+    config.set_session_resource("session.sessions_tasks_max", "infinity").unwrap();
+    assert_eq!(config.session.sessions_tasks_max, Some(0));
+    config.set_session_resource("session.tasks_max", "default").unwrap();
+    assert_eq!(config.session.tasks_max, None);
+    assert!(config.set_session_resource("session.tasks_max", "lots").is_err());
+}
+
 fn prof(kind: HarnessKind, argv: &[&str]) -> HarnessProfile {
     HarnessProfile {
         kind,

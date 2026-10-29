@@ -196,15 +196,20 @@ public final class GhosttyRuntime {
     }
 
     /// Loads the user's config. `theme` replaces `themeOverride` (a room,
-    /// workspace or terminal theme; see `themeConfig(named:)`).
-    static func loadConfig(diagnostics: inout [String], opacity: inout Double, theme: String? = nil) -> ghostty_config_t? {
+    /// workspace or terminal theme; see `themeConfig(named:)`). `configFile`
+    /// replaces `configOverrideKey`'s file for one load, so a test can load a
+    /// file of its own without writing the process environment: a setenv after
+    /// `ghostty_init` frees the environ copy libghostty reads, and the next
+    /// `ghostty_config_finalize` crashes (SIGSEGV; `ProcessEnvironmentGuard`).
+    static func loadConfig(diagnostics: inout [String], opacity: inout Double, theme: String? = nil,
+                           configFile: String? = nil) -> ghostty_config_t? {
         guard let config = ghostty_config_new() else { return nil }
         // cmux's defaults, before the user's files so theirs win.
         loadPaddingDefault(into: config)
         loadThemeDefault(into: config)
         loadKeybindDefaults(into: config)
         GhosttyUnfocusedSplit.loadDefault(into: config)
-        if let path = ProcessInfo.processInfo.environment[configOverrideKey], !path.isEmpty {
+        if let path = configFile ?? ProcessInfo.processInfo.environment[configOverrideKey], !path.isEmpty {
             ghostty_config_load_file(config, path)
         } else {
             loadDefaultFiles(into: config)
