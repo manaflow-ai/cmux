@@ -187,8 +187,12 @@ public final class WebPopupHost {
 
     private func picked(_ id: String) {
         guard model?.items.contains(where: { $0.id == id && !$0.disabled && !$0.separator }) == true else { return }
+        // Capture the release modifiers before retiring the menu; the callback may open another.
+        let modifiers = NSApp.currentEvent?.modifierFlags ?? NSEvent.modifierFlags
         hide()
-        send(["type": "pick", "id": id])
+        send(["type": "pick", "id": id, "altKey": modifiers.contains(.option),
+              "ctrlKey": modifiers.contains(.control), "metaKey": modifiers.contains(.command),
+              "shiftKey": modifiers.contains(.shift)])
     }
 
     /// Ends the menu from this side (its tab hid or closed): the page closes its own as well.

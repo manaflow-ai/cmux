@@ -134,7 +134,7 @@ async fn write_reply(output: &tokio::io::unix::AsyncFd<OwnedFd>, reply: &Value) 
             let n = unsafe {
                 libc::write(
                     source.get_ref().as_raw_fd(),
-                    bytes[offset..].as_ptr().cast(),
+                    bytes.get(offset..).unwrap_or_default().as_ptr().cast(),
                     bytes.len() - offset,
                 )
             };
@@ -188,7 +188,7 @@ async fn request_line(
                 ensure!(buffered.is_empty(), "incomplete broker request");
                 return Ok(None);
             }
-            Ok(Ok(n)) => buffered.extend_from_slice(&bytes[..n]),
+            Ok(Ok(n)) => buffered.extend_from_slice(bytes.get(..n).unwrap_or_default()),
             Ok(Err(_)) => return Err(anyhow!("broker input closed")),
             Err(_) => continue,
         }
