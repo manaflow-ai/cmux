@@ -269,6 +269,38 @@ async fn a_new_prompt_clears_a_cancelled_compaction_without_a_result() {
 }
 
 #[tokio::test]
+async fn a_fresh_compaction_answers_after_a_cancelled_compaction_emits_nothing() {
+    for text in ["/compact", "continue"] {
+        let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+        let prompt = |id, text| {
+            Message::request(
+                id,
+                method::SESSION_PROMPT,
+                json!({"sessionId":"acp-1","prompt":[{"type":"text","text":text}]}),
+            )
+        };
+        t.outbound(&prompt(1, "/compact")).await;
+        t.inbound(&json!({"type":"system","subtype":"status","status":"compacting"})).await;
+        t.outbound(&Message::notification(method::SESSION_CANCEL, json!({"sessionId":"acp-1"})))
+            .await;
+        let Outbound::Lines(lines) = t.outbound(&prompt(2, text)).await else { panic!() };
+        let mut echo = lines[0].clone();
+        echo["isReplay"] = json!(true);
+        t.inbound(&echo).await;
+        t.inbound(&json!({"type":"system","subtype":"status","status":"compacting"})).await;
+        t.inbound(&json!({"type":"system","subtype":"compact_boundary"})).await;
+        let result = t
+            .inbound(
+                &json!({"type":"result","subtype":"success","num_turns":0,"duration_api_ms":0}),
+            )
+            .await;
+        assert!(result.iter().any(|m| matches!(m, Message::Response { id, result: Some(r), .. } if id == &json!(2) && r["stopReason"] == "end_turn")), "fresh compaction stranded: {result:?}");
+        assert!(!t.cancelled_compaction.load(Ordering::SeqCst));
+        assert!(!t.cancelled_compaction_boundary.load(Ordering::SeqCst));
+    }
+}
+
+#[tokio::test]
 async fn a_late_cancelled_boundary_is_suppressed_before_a_fresh_compaction_boundary() {
     let t = Translator::new("acp-1".into(), "default", "haiku", "default");
     let prompt = |id, text| {

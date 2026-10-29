@@ -131,6 +131,22 @@ async fn a_slow_stop_leaves_the_next_claude_prompt_its_own_answer() {
     );
 }
 
+/// The old cancellation result arrives after the queued prompt echo. A slash
+/// prefix (including a path) is not evidence that the result belongs to it.
+#[tokio::test]
+async fn a_slow_stop_leaves_slash_prompts_their_own_answers() {
+    for text in ["/compact", "/clear", "/review skills", "/Users/me/x.rs is broken"] {
+        let (_hub, mut c) = claude_setup().await;
+        let s =
+            c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await.unwrap();
+        let id = s["sessionId"].as_str().unwrap().to_owned();
+        c.send(method::SESSION_PROMPT, prompt(&id, "slow-stop", None)).await;
+        let next = stop_with_a_queued_prompt(&mut c, &id, text).await;
+        let (r, _) = c.response(next).await;
+        assert_eq!(r.unwrap()["stopReason"], "end_turn", "old Stop answered {text}");
+    }
+}
+
 /// cx-he737: codex-acp slow to answer a Stop. acpmux ended the turn after 3 s
 /// and sent the queued prompt, which codex-acp folded into the stopped turn:
 /// it ended cancelled and never ran.
