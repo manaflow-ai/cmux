@@ -109,7 +109,9 @@
   color: color-mix(in srgb, var(--cmux-messages-blue, var(--agent-accent)) 65%, var(--agent-text));
 }
 .acpmux-session-status[data-status="unread"] > svg {
-  scale: 1.5;
+  /* The shared row slot is already 16px; scaling the SVG as if it were the old 11px slot
+     would make the unread dot overshoot the status line. */
+  scale: 1;
 }
 .acpmux-session-status[data-status="done"],
 .acpmux-session-status[data-status="ready"],

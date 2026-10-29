@@ -41,9 +41,9 @@ export function SessionStatusLine({
       {status && (
         <span className="acpmux-session-status" data-status={status}>
           {STATUS[status].glyph ? (
-            <Icon name={STATUS[status].glyph!} size={11} />
+            <Icon name={STATUS[status].glyph!} size={11} className="acpmux-row-glyph" />
           ) : (
-            <Spinner size={11} className="acpmux-session-status-spinner" />
+            <Spinner size={11} className="acpmux-session-status-spinner acpmux-row-glyph" />
           )}
           <span>{t(STATUS[status].word)}</span>
         </span>
