@@ -91,15 +91,25 @@ impl Fixture {
         steer: bool,
         steer_only: bool,
     ) -> (Result<Value, RpcError>, tokio::task::JoinHandle<Result<Value, RpcError>>) {
-        let (tx, rx) = oneshot::channel();
         let opts = PromptOptions {
             agent: from.map(str::to_owned),
             steer_only,
-            on_accepted: Some(Box::new(move |v| {
-                let _ = tx.send(v);
-            })),
             ..PromptOptions::default()
         };
+        self.send_with(text, steer, opts).await
+    }
+
+    /// [`Fixture::send`] with any options.
+    async fn send_with(
+        &self,
+        text: &str,
+        steer: bool,
+        mut opts: PromptOptions,
+    ) -> (Result<Value, RpcError>, tokio::task::JoinHandle<Result<Value, RpcError>>) {
+        let (tx, rx) = oneshot::channel();
+        opts.on_accepted = Some(Box::new(move |v| {
+            let _ = tx.send(v);
+        }));
         let (hub, session) = (self.hub.clone(), self.session.clone());
         let blocks = vec![json!({"type": "text", "text": text})];
         let task =
@@ -259,11 +269,81 @@ async fn the_timer_sends_the_notice_at_the_cap_only_when_a_message_waits() {
     f.hub.set_turn_cap(&f.session, Some(3_000));
     let turn = f.gated_turn("busy").await;
     let turn_id = f.session.turn().unwrap().turn_id;
+    let started = f.session.turn().unwrap().started_at;
     let (queued, _) = f.send("report from lane a", Some("lane-a"), false, false).await;
     assert_eq!(queued.unwrap()["queued"], true);
-    assert!(f.notices().is_empty(), "nothing before the cap");
+    // Checked only while the cap is still ahead: a slow machine may already be past it.
+    let notices = f.notices();
+    if now_ms().saturating_sub(started) < 2_500 {
+        assert!(notices.is_empty(), "nothing before the cap");
+    }
     f.heard(&format!("steer: {}", notice_text(3_000))).await;
     assert_eq!(f.notices(), [turn_id]);
     f.open("busy").await;
+    tokio::time::timeout(WAIT, turn).await.unwrap().unwrap().unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn past_the_cap_send_now_still_steers_a_held_message_in_and_an_agents_interrupt_stops_nothing()
+ {
+    let mut f = fixture().await;
+    let cap = 600_000;
+    f.hub.set_turn_cap(&f.session, Some(cap));
+    let turn = f.gated_turn("g").await;
+    let turn_id = f.session.turn().unwrap().turn_id;
+    f.age_turn(cap);
+    // An agent's interrupt past the cap waits like any of its messages: the turn runs on.
+    let opts =
+        PromptOptions { agent: Some("lane-a".into()), interrupt: true, ..PromptOptions::default() };
+    let (interrupt, _) = f.send_with("stop for me", true, opts).await;
+    assert_eq!(interrupt.unwrap()["queued"], true);
+    let (held, held_task) = f.send("held from lane b", Some("lane-b"), true, false).await;
+    let prompt_id = held.unwrap()["promptId"].as_str().unwrap().to_owned();
+    f.heard(&format!("steer: {}", notice_text(cap))).await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(f.session.turn().map(|t| t.turn_id), Some(turn_id.clone()), "nothing stopped it");
+    // The queue's Send now is the person's: it steers the held message in, past the cap.
+    let edit = json!({"op": "send_now", "promptId": prompt_id});
+    let sent = f.hub.queue_edit(&f.session, &edit, Control::default(), false, None).await.unwrap();
+    assert_eq!(sent["ok"], true, "{sent}");
+    f.heard("steer: held from lane b").await;
+    let answer = tokio::time::timeout(WAIT, held_task).await.unwrap().unwrap().unwrap();
+    assert_eq!(answer["_meta"]["acpmux"]["steer"], true, "{answer}");
+    assert_eq!(f.session.turn().map(|t| t.turn_id), Some(turn_id), "still the same turn");
+    f.open("g").await;
+    tokio::time::timeout(WAIT, turn).await.unwrap().unwrap().unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_notice_reaches_only_the_turn_it_names_and_a_restored_marker_sends_none() {
+    let mut f = fixture().await;
+    let cap = 600_000;
+    f.hub.set_turn_cap(&f.session, Some(cap));
+    let turn = f.gated_turn("g").await;
+    let turn_id = f.session.turn().unwrap().turn_id;
+    // A notice for a turn that ended never goes into the one that runs now.
+    let stale = PromptOptions {
+        steer_only: true,
+        provenance: Some(json!({"kind": NOTICE_KIND, "turnId": "an-ended-turn", "capMs": cap})),
+        ..PromptOptions::default()
+    };
+    let blocks = vec![json!({"type": "text", "text": notice_text(cap)})];
+    let refused = f.hub.prompt_with(&f.session, blocks, "acpmux", true, stale).await;
+    let refused = refused.expect_err("a notice for another turn");
+    assert!(refused.message.starts_with(crate::claude_stdio::STEER_NO_TURN), "{}", refused.message);
+    // The turn already had its notice (a restart adopted it with its saved marker): none again.
+    f.session.meta.lock().unwrap().turn_cap_noticed = Some(turn_id.clone());
+    f.age_turn(cap);
+    let (held, _) = f.send("from lane a", Some("lane-a"), true, false).await;
+    assert_eq!(held.unwrap()["queued"], true);
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let records = f.hub.events(&f.session.id, 0, 100_000).unwrap();
+    let sent = records
+        .iter()
+        .filter(|r| r.dir == "out" && r.kind == "session/prompt")
+        .filter(|r| r.msg["params"]["prompt"].to_string().contains(NOTICE))
+        .count();
+    assert_eq!(sent, 0, "no notice reached the agent");
+    f.open("g").await;
     tokio::time::timeout(WAIT, turn).await.unwrap().unwrap().unwrap();
 }

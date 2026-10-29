@@ -273,6 +273,7 @@ impl Hub {
         let running = session.turn();
         // Another agent's message to a turn past its cap waits for the next turn (`turn_cap.rs`).
         let capped = running.is_some()
+            && !opts.send_now
             && self.turn_cap_holds(session, opts.provenance.as_ref(), opts.agent.as_deref());
         let steer_now =
             steer && session.steering.load(Ordering::SeqCst) && running.is_some() && !capped;
@@ -305,7 +306,8 @@ impl Hub {
             prompt_id: &prompt_id,
             control,
             trust_gate,
-            interrupt: opts.interrupt,
+            // Held past the cap, it waits: it stops no turn (`turn_cap.rs`).
+            interrupt: opts.interrupt && !capped,
             interrupt_turn: opts.interrupt_turn.as_deref(),
             provenance: opts.provenance.as_ref(),
             agent: agent.as_deref(),

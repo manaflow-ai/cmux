@@ -124,6 +124,9 @@ impl Hub {
         let cancels = session.cancels.load(std::sync::atomic::Ordering::SeqCst);
         let prompt_id = opts.prompt_id.unwrap_or_default();
         self.check_steer(session, control, opts.full_access_device.as_deref())?;
+        if !super::turn_cap::notice_reaches(session, opts.provenance.as_ref(), turn_id) {
+            return Err(RpcError::invalid_params(crate::claude_stdio::STEER_NO_TURN));
+        }
         // A running turn has a live agent.
         let child = self.child_for(session).await?;
         // A family message is checked again here, as a dispatched one is, and the gate held
@@ -153,6 +156,10 @@ impl Hub {
         // fallback would start one after the Stop.
         if session.cancels.load(std::sync::atomic::Ordering::SeqCst) != cancels {
             return Err(super::turns::stopped_before_prompt());
+        }
+        // The turn cap's notice goes into the turn it names or nowhere (`turn_cap.rs`).
+        if !super::turn_cap::notice_reaches(session, opts.provenance.as_ref(), turn_id) {
+            return Err(RpcError::invalid_params(crate::claude_stdio::STEER_NO_TURN));
         }
         let mut params = json!({"sessionId": agent_sid, "prompt": wire_blocks});
         // Its promptId names it to a withdraw (`queue_edit.rs` `withdraw`).

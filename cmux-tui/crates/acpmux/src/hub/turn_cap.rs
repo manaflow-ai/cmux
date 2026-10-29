@@ -5,10 +5,13 @@
 //!
 //! A session with a cap (`SessionMeta::turn_cap_ms`, else [`default_turn_cap_ms`]) whose running
 //! turn is older than the cap stops taking other agents' steers: they wait in the queue, and the
-//! next turn takes them together (`digest.rs`). The person's own steers still go in. The hub
-//! steers one notice into that turn, once ([`NOTICE_KIND`]), when an agent's message is waiting
-//! for it: on the first agent message past the cap, or at the cap when one waits already
-//! ([`Hub::arm_turn_cap`]'s timer). The hub never cancels the turn itself.
+//! next turn takes them together (`digest.rs`); one sent with `interrupt` stops nothing. The
+//! person's own steers still go in, and so does the queue's Send now. The hub steers one notice
+//! into that turn, once ([`NOTICE_KIND`]; the turn it went into is saved in the session's meta, so
+//! a turn a restart adopts gets no second), when an agent's message is waiting for it: on the
+//! first agent message past the cap, or at the cap when one waits already ([`Hub::arm_turn_cap`]'s
+//! timer). The notice goes only into the turn it names ([`notice_reaches`]). The hub never cancels
+//! the turn itself.
 //!
 //! The timer: one per session, armed when a turn starts. It wakes once, at the cap, and ends; a
 //! turn that starts before then aborts the previous turn's timer (`Session::turn_cap_timer`). It
@@ -45,6 +48,18 @@ fn capped_turn(session: &Session, now: u64) -> Option<(String, u64)> {
     let cap = turn_cap_ms(&session.meta.lock().unwrap_or_else(|e| e.into_inner()))?;
     let turn = session.turn()?;
     (now.saturating_sub(turn.started_at) >= cap).then_some((turn.turn_id, cap))
+}
+
+/// Whether a steer with `provenance` may go into turn `turn_id`: anything but the notice, and the
+/// notice only into the turn it names while that turn still runs. A notice for a turn that ended
+/// never reaches the next one.
+pub(super) fn notice_reaches(session: &Session, provenance: Option<&Value>, turn_id: &str) -> bool {
+    let Some(p) = provenance.filter(|p| p.get("kind").and_then(Value::as_str) == Some(NOTICE_KIND))
+    else {
+        return true;
+    };
+    p.get("turnId").and_then(Value::as_str) == Some(turn_id)
+        && session.turn().is_some_and(|t| t.turn_id == turn_id)
 }
 
 /// The notice's words.
@@ -124,12 +139,14 @@ impl Hub {
             return;
         }
         {
-            let mut noticed = session.turn_cap_noticed.lock().unwrap_or_else(|e| e.into_inner());
-            if noticed.as_deref() == Some(turn_id) {
+            let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+            if meta.turn_cap_noticed.as_deref() == Some(turn_id) {
                 return;
             }
-            *noticed = Some(turn_id.to_owned());
+            meta.turn_cap_noticed = Some(turn_id.to_owned());
         }
+        // Saved before it goes, so a turn a restart adopts gets no second one.
+        self.save_meta(session);
         let opts = PromptOptions {
             prompt_id: Some(format!("turn-cap-{turn_id}")),
             // Into this turn or nowhere: a turn that ended meanwhile needs no notice.
