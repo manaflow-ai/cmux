@@ -127,15 +127,20 @@ fn hidden_attach_uses_its_snapshot_without_overwriting_newer_live_events() {
 
 #[tokio::test]
 async fn reconnect_replays_before_admitting_a_concurrent_attach() {
-    replay_during_handshake(false).await;
+    replay_during_handshake(false, false).await;
 }
 
 #[tokio::test]
 async fn an_attachment_registered_during_handshake_is_gated_during_replay() {
-    replay_during_handshake(true).await;
+    replay_during_handshake(true, false).await;
 }
 
-async fn replay_during_handshake(late_attach: bool) {
+#[tokio::test]
+async fn reconnect_resets_a_cursor_a_restored_journal_no_longer_reaches() {
+    replay_during_handshake(false, true).await;
+}
+
+async fn replay_during_handshake(late_attach: bool, rollback: bool) {
     use tokio_tungstenite::WebSocketStream;
     use tokio_tungstenite::tungstenite::{Message as Frame, protocol::Role};
     async fn request(ws: &mut WebSocketStream<tokio::io::DuplexStream>) -> Value {
@@ -160,10 +165,11 @@ async fn replay_during_handshake(late_attach: bool) {
     let event = |seq| json!({"sessionId": "s", "seq": seq, "at": 1, "dir": "mux", "kind": "turn_end", "msg": {}});
     let (tx, mut notices) = mpsc::channel(64);
     let peer = Peer::new("box", "ws://127.0.0.1:9", None, None, tx);
-    let cursor = if late_attach { 0 } else { 10 };
+    let cursor = if late_attach || rollback { 0 } else { 10 };
+    let remembered = if rollback { 1000 } else { cursor };
     if !late_attach {
         peer.mark_attached("s");
-        peer.note_hidden_attach_page("s", &json!({"events": [], "pageThrough": cursor}));
+        peer.note_hidden_attach_page("s", &json!({"events": [], "pageThrough": remembered}));
     }
     let (ours, theirs) = tokio::io::duplex(1 << 16);
     let client = WebSocketStream::from_raw_socket(ours, Role::Client, None).await;
@@ -193,9 +199,22 @@ async fn replay_during_handshake(late_attach: bool) {
             .unwrap();
     }
     reply(&mut server, &watch, json!({"sessions": [{"sessionId": "s"}]})).await;
-    let replay = request(&mut server).await;
+    let mut replay = request(&mut server).await;
     assert_eq!(replay["method"], method::MUX_ATTACH);
-    assert_eq!(replay["params"]["afterSeq"], cursor, "do not skip history or the replay gap");
+    assert_eq!(replay["params"]["afterSeq"], remembered, "do not skip history or the replay gap");
+    if rollback {
+        // Same session id, but a restored disk only reaches 3 instead of 1000.
+        reply(
+            &mut server,
+            &replay,
+            json!({"events": [], "lastSeq": 3, "pageThrough": 3, "hasMore": false}),
+        )
+        .await;
+        replay = request(&mut server).await;
+        assert_eq!(replay["method"], method::MUX_ATTACH);
+        assert_eq!(replay["params"]["afterSeq"], 0, "reset the stale replay cursor");
+        assert!(replay["params"]["maxBytes"].as_u64().unwrap() > 0);
+    }
     if late_attach {
         // Live notification and page contain the same event. The wire order
         // ensures the reader consumes the live frame before the replay answer.
@@ -246,6 +265,20 @@ async fn replay_during_handshake(late_attach: bool) {
         "subscribers receive each gap event once, before readiness"
     );
     assert!(peer.connected.load(Ordering::SeqCst));
+    if rollback {
+        server
+            .send(Frame::Text(
+                Message::notification(method::MUX_EVENT, event(4)).to_value().to_string().into(),
+            ))
+            .await
+            .unwrap();
+        let (_, _, notice) =
+            tokio::time::timeout(Duration::from_secs(2), notices.recv()).await.unwrap().unwrap();
+        assert!(
+            matches!(notice, PeerNotice::Notification { params, .. } if params["seq"] == 4),
+            "new events below the old cursor must stream"
+        );
+    }
     peer.stop();
     tokio::time::timeout(Duration::from_secs(2), serving).await.unwrap().unwrap().unwrap();
 }

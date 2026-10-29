@@ -1223,6 +1223,7 @@ impl Peer {
             }
             for (sid, cursor) in attached {
                 let mut after = cursor;
+                let mut rewound = false;
                 loop {
                     // Pin every bounded page to this connection. Replay its records through
                     // the same hub path as live events before releasing this session's gate.
@@ -1233,6 +1234,23 @@ impl Peer {
                             Some(link),
                         )
                         .await?;
+                    // A restored journal may be shorter than the copy we saw on
+                    // the previous link. Reset both cursors before requesting its
+                    // bounded pages, or every new live event below `after` is lost.
+                    if page.get("lastSeq").and_then(Value::as_u64).is_some_and(|last| last < after)
+                    {
+                        if rewound {
+                            return Err(RpcError::internal(
+                                "peer journal kept moving backwards during replay",
+                            ));
+                        }
+                        let mut highwater = me.replay_highwater.lock_or_recover();
+                        me.attached.lock_or_recover().insert(sid.clone(), 0);
+                        highwater.insert(sid.clone(), 0);
+                        after = 0;
+                        rewound = true;
+                        continue;
+                    }
                     let mut progressed = false;
                     if let Some(events) = page.get("events").and_then(Value::as_array) {
                         for event in events {
