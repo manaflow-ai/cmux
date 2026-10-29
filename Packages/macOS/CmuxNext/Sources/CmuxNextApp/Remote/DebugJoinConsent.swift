@@ -3,10 +3,11 @@ import Foundation
 import CmuxNextServer
 import CmuxNextSettings
 
-/// `debug.join_consent {team?, name?, screen?, control?, ask?, settings?}` (captures): This Mac reads
-/// as joined from a fixture status instead of acpmux, so Settings > Devices shows its consent switches
-/// with no join, team or platform; `ask` (a requesting machine's name) shows the one-time sheet;
-/// `settings` (default true) opens Settings > Devices. Writes go to a fixture line that is the person.
+/// `debug.join_consent {team?, name?, ask?, surface?, settings?}` (captures): This Mac reads as joined
+/// from a fixture status instead of acpmux, so Settings > Devices shows its consent switches with no
+/// join, team or platform; `ask` (a requesting machine's name) shows the one-time sheet; `settings`
+/// (default true) opens Settings > Devices. Both consents start off and the RPC never sets one: only
+/// the page's switch (the person's gesture) or the sheet's Allow writes, to a fixture person line.
 @MainActor
 enum DebugJoinConsent {
     /// The status the app reads while set (``JoinConsentServices/app(_:)``).
@@ -14,9 +15,10 @@ enum DebugJoinConsent {
     static let line = FixtureLine()
 
     static func show(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
-        status = JoinStatus(credentialPresent: true, machineId: "m_fixture", teamId: "team_fixture",
-                            teamName: params["team"]?.stringValue ?? "Example Team", name: params["name"]?.stringValue ?? "studio",
-                            screen: params["screen"]?.boolValue ?? false, control: params["control"]?.boolValue ?? false)
+        if status == nil {
+            status = JoinStatus(credentialPresent: true, machineId: "m_fixture", teamId: "team_fixture",
+                                teamName: params["team"]?.stringValue ?? "Example Team", name: params["name"]?.stringValue ?? "studio")
+        }
         let model = services.joinConsent
         if params["settings"]?.boolValue ?? true { try? services.settingsWindow.show(section: nil, route: "#/settings/devices") }
         // task-owner: one status read per call; the sheet shows after it

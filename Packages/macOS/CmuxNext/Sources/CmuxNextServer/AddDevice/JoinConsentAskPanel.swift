@@ -7,7 +7,8 @@ import CmuxNextDesign
 /// screen, never taking the keyboard or the frontmost app. Only a press on its buttons answers.
 @MainActor
 public final class JoinConsentAskPanel: NSPanel {
-    let model: JoinConsentModel
+    /// Weak: the model's `present` owns this panel.
+    weak var model: JoinConsentModel?
     let content: JoinConsentAskView
 
     public init(model: JoinConsentModel) {
@@ -33,7 +34,7 @@ public final class JoinConsentAskPanel: NSPanel {
 
     /// Shows or hides the sheet (``JoinConsentModel/present``). It opens at once, with no fade.
     public func setShown(_ shown: Bool) {
-        guard shown, model.ask != nil else { return orderOut(nil) }
+        guard shown, model?.ask != nil else { return orderOut(nil) }
         animationBehavior = .none
         content.rebuild()
         let size = content.fittingSize
@@ -48,7 +49,8 @@ public final class JoinConsentAskPanel: NSPanel {
 @MainActor
 public final class JoinConsentAskView: NSView {
     static let width: CGFloat = 380
-    let model: JoinConsentModel
+    /// Weak: the model's `present` owns the panel that owns this view.
+    weak var model: JoinConsentModel?
     private let stack = NSStackView()
 
     public init(model: JoinConsentModel) {
@@ -77,11 +79,14 @@ public final class JoinConsentAskView: NSView {
 
     func rebuild() {
         stack.arrangedSubviews.forEach { $0.removeFromSuperview() }
-        guard let ask = model.ask else { return }
+        guard let model, let ask = model.ask else { return }
         let width = Self.width - 2 * Metrics.space5
         stack.addArrangedSubview(label(JoinConsentStrings.askTitle(ask), font: Typography.bodyEmphasized, color: Palette.textPrimary, width: width))
         stack.addArrangedSubview(label(JoinConsentStrings.askQuestion(ask.surface), font: Typography.body, color: Palette.textPrimary, width: width))
         stack.addArrangedSubview(label(JoinConsentStrings.askNote, font: Typography.caption, color: Palette.textSecondary, width: width))
+        if let error = model.askError {
+            stack.addArrangedSubview(label(error, font: Typography.caption, color: Palette.danger, width: width))
+        }
         let row = NSStackView()
         row.orientation = .horizontal
         row.spacing = Metrics.space2
@@ -104,8 +109,8 @@ public final class JoinConsentAskView: NSView {
     }
 
     // task-owner: one answer per press; the sheet hides at once and the write ends on its own
-    @objc private func allowPressed() { Task { await model.answer(allow: true) } }
-    @objc private func denyPressed() { Task { await model.answer(allow: false) } }
+    @objc private func allowPressed() { Task { [weak model] in await model?.answer(allow: true) } }
+    @objc private func denyPressed() { Task { [weak model] in await model?.answer(allow: false) } }
 
     private func label(_ text: String, font: NSFont, color: NSColor, width: CGFloat) -> NSTextField {
         let field = NSTextField(wrappingLabelWithString: text)

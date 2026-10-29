@@ -86,20 +86,21 @@ public nonisolated struct JoinConsentRefusal: Equatable, Sendable {
     }
 }
 
-/// What the consent gate asks of the app, so tests run it with fakes.
+/// What the consent gate asks of the app, so tests run it with fakes. Every call runs on the main actor.
 public struct JoinConsentServices {
     /// `acpmux host join --status --json`; nil when this Mac is not joined or the run failed.
-    public var status: () async -> JoinStatus?
+    public var status: @MainActor () async -> JoinStatus?
     /// A person-proof line to this Mac's acpmux; nil when no acpmux answers.
-    public var openLine: () async -> (any JoinConsentLine)?
+    public var openLine: @MainActor () async -> (any JoinConsentLine)?
     /// `labs.machineJoin`.
-    public var enabled: () -> Bool
+    public var enabled: @MainActor () -> Bool
     /// The one-time sheet already showed on this Mac (kept across launches).
-    public var askShown: () -> Bool
-    public var markAskShown: () -> Void
+    public var askShown: @MainActor () -> Bool
+    public var markAskShown: @MainActor () -> Void
 
-    public init(status: @escaping () async -> JoinStatus?, openLine: @escaping () async -> (any JoinConsentLine)?,
-                enabled: @escaping () -> Bool, askShown: @escaping () -> Bool, markAskShown: @escaping () -> Void) {
+    public init(status: @escaping @MainActor () async -> JoinStatus?, openLine: @escaping @MainActor () async -> (any JoinConsentLine)?,
+                enabled: @escaping @MainActor () -> Bool, askShown: @escaping @MainActor () -> Bool,
+                markAskShown: @escaping @MainActor () -> Void) {
         self.status = status
         self.openLine = openLine
         self.enabled = enabled
@@ -118,6 +119,8 @@ public final class JoinConsentModel {
     public private(set) var lastError: String?
     /// The refused request the one-time sheet shows; nil while it is hidden.
     public private(set) var ask: JoinConsentRefusal?
+    /// Why the sheet's Allow did not take; the sheet stays up showing it.
+    public private(set) var askError: String?
     /// Shows and hides the sheet; the app sets the panel, tests record it.
     @ObservationIgnored public var present: @MainActor (Bool) -> Void = { _ in }
     @ObservationIgnored private let services: JoinConsentServices
@@ -126,16 +129,26 @@ public final class JoinConsentModel {
         self.services = services
     }
 
-    /// The switches show: the Labs switch is on and this Mac holds a join credential.
-    public var shown: Bool { services.enabled() && status?.credentialPresent == true }
+    /// The switches show: the Labs switch is on and this Mac holds a join credential that is not revoked.
+    public var shown: Bool { services.enabled() && status?.credentialPresent == true && status?.revoked != true }
 
     public func refresh() async {
         status = services.enabled() ? await services.status() : nil
+        // The Labs switch went off (or the join went away): an open sheet can no longer allow.
+        if !shown, ask != nil { dismissAsk() }
     }
 
     /// Turns `surface` on or off on this Mac. Returns the error to show, nil when set.
     @discardableResult
     public func set(_ surface: JoinConsentSurface, on: Bool) async -> String? {
+        // An on only for a joined, unrevoked Mac with the Labs switch on, read fresh; off always goes through.
+        if on {
+            await refresh()
+            guard shown else {
+                lastError = JoinConsentStrings.onFailed
+                return lastError
+            }
+        }
         guard let line = await services.openLine() else {
             lastError = on ? JoinConsentStrings.onFailed : JoinConsentStrings.offFailed
             return lastError
@@ -158,16 +171,37 @@ public final class JoinConsentModel {
         guard services.enabled(), ask == nil, !services.askShown() else { return }
         services.markAskShown()
         ask = refusal
+        askError = nil
         present(true)
     }
 
-    /// The sheet's Deny or Allow. Allow writes through the same person path as the switch.
+    /// The sheet's Deny or Allow. Allow writes through the same person path as the switch; when it does
+    /// not take, the sheet stays up with the reason (Deny still closes it).
     @discardableResult
     public func answer(allow: Bool) async -> String? {
         guard let refusal = ask else { return nil }
+        guard allow else {
+            dismissAsk()
+            return nil
+        }
+        guard services.enabled() else {
+            dismissAsk()
+            return nil
+        }
+        if let error = await set(refusal.surface, on: true) {
+            guard ask == refusal else { return error }
+            askError = error
+            present(true)
+            return error
+        }
+        dismissAsk()
+        return nil
+    }
+
+    private func dismissAsk() {
         ask = nil
+        askError = nil
         present(false)
-        return allow ? await set(refusal.surface, on: true) : nil
     }
 
     /// Settings > Devices' join block (`devices_join` in the host lists); nil while it does not show.
