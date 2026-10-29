@@ -27,8 +27,12 @@ public struct LinkPairing: Sendable {
     public let invites: PairInvites
 
     // Network exchange and the Mac's Allow prompt have different budgets.
-    var handshakeTimeout: Duration = .seconds(15)
-    var approvalTimeout: Duration = .seconds(180)
+    static let defaultHandshakeTimeout: Duration = .seconds(15)
+    static let defaultApprovalTimeout: Duration = .seconds(180)
+    /// Channels opened behind auth may wait for both the proof and the Allow prompt.
+    public static let authorizationTimeout = defaultHandshakeTimeout + defaultApprovalTimeout
+    var handshakeTimeout: Duration = defaultHandshakeTimeout
+    var approvalTimeout: Duration = defaultApprovalTimeout
 
     public init(keys: PhoneKeys, phoneID: String, name: String, pins: MacPins = .standard, push: PushKeys? = nil,
                 invites: PairInvites = PairInvites()) {

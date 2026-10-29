@@ -358,7 +358,8 @@ extension LiveCoordinator {
         let reply: Data?
         do {
             reply = try await LinkDeadline.run(
-                timeout: .seconds(15),
+                // This channel was opened behind auth, before its Allow prompt.
+                timeout: LinkPairing.authorizationTimeout + DaemonClient.defaultDeadline,
                 operation: { try await channel.receive() },
                 onCancel: { await channel.close(code: "eof", reason: "version expired") }
             )

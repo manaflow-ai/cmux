@@ -94,6 +94,42 @@ import Testing
         #expect(channel.closed)
     }
 
+    @Test func eagerWorkspaceSetupWaitsForAuthorizationWithoutAnotherWrite() async throws {
+        let channel = DeadlineChannel()
+        let prepared = await WorkspaceSync.prepare(channel, deviceID: "phone", deviceName: "iPhone",
+                                                   authorizationTimeout: .seconds(1), replyTimeout: .milliseconds(10))
+        var writes = channel.sent.makeAsyncIterator()
+        let batch = try #require(await writes.next())
+        // The normal response budget passes while the Mac's Allow prompt is open.
+        try await Task.sleep(for: .milliseconds(30))
+        var replies = Data()
+        for line in batch.split(separator: 0x0A) {
+            let request = try JSONDecoder().decode(JSONValue.self, from: Data(line))
+            let id = try #require(request["id"])
+            replies.append(try JSONEncoder().encode(JSONValue.object(["id": id, "ok": .bool(true)])))
+            replies.append(0x0A)
+        }
+        channel.push(replies)
+        let results = await prepared.replies.value
+        #expect(results.count == 5)
+        for result in results { _ = try result.get() }
+        await prepared.client.close()
+        #expect(await writes.next() == nil)
+    }
+
+    @Test func eagerWorkspaceSetupStillExpiresWhenAuthorizationNeverCompletes() async throws {
+        let channel = DeadlineChannel()
+        let prepared = await WorkspaceSync.prepare(channel, deviceID: "phone", deviceName: "iPhone",
+                                                   authorizationTimeout: .milliseconds(10), replyTimeout: .milliseconds(10))
+        let results = await prepared.replies.value
+        #expect(results.count == 5)
+        for result in results {
+            guard case .failure(let error) = result else { Issue.record("Unanswered setup succeeded"); continue }
+            #expect((error as? LinkError)?.code == "reply_timeout")
+        }
+        await prepared.client.close()
+    }
+
     private func opened(_ channel: DeadlineChannel) -> LinkPairing.Opened {
         .init(channel: channel, identity: "04aa", approval: "04bb", macNonce: "test-nonce")
     }
@@ -106,16 +142,16 @@ private final class DeadlineChannel: LinkChannel, @unchecked Sendable {
     private var queue: [Data] = []
     private var waiter: CheckedContinuation<Data?, Never>?
     private var ended = false
-    private let sendEvents = AsyncStream<Void>.makeStream()
+    private let sendEvents = AsyncStream<Data>.makeStream()
     private let readEvents = AsyncStream<Void>.makeStream()
     private let closeEvents = AsyncStream<Void>.makeStream()
-    var sent: AsyncStream<Void> { sendEvents.stream }
+    var sent: AsyncStream<Data> { sendEvents.stream }
     var reads: AsyncStream<Void> { readEvents.stream }
     var closes: AsyncStream<Void> { closeEvents.stream }
     var closed: Bool { lock.withLock { ended } }
 
     func send(_ data: Data) async throws {
-        sendEvents.continuation.yield(())
+        sendEvents.continuation.yield(data)
         if let request = try? JSONDecoder().decode(JSONValue.self, from: data),
            request["method"] == .string("answer"), let id = request["id"] {
             push(try JSONEncoder().encode(JSONValue.object(["jsonrpc": .string("2.0"), "id": id, "result": .string("ok")])))

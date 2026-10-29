@@ -6,12 +6,12 @@ import Testing
     @Test func preCancelledRunDoesNotStartOperation() async throws {
         let starts = Counter()
         let task = Task {
-            try await LinkDeadline.run(timeout: .seconds(1), operation: {
+            withUnsafeCurrentTask { $0?.cancel() }
+            return try await LinkDeadline.run(timeout: .seconds(1), operation: {
                 starts.increment()
                 return 1
             })
         }
-        task.cancel()
         do {
             _ = try await task.value
             Issue.record("A pre-cancelled run succeeded")
