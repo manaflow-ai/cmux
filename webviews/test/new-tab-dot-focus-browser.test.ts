@@ -125,6 +125,11 @@ await requireBrowserLane("new-tab-dot-focus-browser.test.ts", async () => {
           // Let the existing post-pick focus restoration run before the user's next key.
           await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
           expect(await page.getByRole("radio", { name: "Quick actions", exact: true }).isChecked()).toBe(true);
+          await page.waitForFunction(
+            () => getComputedStyle(document.querySelector(".nt-style-name")!).opacity === "1",
+            undefined,
+            { timeout: 500 },
+          );
           expect(await label.evaluate((node) => getComputedStyle(node).opacity)).toBe("1");
           await page.keyboard.press("Tab");
           const result = await page.evaluate(
