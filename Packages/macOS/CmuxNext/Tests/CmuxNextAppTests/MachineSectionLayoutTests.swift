@@ -60,7 +60,7 @@ import Testing
     }
 
     @Test func theFixtureHasEveryRemoteKindAndState() {
-        let fixture = MachineSectionModel.fixtureRows
+        let fixture = MachineSectionRow.fixtures
         #expect(Set(fixture.map(\.kind)) == [.cloud, .ssh, .server])
         #expect(fixture.contains { $0.isConnecting })
         #expect(fixture.contains { !$0.isConnected && !$0.isConnecting })

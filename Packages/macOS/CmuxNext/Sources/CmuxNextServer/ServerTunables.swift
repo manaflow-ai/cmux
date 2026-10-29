@@ -32,7 +32,7 @@ public nonisolated enum ServerTunables {
         default: .compact, code: "ServerTunables.machinesStyle")
 
     /// Sample machines in the Machines section, one of each kind and state, for comparing its layouts on
-    /// a Mac with no remote machine (``MachineSectionModel/fixtureRows``).
+    /// a Mac with no remote machine (``MachineSectionRow/fixtures``).
     public static let machinesFixture = Tunable<Bool>.toggle(
         "machines.section.fixture", section, "Sample machines",
         help: "Adds sample Cloud, SSH and server machines (connected, connecting and offline) to the Machines section.",

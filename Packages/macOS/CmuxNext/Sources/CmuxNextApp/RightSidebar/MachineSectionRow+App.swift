@@ -2,7 +2,7 @@ import CmuxNextServer
 
 /// Main actor: it reads the machine registry and each daemon's store.
 @MainActor
-extension MachineSectionModel {
+extension MachineSectionRow {
     /// The rows of `machines` now, each with its kind, its link state and its last check from `health`;
     /// then the sample machines while `machines.section.fixture` is on; then the machines that joined
     /// with a one-line token (`joined`, empty while Labs `labs.machineJoin` is off) that the app does
@@ -27,7 +27,7 @@ extension MachineSectionModel {
         let known = Set(machines.daemons.filter { !$0.isLocal }.map(\.machineID))
         let mesh = all.filter { $0.meshPeerId.map { !known.contains($0) } ?? true }
             .map { MachineSectionRow.joined($0, health: health.reports[JoinedMachine.healthID($0.id)]) }
-        return (ServerTunables.machinesFixture.value ? live + fixtureRows : live) + mesh
+        return (ServerTunables.machinesFixture.value ? live + fixtures : live) + mesh
     }
 
     /// What `machineID` is in `machines`: this Mac, a Cloud machine, an SSH machine, else a paired server.

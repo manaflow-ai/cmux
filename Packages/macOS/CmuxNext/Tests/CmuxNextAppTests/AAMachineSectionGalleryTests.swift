@@ -7,7 +7,7 @@ import Testing
 
 /// The right sidebar's Machines section in each ``MachineSectionStyle`` (cloud sidebar redesign,
 /// ask-2663fecb03), dark and light, with this Mac and the sample machines
-/// (``MachineSectionModel/fixtureRows``). `CMUX_TEST_REQUIRE_GUI=1`; writes PNGs under
+/// (``MachineSectionRow/fixtures``). `CMUX_TEST_REQUIRE_GUI=1`; writes PNGs under
 /// `machines-section-gallery/` and `machines-section-gallery.tar` for `cmux-ci run --artifact`.
 @MainActor @Suite(.serialized) struct AAMachineSectionGalleryTests {
     static func render(_ style: MachineSectionStyle, appearance: NSAppearance.Name) throws -> CGImage {
@@ -30,7 +30,7 @@ import Testing
         scope.root(root)
         root.layer?.backgroundColor = scope.perform { Palette.windowBackground.withAlphaComponent(1) }.cgColor
         let section = MachineSectionView(actions: MachineSectionView.Actions(newWorkspace: { _ in }, addMachine: {}))
-        section.update([MachineSectionRow(id: "local", name: "This Mac", isConnected: true, isLocal: true)] + MachineSectionModel.fixtureRows,
+        section.update([MachineSectionRow(id: "local", name: "This Mac", isConnected: true, isLocal: true)] + MachineSectionRow.fixtures,
                        style: style)
         section.frame = root.bounds
         root.addSubview(section)

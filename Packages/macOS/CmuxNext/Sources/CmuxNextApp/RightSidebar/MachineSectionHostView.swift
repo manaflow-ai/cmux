@@ -42,7 +42,7 @@ final class MachineSectionHostView: NSView, RightSidebarRefreshing {
         let machines = self.machines, health = self.health, joined = self.joined
         observation = Task { [weak self] in
             for await (rows, style, state) in ObservationStream({
-                (MachineSectionModel.rows(machines, health: health, joined: joined), ServerTunables.machinesStyle.value,
+                (MachineSectionRow.rows(machines, health: health, joined: joined), ServerTunables.machinesStyle.value,
                  MachineSectionView.JoinedRowState(joined))
             }) {
                 self?.section.update(rows, style: style, joined: state)
@@ -75,7 +75,7 @@ final class MachineSectionHostView: NSView, RightSidebarRefreshing {
     }
 
     func refresh() {
-        section.update(MachineSectionModel.rows(machines, health: health, joined: joined), style: ServerTunables.machinesStyle.value,
+        section.update(MachineSectionRow.rows(machines, health: health, joined: joined), style: ServerTunables.machinesStyle.value,
                        joined: MachineSectionView.JoinedRowState(joined))
         let joined = self.joined
         joinedRead?.cancel()

@@ -156,14 +156,13 @@ public nonisolated struct MachineSectionGroup: Identifiable, Hashable, Sendable 
     public var title: String? { kind.flatMap(AddMachineStrings.group) }
 }
 
-/// The Machines section's rows: this Mac, then every Cloud, SSH and server machine the app knows,
-/// with whether each is connected and how its last check went, then the machines that joined with a
-/// one-line token (Labs `labs.machineJoin`) (the App reads them from its machine registry and its
-/// joined machines; ``MachineSectionView`` shows them).
-public nonisolated enum MachineSectionModel {
+/// The Machines section's rows (``MachineSectionView`` shows them): the App reads this Mac, every
+/// Cloud, SSH and server machine and the machines that joined with a one-line token (Labs
+/// `labs.machineJoin`) from its registries (`MachineSectionRow.rows`, CmuxNextApp).
+extension MachineSectionRow {
     /// Sample machines, one of each kind and state, for the gallery and captures on a slot with no
     /// remote machine (`machines.section.fixture`). Names are made up.
-    public static let fixtureRows: [MachineSectionRow] = [
+    public static let fixtures: [MachineSectionRow] = [
         MachineSectionRow(id: "fixture-cloud-1", name: "atlas-web", isConnected: true, isLocal: false, kind: .cloud, health: .ok),
         MachineSectionRow(id: "fixture-cloud-2", name: "gpu-box", isConnected: false, isLocal: false, kind: .cloud, isConnecting: true),
         MachineSectionRow(id: "fixture-ssh-1", name: "linux-box", isConnected: true, isLocal: false, kind: .ssh, health: .warning, healthStep: .update),
