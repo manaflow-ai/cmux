@@ -5,392 +5,137 @@
   "$defs": {
     "NativePopupRowKind": {
       "type": "string",
-      "enum": [
-        "action",
-        "toggle",
-        "choice",
-        "section",
-        "separator",
-        "text",
-        "slider",
-        "submenu",
-        "textField"
-      ]
+      "enum": ["action", "toggle", "choice", "section", "separator", "text", "slider", "submenu", "textField"]
     },
     "NativePopupEventType": {
       "type": "string",
-      "enum": [
-        "pick",
-        "change",
-        "search",
-        "highlight",
-        "complete",
-        "submit",
-        "dismiss"
-      ]
+      "enum": ["pick", "change", "search", "highlight", "complete", "submit", "dismiss"]
     },
-    "NativePopupSide": {
-      "type": "string",
-      "enum": [
-        "top",
-        "bottom"
-      ]
-    },
-    "NativePopupAlign": {
-      "type": "string",
-      "enum": [
-        "start",
-        "end"
-      ]
-    },
+    "NativePopupSide": { "type": "string", "enum": ["top", "bottom"] },
+    "NativePopupAlign": { "type": "string", "enum": ["start", "end"] },
     "NativePopupAnchor": {
       "type": "object",
-      "required": [
-        "left",
-        "top",
-        "right",
-        "bottom"
-      ],
+      "required": ["left", "top", "right", "bottom"],
       "properties": {
-        "left": {
-          "type": "number"
-        },
-        "top": {
-          "type": "number"
-        },
-        "right": {
-          "type": "number"
-        },
-        "bottom": {
-          "type": "number"
-        }
+        "left": { "type": "number" },
+        "top": { "type": "number" },
+        "right": { "type": "number" },
+        "bottom": { "type": "number" }
       }
     },
     "NativePopupOption": {
       "type": "object",
-      "required": [
-        "id",
-        "label"
-      ],
-      "properties": {
-        "id": {
-          "type": "string"
-        },
-        "label": {
-          "type": "string"
-        },
-        "disabled": {
-          "type": "boolean"
-        }
-      }
+      "required": ["id", "label"],
+      "properties": { "id": { "type": "string" }, "label": { "type": "string" }, "disabled": { "type": "boolean" } }
     },
     "NativePopupAction": {
       "type": "object",
-      "required": [
-        "id",
-        "label"
-      ],
+      "required": ["id", "label"],
       "properties": {
-        "id": {
-          "type": "string"
-        },
-        "label": {
-          "type": "string"
-        },
-        "icon": {
-          "type": "string"
-        },
-        "disabled": {
-          "type": "boolean"
-        },
-        "keepOpen": {
-          "type": "boolean"
-        },
-        "completion": {
-          "type": "string"
-        }
+        "id": { "type": "string" },
+        "label": { "type": "string" },
+        "icon": { "type": "string" },
+        "disabled": { "type": "boolean" },
+        "keepOpen": { "type": "boolean" }
       }
     },
-    "NativePopupAutoHighlight": {
-      "type": "string",
-      "enum": [
-        "none",
-        "first",
-        "always"
-      ]
-    },
+    "NativePopupAutoHighlight": { "type": "string", "enum": ["none", "first", "always"] },
     "NativePopupField": {
       "type": "object",
-      "required": [
-        "id",
-        "value",
-        "placeholder"
-      ],
+      "required": ["id", "value", "placeholder"],
       "properties": {
-        "id": {
-          "type": "string"
-        },
-        "value": {
-          "type": "string"
-        },
-        "placeholder": {
-          "type": "string"
-        },
-        "disabled": {
-          "type": "boolean"
-        },
-        "submitOnReturn": {
-          "type": "boolean"
-        },
-        "autoHighlight": {
-          "$ref": "#/$defs/NativePopupAutoHighlight"
-        },
-        "completeOnTab": {
-          "type": "boolean"
-        }
+        "id": { "type": "string" },
+        "value": { "type": "string" },
+        "placeholder": { "type": "string" },
+        "disabled": { "type": "boolean" },
+        "submitOnReturn": { "type": "boolean" },
+        "autoHighlight": { "$ref": "#/$defs/NativePopupAutoHighlight" },
+        "completeOnTab": { "type": "boolean" }
       }
     },
-    "NativePopupSliderStyle": {
-      "type": "string",
-      "enum": [
-        "accent",
-        "minimal"
-      ]
-    },
+    "NativePopupSliderStyle": { "type": "string", "enum": ["accent", "minimal"] },
     "NativePopupSliderStop": {
       "type": "object",
-      "required": [
-        "value",
-        "label"
-      ],
+      "required": ["value", "label"],
       "properties": {
-        "value": {
-          "type": "string"
-        },
-        "label": {
-          "type": "string"
-        },
-        "description": {
-          "type": "string"
-        },
-        "accessibilityLabel": {
-          "type": "string"
-        }
+        "value": { "type": "string" },
+        "label": { "type": "string" },
+        "description": { "type": "string" },
+        "accessibilityLabel": { "type": "string" }
       }
     },
     "NativePopupSlider": {
       "type": "object",
-      "required": [
-        "stops"
-      ],
+      "required": ["stops"],
       "properties": {
-        "stops": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/NativePopupSliderStop"
-          }
-        },
-        "selectedValue": {
-          "type": "string"
-        },
-        "defaultValue": {
-          "type": "string"
-        },
-        "recommendedValue": {
-          "type": "string"
-        },
-        "recommendedLabel": {
-          "type": "string"
-        },
-        "minimumLabel": {
-          "type": "string"
-        },
-        "maximumLabel": {
-          "type": "string"
-        },
-        "accessibilityLabel": {
-          "type": "string"
-        },
-        "style": {
-          "$ref": "#/$defs/NativePopupSliderStyle"
-        }
+        "stops": { "type": "array", "items": { "$ref": "#/$defs/NativePopupSliderStop" } },
+        "selectedValue": { "type": "string" },
+        "defaultValue": { "type": "string" },
+        "recommendedValue": { "type": "string" },
+        "recommendedLabel": { "type": "string" },
+        "minimumLabel": { "type": "string" },
+        "maximumLabel": { "type": "string" },
+        "accessibilityLabel": { "type": "string" },
+        "style": { "$ref": "#/$defs/NativePopupSliderStyle" }
       }
     },
     "NativePopupRow": {
       "type": "object",
-      "required": [
-        "id",
-        "kind",
-        "label"
-      ],
+      "required": ["id", "kind", "label"],
       "properties": {
-        "id": {
-          "type": "string"
-        },
-        "kind": {
-          "$ref": "#/$defs/NativePopupRowKind"
-        },
-        "label": {
-          "type": "string"
-        },
-        "description": {
-          "type": "string"
-        },
-        "icon": {
-          "type": "string"
-        },
-        "shortcut": {
-          "type": "string"
-        },
-        "disabled": {
-          "type": "boolean"
-        },
-        "disabledReason": {
-          "type": "string"
-        },
-        "checked": {
-          "type": "boolean"
-        },
-        "value": {
-          "type": "string"
-        },
-        "keepOpen": {
-          "type": "boolean"
-        },
-        "placeholder": {
-          "type": "string"
-        },
-        "options": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/NativePopupOption"
-          }
-        },
-        "actions": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/NativePopupAction"
-          }
-        },
-        "children": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/NativePopupRow"
-          }
-        },
-        "minimum": {
-          "type": "number"
-        },
-        "maximum": {
-          "type": "number"
-        },
-        "step": {
-          "type": "number"
-        },
-        "slider": {
-          "$ref": "#/$defs/NativePopupSlider"
-        },
-        "completion": {
-          "type": "string"
-        }
+        "id": { "type": "string" },
+        "kind": { "$ref": "#/$defs/NativePopupRowKind" },
+        "label": { "type": "string" },
+        "description": { "type": "string" },
+        "icon": { "type": "string" },
+        "shortcut": { "type": "string" },
+        "disabled": { "type": "boolean" },
+        "disabledReason": { "type": "string" },
+        "checked": { "type": "boolean" },
+        "value": { "type": "string" },
+        "keepOpen": { "type": "boolean" },
+        "placeholder": { "type": "string" },
+        "options": { "type": "array", "items": { "$ref": "#/$defs/NativePopupOption" } },
+        "actions": { "type": "array", "items": { "$ref": "#/$defs/NativePopupAction" } },
+        "children": { "type": "array", "items": { "$ref": "#/$defs/NativePopupRow" } },
+        "minimum": { "type": "number" },
+        "maximum": { "type": "number" },
+        "step": { "type": "number" },
+        "slider": { "$ref": "#/$defs/NativePopupSlider" },
+        "completion": { "type": "string" }
       }
     },
     "NativePopupModel": {
       "type": "object",
-      "required": [
-        "schemaVersion",
-        "id",
-        "revision",
-        "anchor",
-        "side",
-        "align",
-        "width",
-        "rows"
-      ],
+      "required": ["schemaVersion", "id", "revision", "anchor", "side", "align", "width", "rows"],
       "properties": {
-        "schemaVersion": {
-          "type": "integer",
-          "const": 1
-        },
-        "id": {
-          "type": "string"
-        },
-        "revision": {
-          "type": "integer"
-        },
-        "anchor": {
-          "$ref": "#/$defs/NativePopupAnchor"
-        },
-        "side": {
-          "$ref": "#/$defs/NativePopupSide"
-        },
-        "align": {
-          "$ref": "#/$defs/NativePopupAlign"
-        },
-        "width": {
-          "type": "number"
-        },
-        "rows": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/NativePopupRow"
-          }
-        },
-        "parentId": {
-          "type": "string"
-        },
-        "title": {
-          "type": "string"
-        },
-        "search": {
-          "$ref": "#/$defs/NativePopupField"
-        },
-        "highlighted": {
-          "type": "string"
-        },
-        "rail": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/NativePopupRow"
-          }
-        },
-        "railWidth": {
-          "type": "number"
-        },
-        "footer": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/NativePopupRow"
-          }
-        }
+        "schemaVersion": { "type": "integer", "const": 1 },
+        "id": { "type": "string" },
+        "revision": { "type": "integer" },
+        "anchor": { "$ref": "#/$defs/NativePopupAnchor" },
+        "side": { "$ref": "#/$defs/NativePopupSide" },
+        "align": { "$ref": "#/$defs/NativePopupAlign" },
+        "width": { "type": "number" },
+        "rows": { "type": "array", "items": { "$ref": "#/$defs/NativePopupRow" } },
+        "parentId": { "type": "string" },
+        "title": { "type": "string" },
+        "search": { "$ref": "#/$defs/NativePopupField" },
+        "highlighted": { "type": "string" },
+        "rail": { "type": "array", "items": { "$ref": "#/$defs/NativePopupRow" } },
+        "railWidth": { "type": "number" },
+        "footer": { "type": "array", "items": { "$ref": "#/$defs/NativePopupRow" } }
       }
     },
     "NativePopupEvent": {
       "type": "object",
-      "required": [
-        "type",
-        "popupId",
-        "revision"
-      ],
+      "required": ["type", "popupId", "revision"],
       "properties": {
-        "type": {
-          "$ref": "#/$defs/NativePopupEventType"
-        },
-        "popupId": {
-          "type": "string"
-        },
-        "revision": {
-          "type": "integer"
-        },
-        "id": {
-          "type": "string"
-        },
-        "value": {
-          "type": "string"
-        },
-        "reason": {
-          "type": "string"
-        }
+        "type": { "$ref": "#/$defs/NativePopupEventType" },
+        "popupId": { "type": "string" },
+        "revision": { "type": "integer" },
+        "id": { "type": "string" },
+        "value": { "type": "string" },
+        "reason": { "type": "string" }
       }
     }
   }

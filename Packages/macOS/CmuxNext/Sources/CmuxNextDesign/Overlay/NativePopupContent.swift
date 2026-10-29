@@ -8,15 +8,15 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
     var openSubmenu: (NativePopupRow, NSView) -> Void = { _, _ in }
     var dismiss: () -> Void = {}
     var commit: () -> Void = {}
-    private var model: NativePopupModel?
+    var model: NativePopupModel?
     private var rowViews: [(NativePopupRow, NSView)] = []
     private var targets: [NativePopupControlTarget] = []
     private var fields: [String: NSTextField] = [:]
     private var editableControls: [String: NSControl] = [:]
-    private var selected: String?
+    var selected: String?
     private var searchHasInput = false
     private(set) var selectionReason = "none"
-    private var search: NSSearchField?
+    var search: NSSearchField?
     private var title: ThemedLabel?
     private var pendingCompositionModel: NativePopupModel?
     private var typeahead = ""
@@ -40,6 +40,9 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
             return
         }
         let selection = (focused?.value.currentEditor() as? NSTextView)?.selectedRange()
+        let reset = next.search?.autoHighlight != model?.search?.autoHighlight ||
+            (model?.search?.value.isEmpty == false && next.search?.value.isEmpty == true)
+        if reset { selected = nil; selectionReason = "none"; searchHasInput = false }
         let priorSelection = next.id == model?.id ? selected : nil
         if next.id != model?.id || next.search?.id != model?.search?.id { searchHasInput = false }
         if next.rows != model?.rows || next.rail != model?.rail || next.footer != model?.footer || next.title != model?.title || next.search?.id != model?.search?.id {
@@ -81,7 +84,7 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
 
     func rowView(id: String) -> NSView? { rowViews.first { $0.0.id == id }?.1 }
 
-    private var enabledRows: [(NativePopupRow, NSView)] {
+    var enabledRows: [(NativePopupRow, NSView)] {
         rowViews.filter { !$0.0.isNoninteractive && $0.0.disabled != true }
     }
 
@@ -328,7 +331,7 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
         super.keyDown(with: event)
     }
 
-    private func handleKey(_ key: UInt16) -> Bool {
+    func handleKey(_ key: UInt16) -> Bool {
         let enabled = enabledRows
         if key == 53 { dismiss(); return true }
         if key == 125 || key == 126 {
@@ -378,29 +381,4 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
         emit(isSearch ? .search : .change, id, value)
     }
 
-    func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
-        if textView.hasMarkedText() { return false }
-        switch commandSelector {
-        case #selector(NSResponder.moveDown(_:)): return handleKey(125)
-        case #selector(NSResponder.moveUp(_:)): return handleKey(126)
-        case #selector(NSResponder.insertTab(_:)):
-            guard control === search, let search, search.isEnabled,
-                  model?.search?.completeOnTab == true else { return false }
-            guard let row = enabledRows.first(where: { $0.0.id == selected && $0.0.completion != nil })
-                    ?? enabledRows.first(where: { $0.0.completion != nil }),
-                  let completion = row.0.completion, completion != search.stringValue else { return false }
-            emit(.complete, row.0.id, completion)
-            return true
-        case #selector(NSResponder.insertNewline(_:)):
-            guard control === search, let search, search.isEnabled else { return false }
-            if model?.search?.submitOnReturn == true {
-                let id = enabledRows.first(where: { $0.0.id == selected })?.0.id
-                emit(.submit, id, search.stringValue)
-                return true
-            }
-            return handleKey(36)
-        case #selector(NSResponder.cancelOperation(_:)): return handleKey(53)
-        default: return false
-        }
-    }
 }

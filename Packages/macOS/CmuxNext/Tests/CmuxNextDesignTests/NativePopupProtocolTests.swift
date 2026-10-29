@@ -50,6 +50,17 @@ import Testing
         #expect(!model.isValid)
     }
 
+    @Test func completionMetadataIsBoundedAndOnlyValidOnActionRows() {
+        var model = Self.model()
+        model.rows = [NativePopupRow(id: "suggestion", kind: .action, label: "Suggestion", value: "opaque", completion: "Named suggestion")]
+        #expect(model.isValid)
+        model.rows[0].kind = .text
+        #expect(!model.isValid)
+        model.rows[0].kind = .action
+        model.rows[0].completion = String(repeating: "x", count: 100_001)
+        #expect(!model.isValid)
+    }
+
     private static func model() -> NativePopupModel {
         NativePopupModel(schemaVersion: 1, id: "model-picker", revision: 2,
                          anchor: NativePopupAnchor(left: 20, top: 30, right: 120, bottom: 60),
