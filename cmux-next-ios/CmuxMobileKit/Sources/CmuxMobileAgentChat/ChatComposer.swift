@@ -122,6 +122,34 @@ struct ChatComposer: View {
         }
     }
 
+    /// A copied image or file pasted into the field: attached as Photos or
+    /// Files would attach it (`UIPasteboard.composerImages`).
+    private func pasteAttachments() {
+        let board = UIPasteboard.general
+        if board.hasImages {
+            let stamp = Date().formatted(date: .omitted, time: .shortened)
+            for (index, image) in board.composerImages().enumerated() {
+                let suffix = index > 0 ? " \(index + 1)" : ""
+                attachments.append(AgentAttachment(kind: .image, name: "Pasted image \(stamp)\(suffix)", data: image.data))
+            }
+        } else if board.composerHoldsFileData {
+            // A file copied in Files is its bytes on the pasteboard, not a path.
+            let providers = board.itemProviders
+            Task {
+                let pasted = await ComposerPastedFiles.load(providers, maxBytes: LinkUpload.maxBytes)
+                attachments += pasted.files.map {
+                    AgentAttachment(kind: $0.type.conforms(to: .image) && UIImage(data: $0.data) != nil ? .image : .file, name: $0.name, data: $0.data)
+                }
+                if let name = pasted.tooLarge.first { store.clientError = "\(name) is larger than \(LinkUpload.maxBytes >> 20) MB." }
+                if let name = pasted.unreadable.first { store.clientError = "Couldn't read \(name)." }
+            }
+        } else if let urls = board.urls?.filter(\.isFileURL), !urls.isEmpty {
+            let (files, refused) = Self.readFiles(urls)
+            attachments += files
+            if let refused { store.clientError = refused }
+        }
+    }
+
     /// Picked files with their bytes (read through the picker's
     /// security-scoped URLs), and the reason when one can't be attached.
     static func readFiles(_ urls: [URL]) -> ([AgentAttachment], String?) {
@@ -152,7 +180,8 @@ struct ChatComposer: View {
                 }
                 // Return starts a new line, the send button sends; a hardware
                 // keyboard's Return sends, Shift-Return starts a new line.
-                ChatComposerField(text: $text, placeholder: placeholder, isFocused: focus, onSend: sendFromKeyboard)
+                ChatComposerField(text: $text, placeholder: placeholder, isFocused: focus, onSend: sendFromKeyboard,
+                                  onPasteAttachments: pasteAttachments)
                     .padding(.horizontal, 16)
                     .padding(.top, 14)
                     .padding(.bottom, 6)
