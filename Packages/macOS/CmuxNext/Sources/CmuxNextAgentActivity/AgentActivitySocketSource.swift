@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 import CmuxNextWakeups
 import Foundation
 import Network
@@ -12,7 +13,7 @@ import Network
 /// (an event, not a poll); a lost connection reconnects with `Backoff`.
 @MainActor
 public final class AgentActivitySocketSource: AgentActivitySource {
-    public struct Configuration: Sendable {
+    public struct Configuration: Sendable, Equatable {
         public var socketPath: String
         public var authToken: String?
         public var hostAuthToken: String?
@@ -54,7 +55,11 @@ public final class AgentActivitySocketSource: AgentActivitySource {
         }
     }
 
-    private let config: Configuration
+    private var configuration: Configuration?
+    private let readConfiguration: @MainActor () -> Configuration?
+    private let send: @MainActor (Configuration, String, [String: Any]) async throws -> [String: Any]
+    private var observation: Task<Void, Never>?
+    private var generation = 0
     private var sink: (@MainActor (AgentActivityUpdate) -> Void)?
     private var subscription: AgentActivityLineConnection?
     private var directoryWatch: (any DispatchSourceFileSystemObject)?
@@ -64,14 +69,29 @@ public final class AgentActivitySocketSource: AgentActivitySource {
     private var lastSeq: [String: UInt64] = [:]
     private var fetching: Set<String> = []
 
-    public init(configuration: Configuration) {
-        config = configuration
+    public convenience init(configuration: Configuration) {
+        self.init(configuration: { configuration })
+    }
+
+    /// Reads the helper's current socket and credentials, including after a restart.
+    public convenience init(configuration: @escaping @MainActor () -> Configuration?) {
+        self.init(configuration: configuration, send: { configuration, method, args in
+            try await CuaSocketClient(configuration: configuration).send(method, args)
+        })
+    }
+
+    init(configuration: @escaping @MainActor () -> Configuration?,
+         send: @escaping @MainActor (Configuration, String, [String: Any]) async throws -> [String: Any]) {
+        readConfiguration = configuration
+        self.configuration = configuration()
+        self.send = send
     }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
     nonisolated deinit {
         guard Thread.isMainThread else { return } // main-proof: returns off the main thread
         MainActor.assumeIsolated {
+            observation?.cancel()
             reconnect?.cancel()
             subscription?.cancel()
             directoryWatch?.cancel()
@@ -79,8 +99,53 @@ public final class AgentActivitySocketSource: AgentActivitySource {
     }
 
     public func start(_ sink: @escaping @MainActor (AgentActivityUpdate) -> Void) {
+        stop()
         self.sink = sink
+        configuration = readConfiguration()
         connect()
+        let read = readConfiguration
+        observation = Task { [weak self] in
+            for await configuration in ObservationStream({ read() }) {
+                guard !Task.isCancelled else { return }
+                self?.update(configuration)
+            }
+        }
+    }
+
+    /// Ends the subscription and discards work from its old credentials.
+    public func stop() {
+        generation &+= 1
+        observation?.cancel()
+        observation = nil
+        disconnect()
+        sink = nil
+    }
+
+    private func disconnect() {
+        reconnect?.cancel()
+        reconnect = nil
+        subscription?.cancel()
+        subscription = nil
+        directoryWatch?.cancel()
+        directoryWatch = nil
+    }
+
+    private func update(_ next: Configuration?) {
+        guard next != configuration else { return }
+        generation &+= 1
+        disconnect()
+        let machine = configuration?.machine ?? next?.machine ?? AgentActivityModel.localMachine
+        configuration = next
+        lastSeq.removeAll()
+        fetching.removeAll()
+        backoff.reset()
+        sink?(.sessions(machine: machine, []))
+        guard next != nil else {
+            sink?(.connection(machine: machine, .notStarted))
+            return
+        }
+        connect()
+        for session in followed { fetchTimeline(session) }
     }
 
     public func follow(session: String, _ on: Bool) {
@@ -99,13 +164,20 @@ public final class AgentActivitySocketSource: AgentActivitySource {
     }
 
     public func perform(_ op: AgentActivityUserOp) async throws {
-        guard let (method, args) = AgentActivityWire.op(op) else { return }
+        guard let (method, args) = AgentActivityWire.op(op) else {
+            throw AgentActivitySourceError.unsupported(op)
+        }
         _ = try await request(method, args)
     }
 
     // MARK: Subscription
 
     private func connect() {
+        guard subscription == nil else { return }
+        guard let config = configuration else {
+            sink?(.connection(machine: AgentActivityModel.localMachine, .notStarted))
+            return
+        }
         guard FileManager.default.fileExists(atPath: config.socketPath) else {
             sink?(.connection(machine: config.machine, .notStarted))
             watchForSocket()
@@ -129,6 +201,7 @@ public final class AgentActivitySocketSource: AgentActivitySource {
     }
 
     private func handle(_ line: Data) {
+        guard let config = configuration else { return }
         guard let reply = try? JSONSerialization.jsonObject(with: line) as? [String: Any] else { return }
         guard reply["ok"] as? Bool == true, let result = reply["result"] as? [String: Any] else {
             sink?(.connection(machine: config.machine, .unreachable))
@@ -149,7 +222,7 @@ public final class AgentActivitySocketSource: AgentActivitySource {
     }
 
     private func lost(_ connection: AgentActivityLineConnection) {
-        guard subscription === connection else { return }
+        guard subscription === connection, let config = configuration else { return }
         subscription = nil
         sink?(.connection(machine: config.machine, FileManager.default.fileExists(atPath: config.socketPath) ? .unreachable : .notStarted))
         reconnect?.cancel()
@@ -165,7 +238,7 @@ public final class AgentActivitySocketSource: AgentActivitySource {
     /// Waits for the socket's directory to change (the host creates the
     /// socket there), then connects. Without the directory, retries with Backoff.
     private func watchForSocket() {
-        guard directoryWatch == nil else { return }
+        guard directoryWatch == nil, let config = configuration else { return }
         let directory = (config.socketPath as NSString).deletingLastPathComponent
         let fd = open(directory, O_EVTONLY)
         guard fd >= 0 else {
@@ -193,11 +266,13 @@ public final class AgentActivitySocketSource: AgentActivitySource {
     private func fetchTimeline(_ session: String) {
         guard !fetching.contains(session) else { return }
         fetching.insert(session)
+        let current = generation
         Task { [weak self] in
-            guard let self else { return }
+            guard let self, current == generation else { return }
             var args: [String: Any] = ["id": session, "limit": 2000]
             if let last = lastSeq[session] { args["after_seq"] = last }
             let page = try? await request("activity_timeline", args)
+            guard current == generation else { return }
             fetching.remove(session)
             guard let page else { return }
             let events = AgentActivityWire.events(page)
@@ -207,13 +282,38 @@ public final class AgentActivitySocketSource: AgentActivitySource {
     }
 
     private func request(_ method: String, _ args: [String: Any]) async throws -> [String: Any] {
-        try await CuaSocketClient(configuration: config).send(method, args)
+        update(readConfiguration())
+        guard let configuration else { throw AgentActivitySourceError.closed }
+        let current = generation
+        let reply = try await send(configuration, method, args)
+        guard current == generation else { throw AgentActivitySourceError.closed }
+        return reply
     }
 }
 
 public enum AgentActivitySourceError: Error, Equatable {
     case malformed
     case refused(String)
+    case unsupported(AgentActivityUserOp)
     case timedOut
     case closed
+}
+
+extension AgentActivitySourceError: LocalizedError, CustomStringConvertible {
+    public var errorDescription: String? {
+        switch self {
+        case .unsupported: AgentActivityStrings.unsupportedOperation
+        default: nil
+        }
+    }
+
+    public var description: String {
+        switch self {
+        case .unsupported: AgentActivityStrings.unsupportedOperation
+        case .refused(let reason): reason
+        case .malformed: "malformed"
+        case .timedOut: "timedOut"
+        case .closed: "closed"
+        }
+    }
 }

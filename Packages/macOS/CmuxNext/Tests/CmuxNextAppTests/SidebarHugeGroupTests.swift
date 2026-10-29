@@ -7,8 +7,18 @@ import Testing
 /// groups, and groups of groups." One group of 1,000 and 10,000 workspaces and a deep chain of nested groups:
 /// open (build + first layout), scroll, fold/unfold and reorder. Each prints one `SIDEBAR-HUGE-BENCH` line; the
 /// asserts are loose ceilings that fail an eager path (row views or layout cost that grow with the group).
+///
+/// The scroll before the fold goes `scrollDepth` (1,800 pt, two screens) down and back, so no test's frame count
+/// grows with its group: over the whole list, 10,000 rows took about 15,000 frames a pass and held the main thread
+/// past the swift-test stall watchdog (300 s with no test finished). The ceilings are on open, fold, unfold and
+/// reorder, none on the scroll. `CMUX_SIDEBAR_HUGE_BENCH=1`, like the other `*_BENCH` flags, scrolls the whole
+/// list and runs the 10k benches that check nothing.
 @MainActor @Suite(.serialized)
 struct SidebarHugeGroupTests {
+    nonisolated static let wholeBench = ProcessInfo.processInfo.environment["CMUX_SIDEBAR_HUGE_BENCH"] == "1"
+    /// How far each scroll pass goes below the top: two screens of the 900 pt sidebar, or the whole list.
+    nonisolated static let scrollDepth: CGFloat? = wholeBench ? nil : 1_800
+
     static func ms(_ body: () -> Void) -> Double {
         let t0 = SidebarScrollBench.threadCPU()
         body()
@@ -25,7 +35,7 @@ struct SidebarHugeGroupTests {
         n.openMs = ms { bench = SidebarScrollBench(count: count, shape: shape) }
         guard let bench else { return n }
         defer { bench.close() }
-        let frames = bench.run(passes: 1)
+        let frames = bench.run(passes: 1, depth: scrollDepth)
         let cpu = frames.map(\.cpuMs)
         n.scrollP50 = SidebarScrollBench.percentile(cpu, 0.5)
         n.scrollP95 = SidebarScrollBench.percentile(cpu, 0.95)
@@ -46,8 +56,8 @@ struct SidebarHugeGroupTests {
             }
             bench.drain(); bench.drawFrame()
         }
-        print(String(format: "SIDEBAR-HUGE-BENCH %@ n=%d | open %.1f ms | scroll p50 %.2f p95 %.2f ms | fold %.1f unfold %.1f reorder %.1f ms | rowViews %d",
-                     label, count, n.openMs, n.scrollP50, n.scrollP95, n.foldMs, n.unfoldMs, n.reorderMs, n.rowViews))
+        print(String(format: "SIDEBAR-HUGE-BENCH %@ n=%d | open %.1f ms | scroll p50 %.2f p95 %.2f ms over %d frames | fold %.1f unfold %.1f reorder %.1f ms | rowViews %d",
+                     label, count, n.openMs, n.scrollP50, n.scrollP95, frames.count, n.foldMs, n.unfoldMs, n.reorderMs, n.rowViews))
         return n
     }
 
@@ -64,8 +74,11 @@ struct SidebarHugeGroupTests {
         #expect(n.reorderMs < 290, "reorder \(n.reorderMs) ms")
     }
     @Test func nested1k() { _ = Self.measure("nested-20", count: 1_000, shape: .nested(depth: 20), groupID: "sb-g1") }
-    @Test func nested10k() { _ = Self.measure("nested-20", count: 10_000, shape: .nested(depth: 20), groupID: "sb-g1") }
-    @Test func manyCollapsed10k() { _ = Self.measure("many-collapsed", count: 10_000, shape: .manyCollapsed(perGroup: 10), groupID: "sb-g1") }
+    /// Not checks: 10k benches with no ceiling. Opt-in with `CMUX_SIDEBAR_HUGE_BENCH=1`.
+    @Test(.enabled(if: SidebarHugeGroupTests.wholeBench, "10k bench that checks nothing; set CMUX_SIDEBAR_HUGE_BENCH=1"))
+    func nested10k() { _ = Self.measure("nested-20", count: 10_000, shape: .nested(depth: 20), groupID: "sb-g1") }
+    @Test(.enabled(if: SidebarHugeGroupTests.wholeBench, "10k bench that checks nothing; set CMUX_SIDEBAR_HUGE_BENCH=1"))
+    func manyCollapsed10k() { _ = Self.measure("many-collapsed", count: 10_000, shape: .manyCollapsed(perGroup: 10), groupID: "sb-g1") }
 
     /// Not a check: samples fold/unfold/reorder cycles on 10k in one group (`SSB` lines: the
     /// heaviest main-thread stacks). Opt-in with `CMUX_SAMPLE_PROFILE=1` (`SelfSampler`).

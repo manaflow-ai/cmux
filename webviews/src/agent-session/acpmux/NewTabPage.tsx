@@ -7,6 +7,8 @@ import { agentDisplayName } from "./agents";
 import { seedLastPicks, useLastPick } from "./lastPick";
 import { ArrowUpIcon } from "./ComposerPickers";
 import { useComposerLook } from "./composerLook";
+import { ComposerFoot } from "./ComposerFoot";
+import { useRowFit } from "./composerRowFit";
 import { useComposerSettings } from "./composerSettings";
 import type { AcpmuxSnapshot } from "./model";
 import { ProjectChooser, type Project } from "./ProjectChooser";
@@ -346,7 +348,7 @@ export function NewTabPage({
   onInputReady,
 }: Props) {
   const t = useT();
-  const { spellChecking } = useComposerSettings();
+  const { plainFooter, spellChecking } = useComposerSettings();
   // The classic template is a New Tab page too: what it opens (the project chooser, its menus)
   // appears at once; exits keep their fades (newtab/noEntryMotion.ts).
   useNoEntryMotion();
@@ -621,6 +623,8 @@ export function NewTabPage({
   // The composer's look (composerLook.ts; the page's first two dots, newtab/PageDots.tsx): Codex's
   // lays the row under the field out as Codex's (composerLook.css).
   const look = useComposerLook();
+  const foot = useRef<HTMLDivElement>(null);
+  useRowFit(foot, `${kind}:${plainFooter}:${look}`);
 
   return (
     <div className="acpmux-newtab" data-kind={kind} data-composer-look={look === "codex" ? "codex" : undefined}>
@@ -737,7 +741,6 @@ export function NewTabPage({
                   {agent}
                 </span>
               )}
-              {kind === "agent" && Chips && <Chips snapshot={chipSnapshot} cwd={projectCwd} />}
             </span>
             <button
               type="submit"
@@ -749,6 +752,13 @@ export function NewTabPage({
             </button>
           </div>
         </form>
+        {kind === "agent" && Chips && (
+          <div className="acpmux-newtab-foot">
+            <ComposerFoot ref={foot} plain={plainFooter}>
+              <Chips snapshot={chipSnapshot} cwd={projectCwd} />
+            </ComposerFoot>
+          </div>
+        )}
         {rows.length > 0 && (
           <div
             ref={attachList}
