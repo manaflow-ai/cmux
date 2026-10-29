@@ -19,8 +19,8 @@ import Testing
     /// Set by an observation's onChange, which runs synchronously on the mutating (main) thread.
     private nonisolated final class Woke: @unchecked Sendable { var value = false }
 
-    private static func attention(_ reason: String, at: UInt64) -> TabAttention {
-        TabAttention(reason: reason, atMs: at)
+    private static func attention(_ reason: String, at: UInt64, requestID: String? = nil) -> TabAttention {
+        TabAttention(reason: reason, atMs: at, requestID: requestID ?? String(format: "%032llx", at))
     }
 
     private static func marked() throws -> (NotificationCenterService, WorkspaceModel, TabModel) {
@@ -36,7 +36,7 @@ import Testing
     }
 
     @Test func theRecordsAttentionParsesAndAMalformedOneIsIgnored() {
-        let value = JSONValue.object(["reason": .string("Confirm GitHub access"), "at_ms": .number(1_729_000_000_000)])
+        let value = JSONValue.object(["reason": .string("Confirm GitHub access"), "at_ms": .number(1_729_000_000_000), "request_id": .string(String(format: "%032llx", UInt64(1_729_000_000_000)))])
         #expect(TabAttention(value) == Self.attention("Confirm GitHub access", at: 1_729_000_000_000))
         #expect(TabAttention(.object(["reason": .string("")])) == nil, "an empty reason is no mark")
         #expect(TabAttention(.string("x")) == nil)
@@ -46,6 +46,64 @@ import Testing
             record["at_ms"] = bad
             #expect(TabAttention(.object(record)) == nil, "at_ms \(String(describing: bad)) read as a request")
         }
+    }
+
+    @Test func requestIdentityIsStrictAndLegacyMarksCannotBeCleared() throws {
+        for bad: JSONValue in [.string("short"), .string(String(repeating: "A", count: 32)), .number(1), .null] {
+            #expect(TabAttention(.object(["reason": .string("Confirm"), "at_ms": .number(1_000), "request_id": bad])) == nil)
+        }
+        let (_, _, tab) = try Self.marked()
+        let legacy = try #require(TabAttention(.object(["reason": .string("Confirm"), "at_ms": .number(1_000)])))
+        #expect(legacy.requestID == nil)
+        tab.applyState(SessionStateMirror.TabRecord(attention: legacy), progress: nil)
+        #expect(tab.expectAttentionClear() == nil, "legacy marks must not use an unconditional clear")
+        #expect(tab.attention == legacy)
+    }
+
+    @Test func identicalTimeAndReasonReplacementCannotInheritADismissalOrClear() throws {
+        let store = DaemonStore()
+        let (workspace, tab) = try Self.markedWorkspace(in: store, name: "same time", reason: "Confirm")
+        let service = NotificationCenterService()
+        let original = try #require(tab.attention)
+        let pressed = NotificationCenterService.TabInteractionTarget(tab: tab, store: store, local: false)
+        let firstGeneration = tab.attentionGeneration
+        service.interacted(.click, tab: tab)
+        #expect(service.attentionMarks(for: workspace).isEmpty)
+        let pending = try #require(tab.expectAttentionClear())
+        // The clear and re-mark can collapse into one owner snapshot; there may be no nil echo.
+        let replacement = Self.attention(original.reason, at: original.atMs, requestID: String(repeating: "b", count: 32))
+        tab.applyState(SessionStateMirror.TabRecord(attention: replacement), progress: nil)
+        #expect(tab.attentionGeneration != firstGeneration)
+        tab.dropExpectedAttentionClear(pending)
+        service.interacted(.click, target: pressed)
+        #expect(tab.attention == replacement, "a failed clear of A overwrote B")
+        #expect(service.attentionMarks(for: workspace).count == 1, "A's delayed click hid B's ring")
+        let generation = tab.attentionGeneration
+        tab.applyState(SessionStateMirror.TabRecord(attention: replacement), progress: nil)
+        #expect(tab.attentionGeneration == generation, "replaying an owner snapshot minted a new request")
+        service.interacted(.click, tab: tab)
+        tab.applyState(SessionStateMirror.TabRecord(), progress: nil)
+        let sameTimeAgain = Self.attention(original.reason, at: original.atMs, requestID: String(repeating: "c", count: 32))
+        tab.applyState(SessionStateMirror.TabRecord(attention: sameTimeAgain), progress: nil)
+        #expect(service.attentionMarks(for: workspace).count == 1, "clear/re-mark inherited B's dismissal")
+        service.interacted(.click, tab: tab)
+        let rolledBackClock = Self.attention(original.reason, at: 1, requestID: String(repeating: "d", count: 32))
+        tab.applyState(SessionStateMirror.TabRecord(attention: rolledBackClock), progress: nil)
+        #expect(service.attentionMarks(for: workspace).count == 1, "clock rollback hid the next request")
+    }
+
+    @Test func restartedViewShowsThePersistedRequestAndMissingCapabilityCannotClearIt() throws {
+        let (service, workspace, tab) = try Self.marked()
+        service.interacted(.click, tab: tab)
+        #expect(service.attentionMarks(for: workspace).isEmpty)
+        let (restartedService, restartedWorkspace, restartedTab) = try Self.marked()
+        #expect(restartedTab.attention?.requestID == tab.attention?.requestID)
+        #expect(restartedService.attentionMarks(for: restartedWorkspace).count == 1)
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        #expect(throws: ActionFailure.self) {
+            try TabUnreadMark.clearAttention(tab: restartedTab, daemon: services.daemon)
+        }
+        #expect(restartedTab.attention != nil, "missing capability optimistically cleared a mark")
     }
 
     @Test func aMarkedTabShowsUnreadUntilTheRecordDropsIt() throws {
@@ -110,7 +168,7 @@ import Testing
         let pane = PaneSnapshot(id: 1, tabs: [TabSnapshot(surface: 1, tabResourceID: "tab_forked", title: "GitHub")])
         let screen = ScreenSnapshot(id: 1, layout: .leaf(1), panes: [pane])
         store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: WorkspaceKey(rawValue: name), name: name, screens: [screen])]))
-        let identity = try JSONDecoder().decode(DaemonIdentity.self, from: Data(#"{"app":"cmux-tui","protocol":1,"session":"attention-test","generation":"g1","capabilities":["state-resources-v1","tab-mark-unread-v1","tab-attention-v1","tab-attention-clear-revision-v1"]}"#.utf8))
+        let identity = try JSONDecoder().decode(DaemonIdentity.self, from: Data(#"{"app":"cmux-tui","protocol":1,"session":"attention-test","generation":"g1","capabilities":["state-resources-v1","tab-mark-unread-v1","tab-attention-v1","tab-attention-request-id-v1"]}"#.utf8))
         store.noteHandshake(identity)
         let workspace = try #require(store.workspaces.first)
         let tab = try #require(workspace.screens.first?.panes.first?.tabs.first)
@@ -208,6 +266,17 @@ import Testing
         #expect(notifications.attentionMarks(for: remoteWorkspace).isEmpty, "the remote strip click left its ring")
         #expect(localTab.markedUnread, "the remote strip click read this Mac's tab with the same id")
 
+        // A new owner request can arrive between native mouse-down and mouse-up without a nil
+        // snapshot, even with the same reason and timestamp. The release still belongs to A.
+        let pressedRequest = Self.attention("Confirm remote access", at: 2_500, requestID: String(repeating: "a", count: 32))
+        remoteTab.applyState(SessionStateMirror.TabRecord(attention: pressedRequest), progress: nil)
+        notifications.noteMouseDown(in: window, at: point, synthetic: true)
+        let replacementRequest = Self.attention(pressedRequest.reason, at: pressedRequest.atMs, requestID: String(repeating: "b", count: 32))
+        remoteTab.applyState(SessionStateMirror.TabRecord(attention: replacementRequest), progress: nil)
+        notifications.noteMouseUp(in: nil, at: window.convertPoint(toScreen: point))
+        #expect(remoteTab.attention == replacementRequest)
+        #expect(notifications.attentionMarks(for: remoteWorkspace).count == 1, "A's native release dismissed replacement B")
+
         // Resolve the delayed click against the model pressed, even if a shortcut changes the
         // window's workspace while the button stays down.
         remoteTab.applyState(SessionStateMirror.TabRecord(attention: Self.attention("Confirm remote access", at: 3_000)), progress: nil)
@@ -218,8 +287,7 @@ import Testing
         try #require(controller.content?.workspace === localWorkspace)
         notifications.noteMouseUp(in: nil, at: window.convertPoint(toScreen: point))
         #expect(notifications.attentionMarks(for: remoteWorkspace).isEmpty, "workspace replacement lost the pressed remote tab")
-        #expect(localTab.attentionRingHiddenThrough != localTab.attentionGeneration,
-                "workspace replacement redirected the press into the local tab")
+        #expect(localTab.attentionRingHiddenThrough != localTab.attentionGeneration, "workspace replacement redirected the press into the local tab")
         #expect(localTab.markedUnread)
 
         // Run the real remote strip menu item, including its native target payload. Both stores

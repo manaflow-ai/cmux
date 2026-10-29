@@ -110,7 +110,7 @@
     "stash-v1",
     "stash-workspaces-v1",
     "state-resources-v1",
-    "tab-attention-clear-revision-v1",
+    "tab-attention-request-id-v1",
     "tab-attention-v1",
     "tab-column-respawn-v1",
     "tab-drag-v1",

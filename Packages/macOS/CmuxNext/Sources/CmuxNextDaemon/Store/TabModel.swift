@@ -103,7 +103,7 @@ public final class TabModel: Identifiable {
 
     /// Hide the request in the action's own turn. The returned token identifies this clear.
     public func expectAttentionClear() -> TabAttention? {
-        guard let attention else { return nil }
+        guard let attention, let requestID = attention.requestID, TabAttention.validRequestID(requestID) else { return nil }
         pendingAttentionClear = attention
         self.attention = nil
         return attention
@@ -115,13 +115,10 @@ public final class TabModel: Identifiable {
         pendingAttentionClear = nil
         attention = recordAttention
     }
-    /// This app's own view state, never sent to the daemon: the generation of the newest
-    /// ``attention`` request whose ring the person hid (went into the tab, or Dismiss
-    /// Highlight). A newer request rings again. It lives on the model, which belongs to one
-    /// machine's store, so tabs on two machines that share an id never share it.
+    /// Client-local generation of the request whose ring the person hid. This never stores time.
     public var attentionRingHiddenThrough: UInt64?
-    /// A monotonic client-local identity for attention records. Wall-clock `at_ms` can move
-    /// backwards, so ring dismissal compares this generation instead.
+    /// A local render identity changes when the owner request changes; TabAttention equality
+    /// includes requestID, so identical reason/time replacements are still distinct.
     public private(set) var attentionGeneration: UInt64 = 0
 
     /// Counts the times ``markedUnread`` turned on: each new mark is a new unread, so a ring

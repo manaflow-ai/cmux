@@ -32,8 +32,8 @@ enum TabUnreadMark {
             // notification acknowledged or a manual mark cleared when its conditional
             // attention-clear capability is unavailable.
             if tab.attention != nil {
-                guard daemon.supports(DaemonCapability.tabAttentionConditionalClear.rawValue), daemon.store.servesStateResources else {
-                    throw ActionFailure(message: daemon.missingCapabilityMessage(DaemonCapability.tabAttentionConditionalClear.rawValue))
+                guard daemon.supports(DaemonCapability.tabAttentionRequestID.rawValue), daemon.store.servesStateResources else {
+                    throw ActionFailure(message: daemon.missingCapabilityMessage(DaemonCapability.tabAttentionRequestID.rawValue))
                 }
             }
             if tab.hasUnread { try NotificationHandlers.acknowledge([tab.surface], context) }
@@ -64,12 +64,12 @@ enum TabUnreadMark {
     /// saw what the agent asked. A daemon without conditional-clear support refuses rather than
     /// risking an unconditional delayed clear.
     static func clearAttention(tab: TabModel, daemon: DaemonService) throws {
-        guard daemon.supports(DaemonCapability.tabAttentionConditionalClear.rawValue), daemon.store.servesStateResources else {
-            throw ActionFailure(message: daemon.missingCapabilityMessage(DaemonCapability.tabAttentionConditionalClear.rawValue))
+        guard daemon.supports(DaemonCapability.tabAttentionRequestID.rawValue), daemon.store.servesStateResources else {
+            throw ActionFailure(message: daemon.missingCapabilityMessage(DaemonCapability.tabAttentionRequestID.rawValue))
         }
         guard let resource = tab.resourceID, let request = tab.expectAttentionClear() else { return }
         daemon.send("tab.update", onFailure: { _ in tab.dropExpectedAttentionClear(request) }) {
-            try await $0.state.updateTabRecord(resource, clearsAttentionAtMs: request.atMs)
+            try await $0.state.updateTabRecord(resource, attentionRequestID: request.requestID)
         }
     }
 
