@@ -228,6 +228,7 @@ def kit_tar(specs):
     buf = io.BytesIO()
     with tarfile.open(fileobj=buf, mode="w") as tar:
         tar.add(HERE / "driver.py", arcname="driver.py")
+        tar.add(HERE / "invariants.py", arcname="invariants.py")  # the app's invariant ledger, read after every step
         for ext in sorted(HERE.glob("ext_*.py")):  # step and condition groups the driver loads
             tar.add(ext, arcname=ext.name)
         tar.add(BUILD_NAMES, arcname="build_names.py")
@@ -248,7 +249,7 @@ def launch_facts(text):
     return facts
 
 
-def run_lease(specs, build, out, frame_interval):
+def run_lease(specs, build, out, frame_interval, skip_invariants=False):
     """Plays `specs` in one slot; {id: result} (driver results, or not run with the reason)."""
     ch = capture_host()
     ids = [s["id"] for s in specs]
@@ -291,7 +292,8 @@ def run_lease(specs, build, out, frame_interval):
         drove = remote(host, f"/usr/bin/python3 -I {q(work + '/kit/driver.py')} --socket {q(facts['socket'])} "
                              f"--app {q(facts.get('app', app))} --home {q(root + '/home')} "
                              f"--journeys {q(work + '/kit/journeys.json')} --out {q(work + '/out')} --ocr {ocr} "
-                             f"--deadline-seconds {budget} --frame-interval {frame_interval}",
+                             f"--deadline-seconds {budget} --frame-interval {frame_interval}"
+                             + (" --skip-invariants" if skip_invariants else ""),
                        timeout=budget + 90, check=False)
         for line in drove.stdout.decode(errors="replace").splitlines():
             log(f"[{host}] {line}")
@@ -433,6 +435,9 @@ def main(argv=None):
     ap.add_argument("--hosts", help="capture hosts to lease from, spaces between (sets CAPTURE_HOST_SLOT_HOSTS)")
     ap.add_argument("--frame-interval", type=float, default=1.0, help="seconds between clip frames (>= 0.25)")
     ap.add_argument("--build-wait-minutes", type=float, default=90, help="how long to wait for a running build")
+    ap.add_argument("--skip-invariants", action="store_true",
+                    help="play without the app's invariant ledger (a build from before debug.invariants); without it, "
+                         "every step fails on a new violation and an app that does not check is 'not run'")
     ap.add_argument("--list", action="store_true", help="print the journeys and exit")
     ap.add_argument("--check", action="store_true", help="validate the journey files and exit")
     opts = ap.parse_args(argv)
@@ -473,7 +478,7 @@ def main(argv=None):
         results = {s["id"]: {"status": "not run", "reason": why} for s in chosen}
     else:
         for group in batches(chosen):
-            results.update(run_lease(group, build, out, opts.frame_interval))
+            results.update(run_lease(group, build, out, opts.frame_interval, opts.skip_invariants))
 
     lines = []
     for spec in chosen:

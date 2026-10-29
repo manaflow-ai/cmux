@@ -41,6 +41,7 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # build_names.py beside it, also under -I
 import build_names  # noqa: E402
+import invariants  # noqa: E402  (the app's invariant ledger: every step must leave it clean)
 
 PROMPT = "J> "
 # The prompt every journey's shell gets (neutral: no host, user or path in any frame).
@@ -386,8 +387,10 @@ def dig(value, path):
 # ---- one journey ---------------------------------------------------------------------------
 
 class Journey:
-    def __init__(self, spec, app, out, deadline, frame_interval):
+    def __init__(self, spec, app, out, deadline, frame_interval, check_invariants=True):
         self.spec, self.app, self.deadline = spec, app, deadline
+        # The app's invariant ledger cursor (invariants.py), set when the journey starts; None: played unchecked.
+        self.check_invariants, self.invariants = check_invariants, None
         self.id = spec["id"]
         self.out = Path(out) / self.id
         if self.out.exists():
@@ -1462,6 +1465,13 @@ class Journey:
         frames.start()
         status, reason = "pass", ""
         try:
+            # The app checks every invariant after each action and turn; each step reads the ledger since the last
+            # (invariants.py). An app that does not check cannot pass a journey: it is "not run".
+            if self.check_invariants:
+                try:
+                    self.invariants = invariants.Cursor(self.app.rpc, lambda: self.app.pid, from_start=not PLAYED)
+                except invariants.NotArmed as error:
+                    raise NotRun(f"{error} (driver.py --skip-invariants plays it unchecked)") from error
             for index, step in enumerate(self.spec["steps"]):
                 if now() > self.deadline:
                     raise Deadline(f"the lease deadline came before step {index + 1} ({step['do']})")
@@ -1475,6 +1485,8 @@ class Journey:
                 t = now()
                 try:
                     record["result"] = handler(step)
+                    if self.invariants is not None:
+                        invariants.assert_clean(self.invariants, f"step {index + 1} ({step['do']})", StepError)
                     record["ok"] = True
                     if step.get("as"):
                         # Names the current terminal for later `use` steps and conditions.
@@ -1510,6 +1522,12 @@ class Journey:
                     os.unlink(path)
                 except OSError:
                     pass
+        if status == "pass" and self.invariants is not None:
+            # Every rule once more on every subject, the harness-only ones too, before the judge.
+            try:
+                invariants.assert_clean(self.invariants, "the last step (full check)", StepError, check=True, ipc=True)
+            except StepError as error:
+                status, reason = "fail", str(error)[-1200:]
         if status == "pass":
             kinds = {e["kind"] for e in self.evidence if e["pass"]}
             missing = [k for k in REQUIRED_KINDS if k not in kinds]
@@ -1572,6 +1590,8 @@ def main(argv=None):
     ap.add_argument("--ocr", required=True, help="the compiled scripts/ci/pr_media_ocr.swift")
     ap.add_argument("--deadline-seconds", type=float, default=480)
     ap.add_argument("--frame-interval", type=float, default=FRAME_INTERVAL)
+    ap.add_argument("--skip-invariants", action="store_true",
+                    help="play without reading the app's invariant ledger (a build that has no debug.invariants)")
     a = ap.parse_args(argv)
     deadline = now() + a.deadline_seconds
     out = Path(a.out)
@@ -1596,7 +1616,7 @@ def main(argv=None):
         if now() > deadline:
             results.append({"id": spec["id"], "status": "not run", "reason": "the lease deadline came first"})
             continue
-        result = Journey(spec, app, out, deadline, a.frame_interval).run()
+        result = Journey(spec, app, out, deadline, a.frame_interval, check_invariants=not a.skip_invariants).run()
         PLAYED.append(result["id"])
         results.append(result)
         print(f"journey {result['id']}: {result['status']} {result['reason']}", flush=True)
