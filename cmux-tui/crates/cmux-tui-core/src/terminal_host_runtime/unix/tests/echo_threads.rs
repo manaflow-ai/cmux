@@ -158,7 +158,7 @@ fn a_client_commit_that_waits_for_the_parser_is_acknowledged_in_panic_mode() {
 /// host's terminal exited, `serve_client` returned while that thread still
 /// waited for the client's next frame.
 #[test]
-fn a_clients_control_sequence_ends_before_its_serve_loop_returns() {
+fn blocking_cascade_a_clients_control_sequence_ends_before_its_serve_loop_returns() {
     const CONTROL: &str = "terminal-host-client-control";
     let (host, parser_commands) = exited_host_fixture_with_parser();
     let initial_colors = host.term.lock().unwrap().color_overrides();

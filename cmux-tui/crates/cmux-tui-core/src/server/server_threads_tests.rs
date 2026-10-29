@@ -84,7 +84,7 @@ fn server_threads_lists_a_registered_thread_until_it_exits() {
         .iter()
         .map(|lane| lane["lane"].as_str().unwrap())
         .collect();
-    assert_eq!(lanes, ["files", "system", "cpu"]);
+    assert_eq!(lanes, ["files", "system", "cpu", "user"]);
 
     drop(finish);
     handle.join().unwrap();

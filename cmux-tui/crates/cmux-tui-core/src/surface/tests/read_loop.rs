@@ -16,6 +16,9 @@ const IDLE_CHILD_ENV: &str = "CMUX_READ_LOOP_IDLE_THREADS_CHILD";
 /// parked `mux-terminal-read`.
 const LOOP_THREADS: usize = 2;
 
+/// The most workers the owner's Files lane runs at once (`cmux_threads::work`).
+const FILES_LANE_WIDTH: usize = 4;
+
 fn lines(count: u32) -> String {
     (1..=count).map(|line| format!("line-{line}")).collect::<Vec<_>>().join("\n")
 }
@@ -148,8 +151,12 @@ fn fifty_idle_local_terminals_child() {
     }
 
     // At idle: the loop thread and one parked worker, whatever the count.
-    // Short-lived pool workers (registry publication) exit once idle.
-    let (added, waits, os_added) = loop {
+    // The terminals' registry publications run on the owner's one Files
+    // lane (`mux-files-*`, every terminal's publication sequence shares
+    // it): its workers are bounded by the lane's width, not by the number
+    // of terminals, and are reclaimed after its idle timeout, so they are
+    // the owner's shared pool, not threads these terminals add.
+    let (added, waits, shared, os_added) = loop {
         let added = before.added();
         let waits = added
             .iter()
@@ -158,20 +165,22 @@ fn fifty_idle_local_terminals_child() {
                     .any(|id| **name == format!("surface-{id}-wait"))
             })
             .count();
+        let shared = added.iter().filter(|name| name.starts_with("mux-files-")).count();
         let os_added = before.os_added();
-        let settled = added.len() <= LOOP_THREADS + waits
-            && os_added.is_none_or(|count| count <= LOOP_THREADS + waits);
+        let settled = added.len() <= LOOP_THREADS + waits + shared
+            && os_added.is_none_or(|count| count <= LOOP_THREADS + waits + shared);
         if settled || Instant::now() >= deadline {
-            break (added, waits, os_added);
+            break (added, waits, shared, os_added);
         }
         std::thread::sleep(Duration::from_millis(10));
     };
     // p02-threads-237's reaper takes the `-wait` threads; nothing else per terminal is left.
     assert!(waits <= TERMINALS as usize, "{added:?}");
-    assert!(added.len() <= LOOP_THREADS + waits, "50 idle terminals added {added:?}");
+    assert!(shared <= FILES_LANE_WIDTH, "the Files lane grew past its width: {added:?}");
+    assert!(added.len() <= LOOP_THREADS + waits + shared, "50 idle terminals added {added:?}");
     if let Some(os_added) = os_added {
         assert!(
-            os_added <= LOOP_THREADS + waits,
+            os_added <= LOOP_THREADS + waits + shared,
             "50 idle terminals added {os_added} OS threads; registered: {added:?}"
         );
     }

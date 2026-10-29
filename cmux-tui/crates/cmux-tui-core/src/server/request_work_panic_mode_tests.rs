@@ -124,7 +124,7 @@ fn a_v2_chief_profile_list_is_answered_in_panic_mode() {
 /// first blocking call, and the client never got its reply. A connection's
 /// requests run where they may block on every path and at every load.
 #[test]
-fn owned_request_path_a_create_with_the_terminal_pool_full_is_answered_in_panic_mode() {
+fn blocking_cascade_a_create_with_the_terminal_pool_full_is_answered_in_panic_mode() {
     let served = Served::new("create-pool-full");
     let _full = served.mux.fill_terminal_work_for_test();
     let reply = served.ask(&json!({"id": 1, "cmd": "new-workspace"})).unwrap();

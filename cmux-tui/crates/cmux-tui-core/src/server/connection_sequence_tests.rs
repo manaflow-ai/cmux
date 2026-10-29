@@ -189,7 +189,7 @@ fn a_connections_requests_run_on_its_pump_and_the_persons_on_the_user_lane() {
 /// pump takes the User lane, a queue of its own, so a key never waits behind
 /// background or scripted blocking work.
 #[test]
-fn the_persons_request_answers_while_the_system_lane_is_full() {
+fn blocking_cascade_the_persons_request_answers_while_the_system_lane_is_full() {
     use super::connection_qos::{ConnectionClass, ConnectionClassCell};
     use cmux_threads::work::{Lane, Priority, Shutdown};
 

@@ -191,7 +191,7 @@ mod tests {
     /// the owner lives and restores, and asks again, instead of inferring it
     /// from how long its reads waited.
     #[test]
-    fn a_connection_dropped_at_the_park_cap_reads_the_restoring_phase() {
+    fn blocking_cascade_a_connection_dropped_at_the_park_cap_reads_the_restoring_phase() {
         let dir =
             std::env::temp_dir().join(format!("cmux-restoring-park-cap-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);

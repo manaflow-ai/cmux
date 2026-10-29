@@ -758,6 +758,12 @@ impl ConnectionSurfaceScheduler {
         }
     }
 
+    /// Whether a request may run now (the running pump takes it next).
+    fn has_runnable(&self) -> bool {
+        let state = self.state.lock().recover_poison();
+        state.context.is_some() && Self::next_runnable_index(&state).is_some()
+    }
+
     /// The pump ended (or unwound, or never ran): the next runnable request
     /// gets its own.
     pub(super) fn finish_pump(self: &Arc<Self>) {
@@ -1030,11 +1036,25 @@ struct PumpTicket {
     ran: bool,
 }
 
+/// Requests one pump item runs before it yields its worker: the next
+/// runnable request runs in the same item, so a connection's burst takes one
+/// lane worker, not a new item (and worker) per request; past the bound the
+/// connection goes behind the lane's other items (the line sequence's
+/// `TURN_MESSAGES`, Chrome's re-enqueue after a task).
+const PUMP_TURN_REQUESTS: usize = 16;
+
 impl PumpTicket {
     fn run(mut self) {
         self.ran = true;
         let scheduler = self.scheduler.clone();
-        scheduler.pump();
+        for _ in 0..PUMP_TURN_REQUESTS {
+            scheduler.pump();
+            if !scheduler.has_runnable() {
+                break;
+            }
+        }
+        // The drop ends the pump; a request that arrived since, or the rest
+        // of a burst past the bound, gets a new one.
     }
 }
 
