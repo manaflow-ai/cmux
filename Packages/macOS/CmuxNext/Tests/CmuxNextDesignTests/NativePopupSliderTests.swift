@@ -59,6 +59,47 @@ import Testing
         #expect(closes == 0)
     }
 
+    @Test func verticalArrowsTravelToFollowingActionsAndBackWithoutChangingEffort() throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 260),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        let content = NativePopupContent()
+        window.contentView = content
+        window.makeKeyAndOrderFront(nil)
+        defer { window.orderOut(nil) }
+        let spec = descriptor()
+        var model = NativePopupModel(schemaVersion: 1, id: "effort", revision: 1,
+                                     anchor: NativePopupAnchor(left: 0, top: 0, right: 20, bottom: 20),
+                                     side: .bottom, align: .start, width: 320,
+                                     rows: [NativePopupRow(id: "slider", kind: .slider, label: "Reasoning", minimum: 0, maximum: 1, step: 1, slider: spec),
+                                            NativePopupRow(id: "heading", kind: .section, label: "Speed"),
+                                            NativePopupRow(id: "disabled", kind: .action, label: "Disabled", disabled: true),
+                                            NativePopupRow(id: "off", kind: .action, label: "Off"),
+                                            NativePopupRow(id: "on", kind: .action, label: "On")])
+        content.update(model)
+        content.focusInitial()
+        let view = try #require(content.rowView(id: "slider") as? NativePopupSliderView)
+        #expect(window.firstResponder === view.slider)
+        var changes: [String?] = []
+        var highlights: [String?] = []
+        content.emit = { type, id, value in
+            if type == .change { changes.append(value) }
+            if type == .highlight { highlights.append(id) }
+        }
+        view.slider.keyDown(with: key(126))
+        #expect(window.firstResponder === view.slider && changes.isEmpty)
+        view.slider.keyDown(with: key(125))
+        #expect(window.firstResponder === content && highlights.last == "off" && changes.isEmpty)
+        content.keyDown(with: key(126))
+        #expect(window.firstResponder === view.slider && changes.isEmpty)
+        view.slider.keyDown(with: key(123))
+        #expect(changes == ["0"])
+        model.rows = [model.rows[0]]
+        content.update(model)
+        let standalone = try #require(content.rowView(id: "slider") as? NativePopupSliderView)
+        standalone.slider.keyDown(with: key(125))
+        #expect(standalone.slider.doubleValue == 0, "without following actions vertical arrows still adjust the range")
+    }
+
     @Test func descriptorRoundTripsAndNativeStylesRenderDistinctly() throws {
         var rasters = Set<Data>()
         for style in [NativePopupSliderStyle.accent, .minimal] {
