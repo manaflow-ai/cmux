@@ -216,7 +216,9 @@ struct HomePendingTerminalFocusTests {
             #expect(control)
             let personHolds = input.isHolding(in: shell)
             try #require(personHolds, "control: the person's own newTab opened no New Tab page hold here")
-            try await PasswordManagerRouteTests.until({ !input.isHolding(in: shell) }, within: .seconds(30), report: { "the person's page hold never ended: \(input.log)" })
+            // No bound ends a hold any more (lagFirstKey step 3): the control's hold ends here, as a failed open ends it.
+            input.cancel(in: shell)
+            try #require(!input.isHolding(in: shell), "the person's page hold never ended: \(input.log)")
 
             let script = ActionRunScope(origin: .script, allowsViewChange: true)
             _ = ActionRunScope.carrying(script) {

@@ -3,7 +3,6 @@ import AppKit
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
 import CmuxNextFocus
-import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -111,8 +110,6 @@ struct NewTabHoldFocusTests {
             // The opening's hold, as NewTabPage.open begins it: only the field's readiness may end it here.
             let router = services.keyRouter
             let input = router.newTabInputCoordinator
-            input.holdLimit = .seconds(600)
-            input.scheduleDeadline = { _, _ in DemandTimer(owner: "test.holdLimit") }
             let token = try #require(input.begin(for: other))
             input.didShow(in: window)
             let typed = [try Self.key("h", keyCode: 4, in: window), try Self.key("i", keyCode: 34, in: window)]

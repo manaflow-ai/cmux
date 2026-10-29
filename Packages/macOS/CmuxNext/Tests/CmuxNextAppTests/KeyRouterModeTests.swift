@@ -149,7 +149,6 @@ struct KeyRouterModeTests {
         let harness = try Self.harness()
         defer { harness.close() }
         let input = harness.router.newTabInputCoordinator
-        input.scheduleDeadline = { _, _ in DemandTimer(owner: "test.holdLimit") }
         let token = try #require(input.beginIncoming(in: harness.shell))
         #expect(harness.modes.contains(.newTabCapture), "the New Tab hold left its mode off")
         #expect(Self.dispatch(try Self.plain(harness), in: harness), "the New Tab hold did not take the typing key")

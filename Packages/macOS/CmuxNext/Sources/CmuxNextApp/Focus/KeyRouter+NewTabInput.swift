@@ -4,64 +4,45 @@ import CmuxNextFocusUI
 import CmuxNextInput
 import CmuxNextAgentPane
 import CmuxNextDesign
-import CmuxNextWakeups
 
 /// Owns the short interval between Cmd-T (or Cmd-N's new workspace) and the New Tab field's
 /// readiness acknowledgement: every key typed from the shortcut on waits here, in order, and goes to
 /// the field once it reported ready (cx-kql5h: after Cmd-N the first 2-3 keys went to the old
 /// workspace, because nothing held them while the workspace and its page were made).
 ///
-/// The hold is bounded (nightly 2026-10-11, "cannot type at all"): while a window's buffer lives,
-/// every printable key of that window waits here and a second Cmd-T opens nothing, so a buffer
-/// whose acknowledgement never comes would take the whole window's typing. A buffer therefore
-/// ends, giving its keys back in order to whatever has focus, when
+/// The keys wait in the window's one ``WindowInputQueue``, stamped with the page's field
+/// (principled audit, lagFirstKey), and go only to that field. No timer ends the hold and no key is
+/// given to whatever has focus. The hold ends, dropping the keys still waiting with a logged reason, when
 /// - its pane no longer shows a New Tab page (the page was left or became a chat) or left the
-///   window,
-/// - another opening begins, or
-/// - `holdLimit` passed since Cmd-T (one deadline per opening, also checked on each key, each
-///   opening and each focus settle).
+///   window, or the window closed,
+/// - its creation failed or its page closed before it existed,
+/// - the person moved on: another opening (its keys stay with the first page unless a held key opened it),
+///   Escape, a click on another pane, a key window that is not the shell's.
+/// A close key (Cmd-W) acts at once and drops the keys. Any other key waits behind keys already held, so it never
+/// runs before the text typed ahead of it (nightly 2026-10-11, "cannot type at all", was the old bound's reason:
+/// Escape or a click now ends a hold whose field never comes).
 @MainActor
 final class NewTabInputCoordinator {
     weak var router: KeyRouter?
     /// The router's typing keys come here only while some window holds keys (``KeyRouterMode/newTabCapture``).
     private var buffers: [Int: Entry] = [:] { didSet { router?.modes.set(.newTabCapture, !buffers.isEmpty) } }
-    /// The longest a key may wait for the New Tab field. Its readiness normally comes within one
-    /// page render; past this the field (or whatever has focus) takes the keys directly.
-    var holdLimit: Duration = .seconds(2)
-    /// The same for a page that does not exist yet (Cmd-N): the daemon makes the workspace and its
-    /// first tab first, so the field comes later than in a pane that already shows.
-    var incomingHoldLimit: Duration = .seconds(4)
-    /// Injected for tests; the hold limit is the only time this coordinator reads.
+    /// The log's clock (an entry's age in `debug.focus`); nothing else reads time here.
     var now: () -> ContinuousClock.Instant = { ContinuousClock.now }
-    /// Runs `fire` once `limit` from now and answers its timer, which the hold cancels when it ends first (injected
-    /// for tests). The person's keys wait on it, so it asks Chromium's flat 8 ms leeway (kDefaultLeeway,
-    /// base/task/task_features.h), not 10% of the limit.
-    var scheduleDeadline: (_ limit: Duration, _ fire: @escaping @MainActor @Sendable () -> Void) -> DemandTimer = { limit, fire in
-        // timer-class-allow: the person's held keys wait on this bound, so it keeps an explicit 8 ms tolerance; a
-        // MainDeadline's flexible window would let the 2 s and 4 s bounds slip 200 and 400 ms.
-        let timer = DemandTimer(owner: "NewTabInput.holdLimit")
-        timer.scheduleOnMain(after: limit, tolerance: WakeLeeway.defaultAlignment, fire)
-        return timer
-    }
 
     private final class Entry {
         let buffer: NewTabInputBuffer
-        let limit: Duration
         /// The tab the pane showed before Cmd-T: it counts as the opening only until the page shows.
         let opened: String?
         weak var pane: PaneController?
         weak var window: NSWindow?
         /// The open put the page's tab on screen (`didShow`).
         var shown = false
-        var deadline: DemandTimer?
         /// A page that does not exist yet (Cmd-N's new workspace, `beginIncoming`): its tab key
         /// comes with its readiness; until then the hold owns its window's keys.
         let incoming: IncomingPage?
 
-        init(buffer: NewTabInputBuffer, limit: Duration, opened: String?, pane: PaneController?, window: NSWindow,
-             incoming: IncomingPage? = nil) {
+        init(buffer: NewTabInputBuffer, opened: String?, pane: PaneController?, window: NSWindow, incoming: IncomingPage? = nil) {
             self.buffer = buffer
-            self.limit = limit
             self.opened = opened
             self.pane = pane
             self.window = window
@@ -70,7 +51,7 @@ final class NewTabInputCoordinator {
 
         /// Whether the opening still owns the window's keys: its pane, in its window, shows its New
         /// Tab page (or, until the page shows, the tab it showed before). An incoming page's hold
-        /// owns them until its readiness, its creation's end or its limit.
+        /// owns them until its readiness or its creation's end.
         var owns: Bool {
             guard let window else { return false }
             if incoming != nil { return true }
@@ -110,7 +91,7 @@ final class NewTabInputCoordinator {
     /// A New Window hold is waiting: it takes every window's keys until its page shows.
     var followsNewWindow: Bool { buffers.values.contains { $0.incoming?.followsNewWindow == true } }
 
-    /// The last hold events (begin, capture, drain, release and why), for `debug.focus`.
+    /// The last hold events (begin, capture, drain, end and why), for `debug.focus`.
     private(set) var log: [String] = []
     private func note(_ event: String, _ entry: Entry?) {
         let age = entry.map { " +\(Int((now() - $0.buffer.began) / .milliseconds(1)))ms" } ?? ""
@@ -120,11 +101,9 @@ final class NewTabInputCoordinator {
 
     func begin(for pane: PaneController) -> String? {
         guard let router, let window = pane.view.window else { return nil }
-        // One opening at a time per window: an earlier one ends here and its keys go on first.
-        release(in: window)
         // The pane focus had at the opening, when the opening may move focus (a person's, not a script's).
         var focusedAtOpening = ActionRunScope.viewChangeAllowed() ? pane.services.windowController(showing: pane)?.focus.state.pane : nil
-        let buffer = NewTabInputBuffer(began: now(), focusField: { [weak pane, weak window] in
+        let buffer = NewTabInputBuffer(began: now(), queue: router.inputQueues.queue(for: window.windowNumber), focusField: { [weak pane, weak window] in
             guard let pane, let window, let key = pane.currentTabKey, pane.services.agentTabs.isNewTabPage(key),
                   let view = pane.services.agentTabs.existingView(key), view.window === window,
                   view.isShownForInput else { return false }
@@ -153,7 +132,7 @@ final class NewTabInputCoordinator {
             }
             return window.makeFirstResponder(view.focusTarget)
         }, deliver: deliver(in: window))
-        let entry = Entry(buffer: buffer, limit: holdLimit, opened: pane.currentTabKey, pane: pane, window: window)
+        let entry = Entry(buffer: buffer, opened: pane.currentTabKey, pane: pane, window: window)
         install(entry, in: window)
         note("begin page opened=\(pane.currentTabKey ?? "-")", entry)
         return buffer.token
@@ -165,11 +144,10 @@ final class NewTabInputCoordinator {
     /// creation ends the hold when it fails or makes no page (`endIncoming`).
     func beginIncoming(in window: NSWindow?, followsNewWindow: Bool = false) -> String? {
         guard let router, let window else { return nil }
-        release(in: window)
         let target = IncomingPage()
         target.followsNewWindow = followsNewWindow
         let services = router.services
-        let buffer = NewTabInputBuffer(began: now(), focusField: { [weak services, weak window] in
+        let buffer = NewTabInputBuffer(began: now(), queue: router.inputQueues.queue(for: window.windowNumber), focusField: { [weak services, weak window] in
             // The page shows in this window (FirstTabHold), or a New Window's, before it takes keys.
             guard let services, let window, let key = target.key,
                   let view = target.view ?? (services.agentTabs.isNewTabPage(key) ? services.agentTabs.existingView(key) : nil),
@@ -185,11 +163,11 @@ final class NewTabInputCoordinator {
             }
             return shown.makeFirstResponder(view.focusTarget)
         }, deliver: { [weak router, weak window] event in
-            // Ready: the page's window. Not ready (the limit, a failed creation): the key window.
+            // The page's window (its field took the keys there); a New Window's page: the key window.
             guard let router, let to = target.pageWindow ?? (target.followsNewWindow ? NSApp.keyWindow : nil) ?? window else { return }
             Self.replay(Self.retarget(event, to: to), held: event, in: to, router: router)
         })
-        let entry = Entry(buffer: buffer, limit: incomingHoldLimit, opened: nil, pane: nil, window: window, incoming: target)
+        let entry = Entry(buffer: buffer, opened: nil, pane: nil, window: window, incoming: target)
         install(entry, in: window)
         note("begin incoming", entry)
         return buffer.token
@@ -207,11 +185,11 @@ final class NewTabInputCoordinator {
     }
 
     /// The creation behind `token` ended. With no page made for it (it failed, or made a terminal),
-    /// its keys go on to whatever has focus; a page made keeps the hold until its readiness.
+    /// its keys drop (the field they were typed for never comes); a page made keeps the hold until its readiness.
     func endIncoming(_ token: String?, pageMade: Bool) {
-        guard let token, let (number, entry) = buffers.first(where: { $0.value.buffer.token == token }) else { return }
+        guard let token, let entry = buffers.values.first(where: { $0.buffer.token == token }) else { return }
         guard !pageMade || entry.incoming?.claimed != true else { return }
-        if entry.window != nil { release(entry, why: "creation made no page") } else { buffers[number] = nil }
+        end(entry, .targetFailed, why: "creation made no page")
     }
 
     /// A New Tab page `key` reported its field ready with `token`: the hold that gave it the token
@@ -297,52 +275,72 @@ final class NewTabInputCoordinator {
         return nil
     }
 
+    /// One opening at a time per window: an earlier one ends here. A held key of it that runs now (a Cmd-T typed
+    /// before its field was ready) opened this one: the keys typed after it are this page's. Otherwise its keys were
+    /// typed for its own page, which the person left: they drop.
     private func install(_ entry: Entry, in window: NSWindow) {
-        let number = window.windowNumber
-        let buffer = entry.buffer
-        entry.deadline = scheduleDeadline(entry.limit) { [weak self, weak buffer] in
-            guard let self, let buffer else { return }
-            deadlinePassed(number: number, buffer: buffer)
+        if let earlier = self.entry(for: window) {
+            if earlier.buffer.replaying { earlier.buffer.handOver(to: entry.buffer) }
+            end(earlier, .focusMovedAway, why: "replaced")
         }
-        buffers[number] = entry
+        buffers[window.windowNumber] = entry
+    }
+
+    /// `window` closed: its openings go with it (its queue dropped their keys).
+    func windowClosed(_ window: NSWindow) {
+        buffers = buffers.filter { $0.key != window.windowNumber && $0.value.window != nil }
+    }
+
+    /// The person acted in `window` (a click, a focus move of theirs, one of their actions): an opening whose pane the
+    /// window's focus no longer names ends, and its keys drop. A key it runs again is not a new act.
+    func personActed(in window: NSWindow?) {
+        guard let window, let router, let entry = entry(for: window), !entry.buffer.replaying, let pane = entry.pane,
+              let controller = router.focus(for: window).0, let focused = controller.focus.state.pane, focused != pane.paneKey else { return }
+        end(entry, .focusMovedAway, why: "the person moved to pane \(focused)")
     }
 
     /// The open put the page's tab on screen: leaving it now ends the hold at once.
     func didShow(in window: NSWindow?) { if let window { buffers[window.windowNumber]?.shown = true } }
 
     /// The New Tab page `tab` this hold opened closed before the daemon made it: its held keys go with it.
-    func drop(tab: String, in window: NSWindow?) { if let window, let entry = entry(for: window), entry.pane?.currentTabKey == tab { entry.buffer.discard(); release(entry, why: "closed before created") } }
+    func drop(tab: String, in window: NSWindow?) {
+        if let window, let entry = entry(for: window), entry.pane?.currentTabKey == tab { end(entry, .targetClosed, why: "closed before created") }
+    }
 
-    /// The opening failed: its keys go on to whatever has focus.
-    func cancel(in window: NSWindow?) { if let window { release(in: window, why: "open failed") } }
+    /// The opening failed: its keys drop.
+    func cancel(in window: NSWindow?) {
+        if let window, let entry = entry(for: window) { end(entry, .targetFailed, why: "open failed") }
+    }
 
     func capture(_ event: NSEvent, in keyWindow: NSWindow?) -> Bool {
-        // A Chromium page window is a child of the shell, whose number keys the hold.
-        let window = keyWindow.map { router?.focus(for: $0).0?.window ?? $0 }
-        // A chord (Cmd-V, Cmd-T, a menu key) never runs before keys typed ahead of it: the hold ends
-        // and they go on first.
-        if let window, let entry = entry(for: window), !entry.buffer.replaying,
-           KeyRouter.isChord(event.modifierFlags), entry.buffer.hasPending {
-            release(entry, why: "chord")
-            return false
-        }
-        // Text and Delete wait; any other plain key (Return, Tab, an arrow, Escape) waits only behind
-        // held keys, so it never runs before the text typed ahead of it.
-        guard let router, let window, let entry = entry(for: window),
-              !KeyRouter.isChord(event.modifierFlags),
-              KeyRouter.isPrintable(event) || event.keyCode == KeyRouter.deleteKeyCode || entry.buffer.hasPending
-        else { return false }
-        guard !entry.buffer.replaying else { return false }
+        guard let router, let keyWindow else { return false }
         let (controller, kind) = router.focus(for: keyWindow)
-        guard kind == .content, controller != nil else {
-            // Focus left the content (a sidebar or bar field): held text goes on first, in order.
+        // A Chromium page window is a child of the shell, whose number keys the hold.
+        let window = controller?.window ?? keyWindow
+        guard let entry = entry(for: window), !entry.buffer.replaying else { return false }
+        // Text and Delete wait; any other key (Return, Tab, an arrow, a chord) waits only behind held keys, so it never
+        // runs before the text typed ahead of it.
+        let typing = !KeyRouter.isChord(event.modifierFlags) && (KeyRouter.isPrintable(event) || event.keyCode == KeyRouter.deleteKeyCode)
+        guard typing || entry.buffer.hasPending else { return false }
+        guard kind == .content, let controller else {
+            // A panel, popup or sheet has the keyboard: the person moved on from the page.
             note("pass key (focus \(kind))", entry)
-            if entry.buffer.hasPending { release(entry, why: "focus left content") }
+            end(entry, .focusMovedAway, why: "focus left content")
             return false
         }
-        // The hold ended: the held keys go on first, then this one, in typing order.
-        if expired(entry) || !entry.owns {
-            release(entry, why: expired(entry) ? "limit at key" : "not owned at key (tab \(entry.pane?.currentTabKey ?? "-"))")
+        // The opening's page is gone: its keys drop, and this key goes where the person is now.
+        if !entry.owns {
+            end(entry, .focusMovedAway, why: "not owned at key (tab \(entry.pane?.currentTabKey ?? "-"))")
+            return false
+        }
+        // A close key (Cmd-W) acts now on what it closes; Escape is the person leaving the page's field: the keys typed
+        // for it drop, and the key goes on.
+        if CreationInputCoordinator.closes(event, in: window, controller: controller, router: router) {
+            end(entry, .targetClosed, why: "close key")
+            return false
+        }
+        if event.keyCode == ChordTracker.escapeKeyCode {
+            end(entry, .focusMovedAway, why: "escape")
             return false
         }
         note("hold key #\(entry.buffer.count + 1)", entry)  // never characters: desync reports keep this log
@@ -360,40 +358,18 @@ final class NewTabInputCoordinator {
         guard let window, let entry = entry(for: window) else { return }
         if entry.buffer.drain() {
             note("drained to field", entry)
-            entry.deadline?.cancel()
-            remove(entry)
-        } else if expired(entry) || !entry.owns {
-            release(entry, why: expired(entry) ? "limit" : "not owned (tab \(entry.pane?.currentTabKey ?? "-"))")
+            // A held key that ran may have opened another page (it replaced this entry).
+            if buffers[window.windowNumber] === entry { remove(entry) }
+        } else if !entry.owns {
+            end(entry, .focusMovedAway, why: "not owned (tab \(entry.pane?.currentTabKey ?? "-"))")
         }
     }
 
-    /// Ends the window's hold and gives its keys, in typing order, to whatever has focus.
-    private func release(in window: NSWindow, why: String = "replaced") {
-        guard let entry = entry(for: window) else { return }
-        release(entry, why: why)
-    }
-
-    private func release(_ entry: Entry, why: String) {
+    /// Ends `entry`'s hold: the keys still waiting for its field drop (`reason`), never go to another view.
+    private func end(_ entry: Entry, _ reason: WindowInputQueue.DropReason, why: String) {
         remove(entry)
-        let focus = NSApp.keyWindow?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
-        note("release: \(why), \(entry.buffer.hasPending ? "keys" : "no keys") to \(focus)", entry)
-        entry.deadline?.cancel()
-        entry.buffer.release()
-    }
-
-    /// The hold limit of `buffer` passed. Only that hold ends (a later opening in the window keeps
-    /// its own), and it ends even when its window closed, so no entry outlives it.
-    private func deadlinePassed(number: Int, buffer: NewTabInputBuffer) {
-        guard let entry = buffers[number], entry.buffer === buffer else { return }
-        guard let window = entry.window else {
-            buffers[number] = nil  // the window is gone: its keys go with it
-            return
-        }
-        flush(in: window)
-    }
-
-    private func expired(_ entry: Entry) -> Bool {
-        now() - entry.buffer.began >= entry.limit
+        note("end: \(why), \(entry.buffer.hasPending ? "\(entry.buffer.count) keys dropped (\(reason.rawValue))" : "no keys")", entry)
+        entry.buffer.drop(reason)
     }
 
     /// Whether `window` holds keys for an opening (debug and tests).

@@ -155,3 +155,39 @@ public final class WindowInputQueue {
         #endif
     }
 }
+
+extension WindowInputQueue.Target {
+    /// The field of the New Tab page an opening with `token` shows (its tab may not exist yet: Cmd-N's new workspace).
+    public static func newTabPage(_ token: String) -> Self { Self("newtab:\(token)") }
+
+    /// A New Tab page's field (``newTabPage(_:)``), not a terminal or tab of a creation.
+    public var isNewTabPage: Bool { id.hasPrefix("newtab:") }
+}
+
+/// The one held-key queue of each window (principled audit, lagFirstKey): every path that holds a person's key (a
+/// creation, a New Tab page) puts it in its window's queue, stamped with its target. The owner frees a window's queue
+/// when the window closes (``close(_:)``): its waiting keys drop.
+@MainActor
+public final class WindowInputQueues {
+    private var queues: [Int: WindowInputQueue] = [:]
+
+    public init() {}
+
+    /// Window `number`'s queue, made on first use.
+    public func queue(for number: Int) -> WindowInputQueue {
+        if let queue = queues[number] { return queue }
+        let queue = WindowInputQueue()
+        queues[number] = queue
+        return queue
+    }
+
+    /// Window `number` closed: its keys drop and its queue goes.
+    public func close(_ number: Int) {
+        queues.removeValue(forKey: number)?.close()
+    }
+
+    /// The broken parts of every window's invariant (HK1), empty when it holds.
+    public var problems: [String] {
+        queues.sorted { $0.key < $1.key }.flatMap { number, queue in queue.problems.map { "window \(number): \($0)" } }
+    }
+}

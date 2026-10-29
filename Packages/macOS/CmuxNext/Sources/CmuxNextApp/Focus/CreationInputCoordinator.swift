@@ -51,7 +51,9 @@ final class CreationInputCoordinator {
     /// One window's held keys: its queue, the creations they wait for, and the target keys typed now are for.
     @MainActor
     private final class WindowHold {
-        let queue = WindowInputQueue()
+        /// The window's one queue (``KeyRouter/inputQueues``); this hold's targets are the ones that are not a New Tab
+        /// page's.
+        let queue: WindowInputQueue
         let creations = CreationInputBuffer()
         /// The target a key typed now is for (the newest creation's, or the cold tab's), with the generation of the
         /// person's intent that made it.
@@ -66,8 +68,13 @@ final class CreationInputCoordinator {
         var scheduled = false
         var reconciling = false
 
+        init(queue: WindowInputQueue) { self.queue = queue }
+
+        /// Keys of this hold wait (not a New Tab page's).
+        var holdsKeys: Bool { queue.targets.contains { !$0.isNewTabPage } }
+
         /// It holds keys, waits for a creation or a surface, or makes the keys typed now wait.
-        var isActive: Bool { !queue.isEmpty || !creations.isEmpty || current != nil }
+        var isActive: Bool { holdsKeys || !creations.isEmpty || current != nil }
     }
 
     /// A window's keyboard belongs to the person's new terminal, asked for under focus generation `generation`.
@@ -98,7 +105,9 @@ final class CreationInputCoordinator {
     func windowClosed(_ window: NSWindow?) {
         guard let window else { return }
         claims[window.windowNumber] = nil
-        holds.removeValue(forKey: window.windowNumber)?.queue.close()
+        holds[window.windowNumber] = nil
+        router?.inputQueues.close(window.windowNumber)
+        router?.newTabInputCoordinator.windowClosed(window)
         syncMode()
     }
 
@@ -106,6 +115,7 @@ final class CreationInputCoordinator {
     /// input `event`: a claim there ends, and the keys go where they put them. The input that asked for the claim (the
     /// click or key of New Workspace) does not end it.
     func personActed(in window: NSWindow?, event: NSEvent?) {
+        router?.newTabInputCoordinator.personActed(in: window)
         guard let window, !claims.isEmpty else { return }
         let shell = router?.focus(for: window).0?.window ?? window
         if let event, let made = claims[shell.windowNumber]?.inputTimestamp, made == event.timestamp { return }
@@ -185,7 +195,7 @@ final class CreationInputCoordinator {
 
     private func hold(in window: NSWindow) -> WindowHold {
         if let hold = holds[window.windowNumber] { return hold }
-        let hold = WindowHold()
+        let hold = WindowHold(queue: router?.inputQueues.queue(for: window.windowNumber) ?? WindowInputQueue())
         holds[window.windowNumber] = hold
         return hold
     }
@@ -230,9 +240,7 @@ final class CreationInputCoordinator {
     }
 
     /// The broken parts of every window's held-key invariant (HK1), empty when it holds (the input invariant monitor).
-    func heldKeyProblems() -> [String] {
-        holds.flatMap { number, hold in hold.queue.problems.map { "window \(number): \($0)" } }
-    }
+    func heldKeyProblems() -> [String] { router?.inputQueues.problems ?? [] }
 
     /// The person closed provisional tab `tab` in `window` before the daemon made it: the keys typed for it drop, the
     /// rest go on.
@@ -299,7 +307,7 @@ final class CreationInputCoordinator {
     }
 
     /// Whether `event`'s binding in `controller`'s focus is a close action (Close Tab, Cmd-W).
-    private static func closes(_ event: NSEvent, in window: NSWindow, controller: WindowController, router: KeyRouter) -> Bool {
+    static func closes(_ event: NSEvent, in window: NSWindow, controller: WindowController, router: KeyRouter) -> Bool {
         guard KeyRouter.isChord(event.modifierFlags) else { return false }
         let context = router.keyContext(for: controller.focus.currentState(), facts: router.facts(in: window, controller: controller))
         guard let binding = router.resolve(event, context: context) else { return false }
@@ -344,7 +352,7 @@ final class CreationInputCoordinator {
             return false
         }
         // A chord passes a cold tab's wait that holds nothing (held Ctrl-Tab makes no surface for a tab it passed).
-        if hold.queue.isEmpty, hold.creations.isEmpty, hold.shown == target, KeyRouter.isChord(event.modifierFlags) { return false }
+        if !hold.holdsKeys, hold.creations.isEmpty, hold.shown == target, KeyRouter.isChord(event.modifierFlags) { return false }
         hold.generations[target] = max(hold.generations[target] ?? 0, current.generation)
         hold.queue.capture(event, for: target)
         syncMode()
@@ -486,7 +494,8 @@ final class CreationInputCoordinator {
         guard let hold = holds[window.windowNumber] else { return }
         guard let router, let controller = router.focus(for: window).0 else {
             // The window is gone: its keys go with it.
-            holds.removeValue(forKey: window.windowNumber)?.queue.close()
+            holds[window.windowNumber] = nil
+            router?.inputQueues.close(window.windowNumber)
             syncMode()
             return
         }
@@ -529,7 +538,7 @@ final class CreationInputCoordinator {
                 || hold.landsOn[$0.creation.target] != nil
         }.map { $0.creation.target })
         let owned = Set(hold.creations.all.map { $0.creation.target })
-        for target in hold.queue.targets where !pending.contains(target) && target != named {
+        for target in hold.queue.targets where !target.isNewTabPage && !pending.contains(target) && target != named {
             if !state.topology.panes.contains(where: { $0.tab(target.id) != nil }) {
                 hold.queue.drop(target, .targetClosed)
             } else if !owned.contains(target), (hold.generations[target] ?? 0) < state.generation {

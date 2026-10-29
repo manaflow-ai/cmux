@@ -1,32 +1,37 @@
 public import AppKit
 
-/// One opening owns its original key events until its field and native responder are ready.
-/// The hold always ends: by the field's readiness, by the opening ending (the page left, focus
-/// moved elsewhere), or by the hold limit. A hold that ends without readiness gives its keys back,
-/// in typing order, to whatever has focus then; no key is ever dropped (nightly 2026-10-11: a
-/// page whose readiness never came held every key of its window).
+/// One New Tab opening's keys, from the shortcut until its field and native responder are ready. The keys wait in the
+/// window's ``WindowInputQueue``, stamped with this opening's page (``WindowInputQueue/Target/newTabPage(_:)``), and go
+/// only to that field, in typed order, at its readiness (``drain()``). An opening that ends without readiness (its page
+/// left or closed, its creation failed, the person moved on) drops them with a reason (``drop(_:)``); they are never
+/// given to whatever has focus, and no timer ends the hold (principled audit, lagFirstKey).
 @MainActor
 public final class NewTabInputBuffer {
     public let token = UUID().uuidString
     public let began: ContinuousClock.Instant
-    private var events: [NSEvent] = []
+    /// The target its keys are stamped with in the window's queue.
+    public let target: WindowInputQueue.Target
+    private let queue: WindowInputQueue
     private var acknowledged = false
     public private(set) var replaying = false
     private let focusField: () -> Bool
     private let deliver: (NSEvent) -> Void
 
-    public init(began: ContinuousClock.Instant, focusField: @escaping () -> Bool, deliver: @escaping (NSEvent) -> Void) {
+    public init(began: ContinuousClock.Instant, queue: WindowInputQueue, focusField: @escaping () -> Bool,
+                deliver: @escaping (NSEvent) -> Void) {
         self.began = began
+        self.queue = queue
+        target = .newTabPage(token)
         self.focusField = focusField
         self.deliver = deliver
     }
 
-    public var hasPending: Bool { !events.isEmpty }
-    public var count: Int { events.count }
+    public var hasPending: Bool { queue.waiting(for: target) > 0 }
+    public var count: Int { queue.waiting(for: target) }
 
     public func capture(_ event: NSEvent) -> Bool {
         guard !replaying else { return false }
-        events.append(event)
+        queue.capture(event, for: target)
         return true
     }
 
@@ -34,24 +39,19 @@ public final class NewTabInputBuffer {
         if token == self.token { acknowledged = true }
     }
 
+    /// At the field's readiness (its acknowledgement, and the field took the keyboard): the keys go to it, in order.
     /// Called by the acknowledgement and content/focus events; no elapsed-time readiness guess.
     public func drain() -> Bool {
         guard acknowledged, !replaying, focusField() else { return false }
-        release()
+        replaying = true
+        queue.drain(target, takesKeys: { true }, deliver: deliver)
+        replaying = false
         return true
     }
 
-    /// Drops every held key: the page they were typed into closed before it existed ("Close
-    /// before create"), so they go with it, never to another tab.
-    public func discard() { events.removeAll() }
+    /// Drops every held key (`reason` says why): the field they were typed for will not take them.
+    public func drop(_ reason: WindowInputQueue.DropReason) { queue.drop(target, reason) }
 
-    /// Gives every held key, in typing order, to the normal dispatch (whatever has focus now).
-    public func release() {
-        guard !replaying else { return }
-        replaying = true
-        let pending = events
-        events.removeAll()
-        for event in pending { deliver(event) }
-        replaying = false
-    }
+    /// The keys still waiting are `next`'s: a held key that ran (a Cmd-T) opened `next`, and they were typed after it.
+    public func handOver(to next: NewTabInputBuffer) { queue.retarget(target, to: next.target) }
 }

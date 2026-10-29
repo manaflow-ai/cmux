@@ -56,9 +56,7 @@ import Testing
         window.contentView = pane.view
         window.orderFrontRegardless()
         pane.syncStripFromStore()
-        // The hold's own limit never ends it during the test: only the refusal can.
         let input = services.keyRouter.newTabInputCoordinator
-        input.incomingHoldLimit = .seconds(60)
 
         NewTabPage.split(pane, edge: .right)
         #expect(input.isHolding(in: window), "the split did not hold the keys typed after it")

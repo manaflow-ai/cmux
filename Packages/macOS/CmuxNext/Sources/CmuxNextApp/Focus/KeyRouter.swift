@@ -395,6 +395,8 @@ final class KeyRouter: BrowserKeyRouting {
     lazy var newTabInputCoordinator = NewTabInputCoordinator(router: self)
     /// A pending split or terminal tab owns its window's keys until the new terminal has the keyboard (cx-wb5.76).
     lazy var creationInputCoordinator = CreationInputCoordinator(router: self)
+    /// Each window's one held-key queue, shared by the creation and New Tab holds (principled audit, lagFirstKey).
+    let inputQueues = WindowInputQueues()
     /// Keys typed while a window shows its launch picture wait for the window or its terminal.
     lazy var launchPictureKeys = LaunchPictureKeys.routed(by: self)
     /// The one seam that sends a held key again and records its hold (``HeldKeyReplay``): the app's, or this router's
