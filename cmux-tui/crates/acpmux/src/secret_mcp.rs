@@ -11,7 +11,9 @@ use serde_json::{Value, json};
 use std::future::Future;
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
-use tokio::sync::{Semaphore, mpsc};
+use tokio::sync::{Mutex, Semaphore, mpsc};
+use tokio::task::JoinSet;
+use tokio_util::sync::CancellationToken;
 
 pub const SERVER_NAME: &str = "cmux-secrets";
 /// The session the tools ask for, set in this server's own env.
@@ -107,18 +109,34 @@ where
 {
     let (tx, mut rx) = mpsc::channel::<String>(OUTPUT_QUEUE_CAPACITY);
     let permits = Arc::new(Semaphore::new(MAX_IN_FLIGHT_CALLS));
+    let stop = CancellationToken::new();
+    let cancelled =
+        Arc::new(Mutex::new(std::collections::HashMap::<String, CancellationToken>::new()));
+    let writer_stop = stop.clone();
     let writer = tokio::spawn(async move {
         while let Some(mut line) = rx.recv().await {
             line.push('\n');
             if writer.write_all(line.as_bytes()).await.is_err() || writer.flush().await.is_err() {
+                writer_stop.cancel();
                 break;
             }
         }
     });
+    let mut calls = JoinSet::new();
     let mut lines = BufReader::new(reader).lines();
     while let Some(line) = lines.next_line().await? {
         let Ok(message) = serde_json::from_str::<Value>(&line) else { continue };
-        let Some(id) = message.get("id").cloned() else { continue }; // a notification
+        if message.get("id").is_none() {
+            if message["method"].as_str() == Some("notifications/cancelled")
+                && !message["params"]["requestId"].is_null()
+                && let Some(token) =
+                    cancelled.lock().await.remove(&message["params"]["requestId"].to_string())
+            {
+                token.cancel();
+            }
+            continue;
+        }
+        let Some(id) = message.get("id").cloned() else { continue };
         let verb = message["method"].as_str().unwrap_or_default().to_owned();
         let reply = match verb.as_str() {
             "initialize" => {
@@ -138,11 +156,22 @@ where
                 // A card waits on the person: the next request is read meanwhile. Each call
                 // connects anew, so a restarted daemon serves the next one.
                 let Ok(permit) = permits.clone().acquire_owned().await else { break };
-                let (tx, params, execute) =
-                    (tx.clone(), message["params"].clone(), execute.clone());
-                tokio::spawn(async move {
+                let request_key = id.to_string();
+                let request_stop = stop.child_token();
+                cancelled.lock().await.insert(request_key.clone(), request_stop.clone());
+                let (tx, params, execute, cancelled) =
+                    (tx.clone(), message["params"].clone(), execute.clone(), cancelled.clone());
+                let call_stop = stop.clone();
+                calls.spawn(async move {
                     let _permit = permit;
-                    let _ = tx.send(response(&id, execute(params).await).to_string()).await;
+                    let result = tokio::select! {
+                        result = execute(params) => Some(result),
+                        _ = request_stop.cancelled() => None,
+                        _ = call_stop.cancelled() => None,
+                    };
+                    cancelled.lock().await.remove(&request_key);
+                    let Some(result) = result else { return };
+                    let _ = tx.send(response(&id, result).to_string()).await;
                 });
                 continue;
             }
@@ -158,6 +187,9 @@ where
     }
     // The agent closed the pipe: no one reads an answer still on its way, and
     // ending here drops the calls' daemon connections with it.
+    stop.cancel();
+    calls.abort_all();
+    while calls.join_next().await.is_some() {}
     drop(tx);
     writer.abort();
     Ok(())
@@ -176,7 +208,7 @@ mod tests {
     use super::*;
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use std::time::Duration;
-    use tokio::io::AsyncWriteExt;
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
     use tokio::sync::{Barrier, Notify};
 
     #[tokio::test]
@@ -186,6 +218,7 @@ mod tests {
         let rows: Vec<Value> = (0..3000)
             .map(|i| json!({"sessionId": format!("session-{i}"), "status": "idle"}))
             .collect();
+        let expected_rows = rows.len();
         let reply_bytes = serde_json::to_vec(&json!({"sessions": &rows})).unwrap().len();
         let maximum = Arc::new(AtomicUsize::new(0));
         let retained_bytes = Arc::new(AtomicUsize::new(0));
@@ -194,8 +227,9 @@ mod tests {
         let overflow_seen = Arc::new(Notify::new());
         let first = Arc::new(Barrier::new(MAX_CONCURRENT + 1));
         let release = Arc::new(Notify::new());
+        let released = Arc::new(AtomicBool::new(false));
         let (client, server) = tokio::io::duplex(64 * 1024);
-        let (_client_read, mut client_write) = tokio::io::split(client);
+        let (client_read, mut client_write) = tokio::io::split(client);
         let (server_read, server_write) = tokio::io::split(server);
         let call_maximum = maximum.clone();
         let call_retained_bytes = retained_bytes.clone();
@@ -204,6 +238,7 @@ mod tests {
         let call_overflow_seen = overflow_seen.clone();
         let call_first = first.clone();
         let call_release = release.clone();
+        let call_released = released.clone();
         let call_rows = rows.clone();
         let server = tokio::spawn(serve_io(
             server_read,
@@ -219,6 +254,7 @@ mod tests {
                 let overflow_seen = call_overflow_seen.clone();
                 let first = call_first.clone();
                 let release = call_release.clone();
+                let released = call_released.clone();
                 let rows = call_rows.clone();
                 async move {
                     let now = maximum.fetch_add(1, Ordering::SeqCst) + 1;
@@ -232,7 +268,9 @@ mod tests {
                     if now <= MAX_CONCURRENT {
                         first.wait().await;
                     }
-                    release.notified().await;
+                    while !released.load(Ordering::SeqCst) {
+                        release.notified().await;
+                    }
                     maximum.fetch_sub(1, Ordering::SeqCst);
                     retained_bytes.fetch_sub(reply_bytes, Ordering::SeqCst);
                     json!({"sessions": rows})
@@ -251,6 +289,18 @@ mod tests {
                 client_write.write_all(b"\n").await.unwrap();
             }
         });
+        let output = tokio::spawn(async move {
+            let mut lines = tokio::io::BufReader::new(client_read).lines();
+            let mut ids = std::collections::HashSet::new();
+            for _ in 0..CALLS {
+                let line = lines.next_line().await.unwrap().expect("a response");
+                let message: Value = serde_json::from_str(&line).unwrap();
+                let id = message["id"].as_u64().expect("numeric response id");
+                assert!(ids.insert(id), "duplicate response id {id}");
+                assert_eq!(message["result"]["sessions"].as_array().unwrap().len(), expected_rows);
+            }
+            assert_eq!(ids.len(), CALLS);
+        });
         tokio::time::timeout(Duration::from_secs(5), first.wait()).await.unwrap();
         assert!(
             tokio::time::timeout(Duration::from_millis(100), overflow_seen.notified())
@@ -265,9 +315,11 @@ mod tests {
             peak_bytes.load(Ordering::SeqCst),
             reply_bytes * MAX_CONCURRENT
         );
+        released.store(true, Ordering::SeqCst);
         release.notify_waiters();
-        requests.abort();
-        server.abort();
+        requests.await.unwrap();
+        output.await.unwrap();
+        server.await.unwrap().unwrap();
     }
 }
 
