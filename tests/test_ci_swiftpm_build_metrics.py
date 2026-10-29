@@ -360,6 +360,21 @@ class SwiftPMBuildMetricsTests(unittest.TestCase):
             "arm64-apple-macosx/debug/CmuxNextAppUI.build",
         ])
 
+    def test_an_extension_symbol_belongs_to_the_extension_module_not_the_extended_type(self):
+        debug = self.stale_build()
+        output = ('Undefined symbols for architecture arm64:\n'
+                  '  "static (extension in CmuxNextAgentPane):Foundation.URL.foo() -> Swift.Bool", referenced from:\n'
+                  '      _caller in /tmp/x/CmuxNextAppUI.build/AgentPaneChatsPage.swift.o\n'
+                  'ld: symbol(s) not found for architecture arm64\n')
+        result, receipt = self.run_build(**self.link_env(debug, FAKE_LINK_OUTPUT=output))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(receipt["attempts"], 2)
+        self.assertEqual(receipt["stale_link_retry"]["cleared"], [
+            "arm64-apple-macosx/debug/CmuxNextAgentPane.build",
+            "arm64-apple-macosx/debug/CmuxNextAppUI.build",
+        ])
+        self.assertTrue((debug / "CmuxNextSidebar.build/Sidebar.swift.o").is_file())
+
     def test_ansi_coloured_link_output_is_still_read(self):
         debug = self.stale_build()
         coloured = "\n".join(f"\x1b[0;1m{line}\x1b[0m" for line in STALE_LINK.splitlines()) + "\n"
