@@ -102,6 +102,7 @@ pub fn background<T>(work: impl FnOnce() -> T) -> T {
 
 /// The argv and environment an in-place re-exec runs with: this process's
 /// own, plus [`CLAMPED_ENV`], so the new image does not do it again.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 fn reexec_env(mut vars: Vec<(OsString, OsString)>) -> Vec<(OsString, OsString)> {
     vars.retain(|(k, _)| k != CLAMPED_ENV);
     vars.push((CLAMPED_ENV.into(), "utility".into()));
