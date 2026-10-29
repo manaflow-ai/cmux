@@ -278,10 +278,22 @@ where
                 "serverInfo": {"name": SERVER_NAME, "version": env!("CARGO_PKG_VERSION")},
             })),
             "ping" => Ok(json!({})),
-            "tools/list" => forward(&mut helper, &connect, "tools/list", None, Value::Null)
-                .await
-                .map(tools_list_result),
+            "tools/list" => {
+                if let Err(error) = crate::cli::cloud_join::require_joined_consent("control") {
+                    Err((-32020, error.to_string()))
+                } else {
+                    forward(&mut helper, &connect, "tools/list", None, Value::Null)
+                        .await
+                        .map(tools_list_result)
+                }
+            }
             "tools/call" => {
+                if let Err(error) = crate::cli::cloud_join::require_joined_consent("control") {
+                    return write_line(
+                        &mut output,
+                        &json!({"jsonrpc": "2.0", "id": id, "error": {"code": -32020, "message": error.to_string()}}),
+                    ).await.map_err(Into::into);
+                }
                 let name = message["params"]["name"].as_str().unwrap_or_default().to_owned();
                 let arguments =
                     message["params"].get("arguments").cloned().unwrap_or_else(|| json!({}));
