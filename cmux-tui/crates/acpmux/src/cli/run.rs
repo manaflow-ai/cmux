@@ -32,8 +32,9 @@ pub(crate) async fn run_client(cmd: Command, json_out: bool, suppress_reads: boo
 pub(crate) async fn resolve_id(client: &Client, key: &str) -> Result<String> {
     let key = orchestrate::expand_session_key(key)?;
     let v = client.request(method::MUX_INFO, json!({"sessionId": key})).await.map_err(|e| {
-        let m = e.to_string().to_lowercase();
-        if m.contains("no session") || m.contains("not found") {
+        if e.downcast_ref::<crate::client::DaemonError>()
+            .is_some_and(|e| e.0.code == crate::rpc::RpcError::not_found("").code)
+        {
             anyhow::Error::from(errors::AppError::no_session(&key))
         } else {
             e

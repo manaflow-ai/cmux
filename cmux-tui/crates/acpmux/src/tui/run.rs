@@ -224,8 +224,7 @@ pub async fn run(client: Arc<Client>, initial: Option<String>) -> Result<()> {
 }
 
 fn initial_session_matches(session: &Value, id: &str) -> bool {
-    session.get("sessionId").and_then(Value::as_str) == Some(id)
-        || session.get("qualifiedSessionId").and_then(Value::as_str) == Some(id)
+    session_route_id(session).as_deref() == Some(id)
 }
 
 pub(super) fn make_app(
