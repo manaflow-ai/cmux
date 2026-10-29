@@ -1114,6 +1114,8 @@ enum FileExplorerError: LocalizedError, Equatable {
     case mutationPermissionDenied
     case previewCapacity
     case remoteFileTooLarge
+    /// No remote preview candidate could be downloaded.
+    case remoteFileUnavailable
 
     var errorDescription: String? {
         switch self {
@@ -1125,6 +1127,8 @@ enum FileExplorerError: LocalizedError, Equatable {
             return String(localized: "fileExplorer.preview.capacity", defaultValue: "Close a Cloud file preview and try again.")
         case .remoteFileTooLarge:
             return String(localized: "fileExplorer.error.cloudPreviewTooLarge", defaultValue: "Cloud file previews are limited to 1 MB.")
+        case .remoteFileUnavailable:
+            return String(localized: "fileExplorer.preview.genericFailure", defaultValue: "The remote file could not be downloaded. Reconnect and try again.")
         case .remoteCommandFailed:
             return String(localized: "fileExplorer.error.remoteFailed", defaultValue: "Remote command failed")
         case .mutationFailed:

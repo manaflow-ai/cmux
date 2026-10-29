@@ -47,6 +47,7 @@ extension CmuxTuiSurfaceProvider {
         )
     }
 
+    /// Reads the foreground process directory over the supplied link within the request deadline.
     private func foregroundWorkingDirectory(
         of resource: SurfaceResource,
         link: CloudMachineLink,

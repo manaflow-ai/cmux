@@ -225,10 +225,7 @@ import Testing
             )
             Issue.record("Missing remote files unexpectedly opened")
         } catch {
-            #expect(error.localizedDescription == String(
-                localized: "fileExplorer.preview.genericFailure",
-                defaultValue: "The remote file could not be downloaded. Reconnect and try again."
-            ))
+            #expect(error as? FileExplorerError == .remoteFileUnavailable)
         }
         #expect(await transport.requests.paths == ["/missing.md", "/live/notes.md"])
     }
