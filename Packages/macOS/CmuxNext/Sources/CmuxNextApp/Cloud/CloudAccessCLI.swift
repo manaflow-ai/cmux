@@ -105,7 +105,7 @@ nonisolated struct CloudAccessCLI: Sendable {
     /// ProcessRunner reaps the stopped child before returning. Cleanup runs outside the cancelled
     /// caller's task so the remote partial file and its unique directory are removed before cancel answers.
     private func cleanupUpload(socket: String, remoteRoot: String, id: String) async throws {
-        let cleanup = Task.detached {
+        let cleanup = Task.detached(priority: .userInitiated) {
             try await run(["link", "access", "upload-cancel", "--socket", socket, "--remote-root", remoteRoot, "--upload-id", id])
         }
         let answer = try await cleanup.value
