@@ -547,6 +547,12 @@ pub struct SessionsParams {
     /// (`running`, `ready`, `idle`, `waiting`, `closed`). Empty is no filter.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub status: Option<String>,
+    /// `_acpmux/sessions` only: exclude peer sessions before pagination.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub local_only: Option<bool>,
+    /// `_acpmux/sessions` only: exclude these statuses before pagination.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exclude_status: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, JsonSchema)]
