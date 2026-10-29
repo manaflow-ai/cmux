@@ -11,9 +11,17 @@ use std::time::Duration;
 
 const UPDATE_RECONNECT_BUDGET: Duration = Duration::from_secs(20);
 
-fn remaining_opts(opts: CollectOpts, started: tokio::time::Instant) -> CollectOpts {
-    let Some(timeout) = opts.timeout else { return opts };
-    CollectOpts { timeout: Some(timeout.saturating_sub(started.elapsed().as_secs())), ..opts }
+async fn before_deadline<T>(
+    deadline: Option<tokio::time::Instant>,
+    id: &str,
+    future: impl std::future::Future<Output = Result<T>>,
+) -> Result<T> {
+    match deadline {
+        Some(deadline) => tokio::time::timeout_at(deadline, future).await.map_err(|_| {
+            crate::cli::errors::AppError::timeout("prompt deadline passed").with_session(id)
+        })?,
+        None => future.await,
+    }
 }
 
 pub(crate) async fn reconnect_after_update() -> Result<Arc<Client>> {
@@ -27,11 +35,28 @@ pub(crate) async fn reconnect_after_update_with_budget(budget: Duration) -> Resu
         .map_err(|_| anyhow!("daemon did not come back within {budget:?}"))?
 }
 
+async fn reconnect_prompt(
+    deadline: Option<tokio::time::Instant>,
+    id: &str,
+    original: anyhow::Error,
+) -> Result<Arc<Client>> {
+    before_deadline(deadline, id, reconnect_after_update()).await.map_err(|reconnect| {
+        if reconnect
+            .downcast_ref::<crate::cli::errors::AppError>()
+            .is_some_and(|a| a.code == crate::cli::errors::Code::Timeout)
+        {
+            reconnect
+        } else {
+            original.context(format!("reconnecting after daemon update: {reconnect}"))
+        }
+    })
+}
+
 pub(crate) fn daemon_closed_error(error: &anyhow::Error) -> bool {
     error
         .downcast_ref::<crate::cli::errors::AppError>()
         .is_some_and(|app| app.detail == "daemon_closed")
-        || error.to_string().contains("daemon connection closed")
+        || error.is::<crate::client::TransportClosed>()
 }
 
 pub(crate) fn arg_or_stdin(words: &[String]) -> Result<String> {
@@ -181,7 +206,7 @@ async fn queue_prompt_once(
             // or a peer that does not relay it) answers the same question.
             r = &mut turn => {
                 return match r? {
-                    Err(_) if client.is_closed() => Err(prompt.closed(&client, id, "queueing the prompt")),
+                    Err(e) if daemon_closed_error(&e) => Err(prompt.closed(&client, id, "queueing the prompt")),
                     other => other,
                 };
             }
@@ -295,6 +320,8 @@ impl OnPermission {
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct CollectOpts {
     pub timeout: Option<u64>,
+    /// Absolute CLI budget, including time spent preparing the session.
+    pub deadline: Option<tokio::time::Instant>,
     pub on_permission: OnPermission,
     /// Seconds without any update after the prompt before `prompt_stalled`; 0 disables.
     pub stall_secs: u64,
@@ -361,6 +388,7 @@ pub(crate) async fn stream_prompt(
     prompt: &PromptId,
 ) -> Result<()> {
     let started = tokio::time::Instant::now();
+    let deadline = opts.deadline.or_else(|| opts.timeout.map(|s| started + Duration::from_secs(s)));
     let mut progress = StreamProgress::default();
     match stream_prompt_once(
         client,
@@ -373,19 +401,13 @@ pub(crate) async fn stream_prompt(
         suppress_reads,
         prompt,
         &mut progress,
+        deadline,
     )
     .await
     {
         Ok(()) => Ok(()),
         Err(error) if daemon_closed_error(&error) => {
-            let budget = opts
-                .timeout
-                .map(|seconds| Duration::from_secs(seconds).saturating_sub(started.elapsed()))
-                .unwrap_or(UPDATE_RECONNECT_BUDGET);
-            let replacement =
-                reconnect_after_update_with_budget(budget).await.map_err(|reconnect| {
-                    error.context(format!("reconnecting after daemon update: {reconnect}"))
-                })?;
+            let replacement = reconnect_prompt(deadline, id, error).await?;
             let mut retry = prompt.clone();
             retry.resend = true;
             progress.reconnecting = true;
@@ -396,10 +418,11 @@ pub(crate) async fn stream_prompt(
                 steer,
                 quiet,
                 json_out,
-                remaining_opts(opts, started),
+                opts,
                 suppress_reads,
                 &retry,
                 &mut progress,
+                deadline,
             )
             .await
         }
@@ -419,10 +442,16 @@ async fn stream_prompt_once(
     suppress_reads: bool,
     prompt: &PromptId,
     progress: &mut StreamProgress,
+    deadline: Option<tokio::time::Instant>,
 ) -> Result<()> {
     let mut notes =
         client.notifications().await.ok_or_else(|| anyhow!("notifications already taken"))?;
-    client.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 0})).await?;
+    before_deadline(
+        deadline,
+        id,
+        client.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 0})),
+    )
+    .await?;
     let c = client.clone();
     let params = prompt.params(id, text, steer, None);
     let turn = tokio::spawn(async move { c.request(method::SESSION_PROMPT, params).await });
@@ -432,7 +461,6 @@ async fn stream_prompt_once(
     let stdout = std::io::stdout();
     let mut turn = turn;
     let started = tokio::time::Instant::now();
-    let deadline = opts.timeout.map(|s| started + std::time::Duration::from_secs(s));
     let mut activity = false;
     let mut asked = 0u64;
     let mut denied = 0u64;
@@ -565,8 +593,10 @@ async fn stream_prompt_once(
                 .turn()
                 .or_else(|| value.pointer("/_meta/acpmux/turnId").and_then(Value::as_str));
             match turn {
-                Some(turn) => turn_reply(&client, id, turn).await?,
-                None if prompt.resend => last_replies(&client, id, 1).await?.pop(),
+                Some(turn) => before_deadline(deadline, id, turn_reply(&client, id, turn)).await?,
+                None if prompt.resend => {
+                    before_deadline(deadline, id, last_replies(&client, id, 1)).await?.pop()
+                }
                 None => None,
             }
         }
@@ -598,7 +628,9 @@ async fn stream_prompt_once(
             }
             Ok(())
         }
-        Err(_) if client.is_closed() => Err(prompt.closed(&client, id, "waiting for the turn")),
+        Err(e) if daemon_closed_error(&e) => {
+            Err(prompt.closed(&client, id, "waiting for the turn"))
+        }
         Err(e) => Err(e),
     }
 }
@@ -746,6 +778,7 @@ pub(crate) async fn collect_reply(
     prompt: &PromptId,
 ) -> Result<CollectResult> {
     let started = tokio::time::Instant::now();
+    let deadline = opts.deadline.or_else(|| opts.timeout.map(|s| started + Duration::from_secs(s)));
     let mut attempt = 0u32;
     let mut client = client;
     let mut update_retry = false;
@@ -753,21 +786,12 @@ pub(crate) async fn collect_reply(
     // new prompt id; the daemon would otherwise answer with the failure.
     let mut prompt = prompt.clone();
     loop {
-        match collect_once(client.clone(), id, text, remaining_opts(opts, started), &prompt).await {
+        match collect_once(client.clone(), id, text, opts, &prompt, deadline).await {
             Ok(r) => return Ok(r),
             Err(e) => {
                 if !update_retry && daemon_closed_error(&e) {
                     update_retry = true;
-                    let budget = opts
-                        .timeout
-                        .map(|seconds| {
-                            Duration::from_secs(seconds).saturating_sub(started.elapsed())
-                        })
-                        .unwrap_or(UPDATE_RECONNECT_BUDGET);
-                    client =
-                        reconnect_after_update_with_budget(budget).await.map_err(|reconnect| {
-                            e.context(format!("reconnecting after daemon update: {reconnect}"))
-                        })?;
+                    client = reconnect_prompt(deadline, id, e).await?;
                     prompt.resend = true;
                     continue;
                 }
@@ -786,7 +810,11 @@ pub(crate) async fn collect_reply(
                     (1000u64 * 2u64.pow(attempt.min(4))).min(10_000),
                 );
                 eprintln!("acpmux: agent error, retry {attempt}/{} in {:?}", opts.retries, backoff);
-                tokio::time::sleep(backoff).await;
+                before_deadline(deadline, id, async {
+                    tokio::time::sleep(backoff).await;
+                    Ok(())
+                })
+                .await?;
                 // The same message again, its attachments too.
                 let attachments = std::mem::take(&mut prompt.attachments);
                 prompt = PromptId::new(None);
@@ -802,10 +830,16 @@ async fn collect_once(
     text: &str,
     opts: CollectOpts,
     prompt: &PromptId,
+    deadline: Option<tokio::time::Instant>,
 ) -> Result<CollectResult> {
     let mut notes =
         client.notifications().await.ok_or_else(|| anyhow!("notifications already taken"))?;
-    client.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 0})).await?;
+    before_deadline(
+        deadline,
+        id,
+        client.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 0})),
+    )
+    .await?;
     let c = client.clone();
     let params = prompt.params(id, text, opts.steer, None);
     let mut turn = tokio::spawn(async move { c.request(method::SESSION_PROMPT, params).await });
@@ -813,7 +847,6 @@ async fn collect_once(
     let mut end_wait: Option<crate::cli::steer_reply::EndWait> = None;
     let mut t = Transcript::default();
     let started = tokio::time::Instant::now();
-    let deadline = opts.timeout.map(|s| started + std::time::Duration::from_secs(s));
     let mut activity = false;
     let mut produced = false;
     let mut asked = 0u64;
@@ -914,7 +947,7 @@ async fn collect_once(
     }
     let result = match result {
         Ok(v) => v,
-        Err(_) if client.is_closed() => {
+        Err(e) if daemon_closed_error(&e) => {
             return Err(prompt.closed(&client, id, "waiting for the turn"));
         }
         Err(e) => {
@@ -950,7 +983,7 @@ async fn collect_once(
     // after that turn started, and may have missed its end. A log that no longer reaches that
     // turn's start keeps the reply heard.
     if let Some(turn) = steered.turn()
-        && let Some(logged) = turn_reply(&client, id, turn).await?
+        && let Some(logged) = before_deadline(deadline, id, turn_reply(&client, id, turn)).await?
     {
         reply = logged;
     }
@@ -958,8 +991,13 @@ async fn collect_once(
     // reply of that turn (not necessarily the newest) from the log.
     if prompt.resend {
         reply = match result.pointer("/_meta/acpmux/turnId").and_then(Value::as_str) {
-            Some(turn) => turn_reply(&client, id, turn).await?.unwrap_or_default(),
-            None => last_replies(&client, id, 1).await?.pop().unwrap_or_default(),
+            Some(turn) => before_deadline(deadline, id, turn_reply(&client, id, turn))
+                .await?
+                .unwrap_or_default(),
+            None => before_deadline(deadline, id, last_replies(&client, id, 1))
+                .await?
+                .pop()
+                .unwrap_or_default(),
         };
     }
     let stop_reason =
@@ -1356,4 +1394,21 @@ mod prompt_tests {
         let whole = [ev(1, "turn_started"), ev(2, "turn_result")];
         assert_eq!(reply_of_turn(&whole, "t1"), Some(String::new()), "it said nothing");
     }
+}
+
+#[test]
+fn daemon_error_text_is_not_a_transport_restart() {
+    let wire =
+        crate::client::DaemonError(crate::rpc::RpcError::internal("daemon connection closed"));
+    let wire: anyhow::Error = wire.into();
+    assert!(!daemon_closed_error(&wire));
+    let agent: anyhow::Error = crate::cli::errors::AppError::new(
+        crate::cli::errors::Code::Runtime,
+        "agent_error",
+        "-32603: daemon connection closed",
+    )
+    .into();
+    assert!(!daemon_closed_error(&agent));
+    assert!(!daemon_closed_error(&anyhow!("daemon connection closed")));
+    assert!(daemon_closed_error(&crate::client::closed_error("test EOF", None)));
 }

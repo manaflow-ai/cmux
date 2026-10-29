@@ -55,7 +55,7 @@ async fn queue_once(
         Err(e) if e.to_string().contains("no session") => {
             return Err(errors::AppError::no_session(&key).into());
         }
-        Err(_) if client.is_closed() => {
+        Err(e) if super::super::output::daemon_closed_error(&e) => {
             return Err(prompt_id.closed(client, &key, "queueing the prompt"));
         }
         Err(e) => return Err(e),

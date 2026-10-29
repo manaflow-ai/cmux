@@ -788,6 +788,7 @@ pub(crate) async fn compare(
                     &id,
                     &prompt,
                     CollectOpts {
+                        deadline: None,
                         timeout,
                         on_permission: OnPermission::Wait,
                         stall_secs: 0,

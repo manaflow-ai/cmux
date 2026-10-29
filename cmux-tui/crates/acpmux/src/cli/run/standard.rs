@@ -38,6 +38,12 @@ pub(super) fn handles(cmd: &Command) -> bool {
 }
 
 pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> Result<()> {
+    let deadline = match &cmd {
+        Command::New(args) => args.timeout,
+        Command::Send { timeout, .. } => *timeout,
+        _ => None,
+    }
+    .map(|seconds| tokio::time::Instant::now() + std::time::Duration::from_secs(seconds));
     match cmd {
         Command::Dispatch(args) => dispatch(connect(true).await?, args, json_out).await,
         Command::Briefs(cmd) => briefs(connect(true).await?, cmd, json_out).await,
@@ -584,6 +590,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 if one_shot {
                     let opts = CollectOpts {
                         timeout: args.timeout,
+                        deadline,
                         on_permission,
                         stall_secs: args.stall,
                         retries: args.retries,
@@ -620,6 +627,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 }
                 let opts = CollectOpts {
                     timeout: args.timeout,
+                    deadline,
                     on_permission,
                     stall_secs: args.stall,
                     retries: args.retries,
@@ -750,7 +758,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 {
                     eprintln!("{note}");
                 }
-                let opts = CollectOpts { timeout, on_permission, stall_secs: stall, retries: 0, steer };
+                let opts = CollectOpts { timeout, deadline, on_permission, stall_secs: stall, retries: 0, steer };
                 if quiet || json_out {
                     let r = collect_reply(client, &id, &text, opts, &prompt_id).await?;
                     if json_out {

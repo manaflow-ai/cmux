@@ -123,6 +123,7 @@ async fn ls_last_and_info_read_the_sessions() {
         &lane,
         "hello",
         crate::cli::output::CollectOpts {
+            deadline: None,
             timeout: Some(20),
             on_permission: crate::cli::output::OnPermission::Fail,
             stall_secs: 30,
