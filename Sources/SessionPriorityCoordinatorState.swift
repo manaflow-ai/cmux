@@ -386,7 +386,8 @@ struct SessionPriorityCoordinatorState: Equatable {
     /// The state a status read reports for a pane: its record's, once a reconcile decided it.
     ///
     /// A pane not decided since the feature was last turned on has no record (or only the last
-    /// attempt a session end kept), and a reconcile may not come before its first turn end. Its
+    /// attempt a session end kept, or one for an earlier Claude that died without a session end),
+    /// and a reconcile may not come before its first turn end. Its
     /// recorded launch already says whether cmux leaves it alone (`--effort`, a launch or
     /// workspace `CLAUDE_CODE_EFFORT_LEVEL`), so that is reported, and the workspace shows no
     /// target before any turn (ruling R37). The screen and the transcript are not read here.
@@ -398,7 +399,7 @@ struct SessionPriorityCoordinatorState: Equatable {
         launchEnvironment: [String: String],
         workspaceEnvironment: [String: String]
     ) -> SessionPriorityPaneState {
-        if let record = records[panelId], record.sessionId != nil || record.state != .upToDate {
+        if let record = records[panelId], Self.recordDecides(record, session: sessionId) {
             return record.state
         }
         let signal = SessionPriorityManualSignals.detect(
@@ -409,6 +410,16 @@ struct SessionPriorityCoordinatorState: Equatable {
             screenText: nil
         )
         return signal.map { .manual($0) } ?? .upToDate
+    }
+
+    /// Whether `record` decides the pane's current session (`sessionId`, `nil` when the index
+    /// does not show it). As in ``follow(panelId:sessionId:)``, a record for another session
+    /// decides nothing unless a restart waits for its resumed Claude's start; nor does one kept
+    /// only for its last attempt.
+    private static func recordDecides(_ record: PaneRecord, session sessionId: String?) -> Bool {
+        guard let followed = record.sessionId else { return record.state != .upToDate }
+        guard let sessionId, followed != sessionId else { return true }
+        return record.awaitingSessionStartUntilMs != nil
     }
 
     /// Forgets panes that no longer exist.
