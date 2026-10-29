@@ -543,3 +543,5 @@ existing colors, glass, row geometry and drag behavior.
 ## Group chevron turns on a fold (2026-10-28)
 
 - Lawrence msg 15763 ("should animate rotation of the chevron when i open/close group", screenshot of a group header). Before: the header swapped a right and a down chevron image in one frame. Now one right-pointing glyph (a layer `DisclosureChevronView` owns, so it turns about its center) turns a quarter turn on `Motion.sidebar` with the fold's springs; Reduce Motion snaps it. Guard: `GroupChevronTurnTests`. Look, frame and trailing column unchanged.
+
+- 2026-10-29: reviewed owner record for 772dcf241d6 (parent title-column invalidation) and 10b29e5f793 (shared visible/virtualized geometry and mark decisions): corrections keep the intended 16 pt disclosed-child column stable through icon changes and realization; no additional look change.

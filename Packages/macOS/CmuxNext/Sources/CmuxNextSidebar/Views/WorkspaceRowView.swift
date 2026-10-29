@@ -21,7 +21,7 @@ final class WorkspaceRowView: SidebarRowView {
     /// The last configuration, so a Debug Settings switch of `sidebar.agentMark` redraws the row.
     internal(set) var lastConfiguration: (SidebarWorkspace, SidebarRow, SidebarRowBadgeStyle?)?
     /// Last rendered title column sent to disclosed child rows.
-    var lastTabAnchorTitleFrame: NSRect?
+    var lastTabAnchorTitleX: CGFloat?
     var activityState = StatusIndicatorState.idle
     let badge = UnreadBadgeView(), rowBadge = RowBadgeView() // the count, and its replacement (WorkspaceRowView+Badges)
     var rowBadgeStyle = SidebarRowBadgeStyle.corner
@@ -203,7 +203,7 @@ final class WorkspaceRowView: SidebarRowView {
         onToggleTree = nil
         onToggleAudio = nil
         title.stopMarquee()
-        lastTabAnchorTitleFrame = nil
+        lastTabAnchorTitleX = nil
         title.layer?.removeAnimation(forKey: "workspace-title-motion")
         lastTitle = nil
         titleArrivalGeneration &+= 1

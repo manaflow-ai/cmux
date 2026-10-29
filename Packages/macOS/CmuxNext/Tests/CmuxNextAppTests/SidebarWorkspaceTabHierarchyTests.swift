@@ -208,6 +208,38 @@ struct SidebarWorkspaceTabHierarchyTests {
                 "reused parent did not replace the virtualized anchor")
     }
 
+    @Test
+    func aPageViewportRealizesTheTabBeforeItsParent() throws {
+        let (list, window) = try Self.list(width: 260)
+        defer { window.close() }
+        let parentKey = SidebarRowKey.workspace(Self.grouped)
+        let tabKey = SidebarRowKey.tab(Self.grouped, TabID("grouped-tab"))
+        let parentFrame = list.frame(for: try Self.sidebarRow(list, parentKey))
+        let tabFrame = list.frame(for: try Self.sidebarRow(list, tabKey))
+        let original = try Self.tabRow(list, Self.grouped, TabID("grouped-tab"))
+        let expectedX = Self.listX(list, original, try Self.tabTitle(original, "browser").frame.minX)
+        // Park the actual views, then let the exact page viewport realize only the child.
+        for (key, view) in list.rowViews {
+            list.rowViews[key] = nil
+            list.recycle(view)
+        }
+        list.pageViewport = tabFrame
+        list.realizeVisibleRows()
+        list.layoutSubtreeIfNeeded()
+        #expect(list.rowViews[parentKey] == nil)
+        let tab = try Self.tabRow(list, Self.grouped, TabID("grouped-tab"))
+        let title = try Self.tabTitle(tab, "browser")
+        #expect(abs(Self.listX(list, tab, title.frame.minX) - expectedX) < 0.5,
+                "offscreen parent lost its icon-aware title column")
+        list.pageViewport = parentFrame.union(tabFrame)
+        list.realizeVisibleRows()
+        list.layoutSubtreeIfNeeded()
+        let parent = try Self.workspaceRow(list, Self.grouped)
+        let inset = Self.listX(list, tab, title.frame.minX) - Self.listX(list, parent, parent.titleFrame.minX)
+        let expectedInset = CGFloat(16) + SidebarStyle.labelCellPadding + SidebarStyle.tabIconSize + Metrics.space2
+        #expect(abs(inset - expectedInset) < 0.5, "late parent realization changed the exact child anchor")
+    }
+
     @Test(arguments: SidebarAgentMarkVariant.allCases)
     func virtualizedTitleColumnMatchesLeadingMarks(_ variant: SidebarAgentMarkVariant) throws {
         TunableStore.shared.register(SidebarTunables.all)

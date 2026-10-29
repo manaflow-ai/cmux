@@ -255,9 +255,9 @@ extension WorkspaceRowView {
         // A workspace icon, mark or late realization changes the title column without changing
         // the tab model. Invalidate only this workspace's disclosed children so their anchor is
         // recomputed on the same layout pass instead of retaining a stale x position.
-        let titleFrame = self.titleFrame
-        if titleFrame != lastTabAnchorTitleFrame {
-            lastTabAnchorTitleFrame = titleFrame
+        let titleX = self.titleFrame.minX
+        if titleX != lastTabAnchorTitleX {
+            lastTabAnchorTitleX = titleX
             if case let .workspace(workspaceID) = key,
                let list = sequence(first: superview, next: { $0?.superview })
                    .compactMap({ $0 as? SidebarListView }).first {
