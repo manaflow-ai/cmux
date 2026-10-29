@@ -248,10 +248,22 @@ const mintOrReuse = async (h: LedgerHost, picked: { c: Connection; installation:
   expireRows(h.sql, now)
   const live = h.sql.exec<Row>(`SELECT * FROM github_tokens WHERE cache_key = ? AND principal = ? AND revoking = 0 AND expires_at > ? ORDER BY expires_at DESC LIMIT 1`, cacheKey, pk, now + REUSE_MARGIN_MS).toArray()[0]
   if (live) {
+    // Existing sealed rows may predate the stricter permission check. Never replay an
+    // over-scoped token: retire it through the existing revocation ledger first.
+    let saved: Record<string, string> | null = null
+    try {
+      const parsed: unknown = JSON.parse(live.permissions)
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) saved = parsed as Record<string, string>
+    } catch { /* corrupt ledger grants are unusable */ }
+    if (!saved || !exactGithubGrant(saved, ask.permissions)) {
+      h.sql.exec(`UPDATE github_tokens SET revoking = 1, retry_at = ? WHERE token_id = ?`, Date.now(), live.token_id)
+      await drainTokenRevocations(h, Date.now())
+      return fail(403, "policy.denied", "the cached GitHub token permissions no longer match the requested grant")
+    }
     const token = await openRow(h.env, live).catch(() => null)
     const again = authorize(h.state(), p, ask)
     if (token && stillLive(h.sql, live.token_id) && (h.revokes.get(pk) ?? 0) === generation && !("ok" in again) && again.c.id === picked.c.id) {
-      return { ok: true, value: { token, expires_at: new Date(Number(live.expires_at)).toISOString(), repo: ask.repo, connection_id: picked.c.id, permissions: JSON.parse(live.permissions) as Record<string, string>, token_id: live.token_id } }
+      return { ok: true, value: { token, expires_at: new Date(Number(live.expires_at)).toISOString(), repo: ask.repo, connection_id: picked.c.id, permissions: saved, token_id: live.token_id } }
     }
     if ("ok" in again) return again
   }
@@ -275,7 +287,11 @@ const mintOrReuse = async (h: LedgerHost, picked: { c: Connection; installation:
   }
   const minted = await mintedToken(res)
   if (!minted.token) return fail(503, "integration.unavailable", "GitHub returned no token")
-  if (!Number.isFinite(minted.expires_at) || minted.expires_at <= now) return fail(503, "integration.unavailable", "GitHub returned an expired token")
+  if (!Number.isFinite(minted.expires_at) || minted.expires_at <= now) {
+    // A provider response without a trustworthy expiry must never be handed out or cached.
+    await revokeInstallationToken(h.http, minted.token)
+    return fail(503, "integration.unavailable", "GitHub returned a token without a valid future expiry")
+  }
   const tokenId = sha256hex(minted.token).slice(0, 16)
   const requestedExpiry = ask.ttlSec === undefined ? minted.expires_at : Math.min(minted.expires_at, now + ask.ttlSec * 1000)
   const row = {
