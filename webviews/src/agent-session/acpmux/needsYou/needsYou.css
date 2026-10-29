@@ -120,9 +120,6 @@
 .acpmux-needs-you-item + .acpmux-needs-you-item {
   margin-top: 1px;
 }
-.acpmux-needs-you-item:hover {
-  background: color-mix(in srgb, var(--agent-text) 5%, transparent);
-}
 /* The ask a link opened the list on: a wash of the needs-you mark, no ring. */
 .acpmux-needs-you-item[data-focused] {
   background: color-mix(in srgb, var(--acpmux-needs-you-mark) 12%, transparent);
