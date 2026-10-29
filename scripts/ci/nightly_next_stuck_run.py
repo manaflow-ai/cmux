@@ -247,6 +247,12 @@ def stuck_job(run: Run, jobs: list[Job], now: dt.datetime) -> Job | None:
     def unserved(job: Job) -> bool:
         return job.status == "queued" and job.runner is None
 
+    # A queued owned build may be the dependency of an already-created signer.
+    # Leave the entire run to owned-pool recovery rather than treating that signer
+    # as proof that the run is stalled on a non-owned label.
+    if any(job.status == "queued" and any(label.startswith("glaeda-") for label in job.labels) for job in jobs):
+        return None
+
     # GitHub can create downstream job records before their dependencies complete. Using
     # their creation alone would count build time as queue time and cancel a signer just
     # as it becomes runnable. Waiting from the latest executed completion is conservative
