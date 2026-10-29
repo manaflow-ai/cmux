@@ -961,18 +961,6 @@ where
             Ok(c) => return Ok(c),
             Err(e) => e,
         };
-        if unit_started(&ready) {
-            let deadline = tokio::time::Instant::now() + START_BUDGET;
-            loop {
-                if let Ok(c) = connect().await {
-                    return Ok(c);
-                }
-                if tokio::time::Instant::now() >= deadline {
-                    return Err(not_ready(path, &ready, &error));
-                }
-                tokio::time::sleep(HANDOVER_RETRY).await;
-            }
-        }
         if !lock_held(&ready) {
             return Err(not_ready(path, &ready, &error));
         }
@@ -997,18 +985,6 @@ fn lock_held(ready: &str) -> bool {
         .ok()
         .and_then(|v| v.get("lockHeld").and_then(Value::as_bool))
         == Some(true)
-}
-
-fn unit_started(ready: &str) -> bool {
-    #[cfg(target_os = "linux")]
-    {
-        ready.trim() == UNIT_STARTED_LINE
-    }
-    #[cfg(not(target_os = "linux"))]
-    {
-        let _ = ready;
-        false
-    }
 }
 
 /// Start a daemon and wait until it reports readiness or exits. Returns its
@@ -1055,12 +1031,6 @@ async fn start_daemon_with(key: Option<zeroize::Zeroizing<String>>) -> Result<St
                 tracing::warn!("{line}");
             }
         }
-    }
-    #[cfg(target_os = "linux")]
-    if key.is_none()
-        && let Some(ready) = start_from_user_unit().await
-    {
-        return Ok(ready);
     }
     // Async pipe I/O, so the timeout cancels the read; a blocking read on a
     // worker thread would keep runtime teardown waiting on a hung daemon.
@@ -1196,65 +1166,6 @@ fn daemon_command(this: &crate::self_command::SelfCommand) -> std::process::Comm
 #[cfg(not(target_os = "linux"))]
 fn daemon_command(this: &crate::self_command::SelfCommand) -> std::process::Command {
     this.command(&["daemon", "run", "--ready-fd"])
-}
-
-#[cfg(target_os = "linux")]
-const UNIT_STARTED_LINE: &str = "{\"unitStarted\":true}";
-
-#[cfg(target_os = "linux")]
-async fn start_from_user_unit() -> Option<String> {
-    if !daemon_started_in_session_scope()
-        || !uses_shared_home()
-        || std::env::var_os("ACPMUX_SOCKET").is_some()
-    {
-        return None;
-    }
-    let runner = crate::session_scope::scope_runner()?;
-    let systemctl = runner.with_file_name("systemctl");
-    if !systemctl.is_file() {
-        return None;
-    }
-    let deadline = tokio::time::Instant::now() + START_BUDGET;
-    if !bounded_user_systemctl(&systemctl, &["--user", "cat", "acpmux.service"], deadline).await {
-        return None;
-    }
-    bounded_user_systemctl(&systemctl, &["--user", "start", "acpmux.service"], deadline)
-        .await
-        .then(|| UNIT_STARTED_LINE.to_owned())
-}
-
-#[cfg(target_os = "linux")]
-async fn bounded_user_systemctl(
-    systemctl: &std::path::Path,
-    args: &[&str],
-    deadline: tokio::time::Instant,
-) -> bool {
-    let mut command = tokio::process::Command::new(systemctl);
-    command
-        .args(args)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .kill_on_drop(true)
-        .process_group(0);
-    let mut child = match command.spawn() {
-        Ok(child) => child,
-        Err(_) => return false,
-    };
-    let group = child.id();
-    let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
-    match tokio::time::timeout(remaining, child.wait()).await {
-        Ok(Ok(status)) => status.success(),
-        _ => {
-            if let Some(pid) = group.and_then(|pid| i32::try_from(pid).ok()) {
-                // SAFETY: this is the process group created for the child above.
-                unsafe { libc::kill(-pid, libc::SIGKILL) };
-            }
-            let _ = child.start_kill();
-            let _ = child.wait().await;
-            false
-        }
-    }
 }
 
 /// Start `<exe> [prefix] daemon run --ready-fd N` in its own session and

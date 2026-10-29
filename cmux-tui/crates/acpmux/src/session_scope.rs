@@ -104,10 +104,14 @@ pub(crate) const SESSIONS_SLICE: &str = "acpmuxsessions.slice";
 /// harness scope.
 #[cfg(target_os = "linux")]
 pub(crate) fn scope_runner() -> Option<std::path::PathBuf> {
+    use std::os::unix::fs::PermissionsExt;
     ["/usr/bin/systemd-run", "/bin/systemd-run"]
         .into_iter()
         .map(std::path::PathBuf::from)
-        .find(|path| path.is_file())
+        .find(|path| {
+            std::fs::metadata(path)
+                .is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+        })
         .or_else(|| runner(&BTreeMap::new()))
 }
 
@@ -147,6 +151,9 @@ pub(crate) struct SessionLimits {
 }
 
 fn daemon_limits() -> SessionLimits {
+    #[cfg(not(target_os = "linux"))]
+    return SessionLimits::default();
+    #[cfg(target_os = "linux")]
     crate::config::Config::load()
         .ok()
         .map(|config| SessionLimits {
@@ -266,13 +273,13 @@ fn slice_settings_with_swap(
     memory: u64,
     swap_bytes: u64,
 ) -> Vec<(&'static str, String)> {
-    let bytes = |v: &str| -> Option<String> {
+    let size = |total: u64, v: &str| -> Option<String> {
         if v == "infinity" || v == "0" {
             return Some("infinity".to_owned());
         }
         if let Some(pct) = v.strip_suffix('%') {
             let pct = pct.parse::<u64>().ok().filter(|p| (1..=100).contains(p))?;
-            return (memory > 0).then(|| (u128::from(memory) * u128::from(pct) / 100).to_string());
+            return (total > 0).then(|| (u128::from(total) * u128::from(pct) / 100).to_string());
         }
         let (digits, unit) = match v.strip_suffix(['K', 'M', 'G', 'T']) {
             Some(digits) => (digits, 1u64 << (10 * (1 + "KMGT".find(v.chars().last()?)?))),
@@ -281,6 +288,7 @@ fn slice_settings_with_swap(
         let n = digits.parse::<u64>().ok().filter(|n| *n > 0)?.checked_mul(unit)?;
         Some(n.to_string())
     };
+    let bytes = |v: &str| size(memory, v);
     let count = |v: &str| -> Option<String> {
         if v == "infinity" || v == "0" {
             return Some("infinity".to_owned());
@@ -300,18 +308,7 @@ fn slice_settings_with_swap(
     if let Some(v) = pick("ACPMUX_SESSIONS_TASKS_MAX", &count, "16384") {
         out.push(("TasksMax", v));
     }
-    let swap_value = |v: &str| {
-        if v == "infinity" || v == "0" {
-            return Some("infinity".to_owned());
-        }
-        if let Some(pct) = v.strip_suffix('%') {
-            let pct = pct.parse::<u64>().ok().filter(|p| (1..=100).contains(p))?;
-            return (swap_bytes > 0)
-                .then(|| (u128::from(swap_bytes) * u128::from(pct) / 100).to_string());
-        }
-        let n = v.parse::<u64>().ok().filter(|n| *n > 0)?;
-        Some(n.saturating_mul(1024 * 1024).to_string())
-    };
+    let swap_value = |v: &str| size(swap_bytes, v);
     if let Some(v) = pick("ACPMUX_SESSIONS_SWAP_MAX", &swap_value, "75%") {
         out.push(("MemorySwapMax", v));
     }
@@ -657,6 +654,13 @@ mod tests {
         );
         let off = slice_settings_with_swap(&from(&[("ACPMUX_SESSIONS_SWAP_MAX", "0")]), 0, 4 * GIB);
         assert!(off.iter().any(|(key, value)| *key == "MemorySwapMax" && value == "infinity"));
+        let sized =
+            slice_settings_with_swap(&from(&[("ACPMUX_SESSIONS_SWAP_MAX", "4G")]), 0, 8 * GIB);
+        assert!(
+            sized
+                .iter()
+                .any(|(key, value)| *key == "MemorySwapMax" && value == &(4 * GIB).to_string())
+        );
     }
 
     #[test]
