@@ -31,7 +31,8 @@ struct TestProcessSignalTests {
         let before = cmux_next_test_sigpipes()
         errno = EPIPE
         cmux_next_test_sigpipe_handle()
-        #expect(errno == EPIPE)
+        let after = errno
+        #expect(after == EPIPE)
         #expect(cmux_next_test_sigpipes() >= before + 1)
     }
 }
