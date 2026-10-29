@@ -47,11 +47,27 @@ public final class DockBadge {
     static func activationPolicies<Object: NSObject>(of app: Object, keyPath: KeyPath<Object, NSApplication.ActivationPolicy>) -> AsyncStream<NSApplication.ActivationPolicy> {
         // Only the newest policy matters: a burst of flips settles on the last.
         AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
+            // KVO does not retain its observed object. Keep it alive until the token is invalidated,
+            // then release it even if the stream itself remains retained by a cancelled task.
+            let lifetime = ActivationPolicyObservationLifetime(app)
             // crash-allow: the token is never mutated; it is only invalidated (thread-safe), once, when the stream ends.
             nonisolated(unsafe) let token = app.observe(keyPath, options: [.new]) { _, change in
                 if let policy = change.newValue { continuation.yield(policy) }
             }
-            continuation.onTermination = { _ in token.invalidate() }
+            continuation.onTermination = { _ in
+                token.invalidate()
+                lifetime.release()
+            }
         }
     }
+}
+
+// concurrency-allow: the holder is initialized before the stream escapes and `release` runs once,
+// from AsyncStream's serialized termination callback, before the observer token is dropped.
+private final class ActivationPolicyObservationLifetime<Object: NSObject>: @unchecked Sendable {
+    private var object: Object?
+
+    init(_ object: Object) { self.object = object }
+
+    func release() { object = nil }
 }
