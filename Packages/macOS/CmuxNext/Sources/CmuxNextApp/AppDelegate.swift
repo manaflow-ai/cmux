@@ -104,11 +104,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         (launchReveal, launchSettle) = (reveal, LaunchSettle(reveal: reveal, paneRefs: paneRefs))
         startupReferences = StartupReferences(startup: startup, reveal: reveal, mainWork: order.mainWork, paneRefs: paneRefs)
         (self.mainWork, self.inputTap) = (order.mainWork, inputTap)
-        let control = AppControl(mainWork: order.mainWork, input: inputTap, watchdog: watchdog)
-        #if CMUX_PGO_PROFILE
-        control.profileFlush = order.profileFlush
-        #endif
-        self.control = control
+        control = AppControl(mainWork: order.mainWork, input: inputTap, watchdog: watchdog)
         mouseSideButtons = MouseSideButtons(input: inputTap)
         super.init()
     }
