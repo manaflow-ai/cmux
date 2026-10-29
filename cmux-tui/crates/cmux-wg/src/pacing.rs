@@ -42,9 +42,8 @@ use tokio::time::Instant;
 
 /// Pacing gain over the measured rate (the usual slow-start pacing ratio).
 const GAIN: f64 = 2.0;
-/// The flight a connection is assumed to have at least, so a nearly idle
-/// connection is never slowed while the userspace stack is waking in millisecond
-/// quanta. Keep enough data in flight to fill the measured loopback window.
+/// Interactive connections keep the original ten-segment floor so keystrokes
+/// remain within the transport latency budget.
 const INTERACTIVE_MIN_FLIGHT: u32 = 10 * 1200;
 /// Larger floor for sustained bulk streams.
 const BULK_MIN_FLIGHT: u32 = 128 * 1200;
