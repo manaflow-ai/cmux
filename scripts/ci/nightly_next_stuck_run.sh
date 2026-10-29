@@ -26,22 +26,19 @@
 # the run entered, since the first read keeps the run. (GitHub has no conditional cancel; what is
 # left is the moment between that last read and the cancel.)
 #
-# The cancel goes out, and the run is read every SETTLE_SECONDS until it has finished. After
-# FORCE_AFTER more reads it is force-cancelled, then read FORCE_AFTER more times. A run that has
-# still not finished, or that can no longer be read, is left for the next tick. After the cancel:
-#   - the tip's push run below MAX_ATTEMPTS (default 3, as in nightly_next_cancelled_tip.sh) is
-#     re-run by the next tick step, nightly_next_cancelled_tip.sh;
-#   - a dispatch of the tip on nightly-next below MAX_ATTEMPTS is re-run here through the same
-#     nightly_next_rerun.sh: the build picker when a job without a runner takes its label from
-#     the pick, else the failed and cancelled jobs;
-#   - a run of the tip at MAX_ATTEMPTS (push or dispatch) gets a fresh run instead: nightly.yml is
-#     dispatched on nightly-next, which builds the tip from attempt 1 with every runner picked
-#     afresh, unless another unfinished run of the tip (in any state, gated ones included, read
-#     right then) already carries it. Left queued it would never run, and cancelled with no new run
-#     the tip would never build again;
-#   - nothing is re-run or dispatched unless the run is seen finished `cancelled` on the attempt that
-#     was judged stuck: a run that succeeded, failed or started a new attempt before the cancel took
-#     is left as it is;
+# The cancel goes out with no wrapper retries (GH_BUDGET_WAIT_ATTEMPTS=1), so it never lands long
+# after the last read on a run that has moved on; a refused cancel leaves the run for the next tick.
+# The run is then read every SETTLE_SECONDS until it has finished. After FORCE_AFTER more reads, and
+# only when the last of them still shows the same attempt unfinished, it is force-cancelled (no
+# retries either), then read FORCE_AFTER more times. A run that has still not finished, or that can
+# no longer be read, is left for the next tick. Nothing more is done unless the run is seen finished
+# `cancelled` on the attempt judged stuck: a run that succeeded, failed or started a new attempt
+# before the cancel took is left as it is. After the cancel:
+#   - a run of the tip (push or dispatch) is built again by the next tick step,
+#     nightly_next_cancelled_tip.sh: GitHub's record of the tip's newest run ended `cancelled` is
+#     the obligation it reads every tick, and it re-runs that run below MAX_ATTEMPTS (default 3) or
+#     dispatches a fresh run at the cap, until a replacement exists. A refused re-run or dispatch,
+#     or a tick that dies after the cancel, leaves that record, so no cancelled tip is stranded;
 #   - an older commit's run is not re-run, because the tip builds;
 #   - a promotion (nightly.yml on main, "Promote nightly-next to ...") is not re-run, because the
 #     tick's promotion request, a later step of the same job, asks again.
@@ -52,10 +49,9 @@ set -euo pipefail
 
 repo="${1:?usage: nightly_next_stuck_run.sh OWNER/REPO}"
 stuck_minutes="${STUCK_MINUTES:-20}"
-max_attempts="${MAX_ATTEMPTS:-3}"
+max_attempts="${MAX_ATTEMPTS:-3}"  # only named in messages: nightly_next_cancelled_tip.sh applies it
 settle_seconds="${SETTLE_SECONDS:-15}"
 force_after="${FORCE_AFTER:-6}"
-here="$(dirname "$0")"
 
 warn() { echo "::warning title=nightly-next tick::$*"; }
 
@@ -140,20 +136,6 @@ wait_settled() {
   return 1
 }
 
-# carrier: prints the id of a nightly-next run of the tip other than the cancelled ones that has not
-# finished, whatever its state (queued, in_progress, waiting, pending, requested), or nothing; fails
-# when the list cannot be read. Read when it is needed, so a run started since the listing counts.
-carrier() {
-  local oid osha
-  gh api --paginate "repos/$repo/actions/workflows/nightly.yml/runs?branch=nightly-next&head_sha=$tip&per_page=100" \
-    --jq '.workflow_runs[] | select(.status != "completed") | "\(.id) \(.head_sha)"' >"$scratch/carriers" || return 1
-  while read -r oid osha; do
-    [[ "$osha" == "$tip" && "$cancelled" != *" $oid "* ]] && { echo "$oid"; return 0; }
-  done <"$scratch/carriers"
-  return 0
-}
-
-cancelled=" "
 while read -r id event sha attempt; do
   if ! found="$(stuck "$id")"; then
     echo "nightly-next run $id: could not be read; left alone"
@@ -172,11 +154,21 @@ while read -r id event sha attempt; do
     echo "nightly-next run $id: changed since it was read (a runner, a gate or a new attempt); left alone"
     continue
   fi
-  gh api -X POST "repos/$repo/actions/runs/$id/cancel" >/dev/null || true
+  # The writes go out with no wrapper retries (gh_budget_wait.sh): a cancel that waited out a rate
+  # limit could land long after the read above, on a run that has moved on. A refused write leaves
+  # the run for the next tick, which reads it afresh.
+  if ! GH_BUDGET_WAIT_ATTEMPTS=1 gh api -X POST "repos/$repo/actions/runs/$id/cancel" >/dev/null; then
+    warn "run $id is stuck ($why), but the cancel was refused; the next tick reads it again"
+    continue
+  fi
   rc=0
   wait_settled "$id" "$attempt" || rc=$?
   if (( rc == 1 )); then
-    gh api -X POST "repos/$repo/actions/runs/$id/force-cancel" >/dev/null || true
+    # wait_settled's last read just said: same attempt, not finished. Only then force-cancel.
+    if ! GH_BUDGET_WAIT_ATTEMPTS=1 gh api -X POST "repos/$repo/actions/runs/$id/force-cancel" >/dev/null; then
+      warn "run $id did not finish after its cancel and the force-cancel was refused; the next tick reads it again"
+      continue
+    fi
     rc=0
     wait_settled "$id" "$attempt" || rc=$?
   fi
@@ -188,25 +180,9 @@ while read -r id event sha attempt; do
     warn "run $id is stuck ($why); the cancel was sent but the run has not been seen finished cancelled, so nothing is re-run; the next tick checks again"
     continue
   fi
-  cancelled+="$id "
   echo "::notice title=nightly-next tick::cancelled run $id ($event, ${sha:0:12}, attempt $attempt): $why"
-  if [[ -n "$tip_run" ]] && (( attempt >= max_attempts )); then
-    # Out of attempts: a fresh run of the tip, unless another unfinished run carries it (in any
-    # state, a gated one included), read now.
-    if ! other="$(carrier)"; then
-      warn "run $id was on attempt $attempt of $max_attempts; the tip's other runs could not be read, so no fresh run is dispatched; the next tick checks again"
-    elif [[ -n "$other" ]]; then
-      echo "nightly-next run $id: out of attempts; run $other still carries the tip, so no fresh run is dispatched"
-    elif GH_BUDGET_WAIT_ATTEMPTS=1 gh workflow run nightly.yml -R "$repo" --ref nightly-next </dev/null; then
-      echo "::notice title=nightly-next tick::run $id was on attempt $attempt of $max_attempts; dispatched a fresh nightly.yml run of the tip ${tip:0:12} on nightly-next, with every runner picked afresh"
-    else
-      warn "run $id was on attempt $attempt of $max_attempts and the fresh dispatch of the tip ${tip:0:12} was refused; the feed watch dispatches the tick again"
-    fi
-  elif [[ "$event" == push && -n "$tip_run" ]]; then
-    echo "nightly-next run $id: the tip's run; the next step re-runs it so its runners are picked fresh"
-  elif [[ "$event" == workflow_dispatch && -n "$tip_run" ]] && (( attempt < max_attempts )); then
-    bash "$here/nightly_next_rerun.sh" "$repo" "$id" "$attempt" "$sha" "nightly-next dispatch $id" </dev/null \
-      || warn "the re-run of run $id was refused"
+  if [[ -n "$tip_run" ]]; then
+    echo "nightly-next run $id: the tip's run; the next step (nightly_next_cancelled_tip.sh) builds the tip again, by a re-run or, at attempt $max_attempts, a fresh run"
   else
     echo "nightly-next run $id: not re-run (an older commit's, or a promotion the request below asks for again)"
   fi

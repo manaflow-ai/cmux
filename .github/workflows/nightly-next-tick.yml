@@ -138,8 +138,10 @@ jobs:
         run: bash .tick-tooling/scripts/ci/nightly_next_stuck_run.sh "$GITHUB_REPOSITORY"
 
       # A tip on nightly-next whose newest run ended cancelled (a rescue that lost its
-      # re-run, run 40340830337) is never requested again below ("already on
-      # nightly-next"), so it is re-run here; scripts/ci/nightly_next_cancelled_tip.sh.
+      # re-run, run 40340830337, or the step above) is never requested again below
+      # ("already on nightly-next"), so it is built again here every tick until a run of
+      # it exists: a re-run below 3 attempts, else a fresh dispatch;
+      # scripts/ci/nightly_next_cancelled_tip.sh.
       - name: Re-run a cancelled nightly-next tip
         # The promotion below must run even when this check cannot.
         continue-on-error: true

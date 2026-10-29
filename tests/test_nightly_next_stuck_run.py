@@ -58,6 +58,10 @@ if args[:1] == ["run"]:
     sys.exit(0)
 path = next(arg for arg in args if arg.startswith("repos/"))
 if "-X" in args:  # POST: cancel, force-cancel, a job re-run
+    with open(os.environ["LOG"], "a") as log:
+        log.write("retries=" + os.environ.get("GH_BUDGET_WAIT_ATTEMPTS", "default") + "\n")
+    if os.environ.get("CANCEL_FAIL"):
+        sys.exit(1)
     if path.endswith("cancel"):
         (state / path.split("/")[5]).write_text("cancelled")
     sys.exit(0)
@@ -168,7 +172,7 @@ class StuckRun(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.writes(calls), ["api -X POST repos/o/r/actions/runs/40771197361/cancel"])
         self.assertIn("decide has waited 34 min with no runner on blacksmith-4vcpu-ubuntu-2404", result.stdout)
-        self.assertIn("the next step re-runs it", result.stdout)
+        self.assertIn("the next step (nightly_next_cancelled_tip.sh) builds the tip again", result.stdout)
 
     def test_a_run_that_is_running_waiting_or_briefly_queued_is_never_cancelled(self):
         cases = {
@@ -260,7 +264,7 @@ class StuckRun(unittest.TestCase):
 
     def test_a_run_that_finished_on_its_own_before_the_cancel_gets_nothing_more(self):
         # Between the last stuck read and the cancel, the run succeeded, failed, or a new attempt
-        # started: nothing is re-run and no fresh run is dispatched, even out of attempts.
+        # started: it is not reported as cancelled, and nothing more is done.
         for case, env in {
             "succeeded": dict(CONCLUSION="success"),
             "failed": dict(CONCLUSION="failure"),
@@ -277,26 +281,38 @@ class StuckRun(unittest.TestCase):
                                         CONCLUSION="success")
         self.assertEqual(self.writes(calls), ["api -X POST repos/o/r/actions/runs/7/cancel"])
 
-    def test_a_gated_run_of_the_tip_still_carries_it_at_the_attempt_cap(self):
-        # A second run of the tip that is waiting, pending or requested is never in the stuck
-        # listing, but it will build the tip: no fresh run is dispatched beside it.
-        for status in ("waiting", "pending", "requested"):
-            with self.subTest(status=status):
-                result, calls = self.run_script({7: [STUCK_DECIDE]},
-                                                next_runs=[run(7, attempt=3), run(8, status, "workflow_dispatch")])
-                self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertEqual(self.writes(calls), ["api -X POST repos/o/r/actions/runs/7/cancel"])
-                self.assertIn("run 8 still carries the tip", result.stdout)
-                self.assertFalse(any("runs/8" in call and "/jobs" in call for call in calls), calls)
-        # The carrier list is read after the cancel, filtered to the tip, every page.
-        carriers = [call for call in calls if f"head_sha={TIP}" in call]
-        self.assertTrue(carriers and all("--paginate" in call for call in carriers), calls)
-        # Unreadable: no fresh run.
-        result, calls = self.run_script({7: [STUCK_DECIDE]}, next_runs=[run(7, attempt=3)], FAIL=f"head_sha={TIP}")
-        self.assertEqual(self.writes(calls), ["api -X POST repos/o/r/actions/runs/7/cancel"])
-        self.assertIn("could not be read, so no fresh run", result.stdout)
+    def test_every_run_of_the_tip_is_handed_to_the_cancelled_tip_step(self):
+        # The tip's push or dispatch, below the cap or at it: cancelled here, built again by the next
+        # step from GitHub's record (the newest run of the tip ended cancelled), which survives this
+        # tick. Nothing is re-run or dispatched here, so no write can strand or double the tip.
+        for event in ("push", "workflow_dispatch"):
+            for attempt in (1, 3):
+                with self.subTest(event=event, attempt=attempt):
+                    result, calls = self.run_script({7: [STUCK_DECIDE]},
+                                                    next_runs=[run(7, event=event, attempt=attempt)])
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(self.writes(calls), ["api -X POST repos/o/r/actions/runs/7/cancel"])
+                    self.assertIn("builds the tip again", result.stdout)
 
-    def test_a_dispatch_is_re_run_and_older_commits_and_promotions_are_not(self):
+    def test_the_cancel_writes_go_out_with_no_wrapper_retries(self):
+        # gh_budget_wait.sh could hold a cancel through a rate limit for up to an hour after the last
+        # stuck read: both writes are sent once, and a refused one leaves the run for the next tick.
+        result, calls = self.run_script({7: [STUCK_DECIDE]}, next_runs=[run(7)], AFTER_CANCEL="in_progress",
+                                        FORCE_AFTER="1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        posts = [i for i, call in enumerate(calls) if "-X POST" in call]
+        self.assertEqual(len(posts), 2, calls)
+        for i in posts:
+            self.assertEqual(calls[i + 1], "retries=1", calls)
+        # The force-cancel follows a read that showed the same attempt unfinished.
+        force = calls.index("api -X POST repos/o/r/actions/runs/7/force-cancel")
+        self.assertEqual(calls[force - 1], SETTLE_READ)
+        result, calls = self.run_script({7: [STUCK_DECIDE]}, next_runs=[run(7)], CANCEL_FAIL="1")
+        self.assertEqual(self.writes(calls), ["api -X POST repos/o/r/actions/runs/7/cancel"])
+        self.assertFalse(any(call == SETTLE_READ for call in calls), calls)
+        self.assertIn("the cancel was refused", result.stdout)
+
+    def test_a_dispatch_and_older_commits_and_promotions_are_cancelled_and_never_re_run_here(self):
         jobs = {1: [STUCK_DECIDE], 2: [STUCK_DECIDE], 4: [STUCK_DECIDE], 5: [STUCK_DECIDE]}
         result, calls = self.run_script(
             jobs,
@@ -305,8 +321,8 @@ class StuckRun(unittest.TestCase):
                        run(5, event="workflow_dispatch", sha="a" * 40, title="Nightly")])
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.writes(calls), [
-            "api -X POST repos/o/r/actions/runs/1/cancel", "run rerun 1 --failed -R o/r",
-            "api -X POST repos/o/r/actions/runs/2/cancel", "api -X POST repos/o/r/actions/runs/4/cancel"])
+            "api -X POST repos/o/r/actions/runs/1/cancel", "api -X POST repos/o/r/actions/runs/2/cancel",
+            "api -X POST repos/o/r/actions/runs/4/cancel"])
         self.assertFalse(any("runs/5" in call or "runs/6" in call for call in calls), calls)
 
     def test_an_older_commits_run_is_never_re_run(self):
@@ -321,24 +337,6 @@ class StuckRun(unittest.TestCase):
                     self.assertEqual(self.writes(calls), ["api -X POST repos/o/r/actions/runs/7/cancel"])
                     self.assertFalse(any("/attempts/" in call or "contents/" in call for call in calls), calls)
                     self.assertIn("not re-run", result.stdout)
-
-    def test_a_tip_run_out_of_attempts_gets_a_fresh_run_instead_of_staying_stranded(self):
-        for event in ("push", "workflow_dispatch"):
-            with self.subTest(event=event):
-                result, calls = self.run_script({7: [STUCK_DECIDE]}, next_runs=[run(7, event=event, attempt=3)])
-                self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertEqual(self.writes(calls), ["api -X POST repos/o/r/actions/runs/7/cancel",
-                                                      "workflow run nightly.yml -R o/r --ref nightly-next"])
-                self.assertIn("dispatched a fresh nightly.yml run of the tip", result.stdout)
-        # Another unfinished run of the tip carries it: no second build.
-        result, calls = self.run_script({7: [STUCK_DECIDE], 8: [job("build", 3, status="in_progress", runner="r")]},
-                                        next_runs=[run(7, attempt=3), run(8, "in_progress", "workflow_dispatch")])
-        self.assertEqual(self.writes(calls), ["api -X POST repos/o/r/actions/runs/7/cancel"])
-        self.assertIn("run 8 still carries the tip", result.stdout)
-        # An older commit's dispatch out of attempts is cancelled and not re-run: the tip builds.
-        result, calls = self.run_script({7: [STUCK_DECIDE]},
-                                        next_runs=[run(7, event="workflow_dispatch", sha="0" * 40, attempt=3)])
-        self.assertEqual(self.writes(calls), ["api -X POST repos/o/r/actions/runs/7/cancel"])
 
     def test_every_page_of_unfinished_runs_is_read(self):
         # Thirty and more newer runs never hide a stuck one: the listing asks only for unfinished
@@ -366,7 +364,7 @@ class StuckRun(unittest.TestCase):
         steps = yaml.safe_load(TICK.read_text())["jobs"]["request"]["steps"]
         tooling = next(step for step in steps if step.get("with", {}).get("path") == ".tick-tooling")
         sparse = tooling["with"]["sparse-checkout"].split()
-        for name in ("nightly_next_stuck_run.sh", "nightly_next_rerun.sh"):
+        for name in ("nightly_next_stuck_run.sh", "nightly_next_cancelled_tip.sh", "nightly_next_rerun.sh"):
             self.assertIn(f"scripts/ci/{name}", sparse)
         names = [step.get("name") for step in steps]
         check = steps[names.index("Cancel a nightly-next run stuck without a runner")]

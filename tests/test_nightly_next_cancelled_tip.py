@@ -20,7 +20,9 @@ TIP = "e22f93846f54d679fb95dea965" + "0" * 14
 # git ls-remote prints the tip. gh api prints $RUNS for the runs list, the run's state ($NOW),
 # nightly.yml at the tip ($WORKFLOW, base64 as the contents API has it), and the attempt's
 # jobs page ($JOBS, a {"jobs": [...]} page) through the script's real --jq filter; JOBS_FAIL makes the jobs
-# read fail. Re-runs (gh run rerun, POST .../jobs/N/rerun) are logged with the wrapper's retry setting.
+# read fail. RUNS_LATER answers the runs list from its second read on; RUNS_FAIL fails it. Re-runs (gh
+# run rerun, POST .../jobs/N/rerun) and dispatches (gh workflow run) are logged with the wrapper's retry
+# setting; DISPATCH_FAIL refuses a dispatch.
 FAKE_GIT = f"""#!/bin/bash
 [ "$1" = ls-remote ] && printf '%s\\trefs/heads/nightly-next\\n' "{TIP}"
 """
@@ -35,9 +37,12 @@ case "$1" in
          */jobs*) [ -n "${JOBS_FAIL:-}" ] && exit 1; printf '%s' "${JOBS:-}" | jq -c "$jq_arg" ;;
          */contents/*) [ -n "${WORKFLOW:-}" ] || exit 1; printf '%s' "$WORKFLOW" | base64 ;;
          */actions/runs/[0-9]*) printf '%s' "${NOW:-completed cancelled ${ATTEMPT:-1}}" ;;
-         *) printf '%s' "$RUNS" ;;
+         *) [ -n "${RUNS_FAIL:-}" ] && exit 1
+            n=$(grep -c 'workflows/nightly.yml/runs' "$LOG")
+            if [ "$n" -gt 1 ] && [ -n "${RUNS_LATER+x}" ]; then printf '%s' "$RUNS_LATER"; else printf '%s' "$RUNS"; fi ;;
        esac ;;
   run) echo "attempts=${GH_BUDGET_WAIT_ATTEMPTS:-}" >> "$LOG"; exit 0 ;;
+  workflow) echo "attempts=${GH_BUDGET_WAIT_ATTEMPTS:-}" >> "$LOG"; [ -z "${DISPATCH_FAIL:-}" ] ;;
 esac
 """
 
@@ -230,11 +235,45 @@ class CancelledTip(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(len(calls), 1, conclusion)
 
-    def test_attempts_are_bounded(self):
+    def test_a_tip_cancelled_at_the_attempt_cap_gets_a_fresh_run(self):
+        # The tip's newest run (push or dispatch) ended cancelled on its last attempt: a fresh
+        # nightly.yml run of the tip is dispatched, sent once with no wrapper retries.
         result, calls = self.run_script("40340830337 completed cancelled 3\n")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(len(calls), 1)
-        self.assertIn("not re-run again", result.stdout)
+        self.assertEqual(calls[-2:], ["workflow run nightly.yml -R o/r --ref nightly-next", "attempts=1"])
+        self.assertIn("dispatched a fresh nightly.yml run", result.stdout)
+        listing = calls[0]
+        self.assertIn(f"head_sha={TIP}", listing)
+        self.assertIn("--paginate", listing)
+        self.assertNotIn("event=push", listing, "a dispatch of the tip must count too")
+
+    def test_a_refused_fresh_run_is_owed_until_a_replacement_exists(self):
+        # The obligation is GitHub's own record, which the refused dispatch leaves as it was: the
+        # next tick reads the same cancelled run and dispatches again, and once a replacement run of
+        # the tip exists (any state), nothing more is sent.
+        result, calls = self.run_script("40340830337 completed cancelled 3\n", DISPATCH_FAIL="1")
+        self.assertNotEqual(result.returncode, 0, "a refused dispatch must fail the step, not pass quietly")
+        result, calls = self.run_script("40340830337 completed cancelled 3\n")
+        self.assertEqual(calls[-2:], ["workflow run nightly.yml -R o/r --ref nightly-next", "attempts=1"])
+        for state in ("queued", "waiting", "pending", "requested", "in_progress"):
+            with self.subTest(state=state):
+                result, calls = self.run_script(f"40340830400 {state} - 1\n40340830337 completed cancelled 3\n")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertFalse(any(call.startswith("workflow run") for call in calls), calls)
+        # A replacement that finished (it ran) is the newest run: not cancelled, nothing owed.
+        result, calls = self.run_script("40340830400 completed success 1\n40340830337 completed cancelled 3\n")
+        self.assertFalse(any(call.startswith("workflow run") for call in calls), calls)
+
+    def test_a_fresh_run_is_never_doubled_or_sent_on_an_unread_list(self):
+        # A replacement that appears between the first read and the dispatch, or a list that cannot
+        # be read, sends nothing.
+        result, calls = self.run_script("40340830337 completed cancelled 3\n",
+                                        RUNS_LATER="40340830400 queued - 1\n40340830337 completed cancelled 3\n")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(any(call.startswith("workflow run") for call in calls), calls)
+        self.assertIn("changed since they were read", result.stdout)
+        result, calls = self.run_script("40340830337 completed cancelled 3\n", RUNS_FAIL="1")
+        self.assertFalse(any(call.startswith("workflow run") or call.startswith("run rerun") for call in calls), calls)
 
     def test_no_run_yet_is_left_alone(self):
         result, calls = self.run_script("")
