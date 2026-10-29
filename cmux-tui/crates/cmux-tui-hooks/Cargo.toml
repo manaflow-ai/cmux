@@ -11,6 +11,7 @@ description = "The cmux-tui coding-agent hook installer: writes, checks and remo
 workspace = true
 
 [dependencies]
+cmux-json.workspace = true
 anyhow.workspace = true
 getrandom = { workspace = true, features = ["std"] }
 libc.workspace = true
