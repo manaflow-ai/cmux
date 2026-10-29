@@ -4250,7 +4250,12 @@ export class AcpmuxDirectClient {
         const startedTurnId = typeof msg.turnId === "string" && msg.turnId ? msg.turnId : undefined;
         // Keep the old cancellation pending for its acknowledgement, but its expired grace
         // cannot hide the controls of a different, identified turn.
-        if (startedTurnId !== undefined && startedTurnId !== this.stopTurnId) {
+        if (
+          this.stopAfterSeq !== undefined &&
+          event.seq > this.stopAfterSeq &&
+          startedTurnId !== undefined &&
+          startedTurnId !== this.stopTurnId
+        ) {
           clearTimeout(this.stopTimer);
           this.stopGaveUp = false;
         }
