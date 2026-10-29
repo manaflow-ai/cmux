@@ -1,10 +1,12 @@
 // l10n-allow-file: test fixture addresses, not shipped UI.
 // Leo 2026-10-20, "did we fix this bullshit yet": an agent's bare http://127.0.0.1:47811?token=… drew a
 // full-width card (globe, the raw address with its token, Open in tab, Open in, then a ~300px empty
-// see-through box around Load preview). A link in a reply now reads as text: no globe, a secret
-// query value as •••, the real href kept; a site's title and favicon only in the hover card; a local
-// or private address never dressed as a site; the turn's preview card only behind the Debug toggle
-// agentPane.debug.turnPreviewCards, and opaque.
+// see-through box around Load preview). A link in a reply now reads as text: a secret query value as
+// •••, the real href kept; a site's title only in the hover card; a local or private address never
+// dressed as a site; the turn's preview card only behind the Debug toggle
+// agentPane.debug.turnPreviewCards, and opaque. Since 2026-10-29 (T3 Code's inline favicons) a web
+// link starts with a fixed square site mark: the globe, then the site's favicon in the same square
+// (chips/SiteIcon.tsx); a local address keeps the globe.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -160,7 +162,9 @@ test("a bare address with a token reads as plain link text: no icon, the token m
   const chip = await renderChip(TOKEN_URL, TOKEN_URL, { [TOKEN_URL]: { title: "Dev server", icon: FAVICON } });
   expect(chip.link.getAttribute("href")).toBe(TOKEN_URL);
   expect(chip.link.textContent).toBe("http://127.0.0.1:47811?token=•••");
-  expect(chip.link.querySelector("svg, img")).toBeNull();
+  // The globe only: never the favicon cmux holds for that port.
+  expect(chip.link.querySelector(".cv-site-icon svg")).not.toBeNull();
+  expect(chip.link.querySelector("img")).toBeNull();
   const card = await chip.hover();
   expect(card.textContent).not.toContain("ad27875be63b");
   expect(card.textContent).toContain("token=•••");
@@ -170,9 +174,11 @@ test("a bare address with a token reads as plain link text: no icon, the token m
   await chip.done();
 });
 
-test("a web address with no title cmux knows is plain link text, no globe", async () => {
+test("a web address with no icon cmux knows is link text after the globe", async () => {
   const chip = await renderChip("https://example.test/docs", "https://example.test/docs");
-  expect(chip.link.querySelector("svg, img")).toBeNull();
+  expect(chip.link.querySelectorAll(".cv-site-icon")).toHaveLength(1);
+  expect(chip.link.querySelector(".cv-site-icon svg")).not.toBeNull();
+  expect(chip.link.querySelector("img")).toBeNull();
   expect(chip.link.textContent).toBe("https://example.test/docs");
   await chip.done();
 });
@@ -218,17 +224,22 @@ test("a pull request chip whose title cmux already has draws the same as one it 
   await chip.done();
 });
 
-test("a bare address keeps its text and draws no favicon when the site's title and icon come in", async () => {
+test("a bare address keeps its text when the site's title and icon come in; the icon fills the globe's square", async () => {
   const href = "https://docs.example.test/guide";
   const chip = await renderChip(href, href);
-  const before = chip.link.innerHTML;
+  const square = chip.link.querySelector(".cv-site-icon");
+  expect(square?.querySelector("svg")).not.toBeNull();
   await seedLater({ [href]: { title: "Example docs", icon: FAVICON } });
   expect(chip.link.textContent).toBe(href);
-  expect(chip.link.innerHTML).toBe(before);
-  expect(chip.link.querySelector("svg, img")).toBeNull();
+  // The same square, now the favicon: nothing in the line moves, and no title joins it.
+  expect(chip.link.querySelector(".cv-site-icon")).toBe(square);
+  expect(square?.querySelector<HTMLElement>(".cv-site-icon__img")?.style.backgroundImage).toBe(`url("${FAVICON}")`);
+  expect(chip.link.querySelector(".cv-chip__title")).toBeNull();
   const card = await chip.hover();
   expect(card.querySelector(".cv-link-preview__site")?.textContent).toBe("Example docs");
-  expect(card.querySelector(".cv-link-preview__icon img")?.getAttribute("src")).toBe(FAVICON);
+  expect(card.querySelector<HTMLElement>(".cv-link-preview__icon .cv-site-icon__img")?.style.backgroundImage).toBe(
+    `url("${FAVICON}")`,
+  );
   await chip.done();
 });
 
@@ -236,10 +247,14 @@ test("a site cmux already has a title for still reads as its address; the card h
   const href = "https://docs.example.test/guide";
   const chip = await renderChip(href, href, { [href]: { title: "Example docs", icon: FAVICON } });
   expect(chip.link.textContent).toBe(href);
-  expect(chip.link.querySelector("svg, img")).toBeNull();
+  expect(chip.link.querySelector<HTMLElement>(".cv-site-icon .cv-site-icon__img")?.style.backgroundImage).toBe(
+    `url("${FAVICON}")`,
+  );
   const card = await chip.hover();
   expect(card.querySelector(".cv-link-preview__site")?.textContent).toBe("Example docs");
-  expect(card.querySelector(".cv-link-preview__icon img")?.getAttribute("src")).toBe(FAVICON);
+  expect(card.querySelector<HTMLElement>(".cv-link-preview__icon .cv-site-icon__img")?.style.backgroundImage).toBe(
+    `url("${FAVICON}")`,
+  );
   await chip.done();
 });
 

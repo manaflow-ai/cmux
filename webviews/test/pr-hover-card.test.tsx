@@ -198,7 +198,7 @@ test("an inline link opens the same card: favicon, page title, host, the address
   const card = element.querySelector<HTMLElement>(".cv-link-preview")!;
   expect(card.classList.contains("acpmux-pr-card")).toBe(false);
   expect(card.classList.contains("ui-glass")).toBe(true);
-  expect(card.querySelector(".cv-link-preview__icon img")).not.toBeNull();
+  expect(card.querySelector(".cv-link-preview__icon .cv-site-icon__img")).not.toBeNull();
   expect(card.querySelector(".cv-link-preview__site")?.textContent).toBe("Example Guide");
   expect(card.querySelector(".cv-link-preview__target")?.textContent).toBe(
     "https://docs.example.test/guide?page=2&token=•••",

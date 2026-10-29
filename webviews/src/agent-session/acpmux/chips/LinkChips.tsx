@@ -7,20 +7,22 @@
 // private address never dressed as a site, and a secret-looking query value as `•••`
 // (linkDisplay.ts). A chip's text and icon are fixed when it first draws: a site's or a pull
 // request's title arriving later never widens it and reflows the paragraph under the reader (Leo
-// 2026-10-21, #22896 grew into "#22896 · cmux-next updates: …" after a hover). Titles and favicons
-// live in the shared link card (LinkHoverCard.tsx) that hovering opens: Open and Open in, and a
-// pull request's title, state, author and checks.
-import { useState, type ReactNode } from "react";
+// 2026-10-21, #22896 grew into "#22896 · cmux-next updates: …" after a hover). Titles live in the
+// shared link card (LinkHoverCard.tsx) that hovering opens: Open and Open in, and a pull request's
+// title, state, author and checks. A web link starts with its site's mark (SiteIcon.tsx, as T3 Code
+// draws links): a fixed square, the globe until the site's favicon arrives in its place.
+import { Children, useState, type ReactNode } from "react";
 import { useT } from "../i18n";
 import { callChipHost } from "./host";
 import { useMessageScope } from "./messageScope";
-import { FileDoc, Folder, GitHubMark, Globe } from "../conversation/icons";
+import { FileDoc, Folder, GitHubMark } from "../conversation/icons";
 import { usePathInfo, useSiteInfo } from "./linkStore";
 import { isPrivateUrl, redactUrlText } from "./linkDisplay";
 import { isDeniedPath, pathName, textLinks } from "./paths";
 import { LinkHoverCard } from "./LinkHoverCard";
 import { pullRequestRef } from "./PullRequestCard";
 import { useHoverCard } from "./useHoverCard";
+import { SiteIcon } from "./SiteIcon";
 
 /// A path chip. `label` is the link's text, else the file name; `written` is the reply's own
 /// text, which a path that gets no chip draws as.
@@ -77,9 +79,9 @@ export function ElsewhereChip({ path, host, label }: { path: string; host: strin
   );
 }
 
-/// A web link: its text and `icon` (GitHub, arXiv) when given, both known before any lookup. The
-/// hover card names the site, shows its favicon and title, and offers Open and Open in. The anchor
-/// keeps the host's link-click path.
+/// A web link: its site's mark and its text. `icon` (a citation's arXiv mark) replaces the mark when
+/// given; else the mark is the site's (SiteIcon.tsx). The hover card names the site, shows the same
+/// mark and the page's title, and offers Open and Open in. The anchor keeps the host's link-click path.
 export function UrlChip({ href, icon, children }: { href: string; icon?: ReactNode; children: ReactNode }) {
   const privateHost = isPrivateUrl(href);
   const known = useSiteInfo(href);
@@ -91,12 +93,11 @@ export function UrlChip({ href, icon, children }: { href: string; icon?: ReactNo
   // A pull request or issue is a reference chip (Leo 2026-10-19, as Claude desktop draws them): a
   // link with the GitHub mark and its text. Its title goes to the hover card only.
   const ref = githubRefLabel(href);
-  const mark = ref ? <GitHubMark size={13} className="cv-chip__icon cv-chip__icon--gh" /> : icon;
-  // The hover card always has an icon to show; a favicon cmux has fits there, not in the line.
-  const favicon = site?.icon ? (
-    <img className="cv-chip__icon cv-chip__favicon" src={site.icon} alt="" width={14} height={14} />
-  ) : undefined;
-  const cardMark = mark ?? favicon ?? <Globe size={15} strokeWidth={1.1} className="cv-chip__icon" />;
+  const mark = ref ? (
+    <GitHubMark size={13} className="cv-chip__icon cv-chip__icon--gh" />
+  ) : (
+    (icon ?? <SiteIcon href={href} known={site?.icon} />)
+  );
   const hover = useHoverCard();
   const [anchor, setAnchor] = useState<HTMLAnchorElement | null>(null);
   const pullRequest = pullRequestRef(href);
@@ -109,17 +110,47 @@ export function UrlChip({ href, icon, children }: { href: string; icon?: ReactNo
         rel="noreferrer"
         {...hover.trigger}
       >
-        {mark}
-        <span className="cv-chip__label">{label}</span>
+        {ref ? (
+          <>
+            {mark}
+            <span className="cv-chip__label">{label}</span>
+          </>
+        ) : (
+          withLead(mark, label)
+        )}
       </a>
       <LinkHoverCard
         href={href}
         anchor={anchor}
         hover={hover}
-        mark={cardMark}
+        mark={mark}
         siteTitle={site?.title}
         pullRequest={pullRequest && { ...pullRequest, title: githubRefTitle(site?.title) }}
       />
+    </>
+  );
+}
+
+/// A web link's mark and the first characters of its text on one line (`https://`, else the first
+/// character), so the mark never stays at the end of a line while its text wraps to the next. The
+/// rest of the text wraps as before.
+function withLead(mark: ReactNode, label: ReactNode): ReactNode {
+  const parts = Children.toArray(label);
+  const first = parts[0];
+  let lead: ReactNode = first;
+  let rest: ReactNode[] = parts.slice(1);
+  if (typeof first === "string") {
+    const cut = /^https?:\/\//i.exec(first)?.[0].length ?? (Array.from(first)[0]?.length || 0);
+    lead = first.slice(0, cut);
+    rest = [first.slice(cut), ...rest].filter((part) => part !== "");
+  }
+  return (
+    <>
+      <span className="cv-chip__lead">
+        {mark}
+        {lead !== undefined && lead !== "" && <span className="cv-chip__label">{lead}</span>}
+      </span>
+      {rest.length > 0 && <span className="cv-chip__label">{rest}</span>}
     </>
   );
 }
@@ -145,6 +176,27 @@ export function linkedText(text: string, key: string): ReactNode[] {
           {githubRefLabel(link.value) ?? link.value}
         </UrlChip>
       ),
+    );
+    at = link.end;
+  });
+  if (at < text.length) out.push(text.slice(at));
+  return out;
+}
+
+/// A prompt's text with each web address the person pasted as a web link (UrlChip: its site's mark
+/// and the hover card), the rest as written. Paths stay text: a prompt is what was typed, not a
+/// reply to act on.
+export function linkedUrls(text: string, key: string): ReactNode[] {
+  const links = textLinks(text).filter((link) => link.kind === "url");
+  if (!links.length) return [text];
+  const out: ReactNode[] = [];
+  let at = 0;
+  links.forEach((link, index) => {
+    if (link.start > at) out.push(text.slice(at, link.start));
+    out.push(
+      <UrlChip key={`${key}-${index}`} href={link.value}>
+        {githubRefLabel(link.value) ?? link.value}
+      </UrlChip>,
     );
     at = link.end;
   });

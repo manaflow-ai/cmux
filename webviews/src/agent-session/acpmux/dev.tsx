@@ -79,6 +79,16 @@ if (devHost) installDevHost(devHost);
 else if (params.has("mock") && !window.webkit?.messageHandlers?.agentSession)
   window.cmuxAcpmuxActions = { ready: async () => ({ protocolVersion: 1, transport: "mock" }) };
 if (params.get("recents") === "demo") seedDevRecents();
+// The mock has no host for the reply chips: site favicons come from the dev server's stand-in for
+// `link.favicons` (dev-server/faviconHost.ts); every other chip call has no answer, as before.
+if (!devHost && params.has("mock") && !window.webkit?.messageHandlers?.agentSession) {
+  const { setChipHost } = await import("./chips/host");
+  setChipHost(async (method, chipParams) => {
+    if (method !== "link.favicons") throw new Error("no host");
+    const response = await fetch("/__dev-host/favicons", { method: "POST", body: JSON.stringify(chipParams) });
+    return response.json();
+  });
+}
 // A standalone daemon has no cmux host to send the `display` event: the frame-cost bench
 // (bench/thread-minimap-frame-cost.bench.ts) turns the chat minimap on through this instead.
 if (devHost) {

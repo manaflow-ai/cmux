@@ -16,7 +16,8 @@
   color: var(--cv-link);
 }
 /* Inline marks scale with prose; preview cards and image attachments keep their own sizing. */
-.cv-chip > :is(.cv-chip__icon, .cv-link__icon) {
+.cv-chip > :is(.cv-chip__icon, .cv-link__icon),
+.cv-chip__lead > :is(.cv-chip__icon, .cv-link__icon) {
   width: 0.9em;
   height: 0.9em;
   vertical-align: -0.12em;
@@ -46,7 +47,10 @@
 .cv-chip.is-web .cv-chip__icon {
   color: currentColor;
 }
+/* A long address breaks anywhere rather than run past the pane's edge (T3 Code breaks a long
+   word after each character). */
 .cv-chip.is-web .cv-chip__label {
+  overflow-wrap: anywhere;
   text-decoration: underline solid;
   text-decoration-thickness: 1px;
   text-decoration-color: color-mix(in srgb, currentColor 40%, transparent);
@@ -97,9 +101,44 @@
   cursor: default;
   color: var(--cv-text-dim);
 }
-.cv-chip__favicon {
+/* A web link's mark and its first characters stay on one line (LinkChips.tsx withLead). */
+.cv-chip__lead {
+  white-space: nowrap;
+}
+/* A web link's site mark (SiteIcon.tsx): a square of the prose's size from its first frame, the
+   globe in it until the site's favicon replaces it, so nothing in the line moves. */
+.cv-chip__icon.cv-site-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: max(14px, 0.93em);
+  aspect-ratio: 1;
+  margin: 0 0.28em 0 0;
+  vertical-align: -0.16em;
+  color: currentColor;
+}
+.cv-site-icon > svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.cv-site-icon__img {
+  display: block;
+  width: 100%;
+  height: 100%;
   border-radius: 3px;
-  object-fit: contain;
+  background: center / contain no-repeat;
+}
+/* In a fetch tool row's icon slot (conversation/ToolSiteIcon.tsx): the row's 16px glyph size, the
+   favicon a little quieter, as the row's own text is. */
+.cv-chip__icon.cv-site-icon--row {
+  width: 16px;
+  margin: 0;
+  vertical-align: baseline;
+}
+.cv-site-icon--row .cv-site-icon__img {
+  border-radius: 3.5px;
+  opacity: 0.85;
 }
 /* A web image before it loads (chips/ReplyImage.tsx, decision D5). */
 .cv-image-placeholder {

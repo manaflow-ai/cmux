@@ -81,6 +81,8 @@ export type PasswordsPageVariant = VariantBase & {
 export type ChipHostFixture = {
   paths?: Record<string, { place: "root" | "outside" | "denied" | "missing"; folder: boolean }>;
   sites?: Record<string, { icon?: string; title?: string }>;
+  /** `link.favicons` answers: a site's favicon as a data URL, by host name; a host left out has none. */
+  favicons?: Record<string, string>;
   policy?: {
     outsideRoots?: "confirm" | "text" | "open";
     remoteImages?: "click" | "never" | "always";
