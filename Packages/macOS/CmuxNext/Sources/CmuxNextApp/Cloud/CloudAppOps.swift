@@ -65,7 +65,7 @@ extension CloudMachine {
         // declares none and every Cloud action stays available.
         // The idle auto-pause fields, when the backend sends them (`/api/vm` names).
         let minutes = (value["idlePauseMinutes"]?.doubleValue).flatMap { Int(exactly: $0) }
-        let idlePause = idlePauseDiagnostics(value["idlePause"])
+        let idlePause = Self.idlePauseDiagnostics(value["idlePause"])
         self.init(id: id, provider: "cmux-next", status: status, displayName: value["name"]?.stringValue,
                   pauseReason: value["pauseReason"]?.stringValue.flatMap(PauseReason.init(rawValue:)), idlePauseMinutes: minutes,
                   idlePause: idlePause)
