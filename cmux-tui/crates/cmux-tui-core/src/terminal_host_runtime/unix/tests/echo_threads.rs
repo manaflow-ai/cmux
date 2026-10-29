@@ -406,3 +406,95 @@ fn blocking_cascade_input_queued_before_a_half_close_is_written() {
     assert!(read.is_ok(), "the input queued before the half-close never reached the program");
     assert_eq!(&typed, b"typed");
 }
+
+/// A bracketed paste cut by its client's end leaves the program in paste
+/// mode (`ESC[200~` with no `ESC[201~`), so nothing the client queued after
+/// it may reach the program: it would be read as pasted text. The client
+/// pastes into a program that is not reading, half-closes (its end cuts the
+/// blocked paste), and its next Input waits behind a cell-metric commit
+/// until the program has drained the pipe and the parser runs. That Input
+/// must never be written: a cut paste ends the client, as a failed Input does.
+#[test]
+fn blocking_cascade_nothing_reaches_the_program_after_a_cut_paste() {
+    use std::io::Read as _;
+    let (host, parser_commands) = exited_host_fixture_with_parser();
+    host.term.lock().unwrap().vt_write(b"\x1b[?2004h");
+    let (pty, program) = UnixStream::pair().unwrap();
+    let master =
+        UnreadMaster { stream: pty, size: Mutex::new(pty_size(80, 24, DEFAULT_CELL_PIXELS)) };
+    *host.writer.lock().unwrap() = master.take_writer().unwrap();
+    *host.master.lock().unwrap() = Box::new(master);
+    let (server_stream, mut client_stream) = UnixStream::pair().unwrap();
+    client_stream.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+    let server = {
+        let host = host.clone();
+        thread::spawn(move || serve_client(host, server_stream))
+    };
+    let hello = snapshot_boundary_client_hello(&host, false).unwrap();
+    write_frame(&mut client_stream, &hello).unwrap();
+    for label in ["host hello", "snapshot", "colors"] {
+        read_required_frame(&mut client_stream, label).unwrap();
+    }
+    const PASTE: usize = 8 << 20;
+    write_frame(&mut client_stream, &Frame::new(MessageKind::Paste, vec![b'p'; PASTE])).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while host.writer.try_lock().is_ok() {
+        assert!(Instant::now() < deadline, "the paste write never started");
+        thread::sleep(Duration::from_millis(5));
+    }
+    // Queued behind the paste: a commit that waits for the parser (not
+    // running yet), then the input that must not follow a cut paste.
+    let mut metrics = Frame::new(MessageKind::SetCellPixelSize, Vec::new());
+    metrics.payload.extend_from_slice(&9u16.to_le_bytes());
+    metrics.payload.extend_from_slice(&18u16.to_le_bytes());
+    metrics.request_id = 7;
+    write_frame(&mut client_stream, &metrics).unwrap();
+    write_frame(&mut client_stream, &Frame::new(MessageKind::Input, b"INPUT".to_vec())).unwrap();
+    // The client's end of input cuts the blocked paste.
+    client_stream.shutdown(std::net::Shutdown::Write).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while host.writer.try_lock().is_err() {
+        assert!(Instant::now() < deadline, "the client's end did not cut the paste");
+        thread::sleep(Duration::from_millis(5));
+    }
+    // The program now reads everything: the pipe has room for any later write.
+    program.set_read_timeout(Some(Duration::from_millis(200))).unwrap();
+    let mut received = Vec::new();
+    let mut chunk = vec![0u8; 1 << 16];
+    let mut read_all = |received: &mut Vec<u8>| {
+        while let Ok(count) = (&program).read(&mut chunk) {
+            if count == 0 {
+                break;
+            }
+            received.extend_from_slice(&chunk[..count]);
+        }
+    };
+    read_all(&mut received);
+    let cut_at = received.len();
+    let initial_colors = host.term.lock().unwrap().color_overrides();
+    let parser = {
+        let host = host.clone();
+        thread::spawn(move || {
+            run_host_parser(host, parser_commands, initial_colors, ParserSignals::new());
+        })
+    };
+    // Long enough for the commit to apply and a queued Input to be written.
+    let until = Instant::now() + Duration::from_secs(1);
+    while Instant::now() < until {
+        read_all(&mut received);
+    }
+    let _ = client_stream.shutdown(std::net::Shutdown::Both);
+    drop(client_stream);
+    let _ = server.join();
+    host.parser_commands.send(ParserCommand::Drain).unwrap();
+    parser.join().unwrap();
+    assert!(received.starts_with(b"\x1b[200~"), "the paste was bracketed");
+    assert!(cut_at < PASTE + 12, "the paste was not cut ({cut_at} bytes): the test proves nothing");
+    let after = &received[cut_at..];
+    assert!(
+        after.is_empty(),
+        "{} bytes reached the program after a cut bracketed paste: {:?}",
+        after.len(),
+        String::from_utf8_lossy(&after[..after.len().min(64)])
+    );
+}
