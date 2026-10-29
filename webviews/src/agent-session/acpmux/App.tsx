@@ -349,6 +349,8 @@ import { RenderToolCard, canRender } from "./conversation/RenderCard";
 import { ArtifactPanel, useArtifactCoversPane, type SaveDocument } from "./conversation/ArtifactPanel";
 import { branchesFromKey, branchesKey, forkAnchor, messageBranches } from "./conversation/branches";
 import { ArtifactContext, type Artifact } from "./conversation/artifactPreview";
+import { uniqueArtifacts } from "./conversation/artifactDedupe";
+import { writtenArtifacts } from "./conversation/writtenArtifacts";
 import { artifactVersions } from "./conversation/artifactVersions";
 import { RenderPages, renderPages, renderVersions } from "./conversation/renderCall";
 import { DateLine } from "./conversation/DateLine";
@@ -4683,11 +4685,13 @@ function AcpmuxPane() {
   const artifactVersionList = useMemo(
     () =>
       artifact && artifactRows
-        ? (renderVersions(pages, artifact) ??
-          artifactVersions(
-            artifactRows.flatMap((row) => (row.kind === "assistant" && !row.streaming && row.text ? [row.text] : [])),
-            artifact,
-          ))
+        ? artifact.path
+          ? uniqueArtifacts(writtenArtifacts(artifactRows).filter((item) => item.path === artifact.path))
+          : (renderVersions(pages, artifact) ??
+            artifactVersions(
+              artifactRows.flatMap((row) => (row.kind === "assistant" && !row.streaming && row.text ? [row.text] : [])),
+              artifact,
+            ))
         : undefined,
     [artifact, artifactRows, pages],
   );

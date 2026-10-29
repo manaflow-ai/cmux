@@ -84,6 +84,78 @@ int main() {
   // A child frame being navigated: its parent decides.
   Allowed(false, "about:blank", "cmux-page://cmux.agent/", "cmux.agent", true);
   Allowed(false, "about:blank", "https://evil.test/", "cmux.agent", false);
+  // Artifact documents must never inherit the page host's file authority.
+  Allowed(false, "cmux-page://cmux.agent/__artifact", "cmux-page://cmux.agent/", "cmux.agent", false);
+  Allowed(false, "about:blank", "cmux-page://cmux.agent/__artifact", "cmux.agent", false);
+  Allowed(false, "about:srcdoc", "cmux-page://cmux.agent/", "cmux.agent", false);
+  {
+    const std::string page = "cmux-page://cmux.agent/";
+    const std::string artifact = cmux_shim::kArtifactFrameURL;
+    auto navigation = [&](bool main, const std::string& current, const std::string& parent,
+                          const std::string& target, bool refused) {
+      Expect(cmux_shim::ArtifactNavigationRefused(main, current, parent, target) == refused,
+             "artifact navigation " + current + " -> " + target + " parent " + parent);
+    };
+    navigation(false, "about:blank", page, artifact, false);
+    navigation(false, "", page, artifact, false);
+    navigation(true, "about:blank", "", artifact, true);
+    const std::string artifacts_page = "cmux-page://cmux.artifacts/";
+    navigation(false, "about:blank", artifacts_page, artifact, false);
+    navigation(false, "", artifacts_page, artifact, false);
+    for (const auto& parent : {"cmux-page://cmux.artifacts.evil/", "cmux-page://cmux.artifactsx/",
+                               "cmux-page://evil@cmux.artifacts/", "cmux-page://cmux.artifacts:42/",
+                               "https://cmux.artifacts/", "cmux-page://cmux.settings/",
+                               "cmux-page://cmux.artifacts@evil/", "cmux-page://cmux.artifacts./"}) {
+      navigation(false, "about:blank", parent, artifact, true);
+    }
+    for (const auto& target : {artifact, artifact + "?copy=1", artifact + "#copy", artifacts_page,
+                               std::string("cmux-page://cmux.agent/bridge.js"),
+                               std::string("cmux-page://cmux.artifacts/__artifact"),
+                               std::string("about:srcdoc"), std::string("about:blank"),
+                               std::string("https://example.test/"), std::string("file:///tmp/a.html"),
+                               std::string("data:text/html,replace"), std::string("javascript:alert(1)")}) {
+      navigation(false, artifact, artifacts_page, target, true);
+      navigation(false, "about:srcdoc", artifacts_page, target, true);
+      navigation(false, "about:blank", artifact, target, true);
+    }
+    navigation(false, "about:blank", artifacts_page, artifact + "?copy=1", true);
+    navigation(false, "about:blank", artifacts_page, artifact + "#copy", true);
+    navigation(false, artifacts_page, artifacts_page, artifact, true);
+    Allowed(false, artifact, artifacts_page, "cmux.artifacts", false);
+    Allowed(false, "about:blank", artifact, "cmux.artifacts", false);
+    Allowed(false, "about:srcdoc", artifacts_page, "cmux.artifacts", false);
+    Allowed(false, artifacts_page, "", "cmux.agent", false);
+
+    for (const auto& parent : {"https://evil.test/", "cmux-page://cmux.agent.evil/",
+                               "cmux-page://cmux.history/", "cmux-page://evil@cmux.agent/"}) {
+      navigation(false, "about:blank", parent, artifact, true);
+    }
+    for (const auto& target : {artifact, artifact + "?copy=1", page, std::string("about:srcdoc"),
+                               std::string("https://example.test/"), std::string("file:///tmp/a.html"),
+                               std::string("data:text/html,replace"), std::string("javascript:alert(1)")}) {
+      navigation(false, artifact, page, target, true);
+      navigation(false, "about:srcdoc", page, target, true);
+      navigation(false, "about:blank", artifact, target, true);
+    }
+    navigation(false, "about:blank", page, artifact + "?copy=1", true);
+    navigation(false, page, "", "https://example.test/", false);
+    navigation(false, "about:blank", page, "http://localhost:3000/", false);
+    for (const auto& url : {"https://example.test/a.png", "http://127.0.0.1:4000/api", "file:///tmp/a.png",
+                            "cmux-page://cmux.agent/index.html", "cmux-agent://pane/index.html"}) {
+      Expect(!cmux_shim::ArtifactResourceAllowed(url, true), "offline artifact refuses " + std::string(url));
+    }
+    Expect(cmux_shim::ArtifactResourceAllowed("data:image/png;base64,AA", true), "inline image allowed");
+    Expect(cmux_shim::ArtifactResourceAllowed("blob:null/test", true), "inline media allowed");
+    Expect(!cmux_shim::ArtifactResourceAllowed("data:text/html,nested", false), "inline document refused");
+    Expect(!cmux_shim::ArtifactResourceAllowed("blob:null/script", false), "blob script refused");
+    const std::string policy = cmux_shim::kArtifactCSP;
+    Expect(policy.find("sandbox allow-scripts;") == 0 && policy.find("allow-same-origin") == std::string::npos,
+           "artifact response enforces opaque origin");
+    Expect(policy.find("connect-src 'none'") != std::string::npos &&
+               policy.find("frame-src 'none'") != std::string::npos &&
+               policy.find("form-action 'none'") != std::string::npos,
+           "artifact response refuses connections, children and forms");
+  }
   {
     auto headers = cmux_shim::PageResponseHeaders("default-src 'self'");
     bool xfo = false, corp = false, nosniff = false, csp = false;

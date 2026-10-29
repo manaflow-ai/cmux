@@ -6,52 +6,21 @@
 // the frame shares the pane's web process, so a busy loop in agent HTML would freeze the pane. The
 // pane on a dev server has no render frame, so there the call stays a plain tool row. Open hands the
 // page to the side panel beside the chat (ArtifactPanel.tsx), with its source a tab away.
-import { useContext, useEffect, useRef, useState } from "react";
+import { useContext, useState } from "react";
 import { useT } from "../i18n";
 import { ArtifactContext } from "./artifactPreview";
 import { Expand } from "./icons";
 import type { AcpmuxActivity } from "../model";
-import { renderFrameCSS } from "./renderBase";
-import { RENDER_FRAME_MIN_HEIGHT, RenderPages, renderCall, type RenderCall } from "./renderCall";
+import { ranRenders, useRenderFrame } from "./renderFrame";
+import { RenderPages, renderCall, type RenderCall } from "./renderCall";
 
 export const RENDER_FRAME_URL = "cmux-agent://render/frame";
 /// The tallest a card draws until the reader expands it.
 const COLLAPSED_MAX_HEIGHT = 560;
-/// The tallest an expanded card draws; a taller page scrolls inside it.
-const EXPANDED_MAX_HEIGHT = 4000;
-
-/// The HTML the reader has run while this pane lives: a card scrolled away and back keeps
-/// running, and a reloaded pane (after a hang or a crash) starts with every card waiting again.
-export const ranRenders = new Set<string>();
 
 /// Whether this page can frame renders: only the bundled pane has the render origin.
 export const canRender = () => typeof location !== "undefined" && location.protocol === "cmux-agent:";
-
-/// Feeds `html` to a render frame once it asks for it, and follows the height the frame reports.
-export function useRenderFrame(html: string) {
-  const frame = useRef<HTMLIFrameElement>(null);
-  const [height, setHeight] = useState(RENDER_FRAME_MIN_HEIGHT);
-  useEffect(() => {
-    const onMessage = (event: MessageEvent) => {
-      const target = frame.current?.contentWindow;
-      if (!target || event.source !== target) return;
-      const data: unknown = event.data;
-      if (!data || typeof data !== "object") return;
-      const message = data as { type?: unknown; height?: unknown };
-      if (message.type === "cmux-render-ready")
-        target.postMessage({ type: "cmux-render", html, css: renderFrameCSS() }, "*");
-      else if (
-        message.type === "cmux-render-size" &&
-        typeof message.height === "number" &&
-        Number.isFinite(message.height)
-      )
-        setHeight(Math.min(EXPANDED_MAX_HEIGHT, Math.max(RENDER_FRAME_MIN_HEIGHT, Math.ceil(message.height))));
-    };
-    addEventListener("message", onMessage);
-    return () => removeEventListener("message", onMessage);
-  }, [html]);
-  return { frame, height };
-}
+export { ranRenders, useRenderFrame } from "./renderFrame";
 
 /// `card` is a render tool call's card key (renderCall.ts `renderPages`): Open hands it with the page.
 export function RenderCard({ call, card }: { call: RenderCall; card?: string }) {
