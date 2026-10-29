@@ -4024,8 +4024,7 @@
             "kind": "nullable",
             "inner": {
               "kind": "primitive",
-              "name": "string",
-              "pattern": "^(browser:right|machine:[A-Za-z0-9_-]{1,128})$"
+              "name": "string"
             }
           }
         },
@@ -4116,8 +4115,7 @@
           "type": {
             "kind": "primitive",
             "name": "string",
-            "max_length": 253,
-            "pattern": "^[a-z0-9.-]*\\.[a-z0-9.-]*$"
+            "max_length": 253
           }
         },
         "url": {
@@ -26384,15 +26382,15 @@
               },
               "byte_count": {
                 "type": "integer",
-                "exclusiveMinimum": 0,
-                "maximum": 4194304
+                "maximum": 4194304,
+                "exclusiveMinimum": 0
               },
               "width": {
                 "anyOf": [
                   {
                     "type": "integer",
-                    "exclusiveMinimum": 0,
-                    "maximum": 16384
+                    "maximum": 16384,
+                    "exclusiveMinimum": 0
                   },
                   {
                     "type": "null"
@@ -26403,8 +26401,8 @@
                 "anyOf": [
                   {
                     "type": "integer",
-                    "exclusiveMinimum": 0,
-                    "maximum": 16384
+                    "maximum": 16384,
+                    "exclusiveMinimum": 0
                   },
                   {
                     "type": "null"
@@ -26453,8 +26451,7 @@
               "target": {
                 "anyOf": [
                   {
-                    "type": "string",
-                    "pattern": "^(browser:right|machine:[A-Za-z0-9_-]{1,128})$"
+                    "type": "string"
                   },
                   {
                     "type": "null"
@@ -26510,7 +26507,6 @@
               },
               "site": {
                 "type": "string",
-                "pattern": "^[a-z0-9.-]*\\.[a-z0-9.-]*$",
                 "maxLength": 253
               },
               "url": {
@@ -27531,15 +27527,15 @@
               },
               "byte_count": {
                 "type": "integer",
-                "exclusiveMinimum": 0,
-                "maximum": 4194304
+                "maximum": 4194304,
+                "exclusiveMinimum": 0
               },
               "width": {
                 "anyOf": [
                   {
                     "type": "integer",
-                    "exclusiveMinimum": 0,
-                    "maximum": 16384
+                    "maximum": 16384,
+                    "exclusiveMinimum": 0
                   },
                   {
                     "type": "null"
@@ -27550,8 +27546,8 @@
                 "anyOf": [
                   {
                     "type": "integer",
-                    "exclusiveMinimum": 0,
-                    "maximum": 16384
+                    "maximum": 16384,
+                    "exclusiveMinimum": 0
                   },
                   {
                     "type": "null"
@@ -27600,8 +27596,7 @@
               "target": {
                 "anyOf": [
                   {
-                    "type": "string",
-                    "pattern": "^(browser:right|machine:[A-Za-z0-9_-]{1,128})$"
+                    "type": "string"
                   },
                   {
                     "type": "null"
@@ -27657,7 +27652,6 @@
               },
               "site": {
                 "type": "string",
-                "pattern": "^[a-z0-9.-]*\\.[a-z0-9.-]*$",
                 "maxLength": 253
               },
               "url": {
@@ -29433,15 +29427,15 @@
               },
               "byte_count": {
                 "type": "integer",
-                "exclusiveMinimum": 0,
-                "maximum": 4194304
+                "maximum": 4194304,
+                "exclusiveMinimum": 0
               },
               "width": {
                 "anyOf": [
                   {
                     "type": "integer",
-                    "exclusiveMinimum": 0,
-                    "maximum": 16384
+                    "maximum": 16384,
+                    "exclusiveMinimum": 0
                   },
                   {
                     "type": "null"
@@ -29452,8 +29446,8 @@
                 "anyOf": [
                   {
                     "type": "integer",
-                    "exclusiveMinimum": 0,
-                    "maximum": 16384
+                    "maximum": 16384,
+                    "exclusiveMinimum": 0
                   },
                   {
                     "type": "null"
@@ -29502,8 +29496,7 @@
               "target": {
                 "anyOf": [
                   {
-                    "type": "string",
-                    "pattern": "^(browser:right|machine:[A-Za-z0-9_-]{1,128})$"
+                    "type": "string"
                   },
                   {
                     "type": "null"
@@ -29559,7 +29552,6 @@
               },
               "site": {
                 "type": "string",
-                "pattern": "^[a-z0-9.-]*\\.[a-z0-9.-]*$",
                 "maxLength": 253
               },
               "url": {
@@ -30652,15 +30644,15 @@
               },
               "byte_count": {
                 "type": "integer",
-                "exclusiveMinimum": 0,
-                "maximum": 4194304
+                "maximum": 4194304,
+                "exclusiveMinimum": 0
               },
               "width": {
                 "anyOf": [
                   {
                     "type": "integer",
-                    "exclusiveMinimum": 0,
-                    "maximum": 16384
+                    "maximum": 16384,
+                    "exclusiveMinimum": 0
                   },
                   {
                     "type": "null"
@@ -30671,8 +30663,8 @@
                 "anyOf": [
                   {
                     "type": "integer",
-                    "exclusiveMinimum": 0,
-                    "maximum": 16384
+                    "maximum": 16384,
+                    "exclusiveMinimum": 0
                   },
                   {
                     "type": "null"
@@ -30721,8 +30713,7 @@
               "target": {
                 "anyOf": [
                   {
-                    "type": "string",
-                    "pattern": "^(browser:right|machine:[A-Za-z0-9_-]{1,128})$"
+                    "type": "string"
                   },
                   {
                     "type": "null"
@@ -30778,7 +30769,6 @@
               },
               "site": {
                 "type": "string",
-                "pattern": "^[a-z0-9.-]*\\.[a-z0-9.-]*$",
                 "maxLength": 253
               },
               "url": {
@@ -31681,15 +31671,15 @@
               },
               "byte_count": {
                 "type": "integer",
-                "exclusiveMinimum": 0,
-                "maximum": 4194304
+                "maximum": 4194304,
+                "exclusiveMinimum": 0
               },
               "width": {
                 "anyOf": [
                   {
                     "type": "integer",
-                    "exclusiveMinimum": 0,
-                    "maximum": 16384
+                    "maximum": 16384,
+                    "exclusiveMinimum": 0
                   },
                   {
                     "type": "null"
@@ -31700,8 +31690,8 @@
                 "anyOf": [
                   {
                     "type": "integer",
-                    "exclusiveMinimum": 0,
-                    "maximum": 16384
+                    "maximum": 16384,
+                    "exclusiveMinimum": 0
                   },
                   {
                     "type": "null"
@@ -31750,8 +31740,7 @@
               "target": {
                 "anyOf": [
                   {
-                    "type": "string",
-                    "pattern": "^(browser:right|machine:[A-Za-z0-9_-]{1,128})$"
+                    "type": "string"
                   },
                   {
                     "type": "null"
@@ -31807,7 +31796,6 @@
               },
               "site": {
                 "type": "string",
-                "pattern": "^[a-z0-9.-]*\\.[a-z0-9.-]*$",
                 "maxLength": 253
               },
               "url": {
@@ -52320,15 +52308,15 @@
               },
               "byte_count": {
                 "type": "integer",
-                "exclusiveMinimum": 0,
-                "maximum": 4194304
+                "maximum": 4194304,
+                "exclusiveMinimum": 0
               },
               "width": {
                 "anyOf": [
                   {
                     "type": "integer",
-                    "exclusiveMinimum": 0,
-                    "maximum": 16384
+                    "maximum": 16384,
+                    "exclusiveMinimum": 0
                   },
                   {
                     "type": "null"
@@ -52339,8 +52327,8 @@
                 "anyOf": [
                   {
                     "type": "integer",
-                    "exclusiveMinimum": 0,
-                    "maximum": 16384
+                    "maximum": 16384,
+                    "exclusiveMinimum": 0
                   },
                   {
                     "type": "null"
@@ -52389,8 +52377,7 @@
               "target": {
                 "anyOf": [
                   {
-                    "type": "string",
-                    "pattern": "^(browser:right|machine:[A-Za-z0-9_-]{1,128})$"
+                    "type": "string"
                   },
                   {
                     "type": "null"
@@ -52446,7 +52433,6 @@
               },
               "site": {
                 "type": "string",
-                "pattern": "^[a-z0-9.-]*\\.[a-z0-9.-]*$",
                 "maxLength": 253
               },
               "url": {
@@ -53163,15 +53149,15 @@
               },
               "byte_count": {
                 "type": "integer",
-                "exclusiveMinimum": 0,
-                "maximum": 4194304
+                "maximum": 4194304,
+                "exclusiveMinimum": 0
               },
               "width": {
                 "anyOf": [
                   {
                     "type": "integer",
-                    "exclusiveMinimum": 0,
-                    "maximum": 16384
+                    "maximum": 16384,
+                    "exclusiveMinimum": 0
                   },
                   {
                     "type": "null"
@@ -53182,8 +53168,8 @@
                 "anyOf": [
                   {
                     "type": "integer",
-                    "exclusiveMinimum": 0,
-                    "maximum": 16384
+                    "maximum": 16384,
+                    "exclusiveMinimum": 0
                   },
                   {
                     "type": "null"
@@ -53232,8 +53218,7 @@
               "target": {
                 "anyOf": [
                   {
-                    "type": "string",
-                    "pattern": "^(browser:right|machine:[A-Za-z0-9_-]{1,128})$"
+                    "type": "string"
                   },
                   {
                     "type": "null"
@@ -53289,7 +53274,6 @@
               },
               "site": {
                 "type": "string",
-                "pattern": "^[a-z0-9.-]*\\.[a-z0-9.-]*$",
                 "maxLength": 253
               },
               "url": {
