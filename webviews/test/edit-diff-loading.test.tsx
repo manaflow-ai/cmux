@@ -118,3 +118,11 @@ test("long pending edits keep the same preview and expand without waiting for th
     "--cv-loading-lines: 1284",
   );
 });
+
+test("a known empty edit keeps its existing explanation while the chunk is pending", async () => {
+  const empty = file(0);
+  empty.edits[0]!.hunks = [];
+  await draw(empty);
+  expect(host.querySelector(".cv-edit-diff__empty")?.textContent).toBeTruthy();
+  expect(host.querySelector(".cv-edit-diff__loading-lines")).toBeNull();
+});

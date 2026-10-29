@@ -1244,6 +1244,30 @@
   font-size: calc(var(--cv-font-size) * 12 / 14);
   color: var(--cv-text-muted);
 }
+.cv-edit-diff__loading-lines {
+  --cv-loading-line-height: var(--cv-codeblock-line-height, var(--cmux-diff-line-height, 18px));
+  height: calc(var(--cv-loading-lines) * var(--cv-loading-line-height));
+  margin-bottom: var(--cv-lane);
+  padding-inline: 1ch;
+  font-family: var(--cv-mono);
+  font-size: var(--cv-codeblock-size, var(--cmux-diff-font-size, var(--text-detail)));
+}
+.cv-edit-diff__loading-lines::before {
+  content: "";
+  display: block;
+  width: 72%;
+  height: 100%;
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent 0 0.4em,
+    var(--cv-codeblock-ring) 0.4em calc(var(--cv-loading-line-height) - 0.4em),
+    transparent calc(var(--cv-loading-line-height) - 0.4em) var(--cv-loading-line-height)
+  );
+}
+.cv-edit-diff__loading-lines[data-numbered="true"]::before {
+  margin-inline-start: 6ch;
+  max-width: calc(100% - 6ch);
+}
 .cv-link.is-file {
   color: var(--cv-text);
   text-decoration: none;
