@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "build": "4095883406401",
+  "notes": "notes/4095883406401.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 27281,
+      "title": "fix(ios): detect dead links sooner and reconnect immediately on foreground",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27549,
+      "title": "optchat-chief: a Chief subagent workspace opens with its chat and no shell (carries #24179)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
