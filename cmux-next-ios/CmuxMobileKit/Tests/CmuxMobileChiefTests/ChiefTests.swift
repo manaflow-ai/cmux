@@ -462,6 +462,19 @@ let waitWatchdog: Duration = .seconds(60)
         return ChiefPreferences(defaults: UserDefaults(suiteName: suite)!)
     }
 
+    /// A long live reply keeps the newest text visible so each token can update
+    /// a bounded view instead of laying out the whole reply again.
+    @Test func liveReplyTailKeepsNewestLines() {
+        let lines = (1...12).map { "Reply line \($0): continuing the answer.\n" }
+        let tail = ChiefLive.liveTail(of: lines.joined())
+        #expect(tail.hasPrefix("…Reply line 5:"))
+        #expect(tail.hasSuffix("Reply line 12: continuing the answer."))
+        #expect(tail.count <= 481)
+
+        let short = ChiefLive.liveTail(of: "first\nsecond")
+        #expect(short == "first\nsecond")
+    }
+
     /// The phone never creates Chief: a Mac whose Home has not run yet is an
     /// honest disconnect with the reason, not a new conversation.
     @Test func noChiefOnTheMacIsAnHonestDisconnect() async throws {

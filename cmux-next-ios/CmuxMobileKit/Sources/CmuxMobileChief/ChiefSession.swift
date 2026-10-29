@@ -291,7 +291,8 @@ public final class ChiefSession {
     /// status line): ``live``, without the reply text once its message arrived.
     public var shownLive: ChiefLive? {
         guard let live else { return nil }
-        if let step = live.step, answeredLiveStep == "\(live.key)\u{0}\(step)" {
+        if let step = live.step,
+           answeredLiveStep == "\(live.key)\u{0}\(step)" || Self.liveReplyMatches(live, message: lastMessage) {
             // The reply is in the transcript; the run's status line stays
             // until the run ends.
             var rest = live
@@ -300,6 +301,17 @@ public final class ChiefSession {
             return rest
         }
         return live
+    }
+
+    /// The reply can reach the transcript before the frame-batched live
+    /// callback. Match the reply's idempotency key when that happens so the
+    /// delayed callback cannot briefly resurrect a duplicate bubble.
+    static func liveReplyMatches(_ live: ChiefLive, message: ConversationMessage?) -> Bool {
+        let keyParts = live.key.split(separator: "\u{0}", maxSplits: 1)
+        guard let message, let author = keyParts.first, message.senderID == String(author),
+              let clientID = message.clientMessageID,
+              let runID = keyParts.last, !runID.isEmpty else { return false }
+        return clientID == runID || clientID.hasSuffix(":\(runID)")
     }
 
     /// Chief is typing or a run is live: Home's pin shows the typing bubble.

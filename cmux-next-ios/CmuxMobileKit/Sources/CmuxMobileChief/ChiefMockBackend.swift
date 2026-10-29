@@ -10,9 +10,10 @@ import ImageIO
 /// asked, and tapbacks on messages that thank or praise it. The real Chief
 /// is `ChiefDaemonBackend` (cmux-tui `conversation-*` over the link); both
 /// sit behind `ConversationBackend`, so the screen does not change.
-public final class ChiefMockBackend: ConversationFileBackend, @unchecked Sendable {
+public final class ChiefMockBackend: ConversationFileBackend, ChiefLiveSource, @unchecked Sendable {
     public typealias Sleep = @Sendable (Duration) async -> Void
     let engine: Engine
+    public let liveFeed = ChiefLiveFeed()
 
     /// `sleep` paces Chief (pass a no-op in tests); `now` stamps messages.
     public init(identity: ChiefIdentity = .standard, now: Date = Date(),
@@ -20,6 +21,13 @@ public final class ChiefMockBackend: ConversationFileBackend, @unchecked Sendabl
         engine = Engine(identity: identity, now: now, sleep: sleep)
         self.sleep = sleep
         questionFeed.update([ChiefMockScript.question], seq: ChiefMockScript.questionSeq)
+        // Opt-in synthetic live state for before/after simulator captures.
+        if ProcessInfo.processInfo.arguments.contains("-cmux-mobile-chief-live") {
+            liveFeed.update(ChiefLive(key: "demo-run", step: "demo-reply",
+                text: String(repeating: "Checking the sample project and writing up the results.\n", count: 800)
+                    + "The checks passed. The reply keeps its newest words in view.",
+                activity: "Checking the sample project"))
+        }
     }
 
     let sleep: Sleep
@@ -72,6 +80,7 @@ public final class ChiefMockBackend: ConversationFileBackend, @unchecked Sendabl
     }
 
     public func close() {
+        liveFeed.update(nil)
         Task { await engine.close() }
     }
 
