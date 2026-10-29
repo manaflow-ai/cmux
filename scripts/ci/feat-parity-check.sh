@@ -96,8 +96,6 @@ use_pinned_cargo() { # DIR
   export PATH
   echo "cargo: $cargo_bin"
 }
-# As cmux-tui-rust-check.sh: a synced copy without the gitlink uses the files present;
-# otherwise the commit's gitlink, with init-submodule.sh's retries.
 # Puts the cargo rustup selects in ROOT first on PATH, for the rest of the step.
 use_root_cargo() { # ROOT
   local cargo_bin
@@ -106,6 +104,8 @@ use_root_cargo() { # ROOT
   export PATH
   echo "cargo: $cargo_bin"
 }
+# As cmux-tui-rust-check.sh: a synced copy without the gitlink uses the files present;
+# otherwise the commit's gitlink, with init-submodule.sh's retries.
 ghostty_next() {
   if [[ -z "$(git -C "$root" submodule status ghostty-next 2>/dev/null || true)" && -f "$root/ghostty-next/build.zig" ]]; then
     echo "ghostty-next: no gitlink in this tree (a synced copy); using the files present"

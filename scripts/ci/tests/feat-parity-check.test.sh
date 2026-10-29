@@ -109,6 +109,9 @@ for root in crates/ws crates/pinned; do
   grep -q "^toolchain-cargo $name clippy --workspace --all-targets -- -D warnings$" "$TMP/calls" || fail "$root: clippy did not run with the toolchain's cargo: $(calls)"
   grep -q "^toolchain-cargo $name test --workspace$" "$TMP/calls" || fail "$root: tests did not run with the toolchain's cargo: $(calls)"
   ! grep -q "^cargo $name .* clippy" "$TMP/calls" || fail "$root: clippy ran with the PATH cargo: $(calls)"
+  want_which="^rustup $name which cargo$"
+  [[ "$name" != ws ]] || want_which='^rustup ws \[1.95.0\] which cargo$'
+  grep -q "$want_which" "$TMP/calls" || fail "$root: rustup which cargo did not run in the root with its toolchain: $(calls)"
   rm -f "$TMP/calls"
 done
 for bad in crates/off crates/none ../crates/ws crates/./ws; do
