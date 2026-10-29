@@ -31,6 +31,25 @@ struct AgentPaneTabRowToolsTests {
         #expect(AgentPaneTabRowTools.list([raw]) == nil)
     }
 
+    @Test func boundsTotalMenuItemsWhilePreservingNormalPayloads() {
+        let menu: [[String: Any]] = (0..<17).map { index in
+            ["id": "item-\(index)", "label": "Item \(index)", "enabled": true]
+        }
+        let normal: [Any] = (0..<2).map { index in
+            ["id": "tool-\(index)", "symbol": "checkmark", "label": "Tool \(index)",
+             "enabled": true, "toggled": false, "menu": menu] as [String: Any]
+        }
+        let normalTools = AgentPaneTabRowTools.list(normal)
+        #expect(normalTools?.count == 2)
+        #expect(normalTools?.allSatisfy { $0.menu.count == menu.count } == true)
+
+        let oversized: [Any] = (0..<16).map { index in
+            ["id": "tool-\(index)", "symbol": "checkmark", "label": "Tool \(index)",
+             "enabled": true, "toggled": false, "menu": menu] as [String: Any]
+        }
+        #expect(AgentPaneTabRowTools.list(oversized) == nil)
+    }
+
     @Test func rejectsOutOfBoundsListsAndText() {
         let tooMany = (0...AgentPaneTabRowTools.maximumTools).map { _ in
             ["id": "x", "symbol": "x", "label": "x", "enabled": true, "toggled": false] as [String: Any]

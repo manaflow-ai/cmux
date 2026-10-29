@@ -5,6 +5,7 @@ import Foundation
 nonisolated enum AgentPaneTabRowTools {
     nonisolated static let maximumTools = 16
     nonisolated static let maximumMenuItems = 32
+    nonisolated static let maximumTotalMenuItems = 256
     nonisolated static let maximumDepth = 2
     nonisolated static let maximumText = 64
 
@@ -12,19 +13,20 @@ nonisolated enum AgentPaneTabRowTools {
         guard let raw = raw as? [Any], raw.count <= maximumTools else { return nil }
         var tools: [PaneTabRowTool] = []
         tools.reserveCapacity(raw.count)
+        var totalMenuItems = 0
         for value in raw {
-            guard let parsed = tool(value) else { return nil }
+            guard let parsed = tool(value, totalMenuItems: &totalMenuItems) else { return nil }
             tools.append(parsed)
         }
         return tools
     }
 
-    private nonisolated static func tool(_ raw: Any) -> PaneTabRowTool? {
+    private nonisolated static func tool(_ raw: Any, totalMenuItems: inout Int) -> PaneTabRowTool? {
         guard let object = raw as? [String: Any],
               let id = text(object["id"]), let symbol = text(object["symbol"]), let label = text(object["label"]),
               object["enabled"] is Bool, object["toggled"] is Bool,
               let enabled = object["enabled"] as? Bool, let toggled = object["toggled"] as? Bool,
-              let menu = menu(object["menu"], depth: 0) else { return nil }
+              let menu = menu(object["menu"], depth: 0, totalMenuItems: &totalMenuItems) else { return nil }
         let badge: String?
         if let rawBadge = object["badge"], !(rawBadge is NSNull) {
             guard let parsed = optionalText(rawBadge) else { return nil }
@@ -36,17 +38,24 @@ nonisolated enum AgentPaneTabRowTools {
                               badge: badge, menu: menu)
     }
 
-    private nonisolated static func menu(_ raw: Any?, depth: Int) -> [PaneTabRowMenuItem]? {
+    private nonisolated static func menu(_ raw: Any?, depth: Int, totalMenuItems: inout Int) -> [PaneTabRowMenuItem]? {
         guard let raw else { return [] }
         guard depth <= maximumDepth, let list = raw as? [Any], list.count <= maximumMenuItems else { return nil }
-        let rows = list.compactMap { item($0, depth: depth) }
-        return rows.count == list.count ? rows : nil
+        var rows: [PaneTabRowMenuItem] = []
+        rows.reserveCapacity(list.count)
+        for value in list {
+            totalMenuItems += 1
+            guard totalMenuItems <= maximumTotalMenuItems,
+                  let parsed = item(value, depth: depth, totalMenuItems: &totalMenuItems) else { return nil }
+            rows.append(parsed)
+        }
+        return rows
     }
 
-    private nonisolated static func item(_ raw: Any, depth: Int) -> PaneTabRowMenuItem? {
+    private nonisolated static func item(_ raw: Any, depth: Int, totalMenuItems: inout Int) -> PaneTabRowMenuItem? {
         guard let object = raw as? [String: Any], let id = text(object["id"]), let label = text(object["label"]),
               object["enabled"] is Bool, let enabled = object["enabled"] as? Bool,
-              let children = menu(object["children"], depth: depth + 1) else { return nil }
+              let children = menu(object["children"], depth: depth + 1, totalMenuItems: &totalMenuItems) else { return nil }
         let checked: Bool?
         if let rawChecked = object["checked"], !(rawChecked is NSNull) {
             guard let parsed = optionalBool(rawChecked) else { return nil }
