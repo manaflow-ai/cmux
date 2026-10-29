@@ -353,19 +353,6 @@ async fn splice(
             let verdict = owned_check(cache, &line, verdict);
             let verdict = match verdict {
                 Verdict::Refuse(answer) => Verdict::Refuse(answer),
-                _ if is_notification_reply(&line) => {
-                    // Notification replies perform their own daemon calls too.
-                    let (Some(path), Some(phone)) = (&terminal_folders, &reply_phone) else { return };
-                    Verdict::Refuse(
-                        crate::mailbox_apply::answer_notification_reply(
-                            path,
-                            phone,
-                            spent_replies.as_deref(),
-                            &line,
-                        )
-                        .await,
-                    )
-                }
                 _ => Verdict::Rewrite(with_pane_folder(cache.tree().as_deref(), line)),
             };
             if ready_tx.send(verdict).await.is_err() {
