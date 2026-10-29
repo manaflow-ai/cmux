@@ -162,6 +162,10 @@ jobs:
       run_macos: ${{ steps.inspect.outputs.run_macos }}
       superseded: ${{ steps.inspect.outputs.superseded }}
       owner_run_id: ${{ steps.inspect.outputs.owner_run_id }}
+      # true when tree-owner-wait would only say "this run owns the key" (no
+      # other owner, no unmarked published tree to test): that job is then
+      # skipped and the build starts one runner queue earlier.
+      owns_key: ${{ steps.inspect.outputs.owns_key }}
       stale: ${{ steps.stale.outputs.stale }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -616,12 +620,29 @@ jobs:
           echo "run_macos=$run_macos" >> "$GITHUB_OUTPUT"
           echo "superseded=$superseded" >> "$GITHUB_OUTPUT"
 
+          # tree-owner-wait's wait step has three branches: defer to an owner
+          # run, test a published tree that has no daemon-tests marker, or
+          # "this run owns the key" (takeover=true, nothing else). The last
+          # one needs no runner, so this run takes it here and tree-owner-wait
+          # is skipped. Every feat-cmux-next push that wins its key's claim
+          # took that branch, and its queue (6-13 min on Blacksmith on
+          # 2026-10-28) sat between preflight and the build.
+          owns_key=false
+          if [[ "${STALE:-}" != true && -z "$owner_run_id" ]] &&
+              ! [[ "$tree_ready" == true && "$daemon_tested" == false ]]; then
+            owns_key=true
+            echo "This run owns tree $key; tree-owner-wait is skipped."
+          fi
+          echo "owns_key=$owns_key" >> "$GITHUB_OUTPUT"
+
   tree-owner-wait:
     name: wait for same-key tree publisher
     # A superseded push (tree-preflight's stale step: a moved lane branch, a
     # moved pin, or a cp/, lane/ or perf/ head no open pull request has) builds
     # nothing, so it has no publisher to wait for and spends no API calls here.
-    if: needs.tree-preflight.result == 'success' && needs.tree-preflight.outputs.stale != 'true'
+    # A run that already owns its key (tree-preflight owns_key) skips this
+    # job; every consumer reads takeover as owner-wait's or owns_key.
+    if: needs.tree-preflight.result == 'success' && needs.tree-preflight.outputs.stale != 'true' && needs.tree-preflight.outputs.owns_key != 'true'
     needs: tree-preflight
     # The glaeda read token's key is an external credential: a dispatchable
     # job holding one runs in an environment (tests/test_supplychain_security.py).
@@ -1007,8 +1028,9 @@ jobs:
 
   build:
     if: >-
-      ${{ needs.tree-preflight.outputs.run_macos == 'true' &&
-          needs.tree-owner-wait.outputs.takeover == 'true' }}
+      ${{ !cancelled() && needs.tree-preflight.result == 'success' && needs.tree-owner-wait.result != 'failure' &&
+          needs.tree-preflight.outputs.run_macos == 'true' &&
+          (needs.tree-owner-wait.outputs.takeover == 'true' || needs.tree-preflight.outputs.owns_key == 'true') }}
     needs: [tree-preflight, tree-owner-wait]
     # One group per run (cx-73f2). With one group per tree key (7eb3671d1832)
     # GitHub kept one running and one pending build per key and replaced the
@@ -1073,8 +1095,9 @@ jobs:
   build-windows:
     name: build-windows
     if: >-
-      ${{ needs.tree-preflight.outputs.run_macos == 'true' &&
-          needs.tree-owner-wait.outputs.takeover == 'true' }}
+      ${{ !cancelled() && needs.tree-preflight.result == 'success' && needs.tree-owner-wait.result != 'failure' &&
+          needs.tree-preflight.outputs.run_macos == 'true' &&
+          (needs.tree-owner-wait.outputs.takeover == 'true' || needs.tree-preflight.outputs.owns_key == 'true') }}
     needs: [tree-preflight, tree-owner-wait]
     concurrency:
       group: cmux-tui-build-windows-${{ needs.tree-preflight.outputs.key }}-${{ github.run_id }}
@@ -1213,30 +1236,19 @@ jobs:
       darwin_builder: mac
 
   # The publish jobs take the build from here: the matrix build, or that
-  # build with its macOS targets rebuilt by build-darwin-fallback.
-  build-ok:
-    name: build (with any macOS fallback)
-    if: ${{ always() && needs.build.result != 'skipped' && needs.build.result != 'cancelled' }}
-    needs: [build, darwin-fallback-plan, build-darwin-fallback]
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 2
-    steps:
-      - name: The build or its macOS fallback succeeded
-        env:
-          BUILD: ${{ needs.build.result }}
-          FALLBACK: ${{ needs.build-darwin-fallback.result }}
-          RECOVERED: ${{ needs.darwin-fallback-plan.outputs.recovered }}
-        run: |
-          echo "build: $BUILD, macOS fallback: $FALLBACK, recovered by an earlier attempt: ${RECOVERED:-false}"
-          [[ "$BUILD" == success || "$FALLBACK" == success || "$RECOVERED" == true ]]
-
+  # build with its macOS targets rebuilt by build-darwin-fallback, or every
+  # target recovered by an earlier attempt's fallback (darwin-fallback-plan
+  # recovered). publish and sentry-dsyms read the three results themselves;
+  # a separate build-ok job only added a runner queue (0-7 min on 2026-10-28)
+  # between the build and the tree publish.
   # The daemon tests the cmux-next app relies on (Rust tests named
   # cmux_next_), on the exact commit. No publisher waits for them (cx-y0nf2);
   # publish-tree-tested writes the tree's daemon-tests marker when they pass.
   cmux-next-daemon-tests:
     if: >-
-      ${{ ((needs.tree-preflight.outputs.run_macos == 'true' &&
-          needs.tree-owner-wait.outputs.takeover == 'true' && needs.tree-preflight.outputs.daemon_tests == 'true' &&
+      ${{ !cancelled() && needs.tree-preflight.result == 'success' && needs.tree-owner-wait.result != 'failure' &&
+          ((needs.tree-preflight.outputs.run_macos == 'true' &&
+          (needs.tree-owner-wait.outputs.takeover == 'true' || needs.tree-preflight.outputs.owns_key == 'true') && needs.tree-preflight.outputs.daemon_tests == 'true' &&
           needs.tree-preflight.outputs.daemon_marker != 'true') ||
           (github.ref != 'refs/heads/main' && needs.tree-preflight.outputs.daemon_tests == 'true' &&
           ((needs.tree-preflight.outputs.tree_ready == 'true' && needs.tree-preflight.outputs.daemon_tested == 'false') ||
@@ -1550,8 +1562,8 @@ jobs:
     # so Sentry symbolicates their crashes in the app bundle, where the
     # binaries are stripped. Never blocks a publish: a failed upload is a warning.
     name: upload cmux-tui dSYMs to Sentry
-    if: ${{ !cancelled() && needs.build-ok.result == 'success' && github.event_name != 'pull_request' }}
-    needs: build-ok
+    if: ${{ !cancelled() && (needs.build.result == 'success' || needs.build-darwin-fallback.result == 'success' || needs.darwin-fallback-plan.outputs.recovered == 'true') && github.event_name != 'pull_request' }}
+    needs: [build, darwin-fallback-plan, build-darwin-fallback]
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     continue-on-error: true
@@ -1589,8 +1601,8 @@ jobs:
     # PR runs of this workflow only validate the build. Only the refs the
     # artifacts environment admits publish; a dispatch from any other branch
     # is a green build-only run (publish-ref-notice says how to publish).
-    if: ${{ !cancelled() && needs.build-ok.result == 'success' && github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next' || (github.event_name == 'push' && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-'))) }}
-    needs: build-ok
+    if: ${{ !cancelled() && (needs.build.result == 'success' || needs.build-darwin-fallback.result == 'success' || needs.darwin-fallback-plan.outputs.recovered == 'true') && github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next' || (github.event_name == 'push' && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-'))) }}
+    needs: [build, darwin-fallback-plan, build-darwin-fallback]
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     # 15 minutes of work, plus the hour the attestation retry may wait for the API budget.
     timeout-minutes: 75
@@ -2653,7 +2665,7 @@ jobs:
   publish-tree:
     environment: artifacts
     name: publish tree-addressed cmux-tui
-    if: ${{ !cancelled() && needs.build-ok.result == 'success' && needs.publish.result == 'success' && github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next' || (github.event_name == 'push' && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-'))) }}
+    if: ${{ !cancelled() && needs.publish.result == 'success' && github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next' || (github.event_name == 'push' && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-'))) }}
     # Independent of the daemon tests on every ref (chief 2026-10-13, hq-11;
     # cx-y0nf2): their macOS runner queues up to ~1 h, and every dev build
     # waited for the tree. A published tree does not mean the daemon tests
@@ -2670,7 +2682,7 @@ jobs:
     # feat-cmux-next tip of 2026-10-14 published a tree while 12 daemon-test
     # jobs queued for the one promote runner
     # (tests/test_cmux_tui_feat_publish_order.py).
-    needs: [tree-preflight, build-ok, publish]
+    needs: [tree-preflight, publish]
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     # A slow companion fetch may take its retries (fetch below).
     timeout-minutes: 30
@@ -3043,6 +3055,36 @@ jobs:
           KEY: ${{ needs.tree-preflight.outputs.key }}
         run: python3 scripts/ci/cmux_next_tree_notify.py --repo "$GITHUB_REPOSITORY" --key "$KEY" --state ready
 
+      # This commit's tree-commit marker, the one nightly-next promotion
+      # needs, written here as soon as the tree is verified instead of one
+      # more runner queue later in mark-tree-commits (1-7 min on 2026-10-28).
+      # Only this commit (--window 1); mark-tree-commits still walks the last
+      # 40 from here and from the tip, and the markers are write-once, so a
+      # second write of the same marker is a no-op. A failure here only
+      # leaves the marker to that job.
+      - name: Mark this commit's tree as ready for nightly-next
+        if: env.CMUX_TUI_PUBLISH_PASS == 'unix' && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        continue-on-error: true
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+        run: scripts/cmux-next/tree-commit-marker.sh write --window 1
+
+      # Ask main's nightly-next tick now that this commit is promotable. Its
+      # workflow_run trigger fires only when this whole run ends, after the
+      # Windows legs, the daemon tests and the macOS cross checks (20-40 min
+      # later on 2026-10-28). The tick's own group keeps one running and the
+      # newest waiting, and it promotes only a commit that moves nightly-next
+      # forward, so an extra ask costs one short job.
+      - name: Ask the nightly-next tick to promote this commit
+        if: env.CMUX_TUI_PUBLISH_PASS == 'unix' && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' && github.event_name == 'push'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run nightly-next-tick.yml --repo "$GITHUB_REPOSITORY" --ref main
+
   # The Windows pass of publish-tree (the same steps): adds this commit's
   # Windows daemon to the tree the first pass published, with its own
   # completion-windows.json; every object the first pass wrote is write-once
@@ -3248,7 +3290,7 @@ jobs:
     # The macOS cross jobs keep the run in progress; waiting for them makes this the run's last
     # job, so a run re-run below finds this owner ended (cx-urd.26).
     needs: [tree-preflight, tree-owner-wait, build, build-windows, cmux-next-daemon-tests, publish, publish-windows, publish-tree, publish-tree-windows, macos-cross-shadow, macos-cross-runtime-x86_64]
-    if: ${{ always() && needs.tree-preflight.result == 'success' && ((needs.tree-preflight.outputs.tree_ready != 'true' && needs.tree-preflight.outputs.run_macos == 'true' && needs.tree-owner-wait.outputs.takeover == 'true' && needs.publish-tree.result != 'success') || (needs.tree-preflight.outputs.tree_ready == 'true' && needs.tree-preflight.outputs.daemon_tested == 'false' && needs.tree-owner-wait.outputs.unmarked == 'true')) && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next' || (github.event_name == 'push' && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-'))) }}
+    if: ${{ always() && needs.tree-preflight.result == 'success' && ((needs.tree-preflight.outputs.tree_ready != 'true' && needs.tree-preflight.outputs.run_macos == 'true' && (needs.tree-owner-wait.outputs.takeover == 'true' || needs.tree-preflight.outputs.owns_key == 'true') && needs.publish-tree.result != 'success') || (needs.tree-preflight.outputs.tree_ready == 'true' && needs.tree-preflight.outputs.daemon_tested == 'false' && needs.tree-owner-wait.outputs.unmarked == 'true')) && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next' || (github.event_name == 'push' && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-'))) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-2vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions:

@@ -50,11 +50,12 @@
      bands). A message's meta row (a prompt's age, ticks and actions; a reply's footer) is one
      compact line right under it; messages in a turn sit one message gap apart, turns one turn gap.
      model.ts (fallbackRowHeight, chromeHeight) estimates rows with the same numbers. */
-  --cv-meta-gap: 4px; /* a message to its meta row */
+  --cv-meta-gap: var(--ds-space-1, 4px); /* a message to its meta row */
   --cv-meta-row: 24px; /* the meta row's line */
-  --cv-message-gap: 8px; /* a message (or its meta row) to the next row in its turn */
+  --cv-message-gap: var(--ds-space-2, 8px); /* a message (or its meta row) to the next row in its turn */
   --cv-live-gap: 10px; /* over the running turn's live line, inside its row: 16px under a reply */
-  --cv-turn-gap: 16px; /* a paragraph gap (14px) plus a small separator to the next message */
+  --cv-turn-gap: var(--ds-space-4, 16px); /* a speaker change or the end of the transcript */
+  --cv-continuation-gap: var(--cv-message-gap); /* the same assistant's next turn */
   /* Tool rows follow Codex's compact transcript rhythm: a 22px line with a small, quiet gap
      after the run before the next reply. Gallery-only attributes compare this against the prior
      roomier rhythm without adding a product setting. */
@@ -105,6 +106,26 @@
   display: flex;
   flex-direction: column;
   align-items: flex-end;
+}
+/* Waiting controls belong beside their bubble. Delivered prompts keep their usual footer. */
+.cv-user__body {
+  display: contents;
+}
+.cv-user__body:has(.cv-user__pending) {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2, 8px);
+  max-width: 100%;
+  min-width: 0;
+}
+.cv-user__body:has(.cv-user__pending) > .cv-user__bubble {
+  min-width: 0;
+  max-width: 100%;
+}
+.cv-user__body:has(.cv-user__pending) > .cv-user__actions {
+  flex: none;
+  margin-top: 0;
+  padding-right: 0;
 }
 /* A prompt's bubble: a small radius, and text inset evenly, 12px from each side (8px of padding
    plus the line's half-leading above and below). model.ts measures it. Its look is the glass rule
@@ -481,6 +502,12 @@
   background: var(--agent-page-bg);
   color: var(--agent-text);
   font-family: var(--cv-font);
+}
+/* A shell sibling must leave the offered native tab row clear, including when the narrow
+   preview covers the chat. Its background belongs below the row, never in its tools hole. */
+.acpmux-shell[data-tab-row] > .acpmux-artifact {
+  margin-top: var(--acpmux-tab-row-height);
+  max-height: calc(100% - var(--acpmux-tab-row-height));
 }
 @media (max-width: 720px) {
   .acpmux-artifact {
@@ -1224,6 +1251,18 @@ pre.cv-math-source {
 .acpmux-row {
   left: var(--cv-inset);
   right: var(--cv-inset);
+}
+.acpmux-row__gap {
+  position: absolute;
+  z-index: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 0;
+  /* Inherit the actual row padding: step rows and live lines use smaller or zero gaps. */
+  padding-bottom: inherit;
+  pointer-events: auto;
+  background: transparent;
 }
 /* Keyboard transcript selection uses a roving article tab stop. The fill is deliberately on the
    row rather than the prose so a range remains visible while its rows virtualize in and out. */
@@ -3905,6 +3944,9 @@ article.acpmux-row:empty {
 /* The chat's last footer keeps the normal turn gap above the composer. */
 .acpmux-row.acpmux-turnSummary.acpmux-row--last-footer {
   padding-bottom: var(--cv-turn-gap);
+}
+.acpmux-row.acpmux-turnSummary.acpmux-row--continuation-footer {
+  padding-bottom: var(--cv-continuation-gap);
 }
 /* A legacy/history turn can end without a footer. Mark only its latest row so the composer keeps
    the normal turn rhythm without a permanent runway below every turn. */
