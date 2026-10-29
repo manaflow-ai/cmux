@@ -41,8 +41,9 @@
 //!   checked). The child prints a burst in chunks and waits before each
 //!   chunk after the first until the test lets it go (a file handshake, no
 //!   timing): the test runs one mid-burst action (a resize, or the mirror
-//!   attach) at the end of each chunk, so every action lands at a known
-//!   offset with output still to come.
+//!   attach) after each chunk's bytes, so every action lands with output
+//!   still to come (the stream is past the chunk's end and before the
+//!   burst's end).
 //!
 //! The test runs one scripted case (each kind of step once, a few seconds)
 //! and then `CMUX_RESIZE_FUZZ_SEEDS` seeded random cases (default 0 here) of
@@ -1171,11 +1172,15 @@ impl Case {
                     let at =
                         self.wait_stream_at(end, &format!("{why}: chunk {index} of burst {tag}"));
                     // The child waits for the next chunk's release, so the
-                    // stream is exactly at the chunk's end, before `until`.
-                    if at != end || at >= until {
+                    // action lands after this chunk's bytes and before the
+                    // burst's end. (Not exactly at the chunk's end: other
+                    // bytes may share the stream, such as a reply to a
+                    // resize; the burst-line check catches lost or reordered
+                    // output.)
+                    if at >= until {
                         self.fail(&format!(
-                            "{why}: burst {tag} is at o{at} after chunk {index}, expected o{end} \
-                             (the burst ends at o{until}): the child did not wait"
+                            "{why}: burst {tag} is at o{at} after chunk {index} (its end o{end}), \
+                             at or past the burst's end o{until}: the child did not wait"
                         ));
                     }
                     match action {
