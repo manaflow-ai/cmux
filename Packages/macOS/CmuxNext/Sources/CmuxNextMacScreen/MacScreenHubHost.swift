@@ -51,8 +51,11 @@ public final class MacScreenHubHost {
         try await hub.setPermission(host: hub.identity.id, viewer: viewer, scope: .none)
     }
     /// Whether this Mac's local consent allows a session (the one-line join's gate, which acpmux cannot
-    /// apply to Mac Screen since the app serves it); a refused ticket is ended unserved.
-    @ObservationIgnored public var consentGate: @MainActor (SessionTicket) -> Bool = { _ in true }
+    /// apply to Mac Screen since the app serves it), read when the ticket arrives; a refused ticket is
+    /// ended unserved. Nil: every ticket serves at once.
+    @ObservationIgnored public var consentGate: (@MainActor (SessionTicket) async -> Bool)?
+    /// Tickets whose consent read is in flight; an end or Stop Sharing meanwhile drops them.
+    @ObservationIgnored private var awaitingConsent: Set<String> = []
     /// Makes a session's signaling from its ticket; tests replace it.
     @ObservationIgnored var makeSignaling: @MainActor (SessionTicket, DeviceHub) throws -> any ScreenSignaling = MacScreenHubViewer.ticketSignaling
 
@@ -85,19 +88,41 @@ public final class MacScreenHubHost {
             lastError = (error as? DeviceHubError)?.description ?? "\(error)"
             throw error
         }
-        if !on { closeLocal() }
+        if !on {
+            awaitingConsent.removeAll()
+            closeLocal()
+        }
     }
 
     // MARK: Pushes
 
-    /// `session.ticket` for the host role: serve it.
+    /// `session.ticket` for the host role: serve it once this Mac's consent allows it.
     func serve(_ ticket: SessionTicket) {
-        guard ticket.role == .host, let hub = hub() else { return }
-        guard consentGate(ticket) else {
-            logger.info("session ticket refused: this Mac's consent does not allow it")
-            end(ticket.sessionId, reason: .failed, hub: hub)
-            return
+        guard ticket.role == .host, hub() != nil else { return }
+        guard let consentGate else { return start(ticket) }
+        awaitingConsent.insert(ticket.sessionId)
+        // task-owner: one consent read per ticket; the ticket serves after it or is ended
+        Task { [weak self] in
+            let allowed = await consentGate(ticket)
+            guard let self, awaitingConsent.remove(ticket.sessionId) != nil, let hub = hub() else { return }
+            guard allowed else {
+                logger.info("session ticket refused: this Mac's consent does not allow it")
+                end(ticket.sessionId, reason: .failed, hub: hub)
+                return
+            }
+            start(ticket)
         }
+    }
+
+    /// This Mac's consent changed: a session it no longer allows (its scope) stops now.
+    public func consentChanged(allows: (SessionScope) -> Bool) {
+        guard let current = session, !allows(current.scope) else { return }
+        logger.info("serving stopped: this Mac's consent no longer allows the session")
+        stopSession(reason: .hostStopped)
+    }
+
+    private func start(_ ticket: SessionTicket) {
+        guard let hub = hub() else { return }
         if let current = session, current.id != ticket.sessionId {
             // One viewer at a time: the newer session wins.
             closeLocal()
@@ -131,6 +156,7 @@ public final class MacScreenHubHost {
 
     /// `session.revoked` or `session.ended`: the session ends now.
     func sessionOver(_ id: String) {
+        awaitingConsent.remove(id)
         guard session?.id == id else { return }
         closeLocal()
     }
@@ -199,6 +225,7 @@ public final class MacScreenHubHost {
 
     /// Signed out, or the hub went away: end the session here (the caller told the hub first, when it could).
     func closeAll() {
+        awaitingConsent.removeAll()
         closeLocal()
     }
 

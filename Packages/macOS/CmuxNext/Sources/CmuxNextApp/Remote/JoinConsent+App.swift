@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextAgentPane
 import CmuxNextDaemon
 import CmuxNextDaemonService
+import CmuxNextDevices
 import CmuxNextRemote
 import CmuxNextServer
 import Foundation
@@ -65,9 +66,9 @@ final class JoinConsentPersonLine: JoinConsentLine {
 }
 
 extension JoinConsentModel {
-    /// The model with its one-time sheet's panel, made on the first show. It reads again each time the app
-    /// comes forward (a read with the Labs switch off reads nothing), so a refusal acpmux recorded meanwhile
-    /// shows the sheet; the loop ends with the model.
+    /// The model with its one-time sheet's panel, made on the first show. The app's activation loop reads
+    /// it again each time the app comes forward (AppDelegate), so a refusal acpmux recorded meanwhile shows
+    /// the sheet.
     static func app(_ services: AppServices) -> JoinConsentModel {
         let model = JoinConsentModel(services: .app(services))
         var panel: JoinConsentAskPanel?
@@ -76,13 +77,26 @@ extension JoinConsentModel {
             if shown, panel == nil { panel = JoinConsentAskPanel(model: model) }
             panel?.setShown(shown)
         }
-        // task-owner: lives as long as the model; one read per activation
-        Task { [weak model] in
-            for await _ in NotificationCenter.default.notifications(named: NSApplication.didBecomeActiveNotification) {
-                guard let model else { return }
-                await model.refresh()
-            }
-        }
         return model
+    }
+
+    /// Mac Screen's gate (``MacScreenHubHost/consentGate``): a fresh read, then what it allows.
+    func macScreenGate(_ ticket: SessionTicket) async -> Bool {
+        // SECURITY: a capture fixture (debug.join_consent) never authorizes a live session.
+        if Self.fixtureActive { return false }
+        return await allowsMacScreen(control: ticket.scope == .full, requester: ticket.peer.name)
+    }
+
+    /// What the last read allows a running Mac Screen session of `scope`.
+    func macScreenPermits(_ scope: SessionScope) -> Bool {
+        !Self.fixtureActive && permitsMacScreen(control: scope == .full)
+    }
+
+    private static var fixtureActive: Bool {
+        #if DEBUG
+        DebugJoinConsent.status != nil
+        #else
+        false
+        #endif
     }
 }

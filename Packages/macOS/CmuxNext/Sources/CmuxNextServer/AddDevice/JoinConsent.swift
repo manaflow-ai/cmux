@@ -55,11 +55,15 @@ public nonisolated struct JoinConsentRecord: Equatable, Sendable {
     public var control: Bool
     /// The surface of the last request acpmux refused with `consent_required`; nil when none.
     public var lastRefusal: JoinConsentSurface?
+    /// acpmux's `consentRequired`: this machine is joined, so its surfaces need consent; nil from an
+    /// acpmux that does not send it.
+    public var consentRequired: Bool?
 
-    public init(screen: Bool = false, control: Bool = false, lastRefusal: JoinConsentSurface? = nil) {
+    public init(screen: Bool = false, control: Bool = false, lastRefusal: JoinConsentSurface? = nil, consentRequired: Bool? = nil) {
         self.screen = screen
         self.control = control
         self.lastRefusal = lastRefusal
+        self.consentRequired = consentRequired
     }
 
     /// The record in a result; nil without a `consent` object. Only the word `granted` is on.
@@ -67,7 +71,8 @@ public nonisolated struct JoinConsentRecord: Equatable, Sendable {
         guard let consent = result["consent"] as? [String: Any] else { return nil }
         let refusal = (result["lastRefusal"] as? [String: Any])?["surface"] as? String
         return JoinConsentRecord(screen: consent["screen"] as? String == "granted", control: consent["control"] as? String == "granted",
-                                 lastRefusal: refusal.flatMap(JoinConsentSurface.init(rawValue:)))
+                                 lastRefusal: refusal.flatMap(JoinConsentSurface.init(rawValue:)),
+                                 consentRequired: result["consentRequired"] as? Bool)
     }
 
     public func allows(_ surface: JoinConsentSurface) -> Bool { surface == .screen ? screen : control }
@@ -140,6 +145,8 @@ public final class JoinConsentModel {
     public private(set) var askError: String?
     /// Shows and hides the sheet; the app sets the panel, tests record it.
     @ObservationIgnored public var present: @MainActor (Bool) -> Void = { _ in }
+    /// After each read: the app stops a Mac Screen session the consent no longer allows.
+    @ObservationIgnored public var changed: @MainActor () -> Void = {}
     @ObservationIgnored private let services: JoinConsentServices
     /// The newest status read: an older read that answers later never overwrites it.
     @ObservationIgnored private var generation = 0
@@ -167,6 +174,7 @@ public final class JoinConsentModel {
         status = next
         consent = record
         consentSupported = supported
+        changed()
         // The Labs switch went off (or the join went away): an open sheet can no longer allow.
         if !shown, ask != nil { dismissAsk() }
         // acpmux refused a team machine for a surface still off: the first such refusal shows the sheet.
@@ -178,7 +186,7 @@ public final class JoinConsentModel {
     /// Turns `surface` on or off on this Mac. Returns the error to show, nil when set.
     @discardableResult
     public func set(_ surface: JoinConsentSurface, on: Bool) async -> String? {
-        // An on only for a joined, unrevoked Mac with the Labs switch on, read fresh; off always goes through.
+        // An on only for a joined, unrevoked Mac with the Labs switch on, read fresh; an off is always sent.
         if on {
             await refresh()
             guard shown else {
@@ -191,7 +199,8 @@ public final class JoinConsentModel {
             return lastError
         }
         defer { line.close() }
-        // SECURITY: only the person at this Mac turns a surface on; a revoke narrows, so any line may.
+        // SECURITY: only the person at this Mac turns a surface on (acpmux also takes a revoke only from
+        // the person's connection; the page asks no gesture for one, since it narrows).
         if on, !line.isPerson {
             lastError = JoinConsentStrings.onFailed
             return lastError
@@ -206,23 +215,29 @@ public final class JoinConsentModel {
         return lastError
     }
 
-    /// Mac Screen asks before it serves a session: the app owns it, so acpmux's gate never sees it. With
-    /// the Labs switch off nothing changes. With it on, a Mac whose join status says not joined serves as before
-    /// (acpmux's own rule for an unjoined Mac); otherwise it serves only what the person allowed here,
-    /// and a refusal shows the sheet and reads again.
-    /// SECURITY: an acpmux without `machine-consent-v1`, or a record not read yet, never allows.
-    public func allowsMacScreen(control: Bool, requester: String) -> Bool {
+    /// What the last read allows Mac Screen (no read, no sheet). With the Labs switch off, everything, as
+    /// before. With it on: a Mac acpmux (or else the join status) reports not joined serves as before,
+    /// which is acpmux's own rule; a joined one serves View Only with Screen sharing on and Full Control
+    /// with Control on too.
+    /// SECURITY: an acpmux without `machine-consent-v1`, or no read, never allows.
+    public func permitsMacScreen(control: Bool) -> Bool {
         guard services.enabled() else { return true }
-        let supported = consentSupported == true
-        if supported, status?.credentialPresent == false { return true }
-        let consent = supported ? self.consent : nil
-        if let consent, consent.screen, !control || consent.control { return true }
-        // The sheet once acpmux answered (with or without consent support); nothing to allow before that.
+        guard consentSupported == true else { return false }
+        if (consent?.consentRequired ?? status?.credentialPresent) == false { return true }
+        guard let consent, consent.screen else { return false }
+        return !control || consent.control
+    }
+
+    /// Mac Screen asks before it serves a session: the app owns it, so acpmux's gate never sees it. It
+    /// reads fresh, so a join or a change made since the last read counts; a refusal shows the sheet
+    /// once acpmux answered (with or without consent support).
+    public func allowsMacScreen(control: Bool, requester: String) async -> Bool {
+        guard services.enabled() else { return true }
+        await refresh()
+        if permitsMacScreen(control: control) { return true }
         if consentSupported != nil {
             refused(JoinConsentRefusal(requester: requester, surface: consent?.screen == true ? .control : .screen))
         }
-        // task-owner: one read, so the next request meets what the person allows now
-        Task { await refresh() }
         return false
     }
 

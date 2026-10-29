@@ -724,19 +724,24 @@ struct MacScreenHubHostOrderTests {
         fake.capable = false
         let consent = JoinConsentModel(services: fake.services())
         await consent.refresh()
-        host.consentGate = { consent.allowsMacScreen(control: $0.scope == .full, requester: $0.peer.name) }
+        host.consentGate = { await consent.allowsMacScreen(control: $0.scope == .full, requester: $0.peer.name) }
+        consent.changed = { host.consentChanged { consent.permitsMacScreen(control: $0 == .full) } }
         host.serve(ticket("s1", role: .host, scope: .view, peer: "v1"))
         for _ in 0..<1000 where ends.items.isEmpty { await Task.yield() }
         #expect(host.session == nil && made.items.isEmpty, "nothing served")
         #expect(ends.items == ["s1 failed"])
         #expect(consent.ask == JoinConsentRefusal(requester: "Studio", surface: .screen))
-        // The same Mac with consent support and screen allowed serves the view.
+        // The same Mac with consent support and Screen sharing on serves the view (read when it arrives).
         fake.capable = true
         fake.record.screen = true
-        await consent.refresh()
         host.serve(ticket("s2", role: .host, scope: .view, peer: "v1"))
+        for _ in 0..<1000 where host.session == nil { await Task.yield() }
         #expect(host.session?.id == "s2" && made.items == ["signaling"])
-        host.sessionOver("s2")
+        // Turning Screen sharing off stops the running session.
+        #expect(await consent.set(.screen, on: false) == nil)
+        for _ in 0..<1000 where host.session != nil { await Task.yield() }
+        #expect(host.session == nil)
+        #expect(ends.items == ["s1 failed", "s2 host_stopped"])
     }
 
     @Test func revokeSetsNoneAndWaitsForTheHubsRevocation() async {

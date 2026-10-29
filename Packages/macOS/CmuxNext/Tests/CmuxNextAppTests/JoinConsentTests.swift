@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextCloud
 import CmuxNextDesign
+import CmuxNextDevices
 import CmuxNextPages
 @testable import CmuxNextServer
 @testable import CmuxNextSettings
@@ -11,7 +12,7 @@ import Testing
 
 /// The one-line join's consent gate on this Mac (contract §5): a joined Mac's Screen sharing and
 /// Control stay off until the person turns one on. An on needs a line acpmux proved as the person
-/// (Full access's rule); off works from any line; the first refused request shows the sheet once;
+/// (Full access's rule), and so does an off, which needs no click; the first refused request shows the sheet once;
 /// page script alone never turns one on.
 @MainActor @Suite(.serialized) struct JoinConsentTests {
     final class FakeLine: JoinConsentLine {
@@ -30,7 +31,8 @@ import Testing
         func read() async -> JoinConsentRecord? { owner.record }
         func set(_ surface: JoinConsentSurface, granted: Bool) async -> Bool {
             writes.append("\(surface.rawValue) \(granted)")
-            guard takes else { return false }
+            // acpmux takes a grant and a revoke only from the person's connection.
+            guard takes, isPerson else { return false }
             if surface == .screen { owner.record.screen = granted } else { owner.record.control = granted }
             return true
         }
@@ -83,16 +85,18 @@ import Testing
         #expect(fake.lines.allSatisfy { $0.closed })
     }
 
-    @Test func thePersonTurnsASwitchOnAndAnyLineTurnsItOff() async {
+    @Test func thePersonTurnsASwitchOnAndOffAndAnotherLineTurnsNeither() async {
         let fake = Fake()
         let model = JoinConsentModel(services: fake.services())
         await model.refresh()
         #expect(await model.set(.screen, on: true) == nil)
         fake.person = false
+        #expect(await model.set(.screen, on: false) == JoinConsentStrings.offFailed, "acpmux takes a revoke only from the person")
+        #expect(model.consent?.screen == true)
+        fake.person = true
         #expect(await model.set(.screen, on: false) == nil)
-        #expect(await model.set(.control, on: false) == nil)
-        #expect(fake.writes == ["screen true", "screen false", "control false"])
-        #expect(model.lastError == nil)
+        #expect(fake.writes == ["screen true", "screen false", "screen false"])
+        #expect(model.lastError == nil && model.consent?.screen == false)
     }
 
     @Test func anOnNeedsAJoinedUnrevokedMacWithTheLabsSwitchOnButOffAlwaysGoesThrough() async {
@@ -192,36 +196,67 @@ import Testing
         #expect(page["error"] as? String == JoinConsentStrings.unsupported)
         #expect(await model.set(.screen, on: true) == JoinConsentStrings.unsupported)
         #expect(fake.writes.isEmpty)
-        #expect(!model.allowsMacScreen(control: false, requester: "Studio"))
+        #expect(!(await model.allowsMacScreen(control: false, requester: "Studio")))
         #expect(model.ask == JoinConsentRefusal(requester: "Studio", surface: .screen) && shown.values == ["true"])
         // Not joined changes nothing without consent support: never a fallback to allowing.
         fake.status = JoinStatus(credentialPresent: false)
-        await model.refresh()
-        #expect(!model.allowsMacScreen(control: false, requester: "Studio"))
+        #expect(!(await model.allowsMacScreen(control: false, requester: "Studio")))
+        #expect(!model.permitsMacScreen(control: false))
     }
 
     @Test func macScreenServesOnlyWhatThePersonAllowedOnceJoinedAndNothingChangesWithTheLabsSwitchOff() async {
         let fake = Fake()
         let model = JoinConsentModel(services: fake.services())
-        #expect(!model.allowsMacScreen(control: false, requester: "Studio"), "nothing read yet: refused")
-        #expect(model.ask == nil, "and no sheet before acpmux answered")
-        await model.refresh()
-        #expect(!model.allowsMacScreen(control: false, requester: "Studio"))
+        #expect(!model.permitsMacScreen(control: false), "nothing read yet: refused")
+        #expect(!(await model.allowsMacScreen(control: false, requester: "Studio")))
         #expect(model.ask == JoinConsentRefusal(requester: "Studio", surface: .screen))
         #expect(await model.answer(allow: true) == nil)
-        #expect(model.allowsMacScreen(control: false, requester: "Studio"), "View Only needs Screen sharing")
-        #expect(!model.allowsMacScreen(control: true, requester: "Studio"), "Full Control needs Control too")
+        #expect(await model.allowsMacScreen(control: false, requester: "Studio"), "View Only needs Screen sharing")
+        #expect(!(await model.allowsMacScreen(control: true, requester: "Studio")), "Full Control needs Control too")
         #expect(await model.set(.control, on: true) == nil)
-        #expect(model.allowsMacScreen(control: true, requester: "Studio"))
+        #expect(await model.allowsMacScreen(control: true, requester: "Studio"))
         fake.status = JoinStatus(credentialPresent: false)
         fake.record = JoinConsentRecord()
-        await model.refresh()
-        #expect(model.allowsMacScreen(control: true, requester: "Studio"), "a Mac that is not joined serves as before")
+        #expect(await model.allowsMacScreen(control: true, requester: "Studio"), "a Mac that is not joined serves as before")
         fake.enabled = false
         fake.status = nil
-        await model.refresh()
-        #expect(model.allowsMacScreen(control: true, requester: "Studio"), "the Labs switch off changes nothing")
+        #expect(await model.allowsMacScreen(control: true, requester: "Studio"), "the Labs switch off changes nothing")
     }
+
+    /// A join made since the last read (the CLI, with the app in the background) counts at once: each
+    /// request reads fresh, and acpmux's `consentRequired` wins over the join status.
+    @Test func aJoinSinceTheLastReadIsReadWhenTheRequestArrives() async {
+        let fake = Fake()
+        fake.status = JoinStatus(credentialPresent: false)
+        let model = JoinConsentModel(services: fake.services())
+        #expect(await model.allowsMacScreen(control: false, requester: "Studio"))
+        #expect(model.permitsMacScreen(control: false))
+        fake.status = JoinStatus(credentialPresent: true, machineId: "m_1")
+        #expect(!(await model.allowsMacScreen(control: false, requester: "Studio")), "joined meanwhile: refused")
+        fake.status = JoinStatus(credentialPresent: false)
+        fake.record.consentRequired = true
+        #expect(!(await model.allowsMacScreen(control: false, requester: "Studio")), "acpmux says joined")
+        let changes = Recorder()
+        model.changed = { changes.values.append("\(model.permitsMacScreen(control: false))") }
+        fake.record.consentRequired = false
+        await model.refresh()
+        #expect(changes.values == ["true"], "each read tells the app, which stops a session no longer allowed")
+    }
+
+    #if DEBUG
+    @Test func aCaptureFixtureNeverAuthorizesALiveMacScreenSession() async {
+        let fake = Fake()
+        fake.status = JoinStatus(credentialPresent: false)
+        let model = JoinConsentModel(services: fake.services())
+        let ticket = SessionTicket(sessionId: "s1", ticket: "a.b.c", signalURL: URL(string: "wss://hub.invalid/v1/sessions/s1/ws")!,
+                                   ice: [], peer: .init(id: "v1", name: "Studio", signingKey: "key"), role: .host, scope: .view)
+        #expect(await model.macScreenGate(ticket), "an unjoined Mac serves as before")
+        DebugJoinConsent.status = JoinStatus(credentialPresent: false)
+        defer { DebugJoinConsent.status = nil }
+        #expect(!(await model.macScreenGate(ticket)))
+        #expect(!model.macScreenPermits(.view))
+    }
+    #endif
 
     @Test func aRefusalAcpmuxRecordedShowsTheSheetOnceUnlessThatSurfaceIsOn() async {
         let fake = Fake()
