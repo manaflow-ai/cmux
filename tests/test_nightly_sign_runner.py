@@ -37,6 +37,8 @@ SIGNING_JOBS = {
     "recover-nightly-next-notarization": "needs.find-nightly-next-recovery.outputs.sign_runner",
     "verify-recovered-nightly-next": "needs.find-nightly-next-recovery.outputs.sign_runner",
     "sign-nightly-identity-legacy": "needs.legacy-identity-target.outputs.sign_runner",
+    # Its same-run Blacksmith twin (tests/test_ci_signing_owned_mac.py).
+    "sign-nightly-identity-legacy-blacksmith": "needs.legacy-identity-target.outputs.sign_runner",
     "verify-nightly-identity-legacy": "needs.legacy-identity-target.outputs.sign_runner",
     # Signs the Sparkle deltas (the release environment), after the feed is published.
     "generate-nightly-deltas": "needs.pick-nightly-sign-runner.outputs.runner",
