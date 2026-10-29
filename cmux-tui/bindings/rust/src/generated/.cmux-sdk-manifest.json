@@ -17,8 +17,8 @@
     },
     {
       "path": "mod.rs",
-      "sha256": "530ea9e68d931a2791f7b8b58f78cc6c58f5f3d8394796fb4364447189dae69e",
-      "size": 365
+      "sha256": "edd8b1730e4d0702225895fb58657f7d7b3f82b61b5e636f534c873049970749",
+      "size": 827
     },
     {
       "path": "types.rs",
