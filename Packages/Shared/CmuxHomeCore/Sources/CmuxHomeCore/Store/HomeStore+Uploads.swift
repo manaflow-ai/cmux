@@ -355,7 +355,13 @@ extension HomeStore {
         // Not afterLogChange: that advances chains, and this runs inside an advance.
         rebuildRows()
         if case .sendMessage(let conversation, _, _, _) = entry.intent.op { bumpTranscript(conversation) }
-        if isOnline { resumeUpload(head) } else { uploads[head]?.waitingForReconnect = true }
+        if isOnline {
+            resumeUpload(head)
+        } else {
+            // As a send made while offline: the reconnect resumes it, or it fails "Not
+            // Delivered" at the offline deadline.
+            waitForReconnect(head)
+        }
     }
 }
 

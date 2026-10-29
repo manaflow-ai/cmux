@@ -121,6 +121,52 @@ import UniformTypeIdentifiers
         #expect(sent.count == 2)
     }
 
+    /// 40 files (16 + 16 + 8), the middle message failed on its upload; the third waits.
+    @MainActor func splitSendWithAFailedMiddle(_ store: HomeStore, _ source: MockHomeSource, tag: String) async throws
+        -> (files: [LocalAttachment], failed: IdempotencyKey) {
+        var files: [LocalAttachment] = []
+        for index in 0..<40 {
+            files.append(try await store.prepareAttachment(data: Data("\(tag) \(index)".utf8), typeIdentifier: UTType.plainText.identifier))
+        }
+        await source.failNextUpload(hash: files[20].ref.hash, with: .invalid("attachment_upload_failed"), times: 1)
+        _ = try? await store.send(conversation: conversation, text: "", attachments: files)
+        await waitUntil { store.log.entries.contains { if case .failed = $0.state { true } else { false } } }
+        let failed = try #require(store.log.entries.first { if case .failed = $0.state { true } else { false } }?.intent.key)
+        return (files, failed)
+    }
+
+    func committedGroups(_ files: [LocalAttachment], in source: MockHomeSource) async throws -> [[String]] {
+        let hashes = Set(files.map(\.ref.hash))
+        return try await source.snapshot(of: conversation, tail: 20).messages.map { message in
+            message.parts.compactMap { if case .attachment(let ref) = $0, hashes.contains(ref.hash) { ref.hash } else { nil } }
+        }.filter { !$0.isEmpty }
+    }
+
+    /// Review finding: an owner's revocation of a split send's message left it in the chain and
+    /// the queue, so the rest never went.
+    @MainActor @Test func aRevokedMiddleMessageLetsTheRestGo() async throws {
+        let (store, source) = try await started()
+        let (files, failed) = try await splitSendWithAFailedMiddle(store, source, tag: "revoked")
+        store.handle(.intentsRevoked([failed]))
+        await waitUntil { store.log.isEmpty }
+        #expect(try await committedGroups(files, in: source) == [files[0..<16].map(\.ref.hash), files[32..<40].map(\.ref.hash)])
+    }
+
+    /// Review finding: a split send's next message started while offline only waited for a
+    /// reconnect flag, not as an offline send, and could wait forever. Discarding the failed
+    /// middle one offline: the third goes at the reconnect.
+    @MainActor @Test func theNextMessageStartedOfflineGoesAtTheReconnect() async throws {
+        let (store, source) = try await started()
+        let (files, failed) = try await splitSendWithAFailedMiddle(store, source, tag: "offline")
+        await source.setOnline(false)
+        await waitUntil { !store.isOnline }
+        store.discardFailed(failed)
+        #expect(store.log.entries.count == 1)
+        await source.setOnline(true)
+        await waitUntil { store.log.isEmpty }
+        #expect(try await committedGroups(files, in: source) == [files[0..<16].map(\.ref.hash), files[32..<40].map(\.ref.hash)])
+    }
+
     @MainActor @Test func sixtyFiveFilesSendAsMessagesWithinThePartLimitInOrder() async throws {
         let (store, source) = try await started()
 

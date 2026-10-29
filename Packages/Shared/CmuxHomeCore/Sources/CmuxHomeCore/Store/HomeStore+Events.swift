@@ -137,6 +137,9 @@ extension HomeStore {
             for op in log.revoke(keys) {
                 if let id = op.conversation { bumpTranscript(id) }
             }
+            // Their uploads, queue places and turn waits go with them, and a split send goes on
+            // past a revoked message (`advanceSendChains`).
+            dropOrphanUploadJobs()
             rebuildRows()
         case .typing(let id, let who, let on):
             var set = typing[id] ?? []
