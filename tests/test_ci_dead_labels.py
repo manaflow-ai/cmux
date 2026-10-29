@@ -340,6 +340,9 @@ class FakeGitHub:
     def jobs(self, run_id):
         return self.jobs_of[run_id]
 
+    def complete_jobs(self, jobs):
+        return None if len(jobs) >= 300 else jobs  # the real API client's three-page bound
+
     def force_cancel(self, run_id):
         if self.cancel_limit_on == run_id:
             raise RateLimited("POST force-cancel failed (403: rate limit)")
@@ -492,6 +495,17 @@ class RedispatchTests(unittest.TestCase):
                 self.assertEqual(github.calls, [])
                 self.assertEqual(saved.history, [])
                 self.assertIn(f"{status or 'in an unknown state'} now", results[1])
+
+    def test_a_capped_job_listing_cannot_hide_a_running_301st_sibling(self) -> None:
+        all_jobs = [job(B16, created=40)] + [ran(B32, 30, status="completed") for _ in range(299)]
+        all_jobs.append(ran(B32, 1, name="running sibling beyond the page cap"))
+        self.assertEqual(len(all_jobs), 301)
+        github = FakeGitHub()
+        github.add(run(1), all_jobs[:300])  # the API's page cap hides the running sibling
+        (results, _), saved = self.move(github, [go(run(1))])
+        self.assertEqual(github.calls, [])
+        self.assertEqual(saved.history, [])
+        self.assertIn("job listing could be truncated", results[1])
 
     def test_recheck_keeps_runs_that_moved_or_got_served(self) -> None:
         for jobs, state_, why in (([ran(B16, 0.5, name="lint")], {}, "running"),
@@ -710,6 +724,23 @@ class GuardTests(unittest.TestCase):
                                          "macos-pool-load.json")
         self.assertEqual(store.lists[janitor_guard.DEAD_KEY], [{"run_id": 3}])
         self.assertEqual(fetched, [0, 1])
+
+    def test_a_corrupt_newest_snapshot_is_a_barrier_to_an_older_empty_store(self) -> None:
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w") as handle:
+            handle.writestr("macos-pool-load.json", json.dumps({janitor_guard.LOST_KEY: [], janitor_guard.DEAD_KEY: []}))
+        fetched = []
+        blobs = [b"corrupt newest may contain an owed rerun", buffer.getvalue()]
+        store = janitor_guard.read_store([{"i": 0}, {"i": 1}],
+                                         lambda a: fetched.append(a["i"]) or blobs[a["i"]], "macos-pool-load.json")
+        self.assertFalse(store.known)
+        self.assertEqual(store.room(), 0)
+        self.assertEqual(fetched, [0])
+        snapshot = {}
+        store.stamp(snapshot)
+        for key in (janitor_guard.LOST_KEY, janitor_guard.DEAD_KEY):
+            self.assertNotIn(key, snapshot)
+            self.assertTrue(snapshot[key + janitor_guard.UNREAD_SUFFIX])
 
     def test_a_malformed_entry_is_kept_and_named_in_the_snapshot(self) -> None:
         # cmux#27114 review (60ef2b4): never dropped, surfaced for a person.
