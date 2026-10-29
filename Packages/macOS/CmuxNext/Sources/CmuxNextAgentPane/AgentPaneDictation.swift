@@ -57,6 +57,9 @@ final class AgentPaneDictation {
     private var recordsAudio = false
     /// A fresh folder for a long recording (``AgentPaneModel/onDictationFolder``); nil: temporary.
     var recordingFolder: () -> URL? = { nil }
+    /// Capture the chat at start: closing the recording may outlive a pane navigation.
+    var chatSession: () -> String? = { nil }
+    private var recordingChat = ""
     /// Opens a URL (System Settings).
     var open: (URL) -> Void = { NSWorkspace.shared.openInBackground($0) }
 
@@ -204,6 +207,7 @@ final class AgentPaneDictation {
         microphone.claims?.claim(self) { [weak self] in self?.session?.stop() }
         let session = activeSession()
         session.recordsAudio = recordsAudio
+        if session.phase.isStartable { recordingChat = chatSession() ?? "" }
         session.start()
         if !phase.isStartable, sleepObserver == nil {
             sleepObserver = MainActorObservation(NSWorkspace.willSleepNotification, center: sleepNotifications) { [weak self] in
@@ -226,6 +230,8 @@ final class AgentPaneDictation {
     }
 
     private func deliver(_ update: DictationUpdate) {
+        var update = update
+        update.audio?.chat = recordingChat
         if update.phase.isStartable {
             endHold()
             endSleepWatch()
@@ -261,6 +267,7 @@ final class AgentPaneDictation {
             var sent: [String: any Sendable] = ["mimeType": "audio/wav", "byteCount": audio.byteCount]
             if let data = audio.data { sent["data"] = data.base64EncodedString() }
             if let file = audio.file { sent["path"] = file.path }
+            if let chat = audio.chat { sent["session"] = chat }
             value["audio"] = sent
         }
         if let omitted = update.audioOmitted {

@@ -91,6 +91,8 @@ export type DictationField = Pick<MarkdownFieldHandle, "focus" | "text" | "write
 /// is dictation alone.
 export type DictationAudio = {
   accepts: boolean;
+  chat?(): string | undefined;
+  elsewhere?(): void;
   attach(audio: DictationRecording): void;
   omitted(reason: NonNullable<DictationUpdate["audioOmitted"]>): void;
 };
@@ -114,6 +116,10 @@ export function useDictation(
   attachAudio.current = audio?.attach;
   const omitAudio = useRef(audio?.omitted);
   omitAudio.current = audio?.omitted;
+  const shownChat = useRef(audio?.chat);
+  shownChat.current = audio?.chat;
+  const audioElsewhere = useRef(audio?.elsewhere);
+  audioElsewhere.current = audio?.elsewhere;
   const acceptsAudio = audio?.accepts === true;
   /// A session that ends after the chat moved to a harness without audio keeps its words only.
   const acceptsAudioNow = useRef(acceptsAudio);
@@ -144,6 +150,18 @@ export function useDictation(
       }
       if (applied && applied.state === update.state && applied.text === update.text && !update.cancelled) return;
       applied = isActive(update.state) ? update : null;
+      // The final recording and transcript belong to the chat where recording began.
+      // Never splice or auto-send either into a chat the pane navigated to while closing.
+      if (
+        update.audio?.session !== undefined &&
+        shownChat.current &&
+        update.audio.session !== (shownChat.current() ?? "")
+      ) {
+        anchor.current = null;
+        owner = null;
+        audioElsewhere.current?.();
+        return;
+      }
       // The recording joins the composer before the words do, so an auto-send takes both.
       if (update.state === "idle" && !update.cancelled && acceptsAudioNow.current) {
         if (update.audio) attachAudio.current?.(update.audio);

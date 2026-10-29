@@ -48,15 +48,20 @@ const clip = { mimeType: "audio/wav", data: "UklGRg==" };
 
 /// A composer field and the dictation hook on it; returns what the host was asked, what was
 /// attached, and the field's text at each attach.
-async function mount(accepts: boolean) {
+async function mount(accepts: boolean, chat?: () => string | undefined) {
   const { createRoot } = await import("react-dom/client");
   const { useDictation } = await import("../src/agent-session/acpmux/dictation");
   const calls: [string, unknown][] = [];
   const attached: { audio: DictationRecording; textThen: string }[] = [];
   const omitted: string[] = [];
+  let elsewhere = 0;
+  let submitted = 0;
   let text = "";
   const field: DictationField = {
     focus() {},
+    submit() {
+      submitted += 1;
+    },
     focused: () => true,
     text: () => ({ value: text, selectionStart: text.length, selectionEnd: text.length }),
     writeText(value: string) {
@@ -75,6 +80,10 @@ async function mount(accepts: boolean) {
   }
   const audio: DictationAudio = {
     accepts,
+    chat,
+    elsewhere: () => {
+      elsewhere += 1;
+    },
     attach: (a) => attached.push({ audio: a, textThen: text }),
     omitted: (reason) => omitted.push(reason),
   };
@@ -84,6 +93,8 @@ async function mount(accepts: boolean) {
   await act(async () => root!.render(<Pane audio={audio} />));
   return {
     calls,
+    elsewhere: () => elsewhere,
+    submitted: () => submitted,
     attached,
     omitted,
     text: () => text,
@@ -234,4 +245,31 @@ test("a long recording goes to a local chat as its saved file, of any size", () 
   expect(recordingLeftOutNotice("elsewhere")).toBe("dictation.recordingElsewhere");
   // One that fits a prompt still goes as an audio block, local or not.
   expect(recordingAttachment(clip, "Voice recording", false)).toMatchObject({ kind: "audio", data: clip.data });
+});
+
+// A slow writer lets the pane navigate before its last recording update arrives.
+test("a recording that finishes in another chat never attaches, splices or auto-sends there", async () => {
+  const { deliverDictation, configureDictation } = await import("../src/agent-session/acpmux/dictation");
+  configureDictation({ dictation: { autoSend: true } });
+  for (const origin of ["chat-a", ""]) {
+    let shown = origin;
+    const pane = await mount(true, () => shown || undefined);
+    await act(async () => deliverDictation({ state: "starting", text: "", level: 0 }));
+    shown = "chat-b";
+    await act(async () =>
+      deliverDictation({
+        state: "idle",
+        text: "private words",
+        level: 0,
+        audio: { mimeType: "audio/wav", path: "/private/chat-a/Recording.wav", byteCount: 9_600_080, session: origin },
+      }),
+    );
+    expect(pane.attached).toEqual([]);
+    expect(pane.text()).toBe("");
+    expect(pane.submitted()).toBe(0);
+    expect(pane.elsewhere()).toBe(1);
+    await act(async () => root?.unmount());
+    root = undefined;
+  }
+  configureDictation(undefined);
 });

@@ -303,6 +303,36 @@ struct AgentPaneDictationAudioTests {
         #expect(last.audioOmitted == .writeFailed)
     }
 
+    @Test func aRecordingClosingAfterNavigationNamesItsOriginalChat() async throws {
+        let parent = FileManager.default.temporaryDirectory.appending(path: "dictation-test-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: parent) }
+        let engine = LongRecordingTranscriber(seconds: 1)
+        let session = DictationSession(authorizer: GrantedDictationAuthorizer(), makeTranscriber: { meter in
+            engine.meter = meter
+            return engine
+        })
+        let updates = Updates()
+        let pane = AgentPaneDictation(send: { updates.all.append($0) }, microphone: DictationMicrophone(), makeSession: { session })
+        var chat = "chat-a"
+        pane.chatSession = { chat }
+        pane.recordingFolder = { parent }
+        pane.handle(.recordAudio(true))
+        pane.handle(.start)
+        try await waitFor { engine.fed && session.phase == .listening }
+        let recording = try #require(session.recording)
+        recording.writer.suspend()
+        pane.handle(.stop)
+        try await waitFor { session.closing != nil }
+        chat = "chat-b"
+        recording.writer.resume()
+        try await waitFor { updates.all.last?.phase == .idle }
+        let update = try #require(updates.all.last)
+        #expect(update.audio?.chat == "chat-a")
+        let payload = AgentPaneDictation.payload(update)
+        let audio = try #require(payload["audio"] as? [String: any Sendable])
+        #expect(audio["session"] as? String == "chat-a")
+    }
+
     /// The updates a session sent, in order.
     private final class Updates {
         var all: [DictationUpdate] = []

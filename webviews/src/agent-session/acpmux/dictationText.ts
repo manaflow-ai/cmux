@@ -22,7 +22,13 @@ export type DictationUpdate = {
 
 /// A finished session's recording, a WAV of any length: its bytes (base64) when it fits in a
 /// prompt, else the file the host wrote on this Mac (`path`), and its size.
-export type DictationRecording = { mimeType: string; data?: string; path?: string; byteCount?: number };
+export type DictationRecording = {
+  mimeType: string;
+  data?: string;
+  path?: string;
+  byteCount?: number;
+  session?: string;
+};
 
 /// Where one session's text sits in the prompt. The session owns `value[start, start + length)`;
 /// everything around it is the user's.
