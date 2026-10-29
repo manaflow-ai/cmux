@@ -109,6 +109,10 @@ import Testing
         #expect(WorkspaceBulkClose.all.targets(of: order[2], in: order).map(\.id) == ["a", "b", "c"])
         #expect(WorkspaceBulkClose.all.targets(of: order[0], in: order).map(\.id) == ["a", "b", "c"])
         #expect(WorkspaceBulkClose.others.targets(of: order[1], in: order).map(\.id) == ["b", "c"])
+        // Home's own row keeps Close Other Workspaces and Below; Home itself never closes.
+        #expect(WorkspaceBulkClose.others.targets(of: order[0], in: order).map(\.id) == ["a", "b", "c"])
+        #expect(WorkspaceBulkClose.below.targets(of: order[0], in: order).map(\.id) == ["a", "b", "c"])
+        #expect(WorkspaceBulkClose.above.targets(of: order[2], in: order).map(\.id) == ["a"])
         #expect(WorkspaceBulkClose.othersInGroup.title == "Close Other Workspaces in Group")
         #expect(WorkspaceBulkClose.all.title == "Close All Workspaces")
     }
@@ -126,6 +130,10 @@ import Testing
         #expect(arrangement.personalIndex(placing: list[0], next: list[2], after: true, registryID: "reg") == 3)
         #expect(arrangement.personalIndex(placing: list[1], next: list[0], after: false, registryID: "reg") == 0)
         #expect(arrangement.personalIndex(placing: list[1], next: list[1], after: false, registryID: "reg") == nil)
+        // A workspace with no personal row yet still goes next to an anchor that has one.
+        var fresh = list[0]
+        fresh = Workspace(id: "n", macID: "m", title: "n", directory: "~", tabs: [], lastActivityAt: fresh.lastActivityAt)
+        #expect(arrangement.personalIndex(placing: fresh, next: list[0], after: false, registryID: "reg") == 0)
         #expect(SidebarArrangement().personalIndex(placing: list[1], next: list[0], after: false, registryID: "reg") == nil)
     }
 

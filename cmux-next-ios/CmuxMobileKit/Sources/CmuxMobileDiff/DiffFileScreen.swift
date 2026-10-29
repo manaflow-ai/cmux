@@ -69,7 +69,11 @@ public struct DiffFileScreen: View {
             hunkLine = nil
             matchIndex = 0
         }
-        .onChange(of: query) { matchIndex = 0 }
+        .onChange(of: query) {
+            // Typing shows the first match; Return and the arrows go on from it.
+            matchIndex = 0
+            if let first = matches.first { scroll(to: first) }
+        }
     }
 
     private func content(isViewed: Bool) -> some View {
@@ -338,7 +342,18 @@ public struct DiffFileScreen: View {
         if !shown, file.hasFullContext {
             expanded[file.id, default: []].append(DiffNavigation.reveal(index, lineCount: lines.count))
         }
-        scrollTarget = ScrollTarget(line: index, serial: (scrollTarget?.serial ?? 0) + 1)
+        scrollTarget = ScrollTarget(line: anchorLine(for: index), serial: (scrollTarget?.serial ?? 0) + 1)
+    }
+
+    /// The line whose row carries the scroll anchor of line `index`: itself, or in Split the first
+    /// line of the row that shows it (an added line beside a removed one shares its row).
+    private func anchorLine(for index: Int) -> Int {
+        guard layout == .split else { return index }
+        let lines = lines
+        for case .lines(let range) in segments where range.contains(index) {
+            return splitRows(Array(lines[range]), from: range.lowerBound).first { $0.lineIndices.contains(index) }?.firstLine ?? index
+        }
+        return index
     }
 
     /// The find bar under the file header: the field, "2 of 5", previous and next, Done.
@@ -351,7 +366,7 @@ public struct DiffFileScreen: View {
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .submitLabel(.search)
-                .onSubmit { stepMatch(matches.isEmpty || currentMatchLine == nil ? 0 : 1) }
+                .onSubmit { stepMatch(1) }
                 .accessibilityIdentifier("diff.search.field")
             if !query.isEmpty {
                 Text(matches.isEmpty ? "No matches" : "\(min(matchIndex + 1, matches.count)) of \(matches.count)")
@@ -608,6 +623,8 @@ public struct DiffFileScreen: View {
         let right: DiffLine?
         /// The file's index of the first line this row shows (a jump's anchor).
         var firstLine = 0
+        /// The file's indices of the lines this row shows (a context row shows one line on both sides).
+        var lineIndices: [Int] = []
     }
 
     private func splitRows(_ slice: [DiffLine], from start: Int = 0) -> [SplitRow] {
@@ -616,8 +633,9 @@ public struct DiffFileScreen: View {
         var adds: [(Int, DiffLine)] = []
         func flush() {
             for i in 0..<max(dels.count, adds.count) {
-                let first = [dels[safe: i]?.0, adds[safe: i]?.0].compactMap(\.self).min() ?? start
-                rows.append(SplitRow(id: rows.count, left: dels[safe: i]?.1, right: adds[safe: i]?.1, firstLine: first))
+                let indices = [dels[safe: i]?.0, adds[safe: i]?.0].compactMap(\.self)
+                rows.append(SplitRow(id: rows.count, left: dels[safe: i]?.1, right: adds[safe: i]?.1,
+                                     firstLine: indices.min() ?? start, lineIndices: indices))
             }
             dels = []
             adds = []
@@ -630,7 +648,7 @@ public struct DiffFileScreen: View {
             case .added: adds.append((start + offset, line))
             case .context:
                 flush()
-                rows.append(SplitRow(id: rows.count, left: line, right: line, firstLine: start + offset))
+                rows.append(SplitRow(id: rows.count, left: line, right: line, firstLine: start + offset, lineIndices: [start + offset]))
             }
         }
         flush()

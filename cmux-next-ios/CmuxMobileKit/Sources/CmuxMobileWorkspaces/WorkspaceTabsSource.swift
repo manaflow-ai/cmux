@@ -277,7 +277,8 @@ public final class WorkspaceTabsSource: TabsDataSource {
     /// The tabs Close Tabs to the Left (`left`) or to the Right closes for `tab`, in order: the
     /// unpinned tabs before or after it in its pane on the Mac (`TabStripModel.closedByCloseToLeft`).
     nonisolated static func closedBySide(of tab: WorkspaceTab, left: Bool, in tabs: [WorkspaceTab]) -> [WorkspaceTab] {
-        let pane = tab.linkIDs?.pane
+        // Without the Mac's pane ids the phone can't tell panes apart: no side closes then.
+        guard let pane = tab.linkIDs?.pane else { return [] }
         let peers = tabs.filter { $0.linkIDs?.pane == pane }
         guard let index = peers.firstIndex(where: { $0.id == tab.id }) else { return [] }
         return (left ? Array(peers[..<index]) : Array(peers[(index + 1)...])).filter { !$0.isPinned }
@@ -1143,7 +1144,8 @@ public final class WorkspaceTabsSource: TabsDataSource {
     /// Close Tabs to the Left / to the Right (the Mac's tab menu), each only when it has a tab
     /// to close.
     private func sideCloseItems(_ tab: WorkspaceTab) -> [TabsKitMenuItem] {
-        guard canEditTabs, let workspace else { return [] }
+        // Home's tabs never close (the Mac's `isClosable`).
+        guard canEditTabs, let workspace, !workspace.isHome else { return [] }
         return [true, false].compactMap { left in
             guard !Self.closedBySide(of: tab, left: left, in: workspace.tabs).isEmpty else { return nil }
             return TabsKitMenuItem(title: left ? Self.closeLeftTitle : Self.closeRightTitle,

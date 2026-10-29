@@ -400,7 +400,7 @@ extension WorkspaceCreator {
     /// Workspace does (the person already said yes).
     public func closeGroups(_ groups: [MacWorkspaceGroup], on macID: String) {
         let members = members(of: groups, on: macID)
-        guard let grouper, let first = members.first, canArrange(first) else { return }
+        guard let grouper, let first = members.first, members.allSatisfy({ canArrange($0) }) else { return }
         let previous = groupRequestTail[macID]
         let task = track(first.id) { [weak self] in
             await previous?.value
@@ -412,10 +412,12 @@ extension WorkspaceCreator {
                         try await grouper.deleteGroup(group, on: macID)
                     }
                 } catch {
+                    // The group stays: its workspaces stay with it, never an empty group left behind.
                     self?.onManageFailure?(first, "Couldn't close \(group.displayName)", Self.message(error))
+                    continue
                 }
+                self?.close(members.filter { $0.group?.id == group.id })
             }
-            self?.close(members)
         }
         groupRequestTail[macID] = task
     }

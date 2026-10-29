@@ -184,9 +184,10 @@ import SwiftUI
         let backend = MockWorkspaceCreationBackend(latency: .zero)
         let (store, source) = make(backend: backend)
         let terminal = source.tabs[1]
-        // The Mac's tab menu: Rename Tab…, Pin Tab, Duplicate Tab | its group rows (TabsKit adds
-        // Close Tab and Close Other Tabs); its More's moves are in the page menu.
-        #expect(source.cardMenu(for: terminal).map { $0.map(\.title) } == [["Rename Tab…", "Pin Tab", "Duplicate Tab"], ["New Tab Group"]])
+        // The Mac's tab menu: Rename Tab…, Pin Tab, Duplicate Tab | its group rows | Close Tabs to the
+        // Left / Right (TabsKit adds Close Tab and Close Other Tabs); its More's moves are in the page menu.
+        #expect(source.cardMenu(for: terminal).map { $0.map(\.title) }
+            == [["Rename Tab…", "Pin Tab", "Duplicate Tab"], ["New Tab Group"], ["Close Tabs to the Left", "Close Tabs to the Right"]])
         let page = source.pageMenu(for: terminal).flatMap { $0 }.map(\.title)
         #expect(page.contains("Move Tab to Workspace…") && page.contains("Move Tab to New Workspace"))
         #expect(source.pageMenu(for: source.tabs[0]).flatMap { $0 }.contains { $0.title == "Rename Tab…" })

@@ -162,7 +162,6 @@ public struct SidebarArrangement: Equatable, Sendable {
     public func personalIndex(placing workspace: Workspace, next anchor: Workspace, after: Bool, registryID: String) -> Int? {
         guard let rows, anchor.id != workspace.id else { return nil }
         let order = rows.sorted { $0.index < $1.index }.map { "\($0.session)/\($0.key)" }
-        guard order.contains("\(registryID)/\(workspace.id)") else { return nil }
         let without = order.filter { $0 != "\(registryID)/\(workspace.id)" }
         guard let anchorIndex = without.firstIndex(of: "\(registryID)/\(anchor.id)") else { return nil }
         return after ? anchorIndex + 1 : anchorIndex
@@ -479,14 +478,18 @@ extension WorkspaceCreator {
         guard !plans.isEmpty, let first = plans.first?.0.first else { return }
         let old = plans.flatMap { reorderLocally($0.0, to: $0.1) }
         track("sort-\(macID)") { [weak self] in
+            var moved = false
             do {
                 for (order, sorted) in plans {
                     for step in WorkspaceSortKey.steps(from: order, to: sorted) {
                         try await arranger.place(step.workspace, next: step.anchor, after: step.after)
+                        moved = true
                     }
                 }
             } catch {
-                self?.restore(old)
+                // Nothing moved: the old places come back. Some moved: the Mac's list (already
+                // read after each move) is the truth, so nothing is put back over it.
+                if !moved { self?.restore(old) }
                 self?.onManageFailure?(first, "Couldn't sort the workspaces", Self.message(error))
             }
         }
@@ -551,19 +554,16 @@ public enum WorkspaceBulkClose: String, CaseIterable, Hashable, Sendable {
     /// The workspaces this closes when chosen on `workspace`, in `order`. Home never closes
     /// (the Mac's `HomeRules`).
     public func targets(of workspace: Workspace, in order: [Workspace]) -> [Workspace] {
-        let order = order.filter { !$0.isHome }
-        guard let index = order.firstIndex(where: { $0.id == workspace.id }) else {
-            return self == .all && workspace.isHome ? order : []
-        }
-        switch self {
-        case .others: return order.filter { $0.id != workspace.id }
-        case .above: return Array(order[..<index])
-        case .below: return Array(order[(index + 1)...])
+        guard let index = order.firstIndex(where: { $0.id == workspace.id }) else { return [] }
+        let targets: [Workspace] = switch self {
+        case .others: order.filter { $0.id != workspace.id }
+        case .above: Array(order[..<index])
+        case .below: Array(order[(index + 1)...])
         case .othersInGroup:
-            guard let group = workspace.group?.id else { return [] }
-            return order.filter { $0.id != workspace.id && $0.group?.id == group }
-        case .all: return order
+            workspace.group.map { group in order.filter { $0.id != workspace.id && $0.group?.id == group.id } } ?? []
+        case .all: order
         }
+        return targets.filter { !$0.isHome }
     }
 
     /// "Close 3 workspaces?" (the phone asks first; the Mac closes at once).
