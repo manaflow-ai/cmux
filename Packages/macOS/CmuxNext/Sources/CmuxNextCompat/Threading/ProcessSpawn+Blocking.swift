@@ -34,9 +34,12 @@ public func blockingPosixSpawn(_ pid: UnsafeMutablePointer<pid_t>?, _ path: Unsa
 ///
 /// The clamp is `posix_spawnattr_set_qos_class_np` (``MayBlockPriority/spawnClamp``): a QoS ceiling the child
 /// and its descendants keep. For ``MayBlockPriority/userVisible`` and ``MayBlockPriority/userBlocking`` the
-/// seam sets nothing on the child. Darwin does not document that a child takes the spawning thread's QoS, so
+/// seam sets no QoS on the child. Darwin does not document that a child takes the spawning thread's QoS, so
 /// nothing here relies on it (ChildProcessLauncherTests compare what a child reports when it is spawned from a
 /// launcher and from the main thread).
+///
+/// The child also starts with no signal blocked and every signal at its default action
+/// (``spawnWithDefaultSignals(_:)``), unless the caller set its own mask or defaults.
 ///
 /// - Parameters:
 ///   - pid: Receives the child's process id.
@@ -74,9 +77,47 @@ public func blockingPosixSpawn(_ pid: UnsafeMutablePointer<pid_t>?, _ path: Unsa
         let clamped = unsafe posix_spawnattr_set_qos_class_np(attributes, ceiling)
         guard clamped == 0 else { return clamped }
     }
+    let signals = unsafe spawnWithDefaultSignals(attributes)
+    guard signals == 0 else { return signals }
     // SAFETY: forwards the caller's pointers to posix_spawn unchanged, only for the call; the caller's own `unsafe`
     // states why they are valid for it.
     return blockingCall(.processSpawn, fileID: fileID, line: line) { unsafe posix_spawn(pid, path, fileActions, attributes, argv, envp) }
+}
+
+/// Makes a child spawned with `attributes` start with no signal blocked and every signal at its default action,
+/// as Chrome starts every child (base/process/launch_posix.cc: `ResetChildSignalHandlersToDefaults` and an empty
+/// signal mask). Without `POSIX_SPAWN_SETSIGMASK` a child takes the spawning thread's signal mask, and a
+/// ``ChildProcessLauncher`` spawns on a dispatch worker thread, which blocks every signal but the fault ones: the
+/// child would start with SIGHUP, SIGINT and SIGTERM blocked, so a hang-up or an interrupt sent to it does
+/// nothing. `POSIX_SPAWN_SETSIGDEF` also drops a signal the app's launcher left ignored (nohup, a CI runner). A
+/// mask or a set of defaults the caller already set (its flags carry them) stays as the caller set it.
+///
+/// - Parameter attributes: The caller's initialized `posix_spawn` attributes.
+/// - Returns: 0, or the error number of the first attribute call that failed.
+@inlinable
+public func spawnWithDefaultSignals(_ attributes: UnsafeMutablePointer<posix_spawnattr_t?>) -> Int32 {
+    var flags: Int16 = 0
+    // SAFETY (every call below): `attributes` is the caller's initialized attributes object, lent for this call;
+    // `flags`, `none` and `every` are locals the calls read or write in place.
+    let read = unsafe posix_spawnattr_getflags(attributes, &flags)
+    guard read == 0 else { return read }
+    var added: Int16 = 0
+    if flags & Int16(POSIX_SPAWN_SETSIGMASK) == 0 {
+        var none = sigset_t()
+        unsafe sigemptyset(&none)
+        let masked = unsafe posix_spawnattr_setsigmask(attributes, &none)
+        guard masked == 0 else { return masked }
+        added |= Int16(POSIX_SPAWN_SETSIGMASK)
+    }
+    if flags & Int16(POSIX_SPAWN_SETSIGDEF) == 0 {
+        var every = sigset_t()
+        unsafe sigfillset(&every)
+        let defaulted = unsafe posix_spawnattr_setsigdefault(attributes, &every)
+        guard defaulted == 0 else { return defaulted }
+        added |= Int16(POSIX_SPAWN_SETSIGDEF)
+    }
+    guard added != 0 else { return 0 }
+    return unsafe posix_spawnattr_setflags(attributes, flags | added)
 }
 
 extension MayBlockPriority {
