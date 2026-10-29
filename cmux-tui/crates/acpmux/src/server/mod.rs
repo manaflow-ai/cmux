@@ -1558,7 +1558,8 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             }
         }
         if rec.dir == "mux" && rec.kind == "_acpmux/message" {
-            conn.send(&Message::notification(method::MUX_MESSAGE, rec.msg.clone()));
+            // Routed as the event beside it: a peer's chat id alone may match one here.
+            conn.send(&Message::notification(method::MUX_MESSAGE, routed(rec.msg.clone())));
         }
         if rec.dir == "mux" && is_permission_ask(&rec.kind) {
             conn.send(&Message::notification(

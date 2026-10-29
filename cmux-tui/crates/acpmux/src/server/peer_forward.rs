@@ -108,6 +108,13 @@ fn name_sender(hub: &Arc<Hub>, conn: &Arc<Conn>, p: &mut Value) {
     crate::hub::merge_mux_meta(p, meta);
 }
 
+/// A peer's answer for a prompt id it took before (`hub/turns.rs`): the acceptance notice's
+/// `duplicate`, or the first run's outcome marked `_meta.acpmux.duplicate`.
+fn is_duplicate(v: &Value) -> bool {
+    v.get("duplicate").and_then(Value::as_bool) == Some(true)
+        || v.pointer("/_meta/acpmux/duplicate").and_then(Value::as_bool) == Some(true)
+}
+
 /// `e` with `data.peer` = `peer`, this daemon's own name for the peer that
 /// answered: any `peer` the peer's own answer gave is replaced, so the app
 /// enrolls this Mac only on a peer of this daemon, never on a host the peer named.
@@ -341,8 +348,11 @@ async fn forward_inner(
         } else {
             None
         };
+        // The peer's acceptance said this prompt id was a duplicate (`is_duplicate`).
+        let duplicate = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let token = accept.as_ref().map(|prompt_id| {
             let (conn, peer_name) = (conn.clone(), peer.name.clone());
+            let duplicate_seen = duplicate.clone();
             let callback_hub = hub.clone();
             let sender_message = sender_message.clone();
             let forward_intent = forward_intent.clone();
@@ -353,8 +363,17 @@ async fn forward_inner(
                 &id,
                 prompt_id,
                 Box::new(move |mut v| {
-                    let stored =
-                        if let Some((sender_session, sender, text, message_id)) = sender_message {
+                    if is_duplicate(&v) {
+                        // The peer ran this prompt id before, maybe as another message (a
+                        // direct send, then its `send_queue` retry): only its journal says.
+                        duplicate_seen.store(true, std::sync::atomic::Ordering::SeqCst);
+                        if let Some(intent) = forward_intent {
+                            super::outbox::forward_unconfirmed(&callback_hub, &intent);
+                        }
+                    } else {
+                        let stored = if let Some((sender_session, sender, text, message_id)) =
+                            sender_message
+                        {
                             callback_hub.append_sender_message_event(
                                 &sender_session,
                                 sender,
@@ -366,8 +385,14 @@ async fn forward_inner(
                         } else {
                             false
                         };
-                    if let Some(intent) = forward_intent {
-                        super::outbox::forward_accepted(&callback_hub, &intent, v.clone(), stored);
+                        if let Some(intent) = forward_intent {
+                            super::outbox::forward_accepted(
+                                &callback_hub,
+                                &intent,
+                                v.clone(),
+                                stored,
+                            );
+                        }
                     }
                     if let Some(obj) = v.as_object_mut() {
                         obj.insert("peer".into(), Value::String(peer_name));
@@ -410,6 +435,12 @@ async fn forward_inner(
         // Reconcile that successful result too, before the intent is settled.
         if let Some(intent) = forward_intent.as_deref() {
             match &result {
+                Ok(accepted)
+                    if is_duplicate(accepted)
+                        || duplicate.load(std::sync::atomic::Ordering::SeqCst) =>
+                {
+                    super::outbox::forward_unconfirmed(hub, intent);
+                }
                 Ok(accepted) => {
                     let stored =
                         if let Some((sender_session, sender, text, message_id)) = sender_message {
