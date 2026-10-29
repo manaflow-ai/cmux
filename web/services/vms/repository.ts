@@ -3336,7 +3336,10 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
           const [vm] = await tx
             .update(cloudVms)
             .set({
-              providerMetadata: sql`coalesce(${cloudVms.providerMetadata}, '{}'::jsonb) || ${reservationMetadataJsonb(reservation)}`,
+              // Reservation and activity share one write, invalidating any older idle claim.
+              providerMetadata: bumpIdleEpoch(sql`coalesce(${cloudVms.providerMetadata}, '{}'::jsonb)
+                || ${reservationMetadataJsonb(reservation)}
+                || ${JSON.stringify({ [VM_LAST_API_ACTIVITY_KEY]: Date.now() })}::jsonb`),
               updatedAt: new Date(),
             })
             .where(and(eq(cloudVms.id, current.id), ne(cloudVms.status, "destroyed")))
@@ -3448,7 +3451,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
           await tx
             .update(cloudVms)
             .set({
-              providerMetadata: isNoopResize
+              providerMetadata: bumpIdleEpoch(sql`(${isNoopResize
                 ? sql`(
                   coalesce(${cloudVms.providerMetadata}, '{}'::jsonb)
                   || ${reservationMetadataJsonb(reserved)}
@@ -3463,7 +3466,8 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
                     true
                   )
                 ) #- '{${sql.raw(VM_RESOURCE_RESIZE_UNCONFIRMED_METADATA_KEY)}}'
-                  #- '{${sql.raw(VM_RESOURCE_RECONCILE_RETRY_METADATA_KEY)}}'`,
+                  #- '{${sql.raw(VM_RESOURCE_RECONCILE_RETRY_METADATA_KEY)}}'`})
+                || ${JSON.stringify({ [VM_LAST_API_ACTIVITY_KEY]: createdAtMs })}::jsonb`),
               updatedAt: new Date(),
             })
             .where(and(eq(cloudVms.id, current.id), ne(cloudVms.status, "destroyed")));

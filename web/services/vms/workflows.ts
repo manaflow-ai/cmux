@@ -5269,6 +5269,11 @@ export function resizeVm(input: {
     if (!providers.resize || !providers.getStats) {
       return yield* Effect.fail(new VmOperationUnsupportedError({ provider: vm.provider, operation: "resize" }));
     }
+    // A user resize is activity before any preflight/provider I/O. Do not
+    // proceed on a failed write: an overdue idle candidate could pause it.
+    if (repo.recordVmApiActivity) {
+      yield* repo.recordVmApiActivity({ id: vm.id, providerVmId: input.providerVmId, at: yield* Clock.currentTimeMillis });
+    }
     yield* preflightResumeIfSuspended(repo, providers, vm, input.providerVmId, "resize", {
       forceProviderProbe: true,
       maxActiveVms: input.maxActiveVms, callerPlanId: input.billingPlanId,
