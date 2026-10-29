@@ -111,6 +111,10 @@ impl Translator {
                         let uuid = uuid::Uuid::now_v7().to_string();
                         let line = json!({"type": "user", "uuid": uuid, "message": {"role": "user", "content": content}});
                         self.in_turn.store(true, Ordering::SeqCst);
+                        // A new prompt starts a fresh logical turn. A cancelled compaction may
+                        // never emit its boundary/result, so clear its live compaction state here
+                        // while retaining the separate late-result attribution marker.
+                        self.compacting.store(false, Ordering::SeqCst);
                         self.turn_output.store(false, Ordering::SeqCst);
                         *self.prompt_echo.lock().await = Some(uuid);
                         self.cancelled.store(false, Ordering::SeqCst);

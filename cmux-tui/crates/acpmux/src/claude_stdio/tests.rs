@@ -222,7 +222,9 @@ async fn a_cancelled_compaction_result_cannot_end_the_next_echoed_prompt() {
     t.outbound(&prompt(1, "/compact")).await;
     t.inbound(&json!({"type": "system", "subtype": "status", "status": "compacting"})).await;
     t.outbound(&Message::notification(method::SESSION_CANCEL, json!({"sessionId": "acp-1"}))).await;
+    assert!(t.is_compacting());
     let Outbound::Lines(lines) = t.outbound(&prompt(2, "continue")).await else { panic!() };
+    assert!(!t.is_compacting(), "new prompt inherited stale compaction state");
     let mut echo = lines[0].clone();
     echo["isReplay"] = json!(true);
     t.inbound(&echo).await;
