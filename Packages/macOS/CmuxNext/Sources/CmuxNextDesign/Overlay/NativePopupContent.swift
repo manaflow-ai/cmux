@@ -54,9 +54,6 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
             rebuild(next)
             if let focusedID, let replacement = editableControls[focusedID] ?? fields[focusedID] {
                 window?.makeFirstResponder(replacement)
-                if let selection, let editor = replacement.currentEditor() as? NSTextView {
-                    editor.setSelectedRange(NSRange(location: min(selection.location, (editor.string as NSString).length), length: 0))
-                }
             }
         }
         if let field = next.search, let search {
@@ -65,6 +62,11 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
             search.stringValue = field.value
             search.placeholderString = field.placeholder
             search.isEnabled = field.disabled != true
+        }
+        if let selection, let focusedID, let editor = fields[focusedID]?.currentEditor() as? NSTextView {
+            let count = (editor.string as NSString).length
+            let location = min(selection.location, count)
+            editor.setSelectedRange(NSRange(location: location, length: min(selection.length, count - location)))
         }
         model = next
         let policy = next.search?.autoHighlight
@@ -346,7 +348,7 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
             selected = enabled[(index + (key == 125 ? 1 : -1) + enabled.count) % enabled.count].0.id
             selectionReason = "keyboard"
             paintSelection()
-            if search == nil, let view = enabled.first(where: { $0.0.id == selected })?.1 as? NativePopupSliderView {
+            if window?.firstResponder === self, let view = enabled.first(where: { $0.0.id == selected })?.1 as? NativePopupSliderView {
                 window?.makeFirstResponder(view.slider)
             }
             emit(.highlight, selected, nil)
