@@ -1089,7 +1089,7 @@ impl Hub {
             && let Some((from, record)) = &work.carry_next
             && let Some(next) = super::carried_turn::NextTurn::from_record(record)
         {
-            let super::carried_turn::NextTurn { carried, next } = next;
+            let super::carried_turn::NextTurn { carried, next, .. } = next;
             self.recover_carried(session, child, next, Some((from.clone(), carried)));
         } else if let Some((turn_seq, turn_id, prompt_id, prompt, client, control)) =
             work.turn.clone()
