@@ -129,7 +129,7 @@ pub fn verdict(
     default_home: &Path,
     temp_dir: &Path,
     allow: bool,
-    _verified_clone: bool,
+    verified_clone: bool,
 ) -> Verdict {
     let Some(why) = classify(exe, temp_dir) else { return Verdict::Stable };
     if home != default_home || classify(home, temp_dir).is_some() {
@@ -142,7 +142,9 @@ pub fn verdict(
         why.phrase()
     );
     match why {
-        Unstable::RunnerWork | Unstable::Temp if !allow && !bundled(exe) => {
+        Unstable::RunnerWork | Unstable::Temp
+            if !allow && !bundled(exe) && !(why == Unstable::Temp && verified_clone) =>
+        {
             Verdict::Refuse(format!(
                 "{line}. Refused for {}: install acpmux (`acpmux host setup HOST` from another machine, \
              or copy it to ~/.local/bin/acpmux) and run that, give this one its own ACPMUX_HOME, \
@@ -244,7 +246,7 @@ pub fn shutdown_refusal(
     default_home: &Path,
     temp_dir: &Path,
     allow: bool,
-    _verified_clone: bool,
+    verified_clone: bool,
 ) -> Option<String> {
     if home != default_home || classify(home, temp_dir).is_some() {
         return None;
@@ -254,7 +256,9 @@ pub fn shutdown_refusal(
         Some("a test runner")
     } else {
         match classify(peer_exe, temp_dir) {
-            Some(why @ (Unstable::RunnerWork | Unstable::Temp)) if !allow && !bundled(peer_exe) => {
+            Some(why @ (Unstable::RunnerWork | Unstable::Temp))
+                if !allow && !bundled(peer_exe) && !(why == Unstable::Temp && verified_clone) =>
+            {
                 Some(why.phrase())
             }
             _ => None,
