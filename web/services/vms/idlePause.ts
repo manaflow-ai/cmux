@@ -130,7 +130,10 @@ export function vmLastApiActivityFromRow(row: MetadataRow): number | null {
  */
 export function vmIdlePrivateAddressesFromRow(row: MetadataRow): string[] {
   const metadata = row.providerMetadata ?? {};
-  return [metadata["networkIpv4"], metadata["networkIpv6"]].filter((a): a is string => typeof a === "string" && isIP(a) !== 0);
+  const raw = [metadata["networkIpv4"], metadata["networkIpv6"]];
+  // A malformed field can hide an inbound connection on that interface.
+  if (raw.some((a) => a != null && a !== "" && (typeof a !== "string" || isIP(a) === 0))) return [];
+  return raw.filter((a): a is string => typeof a === "string" && a !== "");
 }
 
 /** What {@link vmIdleProbeCommand} saw on the machine. */
