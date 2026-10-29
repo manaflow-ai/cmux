@@ -1158,6 +1158,19 @@ mod tests {
         assert!(activity.idle_since().is_some(), "the prompt after the line");
     }
 
+    /// Review 7 of cp/daemon-foreground-state, finding 2: a fresh host's first
+    /// snapshot has no prompt yet, so its shell's first `A` answers the spawn,
+    /// not a line typed before it.
+    #[test]
+    fn shell_idle_a_line_typed_before_a_fresh_hosts_first_prompt_is_owed() {
+        let mut activity = ShellActivity::default();
+        activity.restore(ShellActivitySnapshot::default());
+        activity.note_input(b"sleep 600\r");
+        activity.observe(ShellMark::PromptStart, 1_000);
+        check_at_b(&mut activity, 1_001);
+        assert_eq!(activity.idle_since(), None, "`sleep 600` is not answered");
+    }
+
     /// Review 2, finding 6: a reconnect without host state checks again.
     #[test]
     fn shell_idle_a_forgotten_check_is_not_idle_until_checked_again() {
