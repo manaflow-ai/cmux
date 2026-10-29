@@ -51,7 +51,7 @@ if [ -n "$t" ]; then
   case "${t#cmj_}" in
     '' | *[!A-Za-z0-9_-]*) die 2 "the line was damaged; copy it again from cmux" ;;
   esac
-  if [ "${#t}" -gt 512 ]; then
+  if [ "${#t}" -gt 4096 ]; then
     die 2 "the line was damaged; copy it again from cmux"
   fi
 fi
@@ -110,8 +110,11 @@ has_capability() {
 }
 
 # 3. acpmux from the channel, checked against its sha256 before it touches
-# ~/.local/bin. A binary that already has that sha256 is kept; so is a
-# different one that can join (the update timer owns updates).
+# ~/.local/bin. The join token only ever goes to a binary with the channel's
+# sha256: on a mismatch the channel's build replaces it (the old one stays as
+# acpmux.prev). A repair run with no token keeps a different binary that can
+# join (the update timer owns updates), and keeps the installed one when the
+# channel cannot be read.
 channel="${CMUX_JOIN_CHANNEL:-feat-cmux-next}"
 case "$channel" in
   '' | *[!a-z0-9-]*) die 1 "refusing the channel $channel: lowercase letters, digits and - only" ;;
@@ -124,12 +127,15 @@ if fetch "$files/channels/$channel.json" "$tmp/channel.json"; then
     die 1 "the $channel channel has no acpmux build for $target"
   fi
 fi
+replaced=0
 if [ -z "$want" ]; then
-  has_capability "$acpmux" || die 1 "cannot read the $channel channel from files.cmux.com: check this machine's outbound HTTPS"
+  if [ -n "$t" ] || ! has_capability "$acpmux"; then
+    die 1 "cannot read the $channel channel from files.cmux.com: check this machine's outbound HTTPS, then paste the line again"
+  fi
   say "cannot read the $channel channel; keeping the installed acpmux"
 elif [ -x "$acpmux" ] && [ "$(sha256 "$acpmux")" = "$want" ]; then
   :
-elif has_capability "$acpmux"; then
+elif [ -z "$t" ] && has_capability "$acpmux"; then
   say "keeping the installed acpmux (its update timer brings it to $channel)"
 else
   fetch "$files/tree/$key/cmux-tui-acpmux-$target" "$tmp/acpmux" ||
@@ -141,6 +147,7 @@ else
   install -m 755 "$tmp/acpmux" "$bin_dir/.acpmux.new"
   if [ -e "$acpmux" ]; then
     cp -p "$acpmux" "$bin_dir/acpmux.prev"
+    replaced=1
   fi
   mv -f "$bin_dir/.acpmux.new" "$acpmux"
   say "installed acpmux to $acpmux"
@@ -194,7 +201,13 @@ if "$acpmux" daemon service --help >/dev/null 2>&1; then
 else
   say "warning: this acpmux cannot install its service yet; the daemon runs until the next reboot"
 fi
-"$acpmux" daemon start >/dev/null || say "warning: the acpmux daemon did not start: run $acpmux daemon start"
+# A replaced binary takes over a running daemon by a restart, which keeps
+# its sessions; with none running, the restart fails and start starts one.
+if [ "$replaced" = 1 ] && "$acpmux" daemon restart >/dev/null 2>&1; then
+  :
+else
+  "$acpmux" daemon start >/dev/null || say "warning: the acpmux daemon did not start: run $acpmux daemon start"
+fi
 
 # 5. The name: CMUX_JOIN_NAME, else the first label of the host name (the
 # platform keeps the label the token was minted with).
@@ -244,7 +257,11 @@ if [ -n "$t" ]; then
       store="$(status_json | sed -n 's/.*"credentialPath":"\([^"]*\)".*/\1/p')"
       die 5 "could not store the machine credential in ${store:-$HOME/.acpmux}: free disk / fix permissions, then paste a new line"
       ;;
-    *) die "$rc" "joining failed (acpmux exit $rc); paste a new line, or run: $acpmux host join --status" ;;
+    *)
+      # acpmux redacts its errors; cut anything token-shaped anyway.
+      sed 's/cmj_[A-Za-z0-9_-]*/[redacted token]/g' "$tmp/join.err" >&2
+      die "$rc" "joining failed (acpmux exit $rc); paste a new line, or run: $acpmux host join --status"
+      ;;
   esac
 fi
 

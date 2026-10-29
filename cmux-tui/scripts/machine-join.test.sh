@@ -129,7 +129,7 @@ case "\$*" in
     "$(command -v cat)" >>"\$JT_LOG/join-stdin"
     echo "\$*" >>"\$JT_LOG/joins"
     code="\${JT_JOIN_EXIT:-0}"
-    [ "\$code" = 0 ] || { echo "acpmux: join failed" >&2; exit "\$code"; }
+    [ "\$code" = 0 ] || { echo "acpmux: join failed (cmj_LeakedInError)" >&2; exit "\$code"; }
     : >"\$JT_STATE"
     printf '{"joined": true, "alreadyJoined": false}\n' ;;
   *) ;;
@@ -251,6 +251,15 @@ suite() {
     esac
   done
 
+  # Any other failure shows acpmux's own error, with anything token-shaped cut.
+  new_case exit-other
+  JT_JOIN_EXIT=7
+  run_join env
+  check "exit 7 passes through (got $rc)" rc_is 7
+  check "acpmux's error is shown" out_has "acpmux: join failed"
+  check "the generic line" out_has "joining failed (acpmux exit 7)"
+  check "no token in output" no_token_in_output
+
   new_case sha-mismatch
   serve_dir "$d/serve" "0000000000000000000000000000000000000000000000000000000000000000"
   run_join env
@@ -258,6 +267,42 @@ suite() {
   check "mismatch says so" out_has "checksum verification failed for acpmux"
   check "nothing installed" eval '! installed'
   check "nothing redeemed" no_redeem
+
+  # A capable acpmux whose sha256 is not the channel's never gets the token:
+  # the channel's build replaces it first.
+  new_case capable-mismatch
+  mkdir -p "$d/home/.local/bin"
+  { cat "$root/acpmux.src"; echo "# a different build"; } >"$d/home/.local/bin/acpmux"
+  chmod 755 "$d/home/.local/bin/acpmux"
+  run_join env
+  check "capable mismatch exit 0 (got $rc): $(cat "$d/out")" rc_is 0
+  check "the channel build replaced it" test "$(sha "$d/home/.local/bin/acpmux")" = "$(sha "$d/serve/acpmux")"
+  check "the old one kept as acpmux.prev" grep -q "a different build" "$d/home/.local/bin/acpmux.prev"
+  check "the replaced daemon restarted" grep -q "^acpmux daemon restart" "$d/log/argv"
+  check "token on stdin of the verified binary" token_on_stdin_once
+
+  # Without a token (repair), a capable different build is kept.
+  new_case capable-mismatch-repair
+  mkdir -p "$d/home/.local/bin"
+  { cat "$root/acpmux.src"; echo "# a different build"; } >"$d/home/.local/bin/acpmux"
+  chmod 755 "$d/home/.local/bin/acpmux"
+  run_join none
+  check "repair exit 0 (got $rc)" rc_is 0
+  check "repair keeps the capable build" grep -q "a different build" "$d/home/.local/bin/acpmux"
+  check "repair downloads no binary" eval '! fetched_binary'
+
+  # The channel cannot be read: a token run refuses, a repair run keeps going.
+  new_case no-channel
+  mkdir -p "$d/home/.local/bin"
+  cp "$root/acpmux.src" "$d/home/.local/bin/acpmux"
+  chmod 755 "$d/home/.local/bin/acpmux"
+  rm "$d/serve/channel.json"
+  run_join env
+  check "no channel with a token exits 1 (got $rc)" rc_is 1
+  check "no channel says so" out_has "cannot read the feat-cmux-next channel"
+  check "no channel redeems nothing" no_redeem
+  run_join none
+  check "no channel repair exit 0 (got $rc)" rc_is 0
 
   new_case too-old
   JT_CAPS="acpmux-v1"
