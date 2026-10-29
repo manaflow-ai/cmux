@@ -48,6 +48,9 @@ public final class TraceBlackBox: Sendable {
     private let catalog: [TraceRing.CatalogName]
     /// 1 while a ``prepareRecording()`` maps the recording ring: one mapping per process, never two.
     private let preparingRecording = Atomic<UInt64>(0)
+    /// Whether the header's kernel fields (process start, boot session) are read at the first file step rather
+    /// than by the caller (``init(role:directory:runtime:process:readsKernelFactsLater:buildVersion:catalog:clock:)``).
+    private let readsKernelFactsLater: Bool
 
     /// Starts the black box on the heap, attaches it to `runtime` and turns on the black-box categories. No
     /// file work. When `runtime` already has a black box, ``ring`` is that one (a runtime keeps its first).
@@ -58,15 +61,21 @@ public final class TraceBlackBox: Sendable {
     ///   - runtime: The runtime that owns the ring and whose category flags the black box sets
     ///     (``TraceCategories/blackBox``).
     ///   - process: The header's process fields; the calling process by default.
+    ///   - readsKernelFactsLater: The header's process start and boot session need a kernel query each
+    ///     (``ProcessFacts/withKernelFacts()``): true reads them on the first file step, off the caller's thread,
+    ///     and writes them into the header before the ring and the crash-key page reach their files, as Rust's
+    ///     `Tracer::adopt_file` does with `read_slow_identity`. `process` then carries only the fields known at once
+    ///     (``ProcessFacts/currentInMemory()``). The app's launch path makes its black box on main this way.
     ///   - buildVersion: The header's build version (version and build number, at most 32 ASCII bytes).
     ///   - catalog: The fixed names written into the ring's name table before any record (the app passes
     ///     `SignpostName.traceCatalog`).
     ///   - clock: The trace clock that stamps the ring's start.
     public init(role: TraceRuntime.Role, directory: String, runtime: TraceRuntime,
-                process: ProcessFacts = .current(), buildVersion: String = "",
+                process: ProcessFacts = .current(), readsKernelFactsLater: Bool = false, buildVersion: String = "",
                 catalog: [TraceRing.CatalogName] = [], clock: TraceClock = TraceClock()) {
         self.role = role
         self.directory = directory
+        self.readsKernelFactsLater = readsKernelFactsLater
         let sizes = role.blackBoxSizes
         self.sizes = sizes
         pid = process.pid
@@ -121,6 +130,11 @@ public final class TraceBlackBox: Sendable {
     public func adoptFile() -> TraceRingFile? {
         assertBlockingAllowed(.fileIO)
         guard Self.makeDirectory(directory) else { return nil }
+        // Before the copies: the files get the kernel fields with the rest of the header.
+        if let facts = kernelFacts() {
+            ring.writeKernelFacts(processStartUnixMicros: facts.processStartUnixMicros, bootSessionUUID: facts.bootSessionUUID)
+            crashKeys.writeProcessStart(facts.processStartUnixMicros)
+        }
         let file = TraceRingFile.adopt(ring, directory: directory)
         // The copied header holds the categories of the copy; a change during the copy went to the heap.
         if file != nil { ring.mirrorCategories(runtime.categoryMask) }
@@ -167,6 +181,10 @@ public final class TraceBlackBox: Sendable {
         var identity = ring.identity
         identity.ringKind = 2
         identity.categories = runtime.categoryMask
+        if let facts = kernelFacts() {
+            identity.processStartUnixMicros = facts.processStartUnixMicros
+            identity.bootSessionUUID = facts.bootSessionUUID
+        }
         storage.initialize(identity: identity, catalog: catalog)
         return ring.attachRecording(storage, path: path)
     }
@@ -182,6 +200,12 @@ public final class TraceBlackBox: Sendable {
         var cleanup = TraceRingCleanup(directory: directory)
         if let now { cleanup.nowUnixNanos = { now } }
         return cleanup.run()
+    }
+
+    /// The header's kernel fields when the init left them to the file steps (``readsKernelFactsLater``), read now;
+    /// nil when the init's facts already hold them. Two kernel queries: file steps only, never main.
+    private func kernelFacts() -> ProcessFacts? {
+        readsKernelFactsLater ? ProcessFacts(pid: pid).withKernelFacts() : nil
     }
 
     /// Creates `path` and its missing parents (mode 0700); true when it is a directory afterwards.
@@ -221,12 +245,24 @@ extension TraceBlackBox {
             self.buildUUID = buildUUID
         }
 
-        /// The calling process's facts.
+        /// The calling process's facts. Two kernel queries (``withKernelFacts()``): off main.
         public static func current() -> ProcessFacts {
-            let pid = getpid()
-            return ProcessFacts(pid: UInt32(bitPattern: pid),
-                                processStartUnixMicros: TraceRingCleanup.processStartUnixMicros(pid: pid),
-                                bootSessionUUID: bootSessionUUID(), buildUUID: mainImageUUID())
+            currentInMemory().withKernelFacts()
+        }
+
+        /// The calling process's facts known without a kernel query: its pid and its main image's `LC_UUID` (a
+        /// walk of the loaded image). Rust's `ProcessIdentity::current_fast`.
+        public static func currentInMemory() -> ProcessFacts {
+            ProcessFacts(pid: UInt32(bitPattern: getpid()), buildUUID: mainImageUUID())
+        }
+
+        /// These facts with ``processStartUnixMicros`` (of ``pid``) and ``bootSessionUUID`` read now: two kernel
+        /// queries, so off main. Rust's `ProcessIdentity::read_slow`.
+        public func withKernelFacts() -> ProcessFacts {
+            var facts = self
+            facts.processStartUnixMicros = TraceRingCleanup.processStartUnixMicros(pid: Int32(bitPattern: pid))
+            facts.bootSessionUUID = Self.bootSessionUUID()
+            return facts
         }
 
         /// `kern.bootsessionuuid` (`8-4-4-4-12` hex) as 16 bytes.

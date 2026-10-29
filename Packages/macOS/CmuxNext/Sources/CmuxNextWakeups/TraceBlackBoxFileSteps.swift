@@ -49,7 +49,9 @@ public final class TraceBlackBoxFileSteps: Sendable {
     }
 
     /// Starts the app process's black box: the heap ring with the signpost catalog (`SignpostName.traceCatalog`),
-    /// attached to `runtime` with the black-box categories on, now; then ``start()``.
+    /// attached to `runtime` with the black-box categories on, now; then ``start()``. No kernel query on the caller's
+    /// thread (main, at launch): the header's process start and boot session are read by the adoption step on
+    /// `.files` (``TraceBlackBox/ProcessFacts/currentInMemory()``).
     ///
     /// - Parameters:
     ///   - bundleID: The app's bundle id; it names the folder (``appDirectory(bundleID:home:)``).
@@ -62,8 +64,9 @@ public final class TraceBlackBoxFileSteps: Sendable {
                                 clock: any Clock<Duration> = ContinuousClock(),
                                 home: URL = FileManager.default.homeDirectoryForCurrentUser) -> TraceBlackBoxFileSteps {
         let directory = appDirectory(bundleID: bundleID, home: home).path
-        let blackBox = TraceBlackBox(role: .app, directory: directory, runtime: runtime,
-                                     buildVersion: buildVersion(of: .main), catalog: SignpostName.traceCatalog)
+        let blackBox = TraceBlackBox(role: .app, directory: directory, runtime: runtime, process: .currentInMemory(),
+                                     readsKernelFactsLater: true, buildVersion: buildVersion(of: .main),
+                                     catalog: SignpostName.traceCatalog)
         let steps = TraceBlackBoxFileSteps(blackBox: blackBox, work: work, clock: clock)
         steps.start()
         return steps

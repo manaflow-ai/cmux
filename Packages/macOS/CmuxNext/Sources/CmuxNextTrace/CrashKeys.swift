@@ -234,11 +234,23 @@ public final class CrashKeyPage: Sendable {
 
     // MARK: - Reading
 
-    /// The page's words now, with relaxed loads.
+    /// The page's words now, with relaxed loads; the identity's process start is the header's (``writeProcessStart(_:)``
+    /// may have written it after `init`).
     public func snapshot() -> Snapshot {
         let words = (0 ..< Self.wordCount).map { heapWord($0).load(ordering: .relaxed) }
-        return Snapshot(identity: identity, words: words)
+        var header = identity
+        header.processStartUnixMicros = words[Self.processStartWord]
+        return Snapshot(identity: header, words: words)
     }
+
+    /// Writes the header's process start (Unix microseconds) for a page made before it was read: the black box's
+    /// first file step does, before ``adopt(directory:)`` copies the header (``TraceBlackBox/adoptFile()``).
+    public func writeProcessStart(_ unixMicros: UInt64) {
+        store(Self.processStartWord, unixMicros)
+    }
+
+    /// The header word that holds the process start.
+    private static var processStartWord: Int { 5 }
 
     /// The page in the file at `path` (a previous launch's, or this one's), nil when it cannot be read or is not
     /// a v1 page. Blocking file work.

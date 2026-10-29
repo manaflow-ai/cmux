@@ -85,6 +85,14 @@ extension TraceRing {
         }
     }
 
+    /// Writes the header's kernel fields into the black box (the heap ring, or its file once adopted): a black box
+    /// made before they were read gets them on its first file step, before the adoption copies its header
+    /// (``TraceBlackBox/adoptFile()``).
+    func writeKernelFacts(processStartUnixMicros: UInt64, bootSessionUUID: [UInt8]) {
+        blackBoxRing?.pointee.storage.putKernelFacts(processStartUnixMicros: processStartUnixMicros,
+                                                     bootSessionUUID: bootSessionUUID)
+    }
+
     /// A recording's start on the header's three clocks.
     struct RecordingStart {
         /// `CLOCK_UPTIME_RAW` nanoseconds (``TraceClock``).

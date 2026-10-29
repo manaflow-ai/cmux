@@ -74,6 +74,13 @@ struct TraceRingStorage {
         put(Offsets.nameWord, UInt64(layout.nameCapacity) | cursor << 32)
     }
 
+    /// Writes the header's kernel fields, `process_start_unix_us` and `boot_session_uuid` (Rust's
+    /// `Ring::put_slow_identity`), for a ring made before they were read.
+    func putKernelFacts(processStartUnixMicros: UInt64, bootSessionUUID: [UInt8]) {
+        word(TraceRingOffsets.processStartUnixMicros).store(processStartUnixMicros, ordering: .relaxed)
+        putBytes(TraceRingOffsets.bootSessionUUID, bootSessionUUID, words: 2)
+    }
+
     /// Stores `bytes` (zero padded or cut to `words` words) little-endian at `offset`.
     private func putBytes(_ offset: Int, _ bytes: [UInt8], words: Int) {
         for index in 0 ..< words {
