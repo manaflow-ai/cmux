@@ -10,24 +10,23 @@ import { chromium, webkit, type Browser, type BrowserType } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { papercutPane, type PapercutStep } from "./support/papercutChat";
 
-const START = Date.UTC(2026, 9, 19, 9, 0, 0) + 60_000;
-
-/// Four messages in a row from other sessions: the transcript folds them into one card. Each still
-/// opens its turn, so each keeps its tick, as it did before they folded (#26980).
-const received: PapercutStep[] = [
-  "The green build is up.",
-  "The head is 2a7ce36.",
-  "The review box says SHIP.",
-  "Landing it now.",
-].map((text, index) => [
-  "mux",
-  "user_message",
-  { text, _meta: { provenance: { kind: "session_message", from: "acp:s-sr2", fromName: "claude-sr2" } } },
-  START + index * 1000,
-]);
-
 await requireBrowserLane("thread-minimap-folded-messages.test.ts", async () => {
   setDefaultTimeout(300_000);
+  const START = Date.UTC(2026, 9, 19, 9, 0, 0) + 60_000;
+
+  /// Four messages in a row from other sessions: the transcript folds them into one card. Each still
+  /// opens its turn, so each keeps its tick, as it did before they folded (#26980).
+  const received: PapercutStep[] = [
+    "The green build is up.",
+    "The head is 2a7ce36.",
+    "The review box says SHIP.",
+    "Landing it now.",
+  ].map((text, index) => [
+    "mux",
+    "user_message",
+    { text, _meta: { provenance: { kind: "session_message", from: "acp:s-sr2", fromName: "claude-sr2" } } },
+    START + index * 1000,
+  ]);
   const browsers: [string, Browser][] = [];
   for (const [name, engine] of [
     ["chromium", chromium],
