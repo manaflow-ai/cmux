@@ -665,3 +665,60 @@ async fn a_send_through_the_hub_names_its_proven_session_not_a_claimed_one() {
     assert_eq!(from.name.as_deref(), Some("lane-a"), "{from:?}");
     assert_eq!(from.session_id.as_deref(), Some(lane.as_str()), "{from:?}");
 }
+
+#[tokio::test]
+async fn team_delivery_refuses_when_disabled_and_only_allowed_starts_an_idle_turn() {
+    use acpmux::mesh::StartWork;
+    use acpmux::server::mesh_relay::deliver;
+    let hub = hub();
+    let mut local = Client::local(&hub);
+    let session = local.new_session("team-reader").await;
+    let mut incoming = message("team-info-1", "team-reader", Kind::Prompt);
+    incoming.to.session_id = Some(session.clone());
+    incoming.to.team_address = Some("@user_reader/coordinator".into());
+    incoming.from.team_address = Some("@user_sender/coordinator".into());
+    incoming.mode = Mode::Now;
+    assert_eq!(
+        deliver(&hub, &incoming, &RefuseControl, None).await.unwrap().state,
+        AckState::Refused
+    );
+    hub.config.write().await.mesh_relay = Some(acpmux::mesh_http::MeshRelayConfig {
+        url: "https://hub.invalid".into(),
+        token_command: vec!["unused".into()],
+        team_messaging: true,
+    });
+    // Missing startWork is information even if mode asks to steer.
+    assert_eq!(
+        deliver(&hub, &incoming, &RefuseControl, None).await.unwrap().state,
+        AckState::Delivered
+    );
+    let info = local.call("_acpmux/info", json!({"sessionId": session})).await;
+    assert_eq!(info.pointer("/result/turnCount"), Some(&json!(0)));
+    incoming.message_id = "team-info-2".into();
+    incoming.start_work = Some(StartWork::Information);
+    assert_eq!(
+        deliver(&hub, &incoming, &RefuseControl, None).await.unwrap().state,
+        AckState::Delivered
+    );
+    let info = local.call("_acpmux/info", json!({"sessionId": session})).await;
+    assert_eq!(info.pointer("/result/turnCount"), Some(&json!(0)));
+    incoming.message_id = "team-allowed-1".into();
+    incoming.start_work = Some(StartWork::Allowed);
+    assert_eq!(
+        deliver(&hub, &incoming, &RefuseControl, None).await.unwrap().state,
+        AckState::Delivered
+    );
+    let done = local
+        .call(
+            "_acpmux/wait",
+            json!({"sessions": [session], "until": ["ready"], "timeoutMs": 20000}),
+        )
+        .await;
+    assert!(done.get("error").is_none(), "{done}");
+    let info = local.call("_acpmux/info", json!({"sessionId": session})).await;
+    assert_eq!(info.pointer("/result/turnCount"), Some(&json!(1)));
+    let events = hub.events(&session, 0, 1000).unwrap();
+    assert!(events.iter().any(|event| event.kind == "session/prompt"
+        && event.msg.to_string().contains("Team message from @user_sender/coordinator")));
+    hub.shutdown_all().await;
+}
