@@ -75,10 +75,9 @@ test("neighbouring chips on the right keep their labels 8 px apart, as with the 
 test("the context ring keeps its place past the model's text", () => {
   // The shared owner outranks composerLocation.css's legacy 4 px margin.
   // composer-model-quiet.test.ts also measures the resulting glyph-to-label gap in Chromium.
-  const ring = rules(
-    ".acpmux-composer.acpmux-composer .acpmux-composer-foot .acpmux-context-ring",
-    sharedFooter,
-  ).join(";");
+  const ring = rules(".acpmux-composer.acpmux-composer .acpmux-composer-foot .acpmux-context-ring", sharedFooter).join(
+    ";",
+  );
   expect(px(ring, "margin-inline-start")).toBe(2);
 });
 
