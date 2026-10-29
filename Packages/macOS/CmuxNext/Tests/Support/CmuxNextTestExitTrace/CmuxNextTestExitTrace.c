@@ -9,6 +9,7 @@
 
 #include <crt_externs.h>
 #include <execinfo.h>
+#include <signal.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -33,8 +34,23 @@ static int lists_tests(void) {
     return 0;
 }
 
+// PROBE BRANCH ONLY (not to land): a crash signal prints the faulting thread's stack, then dies as before.
+static void cmux_next_test_crash_trace(int signal_number) {
+    static const char header[] = "S7CRASH: crash signal; the faulting thread's stack:\n";
+    write(STDERR_FILENO, header, sizeof header - 1);
+    void *frames[128];
+    int count = backtrace(frames, 128);
+    backtrace_symbols_fd(frames, count, STDERR_FILENO);
+    signal(signal_number, SIG_DFL);
+    raise(signal_number);
+}
+
 __attribute__((constructor)) static void cmux_next_test_exit_trace_install(void) {
     installed = lists_tests() || atexit(cmux_next_test_exit_trace) == 0;
+    signal(SIGSEGV, cmux_next_test_crash_trace);
+    signal(SIGBUS, cmux_next_test_crash_trace);
+    signal(SIGILL, cmux_next_test_crash_trace);
+    signal(SIGTRAP, cmux_next_test_crash_trace);
 }
 
 int cmux_next_test_exit_trace_installed(void) {
