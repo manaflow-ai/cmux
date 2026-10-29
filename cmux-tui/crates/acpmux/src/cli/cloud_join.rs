@@ -202,6 +202,7 @@ pub(crate) fn already_joined(replace: bool, json_out: bool) -> Result<bool> {
     }
     // Repair a previous config-save failure before reporting idempotent success.
     configure_mesh_relay(&record.hub_origin).map_err(|_| store_error())?;
+    warn_existing_helpers();
     if json_out {
         crate::cli::output::print_json(
             &json!({"joined":false,"alreadyJoined":true,"machineId":record.machine_id,"teamId":record.team_id,"name":record.name,"hubOrigin":record.hub_origin}),
@@ -210,6 +211,12 @@ pub(crate) fn already_joined(replace: bool, json_out: bool) -> Result<bool> {
         println!("already joined ({})", record.machine_id);
     }
     Ok(true)
+}
+
+fn warn_existing_helpers() {
+    eprintln!(
+        "Existing Computer Use helpers may remain ungated until they exit; close them normally and use updated builds before enabling remote access."
+    );
 }
 
 fn store_error() -> crate::cli::errors::AppError {
