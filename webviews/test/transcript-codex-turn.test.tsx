@@ -50,7 +50,9 @@ test("folded thoughts use the shared trailing chevron grid", async () => {
       css,
     ),
   ).toBe(true);
-  expect(css).toMatch(/\.cv-tool__chevron \{\s*grid-column: 4;\s*justify-self: end;/);
+  const chevron = css.match(/\.cv-tool__chevron \{([^}]+)\}/)?.[1];
+  expect(chevron).toMatch(/grid-column: 4;/);
+  expect(chevron).toMatch(/justify-self: end;/);
 });
 
 test("a finished run that is one group folds to its closed line", () => {
