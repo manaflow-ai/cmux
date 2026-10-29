@@ -66,7 +66,9 @@ test("a restart in flight holds its button", async () => {
   const container = installDom();
   await act(async () => {
     root = createRoot(container);
-    root.render(<HostUnavailableLine message="refused" onRetry={() => undefined} onRestart={() => undefined} restarting />);
+    root.render(
+      <HostUnavailableLine message="refused" onRetry={() => undefined} onRestart={() => undefined} restarting />,
+    );
   });
   expect(buttons(container)).toEqual(["Restarting acpmux…"]);
   expect([...container.querySelectorAll("button")].every((b) => b.disabled)).toBe(true);
@@ -102,7 +104,12 @@ test("a folder harness keeps its card with its own hint and action", async () =>
   await act(async () => {
     root = createRoot(container);
     root.render(
-      <HostError message="Claude Code is not enabled." hint={null} action="Enable Claude Code" onRetry={() => undefined} />,
+      <HostError
+        message="Claude Code is not enabled."
+        hint={null}
+        action="Enable Claude Code"
+        onRetry={() => undefined}
+      />,
     );
   });
   expect(container.querySelector(".acpmux-host-error-card")).not.toBeNull();

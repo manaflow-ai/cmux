@@ -91,7 +91,7 @@ export default agentPaneEntry({
       snapshot: chat(finished, { branch: "leo/inspector-overlay-default-and-hidden-empty-sections-follow-up" }),
     },
     disconnected: {
-      note: "The daemon connection dropped.",
+      note: "The daemon connection dropped while the pane asks for it again: the header stays quiet.",
       snapshot: chat(finished, { connection: "disconnected" }),
     },
     reconnecting: {
@@ -104,8 +104,10 @@ export default agentPaneEntry({
       play: inTabRowConnected,
     },
     "tab-row-disconnected": {
+      // A dropped socket the pane is asking for again is quiet (paneHeader `hostRecovering`), so the
+      // warning this state shows in the tab row is a failed chat's.
       note: "The header shares the pane's tab row: the connection warning leads the tools.",
-      snapshot: chat(finished, { connection: "disconnected" }),
+      snapshot: chat(finished, { connection: "error: the agent process exited before it answered" }),
       play: inTabRow,
     },
     "session-info-overlay-closed": {
