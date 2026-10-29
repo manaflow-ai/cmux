@@ -55,6 +55,8 @@ if argv[0] == "sign":
         open(target, "ab").write(b"\nSIGNED")
 # Only openssl may see the certificate secrets: the signer unsets them after the PEM exists.
 record["secret_env"] = sorted(k for k in ("APPLE_CERTIFICATE_PASSWORD", "APPLE_CERTIFICATE_BASE64") if k in os.environ)
+# rcodesign reads RCODESIGN_* variables as its own config: none may reach it.
+record["config_env"] = sorted(k for k in os.environ if k.startswith("RCODESIGN_"))
 with open(os.environ["FAKE_LOG"], "a") as log:
     log.write(json.dumps(record) + "\n")
 if argv[0] == os.environ.get("FAKE_FAIL") or argv[-1].endswith(os.environ.get("FAKE_FAIL_PATH") or "\0"):
@@ -195,6 +197,31 @@ class RcodesignSignBundleDevTest(unittest.TestCase):
 
     def signs(self, target: Path) -> list[dict]:
         return [c for c in self.calls("rcodesign", "sign") if c["argv"][-1] == str(target)]
+
+    def test_no_rcodesign_config_variable_reaches_rcodesign(self) -> None:
+        """DEV publish 40454509260: a job's RCODESIGN_DMG_SHA256 failed rcodesign sign
+        ("problem key: dmg ... UnknownField"). The signer scrubs RCODESIGN_* first."""
+        self.run_script(RCODESIGN_DMG_SHA256="0" * 64, RCODESIGN_FROM_IMAGE="1")
+        calls = self.calls("rcodesign")
+        self.assertTrue(calls)
+        self.assertEqual({tuple(c["config_env"]) for c in calls}, {()})
+
+    def test_no_workflow_hands_rcodesign_a_config_variable(self) -> None:
+        """No env key named RCODESIGN_* in any workflow; each signer script and each workflow step
+        that calls "$RCODESIGN" itself scrubs RCODESIGN_* first."""
+        import re
+        scrub = re.compile(r"""compgen -e \| grep ['"]\^RCODESIGN_['"]""")
+        for path in sorted((ROOT / ".github/workflows").glob("*.y*ml")):
+            text = path.read_text()
+            self.assertIsNone(re.search(r"^\s+RCODESIGN_[A-Za-z0-9_]*\s*:", text, re.M), path.name)
+            self.assertNotIn("RCODESIGN_", scrub.sub("", re.sub(r"#.*", "", text)), path.name)
+            for step in re.split(r"\n\s+- (?=name:|uses:|run:)", text):
+                if re.search(r'"\$RCODESIGN"\s+\w', step):
+                    self.assertRegex(step, scrub, f"{path.name}: a step calls rcodesign without the scrub")
+        for script in ("rcodesign-notarize-dmg-dev.sh", "rcodesign-sign-bundle-dev.sh"):
+            text = (ROOT / "scripts/ci" / script).read_text()
+            first_call = re.search(r'"\$R" [a-z]', text).start()  # not `command -v "$R"`
+            self.assertLess(scrub.search(text).start(), first_call, script)
 
     def test_components_get_feat_cmux_next_treatment(self) -> None:
         self.run_script()

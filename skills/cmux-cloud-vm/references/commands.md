@@ -55,7 +55,7 @@ cmux vm terminal send <id> <term-id> [text] [--keys enter,ctrl+c,…]   # type i
 cmux vm terminal read <id> <term-id>   # the visible screen as text (--json: + rows, cols, cursor)
 cmux vm terminal wait <id> <term-id> --pattern <regex> [--timeout <s>]   # block until the screen matches (default 30 s); exit 1 on timeout
 cmux vm tree --json                    # {machines: [{id, local, name, status, link_state, …}], resources: [{id, machine, kind, key, title, detail, lifecycle, agent, remote_workspace, port, url, open, open_surface_ids}], projections: […]}
-cmux surface ls [--json]               # same catalog; `surface open <resource>` / `surface new-terminal --machine <m>` are the generic verbs
+cmux surface ls [--json]               # same catalog; `surface open <resource>` / `surface new-terminal --machine <m>` / `surface new-display --machine <m>` are the generic verbs
 cmux vm status <id>                    # provider, status, image
 cmux vm stats <id>                     # CPU/mem/disk now; sleeping machines stay asleep
 cmux vm clean <id>                     # dry-run: what disk cleanup would free (removes nothing); --apply removes it
@@ -716,6 +716,14 @@ cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>] [--
 
 Socket `surface.new_terminal {machine, command?, cwd?, name?, remote_workspace_id?, open?, workspace_id?}` → `{resource, terminal_id, machine, remote_workspace_id, workspace_id?, surface_id?}`: a terminal on the machine through its provider (cloud terminals land in the machine's cmux-tui session; `--remote-workspace` picks which; `local` is a new shell on This Mac), opened as a pane unless `--no-open`. Sidebar: Terminals / Workspaces › New Terminal; workspace row › New Terminal Here.
 
+### `cmux surface new-display`
+
+```bash
+cmux surface new-display --machine <cloud-id> [--workspace <id|ref|index>] [--no-open] [--focus|--no-focus] [--json]
+```
+
+Socket `surface.new_display {machine, open?, workspace_id?, focus?}` → the created display resource (`resource`, `id`, `machine`, `kind`, `title`, `url`, and related catalog fields), plus `workspace_id` / `surface_id` when opened. Creates a new VNC display on a cloud machine through the guest display helper. It opens the display in the selected workspace unless `--no-open`; `--focus` and `--no-focus` control whether that pane is focused. `local` is rejected because display creation is a cloud-machine operation. If the display is created but cannot be opened, the result has `projection_failed: true`, `open: false` and a `projection_error`; the exit status stays 0 and `cmux surface open <resource>` retries the open. A second creation on the same machine while one is running fails with code `busy`. The method is available on the local cmux socket and is intentionally not relayed through a remote machine.
+
 ## Checkpoints and forks
 
 Provider-dependent: `cmux vm ls --json` → `capabilities.snapshot` / `capabilities.fork` say whether a machine supports them; the sidebar hides the verbs on providers that cannot.
@@ -857,7 +865,7 @@ cmux rpc <method> [json-params]        # call any v2 method directly, e.g. cmux 
 | `vm.cloud_prompt`, `vm.cloud_agent_open` | `vm prompt`, `vm prompt --open` |
 | `vm.publication_list`, `vm.publication_create`, `vm.publication_verify`, `vm.publication_update`, `vm.publication_delete` | `cloud domains list`, `publish`, `access`, `rm`; `vm.publication_verify` is the app-side publication retry path |
 | `vm.domain_list`, `vm.domain_verify` | `cloud domains zones`, `cloud domains verify` |
-| `surface.catalog`, `surface.project`, `surface.new_terminal` | `vm tree` / `surface ls`, `surface open` / `vm open`, `surface new-terminal` / `vm agent` |
+| `surface.catalog`, `surface.project`, `surface.new_terminal`, `surface.new_display` | `vm tree` / `surface ls`, `surface open` / `vm open`, `surface new-terminal` / `vm agent`, `surface new-display` |
 
 The authenticated public-domain workflow is **shipped on this branch**: use
 `cmux cloud domains` for generated or custom HTTPS publications. `cmux vm open

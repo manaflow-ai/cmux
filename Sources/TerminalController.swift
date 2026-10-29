@@ -2317,7 +2317,7 @@ class TerminalController {
 #endif
         case "current.list":
             return socketWorkerCurrentWorkResponse(id: request.id, params: request.params)
-        case "surface.catalog", "surface.project", "surface.new_terminal":
+        case "surface.catalog", "surface.project", "surface.new_terminal", "surface.new_display":
             return socketWorkerSurfaceResponse(method: request.method, id: request.id, params: request.params)
         case let method where method.hasPrefix("vm."):
             // The CLI's own wait (cloud_client_timeout_ms) is transport
@@ -4329,6 +4329,7 @@ class TerminalController {
         timeoutSeconds: TimeInterval? = 17 * 60,
         transportUnsupportedMachineID: String? = nil,
         daemonUnavailableMessage: String? = nil,
+        mapError: (Error) -> String? = { _ in nil },
         _ work: @escaping () async throws -> [String: Any]
     ) -> String {
         let semaphore = DispatchSemaphore(value: 0)
@@ -4361,6 +4362,8 @@ class TerminalController {
         case .success(let payload):
             return v2Ok(id: id, result: payload)
         case .failure(let error):
+            // A caller's own error codes come first; the timeout above never reaches them.
+            if let mapped = mapError(error) { return mapped }
             if case VMClientError.disabledByManagedPolicy = error {
                 return v2Error(id: id, code: "cloud_disabled", message: String(describing: error))
             }
