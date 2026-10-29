@@ -48,13 +48,18 @@ struct RemoteTmuxMirrorCLIObservabilityTests {
         let other = manager.addWorkspace(autoWelcomeIfNeeded: false)
         manager.selectWorkspace(other)
 
-        let result = TerminalController.shared.controlSurfaceTextBox(
-            action: try #require(ControlSurfaceTextBoxAction(rawValue: action)),
-            routing: harness.routing(),
-            surfaceID: panel.id,
-            hasSurfaceIDParam: true,
-            focusRequested: focus
-        )
+        let textBoxAction = try #require(ControlSurfaceTextBoxAction(rawValue: action))
+        let result = TerminalController.shared.withSocketCommandPolicy(
+            commandKey: "surface.textbox.\(action)", isV2: true, params: ["focus": focus]
+        ) {
+            TerminalController.shared.controlSurfaceTextBox(
+                action: textBoxAction,
+                routing: harness.routing(),
+                surfaceID: panel.id,
+                hasSurfaceIDParam: true,
+                focusRequested: focus
+            )
+        }
 
         #expect(result == .applied(
             windowID: harness.windowID, workspaceID: harness.workspace.id,
