@@ -133,6 +133,24 @@ describe("durable Run API database behavior", () => {
     expect(snapshot?.artifacts[0]?.digest).toBe(`sha256:${expectedDigest}`);
   });
 
+  dbTest("persists a canonical receipt digest across JSONB key reordering and idempotent replay", async () => {
+    const owner = scope(randomUUID());
+    const created = await create(owner, `artifact-canonical-${randomUUID()}`);
+    const { id: runId } = created.snapshot.run;
+    const attemptId = created.snapshot.attempts[0]!.id;
+    await storeRunArtifact({ runId, attemptId, name: "receipt.json", payload: { z: 1, a: 2 } });
+    await storeRunArtifact({ runId, attemptId, name: "receipt.json", payload: { a: 2, z: 1 } });
+    const snapshot = await readRunSnapshot(runId, owner);
+    expect(snapshot?.artifacts).toHaveLength(1);
+    const persisted = snapshot?.artifacts[0];
+    const canonicalBody = '{"a":2,"z":1}';
+    expect(persisted?.digest).toBe(`sha256:${createHash("sha256").update(canonicalBody).digest("hex")}`);
+    expect(persisted?.sizeBytes).toBe(Buffer.byteLength(canonicalBody, "utf8"));
+    expect(await readRunArtifact({ ...owner, runId, artifactId: persisted!.id })).toMatchObject({
+      digest: persisted?.digest, sizeBytes: persisted?.sizeBytes,
+    });
+  });
+
   dbTest("scopes Run artifact reads to the matching visible run and immutable artifact id", async () => {
     const originalOwner = scope(randomUUID(), `team-a-${randomUUID()}`);
     const otherOwner = scope(randomUUID(), `team-b-${randomUUID()}`);
