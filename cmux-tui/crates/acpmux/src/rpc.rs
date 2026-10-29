@@ -284,6 +284,8 @@ pub mod method {
     /// `acpmux send --no-wait`: queue a prompt for this daemon to deliver (`hub/outbox.rs`).
     pub const MUX_SEND_QUEUE: &str = "_acpmux/send_queue";
     pub const MUX_SEND_STATUS: &str = "_acpmux/send_status";
+    /// Local socket: enqueue or read a mesh lifecycle control receipt.
+    pub const MUX_MESH_CONTROL: &str = "_acpmux/mesh_control";
     /// Resume agent message pairs the runaway guard paused (`hub/agent_pairs.rs`).
     pub const MUX_AGENT_PAIR_RESUME: &str = "_acpmux/agent_pair_resume";
     /// Retry a chat's failed last turn now (`hub/auto_resume/retry_turn.rs`).
@@ -294,11 +296,22 @@ pub mod method {
     /// Metadata-only paths for a session's config and state files; local Unix socket only.
     pub const MUX_SESSION_FILES: &str = "_acpmux/session_files";
     pub const MUX_EVENTS: &str = "_acpmux/events";
+    /// One GitHub action for an agent on a machine the person added, run by the Mac that lends it
+    /// its `gh` login; never a credential (`github_broker.rs`).
+    pub const MUX_GITHUB_ACTION: &str = "_acpmux/github_action";
+    /// The app lends this daemon its cmux sign-in for GitHub App tokens, or takes it back
+    /// (`github_app_token.rs`); the unix socket only.
+    pub const MUX_GITHUB_APP_LEASE: &str = "_acpmux/github_app_lease";
     /// Durable inter-session mailbox: send, page/wait, and recipient-only ack.
     pub const MUX_MAIL_SEND: &str = "_acpmux/mail/send";
     pub const MUX_MAIL_READ: &str = "_acpmux/mail/read";
     pub const MUX_MAIL_WAIT: &str = "_acpmux/mail/wait";
     pub const MUX_MAIL_ACK: &str = "_acpmux/mail/ack";
+    /// Team-scoped relay messaging (Labs gated): send and inspect durable inbox entries.
+    pub const MUX_TEAM_SEND: &str = "_acpmux/team/send";
+    pub const MUX_TEAM_INBOX: &str = "_acpmux/team/inbox";
+    pub const MUX_TEAM_READ: &str = "_acpmux/team/read";
+    pub const MUX_TEAM_ACK: &str = "_acpmux/team/ack";
     /// An image a session's prompt sent, by its id (`hub/prompt_images.rs`).
     pub const MUX_ATTACHMENT: &str = "_acpmux/attachment";
     pub const MUX_PERMISSION_RESPOND: &str = "_acpmux/permission_respond";
@@ -519,6 +532,9 @@ pub mod method {
     pub const MUX_PAIR_LIST: &str = "_acpmux/pair_list";
     pub const MUX_PAIR_REVOKE: &str = "_acpmux/pair_revoke";
     pub const MUX_PAIR_ISSUE: &str = "_acpmux/pair_issue";
+    pub const MUX_MACHINE_CONSENT_SET: &str = "_acpmux/machine_consent_set";
+    pub const MUX_MACHINE_CONSENT_REFUSED: &str = "_acpmux/machine_consent_refused";
+    pub const MUX_MACHINE_CONSENT_GET: &str = "_acpmux/machine_consent_get";
     pub const MUX_PAIR_SET: &str = "_acpmux/pair_set";
     pub const MUX_PAIR_REDEEM: &str = "_acpmux/pair_redeem";
     // Notifications from acpmux to attached clients.

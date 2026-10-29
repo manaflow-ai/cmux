@@ -238,19 +238,16 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn the_relay_gets_the_session_the_text_and_the_sender_and_its_status_is_ours() {
-        use std::os::unix::fs::PermissionsExt;
         let dir = scratch("run");
         let script = dir.join("relay");
         let seen = dir.join("seen");
-        std::fs::write(
+        crate::test_exec::write_executable(
             &script,
             format!(
                 "#!/bin/sh\n{{ printf '%s|' \"$1\" \"$2\" \"$3\" \"${{ACPMUX_FROM-unset}}\"; cat; }} > {}\n[ \"$2\" = refuse ] && {{ echo refused >&2; exit 7; }}\necho delivery-42\n",
                 seen.display()
             ),
-        )
-        .unwrap();
-        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        );
         let config = SendRelay { argv: vec![script.display().to_string(), "send".into()] };
 
         let done = relay(&config, "lane-b", "hello\nthere", Some("vm/lane"), true).unwrap();
@@ -263,8 +260,10 @@ mod tests {
 
         // One that stops reading early and exits 0 did not take the message.
         let early = dir.join("early");
-        std::fs::write(&early, "#!/bin/sh\nexec 0<&-\nsleep 1\necho delivery-0\n").unwrap();
-        std::fs::set_permissions(&early, std::fs::Permissions::from_mode(0o755)).unwrap();
+        crate::test_exec::write_executable(
+            &early,
+            "#!/bin/sh\nexec 0<&-\nsleep 1\necho delivery-0\n",
+        );
         let early = SendRelay { argv: vec![early.display().to_string()] };
         let big = "x".repeat(1 << 20);
         let e = relay(&early, "lane-b", &big, None, true).unwrap_err();
