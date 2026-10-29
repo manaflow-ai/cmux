@@ -7,7 +7,7 @@
 
 mod common;
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use common::*;
@@ -238,6 +238,7 @@ fn a_report_append_retries_after_an_ambiguous_failure_without_duplicate_steps() 
         )));
     let _ = delivered_report(&mut h);
     assert!(!h.brain.state().pending_reports.is_empty());
+    assert_eq!(h.owner.lock().unwrap().reconnects, 1);
 
     // A daemon reconnect flushes the durable outbox. The fake records both
     // the ambiguous first attempt and its replay; the owner would upsert the
@@ -267,6 +268,38 @@ fn a_report_append_retries_after_an_ambiguous_failure_without_duplicate_steps() 
     ids.dedup();
     assert_eq!(ids.len(), 1, "the report has one stable note id");
     assert_eq!(reports.len(), 2, "one failed attempt and one replay");
+}
+
+#[test]
+fn a_replayed_report_transport_failure_requests_reconnect() {
+    let mut h = Harness::new(report_script());
+    h.connect();
+    h.say("user_local", "Please coordinate the work.");
+    h.settle();
+    h.owner
+        .lock()
+        .unwrap()
+        .run_append_rejects
+        .push_back(Some(OpError::Transport("first connection reset".into())));
+    delivered_report(&mut h);
+    assert!(!h.brain.state().pending_reports.is_empty());
+    assert_eq!(h.owner.lock().unwrap().reconnects, 1);
+
+    // The reconnect itself can lose its write too. The pending report must
+    // stay durable, and this second failure must request another reconnect
+    // rather than attempting later reports on the broken port.
+    h.owner
+        .lock()
+        .unwrap()
+        .run_append_rejects
+        .push_back(Some(OpError::Transport("replay connection reset".into())));
+    h.connect();
+    assert!(!h.brain.state().pending_reports.is_empty());
+    assert_eq!(h.owner.lock().unwrap().reconnects, 2);
+
+    // A subsequent healthy connection flushes the retained report.
+    h.connect();
+    assert!(h.brain.state().pending_reports.is_empty());
 }
 
 #[test]
@@ -377,4 +410,91 @@ fn reconnect_to_a_port_without_runs_discards_unsupported_pending_reports() {
     h.owner.lock().unwrap().runs_unsupported = true;
     h.connect();
     assert!(h.brain.state().pending_reports.is_empty());
+}
+
+#[test]
+fn a_legacy_spawn_without_a_route_delivers_but_does_not_project_into_home() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("host.json"),
+        serde_json::to_vec(&json!({
+            "conversation": CONV,
+            "spawns": {
+                "s1": {
+                    "subs": [{"id": "a1", "status": "running"}]
+                }
+            }
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let owner = Arc::new(Mutex::new(Owner {
+        summary: Some(summary()),
+        ..Owner::default()
+    }));
+    let mut h = Harness::in_dir(dir, report_script(), owner);
+    h.connect();
+    h.brain.step(Input::SubagentFailed {
+        id: "a1".into(),
+        error: "legacy report".into(),
+    });
+    h.settle();
+
+    let owner = h.owner.lock().unwrap();
+    assert!(
+        owner.run_steps.iter().all(|(_, run, _)| !run["id"]
+            .as_str()
+            .is_some_and(|id| id.starts_with("reports:"))),
+        "a legacy report must not be projected without its saved route: {:?}",
+        owner.run_steps
+    );
+    assert!(
+        h.log()
+            .iter()
+            .any(|(_, text)| text.contains("[a1] (did not start: legacy report)")),
+        "the report still reaches the Chief's normal conversation"
+    );
+}
+
+#[test]
+fn a_report_consumed_then_resumed_without_an_assignment_does_not_reuse_its_old_route() {
+    let mut h = Harness::new(report_script());
+    h.connect();
+    h.say("user_local", "Please coordinate the work.");
+    h.settle();
+    delivered_report(&mut h);
+    h.settle();
+    let report_steps = |h: &Harness| {
+        h.owner
+            .lock()
+            .unwrap()
+            .run_steps
+            .iter()
+            .filter(|(_, run, _)| {
+                run["id"]
+                    .as_str()
+                    .is_some_and(|id| id.starts_with("reports:"))
+            })
+            .count()
+    };
+    assert_eq!(
+        h.brain.state().spawns["s1"].subs[0].status,
+        optchat_chief::state::SubStatus::Reported
+    );
+    assert!(h.brain.state().spawns["s1"].subs[0].report_run.is_none());
+    let before = report_steps(&h);
+
+    // Model a resumed/standalone run that has no new assignment question.
+    h.brain.step(Input::SubagentFailed {
+        id: "a1".into(),
+        error: "resumed without assignment".into(),
+    });
+    h.settle();
+    assert_eq!(report_steps(&h), before);
+    assert!(
+        h.log()
+            .iter()
+            .any(|(_, text)| text.contains("[a1] (did not start: resumed without assignment)")),
+        "the resumed report still reaches Chief"
+    );
 }

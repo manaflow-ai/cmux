@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "6e6661334b6d20f300c49059740a6892b48e7c6c773fef091543291b5b518022";
+inline constexpr std::string_view kProtocolIrSha256 = "fd61e05d62cfab6236a458bf4163151ff9d4326bec7cd1e6c79ec3b633efe517";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -2393,6 +2393,7 @@ struct ConversationRunResult {
 };
 
 struct ConversationRunsRequest {
+    Field<std::vector<std::string>> answers{};
     Field<std::uint64_t> before_started_at{};
     std::string conversation{};
     Field<std::uint32_t> limit{};

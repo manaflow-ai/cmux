@@ -1058,51 +1058,87 @@ export class HomeChannelsStore {
         .filter((participant) => participant.kind === "agent")
         .map((participant) => participant.id),
     );
-    const turns = RunBook.turns(messages, agents);
-    try {
-      const direct =
-        turns.length > 0
-          ? ((await this.client.call<HomeRunList>(HomeOps.runs, { conversation, turns }).catch(() => ({ runs: [], hasMore: false }))).runs)
-          : [];
-      if (generation !== this.generation || life !== this.life) return;
-      const messageIds = new Set(messages.map((message) => message.id));
-      const answerRuns: HomeRun[] = [];
-      const answerIds = [...messageIds];
-      for (let offset = 0; offset < answerIds.length; offset += 200) {
-        const page = await this.client.call<HomeRunList>(HomeOps.runs, {
-          conversation,
-          answers: answerIds.slice(offset, offset + 200),
-        }).catch(() => ({ runs: [], hasMore: false }));
-        if (generation !== this.generation || life !== this.life) return;
-        answerRuns.push(...page.runs);
-      }
-      if (generation !== this.generation || life !== this.life) return;
-      const directRuns = [...direct, ...answerRuns];
-      this.runs.setRuns(directRuns);
-      for (const run of directRuns) {
-        if (generation !== this.generation || life !== this.life) return;
-        await this.loadRunSteps(run, generation, life);
-      }
-      const unresolvedReplies = new Set(
+    const active = () => generation === this.generation && life === this.life;
+    const replyKeys = new Set(
+      messages
+        .filter((message) => message.clientMessageId && agents.has(message.author))
+        .map((message) => `${message.author}\0${message.clientMessageId}`),
+    );
+    const turns = [
+      ...new Set(
         messages
-          .filter((message) => message.clientMessageId && agents.has(message.author))
-          .map((message) => `${message.author}\0${message.clientMessageId}`),
-      );
-      for (const run of directRuns) {
-        if (run.turn) unresolvedReplies.delete(`${run.author}\0${run.turn}`);
+          .filter((message) => agents.has(message.author))
+          .flatMap((message) => (message.clientMessageId ? [message.clientMessageId] : [])),
+      ),
+    ];
+    const messageIds = new Set(messages.map((message) => message.id));
+    const unresolvedReplies = new Set(replyKeys);
+    const published = new Map<string, HomeRun>();
+    let answersComplete = messageIds.size > 0;
+    // Publish and hydrate each successful batch before asking for more history. A slow or failed
+    // later page must not hold back the rows already found for the visible conversation.
+    const publish = async (runs: readonly HomeRun[], direct = false) => {
+      if (!active()) return;
+      const fresh: HomeRun[] = [];
+      for (const run of runs) {
+        const reply = run.turn ? `${run.author}\0${run.turn}` : undefined;
+        if (reply) unresolvedReplies.delete(reply);
+        const key = `${run.author}\0${run.id}`;
+        const previous = published.get(key);
+        // Direct queries and history often return the same summary. Invalidate unversioned
+        // cached steps only once per load, otherwise a later duplicate undoes hydration.
+        if (
+          previous &&
+          previous.rev >= run.rev &&
+          previous.updatedAt >= run.updatedAt &&
+          previous.stepCount >= run.stepCount &&
+          previous.status === run.status
+        )
+          continue;
+        published.set(key, run);
+        fresh.push(run);
       }
-      // `turns` only finds runs that posted a reply. Silent turns (including a tell/report turn)
-      // are selected by their `answers` message id, so walk the owner's run-history cursor until
-      // the oldest message in this window is covered and every loaded reply has a run. Cloud's
-      // direct lookup can return nothing: a long run can start well before its loaded reply.
+      this.runs.setRuns(fresh);
+      for (const run of fresh) {
+        if (!active()) return;
+        const reply = run.turn ? `${run.author}\0${run.turn}` : undefined;
+        if (direct || run.answers.some((answer) => messageIds.has(answer)) || (reply && replyKeys.has(reply))) {
+          // Cloud has no increasing revision to unlock a failed read. Each fresh lookup is a
+          // retry boundary; mounted cards alone must not retry failures in a loop.
+          if (run.rev === 0) this.failedRuns.delete(`${run.conversation}\0${run.author}\0${run.id}`);
+          await this.loadRunSteps(run);
+        }
+      }
+    };
+    try {
+      for (const [field, ids] of [
+        ["turns", turns],
+        ["answers", [...messageIds]],
+      ] as const) {
+        for (let offset = 0; offset < ids.length; offset += 200) {
+          if (!active()) return;
+          const list: HomeRunList = await this.client
+            .call<HomeRunList>(HomeOps.runs, {
+              conversation,
+              [field]: ids.slice(offset, offset + 200),
+            })
+            .catch(() => ({ runs: [], hasMore: false }));
+          if (!active()) return;
+          if (field === "answers" && list.answersComplete !== true) answersComplete = false;
+          await publish(list.runs, true);
+        }
+      }
+      // Local answer lookups cover silent reports regardless of their assignment's start time.
+      // Cloud lacks direct lookups: scan past the timestamp boundary until loaded reply keys
+      // resolve, while making each page visible immediately.
       const oldestMessageAt = messages.reduce<number | undefined>(
         (oldest, message) => (oldest === undefined ? message.createdAt : Math.min(oldest, message.createdAt)),
         undefined,
       );
-      const history: HomeRun[] = [];
       let beforeStartedAt: number | undefined;
       let page = 0;
       for (;;) {
+        if (!active()) return;
         const params: Record<string, unknown> = { conversation, limit: newest && page === 0 ? 20 : 50 };
         page += 1;
         if (beforeStartedAt !== undefined) params.beforeStartedAt = beforeStartedAt;
@@ -1112,12 +1148,8 @@ export class HomeChannelsStore {
         } catch {
           break;
         }
-        if (generation !== this.generation || life !== this.life) return;
-        history.push(...list.runs);
-        this.runs.setRuns(list.runs);
-        for (const run of list.runs) {
-          if (run.turn) unresolvedReplies.delete(`${run.author}\0${run.turn}`);
-        }
+        if (!active()) return;
+        await publish(list.runs);
         const oldestRun = list.runs.reduce<number | undefined>(
           (oldest, run) => (oldest === undefined ? run.startedAt : Math.min(oldest, run.startedAt)),
           undefined,
@@ -1125,47 +1157,13 @@ export class HomeChannelsStore {
         if (
           !list.hasMore ||
           oldestRun === undefined ||
-          (page > 0 && unresolvedReplies.size === 0 && oldestMessageAt !== undefined && oldestRun <= oldestMessageAt)
+          (unresolvedReplies.size === 0 &&
+            (answersComplete || (oldestMessageAt !== undefined && oldestRun <= oldestMessageAt)))
         )
           break;
         // The protocol uses a strict less-than cursor; guard malformed owners that do not move it.
         if (beforeStartedAt !== undefined && oldestRun >= beforeStartedAt) break;
         beforeStartedAt = oldestRun;
-      }
-      if (generation !== this.generation || life !== this.life) return;
-      const byKey = new Map<string, HomeRun>();
-      for (const run of [...history, ...directRuns]) {
-        const key = `${run.author}\0${run.id}`;
-        const held = byKey.get(key);
-        if (!held || run.rev > held.rev || (run.rev === held.rev && run.stepCount >= held.stepCount))
-          byKey.set(key, run);
-      }
-      const runs = [...byKey.values()];
-      // Message rows also survive completed and silent turns, including after a reload. Avoid
-      // fetching every historical run's tool log: only runs answering a loaded question, direct
-      // reply runs, or still-running work can contribute a row to this window.
-      const directKeys = new Set(directRuns.map((run) => `${run.author}\0${run.id}`));
-      const newestHistory = new Set(history.slice(0, newest ? 20 : 0).map((run) => `${run.author}\0${run.id}`));
-      const relevantRuns = runs.filter((run) => {
-        const relevant =
-          run.status === "running" ||
-          run.answers.some((answer) => messageIds.has(answer)) ||
-          directKeys.has(`${run.author}\0${run.id}`) ||
-          newestHistory.has(`${run.author}\0${run.id}`);
-        return relevant;
-      });
-      this.runs.setRuns(relevantRuns);
-      for (const run of relevantRuns) {
-        if (generation !== this.generation || life !== this.life) return;
-        // Cloud has no increasing revision to unlock a failed read. A fresh history lookup is
-        // a retry boundary; mounted cards alone must not retry the same failure in a loop.
-        if (run.rev === 0) this.failedRuns.delete(`${run.conversation}\0${run.author}\0${run.id}`);
-        // A summary can contribute activity state without any row in the loaded transcript.
-        if (
-          run.answers.some((answer) => messageIds.has(answer)) ||
-          directKeys.has(`${run.author}\0${run.id}`)
-        )
-          await this.loadRunSteps(run, generation, life);
       }
     } catch {
       // Runs are display only; a host or owner without them shows plain messages.
@@ -1173,12 +1171,7 @@ export class HomeChannelsStore {
   }
 
   /** Reads every step of a run from its owner (pages of steps by revision). */
-  loadRunSteps = async (run: HomeRun, expectedGeneration?: number, expectedLife?: number): Promise<void> => {
-    if (
-      (expectedGeneration !== undefined && expectedGeneration !== this.generation) ||
-      (expectedLife !== undefined && expectedLife !== this.life)
-    )
-      return;
+  loadRunSteps = async (run: HomeRun): Promise<void> => {
     const key = `${run.conversation}\0${run.author}\0${run.id}`;
     const readKey = `${this.generation}\0${this.life}\0${key}`;
     if (!this.client || this.loadingRuns.has(readKey)) return;
@@ -1196,13 +1189,7 @@ export class HomeChannelsStore {
     this.loadingRuns.add(readKey);
     try {
       await previous;
-      if (
-        generation !== this.generation ||
-        life !== this.life ||
-        (expectedGeneration !== undefined && expectedGeneration !== this.generation) ||
-        (expectedLife !== undefined && expectedLife !== this.life)
-      )
-        return;
+      if (generation !== this.generation || life !== this.life) return;
       // The local owner pages by revision; a Cloud brain (keyed by its Chief) by seq.
       let afterRev = 0;
       let afterSeq = 0;

@@ -431,8 +431,8 @@ pub struct SubRecord {
     /// Empty: the spawn's own (`SpawnRecord::answers`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub answers: Vec<String>,
-    /// The (conversation, run) that last assigned this agent work with `tell`.
-    /// None keeps the original spawn's route for older saved records.
+    /// The (conversation, run) assigning the current work, captured at spawn or tell.
+    /// Cleared when its report is consumed. None means no known Home projection route.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub report_run: Option<(String, String)>,
     /// When its session last changed (ms since the epoch): stuck detection.
@@ -696,6 +696,8 @@ impl HostState {
                 {
                     sub.status = SubStatus::Reported;
                     sub.report = None;
+                    sub.answers.clear();
+                    sub.report_run = None;
                     sub.stopped = false;
                     sub.floor = *floor;
                 }

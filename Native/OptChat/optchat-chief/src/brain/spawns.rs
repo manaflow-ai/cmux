@@ -594,7 +594,7 @@ impl Brain {
             })
             .collect();
         let spawn = format!("s{first}");
-        let record = SpawnRecord {
+        let mut record = SpawnRecord {
             subs: ids
                 .iter()
                 .zip(tasks)
@@ -643,6 +643,17 @@ impl Brain {
                 None => self.state.last_answers.clone(),
             },
         };
+        // Bind projection to this assignment while its originating route is known. Later
+        // standalone subagent runs must not inherit the spawn's route after consumption.
+        for sub in &mut record.subs {
+            sub.answers = record.answers.clone();
+            sub.report_run = record.conversation.as_ref().map(|conversation| {
+                (
+                    conversation.clone(),
+                    record.turn.clone().unwrap_or_else(|| spawn.clone()),
+                )
+            });
+        }
         let queued: Vec<String> = record
             .subs
             .iter()
@@ -1602,23 +1613,13 @@ impl Brain {
             .iter()
             .filter(|sub| sub.status == SubStatus::Done && !sub.stopped)
             .filter_map(|sub| {
-                let (conversation, turn) = match &sub.report_run {
-                    Some((conversation, turn)) => (conversation.clone(), Some(turn.clone())),
-                    None => (
-                        record
-                            .conversation
-                            .clone()
-                            .or_else(|| self.state.conversation.clone())?,
-                        record.turn.clone(),
-                    ),
-                };
-                let answers = if sub.answers.is_empty() {
-                    &record.answers
-                } else {
-                    &sub.answers
-                };
+                // Older records have no saved route. Do not guess from the Chief's current
+                // chat, or from a consumed assignment: delivery still reaches the Chief.
+                let (conversation, turn) = sub.report_run.as_ref()?;
+                let conversation = conversation.clone();
+                let answers = &sub.answers;
                 let mut run = json!({
-                    "id": crate::run::report_run_id(turn.as_deref().unwrap_or(spawn)),
+                    "id": crate::run::report_run_id(turn),
                     "status": "done",
                     "started_at": record.started_ms.max(sub.run_ms),
                     "answers": answers.iter().take(16).collect::<Vec<_>>(),
@@ -1664,13 +1665,17 @@ impl Brain {
                 self.state.pending_reports.push(pending.clone());
                 self.save();
             }
-            let Some(daemon) = self.daemon.as_mut() else {
-                continue;
-            };
             let mut complete = true;
             let mut transport_failed = false;
             for chunk in crate::run::chunks(steps) {
-                if let Err(e) = daemon.run_append(&conversation, run.clone(), chunk) {
+                let result = match self.daemon.as_mut() {
+                    Some(daemon) => daemon.run_append(&conversation, run.clone(), chunk),
+                    None => {
+                        complete = false;
+                        break;
+                    }
+                };
+                if let Err(e) = result {
                     if matches!(&e, OpError::Rejected(reason) if reason == "runs_unsupported") {
                         // This port cannot store display-only runs. Delivery to
                         // Chief still proceeds; reconnecting cannot fix it.
@@ -1703,9 +1708,9 @@ impl Brain {
     }
 
     pub(super) fn flush_pending_reports(&mut self) -> std::collections::HashSet<String> {
-        let Some(daemon) = self.daemon.as_mut() else {
+        if self.daemon.is_none() {
             return std::collections::HashSet::new();
-        };
+        }
         let pending = std::mem::take(&mut self.state.pending_reports);
         if pending.is_empty() {
             return std::collections::HashSet::new();
@@ -1716,7 +1721,16 @@ impl Brain {
             let mut complete = true;
             let mut transport_failed = false;
             for chunk in crate::run::chunks(report.steps.clone()) {
-                if let Err(e) = daemon.run_append(&report.conversation, report.run.clone(), chunk) {
+                let result = match self.daemon.as_mut() {
+                    Some(daemon) => {
+                        daemon.run_append(&report.conversation, report.run.clone(), chunk)
+                    }
+                    None => {
+                        complete = false;
+                        break;
+                    }
+                };
+                if let Err(e) = result {
                     if matches!(&e, OpError::Rejected(reason) if reason == "runs_unsupported") {
                         (self.log)("agent report display unavailable: runs unsupported");
                         break;

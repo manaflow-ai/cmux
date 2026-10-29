@@ -19820,6 +19820,11 @@ Result<ConversationRunAppendResult> Codec<ConversationRunAppendResult>::decode(c
 Result<Json> Codec<ConversationRunsRequest>::encode(const ConversationRunsRequest& value) {
     (void)value;
     Json::Object object;
+    if (!value.answers.is_absent()) {
+        auto encoded = encode_value(value.answers);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("answers", std::move(encoded).value());
+    }
     if (!value.before_started_at.is_absent()) {
         auto encoded = encode_value(value.before_started_at);
         if (!encoded) return std::move(encoded).error();
@@ -19845,6 +19850,16 @@ Result<ConversationRunsRequest> Codec<ConversationRunsRequest>::decode(const Jso
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     ConversationRunsRequest result{};
+    const Json* field_answers = value.find("answers");
+    if (field_answers) {
+        if (field_answers->is_null()) {
+            result.answers = Field<std::vector<std::string>>::null();
+        } else {
+            auto decoded = decode_value<std::vector<std::string>>(*field_answers);
+            if (!decoded) return std::move(decoded).error();
+            result.answers = Field<std::vector<std::string>>(std::move(decoded).value());
+        }
+    }
     const Json* field_before_started_at = value.find("before_started_at");
     if (field_before_started_at) {
         if (field_before_started_at->is_null()) {
@@ -41853,6 +41868,9 @@ constexpr std::array<CommandFieldRequirement, 8> kCommand32FieldRequirements{{
     {"origin", 7U, ""},
     {"reason", 0U, "close-reason-v1"},
 }};
+constexpr std::array<CommandFieldRequirement, 1> kCommand80FieldRequirements{{
+    {"answers", 0U, "conversation-run-answers-v1"},
+}};
 constexpr std::array<CommandFieldRequirement, 1> kCommand91FieldRequirements{{
     {"idempotency_key", 0U, "creation-attempt-keys-v1"},
 }};
@@ -42122,7 +42140,7 @@ constexpr std::array<CommandMetadata, 286> kCommands{{
     {"conversation-op", "local-admin", 12U, "local-conversations-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"conversation-run", "local-admin", 12U, "conversation-runs-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"conversation-run-append", "local-admin", 12U, "conversation-runs-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"conversation-runs", "local-admin", 12U, "conversation-runs-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
+    {"conversation-runs", "local-admin", 12U, "conversation-runs-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand80FieldRequirements)},
     {"conversation-search", "local-admin", 12U, "conversation-search-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"conversation-snapshot", "local-admin", 12U, "local-conversations-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"conversation-thread", "local-admin", 12U, "conversation-thread-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
