@@ -460,12 +460,15 @@ class WebLintPrePushTests(unittest.TestCase):
     NESTED = '"bun scripts/check-design.ts && vp lint --config scripts/lint/x.json src"'
     CHECK_LANES_PY = "import pathlib, sys\nsys.exit(1 if 'BAD_LANE' in pathlib.Path('src/app.ts').read_text() else 0)\n"
 
-    def heavy_fixture(self):
+    # webviews' real shape since #24438: `check` is the run-check-pieces.py runner and the chain is `check:pieces`.
+    RUNNER_CHECK = ('"python3 ../scripts/cmux-next/run-check-pieces.py", "check:pieces": ' + HEAVY_CHECK)
+
+    def heavy_fixture(self, check=None):
         """webviews' check gains the heavy pieces; stand-ins for vp and bun log each call with its niceness and Go
         thread cap. Seeded on origin, so the push under test changes only source; returns that push's env (outside
         CI) and the log."""
         self.write("webviews/package.json", WEBVIEWS_PACKAGE.replace(
-            '"sh check-lanes.sh && sh check-format.sh"', self.HEAVY_CHECK).replace(
+            '"sh check-lanes.sh && sh check-format.sh"', check or self.HEAVY_CHECK).replace(
             '"check:fix": "sh fix-format.sh"', f'"check:fix": "vp check --fix", "check:nested": {self.NESTED}'))
         self.write("webviews/scripts/check_lanes.py", self.CHECK_LANES_PY)
         self.commit("heavy pieces")
@@ -501,6 +504,20 @@ class WebLintPrePushTests(unittest.TestCase):
                       "vp check --no-fmt --no-lint", result.stderr)
         self.assertIn("cmux-ci test", result.stderr, "must say where to run it instead")
         self.assertRegex(result.stderr, r"web lint passed in \d+\.\ds \(webviews\)")
+
+    def test_a_host_that_runs_no_heavy_checks_runs_only_the_allowlisted_pieces_of_the_check_runner(self):
+        # webviews' `check` is `python3 ../scripts/cmux-next/run-check-pieces.py` (#24438). The light host resolves
+        # it through `check:pieces` and runs only the allowlisted pieces, never the runner as one opaque command
+        # (which would run vp lint and vp check too).
+        env, log = self.heavy_fixture(self.RUNNER_CHECK)
+
+        result = self.push_with({**env, "CMUX_LOCAL_HEAVY_CHECKS": "0"})
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(sorted(self.logged(log)), ["bun scripts/check-design.ts", "vp fmt --check"])
+        self.assertIn("not run on this host (CMUX_LOCAL_HEAVY_CHECKS=0): vp lint --config scripts/lint/x.json src, "
+                      "vp check --no-fmt --no-lint", result.stderr)
+        self.assertNotIn("run-check-pieces.py", result.stderr)
 
     def test_light_pieces_still_refuse_a_bad_push_on_a_host_that_runs_no_heavy_checks(self):
         env, log = self.heavy_fixture()
@@ -742,6 +759,13 @@ class WebLintPrePushTests(unittest.TestCase):
                                 "vp check --no-fmt --no-lint", "tsc -p .", "sh check.sh", "bun run no-such-script",
                                 "bun ../escape.ts", "bun scripts/../x.ts", "bun run loop", "node x.js", "bun install",
                                 "vp fmt --check --write", "vp fmt"])
+
+    def test_a_nested_check_runner_resolves_to_its_pieces(self):
+        lint = load_lint(self.repo)
+        webviews = lint.SCRIPT_PACKAGES[0]
+        scripts = {"check:sub": "python3 ../scripts/cmux-next/run-check-pieces.py",
+                   "check:sub:pieces": "vp fmt --check && vp lint"}
+        self.assertEqual(lint.light_leaves(webviews, ["bun run check:sub"], scripts), (["vp fmt --check"], ["vp lint"]))
 
     def test_python3_and_bun_are_light_only_for_a_guarded_source_check_script(self):
         # Review of 3811e05: any shell-free `python3 ...` was light, so `python3 -m pip install ..` ran there.

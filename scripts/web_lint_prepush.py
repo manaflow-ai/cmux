@@ -361,13 +361,15 @@ def is_light(piece: str, package: ScriptPackage) -> bool:
 
 def light_leaves(package: ScriptPackage, pieces: list[str], scripts: dict[str, str],
                  depth: int = 0) -> tuple[list[str], list[str]]:
-    """(the allowlisted commands PIECES come to, the rest): `bun run NAME` is replaced by NAME's own pieces; an
-    unknown or too deep NAME is in the rest, whole."""
+    """(the allowlisted commands PIECES come to, the rest): `bun run NAME` is replaced by NAME's own pieces
+    (`NAME:pieces` when it has one); an unknown or too deep NAME is in the rest, whole."""
     light, rest = [], []
     for piece in pieces:
         words = piece.split()
         if tuple(words[:2]) == SCRIPT_RUNNER and len(words) == 3:
-            body = scripts.get(words[2])
+            # A NAME run through run-check-pieces.py (webviews' `check`) is resolved to its `NAME:pieces` chain,
+            # as check_pieces() does, never run whole as one opaque runner command.
+            body = scripts.get(f"{words[2]}:pieces") or scripts.get(words[2])
             if isinstance(body, str) and depth < MAX_SCRIPT_DEPTH:
                 inner = light_leaves(package, [p.strip() for p in body.split("&&") if p.strip()], scripts, depth + 1)
                 light += inner[0]
