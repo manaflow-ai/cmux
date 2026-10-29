@@ -259,7 +259,8 @@ class Wiring(unittest.TestCase):
         steps = notary["steps"]
         names = [s.get("name") for s in steps]
         unpack = steps[names.index("Unpack the signed app")]
-        self.assertIn('echo "$APP_SHA256  signer-app/signed-app.tar" | sha256sum -c -', unpack["run"])
+        # Both jobs unpack the one tar after checking it against signer-app's digest.
+        self.assertIn('echo "$APP_SHA256  signer-app/signed-app.tar" | "${sum[@]}" -c -', unpack["run"])
         self.assertEqual(unpack["env"]["APP_SHA256"], "${{ needs.signer-app.outputs.sha256 }}")
         notarize = steps[names.index("Notarize the app")]
         self.assertIn("release-signer/notarize-app.sh", notarize["run"])
@@ -268,8 +269,7 @@ class Wiring(unittest.TestCase):
         self.assertNotIn("signer-app-notary", needs(image))
         self.assertIn("signer-app-notary", needs(JOBS["signer-dmg"]))
         image_steps = {s.get("name"): s for s in image["steps"]}
-        self.assertIn('echo "$APP_SHA256  signer-app/signed-app.tar" | shasum -a 256 -c -',
-                      image_steps["Unpack the signed app"]["run"])
+        self.assertEqual(image_steps["Unpack the signed app"], unpack)
         self.assertIn("signer-app/signed-app.tar", (ROOT / "scripts/ci/nightly-steps/signer-appcast.sh").read_text())
 
     def test_the_stapled_app_download_retries_once(self):

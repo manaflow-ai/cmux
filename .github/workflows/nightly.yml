@@ -5308,11 +5308,11 @@ jobs:
 
   # nightly-next on the release runner pool, off unless the sign_pool input or
   # vars.CI_NIGHTLY_NEXT_SIGN_POOL turns it on: signer-app signs the app
-  # (the Computer Use helper notarized and stapled first) and notarizes it,
-  # signer-dmg-image runs Apple's checks and packages the DMG on a Mac (the
-  # pool's one Mac job), and signer-dmg signs, notarizes and staples the DMG,
-  # writes the appcast and hands them on. The verify jobs check them on a Mac
-  # before publish; build-sign-notarize-nightly signs whenever signer-dmg did not pass.
+  # (the Computer Use helper notarized and stapled first), signer-app-notary
+  # notarizes it, signer-dmg-image staples it, checks it and packages the DMG on
+  # a Mac, and signer-dmg signs, notarizes and staples the DMG, writes the appcast
+  # and hands them on; verify-final-dmg-nightly checks them before publish.
+  # build-sign-notarize-nightly signs whenever signer-dmg did not pass.
   signer-build:
     needs: [decide]
     if: needs.decide.outputs.track == 'nightly-next' && (inputs.sign_pool || vars.CI_NIGHTLY_NEXT_SIGN_POOL == '1') && vars.CMUX_NEXT_CEF_ON_DEMAND != '1' && needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true' && needs.decide.outputs.continue_only != 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true' && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.notary_probe != 'true' && needs.decide.outputs.variants == '["arm64"]' && inputs.nightly_next_unsigned_run == ''
@@ -5435,9 +5435,7 @@ jobs:
           ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
           ENTITLEMENTS: ${{ needs.decide.outputs.entitlements }}
         run: bash .publish-tooling/scripts/ci/release-signer/sign-app.sh "${{ steps.prepare.outputs.app }}" "$ENTITLEMENTS"
-      # The signed app goes on at once: signer-app-notary has Apple notarize these bytes while
-      # signer-dmg-image downloads and checks them on a Mac and staples the ticket there, so the
-      # Mac's download and checks no longer wait behind Apple (2.2-3.3 min a run).
+      # Unstapled: signer-app-notary notarizes it while signer-dmg-image checks it and staples.
       - name: Pack the signed app
         id: pack
         run: bash .publish-tooling/scripts/ci/nightly-steps/signer-app-pack.sh
@@ -5452,8 +5450,6 @@ jobs:
           retention-days: 1
           overwrite: true
 
-  # Apple's notarization of the app signer-app signed, from its artifact (the digest it printed),
-  # beside signer-dmg-image, which staples the ticket on the Mac once Apple has accepted it.
   signer-app-notary:
     environment: ${{ needs.decide.outputs.environment }}
     needs: [decide, resolve-nightly-cmux-tui-client, signer-build, signer-app]
@@ -5475,13 +5471,11 @@ jobs:
         with:
           name: cmux-nightly-next-signer-app-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
           path: signer-app
-      - name: Unpack the signed app
+      - &signer-unpack-app
+        name: Unpack the signed app
         env:
           APP_SHA256: ${{ needs.signer-app.outputs.sha256 }}
-        run: |
-          set -euo pipefail
-          echo "$APP_SHA256  signer-app/signed-app.tar" | sha256sum -c -
-          mkdir -p "$SIGNER_WORK" && tar -C "$SIGNER_WORK" -xf signer-app/signed-app.tar
+        run: bash .publish-tooling/scripts/ci/nightly-steps/signer-unpack-app.sh
       - name: Notarize the app
         id: notarize
         env:
@@ -5494,7 +5488,6 @@ jobs:
   signer-dmg-image:
     needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, pick-nightly-sign-runner, signer-app]
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.owned || github.run_attempt > 1 && needs.pick-nightly-sign-runner.outputs.alternate || needs.pick-nightly-sign-runner.outputs.runner || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
-    # The staple waits up to 25 min for Apple (signer-app-notary waits up to 20 after its upload).
     timeout-minutes: 45
     permissions:
       contents: read
@@ -5538,18 +5531,9 @@ jobs:
         with:
           name: cmux-nightly-next-signer-app-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
           path: signer-app
-      - name: Unpack the signed app
-        env:
-          APP_SHA256: ${{ needs.signer-app.outputs.sha256 }}
-        run: |
-          set -euo pipefail
-          echo "$APP_SHA256  signer-app/signed-app.tar" | shasum -a 256 -c -
-          mkdir -p "$SIGNER_WORK" && tar -C "$SIGNER_WORK" -xf signer-app/signed-app.tar
-      # The checks of the signed app run on copies in the background while Apple notarizes it and
-      # the DMG is built and sent, and the job fails after the upload when one fails, so signer-dmg
-      # never reads that DMG. They include verify-signed-nightly's checks: a pool-signed build has
-      # no second download of the app to another office Mac (2-5 min in runs 40905688542,
-      # 40913618519, 40918131595), and verify-signed-nightly runs only for the macOS signer's app.
+      - *signer-unpack-app
+      # The signed-app and verify-signed-nightly checks run on copies in the background while
+      # Apple notarizes and the DMG is built and sent; the job fails after the upload on a failure.
       - name: Start the signed-app checks
         env:
           CHECK_MINOS: "true"
@@ -5565,8 +5549,6 @@ jobs:
           CHANNEL_ENTITLEMENTS: ${{ needs.decide.outputs.entitlements }}
           TRACK: ${{ needs.decide.outputs.track }}
         run: bash .publish-tooling/scripts/ci/nightly-steps/signer-verify-signed.sh start "$SIGNER_WORK/$CHANNEL_APP_NAME.app"
-      # signer-app-notary submits the same bytes (signer-app's digest) to Apple; Apple's stapler
-      # takes the ticket once Apple has accepted them, which no rejected or other build can give.
       - name: Staple the app's notarization ticket
         run: bash .publish-tooling/scripts/ci/nightly-steps/signer-staple-app.sh "$SIGNER_WORK/$CHANNEL_APP_NAME.app"
       - name: Apple's checks of the stapled app
