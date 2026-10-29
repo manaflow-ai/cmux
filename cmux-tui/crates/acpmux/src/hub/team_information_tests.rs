@@ -202,10 +202,12 @@ async fn information_survives_a_digest_of_two_queued_agent_messages() {
     let wait = std::time::Duration::from_secs(20);
     let mut runs = Vec::new();
     for sender in ["alpha", "beta"] {
+        assert!(hub.register_team_work(&session, sender));
         let (accepted, queued) = tokio::sync::oneshot::channel();
         let (hub, session) = (hub.clone(), session.clone());
         runs.push(tokio::spawn(async move {
             let options = PromptOptions {
+                prompt_id: Some(sender.to_owned()),
                 agent: Some(sender.to_owned()),
                 on_accepted: Some(Box::new(move |receipt| {
                     let _ = accepted.send(receipt);
@@ -244,6 +246,12 @@ async fn information_survives_a_digest_of_two_queued_agent_messages() {
         assert!(wire.contains(text), "missing {text} from {wire}");
     }
     assert!(hub.take_team_messages(&session).is_empty());
+    let mesh = ReadHub::default();
+    mesh.available.store(true, Ordering::SeqCst);
+    hub.flush_team_read_receipts(&mesh).await;
+    let mut read = mesh.ids.lock().unwrap().clone();
+    read.sort();
+    assert_eq!(read, ["alpha", "beta", "m1"], "every digested team message is read");
     hub.shutdown_all().await;
 }
 
@@ -325,4 +333,113 @@ async fn read_receipts_wait_for_submission_and_retry_after_restart_without_auto_
     hub.sessions.lock().unwrap().insert(session.id.clone(), restored);
     hub.flush_team_read_receipts(&mesh).await;
     assert_eq!(*mesh.ids.lock().unwrap(), ["m1"], "read receipts persist too");
+}
+
+/// The writer has dequeued the frame but has not written a byte. Killing it here exercises
+/// the gap that a cancellation before the transport enqueue cannot cover.
+#[tokio::test]
+async fn a_writer_failure_after_enqueue_neither_consumes_information_nor_reports_read() {
+    let (hub, _) = hub();
+    let session = hub
+        .new_session(NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() })
+        .await
+        .unwrap();
+    assert!(receive(&hub, &session, "m1"));
+    assert!(hub.register_team_work(&session, "work1"));
+    let child = session.child.lock().await.clone().unwrap();
+    let (arrived_tx, arrived) = tokio::sync::oneshot::channel();
+    let (_release, release_rx) = tokio::sync::oneshot::channel();
+    *child.input_seam.lock().unwrap() =
+        Some(("session/prompt".into(), true, arrived_tx, release_rx));
+    let run = {
+        let (hub, session) = (hub.clone(), session.clone());
+        tokio::spawn(async move {
+            hub.prompt_with(
+                &session,
+                vec![json!({"type":"text", "text":"hello"})],
+                "test",
+                false,
+                PromptOptions { prompt_id: Some("work1".into()), ..Default::default() },
+            )
+            .await
+        })
+    };
+    let wait = std::time::Duration::from_secs(20);
+    tokio::time::timeout(wait, arrived).await.unwrap().unwrap();
+    let mesh = ReadHub::default();
+    mesh.available.store(true, Ordering::SeqCst);
+    hub.flush_team_read_receipts(&mesh).await;
+    assert!(mesh.ids.lock().unwrap().is_empty(), "transport enqueue is not a read");
+    assert_eq!(hub.take_team_messages(&session).len(), 1);
+    child.kill().await;
+    assert!(tokio::time::timeout(wait, run).await.unwrap().unwrap().is_err());
+    let restored = hub.make_session(session.meta());
+    hub.sessions.lock().unwrap().insert(session.id.clone(), restored.clone());
+    assert_eq!(hub.take_team_messages(&restored).len(), 1, "writer failure preserves the notice");
+    hub.flush_team_read_receipts(&mesh).await;
+    assert!(mesh.ids.lock().unwrap().is_empty());
+    hub.shutdown_all().await;
+}
+
+#[tokio::test]
+async fn allowed_relay_messages_become_read_only_after_confirmed_write_and_never_run_twice() {
+    let (hub, _) = hub();
+    let session = hub
+        .new_session(NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() })
+        .await
+        .unwrap();
+    let child = session.child.lock().await.clone().unwrap();
+    let (arrived_tx, arrived) = tokio::sync::oneshot::channel();
+    let (release, release_rx) = tokio::sync::oneshot::channel();
+    *child.input_seam.lock().unwrap() =
+        Some(("session/prompt".into(), true, arrived_tx, release_rx));
+    let message: crate::mesh::InMessage = serde_json::from_value(json!({
+        "messageId": "work1", "kind": "prompt", "mode": "turn-end", "body": "report status",
+        "to": {"sessionId": session.id, "teamAddress": "@team/coordinator"},
+        "from": {"teamAddress": "@alice/coordinator"}, "startWork": "allowed",
+    }))
+    .unwrap();
+    let wait = std::time::Duration::from_secs(20);
+    let deliver =
+        || crate::server::mesh_relay::deliver(&hub, &message, &crate::mesh::RefuseControl, None);
+    let ack = tokio::time::timeout(wait, deliver()).await.unwrap().unwrap();
+    assert_eq!(ack.state, crate::mesh::AckState::Delivered);
+    tokio::time::timeout(wait, arrived).await.unwrap().unwrap();
+    let mesh = ReadHub::default();
+    mesh.available.store(true, Ordering::SeqCst);
+    hub.flush_team_read_receipts(&mesh).await;
+    assert!(mesh.ids.lock().unwrap().is_empty());
+    release.send(()).unwrap();
+    // Joining the existing prompt id waits for its outcome; it must not start another turn.
+    tokio::time::timeout(
+        wait,
+        hub.prompt_with(
+            &session,
+            vec![json!({"type":"text", "text":"duplicate"})],
+            "test",
+            false,
+            PromptOptions { prompt_id: Some("work1".into()), resend: true, ..Default::default() },
+        ),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    mesh.available.store(false, Ordering::SeqCst);
+    hub.flush_team_read_receipts(&mesh).await;
+    tokio::time::timeout(wait, deliver()).await.unwrap().unwrap();
+    let written = hub
+        .events(&session.id, 0, 100_000)
+        .unwrap()
+        .into_iter()
+        .filter(|e| e.dir == "out" && e.kind == "session/prompt")
+        .count();
+    assert_eq!(written, 1, "duplicate delivery must not start work again");
+    let restored = hub.make_session(session.meta());
+    hub.sessions.lock().unwrap().insert(session.id.clone(), restored);
+    mesh.available.store(true, Ordering::SeqCst);
+    hub.flush_team_read_receipts(&mesh).await;
+    hub.flush_team_read_receipts(&mesh).await;
+    assert_eq!(*mesh.ids.lock().unwrap(), ["work1"]);
+    child.kill().await;
+    hub.shutdown_all().await;
 }

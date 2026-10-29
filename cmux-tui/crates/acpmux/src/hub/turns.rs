@@ -392,6 +392,9 @@ impl Hub {
         // the turn has started, so none leaves the queue for a turn that never runs. A forum push
         // is no agent's message: it never leads one.
         let parts = self.take_joined(session, &run, &prompt_id, &turn_id, joined);
+        let team_prompt_ids: Vec<_> = std::iter::once(prompt_id.clone())
+            .chain(parts.iter().map(|part| part.prompt_id.clone()))
+            .collect();
         let (blocks, text) = if parts.is_empty() {
             (blocks, text)
         } else {
@@ -497,6 +500,8 @@ impl Hub {
             Vec::new()
         };
         super::team_information::prepend(&mut blocks, &team_messages);
+        let confirm_team_write = !team_messages.is_empty()
+            || (team_enabled && self.has_team_work(session, &team_prompt_ids));
         if session.rehydrate.swap(false, Ordering::SeqCst)
             && let Some(transcript) = self.transcript(session, 24_000)
         {
@@ -589,8 +594,12 @@ impl Hub {
             &turn_id,
             false,
             fence.as_ref(),
+            confirm_team_write,
             || {
                 self.mark_team_messages(session, &team_messages);
+                if team_enabled {
+                    self.mark_team_work(session, &team_prompt_ids);
+                }
                 self.watch_stalled_turn(session, None);
                 self.title_after_prompt(session)
             },
@@ -713,8 +722,12 @@ impl Hub {
                                         &turn_id,
                                         false,
                                         fence.as_ref(),
+                                        confirm_team_write,
                                         || {
                                             self.mark_team_messages(session, &team_messages);
+                                            if team_enabled {
+                                                self.mark_team_work(session, &team_prompt_ids);
+                                            }
                                             self.watch_stalled_turn(session, None);
                                         },
                                     )

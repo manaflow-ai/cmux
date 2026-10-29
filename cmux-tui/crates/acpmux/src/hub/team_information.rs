@@ -7,6 +7,7 @@ use super::*;
 const RECEIVED: &str = "team_message";
 const CONSUMED: &str = "team_message_consumed";
 const READ: &str = "team_message_read";
+const WORK: &str = "team_work_received";
 
 #[derive(Default)]
 pub(super) struct State {
@@ -14,6 +15,7 @@ pub(super) struct State {
     seen: HashSet<String>,
     pending: Vec<(String, String)>,
     read_pending: HashSet<String>,
+    work: HashSet<String>,
 }
 
 impl Hub {
@@ -26,12 +28,16 @@ impl Hub {
             let mut state = State::default();
             let mut consumed = HashSet::new();
             let mut read_at_hub = HashSet::new();
-            let read =
-                self.store.scan_kinds(&session.id, &[RECEIVED, CONSUMED, READ], &mut |event| {
+            let read = self.store.scan_kinds(
+                &session.id,
+                &[RECEIVED, CONSUMED, READ, WORK],
+                &mut |event| {
                     let Some(id) = event.msg.get("messageId").and_then(Value::as_str) else {
                         return true;
                     };
-                    if event.kind == READ {
+                    if event.kind == WORK {
+                        state.work.insert(id.to_owned());
+                    } else if event.kind == READ {
                         read_at_hub.insert(id.to_owned());
                     } else if event.kind == CONSUMED {
                         consumed.insert(id.to_owned());
@@ -42,12 +48,14 @@ impl Hub {
                         state.pending.push((id.to_owned(), text.to_owned()));
                     }
                     true
-                });
+                },
+            );
             if let Err(error) = read {
                 tracing::warn!(session = %session.id, "team information log read failed: {error}");
                 return None; // Never acknowledge against a partially read deduplication index.
             }
             state.pending.retain(|(id, _)| !consumed.contains(id));
+            state.work.retain(|id| !consumed.contains(id));
             state.read_pending = consumed.difference(&read_at_hub).cloned().collect();
             *cache = Some(state);
         }
@@ -96,6 +104,54 @@ impl Hub {
             return false;
         }
         true
+    }
+
+    /// Only the relay records this, after an allowed hub decision. Ordinary RPC metadata
+    /// cannot register read receipts. Work uses the existing prompt ledger, never this inbox.
+    pub(crate) fn register_team_work(&self, session: &Session, id: &str) -> bool {
+        let mut cache = session.team_information.lock().unwrap_or_else(|e| e.into_inner());
+        if session.purged.load(Ordering::SeqCst) {
+            return false;
+        }
+        let Some(state) = self.team_state(session, &mut cache) else { return false };
+        if state.work.contains(id) || state.seen.contains(id) {
+            return true;
+        }
+        if !self.append_stored(session, "in", WORK, json!({"messageId": id}))
+            || !self.flush_team_information(session)
+        {
+            return false;
+        }
+        state.work.insert(id.to_owned());
+        true
+    }
+
+    /// Called only after a confirmed write. Includes every message in a digest; an allowed
+    /// message that merely queued, or whose turn failed before writing, is never read.
+    pub(super) fn mark_team_work(&self, session: &Session, prompt_ids: &[String]) {
+        let mut cache = session.team_information.lock().unwrap_or_else(|e| e.into_inner());
+        let Some(state) = self.team_state(session, &mut cache) else { return };
+        let mut consumed = Vec::new();
+        for id in prompt_ids {
+            if state.work.contains(id)
+                && self.append_stored(session, "mux", CONSUMED, json!({"messageId": id}))
+            {
+                consumed.push(id.clone());
+            }
+        }
+        if !consumed.is_empty() && self.flush_team_information(session) {
+            for id in consumed {
+                state.work.remove(&id);
+                state.seen.insert(id.clone());
+                state.read_pending.insert(id);
+            }
+        }
+    }
+
+    pub(super) fn has_team_work(&self, session: &Session, prompt_ids: &[String]) -> bool {
+        let mut cache = session.team_information.lock().unwrap_or_else(|e| e.into_inner());
+        self.team_state(session, &mut cache)
+            .is_none_or(|state| prompt_ids.iter().any(|id| state.work.contains(id)))
     }
 
     /// Called under the natural turn's lock. A cancelled or failed start leaves this snapshot

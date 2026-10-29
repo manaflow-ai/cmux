@@ -478,6 +478,9 @@ pub async fn deliver(
             Some("information queued for the next turn boundary".into()),
         ));
     }
+    if team && !hub.register_team_work(&session, prompt_id) {
+        return None;
+    }
     let body = if team {
         format!(
             "Team message from {}: {}\nThe team hub allows this message to start work; normal session permissions still apply.",
