@@ -195,19 +195,22 @@ function nearestCaretAtPoint(
 function rowCaretAt(doc: Document, thread: HTMLElement, x: number, y: number): Caret | undefined {
   const caret = caretAt(doc, x, y);
   // Rows are absolutely placed, so their order is read from their boxes, not the DOM.
-  let row: { node: HTMLElement; box: DOMRect; distance: number } | undefined;
+  if (caret && thread.contains(caret.node) && rowOf(caret.node)) return caret;
+  let row: { node: HTMLElement; box: DOMRect } | undefined;
   for (const node of thread.querySelectorAll<HTMLElement>(".acpmux-row")) {
     const box = node.getBoundingClientRect();
     if (box.height <= 0) continue;
-    const distance = y < box.top ? box.top - y : y > box.bottom ? y - box.bottom : 0;
-    if (!row || distance < row.distance - 0.01 || (Math.abs(distance - row.distance) <= 0.01 && box.top < row.box.top))
-      row = { node, box, distance };
+    const better = !row
+      ? true
+      : box.top <= y
+        ? row.box.top > y || box.top > row.box.top
+        : row.box.top > y && box.top < row.box.top;
+    if (better) row = { node, box };
   }
-  if (!row) return caret && thread.contains(caret.node) && rowOf(caret.node) ? caret : undefined;
+  if (!row) return caret;
   const { box } = row;
   const inRow = caretAt(doc, x, Math.min(Math.max(y, box.top + 1), box.bottom - 1));
-  if (inRow && row.node.contains(inRow.node)) return inRow;
-  return caret && row.node.contains(caret.node) ? caret : undefined;
+  return inRow && row.node.contains(inRow.node) ? inRow : caret;
 }
 
 /// The gutter geometry now: the column from a mounted row (rows sit --cv-inset in, the column's
@@ -452,14 +455,7 @@ export function installGutterSelect(
     const point = clampIntoColumn(event.clientX, event.clientY, geometry);
     const resolved =
       transcriptGap || !hitsText(doc, thread, point.x, point.y)
-        ? (() => {
-            const rowCaret = rowCaretAt(doc, thread, point.x, point.y);
-            if (rowCaret) {
-              const row = inThread(rowCaret) ? rowOf(rowCaret.node) : undefined;
-              if (row) return { caret: rowCaret, row };
-            }
-            return nearestCaretAtPoint(doc, thread, point.x, point.y, geometry.view);
-          })()
+        ? nearestCaretAtPoint(doc, thread, point.x, point.y, geometry.view)
         : (() => {
             const caret = caretAt(doc, point.x, point.y);
             const row = inThread(caret) ? rowOf(caret.node) : undefined;
