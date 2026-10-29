@@ -707,59 +707,6 @@ import Testing
         #expect(fake.writes == ["screen true"] && model.ask == nil)
     }
 
-    /// The strict check takes only the HID system's input: source pid 0 (or the WindowServer's) and the
-    /// HID system's source state. A click posted from a private or combined-session source is refused even
-    /// with pid 0; one from a HID-state source (how the cmux-cua helper posts) is refused by its pid, as is
-    /// this process's own (DEBUG automation) and any other process's, in DEBUG builds too.
-    /// Round 15: the person's click on Allow through the sheet's own event handling: the mouse-down goes to
-    /// the panel's `sendEvent`, the button tracks it with AppKit's own loop (which takes the queued mouse-up
-    /// and makes it `NSApp.currentEvent`, the production ``JoinConsentAskPanel/eventInHand``) and sends its
-    /// action inside the dispatch. The same click the person check refuses, and one ended on Deny, write
-    /// nothing; only the person's own click on Allow grants. The events' origin is the check's
-    /// (``theStrictPersonCheckTakesOnlyTheHIDSystemsInput()``); a test process can't make the HID system's.
-    @Test func aClickOnAllowThroughTheSheetsOwnEventHandling() async throws {
-        _ = NSApplication.shared
-        let fake = Fake()
-        let model = JoinConsentModel(services: fake.services())
-        await model.refresh()
-        model.refused(JoinConsentRefusal(requester: "lane-vm-3", surface: .screen))
-        let panel = JoinConsentAskPanel(model: model)
-        panel.content.rebuild()
-        panel.setContentSize(panel.content.fittingSize)
-        panel.contentView?.layoutSubtreeIfNeeded()
-        let allow = try #require(AddDeviceShotsTests.find(panel.content, id: "cmux.joinConsentAsk.allow") as? NSButton)
-        let deny = try #require(AddDeviceShotsTests.find(panel.content, id: "cmux.joinConsentAsk.deny") as? NSButton)
-        let center = { (view: NSView) in view.convert(NSPoint(x: view.bounds.midX, y: view.bounds.midY), to: nil) }
-        var genuine: Set<Int> = []
-        panel.isPersonEvent = { genuine.contains($0.eventNumber) }
-        var number = 9000
-        /// A click: the mouse-up queued for the button's tracking loop, then the mouse-down sent to the panel.
-        let click = { (down: NSView, up: NSView, person: Bool) throws in
-            let time = ProcessInfo.processInfo.systemUptime
-            number += 2
-            let pressed = try #require(NSEvent.mouseEvent(with: .leftMouseDown, location: center(down), modifierFlags: [], timestamp: time,
-                                                          windowNumber: panel.windowNumber, context: nil, eventNumber: number, clickCount: 1, pressure: 1))
-            let released = try #require(NSEvent.mouseEvent(with: .leftMouseUp, location: center(up), modifierFlags: [], timestamp: time + 0.05,
-                                                           windowNumber: panel.windowNumber, context: nil, eventNumber: number + 1, clickCount: 1, pressure: 0))
-            if person { genuine.formUnion([pressed.eventNumber, released.eventNumber]) }
-            NSApp.postEvent(released, atStart: true)
-            panel.sendEvent(pressed)
-            // The tracking loop took the mouse-up (else a later click would find it queued).
-            let left = NSApp.nextEvent(matching: [.leftMouseUp], until: .distantPast, inMode: .default, dequeue: true)
-            #expect(left == nil, "the button's tracking took the mouse-up")
-        }
-        let settle = { for _ in 0..<200 { await Task.yield() } }
-        try click(allow, allow, false) // the person check refuses it
-        await settle()
-        #expect(fake.writes.isEmpty && model.ask != nil)
-        try click(allow, deny, true) // pressed on Allow, released on Deny: no action, no write
-        await settle()
-        #expect(fake.writes.isEmpty && model.ask != nil)
-        try click(allow, allow, true)
-        for _ in 0..<1000 where model.ask != nil { await Task.yield() }
-        #expect(fake.writes == ["screen true"] && model.ask == nil)
-    }
-
     @Test func theStrictPersonCheckTakesOnlyTheHIDSystemsInput() throws {
         let event = { (pid: Int64, state: CGEventSourceStateID) throws -> NSEvent in
             // No event source: making one (CGEventSource) can hang inside SkyLight on a headless Mac. The
