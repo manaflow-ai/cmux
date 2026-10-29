@@ -78,8 +78,8 @@ impl Claim {
         let Some(path) = &self.stamp else { return Ok(()) };
         let end =
             write_stamp(path, Stamp { started_ms: self.started_ms, finished_ms: Some(now_ms) });
-        match self.stamp_error {
-            Some(error) => Err(error),
+        match self.stamp_error.as_ref() {
+            Some(error) => Err(error.clone()),
             None => end,
         }
     }
