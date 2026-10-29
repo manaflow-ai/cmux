@@ -220,6 +220,8 @@ export interface Env {
   readonly STACK_WEBHOOK_SECRET?: string
   /** Pace of Stack webhook syncs per project, one token per sync (stack-server.ts stackReadPace); namespaces 1201-1203 (cx-f5tk4). */
   readonly STACK_READ_LIMIT?: RateLimit
+  /** The low lane of the Stack read pace (stack-server.ts stackLowReadPace): syncs of never-mirrored teams no person waits on. */
+  readonly STACK_READ_LOW_LIMIT?: RateLimit
   /** Secrets per provider; a provider without its secrets reports `configured: false`. */
   readonly GITHUB_APP_SLUG?: string
   readonly GITHUB_APP_CLIENT_ID?: string
