@@ -616,6 +616,7 @@ pub(super) async fn handle_request(
             .await?;
     }
     caller_sends_no_files(hub, conn, m, &params)?;
+    super::peer_forward::refuse_peer_selector(conn.origin, m, &params)?;
     // Only the person allows or widens what runs without asking (`hub/person.rs`): one
     // check, before the request runs or reaches a peer. Held to the Web's rules: a Web
     // connection, or a peer forwarding for its own Web client (`via: web`); a peer
@@ -698,6 +699,7 @@ async fn dispatch_request(
             // expansion passes the default recursion limit.
             #[rustfmt::skip]
             let extensions: &[&str] = &[
+                super::peer_forward::TRUST_PEER_EXTENSION,
                 method::MUX_STATUS, method::MUX_SESSIONS, method::MUX_HARNESSES, method::MUX_RELOAD_CONFIG, method::MUX_ATTACH, method::MUX_WARM, method::MUX_PREWARM,
                 method::MUX_DETACH, method::MUX_WATCH, method::MUX_HARNESS_INVENTORY_WATCH, method::MUX_HARNESS_INVENTORY_REFRESH, method::MUX_HARNESS_UPDATE_PLAN, method::MUX_HARNESS_UPDATE_PREPARE, method::MUX_RENAME, method::MUX_KILL, method::MUX_QUEUE_REMOVE, method::MUX_QUEUE_EDIT,
                 method::MUX_INFO, method::MUX_SESSION_FILES, method::MUX_EVENTS, method::MUX_GITHUB_ACTION, method::MUX_GITHUB_APP_LEASE, method::MUX_ATTACHMENT, method::MUX_MAIL_SEND, method::MUX_MAIL_READ, method::MUX_MAIL_WAIT, method::MUX_MAIL_ACK, method::MUX_PERMISSION_RESPOND, method::MUX_PROCESS_LIST, method::MUX_PROCESS_TAIL, method::MUX_PROCESS_KILL, method::MUX_PROCESS_BACKGROUND, method::MUX_WORKTREE_REPORT, method::MUX_WORKTREE_CLEAN, method::MUX_WORKTREE_RESTORE, method::MUX_RETENTION,

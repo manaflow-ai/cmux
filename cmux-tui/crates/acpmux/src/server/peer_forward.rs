@@ -4,6 +4,25 @@
 
 use super::*;
 
+/// Optional top-level peer selection for a trust question before its chat exists. A client
+/// must see this extension on its own daemon before sending the selector to it.
+pub(super) const TRUST_PEER_EXTENSION: &str = "acp.trust.peer-v1";
+
+/// Peer aliases belong to this daemon's local caller, not to another daemon's clients. A
+/// forwarded request has already consumed its selector; it cannot select a third machine.
+pub(super) fn refuse_peer_selector(origin: Origin, m: &str, params: &Value) -> Result<(), RpcError> {
+    let selects = match m {
+        method::ACP_TRUST_GET | method::ACP_TRUST_SET => params.get("peer").is_some(),
+        method::SESSION_NEW => params.pointer("/_meta/acpmux/peer").is_some(),
+        _ => false,
+    };
+    if origin == Origin::Peer && selects {
+        return Err(RpcError::invalid_params("a peer cannot select another peer on this daemon")
+            .with_data(json!({"reason": "peer.forward_refused"})));
+    }
+    Ok(())
+}
+
 /// Methods that name no session, or that this daemon answers itself even
 /// for a peer's session.
 const SESSION_SCOPED_EXCLUDED: &[&str] = &[
@@ -146,7 +165,12 @@ async fn forward_inner(
         let peer = hub
             .peer_by_name(name)
             .ok_or_else(|| RpcError::not_found(format!("no peer {name:?}")))?;
-        if super::trust_gate::gated(conn.origin, params) && !peer.supports_trust_gate() {
+        if !peer.connected.load(Ordering::SeqCst) {
+            return Err(peer.unreachable_error());
+        }
+        // The new selector is consumed here; the destination only needs the existing trust
+        // protocol, but it must advertise that support even for a local unix caller.
+        if !peer.supports_trust_gate() {
             return Err(super::trust_gate::peer_unsupported(&peer.name));
         }
         let mut forwarded = params.clone();

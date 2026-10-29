@@ -2684,18 +2684,23 @@ export class AcpmuxDirectClient {
   /// A refused peer start has no session id yet. Keep its destination until a session is
   /// selected or another start replaces it; equal folder paths on two hosts are not one scope.
   private pendingPeerTrust?: { peer?: string; generation: number };
+  /// A sessionless trust refusal owns its question after the failed request has finished.
+  /// It never replaces a displayed session's route and ends on selection, leave or another start.
+  private refusedPeerTrust?: { peer: string; generation: number };
+  private get newChatTrustRoute(): { peer?: string; generation: number } | undefined {
+    const route = this.pendingPeerTrust ?? this.refusedPeerTrust;
+    return route?.generation === this.selectionGeneration ? route : undefined;
+  }
   get trustPeer(): string | undefined {
-    return this.pendingPeerTrust?.generation === this.selectionGeneration
-      ? this.pendingPeerTrust.peer
-      : this.selectedSessionId
-        ? this.summary?.peer
-        : this.host.peer;
+    if (this.selectedSessionId) return this.summary?.peer;
+    const route = this.newChatTrustRoute;
+    return route ? route.peer : this.host.peer;
   }
   private trustTarget(): { peer: string } | { sessionId: string } | Record<string, never> {
-    const pending = this.pendingPeerTrust?.generation === this.selectionGeneration ? this.pendingPeerTrust : undefined;
-    if (pending?.peer) return { peer: pending.peer };
+    // A background start must not redirect a Trust click in the chat still on screen.
     if (this.selectedSessionId) return { sessionId: this.selectedSessionId };
-    return !pending && this.host.peer ? { peer: this.host.peer } : {};
+    const peer = this.trustPeer;
+    return peer ? { peer } : {};
   }
 
   /// Whether the user trusts `cwd` (folderTrust.ts).
@@ -6002,6 +6007,7 @@ export class AcpmuxDirectClient {
   }
   async select(sessionId: string): Promise<string | undefined> {
     this.pendingPeerTrust = undefined;
+    this.refusedPeerTrust = undefined;
     const previousSessionId = this.selectedSessionId;
     // The chat being left is kept for its own next open, while it is still the selected one.
     this.rememberCurrentTail();
@@ -6168,12 +6174,15 @@ export class AcpmuxDirectClient {
     params: Record<string, unknown>,
     again?: () => void,
     current: () => boolean = () => true,
+    failed?: (error: unknown) => void,
   ): Promise<any> {
     const generation = this.selectionGeneration;
     try {
       return await this.request("session/new", params);
     } catch (error) {
-      if (generation === this.selectionGeneration && current()) this.routeTrustRefusal(error, again);
+      const ownsRefusal = generation === this.selectionGeneration && current();
+      failed?.(error);
+      if (ownsRefusal) this.routeTrustRefusal(error, again);
       throw error;
     }
   }
@@ -6187,6 +6196,7 @@ export class AcpmuxDirectClient {
     noProject = false,
     model: string | undefined = this.host.model,
   ): Promise<string | undefined> {
+    const generation = this.selectionGeneration;
     const started = (async () => {
       const sessionId = await this.startSession(
         harness,
@@ -6196,6 +6206,10 @@ export class AcpmuxDirectClient {
         noProject,
         model,
       );
+      if (generation !== this.selectionGeneration || this.closed) {
+        if (sessionId && !this.closed) this.discard(sessionId);
+        return undefined;
+      }
       return sessionId ? this.select(sessionId) : undefined;
     })();
     const tracked = started.finally(() => {
@@ -6220,15 +6234,31 @@ export class AcpmuxDirectClient {
     const startHost = newSessionHost(this.host, cwd, peer, noProject);
     const pending = { peer: startHost.peer, generation: this.selectionGeneration };
     this.pendingPeerTrust = pending;
+    this.refusedPeerTrust = undefined;
+    this.waitingTrust = undefined;
     this.emit();
     const result = await this.newSession(
       newSessionParams(startHost, harness, noProject, model),
       again,
-      () => this.pendingPeerTrust === pending,
+      () => this.pendingPeerTrust === pending && (!pending.peer || !this.selectedSessionId),
+      (error) => {
+        if (this.pendingPeerTrust !== pending) return;
+        this.pendingPeerTrust = undefined;
+        // Keep only a trust question for the sessionless page. Any other failed start gives
+        // the displayed chat back its own authority; no old request can clear a newer route.
+        if (pending.peer && !this.selectedSessionId && !this.closed && trustRefusal(error))
+          this.refusedPeerTrust = { peer: pending.peer, generation: pending.generation };
+        this.emit();
+      },
     );
+    if (this.pendingPeerTrust !== pending || pending.generation !== this.selectionGeneration || this.closed) {
+      if (result?.sessionId && !this.closed) this.discard(String(result.sessionId));
+      return undefined;
+    }
     if (
       result?.sessionId &&
       pending.peer &&
+      !this.selectedSessionId &&
       this.pendingPeerTrust === pending &&
       pending.generation === this.selectionGeneration &&
       !this.closed
@@ -6288,12 +6318,15 @@ export class AcpmuxDirectClient {
   /// session keeps running in acpmux; only this client's attach ends.
   leave(): void {
     const previous = this.selectedSessionId;
-    if (!previous) return;
+    const pending = this.pendingPeerTrust || this.refusedPeerTrust;
+    this.pendingPeerTrust = undefined;
+    this.refusedPeerTrust = undefined;
+    if (!previous && !pending) return;
     this.selectedSessionId = undefined;
     this.selectionGeneration += 1;
     this.resetSessionState();
     this.emit();
-    void this.typed("_acpmux/detach", { sessionId: previous }).catch(() => undefined);
+    if (previous) void this.typed("_acpmux/detach", { sessionId: previous }).catch(() => undefined);
   }
   /// Ends a session a superseded harness switch started and nobody used.
   discard(sessionId: string): void {
@@ -6422,7 +6455,8 @@ export class AcpmuxDirectClient {
   }
   /// A seeded peer remains the destination until its first chat starts successfully.
   newChatPeer(): string | undefined {
-    return this.pendingPeerTrust?.generation === this.selectionGeneration ? this.pendingPeerTrust.peer : this.host.peer;
+    const route = this.newChatTrustRoute;
+    return route ? route.peer : this.host.peer;
   }
   /// The typing prewarm of a new chat (newChatPrewarm.ts): hints acpmux's pool like `prewarm`,
   /// without a harness for acpmux's default. Silent: a folder without a Trust answer asks nothing
@@ -7031,6 +7065,8 @@ export class AcpmuxDirectClient {
   }
   /// The socket's own onclose ignores a socket close() already let go of, so settle requests here.
   close(): void {
+    this.pendingPeerTrust = undefined;
+    this.refusedPeerTrust = undefined;
     this.presence.detached();
     // Before anything is torn down: the chat on screen is still readable here, and a tab closing on
     // it should leave it warm for the next one. The host alone keeps it: this client is going away,

@@ -149,15 +149,20 @@ struct AgentPanePeerStartFolderTests {
         #expect(Self.params(local.text)?["cwd"] as? String == localFolder)
     }
 
-    @Test(.timeLimit(.minutes(1))) func trustingAPeerFolderStillNeedsAFreshGesture() async throws {
+    @Test(.timeLimit(.minutes(1)), arguments: ["trusted", "unknown", "untrusted"])
+    func trustingAPeerFolderStillNeedsAFreshGesture(_ level: String) async throws {
         let server = AcpmuxStandInServer()
+        server.answer("initialize", with: #"{"protocolVersion":1,"_meta":{"acpmux":{"extensions":["acp.trust.peer-v1"]}}}"#)
         try await server.start()
         defer { server.stop() }
+        let inbox = AgentPaneRelayedAllowTests.PageInbox()
         let transport = AgentPaneTransport()
+        transport.deliver = { event, done in inbox.deliver(event.frames); done() }
         let id = try await transport.open(AcpmuxConnection(url: server.url, dashboardToken: "t", localAppToken: nil))
         defer { transport.close(connection: id) }
         #expect(await transport.send(connection: id, frames: [#"{"jsonrpc":"2.0","id":0,"method":"initialize","params":{}}"#]) == nil)
-        let refusal = await transport.send(connection: id, frames: [try Self.trust(cwd: Self.peerOnly, level: "trusted")])
+        _ = await inbox.frame(containing: #""id":0"#)
+        let refusal = await transport.send(connection: id, frames: [try Self.trust(cwd: Self.peerOnly, level: level)])
         #expect(refusal == .gestureRequired, "peer trust set bypassed the fresh gesture rule")
         #expect(server.peers.first?.frames.contains { $0.contains("acp.trust.set") } != true,
                 "a refused peer trust set reached acpmux")
@@ -165,7 +170,8 @@ struct AgentPanePeerStartFolderTests {
         // The person's fresh Trust click forwards exactly the peer path and owner, without
         // turning that remote folder into a root of this Mac's pane.
         transport.gestures.record(click: true)
-        #expect(await transport.send(connection: id, frames: [try Self.trust(id: 10, cwd: Self.peerOnly, level: "trusted")]) == nil)
+        #expect(await transport.send(connection: id, frames: [try Self.trust(id: 10, cwd: Self.peerOnly, level: level)]) == nil)
+        _ = await inbox.frame(containing: #""id":10"#)
         let forwarded = try #require(server.peers.first?.frames.last(where: { $0.contains("acp.trust.set") }))
         let params = try #require(Self.params(forwarded))
         #expect(params["cwd"] as? String == Self.peerOnly)
@@ -173,7 +179,50 @@ struct AgentPanePeerStartFolderTests {
         #expect(transport.addedRoots.isEmpty, "a peer Trust click added a local root")
 
         // One gesture authorizes one Trust answer; a retry needs another click.
-        #expect(await transport.send(connection: id, frames: [try Self.trust(id: 11, cwd: Self.peerOnly, level: "trusted")]) == .gestureRequired)
+        #expect(await transport.send(connection: id, frames: [try Self.trust(id: 11, cwd: Self.peerOnly, level: level)]) == .gestureRequired)
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func peerTrustRequiresTheConnectedDaemonsCapability(_ supported: Bool) async throws {
+        let server = AcpmuxStandInServer()
+        if supported {
+            server.answer("initialize", with: #"{"protocolVersion":1,"_meta":{"acpmux":{"extensions":["acp.trust.peer-v1"]}}}"#)
+        }
+        try await server.start()
+        defer { server.stop() }
+        let inbox = AgentPaneRelayedAllowTests.PageInbox()
+        let transport = AgentPaneTransport()
+        transport.deliver = { event, done in inbox.deliver(event.frames); done() }
+        let id = try await transport.open(AcpmuxConnection(url: server.url, dashboardToken: "t", localAppToken: nil))
+        defer { transport.close(connection: id) }
+        #expect(await transport.send(connection: id, frames: [#"{"jsonrpc":"2.0","id":0,"method":"initialize","params":{}}"#]) == nil)
+        _ = await inbox.frame(containing: #""id":0"#)
+        for (index, level) in ([nil, "trusted", "unknown", "untrusted"] as [String?]).enumerated() {
+            transport.gestures.record(click: true)
+            let result = await transport.send(connection: id, frames: [try Self.trust(id: index + 1, cwd: Self.peerOnly, level: level)])
+            #expect(result == (supported ? nil : .methodRefused))
+            _ = await inbox.frame(containing: "\"id\":\(index + 1)")
+        }
+        let forwarded = server.peers.first?.frames.filter { $0.contains("acp.trust.") } ?? []
+        #expect(forwarded.count == (supported ? 4 : 0), "an older daemon must never receive a peer selector")
+        for frame in forwarded {
+            #expect(Self.params(frame)?["peer"] as? String == "devbox")
+            #expect(Self.params(frame)?["cwd"] as? String == Self.peerOnly)
+        }
+        #expect(transport.addedRoots.isEmpty)
+    }
+
+    @Test func malformedPeerTrustSelectorsAreRefused() throws {
+        for peer in [NSNull(), 3, true, ["devbox"], ["name": "devbox"], ""] as [Any] {
+            for method in ["acp.trust.get", "acp.trust.set"] {
+                let object: [String: Any] = ["method": method, "params": ["cwd": Self.peerOnly, "peer": peer]]
+                #expect(AcpmuxPaneMethods.breaksParamsRule(object, modeFields: nil))
+            }
+        }
+        // Local revocation keeps its existing no-gesture behavior.
+        for level in ["unknown", "untrusted"] {
+            #expect(!AcpmuxPaneMethods.needsGesture(try Self.trust(cwd: "/tmp", peer: nil, level: level), options: AcpmuxPermissionOptions()))
+        }
     }
 
     @Test(.timeLimit(.minutes(1))) func theStartReachesAcpmuxWithThePeersFolder() async throws {

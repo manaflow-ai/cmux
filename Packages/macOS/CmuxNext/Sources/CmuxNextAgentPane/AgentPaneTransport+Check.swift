@@ -56,6 +56,12 @@ extension AgentPaneTransport {
         }
         let method = facts.method
         let pageID = facts.pageID
+        // Older daemons ignore an unknown selector and would read or mutate this Mac's trust.
+        // Fail closed before the frame can enter either the free or gesture-checked send path.
+        if (method == "acp.trust.get" || method == "acp.trust.set"), box.param("peer") != nil,
+           !socket.supportsPeerTrust {
+            return .refuse(.refuse(.methodRefused, method: method, requestID: pageID), spend: facts.ticket)
+        }
         guard facts.free else { return .decide(facts, box) }
         // Free: nothing on the main actor decides it, so it goes out from here, in the same order.
         // A start or open is counted before it goes, or refused while a Sandboxed send runs.

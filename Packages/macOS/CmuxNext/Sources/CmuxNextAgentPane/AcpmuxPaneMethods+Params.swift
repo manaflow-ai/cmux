@@ -126,6 +126,9 @@ nonisolated extension AcpmuxPaneMethods {
         guard let params = rawParams as? [String: Any] else { return true }
         guard let known = knownParams[method] else { return !params.isEmpty }
         if params.keys.contains(where: { !known.params.contains($0) }) { return true }
+        if (method == "acp.trust.get" || method == "acp.trust.set"), let peer = params["peer"] {
+            guard let name = peer as? String, !name.isEmpty else { return true }
+        }
         let setting = settingMethods.contains(method)
         let denied = setting ? [] : modeFields ?? []
         if params.keys.contains(where: denied.contains) { return true }

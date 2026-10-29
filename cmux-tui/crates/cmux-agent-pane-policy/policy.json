@@ -114,8 +114,8 @@
     "_acpmux/subsession/limits": {"params": ["sessionId", "maxRunning"], "acpmux": []},
     "_acpmux/mcp/reconnect": {"params": ["sessionId", "server"], "acpmux": []},
     "acp.session.fork": {"params": ["sessionId", "throughSeq"], "acpmux": []},
-    "acp.trust.get": {"params": ["cwd", "sessionId"], "acpmux": []},
-    "acp.trust.set": {"params": ["cwd", "level", "sessionId"], "acpmux": []},
+    "acp.trust.get": {"params": ["cwd", "sessionId", "peer"], "acpmux": []},
+    "acp.trust.set": {"params": ["cwd", "level", "sessionId", "peer"], "acpmux": []},
     "_acpmux/harness_enable": {"params": ["folder", "id"], "acpmux": []},
     "session/set_mode": {"params": ["sessionId", "modeId", "_meta"], "acpmux": []},
     "session/set_config_option": {"params": ["sessionId", "configId", "value", "_meta"], "acpmux": []}

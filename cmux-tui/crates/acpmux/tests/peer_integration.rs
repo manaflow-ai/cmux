@@ -1239,6 +1239,14 @@ async fn explicit_peer_trust_is_sessionless_and_keeps_each_machines_record_separ
     let mut web = connect(acpmux::server::Origin::Web);
     let mut forwarded_web = connect(acpmux::server::Origin::Peer);
 
+    let initialized = app.call(method::INITIALIZE, json!({"protocolVersion": 1})).await.unwrap();
+    assert!(
+        initialized["_meta"]["acpmux"]["extensions"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("acp.trust.peer-v1")),
+        "the app must negotiate sessionless peer trust before sending its selector: {initialized}"
+    );
     let read = app
         .call(method::ACP_TRUST_GET, json!({"peer": "b", "cwd": peer_folder}))
         .await
@@ -1343,6 +1351,135 @@ async fn explicit_peer_trust_rejects_unknown_invalid_or_ambiguous_selectors_with
         }
     }
     assert!(!record.exists(), "a rejected destination wrote local trust");
+}
+
+/// A is paired with B, and B separately knows C. A's peer credential is not authority to
+/// use B's private peer aliases, either for a trust answer or for starting a chat on C.
+#[tokio::test]
+async fn explicit_peer_trust_and_session_start_cannot_select_a_third_daemon() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(temp.path()).unwrap();
+    let folder = root.join("project");
+    std::fs::create_dir_all(&folder).unwrap();
+    let paths = |name: &str| acpmux::trust::Paths {
+        claude_json: root.join(name).join("claude.json"),
+        codex_config: root.join(name).join("config.toml"),
+        record: root.join(name).join("trust.json"),
+        agent_home: None,
+        cmux_worktrees: None,
+    };
+    let config = || {
+        let mut cfg = config(PermissionPolicy::Ask);
+        cfg.web_roots = vec![folder.to_string_lossy().into_owned()];
+        cfg
+    };
+    let a = hub(config()).await;
+    let b = hub(config()).await;
+    let c = hub(config()).await;
+    b.set_trust_gate(Some(paths("b")));
+    c.set_trust_gate(Some(paths("c")));
+    let (c_port, c_token) = listen_with_peer_token(c.clone(), "trust-third-c").await;
+    b.add_peer("private-c", &format!("ws://127.0.0.1:{c_port}"), Some("tok".into()), Some(c_token), true)
+        .await
+        .unwrap();
+    let (b_port, b_token) = listen_with_peer_token(b.clone(), "trust-third-b").await;
+    a.add_peer("b", &format!("ws://127.0.0.1:{b_port}"), Some("tok".into()), Some(b_token), true)
+        .await
+        .unwrap();
+    let ab = a.peer_by_name("b").unwrap();
+    for method in [method::ACP_TRUST_GET, method::ACP_TRUST_SET, method::SESSION_NEW] {
+        // The same refusal for a real alias and an invented one avoids disclosing B's peers.
+        for peer in ["private-c", "unknown-c"] {
+            let params = if method == method::SESSION_NEW {
+                json!({"cwd": folder, "mcpServers": [], "_meta": {"acpmux": {"peer": peer}}})
+            } else {
+                json!({"cwd": folder, "peer": peer, "level": "trusted"})
+            };
+            let error = ab.request(method, params).await.unwrap_err();
+            assert_eq!(error.data.as_ref().unwrap()["reason"], "peer.forward_refused", "{error:?}");
+            assert!(!error.message.contains(peer), "the refusal revealed B's peer alias: {error:?}");
+        }
+    }
+    assert!(!paths("b").record.exists());
+    assert!(!paths("c").record.exists(), "A wrote trust on B's private peer");
+    assert!(b.sessions().is_empty());
+    assert!(c.sessions().is_empty(), "A started an agent on B's private peer");
+
+    // B's local caller still owns that choice. Its selector is consumed before the request
+    // reaches C over the very same peer-origin connection that must reject another selector.
+    let mut local_b = client(b.clone()).await;
+    let trusted = local_b
+        .call(method::ACP_TRUST_SET, json!({"peer": "private-c", "cwd": folder, "level": "trusted"}))
+        .await
+        .unwrap();
+    assert_eq!(trusted["peer"], "private-c");
+    assert_eq!(trusted["level"], "trusted");
+    assert!(!paths("b").record.exists());
+    assert!(paths("c").record.exists());
+}
+
+#[tokio::test]
+async fn explicit_peer_trust_rejects_a_known_disconnected_peer_without_local_write() {
+    let temp = tempfile::tempdir().unwrap();
+    let folder = std::fs::canonicalize(temp.path()).unwrap();
+    let record = folder.join("trust.json");
+    let a = hub(config(PermissionPolicy::Ask)).await;
+    a.set_trust_gate(Some(acpmux::trust::Paths {
+        claude_json: folder.join("claude.json"),
+        codex_config: folder.join("config.toml"),
+        record: record.clone(),
+        agent_home: None,
+        cmux_worktrees: None,
+    }));
+    // Keep the port reserved but do not listen; no other test can turn this into a live peer.
+    let bound = tokio::net::TcpSocket::new_v4().unwrap();
+    bound.bind("127.0.0.1:0".parse().unwrap()).unwrap();
+    let port = bound.local_addr().unwrap().port();
+    a.add_peer("offline", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), None, true)
+        .await
+        .unwrap();
+    assert!(!a.peer_by_name("offline").unwrap().connected.load(std::sync::atomic::Ordering::SeqCst));
+    let (tx, input) = mpsc::channel(64);
+    let (output, rx) = mpsc::channel(4096);
+    tokio::spawn(acpmux::server::serve_connection_with(
+        a.clone(), input, output, acpmux::server::Origin::LocalApp,
+    ));
+    let mut app = C { tx, rx, next: 0 };
+    for method in [method::ACP_TRUST_GET, method::ACP_TRUST_SET] {
+        let reply = app.raw(method, json!({"peer": "offline", "cwd": folder, "level": "trusted"})).await;
+        assert_eq!(reply["error"]["data"]["reason"], "peer_unreachable", "{reply}");
+    }
+    assert!(!record.exists(), "offline peer trust fell back to this machine");
+    a.peer_by_name("offline").unwrap().stop();
+}
+
+#[tokio::test]
+async fn explicit_peer_trust_refuses_a_connected_peer_without_the_trust_protocol() {
+    let a = hub(config(PermissionPolicy::Ask)).await;
+    let port = lying_peer(Lying {
+        answers: json!({"level": "trusted"}),
+        ..Lying::default()
+    }).await;
+    a.add_peer("old", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), None, true)
+        .await
+        .unwrap();
+    assert!(a.peer_by_name("old").unwrap().connected.load(std::sync::atomic::Ordering::SeqCst));
+    let mut local = client(a.clone()).await;
+    let (tx, input) = mpsc::channel(64);
+    let (output, rx) = mpsc::channel(4096);
+    tokio::spawn(acpmux::server::serve_connection_with(
+        a.clone(), input, output, acpmux::server::Origin::LocalApp,
+    ));
+    let mut app = C { tx, rx, next: 0 };
+    for caller in [&mut local, &mut app] {
+        for method in [method::ACP_TRUST_GET, method::ACP_TRUST_SET] {
+            let reply = caller
+                .raw(method, json!({"peer": "old", "cwd": std::env::temp_dir(), "level": "trusted"}))
+                .await;
+            assert_eq!(reply["error"]["data"]["reason"], "trust.peer_unsupported", "{reply}");
+        }
+    }
+    a.peer_by_name("old").unwrap().stop();
 }
 
 /// A connection that never proves the person key: what an agent, the CLI or

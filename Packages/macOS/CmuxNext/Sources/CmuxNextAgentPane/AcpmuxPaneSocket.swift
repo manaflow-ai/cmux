@@ -30,6 +30,8 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
         var closeDelivered = false
         /// Told the queue's length after each enqueue (tests wait on it instead of a clock).
         var onQueued: (@Sendable (Int) -> Void)?
+        /// Peer trust selectors are unsafe until this connection advertises support.
+        var peerTrustSupported = false
         /// The daemon's person challenge from the `initialize` reply (cx-fcaq): unread, read
         /// (nil when the reply had none), and who waits for it.
         var challengeRead = false
@@ -220,8 +222,14 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
         }
     }
 
+    /// Whether this connection advertised peer trust routing in its initialize reply.
+    var supportsPeerTrust: Bool { state.withLock { $0.peerTrustSupported } }
+
     /// The `initialize` reply's `_meta.acpmux.personChallenge`, for the host's proof.
     private func readChallenge(_ object: [String: Any]) {
+        let acpmux = ((object["result"] as? [String: Any])?["_meta"] as? [String: Any])?["acpmux"] as? [String: Any]
+        let extensions = acpmux?["extensions"] as? [String] ?? []
+        state.withLock { $0.peerTrustSupported = extensions.contains("acp.trust.peer-v1") }
         let challenge = (((object["result"] as? [String: Any])?["_meta"] as? [String: Any])?["acpmux"] as? [String: Any])?["personChallenge"]
             .flatMap { $0 as? [String: Any] }
             .flatMap { c -> AcpmuxPersonChallenge? in

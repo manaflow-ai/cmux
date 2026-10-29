@@ -280,11 +280,11 @@ nonisolated enum AcpmuxPaneMethods {
     }
 
     /// The frames that GRANT something and so need a fresh user gesture (ad349). One switch per
-    /// method; a deny or revoke needs none.
+    /// method; a local deny or revoke needs none. Peer trust writes always need one.
     public nonisolated enum GestureRule: Sendable {
         /// Every frame of the method (the user pressed send, picked a mode or an option).
         case always
-        /// `acp.trust.set` that trusts (`level` other than `untrusted` or `unknown`).
+        /// Every peer `acp.trust.set`, or a local set with a level other than `untrusted` or `unknown`.
         case whenTrusting
         /// `_acpmux/permission_respond` whose option is not a known deny.
         case whenOptionAllows
@@ -339,6 +339,7 @@ nonisolated enum AcpmuxPaneMethods {
         case .always:
             return true
         case .whenTrusting:
+            if params["peer"] != nil { return true }
             let level = params["level"] as? String
             return level != "untrusted" && level != "unknown"
         case .whenOptionAllows:
