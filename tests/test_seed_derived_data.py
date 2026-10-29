@@ -898,7 +898,7 @@ class Wiring(unittest.TestCase):
     def test_only_the_nightly_seeder_writes_the_seed_and_admission_reads_the_same_key(self):
         seeder = steps("nightly.yml", "refresh-test-compilation-cache")
         record_at, _ = named(seeder, "Record DerivedData seed inputs")
-        build_at, _ = named(seeder, "Refresh test compilation cache")
+        build_at, _ = named(seeder, "Build the app-host test product")
         save_at, save = named(seeder, "Save DerivedData seed")
         self.assertLess(record_at, build_at)
         self.assertLess(build_at, save_at)
