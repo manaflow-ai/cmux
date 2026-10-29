@@ -2958,13 +2958,38 @@ mod tests {
         let bridge_listener = tokio::net::UnixListener::bind(&bridge_path).unwrap();
 
         // The remote host's daemon: reads the app's three lines, then answers.
+        // A connection whose first line is a lone `identify` (a remote end
+        // that probes on a connection of its own) gets a plain daemon's
+        // answer, with no bridge capability, and the next connection is the
+        // app's.
         let daemon = {
             let app_bytes = app_bytes.clone();
             let daemon_bytes = daemon_bytes.clone();
             tokio::spawn(async move {
+                const IDENTIFY: &[u8] = b"{\"id\":1,\"cmd\":\"identify\"}\n";
+                async fn first_line(socket: &mut tokio::net::UnixStream) -> Vec<u8> {
+                    let mut line = Vec::new();
+                    let mut byte = [0_u8; 1];
+                    while line.last() != Some(&b'\n') && socket.read(&mut byte).await.unwrap() == 1
+                    {
+                        line.push(byte[0]);
+                    }
+                    line
+                }
                 let (mut socket, _) = mux_listener.accept().await.unwrap();
-                let mut received = vec![0_u8; app_bytes.len()];
-                socket.read_exact(&mut received).await.unwrap();
+                let mut received = first_line(&mut socket).await;
+                if received == IDENTIFY {
+                    socket
+                        .write_all(b"{\"id\":1,\"ok\":true,\"data\":{\"capabilities\":[]}}\n")
+                        .await
+                        .unwrap();
+                    drop(socket);
+                    socket = mux_listener.accept().await.unwrap().0;
+                    received = first_line(&mut socket).await;
+                }
+                let mut rest = vec![0_u8; app_bytes.len().saturating_sub(received.len())];
+                socket.read_exact(&mut rest).await.unwrap();
+                received.extend_from_slice(&rest);
                 assert_eq!(received, app_bytes, "the daemon gets the app's bytes unchanged");
                 socket.write_all(&daemon_bytes).await.unwrap();
                 // Hold the socket until the client closes its side.
