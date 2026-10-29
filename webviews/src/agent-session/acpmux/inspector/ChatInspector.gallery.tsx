@@ -626,6 +626,13 @@ export default componentEntry<Props>({
       props: workflowProps("running", "detail", 260, "anthropic/claude-sonnet-5-5"),
       play: assertNarrowWorkflowLayout,
     },
+    "grid-expanded": {
+      note: "All Session Info sections expanded for shared lead, text, trail and spacing measurements.",
+      props: { ...full, sections: { ...DEFAULT_SECTIONS, context: true, connectors: true } },
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: /4 finished/ });
+      },
+    },
     "layout-glance": {
       note: "Chosen (Leo, 2026-10-22: \"this session rail is tmi and too many boxes?\"). Eight cards became three blocks with a hairline between them and no box: the Environment's rows with no title, Context and Connectors one row each; Changes and Outputs; Subagents and Background tasks, the Servers card's row now heading Background tasks. Least ink of the three while every section and click stays; the rows line up under the panel's title.",
       props: full,

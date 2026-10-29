@@ -1,3 +1,4 @@
+import { sessionInfoGridScenes } from "./sessionInfoGridScenes";
 import type { GridLine, GridMetric, GridPoint, GridScene } from "./gridLines";
 
 const point = (selector: string, metric: GridMetric): GridPoint => ({ selector, metric });
@@ -110,6 +111,7 @@ const card = (
 
 /** Promotion is per surface and requires a fleet measurement; no surface is assumed to pass. */
 export const gridScenes: GridScene[] = [
+  ...sessionInfoGridScenes,
   composer("claude-auto"),
   running,
   composer("grid-draft", ".acpmux-md p"),
