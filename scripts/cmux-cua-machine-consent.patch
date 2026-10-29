@@ -1,5 +1,5 @@
 diff --git a/libs/cmux-cua/rust/Cargo.lock b/libs/cmux-cua/rust/Cargo.lock
-index bdfbb028..cf2b78ab 100644
+index bdfbb0282..cf2b78ab7 100644
 --- a/libs/cmux-cua/rust/Cargo.lock
 +++ b/libs/cmux-cua/rust/Cargo.lock
 @@ -486,6 +486,7 @@ dependencies = [
@@ -11,7 +11,7 @@ index bdfbb028..cf2b78ab 100644
   "serde_json",
   "sha2",
 diff --git a/libs/cmux-cua/rust/crates/cmux-cua-core/Cargo.toml b/libs/cmux-cua/rust/crates/cmux-cua-core/Cargo.toml
-index dea1fb8a..f7e42668 100644
+index dea1fb8a0..f7e42668b 100644
 --- a/libs/cmux-cua/rust/crates/cmux-cua-core/Cargo.toml
 +++ b/libs/cmux-cua/rust/crates/cmux-cua-core/Cargo.toml
 @@ -19,11 +19,30 @@ async-trait = "0.1"
@@ -47,7 +47,7 @@ index dea1fb8a..f7e42668 100644
 +    "Win32_System_Threading",
 +] }
 diff --git a/libs/cmux-cua/rust/crates/cmux-cua-core/src/cursor_sampler.rs b/libs/cmux-cua/rust/crates/cmux-cua-core/src/cursor_sampler.rs
-index f9ae8ca5..d246c4a3 100644
+index f9ae8ca5a..d246c4a3e 100644
 --- a/libs/cmux-cua/rust/crates/cmux-cua-core/src/cursor_sampler.rs
 +++ b/libs/cmux-cua/rust/crates/cmux-cua-core/src/cursor_sampler.rs
 @@ -112,9 +112,15 @@ fn sample_cursor() -> Option<(f64, f64)> {
@@ -68,10 +68,10 @@ index f9ae8ca5..d246c4a3 100644
      #[repr(C)]
 diff --git a/libs/cmux-cua/rust/crates/cmux-cua-core/src/host_consent.rs b/libs/cmux-cua/rust/crates/cmux-cua-core/src/host_consent.rs
 new file mode 100644
-index 00000000..c9c6e22b
+index 000000000..45abe1403
 --- /dev/null
 +++ b/libs/cmux-cua/rust/crates/cmux-cua-core/src/host_consent.rs
-@@ -0,0 +1,427 @@
+@@ -0,0 +1,455 @@
 +//! Machine consent from the verified cmux host (feature `cmux-host-consent`).
 +//!
 +//! The build inside cmux.app holds the person's macOS grants, so it trusts
@@ -86,8 +86,9 @@ index 00000000..c9c6e22b
 +//!
 +//! and the host answers from its own acpmux daemon
 +//! (`_acpmux/machine_consent_get`). Every [`ConsentSource::status`] asks
-+//! fresh. No host, no reply within [`DEADLINE`], an error or a malformed
-+//! result is [`ConsentStatus::UNKNOWN`]: joined, nothing granted.
++//! fresh. No verified host attached is [`ConsentStatus::HOST_UNVERIFIED`]
++//! (refusals then say so); no reply within [`DEADLINE`], an error or a
++//! malformed result is [`ConsentStatus::UNKNOWN`]. Both grant nothing.
 +
 +use std::collections::HashMap;
 +use std::sync::{Arc, Mutex, OnceLock};
@@ -276,11 +277,15 @@ index 00000000..c9c6e22b
 +        consent_required: result.get("consentRequired")?.as_bool()?,
 +        screen: grant(result.get("consent")?.get("screen")?)?,
 +        control: grant(result.get("consent")?.get("control")?)?,
++        host_unverified: false,
 +    })
 +}
 +
 +impl ConsentSource for HostConsent {
 +    fn status(&self) -> ConsentStatus {
++        if self.lock().host.is_none() {
++            return ConsentStatus::HOST_UNVERIFIED;
++        }
 +        self.ask()
 +            .as_ref()
 +            .and_then(parse_status)
@@ -308,7 +313,7 @@ index 00000000..c9c6e22b
 +        let parsed = |text: &str| parse_status(&serde_json::from_str(text).unwrap());
 +        assert_eq!(
 +            parsed(r#"{"consentRequired":true,"consent":{"screen":"granted","control":"none"},"lastRefusal":null}"#),
-+            Some(ConsentStatus { consent_required: true, screen: true, control: false })
++            Some(ConsentStatus { screen: true, ..ConsentStatus::UNKNOWN })
 +        );
 +        for bad in [
 +            r#"{"consent":{"screen":"granted","control":"granted"}}"#,
@@ -326,7 +331,7 @@ index 00000000..c9c6e22b
 +    #[test]
 +    fn with_no_host_nothing_is_granted() {
 +        let consent = HostConsent::default();
-+        assert_eq!(consent.status(), ConsentStatus::UNKNOWN);
++        assert_eq!(consent.status(), ConsentStatus::HOST_UNVERIFIED);
 +        consent.record_refusal(Surface::Screen);
 +    }
 +
@@ -406,7 +411,7 @@ index 00000000..c9c6e22b
 +        let alternate = tempfile::tempdir().unwrap();
 +        let files = crate::machine_consent::StateFiles::At(Some(alternate.path().to_owned()));
 +        assert!(!files.status().consent_required);
-+        let status = |screen, control| ConsentStatus { consent_required: true, screen, control };
++        let status = |screen, control| ConsentStatus { screen, control, ..ConsentStatus::UNKNOWN };
 +        assert_eq!(consent.status(), status(false, false), "deny");
 +        consent.record_refusal(Surface::Screen);
 +        assert_eq!(consent.status(), status(true, true), "grant");
@@ -415,9 +420,32 @@ index 00000000..c9c6e22b
 +        assert_eq!(consent.status(), ConsentStatus::UNKNOWN, "malformed");
 +        assert!(!consent.status().consent_required, "unjoined, from the host");
 +        let seen = script.await.unwrap();
-+        assert_eq!(consent.status(), ConsentStatus::UNKNOWN, "the host went away");
++        serving.await.unwrap();
++        assert_eq!(consent.status(), ConsentStatus::HOST_UNVERIFIED, "the host went away");
 +        assert!(seen.iter().any(|m| m["type"] == "consent_refused" && m["surface"] == "screen"));
-+        drop(serving);
++    }
++
++    /// With no verified host a refusal says `host_unverified`; a verified
++    /// host that denies gives the plain `consent_required` a person's
++    /// refusal gives.
++    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
++    async fn refusals_tell_an_unverified_host_from_a_denial() {
++        use crate::machine_consent::{check, CONSENT_REQUIRED, HOST_UNVERIFIED};
++        let consent = Arc::new(HostConsent::with_deadline(Duration::from_secs(10)));
++        let refused = check(consent.as_ref(), "click").unwrap_err();
++        let structured = refused.structured_content.unwrap();
++        assert_eq!(structured["code"], CONSENT_REQUIRED);
++        assert_eq!(structured["reason"], HOST_UNVERIFIED);
++
++        let denied = r#"{"consentRequired":true,"consent":{"screen":"granted","control":"none"}}"#;
++        let (serving, _script) = host(consent.clone(), vec![Some(denied), Some(denied)]).await;
++        attached(&consent).await;
++        let refused = check(consent.as_ref(), "click").unwrap_err();
++        let structured = refused.structured_content.unwrap();
++        assert_eq!(structured["code"], CONSENT_REQUIRED);
++        assert_eq!(structured["surface"], "control");
++        assert!(structured.get("reason").is_none(), "{structured}");
++        serving.abort();
 +    }
 +
 +    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -430,7 +458,7 @@ index 00000000..c9c6e22b
 +        let _ = script.await;
 +        serving.await.unwrap();
 +        let started = std::time::Instant::now();
-+        assert_eq!(consent.status(), ConsentStatus::UNKNOWN);
++        assert_eq!(consent.status(), ConsentStatus::HOST_UNVERIFIED);
 +        assert!(started.elapsed() < Duration::from_secs(5), "no wait for a host that is gone");
 +    }
 +
@@ -500,7 +528,7 @@ index 00000000..c9c6e22b
 +    }
 +}
 diff --git a/libs/cmux-cua/rust/crates/cmux-cua-core/src/lib.rs b/libs/cmux-cua/rust/crates/cmux-cua-core/src/lib.rs
-index 8409fa7e..46633cf0 100644
+index 8409fa7ec..46633cf08 100644
 --- a/libs/cmux-cua/rust/crates/cmux-cua-core/src/lib.rs
 +++ b/libs/cmux-cua/rust/crates/cmux-cua-core/src/lib.rs
 @@ -107,6 +107,9 @@ pub mod ffmpeg_install;
@@ -515,10 +543,10 @@ index 8409fa7e..46633cf0 100644
  pub mod protocol;
 diff --git a/libs/cmux-cua/rust/crates/cmux-cua-core/src/machine_consent.rs b/libs/cmux-cua/rust/crates/cmux-cua-core/src/machine_consent.rs
 new file mode 100644
-index 00000000..862ccaf7
+index 000000000..552bc035d
 --- /dev/null
 +++ b/libs/cmux-cua/rust/crates/cmux-cua-core/src/machine_consent.rs
-@@ -0,0 +1,1280 @@
+@@ -0,0 +1,1354 @@
 +//! Machine-join consent at the cmux-cua execution boundary.
 +//!
 +//! A machine joined to a cmux team (acpmux `host join`) gives the team no
@@ -558,6 +586,14 @@ index 00000000..862ccaf7
 +
 +/// The error code acpmux uses for the same refusal.
 +pub const CONSENT_REQUIRED: &str = "consent_required";
++/// What a helper built with `cmux-host-consent` advertises (the daemon's
++/// `list` result and `cmux-cua manifest` `capabilities`): every call is
++/// gated on the verified cmux host's machine consent.
++pub const GATE_CAPABILITY: &str = "machine-consent-gate-v1";
++/// The `reason` a refusal carries when the cmux.app build has no verified
++/// cmux host to ask (see [`ConsentStatus::HOST_UNVERIFIED`]), so the app and
++/// doctor can tell it from a person's refusal, which carries no reason.
++pub const HOST_UNVERIFIED: &str = "host_unverified";
 +
 +const CREDENTIAL_FILE: &str = "machine-credential.json";
 +const CONSENT_FILE: &str = "consent.json";
@@ -687,6 +723,9 @@ index 00000000..862ccaf7
 +    /// record it belongs to, cannot be trusted.
 +    pub screen: bool,
 +    pub control: bool,
++    /// No verified cmux host is attached to answer (cmux.app build only):
++    /// nothing is granted, and the refusal says why.
++    pub host_unverified: bool,
 +}
 +
 +impl ConsentStatus {
@@ -695,6 +734,14 @@ index 00000000..862ccaf7
 +        consent_required: true,
 +        screen: false,
 +        control: false,
++        host_unverified: false,
++    };
++
++    /// The cmux.app build with no verified cmux host attached: nothing is
++    /// granted, and refusals carry `reason: host_unverified`.
++    pub const HOST_UNVERIFIED: ConsentStatus = ConsentStatus {
++        host_unverified: true,
++        ..ConsentStatus::UNKNOWN
 +    };
 +
 +    pub fn granted(&self, surface: Surface) -> bool {
@@ -855,8 +902,7 @@ index 00000000..862ccaf7
 +        {
 +            return ConsentStatus {
 +                consent_required: false,
-+                screen: false,
-+                control: false,
++                ..ConsentStatus::UNKNOWN
 +            };
 +        }
 +        // Present in some form, or unreadable: joined.
@@ -876,9 +922,9 @@ index 00000000..862ccaf7
 +        })
 +        .unwrap_or((false, false));
 +    ConsentStatus {
-+        consent_required: true,
 +        screen,
 +        control,
++        ..ConsentStatus::UNKNOWN
 +    }
 +}
 +
@@ -1228,16 +1274,43 @@ index 00000000..862ccaf7
 +    if requirement_for(tool) == Requirement::Nothing {
 +        return Ok(());
 +    }
-+    match missing_surface(&source.status(), tool, false) {
++    let status = source.status();
++    match missing_surface(&status, tool, false) {
 +        None => Ok(()),
-+        Some(surface) => Err(refuse(source, tool, surface)),
++        Some(surface) => Err(refuse(source, &status, tool, surface)),
 +    }
 +}
 +
 +/// Record a refusal with `source` and return the MCP tool error for it.
-+pub fn refuse(source: &dyn ConsentSource, tool: &str, surface: Surface) -> ToolResult {
++pub fn refuse(
++    source: &dyn ConsentSource,
++    status: &ConsentStatus,
++    tool: &str,
++    surface: Surface,
++) -> ToolResult {
 +    source.record_refusal(surface);
-+    refusal(tool, surface)
++    if status.host_unverified {
++        host_unverified_refusal(tool, surface)
++    } else {
++        refusal(tool, surface)
++    }
++}
++
++/// The refusal when no verified cmux host can answer: the stable code, a
++/// distinct `reason`, and what the person can do about it.
++pub fn host_unverified_refusal(tool: &str, surface: Surface) -> ToolResult {
++    ToolResult::error(format!(
++        "{CONSENT_REQUIRED} ({HOST_UNVERIFIED}): Computer Use is off: legacy Computer Use \
++         could not verify the cmux app that started it (a cmux build that isn't team-signed \
++         can't be verified). `{tool}` did not run. Use the built-in Computer Use \
++         (Settings › Computer Use › driver: upstream) or a signed cmux build."
++    ))
++    .with_structured(json!({
++        "code": CONSENT_REQUIRED,
++        "reason": HOST_UNVERIFIED,
++        "surface": surface.as_str(),
++        "tool": tool,
++    }))
 +}
 +
 +/// The MCP tool error for a refused call. It names the tool and the surface
@@ -1724,6 +1797,35 @@ index 00000000..862ccaf7
 +        assert!(check_in(home.path(), "click").is_err());
 +    }
 +
++    /// A person's refusal is plain `consent_required`; with no verified
++    /// cmux host it carries `reason: host_unverified` and says what to do.
++    #[test]
++    fn an_unverified_host_is_told_apart_from_a_person_refusing() {
++        struct Fixed(ConsentStatus);
++        impl ConsentSource for Fixed {
++            fn status(&self) -> ConsentStatus {
++                self.0
++            }
++            fn record_refusal(&self, _surface: Surface) {}
++        }
++        let denied = ConsentStatus { screen: true, ..ConsentStatus::UNKNOWN };
++        let error = check(&Fixed(denied), "click").unwrap_err();
++        let structured = error.structured_content.unwrap();
++        assert_eq!(structured["code"], CONSENT_REQUIRED);
++        assert_eq!(structured["surface"], "control");
++        assert!(structured.get("reason").is_none(), "{structured}");
++
++        let error = check(&Fixed(ConsentStatus::HOST_UNVERIFIED), "get_window_state").unwrap_err();
++        let structured = error.structured_content.as_ref().unwrap();
++        assert_eq!(structured["code"], CONSENT_REQUIRED);
++        assert_eq!(structured["reason"], HOST_UNVERIFIED);
++        let text = serde_json::to_string(&error).unwrap();
++        assert!(text.contains("driver: upstream"), "{text}");
++        assert!(text.contains("signed cmux build"), "{text}");
++        // Tools that need no consent still run without a host.
++        assert!(check(&Fixed(ConsentStatus::HOST_UNVERIFIED), "get_config").is_ok());
++    }
++
 +    #[test]
 +    fn refusal_text_never_carries_paths_or_credentials() {
 +        let home = joined_home();
@@ -1800,7 +1902,7 @@ index 00000000..862ccaf7
 +    }
 +}
 diff --git a/libs/cmux-cua/rust/crates/cmux-cua-core/src/recording.rs b/libs/cmux-cua/rust/crates/cmux-cua-core/src/recording.rs
-index 459a6dbc..d3a4f2b6 100644
+index 459a6dbc1..d3a4f2b62 100644
 --- a/libs/cmux-cua/rust/crates/cmux-cua-core/src/recording.rs
 +++ b/libs/cmux-cua/rust/crates/cmux-cua-core/src/recording.rs
 @@ -454,6 +454,11 @@ impl RecordingSession {
@@ -1816,10 +1918,10 @@ index 459a6dbc..d3a4f2b6 100644
      pub fn current_state(&self) -> RecordingState {
          let inner = self.inner.lock().unwrap();
 diff --git a/libs/cmux-cua/rust/crates/cmux-cua-core/src/tool.rs b/libs/cmux-cua/rust/crates/cmux-cua-core/src/tool.rs
-index 013fc39f..d700bb72 100644
+index 013fc39f6..0f9bf7ed5 100644
 --- a/libs/cmux-cua/rust/crates/cmux-cua-core/src/tool.rs
 +++ b/libs/cmux-cua/rust/crates/cmux-cua-core/src/tool.rs
-@@ -481,6 +481,28 @@ pub struct ToolRegistry {
+@@ -481,6 +481,30 @@ pub struct ToolRegistry {
      /// tool name, its args, and the trusted allow list before every call; an
      /// `Err` is returned to the caller and the tool does not run.
      target_policy_hook: Option<TargetPolicyHook>,
@@ -1836,6 +1938,8 @@ index 013fc39f..d700bb72 100644
 +    #[cfg(test)]
 +    force_pip: bool,
 +    #[cfg(test)]
++    force_watchable_front: bool,
++    #[cfg(test)]
 +    pip_captures: std::sync::atomic::AtomicUsize,
 +    /// Test hook: set when the watcher thread has exited.
 +    #[cfg(test)]
@@ -1848,7 +1952,7 @@ index 013fc39f..d700bb72 100644
  }
  
  /// Signature of the platform target guard.
-@@ -496,9 +518,32 @@ impl ToolRegistry {
+@@ -496,9 +520,34 @@ impl ToolRegistry {
              target_app_resolver: Some(crate::session_state::resolve_process_name),
              target_front_hook: None,
              target_policy_hook: None,
@@ -1858,6 +1962,8 @@ index 013fc39f..d700bb72 100644
 +            fail_consent_watch_spawn: false,
 +            #[cfg(test)]
 +            force_pip: false,
++            #[cfg(test)]
++            force_watchable_front: false,
 +            #[cfg(test)]
 +            pip_captures: std::sync::atomic::AtomicUsize::new(0),
 +            #[cfg(test)]
@@ -1881,7 +1987,7 @@ index 013fc39f..d700bb72 100644
      /// Install the platform target guard. See [`crate::target_policy`].
      pub fn set_target_policy_hook(&mut self, hook: TargetPolicyHook) {
          self.target_policy_hook = Some(hook);
-@@ -660,6 +705,46 @@ impl ToolRegistry {
+@@ -660,6 +709,47 @@ impl ToolRegistry {
              return ToolResult::error(format!("Unknown tool: {name}"));
          };
  
@@ -1916,6 +2022,7 @@ index 013fc39f..d700bb72 100644
 +            {
 +                return crate::machine_consent::refuse(
 +                    self.consent.as_ref(),
++                    &status,
 +                    resolved_name,
 +                    surface,
 +                );
@@ -1928,7 +2035,7 @@ index 013fc39f..d700bb72 100644
          // Target guard: a refused target is side-effect free (no recording
          // turn, no fronting, no dispatch).
          if let Some(hook) = self.target_policy_hook {
-@@ -670,12 +755,8 @@ impl ToolRegistry {
+@@ -670,12 +760,8 @@ impl ToolRegistry {
  
          // Reserve and capture the turn before dispatch so recorded evidence
          // shows the application immediately before the action changed it.
@@ -1943,7 +2050,32 @@ index 013fc39f..d700bb72 100644
              .then(|| self.recording.begin_turn(resolved_name, &args, start_ms))
              .flatten();
  
-@@ -695,13 +776,26 @@ impl ToolRegistry {
+@@ -683,25 +769,44 @@ impl ToolRegistry {
+         // watchable mode must not front a target until schema + tool-specific
+         // delivery preflight has accepted the call. This is intentionally the
+         // final boundary before invoke so accepted actions remain visible.
+-        if let Err(error) = preflight_and_front_target(
+-            tool.as_ref(),
+-            resolved_name,
+-            &args,
+-            crate::watchable_front_mode(),
+-            self.target_front_hook,
+-        ) {
++        // Consent is required again, as of now, right before fronting and
++        // right before dispatch: a revoke, or a host that went away, after
++        // the first check stops the call there.
++        let fronted = self.require(resolved_name).and_then(|()| {
++            preflight_and_front_target(
++                tool.as_ref(),
++                resolved_name,
++                &args,
++                self.watchable_front(),
++                self.target_front_hook,
++            )
++        });
++        if let Err(error) = fronted.and_then(|()| self.require(resolved_name)) {
+             if let Some(pending_turn) = pending_turn {
+                 let result_text = error.content.iter().find_map(|content| match content {
                      Content::Text { text, .. } => Some(text.as_str()),
                      _ => None,
                  }).unwrap_or("");
@@ -1971,7 +2103,7 @@ index 013fc39f..d700bb72 100644
          // Embedded-host process state is action-scoped: update it only after a
          // successful call to one of the target-driving tools, and only when the
          // call names a target pid/window. State I/O is observability-only and
-@@ -788,7 +882,9 @@ impl ToolRegistry {
+@@ -788,7 +893,9 @@ impl ToolRegistry {
                      else { None }
                  })
                  .unwrap_or("");
@@ -1982,7 +2114,7 @@ index 013fc39f..d700bb72 100644
          }
  
          // Experimental PiP push — only when --experimental-pip is on argv
-@@ -797,7 +893,11 @@ impl ToolRegistry {
+@@ -797,7 +904,11 @@ impl ToolRegistry {
          // of action tools the recording pipeline cares about (non-read-only,
          // not the recording-control meta-tools) so the live view matches
          // what the recorder would have captured for the turn.
@@ -1995,7 +2127,7 @@ index 013fc39f..d700bb72 100644
              let window_id = args.opt_u64("window_id");
              let pid = args.opt_i64("pid");
              if let Some(png_bytes) = screenshot_for(window_id, pid) {
-@@ -814,6 +914,140 @@ impl ToolRegistry {
+@@ -814,6 +925,155 @@ impl ToolRegistry {
      }
  }
  
@@ -2006,6 +2138,21 @@ index 013fc39f..d700bb72 100644
 +            return true;
 +        }
 +        pip_hook::pip_enabled()
++    }
++
++    /// Every surface `tool` needs, as of now: the check right before each
++    /// side effect. `Err` is the refusal (already recorded); nothing past it
++    /// may run. Tools that need nothing pass without asking.
++    fn require(&self, tool: &str) -> Result<(), ToolResult> {
++        crate::machine_consent::check(self.consent.as_ref(), tool)
++    }
++
++    fn watchable_front(&self) -> bool {
++        #[cfg(test)]
++        if self.force_watchable_front {
++            return true;
++        }
++        crate::watchable_front_mode()
 +    }
 +
 +    /// The `screen` grant as of now. Called right before each capture, never
@@ -2136,7 +2283,7 @@ index 013fc39f..d700bb72 100644
  /// Shared watchable-action boundary: validate first, then front exactly once.
  /// Kept separate from [`ToolRegistry::invoke`] so focus ordering can be tested
  /// without mutating the process-wide watchable-mode environment.
-@@ -1715,3 +1949,427 @@ mod capability_tests {
+@@ -1715,3 +1975,515 @@ mod capability_tests {
          assert_eq!(v["tools"].as_array().unwrap().len(), 0);
      }
  }
@@ -2289,6 +2436,95 @@ index 013fc39f..d700bb72 100644
 +        }
 +    }
 +
++    /// Grants for its first `grants` asks, then answers `after`.
++    struct RevokingSource {
++        grants: usize,
++        after: crate::machine_consent::ConsentStatus,
++        asked: AtomicUsize,
++        refusals: std::sync::Mutex<Vec<&'static str>>,
++    }
++
++    impl crate::machine_consent::ConsentSource for RevokingSource {
++        fn status(&self) -> crate::machine_consent::ConsentStatus {
++            use crate::machine_consent::ConsentStatus;
++            if self.asked.fetch_add(1, Ordering::SeqCst) < self.grants {
++                ConsentStatus { screen: true, control: true, ..ConsentStatus::UNKNOWN }
++            } else {
++                self.after
++            }
++        }
++        fn record_refusal(&self, surface: crate::machine_consent::Surface) {
++            self.refusals.lock().unwrap().push(surface.as_str());
++        }
++    }
++
++    static FRONTED: AtomicUsize = AtomicUsize::new(0);
++
++    fn count_front(_pid: i64, _session: Option<&str>) {
++        FRONTED.fetch_add(1, Ordering::SeqCst);
++    }
++
++    /// The first check grants, then screen or control is revoked, or the
++    /// host goes away, before the capture, the fronting or the dispatch:
++    /// the action never runs, nothing is fronted after the denial was
++    /// seen, and the refusal is recorded.
++    #[tokio::test]
++    async fn a_denial_after_the_first_check_stops_the_action_before_any_side_effect() {
++        use crate::machine_consent::ConsentStatus;
++        let denials = [
++            ("screen revoked", ConsentStatus { control: true, ..ConsentStatus::UNKNOWN }),
++            ("control revoked", ConsentStatus { screen: true, ..ConsentStatus::UNKNOWN }),
++            ("no answer", ConsentStatus::UNKNOWN),
++            ("host gone", ConsentStatus::HOST_UNVERIFIED),
++        ];
++        // Asks in order: the first check, the capture, before fronting,
++        // before dispatch.
++        for (label, after) in denials {
++            for grants in 1..=3 {
++                let home = tempfile::tempdir().unwrap();
++                let (mut registry, _screen, control) = counting_registry(home.path());
++                let source = Arc::new(RevokingSource {
++                    grants,
++                    after,
++                    asked: AtomicUsize::new(0),
++                    refusals: std::sync::Mutex::new(Vec::new()),
++                });
++                registry.set_consent_source(source.clone());
++                registry.set_target_front_hook(count_front);
++                registry.force_watchable_front = true;
++                let fronted = FRONTED.load(Ordering::SeqCst);
++                let result = registry.invoke("click", json!({"pid": 4242})).await;
++                assert_eq!(result.is_error, Some(true), "{label} after {grants}");
++                assert_eq!(
++                    result.structured_content.unwrap()["code"],
++                    crate::machine_consent::CONSENT_REQUIRED,
++                    "{label} after {grants}"
++                );
++                assert_eq!(control.load(Ordering::SeqCst), 0, "{label} after {grants}: ran");
++                assert_eq!(
++                    FRONTED.load(Ordering::SeqCst) - fronted,
++                    usize::from(grants == 3),
++                    "{label} after {grants}: fronted only while consent held"
++                );
++                assert!(!source.refusals.lock().unwrap().is_empty(), "{label} after {grants}");
++            }
++        }
++        // Consent held throughout: fronted once, ran once.
++        let home = tempfile::tempdir().unwrap();
++        let (mut registry, _screen, control) = counting_registry(home.path());
++        registry.set_consent_source(Arc::new(RevokingSource {
++            grants: usize::MAX,
++            after: ConsentStatus::UNKNOWN,
++            asked: AtomicUsize::new(0),
++            refusals: std::sync::Mutex::new(Vec::new()),
++        }));
++        registry.set_target_front_hook(count_front);
++        registry.force_watchable_front = true;
++        let fronted = FRONTED.load(Ordering::SeqCst);
++        assert_eq!(registry.invoke("click", json!({"pid": 4242})).await.is_error, None);
++        assert_eq!((control.load(Ordering::SeqCst), FRONTED.load(Ordering::SeqCst) - fronted), (1, 1));
++    }
++
 +    #[tokio::test]
 +    async fn every_check_asks_the_consent_source_and_nothing_else() {
 +        use crate::machine_consent::ConsentStatus;
@@ -2308,9 +2544,8 @@ index 013fc39f..d700bb72 100644
 +        assert!(std::fs::read_dir(home.path()).unwrap().next().is_none());
 +
 +        *source.status.lock().unwrap() = ConsentStatus {
-+            consent_required: true,
 +            screen: true,
-+            control: false,
++            ..ConsentStatus::UNKNOWN
 +        };
 +        assert_eq!(registry.invoke("get_window_state", json!({})).await.is_error, None);
 +        assert!(refused(&registry.invoke("click", json!({})).await, "control"));
@@ -2565,7 +2800,7 @@ index 013fc39f..d700bb72 100644
 +    }
 +}
 diff --git a/libs/cmux-cua/rust/crates/cmux-cua/Cargo.toml b/libs/cmux-cua/rust/crates/cmux-cua/Cargo.toml
-index c73d49f8..616014ab 100644
+index c73d49f8f..616014ab4 100644
 --- a/libs/cmux-cua/rust/crates/cmux-cua/Cargo.toml
 +++ b/libs/cmux-cua/rust/crates/cmux-cua/Cargo.toml
 @@ -70,6 +70,9 @@ default = []
@@ -2579,7 +2814,7 @@ index c73d49f8..616014ab 100644
  [target.'cfg(target_os = "windows")'.build-dependencies]
  # Embed the Windows manifest for DPI awareness (fixes coordinate mismatches
 diff --git a/libs/cmux-cua/rust/crates/cmux-cua/src/activity_daemon.rs b/libs/cmux-cua/rust/crates/cmux-cua/src/activity_daemon.rs
-index 83bf9f41..99ef6ba2 100644
+index 83bf9f417..99ef6ba28 100644
 --- a/libs/cmux-cua/rust/crates/cmux-cua/src/activity_daemon.rs
 +++ b/libs/cmux-cua/rust/crates/cmux-cua/src/activity_daemon.rs
 @@ -241,7 +241,14 @@ pub async fn finish(host: Arc<ActivityHost>, start: CallStart, args: &Value, res
@@ -2597,8 +2832,38 @@ index 83bf9f41..99ef6ba2 100644
          (Some(bytes), _) => Some(bytes),
          (None, CallKind::Act) => {
              let window_id = args.get("window_id").and_then(Value::as_u64);
+diff --git a/libs/cmux-cua/rust/crates/cmux-cua/src/cli.rs b/libs/cmux-cua/rust/crates/cmux-cua/src/cli.rs
+index 0456fb798..00f1f9ac4 100644
+--- a/libs/cmux-cua/rust/crates/cmux-cua/src/cli.rs
++++ b/libs/cmux-cua/rust/crates/cmux-cua/src/cli.rs
+@@ -1159,6 +1159,16 @@ pub fn run_manifest(pretty: bool) {
+ /// from `run_manifest` so tests can introspect the shape without going
+ /// through stdout.
+ pub fn build_manifest() -> serde_json::Value {
++    /// `machine-consent-gate-v1` only in the cmux.app build, which gates
++    /// every call on the verified cmux host's machine consent.
++    fn manifest_capabilities() -> Vec<&'static str> {
++        #[allow(unused_mut)]
++        let mut capabilities = vec![crate::serve::OWNER_PID_CAPABILITY];
++        #[cfg(feature = "cmux-host-consent")]
++        capabilities.push(cmux_cua_core::machine_consent::GATE_CAPABILITY);
++        capabilities
++    }
++
+     // Resolve the binary path the way `run_mcp_config` already does so the
+     // emitted `mcp_invocation.command` is the actually-runnable path, not
+     // a bare "cmux-cua" the caller has to resolve.
+@@ -1177,7 +1187,7 @@ pub fn build_manifest() -> serde_json::Value {
+         // Feature flags a host can check before it relies on a behavior.
+         // `serve.owner-pid`: `serve --owner-pid <pid>` exits 0 and removes
+         // its socket when that pid exits (no-op with a message on Windows).
+-        "capabilities": [crate::serve::OWNER_PID_CAPABILITY],
++        "capabilities": manifest_capabilities(),
+         "mcp_invocation": {
+             "command": binary,
+             "args": ["mcp"]
 diff --git a/libs/cmux-cua/rust/crates/cmux-cua/src/serve.rs b/libs/cmux-cua/rust/crates/cmux-cua/src/serve.rs
-index 47b3f982..f23683fe 100644
+index 47b3f9825..9d511f07c 100644
 --- a/libs/cmux-cua/rust/crates/cmux-cua/src/serve.rs
 +++ b/libs/cmux-cua/rust/crates/cmux-cua/src/serve.rs
 @@ -11,6 +11,8 @@
@@ -2627,7 +2892,7 @@ index 47b3f982..f23683fe 100644
      fn SecCodeCopySelf(flags: SecurityFlags, code: *mut SecurityCodeRef) -> SecurityStatus;
      fn SecCodeCopyDesignatedRequirement(
          code: SecurityCodeRef,
-@@ -774,6 +786,97 @@ fn approval_broker_peer_is_trusted(peer_pid: libc::pid_t) -> Result<(), String>
+@@ -774,6 +786,117 @@ fn approval_broker_peer_is_trusted(peer_pid: libc::pid_t) -> Result<(), String>
      validate_codex_dynamic_code(process_parent_pid(peer_pid)?)
  }
  
@@ -2671,61 +2936,81 @@ index 47b3f982..f23683fe 100644
 +}
 +
 +/// Whether the peer with `token` runs valid code of cmux's team whose
-+/// signing identifier is a cmux app's. Any error is false.
++/// signing identifier is a cmux app's. `Err` says why not, for the log and
++/// the refused host (no secret is involved): checked in steps so an ad hoc
++/// build, another team and another app are told apart. Any error refuses.
 +#[cfg(all(target_os = "macos", feature = "cmux-host-consent"))]
-+fn macos_peer_is_cmux_app(token: &[u32; 8]) -> bool {
++fn macos_peer_cmux_app_check(token: &[u32; 8]) -> Result<(), String> {
 +    use core_foundation::base::{CFRelease, CFTypeRef, TCFType};
 +    use core_foundation::data::CFData;
 +    use core_foundation::dictionary::{CFDictionary, CFDictionaryRef};
 +    use core_foundation::string::CFString;
 +
-+    let requirement_text = CFString::new(CMUX_TEAM_REQUIREMENT);
-+    let mut requirement: SecurityRequirementRef = std::ptr::null();
-+    if unsafe {
-+        SecRequirementCreateWithString(requirement_text.as_concrete_TypeRef(), 0, &mut requirement)
-+    } != 0
-+        || requirement.is_null()
-+    {
-+        return false;
++    /// Owns a Security object and releases it once.
++    struct Owned(*const libc::c_void);
++    impl Drop for Owned {
++        fn drop(&mut self) {
++            if !self.0.is_null() {
++                unsafe { CFRelease(self.0 as CFTypeRef) };
++            }
++        }
 +    }
++    let satisfies = |code: SecurityCodeRef, text: &str| -> bool {
++        let text = CFString::new(text);
++        let mut requirement: SecurityRequirementRef = std::ptr::null();
++        let created =
++            unsafe { SecRequirementCreateWithString(text.as_concrete_TypeRef(), 0, &mut requirement) } == 0;
++        let requirement = Owned(requirement);
++        created
++            && !requirement.0.is_null()
++            && unsafe { SecCodeCheckValidity(code, 0, requirement.0) } == 0
++    };
++
 +    let bytes: Vec<u8> = token.iter().flat_map(|word| word.to_ne_bytes()).collect();
 +    let audit_key = unsafe { CFString::wrap_under_get_rule(kSecGuestAttributeAudit) };
 +    let attributes = CFDictionary::from_CFType_pairs(&[(audit_key, CFData::from_buffer(&bytes))]);
 +    let mut code: SecurityCodeRef = std::ptr::null();
 +    let found = unsafe {
 +        SecCodeCopyGuestWithAttributes(std::ptr::null(), attributes.as_concrete_TypeRef(), 0, &mut code)
-+    } == 0
-+        && !code.is_null();
-+    let valid = found && unsafe { SecCodeCheckValidity(code, 0, requirement) } == 0;
-+    // The identifier of the code just validated (kSecCSSigningInformation).
-+    let identified = valid && {
-+        let mut information: CFDictionaryRef = std::ptr::null();
-+        let status = unsafe { SecCodeCopySigningInformation(code, 1 << 1, &mut information) };
-+        if status != 0 || information.is_null() {
-+            false
-+        } else {
-+            let information: CFDictionary<CFString, core_foundation::base::CFType> =
-+                unsafe { CFDictionary::wrap_under_create_rule(information) };
-+            let key = unsafe { CFString::wrap_under_get_rule(kSecCodeInfoIdentifier) };
-+            information
-+                .find(&key)
-+                .and_then(|value| value.downcast::<CFString>())
-+                .is_some_and(|identifier| is_cmux_app_identifier(&identifier.to_string()))
-+        }
-+    };
-+    unsafe {
-+        if !code.is_null() {
-+            CFRelease(code as CFTypeRef);
-+        }
-+        CFRelease(requirement as CFTypeRef);
++    } == 0;
++    let code = Owned(code);
++    if !found || code.0.is_null() {
++        return Err("no code for the peer".into());
 +    }
-+    identified
++    if unsafe { SecCodeCheckValidity(code.0, 0, std::ptr::null()) } != 0 {
++        return Err("invalid signature".into());
++    }
++    if !satisfies(code.0, "anchor apple generic") {
++        return Err("not Apple-signed (ad hoc or unsigned)".into());
++    }
++    if !satisfies(code.0, CMUX_TEAM_REQUIREMENT) {
++        return Err("not signed by cmux's team".into());
++    }
++    // The identifier of the code just validated (kSecCSSigningInformation).
++    let mut information: CFDictionaryRef = std::ptr::null();
++    let status = unsafe { SecCodeCopySigningInformation(code.0, 1 << 1, &mut information) };
++    if status != 0 || information.is_null() {
++        return Err("no signing information".into());
++    }
++    let information: CFDictionary<CFString, core_foundation::base::CFType> =
++        unsafe { CFDictionary::wrap_under_create_rule(information) };
++    let key = unsafe { CFString::wrap_under_get_rule(kSecCodeInfoIdentifier) };
++    let identifier = information
++        .find(&key)
++        .and_then(|value| value.downcast::<CFString>())
++        .map(|identifier| identifier.to_string())
++        .unwrap_or_default();
++    if is_cmux_app_identifier(&identifier) {
++        Ok(())
++    } else {
++        Err(format!("signing identifier {identifier:?} is not a cmux app"))
++    }
 +}
 +
  #[cfg(all(unix, not(target_os = "macos")))]
  fn approval_broker_peer_pid(_stream: &tokio::net::UnixStream) -> Result<libc::pid_t, String> {
      Err("Codex Computer Use approval brokers are supported only on macOS".to_owned())
-@@ -2135,6 +2238,8 @@ pub async fn run_serve_with_owner(
+@@ -2135,6 +2258,8 @@ pub async fn run_serve_with_owner(
                  }
                  #[cfg(target_os = "macos")]
                  let peer_process_id = macos_peer_process_id(&stream);
@@ -2734,7 +3019,7 @@ index 47b3f982..f23683fe 100644
                  #[cfg(target_os = "macos")]
                  let peer_process_identity =
                      peer_process_id.and_then(macos_process_identity);
-@@ -2239,6 +2344,49 @@ pub async fn run_serve_with_owner(
+@@ -2239,6 +2364,74 @@ pub async fn run_serve_with_owner(
                                  }
                                  return;
                              }
@@ -2747,18 +3032,43 @@ index 47b3f982..f23683fe 100644
 +                                {
 +                                    // The host token itself, never the authorized-root
 +                                    // fallback a daemon without host authority uses.
-+                                    let verified = host_authority_configured
-+                                        && parsed.host_authenticated
-+                                        && peer_audit_token
-+                                            .as_ref()
-+                                            .is_some_and(macos_peer_is_cmux_app);
-+                                    let resp = if verified {
-+                                        DaemonResponse::ok(serde_json::json!({"attached": true}))
-+                                    } else {
-+                                        DaemonResponse::err(
-+                                            "Unauthorized host-only consent request",
-+                                            77,
-+                                        )
++                                    let authenticated =
++                                        host_authority_configured && parsed.host_authenticated;
++                                    // Only an authenticated host learns why its code
++                                    // was refused; the log says it either way.
++                                    let check = authenticated.then(|| match peer_audit_token.as_ref() {
++                                        Some(token) => macos_peer_cmux_app_check(token),
++                                        None => Err("no audit token for the peer".to_owned()),
++                                    });
++                                    let verified = matches!(check, Some(Ok(())));
++                                    let resp = match check {
++                                        Some(Ok(())) => {
++                                            DaemonResponse::ok(serde_json::json!({"attached": true}))
++                                        }
++                                        Some(Err(why)) => {
++                                            eprintln!(
++                                                "cmux-cua: refused the machine consent host: \
++                                                 {}: {why}",
++                                                cmux_cua_core::machine_consent::HOST_UNVERIFIED
++                                            );
++                                            DaemonResponse::err(
++                                                format!(
++                                                    "Unauthorized host-only consent request: {} ({why})",
++                                                    cmux_cua_core::machine_consent::HOST_UNVERIFIED
++                                                ),
++                                                77,
++                                            )
++                                        }
++                                        None => {
++                                            eprintln!(
++                                                "cmux-cua: refused the machine consent host: \
++                                                 no host token"
++                                            );
++                                            DaemonResponse::err(
++                                                "Unauthorized host-only consent request",
++                                                77,
++                                            )
++                                        }
 +                                    };
 +                                    let sent = writer.write_all(
 +                                        (serde_json::to_string(&resp).unwrap() + "\n").as_bytes()
@@ -2784,7 +3094,32 @@ index 47b3f982..f23683fe 100644
                              "permissions_status" => {
                                  #[cfg(target_os = "macos")]
                                  let resp = DaemonResponse::ok(daemon_permission_status(
-@@ -5341,3 +5489,40 @@ mod session_boundary_tests {
+@@ -2778,12 +2971,22 @@ pub async fn run_serve_with_owner(
+                                 // capability_version + schema_version so MCP
+                                 // proxy callers can pass them through verbatim
+                                 // (one daemon round-trip, complete response).
+-                                let resp = DaemonResponse::ok(serde_json::json!({
++                                #[allow(unused_mut)]
++                                let mut listed = serde_json::json!({
+                                     "tools": tools,
+                                     "capability_version": cmux_cua_core::tool::CAPABILITY_VERSION,
+                                     "schema_version": "1",
+                                     "profile": profile,
+-                                }));
++                                });
++                                // The cmux.app build gates every call on the verified
++                                // host's machine consent; say so to whoever lists.
++                                #[cfg(feature = "cmux-host-consent")]
++                                {
++                                    listed["capabilities"] = serde_json::json!([
++                                        cmux_cua_core::machine_consent::GATE_CAPABILITY
++                                    ]);
++                                }
++                                let resp = DaemonResponse::ok(listed);
+                                 let _ = writer.write_all(
+                                     (serde_json::to_string(&resp).unwrap() + "\n").as_bytes()
+                                 ).await;
+@@ -5341,3 +5544,58 @@ mod session_boundary_tests {
          ));
      }
  }
@@ -2815,6 +3150,19 @@ index 47b3f982..f23683fe 100644
 +        }
 +    }
 +
++    /// The cmux.app build says it gates every call; others do not.
++    #[test]
++    fn only_the_cmux_app_build_advertises_the_consent_gate() {
++        let manifest = crate::cli::build_manifest();
++        let advertised = manifest["capabilities"]
++            .as_array()
++            .unwrap()
++            .iter()
++            .any(|c| c == cmux_cua_core::machine_consent::GATE_CAPABILITY);
++        assert_eq!(advertised, cfg!(feature = "cmux-host-consent"));
++        assert_eq!(cmux_cua_core::machine_consent::GATE_CAPABILITY, "machine-consent-gate-v1");
++    }
++
 +    /// This test binary is not a signed cmux app, so as a peer it may
 +    /// never serve consent.
 +    #[cfg(all(target_os = "macos", feature = "cmux-host-consent"))]
@@ -2822,12 +3170,17 @@ index 47b3f982..f23683fe 100644
 +    async fn a_peer_that_is_not_a_signed_cmux_app_is_refused() {
 +        let (daemon_end, _host_end) = tokio::net::UnixStream::pair().unwrap();
 +        let token = macos_peer_audit_token(&daemon_end).expect("the peer's audit token");
-+        assert!(!macos_peer_is_cmux_app(&token));
++        let why = macos_peer_cmux_app_check(&token).unwrap_err();
++        // An unsigned or ad hoc test binary is told apart from another team.
++        assert!(
++            ["not Apple-signed (ad hoc or unsigned)", "invalid signature", "no code for the peer"].contains(&why.as_str()),
++            "{why}"
++        );
 +    }
 +}
 diff --git a/libs/cmux-cua/rust/crates/cmux-cua/tests/machine_consent_test.rs b/libs/cmux-cua/rust/crates/cmux-cua/tests/machine_consent_test.rs
 new file mode 100644
-index 00000000..f55685d4
+index 000000000..f55685d42
 --- /dev/null
 +++ b/libs/cmux-cua/rust/crates/cmux-cua/tests/machine_consent_test.rs
 @@ -0,0 +1,211 @@
