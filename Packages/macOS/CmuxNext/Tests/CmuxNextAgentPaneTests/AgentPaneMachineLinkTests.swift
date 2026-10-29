@@ -25,24 +25,26 @@ struct AgentPaneMachineLinkTests {
         func tapReconnect(_ machine: String) { reconnect.append(machine) }
     }
 
-    /// A send to a down machine reconnects it once and goes on; a machine that does not come back
-    /// fails as it did, and a link that is up is never reconnected.
+    /// A connection to a down machine (its endpoint, its socket or its handshake failing) reconnects
+    /// it once and goes on; a machine that does not come back fails as it did, and a connection
+    /// that works never reconnects.
     @Test func aDownMachineReconnectsOnUse() async throws {
         let calls = Calls()
         let socket = DaemonEndpoint(socketPath: "/tmp/acpmux-test.sock")
-        let comesBack = AgentPaneMachineLink.reconnecting({
+        let comesBack = try await AgentSessionAttachClient.retrying({
             if await calls.tapEndpoint() == 1 { throw Down() }
             return socket
-        }, machine: "box") { machine in await calls.tapReconnect(machine); return true }
-        #expect(try await comesBack() == socket)
+        }, reconnect: { await calls.tapReconnect("box"); return true })
+        #expect(comesBack == socket)
         #expect(await calls.reconnect == ["box"])
 
-        let staysDown = AgentPaneMachineLink.reconnecting({ throw Down() }, machine: "box") { _ in false }
-        await #expect(throws: Down.self) { try await staysDown() }
+        await #expect(throws: Down.self) {
+            try await AgentSessionAttachClient.retrying({ () throws -> DaemonEndpoint in throw Down() }, reconnect: { false })
+        }
 
         let up = Calls()
-        let fine = AgentPaneMachineLink.reconnecting({ socket }, machine: "box") { machine in await up.tapReconnect(machine); return true }
-        #expect(try await fine() == socket)
+        let fine = try await AgentSessionAttachClient.retrying({ socket }, reconnect: { await up.tapReconnect("box"); return true })
+        #expect(fine == socket)
         #expect(await up.reconnect.isEmpty)
     }
 
@@ -71,6 +73,17 @@ struct AgentPaneMachineLinkTests {
         link.budget = .milliseconds(20)
         #expect(await link.awaitLink("box") == false, "a link that never comes back fails as it did")
         #expect(ran == ["box"], "a machine on its way is not reconnected again")
+
+        // A reconnect that ends needing a person (a refused sign-in, a required update) fails the
+        // send at once, not after the budget.
+        link.budget = .seconds(30)
+        machine.use = .down
+        link.reconnect = { id in ran.append(id); machine.use = .coming; Task { machine.use = .stuck } }
+        let refused = ContinuousClock.now
+        #expect(await link.awaitLink("box") == false)
+        #expect(ContinuousClock.now - refused < .seconds(5))
+        #expect(ran == ["box", "box"])
+        machine.use = .coming
 
         // A send cancelled while it waits stops waiting at once, well inside the budget.
         link.budget = .seconds(30)

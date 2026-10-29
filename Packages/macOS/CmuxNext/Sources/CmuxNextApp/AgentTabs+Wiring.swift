@@ -282,8 +282,9 @@ extension AgentTabStore {
             }
             // Opening the chat or sending to it while its machine is down reconnects the machine
             // and goes on once its handshake finished, with no click.
-            let endpoint = tabs.machineLink.endpoint(direct, machine: daemon.machineID)
-            var host = AgentTabRemoteHost(surface: tab.surface.rawValue, session: session, machine: machine, endpoint: endpoint, servesTrust: daemon.supports(DaemonCapability.agentSessionTrust.rawValue),
+            let endpoint = direct
+            let reconnect = tabs.machineLink.reconnecting(machine: daemon.machineID)
+            var host = AgentTabRemoteHost(surface: tab.surface.rawValue, session: session, machine: machine, endpoint: endpoint, reconnect: reconnect, servesTrust: daemon.supports(DaemonCapability.agentSessionTrust.rawValue),
                                            servesKeyedReason: daemon.supports(DaemonCapability.agentSessionStartKeyedReason.rawValue))
             host.cloudMachineID = services.machines.session(daemon.machineID)?.machineID
             host.cloudCredentialRecoveryAvailable = host.cloudMachineID != nil &&
@@ -310,7 +311,7 @@ extension AgentTabStore {
                 host.start = { [weak tabs] cwd, harness, model, personKey in
                     guard let tabs else { throw CancellationError() }
                     return try await tabs.startRemoteChat(key, machine: machine, cwd: cwd, harness: harness, model: model, personKey: personKey,
-                                                          ownerLink: ownerLink, endpoint: endpoint)
+                                                          ownerLink: ownerLink, reconnect: reconnect, endpoint: endpoint)
                 }
             }
             // cx-0q7o: the app's own ssh exec to that machine restarts its acpmux with a key.

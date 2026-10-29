@@ -7,7 +7,7 @@ import Foundation
 /// dot ... as if you were working on your own computer, but now it's remote"). A chat on another
 /// machine gets that machine's link for the composer strip's dot (`machineLink`), the sidebar
 /// header's same word (the App's ``state``), so the strip and the sidebar never disagree; and
-/// using a machine whose link is down reconnects it (``endpoint(_:machine:)``). The App owns one
+/// using a machine whose link is down reconnects it (``reconnecting(machine:)``). The App owns one
 /// (`AgentTabStore`) and hands it to each pane's model. Not an AgentPaneView extension: that type
 /// is at its size limit.
 public final class AgentPaneMachineLink {
@@ -113,36 +113,20 @@ public final class AgentPaneMachineLink {
 
     // MARK: - Reconnect on use
 
-    /// `endpoint` of a chat on machine `machine`, which reconnects the machine when its link is down
-    /// and tries once more: the send the person made goes out once the handshake finished, with no
-    /// Reconnect or Retry click.
-    public nonisolated func endpoint(_ endpoint: @escaping AgentSessionAttachClient.EndpointProvider,
-                                     machine: String) -> AgentSessionAttachClient.EndpointProvider {
-        Self.reconnecting(endpoint, machine: machine) { [weak self] machine in await self?.awaitLink(machine) ?? false }
-    }
-
-    /// `endpoint`, which calls `reconnect` when it throws and tries once more when that answers
-    /// true. A failure that is not the link's, or a link that does not come back, throws as it did.
-    nonisolated static func reconnecting(_ endpoint: @escaping AgentSessionAttachClient.EndpointProvider, machine: String,
-                                         reconnect: @escaping @MainActor @Sendable (String) async -> Bool) -> AgentSessionAttachClient.EndpointProvider {
-        {
-            do {
-                return try await endpoint()
-            } catch is CancellationError {
-                throw CancellationError()
-            } catch {
-                // A send the person cancelled reconnects nothing and is not retried.
-                guard !Task.isCancelled, await reconnect(machine) else { throw error }
-                try Task.checkCancellation()
-                return try await endpoint()
-            }
-        }
+    /// The attach client's ``AgentSessionAttachClient/Reconnect`` for a chat on machine `machine`:
+    /// a connection that fails (its endpoint, its socket or its handshake) reconnects the machine
+    /// when its link is down and tries once more, so the send the person made goes out once the
+    /// handshake finished, with no Reconnect or Retry click.
+    public nonisolated func reconnecting(machine: String) -> AgentSessionAttachClient.Reconnect {
+        let wait: @MainActor @Sendable (String) async -> Bool = { [weak self] machine in await self?.awaitLink(machine) ?? false }
+        return { await wait(machine) }
     }
 
     /// Reconnects `machine` when its link is down (``reconnect``) and waits up to ``budget`` for
     /// its handshake; true once it finished. A machine on its way is only waited for. Stops on the
-    /// handshake, the deadline or the caller's cancellation (structured: a cancelled send stops
-    /// waiting at once and is not retried). Chats waiting on one machine run one Reconnect.
+    /// handshake, a link that needs a person (`stuck`: a refused sign-in, a required update), the
+    /// deadline or the caller's cancellation (structured: a cancelled send stops waiting at once
+    /// and is not retried). Chats waiting on one machine run one Reconnect.
     func awaitLink(_ machine: String) async -> Bool {
         guard !Task.isCancelled else { return false }
         let first = waiting[machine] == nil
@@ -157,17 +141,24 @@ public final class AgentPaneMachineLink {
             waiting[machine] = left > 0 ? left : nil
         }
         let use = use
-        let back = await Self.holds(within: budget) { if case .up = use(machine) { true } else { false } }
+        let back = await Self.settles(within: budget) { () -> Bool? in
+            switch use(machine) {
+            case .up: true
+            case .stuck: false
+            case .coming, .down: nil
+            }
+        }
         return back && !Task.isCancelled
     }
 
-    /// Whether `condition` holds within `limit`: an observation, bounded by a one-shot deadline.
-    private static func holds(within limit: Duration, until condition: @escaping @MainActor @Sendable () -> Bool) async -> Bool {
-        if condition() { return true }
+    /// The first answer `settled` gives (nil: not yet) within `limit`, else false: an observation,
+    /// bounded by a one-shot deadline.
+    private static func settles(within limit: Duration, _ settled: @escaping @MainActor @Sendable () -> Bool?) async -> Bool {
+        if let answer = settled() { return answer }
         // concurrency-allow: the observation task exits on cancellation; this bounds a machine link's return
         return await withTaskGroup(of: Bool.self) { group -> Bool in
             group.addTask {
-                for await ready in ObservationStream({ condition() }) where ready { return true }
+                for await answer in ObservationStream({ settled() }) { if let answer { return answer } }
                 return false
             }
             group.addTask {

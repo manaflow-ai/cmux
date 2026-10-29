@@ -53,10 +53,14 @@ public actor AgentSessionAttachClient {
     /// A Cloud machine's running link id while its attach answer says the caller owns it, else nil
     /// (`CloudMachineLink.ownerLink`).
     public typealias OwnerLink = @Sendable () async -> Int?
+    /// Asked once when a connection fails (its endpoint, its socket or its handshake): true once
+    /// the machine's link came back, and the connection is tried once more.
+    public typealias Reconnect = @Sendable () async -> Bool
 
     private let surface: UInt64
     private let mode: Mode
     private let endpoint: EndpointProvider
+    private let reconnect: Reconnect?
     private let requestTimeout: Duration
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-attach")
     private var transport: LineTransport?
@@ -94,11 +98,13 @@ public actor AgentSessionAttachClient {
     }
 
     /// `surface`: the tab's surface id in the daemon's store.
+    /// `reconnect`: asked when a connection fails (``Reconnect``); nil, never tried again.
     public init(surface: UInt64, requestTimeout: Duration = .seconds(10), mode: Mode = .attach,
-                endpoint: @escaping EndpointProvider) {
+                reconnect: Reconnect? = nil, endpoint: @escaping EndpointProvider) {
         self.surface = surface
         self.mode = mode
         self.endpoint = endpoint
+        self.reconnect = reconnect
         self.requestTimeout = requestTimeout
     }
 
@@ -346,6 +352,26 @@ public actor AgentSessionAttachClient {
     }
 
     private func connect() async throws -> (LineTransport, Served) {
+        guard let reconnect else { return try await connectOnce() }
+        return try await Self.retrying({ try await self.connectOnce() }, reconnect: reconnect)
+    }
+
+    /// `body`, which asks `reconnect` when it throws and runs once more when that answers true. A
+    /// cancelled call reconnects nothing and is not retried; a failure that is not the link's, or a
+    /// link that does not come back, throws as it did.
+    public static func retrying<T: Sendable>(_ body: @Sendable () async throws -> T, reconnect: Reconnect) async throws -> T {
+        do {
+            return try await body()
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            guard !Task.isCancelled, await reconnect() else { throw error }
+            try Task.checkCancellation()
+            return try await body()
+        }
+    }
+
+    private func connectOnce() async throws -> (LineTransport, Served) {
         let endpoint = try await self.endpoint()
         let transport = try LineTransport(path: endpoint.socketPath)
         let handler = handler
