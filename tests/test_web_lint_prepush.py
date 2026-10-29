@@ -1019,6 +1019,35 @@ class TuiBindingsTests(unittest.TestCase):
         self.assertIn("fmt web", self.tool_log.read_text().splitlines())
         self.assertNotIn("not linted here", result.stderr)
 
+    def test_a_dry_run_for_a_lint_tree_lists_the_builds_and_installs_that_tree_needs(self):
+        # Review of c146f28: with the bindings built and installed in the checkout, a dry run of a commit that runs in
+        # a fresh lint tree listed only the check, while the run built and installed first (the tree has no dist/
+        # and no node_modules of its own). The dry run now plans that tree.
+        self.add_tui_packages()
+        self.assertEqual(self.lint_all()[0].returncode, 0)  # the checkout's bindings built and installed
+        self.write("cmux-tui/frontends/web/src/main.ts", "export const main = 2;\n")
+        self.commit("frontend change")
+        head = self.git("rev-parse", "HEAD").stdout.strip()
+        self.write("notes.txt", "dirty\n")  # not exactly HEAD: the run happens in a lint tree
+
+        dry = subprocess.run(["scripts/web-lint.sh", "--dry-run", "--base", "HEAD~1", "--head", head], cwd=self.repo,
+                             env=self.env, text=True, capture_output=True)
+        self.assertEqual(dry.returncode, 0, dry.stderr)
+        listed = [(line.split(": ", 1)[0], " ".join([Path(shlex.split(line.split(": ", 1)[1])[0]).name,
+                                                    *shlex.split(line.split(": ", 1)[1])[1:]]))
+                  for line in dry.stdout.splitlines()]
+        self.tool_log.write_text("")
+        ran = subprocess.run(["scripts/web-lint.sh", "--base", "HEAD~1", "--head", head], cwd=self.repo,
+                             env=self.env, text=True, capture_output=True)
+        self.assertEqual(ran.returncode, 0, ran.stderr)
+        calls = self.tool_log.read_text().splitlines()
+        self.assertEqual([c for c in calls if c.startswith(("npm", "bun install"))],
+                         ["npm ci --no-audit --no-fund @ typescript", "npm run build @ typescript",
+                          "bun install --silent --no-save @ web"], "the run in a lint tree builds and installs")
+        self.assertEqual([command for directory, command in listed],
+                         ["npm ci --no-audit --no-fund", "npm run build", "bun install --silent --no-save", "sh check.sh"])
+        self.assertEqual([directory for directory, _ in listed][:2], ["cmux-tui/bindings/typescript"] * 2)
+
     def test_a_current_bindings_build_is_not_rebuilt_and_a_source_change_rebuilds_it(self):
         self.add_tui_packages()
         self.assertEqual(self.lint_all()[0].returncode, 0)

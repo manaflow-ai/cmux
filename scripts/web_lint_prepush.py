@@ -75,6 +75,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -442,11 +443,38 @@ def run_leaving_no_lockfile(command: list[str], cwd: Path, env: dict[str, str] |
             lock.unlink(missing_ok=True)
 
 
-def deps_command(repo: Path, directory: str, force: bool = False) -> list[str] | None:
+@dataclass(frozen=True)
+class TreeState:
+    """What the tree a run happens in holds before it starts: setup_steps() reads it, so a --dry-run plans the run's
+    own tree. in_place_state() reads a real tree; lint_tree_state() predicts the fresh worktree tree_of() makes."""
+
+    locked: Callable[[str], bool]  # the area has a bun.lock
+    has_modules: Callable[[str], bool]  # the area has node_modules (its own, or the checkout's linked in)
+    build_current: Callable[[LocalBuild], bool]  # the local build's output was built from its current inputs
+    installed: Callable[[str, LocalBuild], str | None]  # the build digest the area's node_modules copy came from
+
+
+def in_place_state(repo: Path) -> TreeState:
+    return TreeState(locked=lambda d: (repo / d / "bun.lock").is_file(),
+                     has_modules=lambda d: (repo / d / "node_modules").is_dir(),
+                     build_current=lambda build: build_current(repo, build),
+                     installed=lambda d, build: read_stamp(installed_stamp(repo, d, build)))
+
+
+def lint_tree_state(exists, shared: set[str]) -> TreeState:
+    """The fresh worktree of a commit (EXISTS: its files): no build output (dist/ is never committed), and
+    node_modules only where tree_of() links the checkout's in (SHARED); a linked copy is never one a build installs
+    into (tree_of() does not link a package with local builds on a host that builds)."""
+    return TreeState(locked=lambda d: exists(f"{d}/bun.lock"), has_modules=lambda d: d in shared,
+                     build_current=lambda build: False, installed=lambda d, build: None)
+
+
+def deps_command(repo: Path, directory: str, force: bool = False, state: TreeState | None = None) -> list[str] | None:
     """The `bun install` ensure_deps runs for DIRECTORY, or None when it runs none: a package with no lockfile keeps
     the node_modules it has (unless FORCE). `bun` stays a bare name when bun is not on PATH (ensure_deps reports it)."""
-    locked = (repo / directory / "bun.lock").is_file()
-    if not locked and not force and (repo / directory / "node_modules").is_dir():
+    state = state or in_place_state(repo)
+    locked = state.locked(directory)
+    if not locked and not force and state.has_modules(directory):
         return None
     command = ["install", "--frozen-lockfile", "--silent"] if locked else ["install", "--silent", "--no-save"]
     return [shutil.which("bun") or "bun", *command]
@@ -501,23 +529,25 @@ def build_current(repo: Path, build: LocalBuild) -> bool:
     return read_stamp(repo / build.directory / build.output / BUILD_STAMP) == build_digest(repo, build)
 
 
-def setup_steps(repo: Path, plan: Plan) -> list[tuple]:
+def setup_steps(repo: Path, plan: Plan, state: TreeState | None = None) -> list[tuple]:
     """run()-shaped (area, argv) steps prepare_builds() and install() will spawn for PLAN on a host that runs heavy
-    checks, in their order, from the same deps_command() and build_commands(): builds that are not current, then
-    each area's install (forced where its copy of a build is stale)."""
+    checks, in their order, from the same deps_command() and build_commands(), for the tree STATE describes (default:
+    REPO as it is): builds that are not current, then each area's install (forced where its copy of a build is
+    stale)."""
+    state = state or in_place_state(repo)
     steps, digests = [], {}
     for package in plan.script_packages:
         for build in package.builds:
             if build in digests:
                 continue
             digests[build] = build_digest(repo, build)
-            if not build_current(repo, build):
+            if not state.build_current(build):
                 steps += [(build.directory, step) for step in build_commands()]
     for directory in [p.directory for p in plan.script_packages] + list(plan.eslint_files):
         package = next((p for p in plan.script_packages if p.directory == directory), None)
-        stale = package is not None and any(
-            read_stamp(installed_stamp(repo, directory, build)) != digests[build] for build in package.builds)
-        command = deps_command(repo, directory, force=stale)
+        stale = package is not None and any(state.installed(directory, build) != digests[build]
+                                            for build in package.builds)
+        command = deps_command(repo, directory, force=stale, state=state)
         if command:
             steps.append((directory, command))
     return steps
@@ -647,15 +677,16 @@ def check_jobs(repo: Path, plan: Plan, script: str, fix: bool, cache: bool, heav
 
 
 def plan_steps(repo: Path, plan: Plan, fix: bool, cache: bool, heavy: bool, mode: str, read=None,
-               has_modules=None) -> tuple[Plan, list[tuple], list[tuple], list[tuple]]:
+               state: TreeState | None = None) -> tuple[Plan, list[tuple], list[tuple], list[tuple]]:
     """Everything a run of PLAN does, in order: (the plan it runs, setup steps, fix jobs, check jobs). With heavy
-    checks off the plan is light_plan()'s (HAS_MODULES: which areas have node_modules) and there is no setup; with
-    them on, setup_steps() lists the builds and installs. run_plan() executes it and --dry-run prints it, so the two
-    can't list different commands."""
+    checks off the plan is light_plan()'s (over the areas STATE says have node_modules) and there is no setup; with
+    them on, setup_steps() lists the builds and installs STATE's tree needs (default: REPO as it is). run_plan()
+    executes it and --dry-run prints it, so the two can't list different commands."""
+    state = state or in_place_state(repo)
     if heavy:
-        setup = setup_steps(repo, plan)
+        setup = setup_steps(repo, plan, state)
     else:
-        plan, setup = light_plan(repo, plan, mode, has_modules), []
+        plan, setup = light_plan(repo, plan, mode, state.has_modules), []
     fixes = check_jobs(repo, plan, "check:fix", True, cache, heavy, mode, read) if fix else []
     return plan, setup, fixes, check_jobs(repo, plan, "check", False, cache, heavy, mode, read)
 
@@ -883,21 +914,21 @@ def main(argv: list[str] | None = None) -> int:
             if args.dry_run:
                 print("nothing to lint")
             continue
-        if args.dry_run:
-            # The run's own plan_steps(), over the node_modules the run would see (a lint tree shares the checkout's
-            # only where shares_deps() holds): setup, fix passes, then checks, one command per line.
-            in_place = in_place_cache(repo, head)
-            _, setup, fixes, jobs = plan_steps(
-                repo, plan, args.fix, in_place, heavy, mode, read,
-                lambda directory: (repo / directory / "node_modules").is_dir()
-                and (in_place or shares_deps(repo, head, directory)))
-            for job in setup + fixes + jobs:
-                print(shown(job))
-            continue
         # A package that imports a local build gets its own install in a lint tree: bun copies the build
         # into node_modules, so the checkout's copy holds the checkout's build, not this commit's.
         # A host that runs no heavy checks builds nothing, so every package may share the checkout's node_modules.
         directories = [p.directory for p in plan.script_packages if not p.builds or not heavy] + list(plan.eslint_files)
+        if args.dry_run:
+            # The run's own plan_steps(), for the tree it would run in: the checkout as it is, or the fresh lint tree
+            # tree_of() makes (no build output, node_modules only where it links the checkout's): setup, fix passes,
+            # then checks, one command per line.
+            in_place = in_place_cache(repo, head)
+            state = in_place_state(repo) if in_place else lint_tree_state(
+                exists, {d for d in directories if shares_deps(repo, head, d)})
+            _, setup, fixes, jobs = plan_steps(repo, plan, args.fix, in_place, heavy, mode, read, state)
+            for job in setup + fixes + jobs:
+                print(shown(job))
+            continue
         with tree_of(repo, head, directories) as tree:
             found = run_plan(tree, plan, args.fix, cache=tree == repo, heavy=heavy, mode=mode)
             if args.new_only:
