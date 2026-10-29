@@ -195,6 +195,9 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_PROMPT_WITHDRAW, Request),
         untyped(method::MUX_SEND_QUEUE, Request),
         untyped(method::MUX_SEND_STATUS, Request),
+        untyped(method::MUX_TEAM_SEND, Request),
+        untyped(method::MUX_TEAM_INBOX, Request),
+        untyped(method::MUX_TEAM_ACK, Request),
         // The hub asks a session's agent adapter (claude_stdio, the Codex bridge).
         untyped(method::MUX_STEP_NOW, Request),
         untyped(method::MUX_STEER_WITHDRAW, Request),

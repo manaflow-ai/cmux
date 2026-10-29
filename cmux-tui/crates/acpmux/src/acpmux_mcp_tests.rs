@@ -59,11 +59,13 @@ fn the_tools_say_they_message_other_sessions_instead_of_the_shell() {
     let tools = tools();
     let names: Vec<&str> =
         tools.as_array().unwrap().iter().filter_map(|t| t["name"].as_str()).collect();
-    assert_eq!(names, ["send", "ls", "last", "info"]);
+    assert_eq!(names, ["send", "ls", "last", "info", "team_send", "team_inbox", "team_ack"]);
     let send = tools[0]["description"].as_str().unwrap();
     assert!(send.contains("Message another agent session"), "{send}");
     assert!(send.contains("instead of running `acpmux send` in a shell"), "{send}");
     assert_eq!(tools[0]["inputSchema"]["required"], json!(["to", "text"]));
+    assert_eq!(tools[4]["inputSchema"]["required"], json!(["to", "body"]));
+    assert_eq!(tools[6]["inputSchema"]["required"], json!(["id"]));
 }
 
 #[tokio::test]
