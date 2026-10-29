@@ -63,6 +63,7 @@
         "Install compilation dependencies": {"plumbing": true},
         "Check node is on PATH (cmux-next web bundles)": {"pr": "ci-guards.yml:workflow-guard-tests:Validate universal nightly workflow", "note": "tests/test_ensure_setup_node.py runs scripts/ci/ensure-setup-node.sh against a fake tool cache and dist"},
         "Build the web bundles (cmux-next)": {"pr": "cmux-next.yml:web-bundles:Build the web bundles for this source key"},
+        "Stand in for the acpmux companion while the tree publishes": {"plumbing": true},
         "Fetch the resolved cmux-tui tree companions": {"pr": "cmux-next.yml:checks:Script tests (pin-cmux-tui, embed-cef, ensure-cef store)"},
         "Build in-tree acpmux for the compilation cache": {"pr": "cmux-next.yml:cmux-scheme-compile:Build in-tree acpmux for the app bundle"},
         "Build the OptChat Chief (cmux-next)": {"nightly_only": "cargo build of optchat-chief for the macOS arm64 and x86_64 targets needs the macOS SDK; PR builds skip it (bundle-optchat-chief.sh exits 0 without a binary)"},
@@ -109,6 +110,7 @@
         "Wait through GitHub API rate limits in this job's gh calls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly publish-path gh calls wait through a rate limit"},
         "Validate the saved unsigned nightly source": {"pr": "ci-guards.yml:workflow-guard-tests:Validate unsigned nightly resume provenance and routing"},
         "Resolve the original cmux-tui tree": {"plumbing": true},
+        "Build the tip while its tree publishes": {"pr": "cmux-next.yml:checks:Script tests (pin-cmux-tui, embed-cef, ensure-cef store)"},
         "Resolve cmux-tui client commit": {"pr": "cmux-next.yml:checks:Script tests (pin-cmux-tui, embed-cef, ensure-cef store)"},
         "Choose the build commit": {"plumbing": true},
         "Leave the build slot to a newer nightly-next push": {"plumbing": true}},
@@ -220,6 +222,8 @@
         "Initialize cmux-next notices submodule": {"plumbing": true}, "Select Xcode": {"plumbing": true},
         "Verify recovered DMG artifact": {"nightly_only": "statically verifies the notarized stapled recovered DMG and records its exact digest without launching app code"}
       },
+      "await-nightly-tree-marker": {
+        "Wait for the build commit's tree-commit marker": {"pr": "cmux-next.yml:checks:Script tests (pin-cmux-tui, embed-cef, ensure-cef store)"}},
       "publish-nightly": {
         "Read the live nightly-next feed before the write": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the published feed read-back and the shipped app's channels"},
         "Read the live nightly-next feed back": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the published feed read-back and the shipped app's channels"},

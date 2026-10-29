@@ -338,9 +338,12 @@ class WorkflowTests(unittest.TestCase):
         condition = workflow()["jobs"]["publish-nightly"]["if"]
         self.assertTrue(condition.startswith("!cancelled() && needs.decide.result == 'success' && "), condition)
         self.assertIn(
-            "(((needs.build-sign-notarize-nightly.result == 'success' || needs.signer-dmg.result == 'success') && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true' && needs.verify-signed-nightly.result == 'success' && needs.verify-final-dmg-nightly.result == 'success') || (needs.recover-nightly-next-notarization.outputs.accepted == 'true' && needs.verify-recovered-nightly-next.result == 'success'))",
+            "(((needs.build-sign-notarize-nightly.result == 'success' || needs.signer-dmg.result == 'success') && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true' && needs.verify-signed-nightly.result == 'success' && needs.verify-final-dmg-nightly.result == 'success' && (needs.resolve-nightly-cmux-tui-client.outputs.tree_pending != 'true' || needs.await-nightly-tree-marker.result == 'success')) || (needs.recover-nightly-next-notarization.outputs.accepted == 'true' && needs.verify-recovered-nightly-next.result == 'success'))",
             condition,
         )
+        # NIGHTLY_NEXT_TREE_AT_INSTALL: a build that started before its tree published
+        # publishes only after await-nightly-tree-marker (main's G5, moved into the run).
+        self.assertIn("await-nightly-tree-marker", workflow()["jobs"]["publish-nightly"]["needs"])
 
     def test_select_prefers_this_run_s_accepted_build(self):
         self.assertEqual(run_select(**OWN)["source"], "own")
