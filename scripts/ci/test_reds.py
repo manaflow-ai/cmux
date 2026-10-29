@@ -540,6 +540,11 @@ def classify_web(head_logs: list, base_logs: list, job: str = "", base: str = "t
     # A replay's own log holds the merge parent's runs of those files, never the head's: the head's errors come from
     # the head's other jobs then.
     head = merged_web([log for log in (head_logs[1:] if red.charged else head_logs) if log is not None])
+    if red.charged:
+        files = {name.split(" > ", 1)[0] for name in red.charged}
+        # Replay annotations need not name an unhandled error that the head emitted
+        # outside a test. Every head diagnostic in the charged files must be compared.
+        names = sorted(set(names) | {name for name in head.failed if name.split(" > ", 1)[0] in files})
     reasons = sorted(red.crashed | head.crashed)
     reasons += [f"{name} timed out (a cut-short run is never a base red)"
                 for name in sorted(red.timed_out | head.timed_out)]
