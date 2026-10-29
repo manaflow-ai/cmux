@@ -37,13 +37,16 @@ function harness() {
   const dismissed: (string | undefined)[] = [];
   const host = createPopupHost(
     (call, params) => {
-      if (call === "show") return new Promise((resolve) => shows.push({ model: params as unknown as NativePopupModel, resolve }));
+      if (call === "show")
+        return new Promise((resolve) => shows.push({ model: params as unknown as NativePopupModel, resolve }));
       if (call === "update") updates.push(params as unknown as NativePopupModel);
       return Promise.resolve({});
     },
     (listener) => {
       listeners.add(listener);
-      return () => { listeners.delete(listener); };
+      return () => {
+        listeners.delete(listener);
+      };
     },
   );
   function Popup({ open, title }: { open: boolean; title: string }) {
@@ -56,12 +59,18 @@ function harness() {
     });
     return null;
   }
-  const render = (open: boolean, title = "Menu") => act(() => root!.render(
-    <UiProvider container={container} popupHost={host}><Popup open={open} title={title} /></UiProvider>,
-  ));
-  const receive = (event: NativePopupEvent) => act(() => {
-    listeners.forEach((listener) => listener(event as unknown as PopupEvent));
-  });
+  const render = (open: boolean, title = "Menu") =>
+    act(() =>
+      root!.render(
+        <UiProvider container={container} popupHost={host}>
+          <Popup open={open} title={title} />
+        </UiProvider>,
+      ),
+    );
+  const receive = (event: NativePopupEvent) =>
+    act(() => {
+      listeners.forEach((listener) => listener(event as unknown as PopupEvent));
+    });
   return { render, receive, shows, updates, dismissed };
 }
 
@@ -83,7 +92,9 @@ test("an opening refusal survives descriptor changes", async () => {
   const h = harness();
   h.render(true);
   h.render(true, "Updated");
-  await act(async () => { h.shows[0]!.resolve({ shown: false }); });
+  await act(async () => {
+    h.shows[0]!.resolve({ shown: false });
+  });
   expect(h.dismissed).toEqual([undefined]);
 });
 
@@ -92,6 +103,8 @@ test("a prior opening refusal cannot dismiss a reopened popup", async () => {
   h.render(true);
   h.render(false);
   h.render(true);
-  await act(async () => { h.shows[0]!.resolve({ shown: false }); });
+  await act(async () => {
+    h.shows[0]!.resolve({ shown: false });
+  });
   expect(h.dismissed).toEqual([]);
 });
