@@ -17,7 +17,7 @@ import { isDefaultChoice } from "./defaultChoice";
 import { CheckIcon, ChevronIcon, PICKER_LABELS, SearchIcon } from "./ComposerPickers";
 import { Icon } from "./icons/Icon";
 import { usePromptFocus } from "./promptFocus";
-import { currentLanguage, useT } from "./i18n";
+import { currentLanguage, translate, useT } from "./i18n";
 import { fastModeIsOn, nextFastModeValue } from "./fastModeState";
 import { useUpdateOffer } from "./HarnessHealthNotice";
 import { CHAT_COLUMN, MODEL_PICKER_MIN_HEIGHT, pickerHeightBounds, type ModelPickerProps } from "./modelPickerLayout";
@@ -122,11 +122,16 @@ function quickSections(
 /// user-selectable model row. A catalog model names
 /// itself by its short name under its harness ("Opus 5.5"). Choices are memoized per harness
 /// entry, so the owner map keys stay the same objects between renders.
-const choiceCache = new WeakMap<HarnessChoice, { latest: ModelChoice[]; older: ModelChoice[] }>();
+/// The cache also keeps the pane language its Default row was named in, so a language change renames it.
+const choiceCache = new WeakMap<
+  HarnessChoice,
+  { lang: string; sections: { latest: ModelChoice[]; older: ModelChoice[] } }
+>();
 function sectionsFor(entry: HarnessChoice | undefined): { latest: ModelChoice[]; older: ModelChoice[] } {
   if (!entry) return { latest: [], older: [] };
+  const lang = currentLanguage();
   const cached = choiceCache.get(entry);
-  if (cached) return cached;
+  if (cached?.lang === lang) return cached.sections;
   const seen = new Set<string>();
   const choices = entry.models.flatMap((model): ModelChoice[] => {
     const defaultChoice = entry.family === "prime" && isDefaultChoice(model);
@@ -136,7 +141,7 @@ function sectionsFor(entry: HarnessChoice | undefined): { latest: ModelChoice[];
     return [
       {
         id: model.id,
-        name: defaultChoice ? "Default" : model.shortName || model.name || model.id,
+        name: defaultChoice ? translate("picker.default", {}, lang) : model.shortName || model.name || model.id,
         ...(defaultChoice ? { defaultChoice: true } : {}),
         ...(model.family ? { family: model.family } : {}),
         unavailable: model.unavailable,
@@ -147,7 +152,7 @@ function sectionsFor(entry: HarnessChoice | undefined): { latest: ModelChoice[];
     ];
   });
   const sections = curatedSections(modelSections(choices, entry.name), entry.top);
-  choiceCache.set(entry, sections);
+  choiceCache.set(entry, { lang, sections });
   return sections;
 }
 
