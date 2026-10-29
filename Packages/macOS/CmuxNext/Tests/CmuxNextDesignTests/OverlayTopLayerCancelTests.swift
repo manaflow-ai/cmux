@@ -26,8 +26,10 @@ import Testing
     @Test func escapeThatNoResponderTakesEndsQuietly() {
         _ = NSApplication.shared
         let layer = OverlayTopLayerView(frame: NSRect(x: 0, y: 0, width: 100, height: 100))
-        layer.nextResponder = NSResponder()
+        // The view does not retain its next responder: keep it alive for the call.
+        let end = NSResponder()
+        layer.nextResponder = end
         layer.cancelOperation(nil)
-        #expect(layer.nextResponder != nil)
+        #expect(layer.nextResponder === end)
     }
 }
