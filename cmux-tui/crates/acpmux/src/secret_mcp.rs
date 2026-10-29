@@ -12,6 +12,7 @@ use std::future::Future;
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::sync::{Mutex, OwnedSemaphorePermit, Semaphore, mpsc};
+use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
 pub const SERVER_NAME: &str = "cmux-secrets";
@@ -123,17 +124,28 @@ where
             drop(permit);
         }
     });
+    let mut calls = JoinSet::new();
     let mut lines = BufReader::new(reader).lines();
     loop {
-        let line = tokio::select! {
-            _ = stop.cancelled() => break,
-            line = lines.next_line() => line?,
+        let line = if calls.is_empty() {
+            tokio::select! {
+                _ = stop.cancelled() => break,
+                line = lines.next_line() => line?,
+            }
+        } else {
+            tokio::select! {
+                _ = stop.cancelled() => break,
+                line = lines.next_line() => line?,
+                _ = calls.join_next() => continue,
+            }
         };
         let Some(line) = line else { break };
         let Ok(message) = serde_json::from_str::<Value>(&line) else { continue };
         if message.get("id").is_none() {
-            if message["method"].as_str() == Some(crate::rpc::method::CANCEL_REQUEST)
-                && !message["params"]["requestId"].is_null()
+            if matches!(
+                message["method"].as_str(),
+                Some(crate::rpc::method::CANCEL_REQUEST) | Some("notifications/cancelled")
+            ) && !message["params"]["requestId"].is_null()
                 && let Some(token) =
                     cancelled.lock().await.remove(&message["params"]["requestId"].to_string())
             {
@@ -167,7 +179,7 @@ where
                 let (tx, params, execute, cancelled) =
                     (tx.clone(), message["params"].clone(), execute.clone(), cancelled.clone());
                 let call_stop = stop.clone();
-                tokio::spawn(async move {
+                calls.spawn(async move {
                     let result = tokio::select! {
                         result = execute(params) => Some(result),
                         _ = request_stop.cancelled() => None,
@@ -193,6 +205,8 @@ where
     // The agent closed the pipe: no one reads an answer still on its way, and
     // ending here drops the calls' daemon connections with it.
     stop.cancel();
+    calls.abort_all();
+    while calls.join_next().await.is_some() {}
     drop(tx);
     writer.abort();
     Ok(())
@@ -321,8 +335,8 @@ mod tests {
         released.store(true, Ordering::SeqCst);
         release.notify_waiters();
         requests.await.unwrap();
-        output.await.unwrap();
-        server.await.unwrap().unwrap();
+        tokio::time::timeout(Duration::from_secs(30), output).await.unwrap().unwrap();
+        tokio::time::timeout(Duration::from_secs(30), server).await.unwrap().unwrap().unwrap();
     }
 }
 
