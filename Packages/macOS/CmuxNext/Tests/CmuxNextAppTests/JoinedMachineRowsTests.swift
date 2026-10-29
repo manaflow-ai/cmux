@@ -233,6 +233,36 @@ import Testing
         #expect(store.machines.isEmpty)
     }
 
+    @Test(.timeLimit(.minutes(1))) func aReadInFlightWhenTheSwitchTurnsOffShowsNothing() async {
+        let gate = Gate()
+        let fake = Fake()
+        let store = JoinedMachineStore(service: {
+            guard fake.on else { return nil }
+            return MachineJoinService(mint: { _ in .failure(.failed) }, list: {
+                await gate.hold()
+                return [Fake.machine("m_1", "lane-vm-3")]
+            })
+        })
+        // The switch turns off while the read runs, and nothing else reads: the read's rows are dropped.
+        let read = Task { await store.refresh() }
+        await gate.waitEntered()
+        fake.on = false
+        gate.release()
+        await read.value
+        #expect(store.machines.isEmpty)
+        // The switch's own refresh (the section's watch) empties the rows while a read is still held,
+        // and that read, landing later, does not bring them back.
+        fake.on = true
+        let held = Task { await store.refresh() }
+        await gate.waitEntered()
+        fake.on = false
+        await store.refresh()
+        fake.on = true
+        gate.release()
+        await held.value
+        #expect(store.machines.isEmpty, "a read that started before the switch turned off is older than its emptying")
+    }
+
     @Test func aJoinedMachineTheAppConnectsToStaysOneLinkedRow() {
         let machine = Fake.machine("m_1", "lane-vm-3", mesh: "ssh-7")
         let linked = MachineSectionRow(id: "ssh-7", name: "lane-vm-3", isConnected: true, isLocal: false, joined: machine)

@@ -50,13 +50,15 @@ final class MachineSectionHostView: NSView, RightSidebarRefreshing {
         }
         // task-owner: follows the switch for the section's life; deinit cancels it. Its first value
         // is the switch now, which the refresh above already read.
-        switchWatch = Task { [weak services] in
+        switchWatch = Task { [weak self, weak services] in
             var last: Bool?
             // Any setting's change re-reads the snapshot: only a change of this switch reads the list.
+            // The read runs beside the watch, never awaited by it, so a later flip is seen at once:
+            // turning the switch off empties the rows and drops any read still in flight.
             for await on in ObservationStream({ services?.settings?.snapshot.machineJoin == true }) {
                 defer { last = on }
                 guard let last, last != on else { continue }
-                await joined.refresh()
+                self?.refresh()
             }
         }
     }

@@ -38,11 +38,12 @@ public final class JoinedMachineStore {
     }
 
     /// Reads `cmux machine list` once. With the switch off the list empties; a failed read keeps
-    /// the rows it had.
+    /// the rows it had, and a read the switch turned off during shows nothing.
     public func refresh() async {
         let ticket = beginRead()
         guard let service = service() else { finishRead([], ticket: ticket); return }
         guard let rows = await service.list() else { return }
+        guard self.service() != nil else { finishRead([], ticket: beginRead()); return }
         finishRead(rows, ticket: ticket)
     }
 
