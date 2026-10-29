@@ -25,6 +25,11 @@ enum DebugFocus {
             "new_tab_key_holds": .array(services.windows.controllers.filter {
                 services.keyRouter.newTabInputCoordinator.isHolding(in: $0.window)
             }.map { .string($0.state.id) }),
+            // Keys the creation hold ran again since launch, and those sent straight to a target without the keyboard.
+            "creation_hold": .object([
+                "replayed": .number(Double(services.keyRouter.creationInputCoordinator.replayedCount)),
+                "replayed_direct": .number(Double(services.keyRouter.creationInputCoordinator.directReplayedCount)),
+            ]),
             "context": .object([
                 "terminal_focused": .bool(context.contains(.terminalFocused)),
                 "browser_focused": .bool(context.contains(.browserFocused)),

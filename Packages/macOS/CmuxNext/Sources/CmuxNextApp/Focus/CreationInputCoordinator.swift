@@ -52,6 +52,9 @@ final class CreationInputCoordinator {
     private(set) var replayedCount = 0
     /// The last held keys run again: the target each was typed for and its key code, oldest first (tests, `debug.focus`).
     private(set) var lastReplays: [(target: String, keyCode: UInt16)] = []
+    /// Held keys sent straight to their target's view while the focus was elsewhere, since launch (`debug.focus`: a
+    /// journey proves this path ran).
+    private(set) var directReplayedCount = 0
 
     init(router: KeyRouter) { self.router = router }
 
@@ -551,6 +554,7 @@ final class CreationInputCoordinator {
         lastReplays = Array((lastReplays + [(target.id, event.keyCode)]).suffix(16))
         defer { replaying = false }
         if let view {
+            directReplayedCount += 1
             return router.heldKeys.replay(event, heldBy: .creation, keyWindow: window) { send in send.view(view, event) }
         }
         let to = NSApp.keyWindow.flatMap { $0.parent === window ? $0 : nil } ?? window
