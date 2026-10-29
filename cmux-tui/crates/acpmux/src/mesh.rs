@@ -261,10 +261,26 @@ impl Backoff {
     }
 }
 
+/// Whether a hub-given message id is safe to use: 1 to 128 of `A-Z a-z 0-9 . _ : -` (the
+/// hub's own ids are `msg_...`). The id goes into the ack's URL path and into log lines, so a
+/// message whose id is anything else is skipped, never delivered, acked or logged.
+pub fn is_message_id(id: &str) -> bool {
+    (1..=128).contains(&id.len())
+        && id.bytes().all(|b| b.is_ascii_alphanumeric() || b"._:-".contains(&b))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn only_a_plain_message_id_is_taken() {
+        assert!(is_message_id("msg_01HZY:3.a-b"));
+        for bad in ["", "Bearer eyJhbGci", "../ack", "a/b", "m?x=1", &"m".repeat(129)] {
+            assert!(!is_message_id(bad), "{bad:?}");
+        }
+    }
 
     #[test]
     fn records_read_and_write_the_hubs_field_names() {

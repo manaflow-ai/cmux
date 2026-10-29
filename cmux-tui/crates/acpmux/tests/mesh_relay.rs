@@ -220,6 +220,9 @@ async fn a_message_for_a_session_here_runs_once_and_is_acked_with_its_prompt_id(
     let fake = Arc::new(FakeHub::default());
     let relay = MeshRelay::start(&hub, fake.clone(), Arc::new(RefuseControl), quick());
 
+    // An id that is no plain id (here a credential) is never run, acked (its path) or logged.
+    let token_id = "Bearer eyJhbGciOiJIUzI1NiJ9/../ack";
+    fake.lease(message(token_id, "dep-land", Kind::Prompt));
     fake.lease(message("msg-1", "dep-land", Kind::Prompt));
     fake.until("the ack", |s| !s.acked("msg-1").is_empty()).await;
     // Its ack was lost: the hub leases it again, and it is acked again without a second run.
@@ -237,6 +240,7 @@ async fn a_message_for_a_session_here_runs_once_and_is_acked_with_its_prompt_id(
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
     assert_eq!(info.pointer("/result/turnCount"), Some(&json!(1)), "ran twice: {info}");
+    assert!(fake.with(|s| s.acked(token_id).is_empty()), "a malformed id was acked");
     relay.stop().await;
 }
 

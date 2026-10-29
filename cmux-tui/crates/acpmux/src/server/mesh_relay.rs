@@ -284,6 +284,7 @@ async fn inbox(
 ) {
     let mut backoff = Backoff::new(options.backoff_first, options.backoff_cap);
     let mut failing = false;
+    let mut skipped = false;
     if !started(&hub, &mut stop).await {
         return;
     }
@@ -319,6 +320,14 @@ async fn inbox(
                 }
                 backoff.reset();
                 for message in messages {
+                    // A malformed id would go into the ack's path and the log: skipped, and its
+                    // lease brings it back to be skipped again (logged once per run, without it).
+                    if !crate::mesh::is_message_id(&message.message_id) {
+                        if !std::mem::replace(&mut skipped, true) {
+                            tracing::warn!("mesh relay: skipped a message whose id is malformed");
+                        }
+                        continue;
+                    }
                     if !in_flight.lock_or_recover().insert(message.message_id.clone()) {
                         continue;
                     }
