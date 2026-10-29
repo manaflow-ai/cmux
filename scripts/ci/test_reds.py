@@ -23,6 +23,17 @@ red was other tests. A job-level comparison hid a real crash. So:
 
 prints one line per reason and exits 0 when the job's red is the base's, 1 when it is the head's own and 2 when
 the log names no failing test, crash or cut-short run (not a test red: the caller judges it as before).
+
+Gallery health (scripts/gallery-matrix/health.ts) is judged the same way, per state, from the health.json a shard
+writes: a broken state (it errors, never readies, or its play cannot reach it) or one over its ready-time budget
+is the base's only when the same state is red the same way on the base (any budget miss is one kind; a broken
+state's reason is its kind, numbers aside). A render that crashed, or a shard with no whole health.json, is the
+head's own. gallery-health.yml replays a pull request's red entries on the base it merged with and asks:
+
+    test_reds.py gallery --head HEAD/health.json --entries               the entries to replay on the base
+    test_reds.py gallery --head HEAD/health.json --base BASE/health.json [--annotate] [--json]
+
+with the same exit codes (`--entries` exits 1 when the head's red is its own whatever the base shows).
 """
 from __future__ import annotations
 
@@ -107,7 +118,8 @@ SUITE_ENDED = re.compile(r"^[✔✘] Suite (.+?) (?:passed|failed)\b")
 # Swift Testing's start line, for naming the test a crash stack runs.
 STARTED = re.compile(r"◇ Test (?:case passing .+? to )?(\w+)\((.*?)\) started\.")
 # A test's end (Swift Testing; a case of a parameterized test ends with its test), and XCTest's start and end.
-FINISHED = re.compile(r"[✔✘] Test (\w+)\(.*?\)(?: with \d+ test cases?)? (?:passed|failed)\b")
+# ━ is a test that passed with a known issue (withKnownIssue): it finished.
+FINISHED = re.compile(r"[✔✘━] Test (\w+)\(.*?\)(?: with \d+ test cases?)? (?:passed|failed)\b")
 XC_STARTED = re.compile(r"Test Case '-\[(\S+ \S+)\]' started")
 XC_FINISHED = re.compile(r"Test Case '-\[(\S+ \S+)\]' (?:passed|failed|skipped)")
 CARGO_RUNNING = re.compile(r"^running \d+ tests?$")
@@ -356,6 +368,101 @@ def classify(head_log: str | None, base_log: str | None, job: str = "", base: st
     return Verdict(bool(reasons), reasons, sorted(head.failed & seen))
 
 
+# Gallery health's health.json: a shard's broken states and its states over their ready-time budget.
+GALLERY_KEYS = ("fresh", "known", "slow")
+# A render the browser lost: a crash, never a state the base can share.
+GALLERY_CRASH = re.compile(r"\bcrash|Target (?:page, context or browser )?(?:has been )?closed|"
+                           r"browser has (?:been )?(?:disconnected|closed)|\bsignal\b|\bSIG[A-Z]+\b", re.I)
+GALLERY_SLOW = "over its ready-time budget"
+
+
+def gallery_read(text: str | None, keep_known: bool = False) -> Result:
+    """The red states a gallery health shard wrote (`state: kind`, numbers masked), its crashes and whether it is
+    whole. `keep_known` counts the allowlist's states too: on the base they are broken the same way."""
+    result = Result()
+    if text is None or not text.strip():
+        result.truncated.append("its health.json is missing (the render was cut short or never ran)"
+                                if text is None else "its health.json is empty")
+        return result
+    try:
+        found = json.loads(text)
+    except ValueError as error:
+        result.truncated.append(f"its health.json is not JSON ({error})")
+        return result
+    if not isinstance(found, dict):
+        result.truncated.append("its health.json is not a verdict")
+        return result
+    if found.get("error"):
+        result.truncated.append(str(found["error"])[:200])
+        return result
+    if not all(isinstance(found.get(key), list) for key in GALLERY_KEYS):
+        result.truncated.append("its health.json has no verdict (" + ", ".join(GALLERY_KEYS) + ")")
+        return result
+    result.ran = True
+    broken = found["fresh"] + (found["known"] if keep_known else [])
+    for item in broken:
+        state, reason = str(item.get("state", "")), str(item.get("reason", ""))
+        if reason.startswith("did not render:") and GALLERY_CRASH.search(reason):
+            result.crashes.append(f"{state} crashed ({reason[:200]})")
+        result.failed.add(f"{state}: {re.sub(r'[0-9]+', '#', reason)}")
+    for item in found["slow"]:
+        result.failed.add(f"{item.get('state', '')}: {GALLERY_SLOW}")
+    return result
+
+
+def gallery_entries(text: str | None) -> list[str]:
+    """The gallery entries (`entry` of `entry#variant`) of the head's red states: what the base replays."""
+    return sorted({name.split(": ", 1)[0].rsplit("#", 1)[0] for name in gallery_read(text).failed})
+
+
+def gallery_classify(head_text: str | None, base_text: str | None, base: str = "the base") -> Verdict | None:
+    """A gallery health shard's red judged per state against the same states rendered on the base; None when the
+    head's shard is whole and has nothing red."""
+    head = gallery_read(head_text)
+    if not head.failed and not head.crashes and not head.truncated:
+        return None
+    reasons = list(head.crashes)
+    if head.truncated:
+        reasons.append(f"gallery health: per-state results are not whole ({head.truncated[0]})")
+    seen = gallery_read(base_text, keep_known=True)
+    if seen.truncated:
+        reasons.append(f"no whole base result on {base} to compare {len(head.failed)} red state(s) with "
+                       f"({seen.truncated[0]})")
+    elif new := sorted(head.failed - seen.failed):
+        reasons.append(f"{len(new)} red state(s) render or are red another way on {base}: {'; '.join(new)[:600]}")
+    return Verdict(bool(reasons), reasons, sorted(head.failed & seen.failed) if not seen.truncated else [])
+
+
+def gallery_main(args) -> int:
+    read_text = lambda path: path.read_text(errors="replace") if path and path.is_file() else None
+    head = read_text(args.head)
+    if args.entries:
+        found = gallery_read(head)
+        if found.crashes or found.truncated:
+            print("own red: " + "; ".join(found.crashes + found.truncated[:1]), file=sys.stderr)
+            return 1
+        print(",".join(gallery_entries(head)))
+        return 0 if found.failed else 2
+    verdict = gallery_classify(head, read_text(args.base) if args.base else None, args.base_name)
+    if args.json:
+        print(json.dumps(None if verdict is None else
+                         {"own": verdict.own, "reasons": verdict.reasons, "shared": verdict.shared}))
+    elif verdict is None:
+        print("not a gallery red: the shard has no broken or over-budget state")
+    else:
+        if args.annotate:
+            # Base reds are warnings (the rulebook); the head's own reds stay failures.
+            for name in verdict.shared:
+                print(f"::warning title=gallery health: base red::{name} (red the same way on {args.base_name})")
+            for reason in verdict.reasons:
+                print(f"::error title=gallery health::{reason}")
+        if verdict.own:
+            print("own red: " + "\n  ".join([""] + verdict.reasons).lstrip("\n "))
+        else:
+            print(f"base red: every red state is red the same way on {args.base_name}: " + "; ".join(verdict.shared)[:600])
+    return 2 if verdict is None else (1 if verdict.own else 0)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = parser.add_subparsers(dest="command", required=True)
@@ -365,7 +472,16 @@ def main(argv: list[str] | None = None) -> int:
     one.add_argument("--job", default="")
     one.add_argument("--base-name", default="the base")
     one.add_argument("--json", action="store_true")
+    gallery = sub.add_parser("gallery", help="a gallery health shard's health.json against the base's")
+    gallery.add_argument("--head", required=True, type=Path)
+    gallery.add_argument("--base", type=Path)
+    gallery.add_argument("--base-name", default="the base")
+    gallery.add_argument("--entries", action="store_true", help="print the entries to replay on the base")
+    gallery.add_argument("--annotate", action="store_true", help="GitHub annotations: base reds warn, own reds fail")
+    gallery.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
+    if args.command == "gallery":
+        return gallery_main(args)
     head = args.head.read_text(errors="replace")
     base = args.base.read_text(errors="replace") if args.base else None
     verdict = classify(head, base, args.job, args.base_name)

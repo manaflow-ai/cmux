@@ -229,8 +229,16 @@ await requireBrowserLane("agent-pane-jump-latest-motion.test.ts", async () => {
         },
         { capture: true },
       );
-      window.cmuxAfterPaint((frame) => {
-        if (holder.__frames !== frames) return false;
+      // Read as the frame paints: in a ResizeObserver made after the pane's, on a probe resized in
+      // each frame's callbacks, so the read comes after the frame's layout and the pane's own
+      // observer, right before the paint. A read in a task after the frame (cmuxAfterPaint) could
+      // come after an already-queued task grew the streaming reply: a state no frame painted, the
+      // reply a paragraph longer than its placement (-36 px under the card, CI's Chromium).
+      const probe = document.createElement("div");
+      probe.style.cssText = "position:fixed;left:0;top:0;height:1px;width:1px;pointer-events:none;visibility:hidden";
+      document.body.append(probe);
+      let wide = false;
+      const read = (frame: number) => {
         const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
         const card = document.querySelector(".acpmux-composer-box")!.getBoundingClientRect();
         const rows = [...scroller.querySelectorAll<HTMLElement>(".acpmux-row")];
@@ -248,7 +256,21 @@ await requireBrowserLane("agent-pane-jump-latest-motion.test.ts", async () => {
           fromEnd: Math.round(scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight),
           rowAboveCard: Math.round(card.top - (last.getBoundingClientRect().bottom - rise)),
         });
-      });
+      };
+      const observer = new ResizeObserver(() => read(performance.now()));
+      observer.observe(probe);
+      window.cmuxAfterPaint(
+        () => {
+          if (holder.__frames === frames) return;
+          observer.disconnect();
+          probe.remove();
+          return false;
+        },
+        () => {
+          wide = !wide;
+          probe.style.width = wide ? "2px" : "1px";
+        },
+      );
     });
   /// The frames painted after the jump was clicked, and the click's time.
   const stopFrames = (page: Page) =>
