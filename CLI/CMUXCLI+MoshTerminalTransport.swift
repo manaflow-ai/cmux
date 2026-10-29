@@ -171,6 +171,10 @@ extension CMUXCLI {
                 remoteBootstrapInstallFailed: String(
                     localized: "cli.ssh.et.bootstrapInstallFailed",
                     defaultValue: "[cmux] Remote bootstrap install failed; continuing over SSH."
+                ),
+                startupRecoveryPrompt: String(
+                    localized: "cli.ssh.et.startupRecovery",
+                    defaultValue: "[cmux] The terminal transport exited with an error. The remote session or command may already be running. Type ssh and press Return to retry over SSH, which may run it again; any other response closes this terminal."
                 )
             )
         ).command()

@@ -104,7 +104,7 @@ extension TerminalController {
             code: "invalid_params",
             message: String(
                 localized: "socket.workspace.remote.terminalTransport.etOptionsInvalid",
-                defaultValue: "Eternal Terminal options need a port from 1 to 65535 and non-empty values without control characters."
+                defaultValue: "Use ports 1-65535, non-empty values without control characters, an absolute terminal path, and compatible tunnel pairs or equal-length port ranges. Use SSH tunnel syntax only for a single tunnel."
             ),
             data: nil
         )

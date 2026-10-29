@@ -14828,7 +14828,7 @@ struct CMUXCLI {
                 terminalTransport = parsed
                 index += 2
             case "--et-port", "--et-terminal-path", "--et-tunnel", "--et-reversetunnel":
-                guard index + 1 < commandArgs.count else {
+                guard index + 1 < commandArgs.count, !commandArgs[index + 1].hasPrefix("--") else {
                     throw CLIError(message: String.localizedStringWithFormat(
                         String(localized: "cli.ssh.et.optionRequiresValue", defaultValue: "ssh: %@ requires a value"),
                         arg
@@ -14928,7 +14928,7 @@ struct CMUXCLI {
         ) else {
             throw CLIError(message: String(
                 localized: "cli.ssh.et.optionsInvalid",
-                defaultValue: "ssh: --et-* values must be non-empty and free of control characters, --et-terminal-path must be absolute, and repeated tunnels must use compatible port:port, start-end:start-end, or socket pairs"
+                defaultValue: "ssh: Use ports 1-65535, non-empty values without control characters, an absolute terminal path, and compatible tunnel pairs or equal-length port ranges. Use SSH tunnel syntax only for a single tunnel."
             ))
         }
         let agentForwarding = resolvedSSHAgentForwarding(
