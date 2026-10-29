@@ -266,6 +266,14 @@ describe("prod-copy.ts account-check", () => {
 
     const history = fakeRoot([devEntry(current.lock, { names: { production: { snapshot: "cmuxnp-prod-vmimg-ci-500-1" } } })]);
     await expect(accountCheck(history.root, async () => undefined)).rejects.toThrow(/names\.production is malformed/);
+
+    const metadata = fakeRoot([]);
+    writeFileSync(path.join(metadata.root, "images/cmux-vm/channels/production.json"), JSON.stringify({ schema: 1, bogus: true }));
+    await expect(accountCheck(metadata.root, async () => undefined)).rejects.toThrow(/production\.json current is malformed/);
+
+    const teamMetadata = fakeRoot([]);
+    writeFileSync(path.join(teamMetadata.root, "images/cmux-vm/channels/production.json"), JSON.stringify({ schema: 1, env: "production", team_vm: { bogus: true } }));
+    await expect(accountCheck(teamMetadata.root, async () => undefined)).rejects.toThrow(/production\.json team_vm is malformed/);
   });
 
   test("accepts the normal first production and team-only channel record shapes", async () => {
