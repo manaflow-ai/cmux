@@ -27,7 +27,15 @@ public final class WorkspaceSync {
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
     @ObservationIgnored private var updateTask: Task<Void, Never>?
     @ObservationIgnored private var projection = WorkspaceProjection()
-    @ObservationIgnored private var queued: [DaemonEvent] = []
+    private struct QueuedEvent {
+        var event: DaemonEvent
+        var sequence: UInt64?
+    }
+    @ObservationIgnored private var queued: [QueuedEvent] = []
+    /// Committed reset positions on this connection, captured where the
+    /// client routes each reply, not when an executor happens to resume.
+    @ObservationIgnored private var snapshotSequence: UInt64 = 0
+    @ObservationIgnored private var agentSequence: UInt64 = 0
     @ObservationIgnored private var pendingChanged = false
     @ObservationIgnored private var initializing = false
     @ObservationIgnored private var dirty = false
@@ -73,7 +81,7 @@ public final class WorkspaceSync {
     /// (verify/perf-latency.md).
     public struct Prepared: Sendable {
         let client: DaemonClient
-        let replies: Task<[Result<Data, any Error>], Never>
+        let replies: Task<[Result<DaemonClient.ReceivedLine, any Error>], Never>
     }
 
     /// Starts `channel`'s client and sends the whole setup in one write (one
@@ -82,10 +90,10 @@ public final class WorkspaceSync {
     /// order; events after the subscribe wait in the client's stream. Does not
     /// wait for the answers (a Mac that pairs holds them until `auth` passes).
     public nonisolated static func prepare(_ channel: any LinkChannel, deviceID: String, deviceName: String) async -> Prepared {
-        let client = DaemonClient(channel: channel)
+        let client = DaemonClient(channel: channel, orderedEvents: true)
         await client.start()
-        let replies = Task.detached { () -> [Result<Data, any Error>] in
-            let replies = await client.requests([
+        let replies = Task.detached { () -> [Result<DaemonClient.ReceivedLine, any Error>] in
+            let replies = await client.requestsOrdered([
                 ("set-client-info", [
                     "name": deviceName, "kind": "ios", "device_kind": "iphone", "device_name": deviceName, "device_id": deviceID,
                     // `page-tabs-v1`: the Mac's page tabs read as their page (a phone tab is a simulator tab).
@@ -117,31 +125,35 @@ public final class WorkspaceSync {
         let client = prepared.client
         self.client = client
         connectionSerial += 1
-        let events = client.events
+        let events = client.orderedEvents
+        eventTask = Task.detached { [weak self] in
+            for await line in events {
+                guard !Task.isCancelled else { break }
+                let event = DaemonEvent.parse(line.data)
+                await self?.receive(event, sequence: line.sequence, from: client)
+            }
+        }
         let replies = await prepared.replies.value
         // Bound again meanwhile (another link or Mac): this answer is stale.
         guard self.client === client else { return }
         do {
-            let setup = try await Task.detached { try Self.decodeSetup(replies) }.value
+            let setup = try await Task.detached { try Self.decodeSetup(replies.map { $0.map(\.data) }) }.value
             guard self.client === client else { return }
             identity = setup.identity
             agents.bySurface = setup.agents.bySurface
+            agentSequence = (try? replies[3].get().sequence) ?? 0
+            let snapshot = try replies[4].get()
             let known = (tree?.workspaces ?? []).filter { $0.macID == macID }
-            let next = try await projection.reset(snapshot: replies[4].get(), macID: macID,
+            let next = try await projection.reset(snapshot: snapshot.data, macID: macID,
                                                   previous: known.isEmpty ? cached : known,
                                                   agents: agents, activity: activity, arrangement: arrangement)
             guard self.client === client else { return }
+            snapshotSequence = snapshot.sequence
+            discardBeforeSnapshot()
             tree = next
             lastError = nil
             initializing = false
             onTree?(next)
-            eventTask = Task.detached { [weak self] in
-                for await line in events {
-                    guard !Task.isCancelled else { break }
-                    let event = DaemonEvent.parse(line)
-                    await self?.receive(event, from: client)
-                }
-            }
             // The Mac's own order and pins follow in one more round trip.
             Task { await refresh() }
         } catch {
@@ -149,6 +161,7 @@ public final class WorkspaceSync {
             initializing = false
             lastError = LinkController.reason(error)
             log.error("daemon bind failed: \(String(describing: error), privacy: .public)")
+            drain()
         }
     }
 
@@ -170,20 +183,40 @@ public final class WorkspaceSync {
         refreshTask = nil
         updateTask = nil
         queued = []
+        snapshotSequence = 0
+        agentSequence = 0
         pendingChanged = false
         initializing = false
         dirty = false
     }
 
-    private func receive(_ event: DaemonEvent, from client: DaemonClient) {
+    private func receive(_ event: DaemonEvent, sequence: UInt64, from client: DaemonClient) {
         guard self.client === client else { return }
-        handle(event)
+        enqueue(event, sequence: sequence)
     }
 
-    func handle(_ event: DaemonEvent) {
+    func handle(_ event: DaemonEvent) { enqueue(event, sequence: nil) }
+
+    private func enqueue(_ event: DaemonEvent, sequence: UInt64?) {
         guard event != .other else { return }
-        queued.append(event)
+        let entry = QueuedEvent(event: event, sequence: sequence)
+        guard !isBeforeSnapshot(entry) else { return }
+        queued.append(entry)
         drain()
+    }
+
+    private func isBeforeSnapshot(_ entry: QueuedEvent) -> Bool {
+        guard let sequence = entry.sequence else { return false }
+        switch entry.event {
+        case .agentChanged: return sequence <= agentSequence
+        // Memory-only notification text and subscription loss aren't in a tree.
+        case .notification, .resubscribe, .treeChanged: return false
+        default: return sequence <= snapshotSequence
+        }
+    }
+
+    private func discardBeforeSnapshot() {
+        queued.removeAll(where: isBeforeSnapshot)
     }
 
     private func drain() {
@@ -191,12 +224,7 @@ public final class WorkspaceSync {
         let projection = projection
         updateTask = Task { [weak self] in
             guard let self else { return }
-            defer {
-                if self.client === client {
-                    updateTask = nil
-                    if dirty { dirty = false; Task { await refresh() } }
-                }
-            }
+            defer { if self.client === client { updateTask = nil } }
             do {
                 while self.client === client, refreshTask == nil, !Task.isCancelled {
                     if pendingChanged {
@@ -205,7 +233,7 @@ public final class WorkspaceSync {
                         guard self.client === client, !Task.isCancelled else { return }
                         if let update { publish(update, agentChanged: true) }
                     } else if !queued.isEmpty {
-                        let event = queued.removeFirst()
+                        let event = queued.removeFirst().event
                         var agentChanged = false
                         switch event {
                         case .titleChanged(let surface, _):
@@ -216,8 +244,10 @@ public final class WorkspaceSync {
                             agentChanged = true
                         case .notification(let post):
                             onNotification?(post)
-                            dirty = true
+                        case .treeChanged:
+                            arrangementStale = true
                         case .resubscribe:
+                            arrangementStale = true
                             _ = try await client.request("subscribe", params: ["tree_events": "deltas"])
                         default:
                             break
@@ -231,7 +261,6 @@ public final class WorkspaceSync {
                 }
             } catch {
                 guard self.client === client, !Task.isCancelled else { return }
-                arrangementStale = true
                 // The current drain ends before the refresh waits for it.
                 Task { await refresh() }
             }
@@ -284,12 +313,14 @@ public final class WorkspaceSync {
                 dirty = false
                 do {
                     await loadArrangementIfStale(client)
-                    let reply = try await client.request("list-workspaces")
+                    let reply = try await client.requestOrdered("list-workspaces")
                     guard self.client === client, !Task.isCancelled else { return }
-                    let next = try await projection.reset(snapshot: reply, macID: macID,
+                    let next = try await projection.reset(snapshot: reply.data, macID: macID,
                                                           previous: tree?.workspaces ?? [], agents: agents,
                                                           activity: activity, arrangement: arrangement)
                     guard self.client === client, !Task.isCancelled else { return }
+                    snapshotSequence = reply.sequence
+                    discardBeforeSnapshot()
                     tree = next
                     lastError = nil
                     onTree?(next)
@@ -310,17 +341,10 @@ public final class WorkspaceSync {
     @discardableResult
     public func listNow() async throws -> DaemonTree {
         guard let client else { throw DaemonReplyError(message: "Not connected") }
-        await updateTask?.value
-        await loadArrangementIfStale(client)
-        let reply = try await client.request("list-workspaces")
-        guard self.client === client else { throw DaemonReplyError(message: "Not connected") }
-        let next = try await projection.reset(snapshot: reply, macID: macID,
-                                              previous: tree?.workspaces ?? [], agents: agents,
-                                              activity: activity, arrangement: arrangement)
-        tree = next
-        lastError = nil
-        onTree?(next)
-        return next
+        await refresh()
+        guard self.client === client, let tree else { throw DaemonReplyError(message: "Not connected") }
+        if let lastError { throw DaemonReplyError(message: lastError) }
+        return tree
     }
 
     /// Reads the order and pins again on the next list (after the phone's own pin or move).

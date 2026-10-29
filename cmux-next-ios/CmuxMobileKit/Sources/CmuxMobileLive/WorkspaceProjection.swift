@@ -87,9 +87,12 @@ public actor WorkspaceProjection {
     /// Applies one typed tree/title/agent event. `nil` means the event changes
     /// no workspace row (for example a notification).
     public func apply(_ event: DaemonEvent, agents: AgentStates, activity: [Int: Date]) throws -> Update? {
+        let oldAgents = self.agents
+        let oldActivity = self.activity
         self.agents = agents
         self.activity = activity
-        switch event {
+        do {
+            switch event {
         case .delta(let delta):
             let changed = try apply(delta)
             return try publish(changed: changed.ids, topology: changed.topology)
@@ -103,11 +106,19 @@ public actor WorkspaceProjection {
             let id = try rowID(at: rowIndex)
             return try publish(changed: [id], topology: false)
         case .notification:
-            throw ProjectionError.needsSnapshot
+            // Notifications carry no workspace state. WorkspaceSync forwards
+            // the post to its notification consumer; refreshing here would
+            // turn every notification into a full list-workspaces request.
+            return nil
         case .other:
             return nil
-        case .treeChanged, .resubscribe:
-            throw ProjectionError.needsSnapshot
+            case .treeChanged, .resubscribe:
+                throw ProjectionError.needsSnapshot
+            }
+        } catch {
+            self.agents = oldAgents
+            self.activity = oldActivity
+            throw error
         }
     }
 
@@ -160,6 +171,9 @@ public actor WorkspaceProjection {
             return result
         }
         guard let workspaceIndex = rowIndex(workspace: delta.workspace, key: delta.workspaceKey) else {
+            // A replayed close can arrive after its original close was applied.
+            // There is no state to recover for it.
+            if delta.kind.isClose { return ([], false) }
             throw ProjectionError.needsSnapshot
         }
         guard let entity = delta.entity.flatMap(Self.object) else {
@@ -167,24 +181,34 @@ public actor WorkspaceProjection {
             guard delta.kind.isClose else { throw ProjectionError.needsSnapshot }
             let id = try rowID(at: workspaceIndex)
             let changed = try patchNested(delta, in: &rows[workspaceIndex].value, entity: nil)
+            refreshMetadata(for: rows[workspaceIndex].key, at: workspaceIndex)
+            if !changed { return ([], false) }
             return (Set([id]), changed)
         }
         let id = try rowID(at: workspaceIndex)
-        _ = try patchNested(delta, in: &rows[workspaceIndex].value, entity: entity)
+        let changed = try patchNested(delta, in: &rows[workspaceIndex].value, entity: entity)
+        refreshMetadata(for: rows[workspaceIndex].key, at: workspaceIndex)
+        if !changed && (delta.kind.isAdd || delta.kind.isClose) { return ([], false) }
         return (Set([id]), true)
     }
 
     private func patchWorkspace(_ delta: DaemonTreeDelta) throws -> (ids: Set<String>, topology: Bool) {
         if delta.kind == .workspaceAdded {
+            if rowIndex(workspace: delta.workspace, key: delta.workspaceKey) != nil {
+                // A subscribe-before-snapshot replay may contain the add that
+                // is already represented by the snapshot. It is a no-op.
+                return ([], false)
+            }
             guard let entity = delta.entity.flatMap(Self.object) else { throw ProjectionError.needsSnapshot }
             let row = Row(value: entity, key: Self.rowKey(entity), handle: entity["id"] as? Int)
             let index = min(max(delta.index ?? rows.count, 0), rows.count)
             rows.insert(row, at: index)
             metadata[row.key] = Self.metadata(for: row.value)
-            rebuildSurfaceIndex()
+            refreshMetadata(for: row.key, at: index)
             return (Set([row.key]), true)
         }
         guard let index = rowIndex(workspace: delta.workspace, key: delta.workspaceKey) else {
+            if delta.kind.isClose { return ([], false) }
             throw ProjectionError.needsSnapshot
         }
         let oldID = try rowID(at: index)
@@ -197,7 +221,8 @@ public actor WorkspaceProjection {
         guard let entity = delta.entity.flatMap(Self.object) else { throw ProjectionError.needsSnapshot }
         let row = Row(value: entity, key: Self.rowKey(entity), handle: entity["id"] as? Int)
         rows[index] = row
-        rebuildSurfaceIndex()
+        if row.key != oldID { metadata.removeValue(forKey: oldID) }
+        refreshMetadata(for: row.key, at: index)
         if delta.kind == .workspaceMoved, let target = delta.index {
             let moved = rows.remove(at: index)
             rows.insert(moved, at: min(max(target, 0), rows.count))
@@ -214,11 +239,13 @@ public actor WorkspaceProjection {
         if delta.kind.rawValue.hasPrefix("screen-") {
             if delta.kind.isAdd {
                 guard let entity else { throw ProjectionError.needsSnapshot }
+                if screens.contains(where: { ($0["id"] as? Int) == screenID }) { return false }
                 screens.insert(entity, at: min(max(delta.index ?? screens.count, 0), screens.count))
                 workspace["screens"] = screens
                 return true
             }
             guard let screenIndex = screens.firstIndex(where: { ($0["id"] as? Int) == screenID }) else {
+                if delta.kind.isClose { return false }
                 throw ProjectionError.needsSnapshot
             }
             if delta.kind.isClose { screens.remove(at: screenIndex) }
@@ -230,18 +257,23 @@ public actor WorkspaceProjection {
             return true
         }
         guard let screenIndex = screens.firstIndex(where: { ($0["id"] as? Int) == screenID }) else {
+            if delta.kind.isClose { return false }
             throw ProjectionError.needsSnapshot
         }
         guard var panes = screens[screenIndex]["panes"] as? [[String: Any]], let paneID = delta.pane else { throw ProjectionError.needsSnapshot }
         if delta.kind.rawValue.hasPrefix("pane-") {
             if delta.kind.isAdd {
                 guard let entity else { throw ProjectionError.needsSnapshot }
+                if panes.contains(where: { ($0["id"] as? Int) == paneID }) { return false }
                 panes.insert(entity, at: min(max(delta.index ?? panes.count, 0), panes.count))
                 screens[screenIndex]["panes"] = panes
                 workspace["screens"] = screens
                 return true
             }
-            guard let paneIndex = panes.firstIndex(where: { ($0["id"] as? Int) == paneID }) else { throw ProjectionError.needsSnapshot }
+            guard let paneIndex = panes.firstIndex(where: { ($0["id"] as? Int) == paneID }) else {
+                if delta.kind.isClose { return false }
+                throw ProjectionError.needsSnapshot
+            }
             if delta.kind.isClose { panes.remove(at: paneIndex) }
             else {
                 guard let entity else { throw ProjectionError.needsSnapshot }
@@ -252,16 +284,23 @@ public actor WorkspaceProjection {
             return true
         }
         guard let paneIndex = panes.firstIndex(where: { ($0["id"] as? Int) == paneID }),
-              var tabs = panes[paneIndex]["tabs"] as? [[String: Any]], let surface = delta.surface else { throw ProjectionError.needsSnapshot }
+              var tabs = panes[paneIndex]["tabs"] as? [[String: Any]], let surface = delta.surface else {
+            if delta.kind.isClose { return false }
+            throw ProjectionError.needsSnapshot
+        }
         if delta.kind.isAdd {
             guard let entity else { throw ProjectionError.needsSnapshot }
+            if tabs.contains(where: { ($0["surface"] as? Int) == surface }) { return false }
             tabs.insert(entity, at: min(max(delta.index ?? tabs.count, 0), tabs.count))
             panes[paneIndex]["tabs"] = tabs
             screens[screenIndex]["panes"] = panes
             workspace["screens"] = screens
             return true
         }
-        guard let tabIndex = tabs.firstIndex(where: { ($0["surface"] as? Int) == surface }) else { throw ProjectionError.needsSnapshot }
+        guard let tabIndex = tabs.firstIndex(where: { ($0["surface"] as? Int) == surface }) else {
+            if delta.kind.isClose { return false }
+            throw ProjectionError.needsSnapshot
+        }
         if delta.kind.isClose { tabs.remove(at: tabIndex) }
         else {
             guard let entity else { throw ProjectionError.needsSnapshot }
@@ -285,8 +324,7 @@ public actor WorkspaceProjection {
             }
             let parsed = try parseRow(rows[index], previous: Self.workspace(id: id, in: current))
             replace(parsed, id: id, in: &current)
-            metadata[id] = Self.metadata(for: rows[index].value)
-            rebuildSurfaceIndex()
+            refreshMetadata(for: id, at: index)
             changed.insert(id)
         }
         // Closed workspaces no longer have a raw row; remove them from the
@@ -296,8 +334,10 @@ public actor WorkspaceProjection {
             remove(old, from: &current)
             changed.insert(old.id)
         }
-        if topology { reorder(&current) }
-        current.apply(arrangement)
+        if topology {
+            reorder(&current)
+            current.apply(arrangement)
+        }
         current.revision = revision
         current.registryID = registryID
         tree = current
@@ -318,8 +358,14 @@ public actor WorkspaceProjection {
         let oldHomeIndex = old.flatMap { current.homeWorkspaces.firstIndex(of: $0) }
         let oldIndex = old.flatMap { current.workspaces.firstIndex(of: $0) }
         if let old { remove(old, from: &current) }
-        let replacement = parsed.workspaces.first ?? parsed.homeWorkspaces.first
-        guard let replacement else { return }
+        guard var replacement = parsed.workspaces.first ?? parsed.homeWorkspaces.first else { return }
+        if let old {
+            replacement.isPinned = old.isPinned
+            replacement.pinIndex = old.pinIndex
+            replacement.pinItemID = old.pinItemID
+            replacement.sidebarIndex = old.sidebarIndex
+            replacement.group = old.group
+        }
         if replacement.isHome {
             let index = min(oldHomeIndex ?? current.homeWorkspaces.count, current.homeWorkspaces.count)
             current.homeWorkspaces.insert(replacement, at: index)
@@ -344,7 +390,7 @@ public actor WorkspaceProjection {
         tree.homeWorkspaces.removeAll { $0.id == workspace.id }
         let rowMetadata = metadata[workspace.id] ?? removedMetadata.removeValue(forKey: workspace.id)
         let tabs = rowMetadata?.tabs ?? Set(workspace.tabs.map(\.id))
-        let tabSurfaces = rowMetadata?.surfaces ?? workspace.tabs.compactMap { tree.surfaces[$0.id] }
+        let tabSurfaces = rowMetadata?.surfaces ?? Set(workspace.tabs.compactMap { tree.surfaces[$0.id] })
         for tab in tabs {
             tree.agentTabs.removeValue(forKey: tab)
             tree.surfaces.removeValue(forKey: tab)
@@ -418,6 +464,16 @@ public actor WorkspaceProjection {
         for (index, row) in rows.enumerated() {
             for surface in Self.metadata(for: row.value).surfaces { surfaceRows[surface] = index }
         }
+    }
+
+    private func refreshMetadata(for id: String, at index: Int) {
+        let old = metadata[id]
+        let next = Self.metadata(for: rows[index].value)
+        metadata[id] = next
+        for surface in old?.surfaces ?? [] where next.surfaces.contains(surface) == false {
+            surfaceRows.removeValue(forKey: surface)
+        }
+        for surface in next.surfaces { surfaceRows[surface] = index }
     }
 
     private static func agentSession(_ tab: [String: Any]) -> String? {
