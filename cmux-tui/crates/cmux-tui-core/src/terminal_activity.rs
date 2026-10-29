@@ -960,6 +960,79 @@ mod tests {
         assert_eq!(activity.idle_since(), None);
     }
 
+    /// The check a `B` asks for, with the shell holding the foreground.
+    fn check_at_b(activity: &mut ShellActivity, at: u64) {
+        activity.observe(ShellMark::InputStart, at);
+        if let Some(epoch) = activity.foreground_check_due() {
+            activity.record_foreground(epoch, true);
+        }
+    }
+
+    /// Review of cp/fix-tip-continuation-prompt-idle-2, sequence A: two lines
+    /// typed while one command runs, the second an open quote; a single-line
+    /// PS1 and a kitty PS2 (`A;k=s`). The PS2 is a real continuation prompt
+    /// and must keep the unfinished command not idle.
+    #[test]
+    fn shell_idle_an_open_quote_typed_while_a_command_ran_is_not_idle_at_its_ps2() {
+        let mut activity = idle_at(1_000);
+        activity.note_input(b"sleep 1\r");
+        activity.observe(ShellMark::CommandStart, 1_100);
+        activity.note_input(b"sleep 1\recho \"x\r");
+        activity.observe(ShellMark::CommandEnd { exit_code: None }, 1_200);
+        activity.observe(ShellMark::PromptStart, 1_300);
+        check_at_b(&mut activity, 1_301);
+        activity.observe(ShellMark::CommandStart, 1_400);
+        activity.observe(ShellMark::CommandEnd { exit_code: None }, 1_500);
+        activity.observe(ShellMark::PromptStart, 1_600);
+        check_at_b(&mut activity, 1_601);
+        activity.observe(ShellMark::SecondaryPromptStart, 1_700);
+        check_at_b(&mut activity, 1_701);
+        assert_eq!(activity.idle_since(), None, "the quote is open");
+    }
+
+    /// Sequence B: a two-line kitty PS1 (`A`, `A;k=s`, `B`) and three lines
+    /// in one write, the third an open quote.
+    #[test]
+    fn shell_idle_an_open_quote_typed_ahead_of_a_two_line_prompt_is_not_idle_at_its_ps2() {
+        let mut activity = idle_at(1_000);
+        activity.note_input(b"true\rsleep 1\recho \"x\r");
+        for at in [2_000, 3_000] {
+            activity.observe(ShellMark::CommandStart, at - 50);
+            activity.observe(ShellMark::CommandEnd { exit_code: None }, at - 40);
+            activity.observe(ShellMark::PromptStart, at);
+            activity.observe(ShellMark::SecondaryPromptStart, at + 1);
+            check_at_b(&mut activity, at + 2);
+        }
+        activity.observe(ShellMark::SecondaryPromptStart, 3_100);
+        check_at_b(&mut activity, 3_101);
+        assert_eq!(activity.idle_since(), None, "the quote is open");
+    }
+
+    /// A real PS2 (after `B`, no primary `A` before it) with nothing owed
+    /// (the count can be low) still keeps the shell not idle.
+    #[test]
+    fn shell_idle_a_continuation_prompt_with_nothing_owed_is_not_idle() {
+        let mut activity = idle_at(1_000);
+        check_at_b(&mut activity, 1_001);
+        activity.observe(ShellMark::SecondaryPromptStart, 1_100);
+        check_at_b(&mut activity, 1_101);
+        assert_eq!(activity.idle_since(), None);
+    }
+
+    /// A right prompt (`A;k=r`, after the primary prompt's `B`) pays no line.
+    #[test]
+    fn shell_idle_a_right_prompt_pays_no_line() {
+        let mut activity = idle_at(1_000);
+        activity.note_input(b"true\rsleep 600\r");
+        activity.observe(ShellMark::CommandStart, 1_050);
+        activity.observe(ShellMark::CommandEnd { exit_code: None }, 1_060);
+        activity.observe(ShellMark::PromptStart, 1_100);
+        check_at_b(&mut activity, 1_101);
+        activity.observe(ShellMark::parse(b"A;k=r").unwrap(), 1_102);
+        check_at_b(&mut activity, 1_103);
+        assert_eq!(activity.idle_since(), None, "`sleep 600` still waits");
+    }
+
     #[test]
     fn shell_idle_a_check_that_raced_a_mark_or_input_is_dropped() {
         let mut activity = ShellActivity::default();
