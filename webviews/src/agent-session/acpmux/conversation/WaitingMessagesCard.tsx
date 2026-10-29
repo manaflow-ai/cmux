@@ -12,9 +12,12 @@ import { useT } from "../i18n";
 import type { AcpmuxRow } from "../model";
 import { PromptMarksSession } from "../threadMinimap/promptMarks";
 import { FindReveal } from "./chatFind";
-import { ChevronRight } from "./icons";
+import { Icon } from "../icons/Icon";
+import { rowIconSize } from "../icons/iconSize";
 import { messageOpened, setMessageOpened } from "./incomingOpened";
 import "./WaitingMessagesCard.css";
+
+const ROW_ICON = rowIconSize(12);
 
 /// The senders of `rows`, each once, in the order they first wrote.
 export function waitingSenders(rows: readonly AcpmuxRow[]): string[] {
@@ -83,7 +86,7 @@ export function WaitingMessagesCard({
           onClick={() => show(!open)}
         >
           <span className="cv-waiting__icon">
-            <ChevronRight size={12} strokeWidth={1.4} className={`cv-rotor${open ? " is-open" : ""}`} />
+            <Icon name={open ? "disclosure.expanded" : "disclosure.collapsed"} size={ROW_ICON} row className={`cv-rotor${open ? " is-open" : ""}`} />
           </span>
           <span className="cv-waiting__count">{count}</span>
           <span className="cv-waiting__senders">
