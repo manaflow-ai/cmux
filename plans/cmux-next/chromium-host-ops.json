@@ -1207,7 +1207,7 @@
       "refresh_events": [],
       "pending_keys": [],
       "reply_event": null,
-      "reason": "Function-pointer arg. The client keeps fn per browser and calls it on main from the host's page state push (task 093); only the watch on/off crosses the wire."
+      "reason": "Function-pointer arg. Until the host pushes page state (task 093) the client answers 0, as when the fork lacks the call; with the push it keeps fn per browser and calls it on main, and only the watch on/off crosses the wire."
     },
     {
       "name": "cmux_shim_tab_restore_entries",
@@ -5630,6 +5630,15 @@
       "task": "p13-webui-055"
     },
     {
+      "site": "CmuxNextBrowser/CEF/CEFRuntime.swift: CEFRuntime.initialize(_:environment:), the spare window's placeholderSupported read (chromiumSpareOff)",
+      "exports": [
+        "cmux_shim_placeholder_supported"
+      ],
+      "needs": "after_attach",
+      "change": "Runs after the attach await of CEFRuntime.start, so whether Chromium's own spare renderer stays off follows the host's fork (the attach pushes the capability, as it does fork_api_version).",
+      "task": "p07-memory-113"
+    },
+    {
       "site": "CmuxNextBrowser/CEF/CEFForkFeatures.swift: CEFForkFeatures.init(_:)",
       "exports": [
         "cmux_shim_fork_api_version"
@@ -5650,7 +5659,7 @@
       "task": "p01-process-070"
     },
     {
-      "site": "CmuxNextBrowser/CEF/CEFDocumentScripts.swift: CEFDocumentScripts.installInRenderer(_:)",
+      "site": "CmuxNextBrowser/CEF/CEFDocumentScripts.swift: CEFDocumentScripts.installAll(_:)",
       "exports": [
         "cmux_shim_add_page_channel",
         "cmux_shim_add_document_script"
