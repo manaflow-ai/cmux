@@ -24,7 +24,6 @@ import { createWorkflowAdapter } from "../summary/foldWorkflows";
 import { sessionSummary } from "../summary/sessionSummary";
 import { workflowFixture, type WorkflowFixtureStage } from "../summary/workflowFixture";
 import { ChatInspector, InspectorPanel, type InspectorPlacement } from "./ChatInspector";
-import { SubagentSummaryCard } from "./SubagentSummaryCard";
 import { SubagentBanner, SubagentTitle, type SubagentHeaderVariant } from "./SubagentScopeHeader";
 import { subagentSummary, type SubagentScope } from "./subagentScope";
 import { outputArtifacts } from "./OutputsSection";
@@ -44,9 +43,6 @@ type Props = ComponentProps<typeof ChatInspector> & {
   tones?: CSSProperties;
   /// Gallery-only: a different height ceiling, for comparison with the shipped full-room one.
   ceiling?: string;
-  /// Compact agent summary card studies, kept beside the full Inspector variants.
-  cardDemo?: "zero" | "one" | "five" | "forty" | "segmented" | "chips";
-  cardCount?: 0 | 1 | 5 | 40;
   /// Gallery-only: panel width used by narrow workflow layout states.
   panelWidth?: number;
 };
@@ -104,22 +100,13 @@ function GalleryInspector({
   header = "title",
   tones,
   ceiling,
-  cardDemo,
-  cardCount,
   panelWidth = 320,
   ...props
 }: Props) {
-  if (cardDemo)
-    return (
-      <div className="acpmux-shell">
-        <SummaryCardDemo demo={cardDemo} count={cardCount} />
-      </div>
-    );
   return (
     <div className="acpmux-shell" style={{ display: "flex", justifyContent: "flex-end", height: "100%", ...tones }}>
       {ceiling ? <style>{`.acpmux-chat-inspector[data-placement]{max-height:${ceiling}}`}</style> : null}
       {transcript ? <Transcript /> : null}
-
       <InspectorPanel
         width={panelWidth}
         placement={placement}
@@ -137,25 +124,8 @@ function GalleryInspector({
   );
 }
 
-function SummaryCardDemo({ demo, count: size }: { demo: NonNullable<Props["cardDemo"]>; count?: Props["cardCount"] }) {
-  const variant = demo === "segmented" ? "segmented" : demo === "chips" ? "chips" : "line";
-  const count = size ?? (demo === "zero" ? 0 : demo === "one" ? 1 : demo === "five" ? 5 : 40);
-  return (
-    <div style={{ width: 320, alignSelf: "flex-end", padding: "8px 8px 0" }}>
-      <SubagentSummaryCard
-        agents={agents.slice(0, count).map((agent, index) => ({ ...agent, harness: index % 2 ? "codex" : "claude" }))}
-        waiting={new Set(count > 1 ? ["agent-1"] : [])}
-        sessions={[]}
-        variant={variant}
-        showEmpty={count === 0}
-        onOpen={() => undefined}
-      />
-    </div>
-  );
-}
-
-/// Pull requests the chat opened or touched across repositories (oldest first, as sessionSummary
-/// reads them).
+/// Pull requests the chat opened or changed across repositories (oldest first, as sessionSummary
+/// reads them). Read-only references appear in Sources below.
 const pullRequests: NonNullable<Props["made"]>["pullRequests"] = [
   { n: 22217, title: "cmux NEXT: Cmd-W closes a pinned tab's split", opened: true, state: "merged" },
   { repo: "acme/billing", n: 7, title: "billing: retry webhooks on a 502", opened: false, state: "closed" },
@@ -333,7 +303,18 @@ const full: Props = {
   summary,
   machineName: "Studio",
   repository: "manaflow-ai/cmux",
-  made: { ...made, pullRequests },
+  made: {
+    ...made,
+    pullRequests,
+    sources: [
+      { url: "https://github.com/acme/billing/pull/7", label: "billing: retry webhooks on a 502", kind: "pullRequest" },
+      { label: "cmux.com/docs/session-info", url: "https://cmux.com/docs/session-info", kind: "url" },
+      { label: "src/net/fetch.ts", kind: "file" },
+      { label: "github · search issues", kind: "mcp" },
+      { label: "linear · get issue", kind: "mcp" },
+      { label: "teamleaderleo/leo-workspace #1056", kind: "issue" },
+    ],
+  },
   links: [
     { url: "https://cmux.com/docs/inspector", label: "cmux.com/docs/inspector" },
     { url: "https://claude.ai/artifact/inspector-plan", label: "claude.ai/artifact/inspector-plan" },
@@ -348,6 +329,7 @@ const full: Props = {
   onStopProcess: async () => undefined,
   onOpenUrl: () => undefined,
   onOpenOutput: () => undefined,
+  onOpenSourceFile: () => undefined,
   onOpenSubagent: () => undefined,
   onSaveEnvironment: () => undefined,
   onSetRunningLimit: async () => undefined,
@@ -526,6 +508,7 @@ const subagentPanel: Props = {
   agent: worktreeAgent,
   onOpenUrl: () => undefined,
   onOpenOutput: () => undefined,
+  onOpenSourceFile: () => undefined,
   onStopProcess: async () => undefined,
   scope: scopeOf(worktreeAgent),
 };
@@ -581,6 +564,7 @@ export default componentEntry<Props>({
     "agent-session/acpmux/inspector/chatFolders.ts",
     "agent-session/acpmux/inspector/ChildSessionRows.tsx",
     "agent-session/acpmux/inspector/ChangesSection.tsx",
+    "agent-session/acpmux/inspector/SourcesSection.tsx",
     "agent-session/acpmux/inspector/ConnectorsSection.tsx",
     "agent-session/acpmux/inspector/ContextSection.tsx",
     "agent-session/acpmux/inspector/PullRequestGlyph.tsx",
@@ -594,84 +578,13 @@ export default componentEntry<Props>({
     "agent-session/acpmux/inspector/subagentScope.ts",
     "agent-session/acpmux/inspector/TasksSection.tsx",
     "agent-session/acpmux/inspector/WorkflowTasks.tsx",
-    "agent-session/acpmux/inspector/SubagentSummaryCard.tsx",
-    "agent-session/acpmux/inspector/SubagentSummaryCard.css",
-    "agent-session/acpmux/summary/SubagentStack.tsx",
     "agent-session/acpmux/summary/foldWorkflows.ts",
     "agent-session/acpmux/subagents/AgentLine.tsx",
   ],
   load: async () => GalleryInspector,
   variants: {
-    "summary-card-zero": {
-      note: "Compact agent summary, empty state: the card keeps the avatar-and-count seam ready without taking over the detailed lists.",
-      props: { cardDemo: "zero" },
-    },
-    "summary-card-one": {
-      note: "Compact agent summary, one agent: the selected stack-left plus counts-right line stays quiet at the smallest useful size.",
-      props: { cardDemo: "one" },
-    },
-    "summary-card-five": {
-      note: "Compact agent summary, five agents: the stack caps its avatars and the one-line counts remain readable.",
-      props: { cardDemo: "five" },
-    },
-    "summary-card-forty": {
-      note: "Compact agent summary, forty agents: only the first avatars draw while the count carries the full total.",
-      props: { cardDemo: "forty" },
-    },
-    "summary-card-segmented": {
-      note: "Alternative B: avatars over a segmented status bar. The totals stay glanceable, but the bar uses more vertical room.",
-      props: { cardDemo: "segmented" },
-    },
-    "summary-card-chips": {
-      note: "Alternative C: per-state count chips. Each status is easy to scan, but the chips wrap sooner in a narrow rail.",
-      props: { cardDemo: "chips" },
-    },
-    "summary-card-segmented-0": {
-      note: "Segmented alternative with 0 agents.",
-      props: { cardDemo: "segmented", cardCount: 0 },
-    },
-    "summary-card-segmented-1": {
-      note: "Segmented alternative with 1 agents.",
-      props: { cardDemo: "segmented", cardCount: 1 },
-    },
-    "summary-card-segmented-5": {
-      note: "Segmented alternative with 5 agents.",
-      props: { cardDemo: "segmented", cardCount: 5 },
-    },
-    "summary-card-segmented-40": {
-      note: "Forty agents, bounded to four avatars.",
-      props: { cardDemo: "segmented", cardCount: 40 },
-    },
-    "summary-card-chips-0": {
-      note: "Chips alternative with 0 agents.",
-      props: { cardDemo: "chips", cardCount: 0 },
-    },
-    "summary-card-chips-1": {
-      note: "Chips alternative with 1 agents.",
-      props: { cardDemo: "chips", cardCount: 1 },
-    },
-    "summary-card-chips-5": {
-      note: "Chips alternative with 5 agents.",
-      props: { cardDemo: "chips", cardCount: 5 },
-    },
-    "summary-card-chips-40": {
-      note: "Forty agents, bounded to four avatars.",
-      props: { cardDemo: "chips", cardCount: 40 },
-    },
-    "subagents-done": {
-      note: "A busy chat with Environment, Context, Outputs and 31 completed subagents: four static harness avatars beside the count, opening the named list.",
-      props: {
-        ...full,
-        agents: agents.slice(3, 34).map((agent, index) => ({
-          ...agent,
-          state: "completed",
-          harness: index % 2 ? "codex" : "claude",
-        })),
-        sessions: [],
-      },
-    },
     full: {
-      note: "A chat on this Mac with every section, shipped layout (glance): no section is a box. Where it runs: the machine with Save, folder, repository, branch and Remote Control, then Context (47%) and Connectors (1 to reconnect) as one row each. A hairline, then what it made: eight pull requests across three repositories (five shown, then Show more) and its outputs. A hairline, then what it runs: three running subagents and two running chats with the 40 done · 1 failed row, and Background tasks, the dev server on :5173 first, then the commands (one only the transcript knows, without Stop) and four finished.",
+      note: "A chat on this Mac with every section, shipped layout (glance): no section is a box. Where it runs: the machine with Save, folder, repository, branch and Remote Control, then Context (47%) and Connectors (1 to reconnect) as one row each. A hairline, then what it made: six session-owned pull requests, then Sources with read-only PRs, URLs, files and MCP tools, then its outputs. A hairline, then what it runs: three running subagents and two running chats with the 40 done · 1 failed row, and Background tasks, the dev server on :5173 first, then the commands (one only the transcript knows, without Stop) and four finished.",
       props: full,
       play: checkTopBlockAlignment,
     },
@@ -762,7 +675,7 @@ export default componentEntry<Props>({
       },
     },
     "context-connectors-open": {
-      note: "Context and Connectors open: the percent used with the tokens, the bar, used and free space with their shares; each MCP server with its status, the failed one with Reconnect.",
+      note: "Context and Connectors open: the percent used with the tokens, the bar, used and free space with their shares; each MCP server with its status.",
       props: { ...full, sections: { ...DEFAULT_SECTIONS, context: true, connectors: true } },
     },
     "context-breakdown": {

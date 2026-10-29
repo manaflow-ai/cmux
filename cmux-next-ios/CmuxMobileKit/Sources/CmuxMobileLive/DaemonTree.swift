@@ -64,6 +64,17 @@ public struct DaemonTree: Sendable {
     public var workspaceNumbers: [String: Int] = [:]
     /// Each tab group's pane (`tab_groups`), by group id.
     public var groupPanes: [String: Int] = [:]
+    /// Every tab of each pane in the daemon's order, listed or not (`move-tab-group` indexes
+    /// count them all): its group and whether it is pinned (the Mac's `TabGroupReorder` slots).
+    public var paneSlots: [Int: [PaneSlot]] = [:]
+    /// Panes of an agent chat dock (`dock.role` `agent_chat`): the Mac never splits one or
+    /// moves a tab group into one (`ChatDockRules.isChatDock`), Home's pinned dock included.
+    public var chatDockPanes: Set<Int> = []
+
+    public struct PaneSlot: Hashable, Sendable {
+        public var group: String?
+        public var pinned: Bool
+    }
     public var revision: Int?
     /// This session's registry id (`registry_id`): the session of the Mac's
     /// personal rows and layout refs.
@@ -123,6 +134,8 @@ public struct DaemonTree: Sendable {
         var markers: [Int: NotificationMarker] = [:]
         var numbers: [String: Int] = [:]
         var groupPanes: [String: Int] = [:]
+        var paneSlots: [Int: [PaneSlot]] = [:]
+        var chatDockPanes: Set<Int> = []
         let previousByID = Dictionary(previous.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         var result: [Workspace] = []
         var home: [Workspace] = []
@@ -141,15 +154,23 @@ public struct DaemonTree: Sendable {
             var blocked = false
             var observed: Date?
             var focusOrder = 0
+            var screens: [MacScreen] = []
             for case let screen as [String: Any] in ws["screens"] as? [Any] ?? [] {
                 let activePane = screen["active_pane"] as? Int
                 if screen["active"] as? Bool == true, let activePane { panes[key] = activePane }
+                chatDockPanes.formUnion(Self.chatDockPanes(screen))
+                var screenPanes: [Int] = []
+                var screenTabs: [String] = []
                 for case let pane as [String: Any] in screen["panes"] as? [Any] ?? [] {
                     focusOrder = max(focusOrder, pane["focused_at"] as? Int ?? 0)
                     if panes[key] == nil, let id = pane["id"] as? Int { panes[key] = id }
                     let paneTabs = pane["tabs"] as? [[String: Any]] ?? []
                     let groups = Self.groups(pane["tab_groups"])
-                    if let paneID = pane["id"] as? Int { for id in groups.keys { groupPanes[id] = paneID } }
+                    if let paneID = pane["id"] as? Int {
+                        for id in groups.keys { groupPanes[id] = paneID }
+                        if pane["dead"] as? Bool != true { screenPanes.append(paneID) }
+                        paneSlots[paneID] = paneTabs.map { PaneSlot(group: $0["group"] as? String, pinned: $0["pinned"] as? Bool == true) }
+                    }
                     for (index, tab) in paneTabs.enumerated() {
                         // A dead tab is listed only when it is a terminal the Mac keeps (Restart
                         // Shell Here); other dead tabs are gone for the person.
@@ -184,7 +205,12 @@ public struct DaemonTree: Sendable {
                             isPaneSelected: pane["active_tab"] as? Int == index, harnessSession: state?.harnessSession)
                         if let group = tab["group"] as? String { mapped.group = groups[group] ?? WorkspaceTab.TabGroupRef(id: group) }
                         tabs.append(mapped)
+                        screenTabs.append(id)
                     }
+                }
+                if let screenID = screen["id"] as? Int {
+                    screens.append(MacScreen(id: screenID, name: screen["name"] as? String ?? "", isActive: screen["active"] as? Bool == true,
+                                             activePane: activePane, panes: screenPanes, tabIDs: screenTabs))
                 }
             }
             let source = activeTab ?? (ws["screens"] as? [[String: Any]])?.first.flatMap { ($0["panes"] as? [[String: Any]])?.first?["tabs"] as? [[String: Any]] }?.first
@@ -221,6 +247,7 @@ public struct DaemonTree: Sendable {
             workspace.isHome = isHome
             workspace.hasCustomTitle = (ws["title"] as? String).map { !$0.isEmpty && $0 != ws["name"] as? String } ?? false
             workspace.isPinned = legacyPinned.contains(key)
+            workspace.screens = screens
             if isHome { home.append(workspace) } else { result.append(workspace) }
         }
         self.legacyPinned = legacyPinned
@@ -234,6 +261,8 @@ public struct DaemonTree: Sendable {
         self.terminals = terminals
         workspaceNumbers = numbers
         self.groupPanes = groupPanes
+        self.paneSlots = paneSlots
+        self.chatDockPanes = chatDockPanes
         notificationMarkers = markers
     }
 
@@ -242,10 +271,58 @@ public struct DaemonTree: Sendable {
         var out: [String: WorkspaceTab.TabGroupRef] = [:]
         for case let group as [String: Any] in value as? [Any] ?? [] {
             guard let id = group["id"] as? String else { continue }
+            let icon = (group["icon"] as? String).flatMap { $0.isEmpty ? nil : $0 }
             out[id] = WorkspaceTab.TabGroupRef(id: id, name: group["name"] as? String ?? "", color: group["color"] as? String ?? "grey",
-                                               isSaved: group["saved_id"] is String)
+                                               isSaved: group["saved_id"] is String, icon: icon,
+                                               isCollapsed: group["collapsed"] as? Bool == true)
         }
         return out
+    }
+
+    /// The panes of a screen's agent chat docks (`columns[].dock`, role `agent_chat`), as the
+    /// Mac's `ChatDockRules.isChatDock`: a pinned dock that takes tabs still never splits.
+    static func chatDockPanes(_ screen: [String: Any]) -> Set<Int> {
+        var out: Set<Int> = []
+        for case let column as [String: Any] in screen["columns"] as? [Any] ?? [] {
+            guard let dock = column["dock"] as? [String: Any], dock["role"] as? String == "agent_chat" else { continue }
+            var trees: [Any] = [column["layout"] as Any]
+            for case let row as [String: Any] in column["rows"] as? [Any] ?? [] { trees.append(row["layout"] as Any) }
+            for tree in trees { out.formUnion(leaves(tree)) }
+        }
+        return out
+    }
+
+    /// The panes of a split tree (`leaf`, `split`, `stack`).
+    static func leaves(_ value: Any?) -> [Int] {
+        guard let node = value as? [String: Any] else { return [] }
+        switch node["type"] as? String {
+        case "leaf": return (node["pane"] as? Int).map { [$0] } ?? []
+        case "split": return leaves(node["a"]) + leaves(node["b"])
+        case "stack": return node["panes"] as? [Int] ?? []
+        default: return []
+        }
+    }
+
+    /// The Mac's Move Tab Group Left / Right index (`TabGroupReorder.targetIndex`): where the
+    /// group goes in its pane's other tabs, past the neighboring tab or whole group; nil at the
+    /// pane's edge or before a pinned tab.
+    public static func tabGroupMoveIndex(of group: String, forward: Bool, in slots: [PaneSlot]) -> Int? {
+        guard let start = slots.firstIndex(where: { $0.group == group }) else { return nil }
+        let rest = slots.filter { $0.group != group }
+        if forward {
+            guard start < rest.count else { return nil }
+            var end = start
+            if let neighbor = rest[start].group {
+                while end + 1 < rest.count, rest[end + 1].group == neighbor { end += 1 }
+            }
+            return end + 1
+        }
+        guard start > 0, !rest[start - 1].pinned else { return nil }
+        var begin = start - 1
+        if let neighbor = rest[begin].group {
+            while begin > 0, rest[begin - 1].group == neighbor { begin -= 1 }
+        }
+        return begin
     }
 
     /// One daemon tab as an app tab, or nil for tabs the phone does not show (pages, conversations).

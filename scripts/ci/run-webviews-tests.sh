@@ -32,8 +32,13 @@
 # CMUX_WEB_TEST_JOBS: files run at once (default: CMUX_CI_CPU_BUDGET, the cores a fleet
 # worker granted the step, else the CPU count).
 # CMUX_WEB_TEST_FILES: optional newline-separated test files (relative to webviews/) to run instead
-# of every file, for focused runs (scripts/ci/car_guards.py). A name the git index does not list
+# of every file, for focused runs (scripts/ci/car_guards.py). A name the file list does not hold
 # is an error, so a stale selection never passes by running nothing.
+# Arguments (`bun run test [PATH|FILTER]...` from webviews/, which runs this script): each is a test
+# file or a directory (relative to where you run it), or else a substring of test file names, as a
+# bare `bun test FILTER` takes it. They select files the way CMUX_WEB_TEST_FILES does, still one
+# process per file: a single `bun test` over many files leaks globals from file to file and fails
+# tests that pass alone and in CI. An argument that selects no test file is an error.
 # CMUX_WEB_TEST_RESULTS: optional file to write each file's and failed test's result into
 # (webviews_test_results.py), for webviews-tests-new-reds.sh.
 # CMUX_WEB_TEST_RAW_LOG_DIR: optional artifact directory for complete per-attempt logs. The public
@@ -41,6 +46,13 @@
 # CMUX_WEB_TEST_SHARD / CMUX_WEB_TEST_SHARD_COUNT: optional one-based shard selector (for example
 # 1/2 or 2/2). Sharding happens after the git-index file list is built, so every shard keeps the
 # same per-file process and Vite-cache isolation rules while covering a disjoint deterministic set.
+# Files with a recorded duration split by load, longest first; the rest by a stable hash of their
+# path, so a new file moves only itself (webviews_test_shards.py).
+# CMUX_WEB_TEST_DURATIONS: optional JSON manifest {file: seconds} of earlier runs. Every shard of one
+# run must read the same copy. With it, each Vite config warms on its shortest file and the files
+# start longest first, so a long file never runs last alone.
+# CMUX_WEB_TEST_DURATIONS_OUT: optional file to write each file's first-run seconds into, as JSON,
+# for the next manifest (webviews_test_shards.py merge).
 #
 # Files that start a Vite dev server run after the rest: the agent pane and gallery configs
 # (vite.config.acpmux-pane.mjs, vite.config.gallery-dev.ts), and files that spawn `vp dev`
@@ -151,6 +163,7 @@ if [ "${1:-}" = --one ]; then
   file="$2" results="$3" timeout_seconds="$(file_limit "$2" "$4")" cache="${5:-}" seed="${6:-}"
   log="$results/$(printf '%s' "$file" | tr '/' '_').log"
   status=0
+  started=$SECONDS
   echo "START $file (hard limit ${timeout_seconds}s)"
   if [ -n "$cache" ]; then
     # `|| true` on cache upkeep: a failed copy or cleanup (a server outliving its timed-out file)
@@ -172,12 +185,31 @@ if [ "${1:-}" = --one ]; then
     *) result=FAIL ;;
   esac
   printf '%s %s %s\n' "$result" "$file" "$log" >> "$results/summary"
+  # Each run's wall seconds; a retry's line comes after its first run's, which the manifest keeps.
+  printf '%s %s\n' "$((SECONDS - started))" "$file" >> "$results/durations"
   # Keep the named verdict immediate; the complete log is emitted once in the final summary below.
   echo "$result $file (raw log retained for the final bounded summary)"
   exit 0
 fi
 
 self="$(cd "$(dirname "$0")" && pwd -P)/$(basename "$0")"
+shards_py="$(dirname "$self")/webviews_test_shards.py"
+# Selection arguments, made absolute when they name a path, so the cd below keeps their meaning.
+selection=()
+for arg in "$@"; do
+  case "$arg" in
+    -*)
+      echo "error: run-webviews-tests.sh takes test files, directories or name filters, not bun options ($arg);" \
+        "for bun options on one file, run \`bun test FILE $arg\`" >&2
+      exit 2
+      ;;
+  esac
+  if [ -e "$arg" ]; then
+    selection+=("$(cd "$(dirname "$arg")" && pwd -P)/$(basename "$arg")")
+  else
+    selection+=("$arg")
+  fi
+done
 case "$(git rev-parse --show-prefix)" in
   webviews/*) ;;
   *)
@@ -212,56 +244,83 @@ jobs="${CMUX_WEB_TEST_JOBS:-$default_jobs}"
 results="$(mktemp -d)"
 trap 'rm -rf "$results"' EXIT
 
-# bun test's default file names, from the git index so the list is the same everywhere.
-git ls-files -z -- '*.test.ts' '*.test.tsx' '*.test.js' '*.test.jsx' '*.test.mjs' \
+# bun test's default file names, from the git index so the list is the same everywhere. Outside
+# GitHub Actions (`bun run test` on a checkout, a fleet step) untracked files that git does not
+# ignore count too, so a new test runs before it is staged, as a bare `bun test` would run it.
+others=(--others --exclude-standard)
+if [ "${GITHUB_ACTIONS:-}" = true ]; then
+  others=()
+fi
+git ls-files -z --cached ${others[@]+"${others[@]}"} -- '*.test.ts' '*.test.tsx' '*.test.js' '*.test.jsx' '*.test.mjs' \
   '*_test.ts' '*_test.tsx' '*.spec.ts' '*.spec.tsx' '*_spec.ts' '*_spec.tsx' > "$results/files"
-if [ -n "${CMUX_WEB_TEST_FILES:-}" ]; then
-  python3 - "$results/files" <<'PY'
+if [ -n "${CMUX_WEB_TEST_FILES:-}" ] || [ "${#selection[@]}" -gt 0 ]; then
+  python3 - "$results/files" ${selection[@]+"${selection[@]}"} <<'PY'
 import os
 import pathlib
 import sys
 
 path = pathlib.Path(sys.argv[1])
 listed = [item.decode() for item in path.read_bytes().split(b"\0") if item]
-wanted = [line.strip() for line in os.environ["CMUX_WEB_TEST_FILES"].splitlines() if line.strip()]
+wanted = [line.strip() for line in os.environ.get("CMUX_WEB_TEST_FILES", "").splitlines() if line.strip()]
 missing = [name for name in wanted if name not in listed]
 if missing:
     sys.exit("error: CMUX_WEB_TEST_FILES names files that are not webviews test files: " + ", ".join(missing))
-keep = [name for name in listed if name in set(wanted)]
+selected = set(wanted)
+unmatched = []
+for arg in sys.argv[2:]:
+    if os.path.isabs(arg):
+        # A file or directory: the test files at or under it.
+        rel = os.path.relpath(arg)
+        if rel == ".":
+            found = listed
+        else:
+            found = [name for name in listed if name == rel or name.startswith(rel.rstrip("/") + "/")]
+    else:
+        # Not a path: a substring of the file names, as `bun test FILTER` matches them.
+        found = [name for name in listed if arg in name]
+    if not found:
+        unmatched.append(arg)
+    selected.update(found)
+if unmatched:
+    sys.exit("error: no webviews test file matches " + ", ".join(unmatched))
+keep = [name for name in listed if name in selected]
 path.write_bytes(b"".join(name.encode() + b"\0" for name in keep))
 PY
 fi
 shard="${CMUX_WEB_TEST_SHARD:-}"
 shard_count="${CMUX_WEB_TEST_SHARD_COUNT:-}"
+durations="${CMUX_WEB_TEST_DURATIONS:-/dev/null}"
+# Two dev servers at once (composer-mention, composer-send-stop) optimize dependencies into the
+# same node_modules/.vite, and each loses files the other wrote. `"dev",` is the argument a file
+# passes when it spawns `vp dev` itself, `configFile: …` one that calls createServer. `--null`, not `-Z`: BSD grep reads -Z as decompress.
+dev_servers='vite\.config\.(acpmux-pane\.mjs|gallery-dev\.ts)|"dev",|configFile: path\.join\(webviews, "vite\.config'
 if [ -n "$shard" ] || [ -n "$shard_count" ]; then
   if [[ ! "$shard" =~ ^[1-9][0-9]*$ || ! "$shard_count" =~ ^[1-9][0-9]*$ || "$shard" -gt "$shard_count" ]]; then
     echo "error: CMUX_WEB_TEST_SHARD and CMUX_WEB_TEST_SHARD_COUNT must be a valid one-based shard" >&2
     exit 2
   fi
-  python3 - "$results/files" "$shard" "$shard_count" <<'PY'
-import pathlib
-import sys
-
-path = pathlib.Path(sys.argv[1])
-shard = int(sys.argv[2])
-count = int(sys.argv[3])
-files = [item for item in path.read_bytes().split(b"\0") if item]
-selected = [item for index, item in enumerate(files) if index % count == shard - 1]
-path.write_bytes(b"\0".join(selected) + (b"\0" if selected else b""))
-PY
+  # The split weighs dev-server files by how few run at once, so it needs them before it splits.
+  xargs -0 grep -lE --null -- "$dev_servers" < "$results/files" > "$results/all-serial" || true
+  python3 "$shards_py" assign "$results/files" "$results/all-serial" "$durations" "$shard" "$shard_count" \
+    > "$results/shard-files"
+  mv "$results/shard-files" "$results/files"
 fi
 count="$(tr -cd '\0' < "$results/files" | wc -c | tr -d ' ')"
 if [ "$count" -eq 0 ]; then
   echo "error: no webviews test files found under $PWD${shard:+ for shard $shard/$shard_count}" >&2
   exit 1
 fi
-# Two dev servers at once (composer-mention, composer-send-stop) optimize dependencies into the
-# same node_modules/.vite, and each loses files the other wrote. `"dev",` is the argument a file
-# passes when it spawns `vp dev` itself, `configFile: …` one that calls createServer. `--null`, not `-Z`: BSD grep reads -Z as decompress.
-dev_servers='vite\.config\.(acpmux-pane\.mjs|gallery-dev\.ts)|"dev",|configFile: path\.join\(webviews, "vite\.config'
 xargs -0 grep -lE --null -- "$dev_servers" < "$results/files" > "$results/serial" || true
 serial="$(tr -cd '\0' < "$results/serial" | wc -c | tr -d ' ')"
 xargs -0 grep -LE --null -- "$dev_servers" < "$results/files" > "$results/parallel" || true
+# With recorded durations: plain files start longest first, and each Vite config warms on its
+# shortest file (accent-glass-invariants warmed alone for 549 s of an 18.6 min shard, run 40815704587).
+if [ "$durations" != /dev/null ]; then
+  for list in parallel:desc serial:asc; do
+    python3 "$shards_py" order "$results/${list%%:*}" "$durations" "${list#*:}" > "$results/ordered"
+    mv "$results/ordered" "$results/${list%%:*}"
+  done
+fi
 # A quarter of the jobs: each dev server file runs a Vite server and a browser, and at jobs / 2 the
 # 8-core runner was CPU bound (no faster per file) and frame-budget plays (instructions-notice)
 # and attach timing (agent-pane-seen) failed.
@@ -326,6 +385,10 @@ while IFS= read -r -d '' config && IFS= read -r -d '' file; do
     printf '%s\0%s\0%s\0' "$file" "$vite/$index" "$vite/none" >> "$results/dev-cold"
   fi
 done < "$results/dev-rest"
+if [ "$durations" != /dev/null ] && [ -s "$results/dev-warm" ]; then
+  python3 "$shards_py" order-triples "$results/dev-warm" "$durations" desc > "$results/ordered"
+  mv "$results/ordered" "$results/dev-warm"
+fi
 # Without input, xargs would run the command once with no file (BSD xargs has no -r).
 if [ -s "$results/dev-warm" ]; then
   xargs -0 -n 3 -P "$dev_jobs" bash "$self" --one-cached "$results" "$timeout_seconds" < "$results/dev-warm"
@@ -448,6 +511,11 @@ while read -r result file log; do
   print_bounded_log "$log"
   echo "::endgroup::"
 done < <(sort -k2 "$results/summary")
+
+if [ -n "${CMUX_WEB_TEST_DURATIONS_OUT:-}" ]; then
+  mkdir -p "$(dirname "$CMUX_WEB_TEST_DURATIONS_OUT")"
+  python3 "$shards_py" record "$results/durations" "$CMUX_WEB_TEST_DURATIONS_OUT"
+fi
 
 # Per-test results for webviews-tests-new-reds.sh, which compares them with the base's.
 if [ -n "${CMUX_WEB_TEST_RESULTS:-}" ]; then

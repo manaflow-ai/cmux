@@ -310,6 +310,12 @@ extension DaemonConnection {
         try await request(GetFrontendProjectionRequest(frontend: Self.origin, scope: scope, subjectKey: subject))
     }
 
+    /// The same read with its own deadline instead of the control-plane default.
+    public func frontendProjection(subject: String, scope: ProjectionScope = .personal,
+                                   timeout: Duration) async throws -> FrontendProjection {
+        try await request(GetFrontendProjectionRequest(frontend: Self.origin, scope: scope, subjectKey: subject), timeout: timeout)
+    }
+
     @discardableResult
     public func putFrontendProjection(subject: String, scope: ProjectionScope = .personal, schemaVersion: UInt32,
                                       projection: JSONValue, expectedRevision: UInt64? = nil) async throws -> FrontendProjection {
