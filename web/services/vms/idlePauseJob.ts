@@ -21,6 +21,7 @@ import {
   pauseIdleVmRow,
   readIdleProviderState,
   recordIdlePauseAt,
+  repairRunningAfterLostIdlePause,
   resumeAfterLostIdlePause,
 } from "./workflows";
 
@@ -202,7 +203,9 @@ function undoLostPause(vm: CloudVmRow, providerVmId: string, claimEpoch: number)
  * the read-back could not show a pause, or its compensating resume lost to
  * Off, activity or the status reconciler and has to retry. The row may be
  * running or already marked paused by the reconciler, whose write keeps the
- * claim. Read the provider again. Running: the
+ * claim. Read the provider again. Running on a row that is not: a
+ * compensating resume woke the machine but its running write lost, so the
+ * row is repaired to running through a fenced write. Running: the
  * pause never happened, so clear the claim (the next run checks the machine
  * as usual). Paused, with nothing moved since the claim: record it as the idle
  * pause. Paused with the fence moved: undo it like a lost pause. Unreadable:
@@ -214,9 +217,16 @@ function settleLeftClaim(vm: CloudVmRow, providerVmId: string, checkedAt: number
     const state = yield* readIdleProviderState(vm, providerVmId);
     console.info("[VM] idle pause claim left by an earlier run", JSON.stringify({ vmId: vm.id, claim, provider: state ?? "unreadable" }));
     if (state === null) return "unknown" as const;
-    if (state === "running") {
+    if (state === "running" && vm.status === "running") {
       yield* recordObservation(vm, providerVmId, null, checkedAt, vmIdleEpochFromRow(vm));
       return "unknown" as const;
+    }
+    if (state === "running") {
+      // A paused row on a running machine: a compensating resume woke it but its running write lost.
+      // Repair the row (fenced, so a newer write retries next run) before the reconciler re-pauses it.
+      const repaired = yield* repairRunningAfterLostIdlePause(vm, providerVmId, claim);
+      console.info("[VM] idle pause claim: repaired the row of a running machine", JSON.stringify({ vmId: vm.id, status: vm.status, repaired }));
+      return "aborted" as const;
     }
     if (vmIdleEpochFromRow(vm) === claim && (yield* recordIdlePauseAt(vm, providerVmId, claim))) return "paused" as const;
     return yield* undoLostPause(vm, providerVmId, claim);

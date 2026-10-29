@@ -4234,6 +4234,25 @@ export function resumeAfterLostIdlePause(vm: CloudVmRow, providerVmId: string, c
   });
 }
 
+/**
+ * The provider runs but the row does not (a compensating resume whose running
+ * write lost to Off or activity): record running at a fence claimed on the
+ * row as read, which also settles the cron's claim. A person's pause after
+ * the cron's claim is left alone. False when a newer write moved the fence;
+ * the claim stays and the next run tries again.
+ */
+export function repairRunningAfterLostIdlePause(vm: CloudVmRow, providerVmId: string, claimEpoch: number) {
+  return Effect.gen(function* () {
+    const repo = yield* VmRepository;
+    if (isPersonsPauseSince(vm, claimEpoch)) return false;
+    const epoch = yield* repo.claimIdleResume!({ id: vm.id, providerVmId, epoch: vmIdleEpochFromRow(vm) });
+    if (epoch === null) return false;
+    const recorded = yield* repo.markProviderObservedStatus({ id: vm.id, providerVmId, status: "running", expectIdleEpoch: epoch });
+    if (recorded && vm.status === "paused") yield* recordResumeUsageEvent(repo, vm, "idle_pause_lost");
+    return recorded;
+  });
+}
+
 /** A paused row whose pause a person chose (reason user) after the fence `epoch`. */
 export function isPersonsPauseSince(row: CloudVmRow, epoch: number): boolean {
   return vmPauseReasonFromRow(row) === "user" && (vmPauseIntentEpochFromRow(row) ?? -1) > epoch;
