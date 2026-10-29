@@ -210,6 +210,26 @@ const SCP_PREPARE_EXEC_TIMEOUT_MS = 20_000;
 export const FREESTYLE_PERSISTENT_IDLE_TIMEOUT_SECONDS = -1;
 /** Metadata key tying a Freestyle VM to the one create call that asked for it. */
 export const FREESTYLE_CREATE_ATTEMPT_METADATA_KEY = "cmuxCreateAttempt";
+/** Bound for the best-effort label update; it runs after the create response. */
+const UPDATE_TAGS_TIMEOUT_MS = 15_000;
+/** Keys the driver owns; caller labels never overwrite or remove them. */
+const RESERVED_FREESTYLE_METADATA_KEYS: ReadonlySet<string> = new Set(["cmux", FREESTYLE_CREATE_ATTEMPT_METADATA_KEY]);
+
+/**
+ * Create-time metadata: the caller's owner and billing labels
+ * (CreateOptions.providerTags, keys in services/vms/README.md) under the
+ * driver's own `cmux: "cloud"` marker. Empty values are dropped: on create
+ * there is nothing to remove, and Freestyle reads "" as a removal.
+ */
+export function freestyleCreateMetadata(tags: Readonly<Record<string, string>> | undefined): Record<string, string> {
+  const metadata: Record<string, string> = {};
+  for (const [key, value] of Object.entries(tags ?? {})) {
+    if (RESERVED_FREESTYLE_METADATA_KEYS.has(key) || typeof value !== "string" || value === "") continue;
+    metadata[key] = value;
+  }
+  metadata.cmux = "cloud";
+  return metadata;
+}
 /** The exec API rejects timeoutMs above 300000 (5 minutes per exec). */
 const MAX_EXEC_TIMEOUT_MS = 300_000;
 const EXEC_OVERHEAD_TIMEOUT_MS = 15_000;
@@ -1248,7 +1268,7 @@ export class FreestyleProvider implements VMProvider {
             ...(options.runtimeBudgetSeconds !== undefined
               ? { maxRunTotalSeconds: Math.max(0, Math.floor(options.runtimeBudgetSeconds)) }
               : {}),
-            metadata: { cmux: "cloud" },
+            metadata: freestyleCreateMetadata(options.providerTags),
             firewall: { rules: freestyleFirewallRules({ publicDaemonIngress: !networkId, memberIngressNetworkId: options.network?.memberIngress ? networkId : undefined, networkRules: options.networkRules }) },
             ...(networkId ? { vpcs: [{ vpcId: networkId, ipv4: true, ipv6: true }] } : {}),
             ...(tlsRules ? { tls: { rules: tlsRules } } : {}),
@@ -1442,6 +1462,37 @@ export class FreestyleProvider implements VMProvider {
       throw new ProviderError("freestyle", "setRuntimeBudget", new Error("Provider runtime counter is unavailable"));
     }
     await vm.update({ maxRunTotalSeconds: Math.floor(used + remainingSeconds), automaticRestart: false });
+  }
+
+  /**
+   * Merge labels into the machine's Freestyle metadata. `PATCH /v5/vms/{id}`
+   * merges: only the keys sent change and an empty value removes a key. The
+   * driver's own keys are never sent. Only metadata is sent, so no lifetime
+   * or idle setting can change here.
+   */
+  async updateTags(vmId: string, tags: Readonly<Record<string, string>>): Promise<void> {
+    const metadata: Record<string, string> = {};
+    for (const [key, value] of Object.entries(tags)) {
+      if (!RESERVED_FREESTYLE_METADATA_KEYS.has(key) && typeof value === "string") metadata[key] = value;
+    }
+    if (Object.keys(metadata).length === 0) return;
+    const signal = AbortSignal.timeout(UPDATE_TAGS_TIMEOUT_MS);
+    let response: Response;
+    try {
+      response = await this.deps.client(UPDATE_TAGS_TIMEOUT_MS, signal).fetch(`/v5/vms/${encodeURIComponent(vmId)}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        signal,
+        body: JSON.stringify({ metadata }),
+      });
+    } catch (err) {
+      throw new ProviderError("freestyle", `updateTags(${vmId})`, err);
+    }
+    if (!response.ok) {
+      const detail = (await response.text().catch(() => "")).slice(0, 300);
+      throw new ProviderError("freestyle", `updateTags(${vmId}) answered ${response.status}${detail ? `: ${detail}` : ""}`);
+    }
+    await response.body?.cancel().catch(() => undefined);
   }
 
   async resume(vmId: string): Promise<VMHandle> {
@@ -1734,7 +1785,7 @@ export class FreestyleProvider implements VMProvider {
             displayName: "cmux Cloud VM",
             automaticRestart: true,
             idleTimeoutSeconds: FREESTYLE_PERSISTENT_IDLE_TIMEOUT_SECONDS,
-            metadata: { cmux: "cloud" },
+            metadata: freestyleCreateMetadata(options?.providerTags),
             firewall: { rules: freestyleFirewallRules({ publicDaemonIngress: !networkId, memberIngressNetworkId: options?.network?.memberIngress ? networkId : undefined, networkRules: options?.networkRules }) },
             ...(networkId ? { vpcs: [{ vpcId: networkId, ipv4: true, ipv6: true }] } : {}),
             ...(tlsRules ? { tls: { rules: tlsRules } } : {}),

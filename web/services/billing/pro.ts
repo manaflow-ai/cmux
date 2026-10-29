@@ -29,6 +29,7 @@ import { activeApplePlanForUser } from "./apple/entitlement";
 import { hasCompanyPlanGrant } from "./companyPlan";
 import { planTierRank } from "./planTier";
 import { planItem } from "./subscriptionItems";
+import { subscriptionPriceFromRaw, type SubscriptionPrice } from "./subscriptionPrice";
 import { APPLE_MANAGE_SUBSCRIPTIONS_URL } from "./apple/config";
 import type { BillingInterval } from "./plans";
 
@@ -229,6 +230,12 @@ export type StripeBillingStatus = {
    * to Pro without paying for it.
    */
   readonly hasFoundersEdition?: boolean;
+  /** The Stripe Price id of the plan item behind `subscriptionId`, or null. */
+  readonly planPriceId?: string | null;
+  /** The Stripe Product of that Price: its name when the payload expanded it, else its id. */
+  readonly planProduct?: { readonly id: string | null; readonly name: string | null } | null;
+  /** What that Price charges, when it is a USD recurring price. */
+  readonly planPrice?: SubscriptionPrice | null;
 };
 export type StripeBillingStatusQuery = (
   stackUserId: string,
@@ -791,9 +798,15 @@ export async function hasStripeCustomerForTeam(stackTeamId: string): Promise<boo
   }
 }
 
-/** Reads a billing team's Stripe customer and newest Team subscription. */
+/**
+ * Reads a billing team's Stripe customer and newest Team subscription.
+ * `preferActive` names an active row when one exists, for labels that must
+ * describe the subscription that grants access; without it the row is the
+ * portal's recovery row (pickPortalMetadataRow).
+ */
 export async function stripeBillingStatusForTeam(
   stackTeamId: string,
+  options: { readonly preferActive?: boolean } = {},
 ): Promise<StripeBillingStatus> {
   try {
     const db = cloudDb();
@@ -806,6 +819,7 @@ export async function stripeBillingStatusForTeam(
       .select({
         id: stripeSubscriptions.id,
         status: stripeSubscriptions.status,
+        raw: stripeSubscriptions.raw,
         cancelAtPeriodEnd: stripeSubscriptions.cancelAtPeriodEnd,
         currentPeriodEnd: stripeSubscriptions.currentPeriodEnd,
         updatedAt: stripeSubscriptions.updatedAt,
@@ -830,7 +844,12 @@ export async function stripeBillingStatusForTeam(
       orderedSubscriptionQuery.limit(10),
       hasActiveTeamSubscriptionForTeam(stackTeamId),
     ]);
-    const subscription = pickPortalMetadataRow(subscriptionRows);
+    const activeRow = options.preferActive
+      // A paid row beats a past-due one; a past-due row still beats the portal pick.
+      ? subscriptionRows.find((row) => row.status === "active" || row.status === "trialing") ??
+        subscriptionRows.find((row) => (ACTIVE_STRIPE_PRO_STATUSES as readonly string[]).includes(row.status))
+      : undefined;
+    const subscription = activeRow ?? pickPortalMetadataRow(subscriptionRows);
     return stripeBillingStatusFromRows(
       customerRows[0]?.id ?? null,
       subscription,
@@ -993,6 +1012,31 @@ function stripeBillingStatusFromRows(
       (ACTIVE_STRIPE_PRO_STATUSES as readonly string[]).includes(subscriptionStatus)
     ),
     subscriptionInterval: subscriptionIntervalFromRaw(subscription?.raw),
+    planPriceId: planPriceIdFromRaw(subscription?.raw),
+    planProduct: planProductFromRaw(subscription?.raw),
+    planPrice: subscriptionPriceFromRaw(subscription?.raw),
+  };
+}
+
+function planPriceFieldsFromRaw(raw: unknown): { readonly id?: unknown; readonly product?: unknown } | null {
+  const item = raw && typeof raw === "object" ? planItem(raw as Parameters<typeof planItem>[0]) : undefined;
+  const price = (item as { price?: unknown } | undefined)?.price;
+  return price && typeof price === "object" ? price as { readonly id?: unknown; readonly product?: unknown } : null;
+}
+
+function planPriceIdFromRaw(raw: unknown): string | null {
+  const id = planPriceFieldsFromRaw(raw)?.id;
+  return typeof id === "string" && id ? id : null;
+}
+
+function planProductFromRaw(raw: unknown): { readonly id: string | null; readonly name: string | null } | null {
+  const product = planPriceFieldsFromRaw(raw)?.product;
+  if (typeof product === "string" && product) return { id: product, name: null };
+  if (!product || typeof product !== "object") return null;
+  const { id, name } = product as { readonly id?: unknown; readonly name?: unknown };
+  return {
+    id: typeof id === "string" && id ? id : null,
+    name: typeof name === "string" && name ? name : null,
   };
 }
 
