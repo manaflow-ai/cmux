@@ -295,9 +295,15 @@ export default agentPaneEntry({
         // the pane's left, under the menu's 220 px floor and 300 px width. The menu gives way and
         // keeps to the column, never past its edge.
         await ctx.press("Escape");
+        // Closed means gone, or still mounted but marked closed or hidden; an open popup has
+        // neither, so this never passes while the menu is still up.
         await ctx.waitFor(() => {
           const menu = ctx.document.querySelector<HTMLElement>(".acpmux-quick-menu");
-          return !menu || menu.style.visibility !== "visible";
+          return (
+            !menu ||
+            menu.hasAttribute("data-closed") ||
+            ctx.document.defaultView?.getComputedStyle(menu).visibility === "hidden"
+          );
         });
         const column = ctx.document.querySelector<HTMLElement>(".acpmux-main");
         if (!column) throw new Error("no chat column");
