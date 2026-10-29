@@ -146,6 +146,30 @@ describe("ACP trajectories outside the VM", { timeout: 60_000 }, () => {
     expect(JSON.stringify((await post("/v1/read", s.a.session, { op: "cloud.machine.get", params: { machine: replacement } })).body)).not.toContain("trajectory_parent")
   })
 
+
+  it("lists every one of 501 kept chats through an explicit cursor", async () => {
+    const source = await setup("traj-paged-501")
+    // Each append is one session, as on a VM; batch requests to avoid a 501-request serial test.
+    for (let start = 0; start < 501; start += 25) {
+      const answers = await Promise.all(Array.from({ length: Math.min(25, 501 - start) }, (_, n) => {
+        const session = `chat-${String(start + n).padStart(3, "0")}`
+        return traj(source.vm, source.machine, "append", {
+          session, generation: CREATED, meta: meta(session, 1), lines: [line(1)],
+        })
+      }))
+      for (const answer of answers) expect(answer.body.ok, JSON.stringify(answer.body)).toBe(true)
+    }
+    const first = await traj(source.vm, source.machine, "list", {})
+    expect(first.body.value.sessions).toHaveLength(500)
+    expect(first.body.value.sessions[0].session).toBe("chat-000")
+    expect(first.body.value.sessions[499].session).toBe("chat-499")
+    expect(first.body.value).toMatchObject({ has_more: true, next_after_session: "chat-499" })
+    const next = await traj(source.vm, source.machine, "list", { after_session: first.body.value.next_after_session })
+    expect(next.body.value).toMatchObject({ has_more: false, next_after_session: null })
+    expect(next.body.value.sessions.map((s: { session: string }) => s.session)).toEqual(["chat-500"])
+    expect((await traj(source.vm, source.machine, "list", { after_session: 1234 })).status).toBe(400)
+  })
+
   it("a record must name its own session and generation", async () => {
     const s = await setup("traj-6")
     const wrong = await traj(s.vm, s.machine, "append", { session: "chat-a", generation: CREATED + 1, meta: meta("chat-a", 1), lines: lines(1, 1) })
