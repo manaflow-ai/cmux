@@ -251,6 +251,23 @@ describe("prod-copy.ts account-check", () => {
     await expect(accountCheck(root, async (n) => (n === "cmuxnp-dev-vmimg-ci-100-1" ? ID(100) : undefined))).rejects.toThrow(/dev account's key/);
   });
 
+  test("fails closed when a recorded production pointer is malformed", async () => {
+    const current = fakeRoot([]);
+    writeFileSync(path.join(current.root, "images/cmux-vm/channels/production.json"), JSON.stringify({ snapshot: "cmuxnp-prod-vmimg-ci-500-1" }));
+    await expect(accountCheck(current.root, async () => undefined)).rejects.toThrow(/production\.json current is malformed/);
+
+    const team = fakeRoot([]);
+    writeFileSync(path.join(team.root, "images/cmux-vm/channels/production.json"), JSON.stringify({
+      snapshot: "cmuxnp-prod-vmimg-ci-500-1",
+      snapshot_id: ID(500),
+      team_vm: { snapshot: "cmuxnp-prod-vmimg-team-500-1" },
+    }));
+    await expect(accountCheck(team.root, async () => undefined)).rejects.toThrow(/production\.json team_vm is malformed/);
+
+    const history = fakeRoot([devEntry(current.lock, { names: { production: { snapshot: "cmuxnp-prod-vmimg-ci-500-1" } } })]);
+    await expect(accountCheck(history.root, async () => undefined)).rejects.toThrow(/names\.production is malformed/);
+  });
+
   test("fails closed without a dev pointer to check against", async () => {
     const root = scratch();
     mkdirSync(path.join(root, "images/cmux-vm/channels"), { recursive: true });

@@ -80,10 +80,26 @@ const isPointer = (p: unknown, prefix: string): p is Pointer => {
 /** Production snapshots the repo records (channels/production.json pointers and previous, names.production in dev.json history). */
 export function productionAnchors(root: string): Pointer[] {
   const file = path.join(root, PRODUCTION);
-  const prod = existsSync(file) ? (JSON.parse(readFileSync(file, "utf8")) as Json) : {};
-  const team = (prod.team_vm as Json | undefined) ?? {};
+  const prod = existsSync(file) ? (JSON.parse(readFileSync(file, "utf8")) as Json) : undefined;
+  const pointer = (value: unknown, label: string): Pointer | undefined => {
+    if (value === undefined) return undefined;
+    if (isPointer(value, PROD_IMAGE_PREFIX)) return value;
+    throw new Error(`${label} is malformed; refusing to check a production account`);
+  };
+  const field = (value: Json | undefined, key: string, label: string): unknown => value !== undefined && Object.prototype.hasOwnProperty.call(value, key) ? value[key] : undefined;
+  const current = pointer(prod, `${PRODUCTION} current`);
+  const previous = pointer(field(prod, "previous", `${PRODUCTION} previous`), `${PRODUCTION} previous`);
+  const team = field(prod, "team_vm", `${PRODUCTION} team_vm`) as Json | undefined;
+  const teamCurrent = pointer(team, `${PRODUCTION} team_vm`);
+  const teamPrevious = pointer(field(team, "previous", `${PRODUCTION} team_vm previous`), `${PRODUCTION} team_vm previous`);
   const history = readDev(root).history;
-  const candidates = [prod, prod.previous, team, team.previous, ...(Array.isArray(history) ? (history as Json[]).map((h) => (h.names as Json | undefined)?.production) : [])];
+  const historyProduction = Array.isArray(history) ? (history as Json[]).flatMap((h, i) => {
+    const names = h.names as Json | undefined;
+    return names !== undefined && Object.prototype.hasOwnProperty.call(names, "production")
+      ? [pointer(names.production, `${DEV} history[${i}].names.production`)]
+      : [];
+  }) : [];
+  const candidates = [current, previous, teamCurrent, teamPrevious, ...historyProduction];
   const byId = new Map<string, Pointer>();
   for (const p of candidates) if (isPointer(p, PROD_IMAGE_PREFIX) && !byId.has(p.snapshot_id)) byId.set(p.snapshot_id, p);
   return [...byId.values()];
