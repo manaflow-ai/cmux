@@ -243,6 +243,37 @@ async fn a_cancelled_compaction_result_cannot_end_the_next_echoed_prompt() {
 }
 
 #[tokio::test]
+async fn a_failed_cancelled_compaction_cannot_answer_the_replacement_prompt() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    let prompt = |id, text| {
+        Message::request(
+            id,
+            method::SESSION_PROMPT,
+            json!({"sessionId":"acp-1","prompt":[{"type":"text","text":text}]}),
+        )
+    };
+    t.outbound(&prompt(1, "/compact")).await;
+    t.inbound(&json!({"type":"system","subtype":"status","status":"compacting"})).await;
+    t.outbound(&Message::notification(method::SESSION_CANCEL, json!({"sessionId":"acp-1"}))).await;
+    let Outbound::Lines(lines) = t.outbound(&prompt(2, "continue")).await else { panic!() };
+    let mut echo = lines[0].clone();
+    echo["isReplay"] = json!(true);
+    t.inbound(&echo).await;
+    t.inbound(&json!({"type":"system","subtype":"status","status":null,"compact_result":"failed","compact_error":"old compaction failed"})).await;
+    let old = t
+        .inbound(&json!({"type":"result","subtype":"success","num_turns":0,"duration_api_ms":0}))
+        .await;
+    assert!(old.iter().any(|m| matches!(m, Message::Response { id, .. } if id == &json!(1))));
+    assert!(
+        !old.iter().any(|m| matches!(m, Message::Response { id, .. } if id == &json!(2))),
+        "failed old compaction answered replacement: {old:?}"
+    );
+    t.inbound(&json!({"type":"assistant","message":{"id":"replacement","content":[{"type":"text","text":"new answer"}]}})).await;
+    let new = t.inbound(&json!({"type":"result","subtype":"success","result":"new answer"})).await;
+    assert!(new.iter().any(|m| matches!(m, Message::Response { id, result: Some(r), .. } if id == &json!(2) && r["stopReason"] == "end_turn")), "{new:?}");
+}
+
+#[tokio::test]
 async fn a_new_prompt_clears_a_cancelled_compaction_without_a_result() {
     let t = Translator::new("acp-1".into(), "default", "haiku", "default");
     let prompt = |id, text| {
