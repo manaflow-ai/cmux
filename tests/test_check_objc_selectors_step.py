@@ -22,7 +22,7 @@ def run(*args: str) -> subprocess.CompletedProcess:
 class CheckObjcSelectorsStepTests(unittest.TestCase):
     def test_refuses_arguments_outside_the_allowlist(self) -> None:
         for args in (["--root", "/tmp"], ["--source", "x"], ["--write"], ["--probe", "--write", "--list"],
-                     ["--write", "--probe"]):
+                     ["--write", "--probe"], ["--probe --write"], ["--probe", ""]):
             with self.subTest(args=args):
                 done = run(*args)
                 self.assertEqual(done.returncode, 2, done.stderr)

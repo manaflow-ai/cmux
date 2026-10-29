@@ -9,13 +9,17 @@
 # --probe needs macOS. It reads only this checkout: no --root or --source.
 set -euo pipefail
 
-case "$*" in
-  "" | "--probe" | "--probe --write") ;;
-  *)
-    echo "check-objc-selectors.sh: arguments must be none, --probe, or --probe --write (got: $*)" >&2
-    exit 2
-    ;;
+# Exact argument lists, compared one argument at a time (one argument "--probe --write" is refused).
+allowed=0
+case "$#" in
+  0) allowed=1 ;;
+  1) [[ "$1" == "--probe" ]] && allowed=1 ;;
+  2) [[ "$1" == "--probe" && "$2" == "--write" ]] && allowed=1 ;;
 esac
+if [[ "$allowed" != 1 ]]; then
+  echo "check-objc-selectors.sh: arguments must be none, --probe, or --probe --write (got $# argument(s): $*)" >&2
+  exit 2
+fi
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 python=/usr/bin/python3
 [[ -x "$python" ]] || python="$(command -v python3)"
