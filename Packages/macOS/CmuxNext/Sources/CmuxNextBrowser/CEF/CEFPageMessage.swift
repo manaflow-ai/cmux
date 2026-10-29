@@ -14,6 +14,8 @@ nonisolated struct CEFPageMessage: Equatable, Sendable {
         case verification
         /// `BrowserFirstPaintScript` (main frame only).
         case firstPaint
+        /// `BrowserScrollReportScript` (main frame only).
+        case scrollReport
 
         var name: String {
             switch self {
@@ -21,6 +23,7 @@ nonisolated struct CEFPageMessage: Equatable, Sendable {
             case .protectedMedia: BrowserProtectedMedia.channel
             case .verification: VerificationPageScripts.channel
             case .firstPaint: BrowserFirstPaintScript.channel
+            case .scrollReport: BrowserScrollReportScript.channel
             }
         }
 
@@ -29,11 +32,12 @@ nonisolated struct CEFPageMessage: Equatable, Sendable {
             case .media, .protectedMedia: BrowserMediaState.world
             case .verification: VerificationPageScripts.world
             case .firstPaint: BrowserFirstPaintScript.world
+            case .scrollReport: BrowserScrollReportScript.world
             }
         }
 
         /// Messages from child frames are dropped.
-        var mainFrameOnly: Bool { self == .verification || self == .firstPaint }
+        var mainFrameOnly: Bool { self == .verification || self == .firstPaint || self == .scrollReport }
     }
 
     /// The largest payload accepted. A media report is under 2 KB; more is not cmux's script.

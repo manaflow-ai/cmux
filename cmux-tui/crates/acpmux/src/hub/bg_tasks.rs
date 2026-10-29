@@ -87,7 +87,8 @@ impl Hub {
         let env = self.bg_env(session, &meta).await?;
         std::fs::create_dir_all(&dir).map_err(internal)?;
         let generation = bg_generation(&dir, true).map_err(internal)?;
-        let id = format!("bg-{}", &uuid::Uuid::now_v7().simple().to_string()[20..]);
+        let uuid = uuid::Uuid::now_v7().simple().to_string();
+        let id = format!("bg-{}", uuid.get(20..).unwrap_or(&uuid));
         let set = self.bg_runner.lock().unwrap_or_else(|e| e.into_inner()).clone();
         let (runner, segment) = match set {
             Some(set) => set,
