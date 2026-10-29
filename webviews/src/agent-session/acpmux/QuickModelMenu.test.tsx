@@ -548,7 +548,7 @@ test("the running model keeps session-only effort levels and calls effort.onPick
         onMore={() => {}}
         menu={{
           inlineEffort: true,
-          models: [{ id: "a", name: "Model A", family: "", efforts: ["low", "high"] }],
+          models: [{ id: "a", name: "Model A", efforts: ["low", "high"] }],
           current: "a",
           onModel() {},
           // A menu without families opts into inline rows only with the combined callback.
@@ -594,7 +594,7 @@ test("the fallback Effort submenu remains when the running model is folded away"
         onMore={() => {}}
         menu={{
           inlineEffort: true,
-          models: [{ id: "top", name: "Top model", family: "", efforts: ["low", "high"] }],
+          models: [{ id: "top", name: "Top model", efforts: ["low", "high"] }],
           current: "folded",
           onModel() {},
           effort: {
