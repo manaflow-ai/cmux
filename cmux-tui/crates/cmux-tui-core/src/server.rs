@@ -132,9 +132,9 @@ mod agent_session_attach;
 #[cfg(unix)]
 pub use agent_session_attach::{
     AGENT_SESSION_ATTACH_CAPABILITY, AGENT_SESSION_START_CAPABILITY,
-    AGENT_SESSION_START_KEYED_REASON_CAPABILITY, AGENT_SESSION_START_VM_KIND_CAPABILITY,
-    AGENT_SESSION_TRUST_CAPABILITY, AGENT_SESSION_TRUST_VM_KIND_CAPABILITY, AcpmuxStarter,
-    AgentStartHost, AgentStartHostSource,
+    AGENT_SESSION_START_KEYED_REASON_CAPABILITY, AGENT_SESSION_START_MODEL_CAPABILITY,
+    AGENT_SESSION_START_VM_KIND_CAPABILITY, AGENT_SESSION_TRUST_CAPABILITY,
+    AGENT_SESSION_TRUST_VM_KIND_CAPABILITY, AcpmuxStarter, AgentStartHost, AgentStartHostSource,
 };
 #[cfg(unix)]
 pub mod agent_transfer;
@@ -2913,6 +2913,9 @@ mod pinned_columns_tests;
 #[path = "server/rows_tests.rs"]
 mod rows_tests;
 
+#[cfg(test)]
+#[path = "server/column_left_tests.rs"]
+mod column_left_tests;
 #[cfg(test)]
 #[path = "server/column_move_tests.rs"]
 mod column_move_tests;

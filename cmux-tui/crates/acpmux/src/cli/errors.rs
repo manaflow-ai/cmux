@@ -179,7 +179,7 @@ pub fn classify(e: &anyhow::Error) -> AppError {
 /// The exit code and detail an error's message gives.
 fn classify_message(e: &anyhow::Error, msg: String) -> AppError {
     let lower = msg.to_lowercase();
-    if lower.contains("connection closed") {
+    if e.is::<crate::client::TransportClosed>() {
         return AppError::new(Code::Runtime, "daemon_closed", msg).retryable();
     }
     if lower.contains("no session matches")
