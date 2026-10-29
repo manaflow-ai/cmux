@@ -51,7 +51,7 @@ const paneThemeType = () => (document.documentElement.dataset.theme === "light" 
  * re-renders the same instance instead of building another; a theme switch on the page
  * (applyAgentTheme sets `data-theme`) changes its syntax colors in place.
  */
-export function HighlightedCode({ code, lang = "text", label }: CodeBlockProps) {
+export function HighlightedCode({ code, lang = "text", label, actions }: CodeBlockProps) {
   const t = useT();
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<PierreFile | undefined>(undefined);
@@ -102,7 +102,7 @@ export function HighlightedCode({ code, lang = "text", label }: CodeBlockProps) 
       file: { name, contents: code, lang: (isHighlighted(lang) ? lang : "text") as never },
     });
   }, [code, lang, pool, wrap, name, workerAvailable]);
-  if (!workerAvailable) return <PlainCode code={code} lang={lang} />;
+  if (!workerAvailable) return <PlainCode code={code} lang={lang} actions={actions} />;
   return (
     <div className="cv-codeblock" ref={menuPartRef({ code })}>
       <div className="cv-codeblock__header">
@@ -121,6 +121,7 @@ export function HighlightedCode({ code, lang = "text", label }: CodeBlockProps) 
             <WrapLines />
           </button>
           <CopyButton text={code} label={t("code.copy")} />
+          {actions}
         </span>
       </div>
       {/* Pierre paints the lines once the highlight worker answers; until then the body keeps the
