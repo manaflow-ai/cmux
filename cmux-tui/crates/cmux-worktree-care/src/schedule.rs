@@ -163,6 +163,7 @@ mod tests {
         assert_eq!(claim(&dir, 1_000, Some(HOUR), true).unwrap_err(), Refused::Busy);
         assert_eq!(claim(&dir, 1_000, None, false).unwrap_err(), Refused::Busy);
         drop(held);
+        eprintln!("busy fixture {}", dir.display());
         assert!(claim(&dir, 1_000, None, false).is_ok(), "the lock goes with the claim");
     }
 
