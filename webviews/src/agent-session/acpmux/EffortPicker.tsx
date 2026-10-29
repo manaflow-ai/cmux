@@ -102,6 +102,26 @@ export function EffortPicker({
         minimum: 0,
         maximum: visibleEfforts.length - 1,
         step: 1,
+        slider: {
+          stops: visibleEfforts.map((choice) => ({
+            value: choice.id,
+            label: choice.name,
+            description: choice.description,
+            accessibilityLabel: choice.recommended
+              ? t("effort.valueRecommended", { level: choice.name })
+              : choice.name,
+          })),
+          selectedValue: selectedVisible?.id,
+          defaultValue: recommended?.id ?? visibleEfforts[0]?.id,
+          recommendedValue: recommended?.id,
+          recommendedLabel: recommended
+            ? t("effort.recommendedLevel", { level: recommended.name })
+            : undefined,
+          minimumLabel: t("effort.faster"),
+          maximumLabel: t("effort.smarter"),
+          accessibilityLabel: t("effort.title"),
+          style: sliderStyle,
+        },
       });
     } else {
       rows.push(
