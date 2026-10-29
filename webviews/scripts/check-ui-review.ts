@@ -603,19 +603,37 @@ export function scanTree(root = SOURCE_ROOT, allowlist = loadAllowlist()): ScanR
     const source = readFileSync(file, "utf8");
     return scanFile(file, source, translations);
   });
-  const allowed = new Set(allowlist.map(allowlistKey));
-  const found = new Set(findings.map((item) => allowlistKey(item)));
-  return {
-    findings,
-    newFindings: findings.filter((item) => !allowed.has(allowlistKey(item))),
-    staleAllowlist: allowlist.filter((item) => !found.has(allowlistKey(item))),
-  };
+  return classifyFindings(findings, allowlist);
+}
+
+/** Each allowlist entry excuses one finding: a second finding with the same rule, file and
+ * fingerprint is new, and an entry no finding used is stale. */
+export function classifyFindings(findings: Finding[], allowlist: AllowlistEntry[]): ScanResult {
+  const remaining = new Map<string, number>();
+  for (const entry of allowlist) remaining.set(allowlistKey(entry), (remaining.get(allowlistKey(entry)) ?? 0) + 1);
+  const newFindings = findings.filter((item) => {
+    const key = allowlistKey(item);
+    const left = remaining.get(key) ?? 0;
+    if (left === 0) return true;
+    remaining.set(key, left - 1);
+    return false;
+  });
+  const staleAllowlist = allowlist.filter((entry) => {
+    const key = allowlistKey(entry);
+    const left = remaining.get(key) ?? 0;
+    if (left === 0) return false;
+    remaining.set(key, left - 1);
+    return true;
+  });
+  return { findings, newFindings, staleAllowlist };
 }
 
 function main(): void {
   const result = scanTree();
   for (const item of result.newFindings) {
-    console.warn(`::warning file=webviews/${item.file},line=${item.line},title=UI review ${item.rule}::${item.message}`);
+    console.warn(
+      `::warning file=webviews/${item.file},line=${item.line},title=UI review ${item.rule}::${item.message}`,
+    );
   }
   for (const item of result.staleAllowlist) {
     console.warn(

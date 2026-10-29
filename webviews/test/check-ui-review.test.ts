@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import {
+  classifyFindings,
   findHardCodedAgentIcons,
   findMixedRowWeights,
   findMultiSpace,
@@ -15,6 +16,21 @@ const tsx = join(WEBVIEWS, "src/fixture.tsx");
 const css = join(WEBVIEWS, "src/fixture.css");
 
 describe("cross-surface UI review lint", () => {
+  test("each allowlist entry excuses one finding, so a second occurrence is new", () => {
+    const finding = {
+      rule: "repeated-leading-label" as const,
+      file: "src/a.tsx",
+      line: 1,
+      fingerprint: "Agent",
+      message: "",
+    };
+    const entry = { rule: finding.rule, file: finding.file, fingerprint: finding.fingerprint, owner: "o", why: "w" };
+    const two = classifyFindings([finding, { ...finding, line: 9 }], [entry]);
+    expect(two.newFindings.map((item) => item.line)).toEqual([9]);
+    expect(two.staleAllowlist).toHaveLength(0);
+    expect(classifyFindings([], [entry]).staleAllowlist).toEqual([entry]);
+  });
+
   test("flags narration in translated and visible copy", () => {
     const source = `<div>{t("message.readAfterTurn")}</div>`;
     expect(findNarration(tsx, source, new Map([["message.readAfterTurn", "Read after this turn"]]))).toMatchObject([
