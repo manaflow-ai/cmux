@@ -106,8 +106,9 @@ export function followComposerTrayColumns(box: HTMLElement): (() => void) | unde
     });
     // The inspector can move or replace any ancestor without changing the action cluster's size.
     // Omit the dock's own style because `apply` writes the measured properties there.
-    for (let current: HTMLElement | null = box; current; current = current.parentElement) {
-      if (current === dock) mutation.observe(current, { attributes: true, attributeFilter: ["class", "hidden"] });
+    mutation.observe(dock, { attributes: true, attributeFilter: ["class", "hidden"] });
+    for (let current: HTMLElement | null = box.parentElement; current; current = current.parentElement) {
+      if (current === dock) break;
       else mutation.observe(current, { attributes: true, childList: true, attributeFilter: ["class", "style", "hidden"] });
       if (current === dock.parentElement) break;
     }

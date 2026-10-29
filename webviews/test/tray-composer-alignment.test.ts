@@ -260,6 +260,57 @@ await requireBrowserLane("tray-composer-alignment.test.ts", async () => {
               expect(shifted.composer.left).toBeCloseTo(result.composer.left - 36, 1);
               expect(shifted.tray.left).toBeCloseTo(shifted.composer.left, 1);
               expect(shifted.tray.right).toBeCloseTo(shifted.composer.right, 1);
+              for (const transform of ["matrix(1, 0, 0, 1, -24, 0)", "matrix3d(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, -24, 0, 0, 1)"]) {
+                await page.evaluate((transform) => {
+                  for (const selector of [".acpmux-composer", '[data-alignment-surface="tray"]']) {
+                    const node = document.querySelector<HTMLElement>(selector);
+                    if (node) {
+                      node.style.translate = "";
+                      node.style.transform = transform;
+                    }
+                  }
+                }, transform);
+                await page.evaluate(
+                  () => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))),
+                );
+                const afterMatrix = await page.evaluate(() => {
+                  const dock = document.querySelector<HTMLElement>(".acpmux-dock")!;
+                  return dock.style.getPropertyValue("--acpmux-tray-end-inset");
+                });
+                expect(afterMatrix, "matrix translation must preserve layout columns").toBe(
+                  beforeShift["end-inset"],
+                );
+              }
+              const beforeActionMutation = await page.evaluate(() => {
+                const dock = document.querySelector<HTMLElement>(".acpmux-dock")!;
+                return dock.style.getPropertyValue("--acpmux-tray-end-inset");
+              });
+              await page.evaluate(() => {
+                const button = [...document.querySelectorAll<HTMLElement>(".acpmux-composer-actions button")].at(-1);
+                if (button) {
+                  button.style.position = "relative";
+                  button.style.left = "12px";
+                }
+              });
+              await page.evaluate(
+                () => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))),
+              );
+              const afterActionMutation = await page.evaluate(() => {
+                const dock = document.querySelector<HTMLElement>(".acpmux-dock")!;
+                return dock.style.getPropertyValue("--acpmux-tray-end-inset");
+              });
+              expect(Number.parseFloat(afterActionMutation)).toBeCloseTo(Number.parseFloat(beforeActionMutation) - 12, 1);
+              await page.evaluate(() => {
+                const button = [...document.querySelectorAll<HTMLElement>(".acpmux-composer-actions button")].at(-1);
+                if (button) {
+                  button.style.position = "";
+                  button.style.left = "";
+                }
+                for (const selector of [".acpmux-composer", '[data-alignment-surface="tray"]']) {
+                  const node = document.querySelector<HTMLElement>(selector);
+                  if (node) node.style.transform = "";
+                }
+              });
             }
             expect(result.actualLook).toBe(expectedLook);
             expect(result.quiet).toBe(expectedQuiet);
