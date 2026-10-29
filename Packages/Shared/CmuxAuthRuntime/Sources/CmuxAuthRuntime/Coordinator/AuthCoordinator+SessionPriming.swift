@@ -335,6 +335,18 @@ extension AuthCoordinator {
             }
             guard generation == sessionGeneration else { return }
             if survivingRefreshToken == nil {
+                // An empty read is only a verdict when the store could answer
+                // it. A Keychain that locked after restore's reads (sleep,
+                // screen lock) returns nil for a token that is still stored;
+                // clearing here would delete it. Keep the cached session and
+                // let the next revalidation decide.
+                let refreshReadWasAvailable = await isTokenStorageAvailable()
+                guard generation == sessionGeneration else { return }
+                if !refreshReadWasAvailable {
+                    authLog.info("Token storage unavailable while checking the refresh token after a failed validation; preserving cached session")
+                    preserveCachedSessionAfterValidationFailure()
+                    return
+                }
                 authLog.error(
                     "Session validation failed and no refresh token survives; routing to login error=\(error.localizedDescription, privacy: .private)"
                 )

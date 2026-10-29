@@ -23,6 +23,8 @@ final class RefreshTestClock: Clock, @unchecked Sendable {
     private let lock = NSLock()
     private var currentInstant = Instant(offset: .zero)
     private var sleepers: [UUID: Sleeper] = [:]
+    /// Every `sleep(until:tolerance:)` call that has not returned yet, parked
+    /// or not: each call counts itself on entry and uncounts itself on exit.
     private var activeSleeps = 0
     /// Sleeps cancelled before their continuation was parked (the
     /// `withTaskCancellationHandler` handler can run first).
@@ -40,6 +42,9 @@ final class RefreshTestClock: Clock, @unchecked Sendable {
 
     func sleep(until deadline: Instant, tolerance: Duration?) async throws {
         let id = UUID()
+        lock.lock()
+        activeSleeps += 1
+        lock.unlock()
         defer { markSleepFinished() }
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
@@ -55,7 +60,6 @@ final class RefreshTestClock: Clock, @unchecked Sendable {
                     return
                 }
                 sleepers[id] = Sleeper(deadline: deadline, continuation: continuation)
-                activeSleeps += 1
                 let satisfied = takeSatisfiedParkWaitersLocked()
                 lock.unlock()
                 for waiter in satisfied { waiter.resume() }
@@ -127,7 +131,7 @@ final class RefreshTestClock: Clock, @unchecked Sendable {
 
     private func markSleepFinished() {
         lock.lock()
-        activeSleeps = max(0, activeSleeps - 1)
+        activeSleeps -= 1
         guard activeSleeps == 0 else {
             lock.unlock()
             return
