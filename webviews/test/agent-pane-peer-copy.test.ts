@@ -137,11 +137,13 @@ class Daemon {
   private attachAnswered = false;
   readonly asked: Message[] = [];
 
-  constructor() {
+  /// Open only when the client asks for this socket, including a later reconnect.
+  socket(): WebSocket {
     queueMicrotask(() => {
       this.readyState = 1;
       this.onopen?.();
     });
+    return this as unknown as WebSocket;
   }
 
   send(raw: string): void {
@@ -416,7 +418,7 @@ function open(daemon: Daemon, seed?: () => void, sessionId = SESSION) {
       if (snapshot.type === "snapshot") drawn.push(snapshot);
     },
     undefined,
-    () => daemon as unknown as WebSocket,
+    () => daemon.socket(),
   );
   return { drawn, client, last: () => drawn.at(-1) };
 }
@@ -1548,7 +1550,7 @@ test("a cold open whose attach fails keeps none of the records that came before 
       if (snapshot.type === "snapshot") drawn.push(snapshot);
     },
     undefined,
-    () => sockets.shift() as unknown as WebSocket,
+    () => sockets.shift()!.socket(),
   );
   live.push(client);
   const opening = client as unknown as { open(): Promise<void>; lastSeq: number };
@@ -1622,7 +1624,7 @@ test("a reconnect whose attach fails keeps the rows it read, but not the records
       if (snapshot.type === "snapshot") drawn.push(snapshot);
     },
     undefined,
-    () => sockets.shift() as unknown as WebSocket,
+    () => sockets.shift()!.socket(),
   );
   live.push(client);
   const opening = client as unknown as { open(): Promise<void>; lastSeq: number };
