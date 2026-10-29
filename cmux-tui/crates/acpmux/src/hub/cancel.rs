@@ -86,6 +86,7 @@ impl Hub {
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .iter()
+                .filter(|q| !q.sent_now)
                 .map(|q| q.prompt_id.clone())
                 .collect();
             for prompt_id in queued {

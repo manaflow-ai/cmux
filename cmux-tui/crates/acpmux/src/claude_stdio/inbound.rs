@@ -680,11 +680,7 @@ impl Translator {
                 // had one, and it ends them all.
                 let abandoned = std::mem::take(&mut *self.abandoned.lock().await);
                 let next_unread = self.prompt_echo.lock().await.is_some();
-                if !abandoned.is_empty()
-                    && (cancelled_compaction
-                        || next_unread
-                        || !self.turn_output.load(Ordering::SeqCst))
-                {
+                if !abandoned.is_empty() && (cancelled_compaction || next_unread) {
                     for k in abandoned.iter().cloned() {
                         self.pending.lock().await.remove(&k);
                         let id: Id = serde_json::from_str(&k).unwrap_or(Value::String(k));
@@ -696,7 +692,7 @@ impl Translator {
                 // produce a result. Resolve its abandoned request independently, then continue
                 // settling the new prompt; do not let the stale marker consume this result.
                 if !abandoned.is_empty() {
-                    for k in abandoned {
+                    for k in abandoned.iter().cloned() {
                         self.pending.lock().await.remove(&k);
                         let id: Id = serde_json::from_str(&k).unwrap_or(Value::String(k));
                         out.push(Message::ok(id, json!({"stopReason": "cancelled"})));
@@ -727,7 +723,9 @@ impl Translator {
                     .lock()
                     .await
                     .iter()
-                    .filter(|(_, p)| matches!(p, Pending::Prompt))
+                    .filter(|(k, p)| {
+                        matches!(p, Pending::Prompt) && !abandoned.iter().any(|old| old == *k)
+                    })
                     .map(|(k, _)| k.clone())
                     .collect();
                 let cancelled = self.cancelled.swap(false, Ordering::SeqCst);
