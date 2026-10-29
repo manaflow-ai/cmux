@@ -126,7 +126,8 @@ import Testing
             return image
         }
         let probe = try RemoteStream()
-        probe.tab.wakeRecord = { _ in URL(string: "cmux://remote-browser?address=127.0.0.1:9") }
+        let probeRecord = try #require(URL(string: "cmux://remote-browser?address=127.0.0.1:9"))
+        probe.tab.wakeRecord = { _ in probeRecord }
         probe.tab.contentView.frame = NSRect(x: 0, y: 0, width: 160, height: 100)
         let pkey = probe.tab.id.rawValue
         rig.keys.append(pkey)
@@ -135,11 +136,15 @@ import Testing
         try await Self.until("a frame is handed") { probe.damage(); return probe.presenter.presented > 0 }
         print("DIAG handed presented=\(probe.presenter.presented) lastFrame=\(probe.tab.pane.lastFrame != nil) failure=\(probe.tab.failure != nil)")
         try await Self.until("a frame shows") { probe.damage(); return probe.tab.pane.lastFrame != nil }
-        print("DIAG shown lastFrame=\(probe.tab.pane.lastFrame != nil) picture=\(await probe.tab.pane.picture() != nil)")
+        let shownPicture = await probe.tab.pane.picture()
+        print("DIAG shown lastFrame=\(probe.tab.pane.lastFrame != nil) picture=\(shownPicture != nil)")
         rig.services.cache.withdraw(pkey, by: rig.pane)
-        print("DIAG hidden lastFrame=\(probe.tab.pane.lastFrame != nil) picture=\(await probe.tab.pane.picture() != nil) contentHidden=\(probe.tab.contentView.isHidden)")
+        let hiddenPicture = await probe.tab.pane.picture()
+        print("DIAG hidden lastFrame=\(probe.tab.pane.lastFrame != nil) picture=\(hiddenPicture != nil) contentHidden=\(probe.tab.contentView.isHidden)")
         let snap = try? await probe.tab.snapshot()
-        print("DIAG hiddenSnapshot=\(snap.map { "\($0.width)x\($0.height)" } ?? "nil") thumb=\((try? await probe.tab.thumbnail()) != nil)")
+        let thumb = try? await probe.tab.thumbnail()
+        let snapText = snap.map { "\($0.width)x\($0.height)" } ?? "nil"
+        print("DIAG hiddenSnapshot=\(snapText) thumb=\(thumb != nil)")
         probe.close()
         let address = try #require(URL(string: "cmux://remote-browser?address=127.0.0.1:9"))
         let hidden = try await Self.showThenHide(in: rig, wakeRecord: address)
