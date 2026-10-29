@@ -1,0 +1,55 @@
+{
+  "id": "window-fullscreen",
+  "priority": "P0",
+  "title": "Ctrl-Cmd-F enters full screen and leaves it: the grid fits the screen and the window again, the PTY follows",
+  "why": "Full screen is a resize the person does not drag: the window animates to the whole screen in its own Space and back. The terminal must end at the screen's grid and back at the window's, the PTY following, no blank frame, the prompt in view.",
+  "source": "window life: fullscreen (holistic-quality.md 1), Ctrl-Cmd-F (Ghostty and macOS default)",
+  "budget_seconds": 75,
+  "steps": [
+    {"do": "new_terminal", "name": "jr-fullscreen"},
+    {"do": "neutral_prompt"},
+    {"do": "name_pane", "as": "main"},
+    {"do": "window_place", "title": "set-up: the window at 55% x 50% of the screen", "fraction": [0.1, 0.1, 0.55, 0.5]},
+    {"do": "expect", "title": "the terminal fits the placed window", "timeout": 10, "all": [{"grid_fits": {}}, {"full_screen": false}]},
+    {"do": "remember", "as": "start"},
+    {"do": "type", "text": "seq 1 500; echo end-${nonce}", "enter": true, "mark": "filled"},
+    {"do": "expect", "title": "output, the prompt at the bottom", "since": "filled", "timeout": 15,
+     "all": [{"daemon_line": "end-${nonce}"}, {"app_prompt": true}]},
+
+    {"do": "key", "title": "Ctrl-Cmd-F", "key": "f", "modifiers": ["control", "cmd"], "mark": "enter"},
+    {"do": "expect", "title": "full screen: the window is the whole screen; the grid fits it", "since": "enter", "timeout": 15,
+     "all": [
+       {"full_screen": true},
+       {"grid_fits": {"vs": "start", "cols": "wider", "rows": "taller"}},
+       {"app_prompt": true},
+       {"at_bottom": {}}
+     ]},
+    {"do": "type", "text": "echo fs-${nonce} $(stty size)", "enter": true, "mark": "fs"},
+    {"do": "expect", "title": "the PTY has the full-screen grid", "since": "fs", "timeout": 10,
+     "all": [
+       {"pty_size": "fs-${nonce}"},
+       {"daemon_prompt": true},
+       {"app_text_contains": "fs-${nonce} "},
+       {"pane_frame_text": "fs-${nonce}"}
+     ]},
+
+    {"do": "key", "title": "Ctrl-Cmd-F again", "key": "f", "modifiers": ["control", "cmd"], "mark": "leave"},
+    {"do": "expect", "title": "out of full screen: the window is back at its frame; the grid is the first grid again", "since": "leave", "timeout": 15,
+     "all": [
+       {"full_screen": false},
+       {"window_frame": {"same_as": "start", "tol": 4}},
+       {"grid_fits": {"vs": "start", "cols": "same", "rows": "same"}},
+       {"app_prompt": true},
+       {"at_bottom": {}}
+     ]},
+    {"do": "type", "text": "echo back-${nonce} $(stty size)", "enter": true, "mark": "back"},
+    {"do": "expect", "title": "the PTY has the first grid again", "since": "back", "timeout": 10,
+     "all": [
+       {"pty_size": "back-${nonce}"},
+       {"daemon_prompt": true},
+       {"app_text_contains": "back-${nonce} "},
+       {"pane_frame_text": "back-${nonce}"}
+     ]}
+  ],
+  "finally": [{"do": "leave_full_screen"}, {"do": "restore_window", "from": "before-place"}]
+}
