@@ -970,6 +970,73 @@ caller.
 Hosted/isolated fallback remains available when the shared host refuses local
 admission or is draining, pressured, or unavailable.
 
+## Runner pools
+
+Leo, 2026-10-28: "I hate pins. Like, just pin the set of the shit that isn't
+hilariously slow. Like most of what GitHub has is hilariously slow. We can't
+be using them."
+
+One routing source. `.github/runners.json` declares each pool once under
+`pools`: a class of work and its members, in order. The `RUNNER_POOLS`
+repository variable holds each pool's live member as one JSON object, and a job
+reads it instead of naming a label:
+
+```yaml
+runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux }}
+```
+
+A picker's output still comes first where a run needs its own choice (an owned
+Mac, warm affinity); the pool is what follows it, never a literal label.
+`fromJSON()` of an unset `RUNNER_POOLS` fails the workflow at once, which is
+the point: a missing route is a red run, not a job queued forever on a label
+nobody serves.
+
+| Pool | Members (first is preferred) |
+| --- | --- |
+| `linux` | Blacksmith 32 vCPU, Blacksmith 16 vCPU |
+| `linux_arm64` | Blacksmith 4 vCPU ARM64 |
+| `windows` | Blacksmith 4 vCPU Windows |
+| `macos_15` | Blacksmith macOS 15 |
+| `macos_26` | Blacksmith macOS 26 (6, then 12 vCPU) |
+| `macos_26_large` | Blacksmith macOS 26 (12, then 6 vCPU) |
+| `provenance` | GitHub-hosted `ubuntu-24.04`: npm and PyPI provenance and artifact attestations accept only GitHub's OIDC |
+| `macos_intel` | GitHub-hosted `macos-15-intel`: Blacksmith has no Intel Mac (the dispatch-only compatibility leg) |
+
+Every member outside the two hosted pools is an ephemeral Blacksmith label, so
+a job reading a pool never lands on a reused machine, whoever started the run.
+Owned Macs come first through a picker job's output (`simple_pool_picker.py`,
+`side_lane_placement.py`, the nightly pickers) in the routing order: owned
+Macs, then Blacksmith macOS. The pool is what follows the picker. Jobs that
+hold signing secrets keep their literal ephemeral label for now and move
+through the stall-aware signing picker, not a pool.
+
+`scripts/ci/runner_pools.py` is the one writer, and it only chooses. The
+overflow probe's `watch` job runs it every 10 minutes, after the switch, with
+the token the switch already uses (the `manaflow-glaeda-route` App; no new
+credential). It reads per-label start evidence: the probe's per-label health
+(`CI_CLOUD_LABEL_HEALTH`, every Linux member probed), and the queue janitor's
+snapshot (a Blacksmith label whose oldest queued job waited 10 minutes, the
+same stall rule as `simple_pool_picker.blacksmith_stalled()`, and the
+dead-label entries once #27114 lands). It marks those labels dead, points each
+pool at its first unmarked member, and writes `RUNNER_POOLS` only on a change.
+A mark expires after 30 minutes unless seen again; a label seen starting a job
+is cleared at once. With every member marked, the pool keeps its first. A
+malformed `RUNNER_POOLS` is rewritten from these declarations, never crashed
+on. Jobs already queued on a dead member keep that label (GitHub binds it when
+it creates the job); moving them is the queue janitor's dead-label re-dispatch
+(with #27114), whose re-run reads the pool's new member.
+With no evidence at all (no probe health yet, no snapshot) it marks nothing
+dead: it fails closed and never retires a member on a guess. A pool not marked
+`hosted` never resolves to a GitHub-hosted label, whatever is dead.
+`ci-repo-variables.yml` runs `runner_pools.py --check` every 15 minutes, so a
+hand-edited `RUNNER_POOLS` that drops a pool or names a non-member goes red.
+`tests/test_ci_runner_pools.py` checks the declared pools and the reconciler
+against a recorded janitor snapshot.
+
+The first jobs on the pool are `cmux-tui-spec.yml` and
+`required-checks-drift.yml`; the rest of the workflows follow by group, and
+`tests/test_ci_runner_set.py` lands with the last group.
+
 ## Blacksmith outage: the overflow switch
 
 This is the only Blacksmith-outage lever. The 2026-09-29 manual variable

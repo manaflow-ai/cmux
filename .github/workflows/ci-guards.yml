@@ -150,6 +150,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_cloud_overflow_switch.py
 
+      - name: Validate the runner pools and their reconciler
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_runner_pools.py
+
       - name: Validate fast checks fail over with the overflow switch
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_fast_checks_failover.py
