@@ -93,6 +93,19 @@ jobs:
         with:
           persist-credentials: false
 
+      # The variables signing jobs read are repository-wide, but most signing jobs live on
+      # feat-cmux-next: read its workflows too (signing_runner_variables.py). Without them the
+      # switch fails closed and writes no owned label to any runner variable.
+      - name: Check out feat-cmux-next's workflows
+        continue-on-error: true
+        timeout-minutes: 2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: feat-cmux-next
+          path: .signing-workflows/feat-cmux-next
+          sparse-checkout: .github/workflows
+          persist-credentials: false
+
       # The existing route App carries the repository variable permission; the
       # action cannot narrow permissions by name, so the token carries what
       # that App has.
@@ -115,6 +128,7 @@ jobs:
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && (inputs.dry_run || inputs.probe_label != '') && 'true' || 'false' }}
           PROBE_LABEL_DRILL: ${{ github.event_name == 'workflow_dispatch' && inputs.probe_label || '' }}
           PROBE_MINUTES: ${{ vars.CI_CLOUD_PROBE_MINUTES }}
+          SIGNING_WORKFLOW_DIRS: .signing-workflows/feat-cmux-next/.github/workflows
           # Live values from the expression context; '' is unset. Runner labels
           # only, as in ci-repo-variables.yml: a step's env is in its public log.
           VAR_CI_CLOUD_OVERFLOW_SAVED: ${{ vars.CI_CLOUD_OVERFLOW_SAVED }}
