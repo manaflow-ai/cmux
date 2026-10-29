@@ -217,6 +217,32 @@ pub(in crate::hub) fn digestible(q: &QueuedPrompt) -> bool {
         && !super::super::subsession_guard::is_family_prompt(run.provenance.as_ref())
 }
 
+/// The originals that the inbox digests among `waiting` (`queued` records a restart restores)
+/// hold, by prompt id: each one's turn id and its digest's prompt and turn ids.
+pub(in crate::hub) fn digested_originals(
+    waiting: &[crate::store::EventRecord],
+) -> HashMap<String, (String, String, String)> {
+    let mut originals = HashMap::new();
+    let field = |v: &Value, k: &str| v.get(k).and_then(Value::as_str).unwrap_or("").to_owned();
+    let turns: HashMap<String, String> =
+        waiting.iter().map(|e| (field(&e.msg, "promptId"), field(&e.msg, "turnId"))).collect();
+    for e in waiting {
+        let provenance = e.msg.pointer("/_meta/provenance");
+        if !is_digest(provenance) {
+            continue;
+        }
+        let (digest_id, digest_turn) = (field(&e.msg, "promptId"), field(&e.msg, "turnId"));
+        let parts = provenance.and_then(|p| p.get("parts")).and_then(Value::as_array);
+        for part in parts.into_iter().flatten() {
+            let id = field(part, "promptId");
+            if let Some(turn) = turns.get(&id) {
+                originals.insert(id, (turn.clone(), digest_id.clone(), digest_turn.clone()));
+            }
+        }
+    }
+    originals
+}
+
 /// The renderer's part of a waiting prompt.
 fn part_of(q: &QueuedPrompt) -> Part {
     let name = q.run.agent.clone().unwrap_or_default();
@@ -257,6 +283,19 @@ impl Hub {
         client: &str,
         dry_run: bool,
     ) -> Result<Value, RpcError> {
+        self.digest_waiting(session, client, dry_run, false).await
+    }
+
+    /// A drain of the agent messages waiting in `session`'s queue, or (`inbox_only`) of a
+    /// coordinator's inbox items alone (`coordinator.rs`). An inbox item it cannot take leaves
+    /// the inbox, under the same lock, and waits in the ordinary queue.
+    pub(in crate::hub) async fn digest_waiting(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        client: &str,
+        dry_run: bool,
+        inbox_only: bool,
+    ) -> Result<Value, RpcError> {
         // The queue a restart restored, and a turn adoption recovers, first.
         self.session_log(session).await;
         self.wait_adopted(session).await;
@@ -275,8 +314,19 @@ impl Hub {
         let digest_id = format!("inbox-digest-{}", uuid::Uuid::now_v7());
         let turn_id = uuid::Uuid::now_v7().to_string();
         let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let parts: Vec<Part> = queue.iter().filter(|q| digestible(q)).map(part_of).collect();
+        let mut released = false;
+        if inbox_only && !dry_run {
+            for q in queue.iter_mut().filter(|q| q.inbox && !digestible(q)) {
+                (q.inbox, released) = (false, true);
+            }
+        }
+        let takes = |q: &QueuedPrompt| digestible(q) && (!inbox_only || q.inbox);
+        let parts: Vec<Part> = queue.iter().filter(|q| takes(q)).map(part_of).collect();
         if parts.is_empty() {
+            drop(queue);
+            if released {
+                session.queue_moved.notify_waiters();
+            }
             return Ok(json!({"sessionId": session.id, "dryRun": dry_run, "digested": 0}));
         }
         let Rendered { text, provenance } = render(&digest_id, &parts);
@@ -287,11 +337,11 @@ impl Hub {
             );
         }
         // A peer's message goes in under a peer's rules, as it came (`queue_edit.rs` `stricter`).
-        let peer = queue.iter().any(|q| digestible(q) && q.run.control == Control::Peer);
+        let peer = queue.iter().any(|q| takes(q) && q.run.control == Control::Peer);
         let control = if peer { Control::Peer } else { Control::Local };
         let (answer, answered) = tokio::sync::watch::channel(None);
         let (taken, rest): (Vec<QueuedPrompt>, Vec<QueuedPrompt>) =
-            std::mem::take(&mut *queue).into_iter().partition(digestible);
+            std::mem::take(&mut *queue).into_iter().partition(|q| takes(q));
         *queue = rest;
         // At the head of the agent messages: behind the person's prompts and a prompt sent now.
         let at = queue

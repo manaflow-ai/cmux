@@ -975,6 +975,16 @@ impl Hub {
         for id in unstarted.prompts() {
             held.remove(id);
         }
+        // The originals an inbox digest still waiting holds (`inbox_digest.rs`): the daemon
+        // stopped after the digest's `queued` record and before their `dequeued` ones. They go in
+        // with the digest, never again on their own (nor into a second digest).
+        let digested = super::digest::inbox_digest::digested_originals(&waiting);
+        waiting.retain(|e| {
+            e.msg
+                .get("promptId")
+                .and_then(Value::as_str)
+                .is_none_or(|id| !digested.contains_key(id))
+        });
         // A coordinator's agent messages are its inbox again (`coordinator.rs`).
         let coordinator = session.is_coordinator();
         let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -1050,6 +1060,13 @@ impl Hub {
             ledger.push_back((prompt_id, Arc::new(tokio::sync::watch::channel(None).0)));
         }
         tracing::info!(session = %session.id, queued = queue.len(), "restored queued prompts");
+        drop((queue, ledger, restored));
+        // Their missing `dequeued` records, so a later restart does not see them waiting.
+        let left = session.queued();
+        for (prompt_id, (turn_id, digest_id, digest_turn)) in digested {
+            let msg = json!({"promptId": prompt_id, "turnId": turn_id, "queued": left, "digestPromptId": digest_id, "digestTurnId": digest_turn});
+            self.append(session, "mux", "dequeued", msg);
+        }
     }
 
     /// Runs the prompts `restore_queue` put back, each in its place in the queue (after any

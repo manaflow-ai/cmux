@@ -298,6 +298,8 @@ impl Hub {
                 full_access_device: same_device(q.run.full_access_device.as_deref(), device),
             });
             q.preview = short_text(&text, 200);
+            // The person's prompt now: no inbox item, it runs in its place (`coordinator.rs`).
+            q.inbox = false;
             (q.turn_id.clone(), q.run.clone(), text)
         };
         let mut msg = json!({"promptId": prompt_id, "turnId": turn_id, "text": text, "prompt": run.blocks, "control": run.control.as_str(), "trustGate": run.trust_gate});
@@ -320,6 +322,8 @@ impl Hub {
         super::session::mark_pasted(&mut msg, &run.blocks);
         let msg = crate::prompt_provenance::marked(msg, run.provenance.as_ref());
         self.append(session, "mux", "queue_updated", msg);
+        // An inbox item it was waits no longer (`coordinator.rs`).
+        session.queue_moved.notify_waiters();
         Ok(true)
     }
 

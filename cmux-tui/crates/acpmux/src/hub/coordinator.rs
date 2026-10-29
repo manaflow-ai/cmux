@@ -162,8 +162,10 @@ impl Hub {
         }
     }
 
-    /// Makes the inbox digest (`inbox_digest.rs`) off the caller's path, one at a time. Items it
-    /// could not take leave the inbox; the timer is armed again for what came meanwhile.
+    /// Makes the inbox digest (`inbox_digest.rs`) off the caller's path, one at a time, of the
+    /// inbox items alone: once the setting is off there are none, so a digest in flight then
+    /// takes nothing. Items it cannot take leave the inbox at it. Made, what came meanwhile is
+    /// reviewed (a block or a question that arrived goes in now); refused, the timer waits.
     pub(super) fn coordinator_digest(self: &Arc<Self>, session: &Arc<Session>) {
         if session.inbox_digesting.swap(true, Ordering::SeqCst) {
             return;
@@ -171,34 +173,24 @@ impl Hub {
         self.disarm_inbox(session);
         let (hub, session) = (self.clone(), session.clone());
         tokio::spawn(async move {
-            let made = hub.inbox_digest(&session, DIGEST_CLIENT, false).await;
+            let made = hub.digest_waiting(&session, DIGEST_CLIENT, false, true).await;
             if let Err(e) = &made {
                 tracing::info!(session = %session.id, "coordinator digest not made: {}", e.message);
             }
-            // Made or refused, the clock restarts: a refusal (a move, a watch) is not retried
-            // at once, over and over.
-            session.last_digest_at.store(now_ms(), Ordering::SeqCst);
-            hub.release_undigestible(&session);
-            session.inbox_digesting.store(false, Ordering::SeqCst);
-            hub.arm_inbox(&session);
+            hub.digest_done(&session, made.is_ok());
         });
     }
 
-    /// Takes the items a digest cannot take out of the inbox: they wait in the ordinary queue.
-    fn release_undigestible(&self, session: &Arc<Session>) {
-        let released = {
-            let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            let mut released = false;
-            for q in queue.iter_mut().filter(|q| q.inbox) {
-                if !super::digest::inbox_digest::digestible(q) {
-                    q.inbox = false;
-                    released = true;
-                }
-            }
-            released
-        };
-        if released {
-            session.queue_moved.notify_waiters();
+    /// A coordinator digest ended, `made` or refused. Either way the clock restarts: a refusal
+    /// (a move, a watch) is not retried at once, over and over.
+    fn digest_done(self: &Arc<Self>, session: &Arc<Session>, made: bool) {
+        session.last_digest_at.store(now_ms(), Ordering::SeqCst);
+        session.inbox_digesting.store(false, Ordering::SeqCst);
+        let meta = session.meta();
+        if made && meta.coordinator {
+            self.inbox_review(session, &meta, false, now_ms());
+        } else {
+            self.arm_inbox(session);
         }
     }
 
@@ -253,8 +245,9 @@ impl Hub {
     }
 
     /// `_acpmux/set_coordinator`: turns the setting on or off and sets its times (`Some(None)`
-    /// clears one back to its default). On, the other agents' messages waiting now become inbox
-    /// items; off, every inbox item is released where it is, in its order, and the timer stops.
+    /// clears one back to its default). Turned on, the other agents' messages waiting now that a
+    /// digest can take become inbox items; turned off, every inbox item is released where it is,
+    /// in its order, and the timer stops. A change of times alone touches no item.
     pub(crate) fn set_coordinator(
         self: &Arc<Self>,
         session: &Arc<Session>,
@@ -262,8 +255,9 @@ impl Hub {
         flush_ms: Option<Option<u64>>,
         interval_ms: Option<Option<u64>>,
     ) {
-        let meta = {
+        let (was, meta) = {
             let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+            let was = meta.coordinator;
             if let Some(on) = on {
                 meta.coordinator = on;
             }
@@ -273,19 +267,17 @@ impl Hub {
             if let Some(ms) = interval_ms {
                 meta.digest_interval_ms = ms;
             }
-            meta.clone()
+            (was, meta.clone())
         };
         self.save_meta(session);
-        {
+        if was != meta.coordinator {
             let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             for q in queue.iter_mut() {
-                q.inbox = meta.coordinator
-                    && !q.sent_now
-                    && !q.steer
-                    && is_inbox_item(true, q.run.agent.is_some(), q.run.provenance.as_ref());
+                q.inbox = meta.coordinator && super::digest::inbox_digest::digestible(q);
             }
+            drop(queue);
+            session.queue_moved.notify_waiters();
         }
-        session.queue_moved.notify_waiters();
         if meta.coordinator {
             self.inbox_review(session, &meta, false, now_ms());
         } else {

@@ -4,6 +4,7 @@
 
 use super::*;
 use crate::prompt_class::PromptClass as Class;
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 use tokio::sync::oneshot;
 
@@ -385,4 +386,71 @@ async fn an_item_the_digest_cannot_take_leaves_the_inbox_at_the_digest() {
     assert_eq!(f.digests().len(), 1, "{prompts:?}");
     assert_eq!(parts(&f.digests()[0]), ["p-q"]);
     assert!(prompts.iter().any(|m| m["promptId"] == "p-img"), "it ran by itself: {prompts:?}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_block_that_arrives_while_a_digest_is_made_goes_in_once_it_is() {
+    let f = fixture().await;
+    // A digest in flight: the block's own wake finds it and leaves it to that digest's end.
+    f.session.inbox_digesting.store(true, Ordering::SeqCst);
+    f.send("p-b", "blocked", Some("lane-a"), Some(Class::Block), true).await;
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(f.digests().is_empty());
+    f.hub.digest_done(&f.session, true);
+    f.until("the block's digest", |f| f.digests().len() == 1).await;
+    assert_eq!(parts(&f.digests()[0]), ["p-b"]);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn turned_off_a_coordinator_digest_takes_nothing() {
+    let f = fixture().await;
+    let (_, task) = f.send("p-r", "merged", Some("lane-a"), None, true).await;
+    // The setting goes off as a digest is about to take the inbox.
+    f.session.inbox_digesting.store(true, Ordering::SeqCst);
+    f.hub.set_coordinator(&f.session, Some(false), None, None);
+    let made = f.hub.digest_waiting(&f.session, DIGEST_CLIENT, false, true).await.unwrap();
+    assert_eq!(made["digested"], 0, "{made}");
+    f.session.inbox_digesting.store(false, Ordering::SeqCst);
+    tokio::time::timeout(WAIT, task).await.unwrap().unwrap().unwrap();
+    f.settled().await;
+    assert!(f.digests().is_empty(), "it ran as an agent's message: {:?}", f.prompts());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn changing_the_times_alone_parks_no_item_again() {
+    let mut f = fixture().await;
+    let turn = f.gated_turn("g").await;
+    f.send("p-r", "merged", Some("lane-a"), None, true).await;
+    // An item a digest released waits in the ordinary queue.
+    f.session.queue.lock().unwrap().iter_mut().for_each(|q| q.inbox = false);
+    f.hub.set_coordinator(&f.session, None, Some(Some(2_000)), Some(Some(2_000)));
+    assert_eq!(f.session.inbox_len(), 0, "a change of times touches no item");
+    f.hub.set_coordinator(&f.session, Some(true), None, None);
+    assert_eq!(f.session.inbox_len(), 0, "on already: nothing to mark");
+    f.open("g").await;
+    tokio::time::timeout(WAIT, turn).await.unwrap().unwrap().unwrap();
+}
+
+#[test]
+fn a_digest_waiting_at_a_restart_holds_its_originals() {
+    let record = |prompt: &str, turn: &str, provenance: Option<Value>| {
+        let mut msg = json!({"promptId": prompt, "turnId": turn});
+        if let Some(p) = provenance {
+            msg["_meta"] = json!({"provenance": p});
+        }
+        crate::store::EventRecord {
+            seq: 0,
+            at: 0,
+            dir: "mux".into(),
+            kind: "queued".into(),
+            msg,
+            host_seq: None,
+        }
+    };
+    let digest = json!({"kind": super::super::digest::inbox_digest::KIND, "parts": [{"promptId": "p-1"}, {"promptId": "p-gone"}]});
+    let waiting =
+        [record("p-1", "t-1", None), record("p-2", "t-2", None), record("d", "t-d", Some(digest))];
+    let held = super::super::digest::inbox_digest::digested_originals(&waiting);
+    assert_eq!(held.len(), 1, "{held:?}");
+    assert_eq!(held["p-1"], ("t-1".to_owned(), "d".to_owned(), "t-d".to_owned()));
 }

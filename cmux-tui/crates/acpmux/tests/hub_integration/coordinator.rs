@@ -146,3 +146,30 @@ async fn a_restart_keeps_the_inbox_and_how_long_each_item_waited() {
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[tokio::test]
+async fn an_inbox_item_the_person_edits_is_theirs_and_runs() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let id = new_chat(&mut c).await;
+    let on = json!({"sessionId": id, "coordinator": true});
+    c.request(method::MUX_SET_COORDINATOR, on).await.unwrap();
+    queue(&mut c, from_agent(&id, "p-r", "lane-a", None)).await;
+    let edit = json!({"sessionId": id, "promptId": "p-r", "op": "update", "text": "mine now"});
+    let edited = c.request(method::MUX_QUEUE_EDIT, edit).await.unwrap();
+    assert_eq!(edited["ok"], true, "{edited}");
+    // No inbox item now: it runs as the person's prompt, with no digest.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+    let ran = loop {
+        let events = hub.events(&id, 0, 10_000).unwrap();
+        let ran: Vec<Value> =
+            find(&events, "user_message").into_iter().map(|e| e.msg.clone()).collect();
+        if !ran.is_empty() {
+            break ran;
+        }
+        assert!(tokio::time::Instant::now() < deadline, "the edited prompt never ran");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    };
+    assert_eq!(ran.len(), 1, "{ran:?}");
+    assert_eq!(ran[0]["promptId"], "p-r", "{ran:?}");
+    assert_eq!(ran[0]["text"], "mine now", "{ran:?}");
+}
