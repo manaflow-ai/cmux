@@ -1780,6 +1780,20 @@ Result<ColumnPin> Codec<ColumnPin>::decode(const Json& value) {
     return result;
 }
 
+Result<Json> Codec<ColumnSide>::encode(const ColumnSide& value) {
+    switch (value) {
+        case ColumnSide::left: return Json(std::string("left"));
+        case ColumnSide::right: return Json(std::string("right"));
+    }
+    return make_error(ErrorCode::invalid_argument, "invalid enum value");
+}
+
+Result<ColumnSide> Codec<ColumnSide>::decode(const Json& value) {
+    if (value == Json(std::string("left"))) return ColumnSide::left;
+    if (value == Json(std::string("right"))) return ColumnSide::right;
+    return make_error(ErrorCode::decode, "unknown ColumnSide value");
+}
+
 Result<Json> Codec<ConversationChange>::encode(const ConversationChange& value) {
     (void)value;
     Json::Object object;
@@ -25843,6 +25857,11 @@ Result<Json> Codec<NewPaneRightRequest>::encode(const NewPaneRightRequest& value
         if (!encoded) return std::move(encoded).error();
         object.emplace("shell_args", std::move(encoded).value());
     }
+    if (!value.side.is_absent()) {
+        auto encoded = encode_value(value.side);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("side", std::move(encoded).value());
+    }
     if (!value.tab_id.is_absent()) {
         auto encoded = encode_value(value.tab_id);
         if (!encoded) return std::move(encoded).error();
@@ -25953,6 +25972,16 @@ Result<NewPaneRightRequest> Codec<NewPaneRightRequest>::decode(const Json& value
             auto decoded = decode_value<std::vector<std::string>>(*field_shell_args);
             if (!decoded) return std::move(decoded).error();
             result.shell_args = Field<std::vector<std::string>>(std::move(decoded).value());
+        }
+    }
+    const Json* field_side = value.find("side");
+    if (field_side) {
+        if (field_side->is_null()) {
+            result.side = Field<ColumnSide>::null();
+        } else {
+            auto decoded = decode_value<ColumnSide>(*field_side);
+            if (!decoded) return std::move(decoded).error();
+            result.side = Field<ColumnSide>(std::move(decoded).value());
         }
     }
     const Json* field_tab_id = value.find("tab_id");
@@ -41915,13 +41944,14 @@ constexpr std::array<CommandFieldRequirement, 7> kCommand169FieldRequirements{{
     {"tab_id", 12U, "split-client-keys-v1"},
     {"terminal_id", 12U, "terminal-placement-env-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 9> kCommand170FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 10> kCommand170FieldRequirements{{
     {"cwd", 12U, "terminal-placement-env-v1"},
     {"env", 12U, "terminal-placement-env-v1"},
     {"keep", 12U, "terminal-reap-v1"},
     {"kind", 12U, "pane-browser-kind-v1"},
     {"pane_id", 12U, "split-client-keys-v1"},
     {"shell_args", 12U, "terminal-shell-args-v1"},
+    {"side", 12U, "column-left-v1"},
     {"tab_id", 12U, "split-client-keys-v1"},
     {"terminal_id", 12U, "terminal-placement-env-v1"},
     {"url", 12U, "pane-browser-kind-v1"},

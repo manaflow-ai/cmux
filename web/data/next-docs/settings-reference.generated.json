@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 517,
+  "count": 523,
   "sections": [
     {
       "id": "general",
@@ -170,6 +170,20 @@
             "fullAccess",
             "standard",
             "ask"
+          ]
+        },
+        {
+          "key": "agents.modelRouter.model",
+          "title": "cmux Model Router Model",
+          "help": "The model a new chat on the cmux model router starts on. A model you pick in a chat applies to that chat only.",
+          "kind": "choice",
+          "default": "deepseek/deepseek-v4.1-flash-1017",
+          "group": "Agent Chat",
+          "values": [
+            "deepseek/deepseek-v4.1-flash-1017",
+            "deepseek/deepseek-v4.1-flash",
+            "deepseek/deepseek-v4-flash",
+            "deepseek/deepseek-v4-pro"
           ]
         },
         {
@@ -519,7 +533,7 @@
           "title": "Fixed Column Width",
           "help": "A share of the window width, for Fixed Width new columns.",
           "kind": "number",
-          "default": 0.5,
+          "default": 0.6666666666666666,
           "group": "Columns",
           "range": {
             "min": 0.1,
@@ -630,7 +644,7 @@
           "title": "New Column Sizing",
           "help": "",
           "kind": "choice",
-          "default": "matchCurrent",
+          "default": "fixed",
           "group": "Columns",
           "values": [
             "matchCurrent",
@@ -649,6 +663,14 @@
             "tab",
             "split"
           ]
+        },
+        {
+          "key": "layout.pagesHandleCommandScroll",
+          "title": "Web Pages Get Command + Scroll First",
+          "help": "A web page that uses Command + Scroll itself, such as Figma or Excalidraw zooming, keeps it. Over any other page, Command + Scroll moves columns. Off, Command + Scroll always moves columns.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Columns"
         },
         {
           "key": "layout.rows",
@@ -995,7 +1017,7 @@
         {
           "key": "tabs.barPosition",
           "title": "Tab Bar Position",
-          "help": "Where each pane's tab bar sits. Bottom also shows the standard title bar, so the window buttons never cover a pane.",
+          "help": "Where each pane's tab bar sits. At the bottom, the panes reach the top of the window; the window buttons never cover a pane.",
           "kind": "choice",
           "default": "top",
           "group": "Tabs",
@@ -1432,7 +1454,7 @@
         {
           "key": "workspaces.newPlacement",
           "title": "New Workspace Position",
-          "help": "Where Cmd-N, the + button and the CLI put a new workspace in the sidebar. Pinned workspaces stay above it.",
+          "help": "Where Cmd-N, the + button and the CLI put a new workspace in the sidebar. A workspace made in a group goes to the same place inside that group. Pinned workspaces stay above it.",
           "kind": "choice",
           "default": "top",
           "group": "Sidebar",
@@ -4990,6 +5012,38 @@
           "kind": "toggle",
           "default": false,
           "group": "Attachments"
+        },
+        {
+          "key": "home.bubbleColors.received",
+          "title": "Their Bubble Color",
+          "help": "Every chat starts with these colors. Right-click a chat and choose Chat Colors to set its own. Unset text colors are picked to stay readable.",
+          "kind": "color",
+          "default": null,
+          "group": "Chief Chat"
+        },
+        {
+          "key": "home.bubbleColors.receivedText",
+          "title": "Their Text Color",
+          "help": "Every chat starts with these colors. Right-click a chat and choose Chat Colors to set its own. Unset text colors are picked to stay readable.",
+          "kind": "color",
+          "default": null,
+          "group": "Chief Chat"
+        },
+        {
+          "key": "home.bubbleColors.sent",
+          "title": "My Bubble Color",
+          "help": "Every chat starts with these colors. Right-click a chat and choose Chat Colors to set its own. Unset text colors are picked to stay readable.",
+          "kind": "color",
+          "default": null,
+          "group": "Chief Chat"
+        },
+        {
+          "key": "home.bubbleColors.sentText",
+          "title": "My Text Color",
+          "help": "Every chat starts with these colors. Right-click a chat and choose Chat Colors to set its own. Unset text colors are picked to stay readable.",
+          "kind": "color",
+          "default": null,
+          "group": "Chief Chat"
         },
         {
           "key": "home.channelsEnabled",

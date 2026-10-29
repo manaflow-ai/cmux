@@ -881,7 +881,12 @@ final class RowBitmaps {
     static let shared = RowBitmaps()
     /// `space`: the colour space the bitmap is drawn in (WideBitmap.drawSpace; AppKit: the window's display space,
     /// process-wide). Bitmaps of another display stay cached for a move back (cx-3cb scale-redraw).
-    struct Key: Hashable { var spec: RowSpec; var scale: CGFloat; var space: CGColorSpace? = WideBitmap.drawSpace }
+    /// cmux: `palette`, the palette generation the bitmap is drawn in (a view's Chat Colors, PaletteScope): two chats
+    /// with different colours keep separate bitmaps of rows that are otherwise equal.
+    struct Key: Hashable {
+        var spec: RowSpec; var scale: CGFloat; var space: CGColorSpace? = WideBitmap.drawSpace
+        var palette: Int = Fixture.paletteGeneration
+    }
     private var cache: [Key: CGImage] = [:]
     private var order: [Key] = []
     private var waiters: [Key: [(CGImage) -> Void]] = [:]
@@ -900,11 +905,12 @@ final class RowBitmaps {
     /// (RowDraw.widthInvariant), so a divider drag or live resize shows the bitmap drawn at the
     /// previous width instead of drawing the same pixels again (the visible rows' bitmaps were
     /// about 6 % of main in a divider drag).
-    static func key(_ spec: RowSpec, scale: CGFloat = Fixture.renderScale, space: CGColorSpace? = WideBitmap.drawSpace) -> Key {
-        guard !TiledBubble.applies(spec), RowDraw.widthInvariant(spec) else { return Key(spec: spec, scale: scale, space: space) }
+    static func key(_ spec: RowSpec, scale: CGFloat = Fixture.renderScale, space: CGColorSpace? = WideBitmap.drawSpace,
+                    palette: Int = Fixture.paletteGeneration) -> Key {
+        guard !TiledBubble.applies(spec), RowDraw.widthInvariant(spec) else { return Key(spec: spec, scale: scale, space: space, palette: palette) }
         var k = spec
         k.width = 0
-        return Key(spec: k, scale: scale, space: space)
+        return Key(spec: k, scale: scale, space: space, palette: palette)
     }
     func image(for spec: RowSpec, scale: CGFloat = Fixture.renderScale) -> CGImage? { cache.value(for: RowBitmaps.key(spec, scale: scale)) } // dictionary read
     func has(_ spec: RowSpec, scale: CGFloat = Fixture.renderScale) -> Bool {
@@ -921,16 +927,18 @@ final class RowBitmaps {
         if waiters[w] != nil { if let done { waiters[w]?.append(done) }; return } // no force unwrap
         waiters[w] = done.map { [$0] } ?? []
         let gen = Fixture.paletteGeneration
+        // cmux: the asking view's palette goes with the job (a task local does not follow the queue).
+        let box = PaletteScope.current
         // Newest first: older pending renders drop a priority step (a fling's rows that left
         // the screen render after the rows now on it).
         for op in queue.operations where !op.isExecuting {
             switch op.queuePriority { case .veryHigh: op.queuePriority = .high; case .high: op.queuePriority = .normal
             case .normal: op.queuePriority = .low; default: op.queuePriority = .veryLow }
         }
-        enqueue(w, gen, prefetch: done == nil)
+        enqueue(w, gen, box, prefetch: done == nil)
     }
 
-    private func enqueue(_ w: Key, _ gen: Int, prefetch: Bool) {
+    private func enqueue(_ w: Key, _ gen: Int, _ box: PaletteBox?, prefetch: Bool) {
         let asked = CACurrentMediaTime()
         let spec = w.spec
         let op = BlockOperation {
@@ -940,18 +948,18 @@ final class RowBitmaps {
                 DispatchQueue.main.async {
                     RowBitmaps.skipped += 1
                     // A cell may have asked again meanwhile: render for it, else forget the waiters.
-                    if self.isWanted(spec), self.waiters[w] != nil { self.enqueue(w, gen, prefetch: false) }
+                    if self.isWanted(spec), self.waiters[w] != nil { self.enqueue(w, gen, box, prefetch: false) }
                     else { self.waiters[w] = nil }
                 }
                 return
             }
             // a bitmap that could not be allocated is not delivered; the waiters are dropped
             // and the row shows no bitmap (BitmapFailure logged it).
-            guard let img = RowBitmaps.render(spec, scale: w.scale) else {
+            guard let img = PaletteScope.with(box, { RowBitmaps.render(spec, scale: w.scale) }) else {
                 DispatchQueue.main.async { self.waiters[w] = nil }
                 return
             }
-            self.deliver(w, img, gen)
+            self.deliver(w, img, gen, box)
         }
         op.queuePriority = .veryHigh
         queue.addOperation(op)
@@ -972,11 +980,11 @@ final class RowBitmaps {
     /// Finished bitmaps reach the main thread in batches: one main-queue
     /// block applies everything rendered since the last one.
     private let pendingLock = NSLock()
-    private var pending: [(Key, CGImage, Int)] = []
-    private func deliver(_ w: Key, _ img: CGImage, _ gen: Int) {
+    private var pending: [(Key, CGImage, Int, PaletteBox?)] = []
+    private func deliver(_ w: Key, _ img: CGImage, _ gen: Int, _ box: PaletteBox?) {
         pendingLock.lock()
         let first = pending.isEmpty
-        pending.append((w, img, gen))
+        pending.append((w, img, gen, box))
         pendingLock.unlock()
         guard first else { return }
         DispatchQueue.main.async {
@@ -994,7 +1002,7 @@ final class RowBitmaps {
     /// holds them during each page slide, so rows slide in without text and the bench's empty-row
     /// check must find them.
     static var testHold = false
-    private var held: [(Key, CGImage, Int)] = []
+    private var held: [(Key, CGImage, Int, PaletteBox?)] = []
     func releaseHeld() {
         guard !held.isEmpty else { return }
         let batch = held
@@ -1002,24 +1010,26 @@ final class RowBitmaps {
         apply(batch)
     }
 
-    private func apply(_ batch: [(Key, CGImage, Int)]) {
-        for (w, img, gen) in batch {
+    private func apply(_ batch: [(Key, CGImage, Int, PaletteBox?)]) {
+        for (w, img, gen, box) in batch {
             // Rendered with an older palette, or asked in another colour space than the current one (a display change
-            // since the request): drop it and render again (in the current space).
-            guard gen == Fixture.paletteGeneration, w.space == WideBitmap.drawSpace else {
+            // since the request): drop it and render again (in the current space). cmux: in the asking view's palette.
+            guard Fixture.generationIsLive(gen), w.space == WideBitmap.drawSpace else {
                 let ws = waiters.removeValue(forKey: w) ?? []
-                for d in ws { request(w.spec, scale: w.scale, d) }
-                if ws.isEmpty { request(w.spec, scale: w.scale) }
+                PaletteScope.with(box) {
+                    for d in ws { request(w.spec, scale: w.scale, d) }
+                    if ws.isEmpty { request(w.spec, scale: w.scale) }
+                }
                 continue
             }
-            store(w.spec, img, scale: w.scale, space: w.space)
+            store(w.spec, img, scale: w.scale, space: w.space, palette: w.palette)
             waiters.removeValue(forKey: w)?.forEach { $0(img) }
         }
     }
 
-    private func store(_ s: RowSpec, _ img: CGImage, scale: CGFloat, space: CGColorSpace?) {
+    private func store(_ s: RowSpec, _ img: CGImage, scale: CGFloat, space: CGColorSpace?, palette: Int) {
         if TiledBubble.applies(s) { return }
-        let spec = RowBitmaps.key(s, scale: scale, space: space)
+        let spec = RowBitmaps.key(s, scale: scale, space: space, palette: palette)
         if let old = cache[spec] { bytes -= old.bytesPerRow * old.height } else { order.append(spec) }
         cache.updateValue(img, forKey: spec) // dictionary write
         bytes += img.bytesPerRow * img.height
@@ -1057,8 +1067,8 @@ final class RowBitmaps {
     /// drawn at (off main, before this call); a palette or colour space change since drops them (they are drawn again
     /// when asked).
     func insert(_ items: [(RowSpec, CGImage)], scale: CGFloat = Fixture.renderScale, generation: Int = Fixture.paletteGeneration) {
-        guard generation == Fixture.paletteGeneration else { return }
-        items.forEach { store($0.0, $0.1, scale: scale, space: WideBitmap.drawSpace) }
+        guard Fixture.generationIsLive(generation) else { return }
+        items.forEach { store($0.0, $0.1, scale: scale, space: WideBitmap.drawSpace, palette: generation) }
     }
 
     /// Test hook (`--scroller-control`): no bitmaps rendered ahead (pager prerender, scroll
