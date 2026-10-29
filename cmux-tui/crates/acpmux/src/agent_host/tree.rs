@@ -184,16 +184,19 @@ pub fn identity(pid: u32) -> Option<Identity> {
 /// NUL-terminated words. `None` when it is cut short or a word is not UTF-8.
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 fn procargs2_argv(data: &[u8]) -> Option<Vec<String>> {
-    let argc = usize::try_from(i32::from_ne_bytes(data.get(..4)?.try_into().ok()?)).ok()?;
-    let rest = &data[4..];
+    let (count, rest) = data.split_first_chunk::<4>()?;
+    let argc = usize::try_from(i32::from_ne_bytes(*count)).ok()?;
+    // The exec path, then the NULs that pad it, then the argv words.
     let path_end = rest.iter().position(|b| *b == 0)?;
-    let start = path_end + rest[path_end..].iter().position(|b| *b != 0)?;
-    let mut words = Vec::with_capacity(argc);
-    let mut at = &rest[start..];
+    let after_path = rest.get(path_end..)?;
+    let start = after_path.iter().position(|b| *b != 0)?;
+    let mut at = after_path.get(start..)?;
+    let mut words = Vec::with_capacity(argc.min(4096));
     for _ in 0..argc {
         let end = at.iter().position(|b| *b == 0)?;
-        words.push(String::from_utf8(at[..end].to_vec()).ok()?);
-        at = &at[end + 1..];
+        let (word, rest) = at.split_at_checked(end)?;
+        words.push(String::from_utf8(word.to_vec()).ok()?);
+        at = rest.get(1..)?;
     }
     Some(words)
 }

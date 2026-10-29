@@ -188,8 +188,12 @@ fn shebang(script: &Path, path: &str) -> Option<String> {
     use std::io::Read;
     let mut head = [0u8; 256];
     let n = std::fs::File::open(script).ok()?.read(&mut head).ok()?;
-    let line = head[..n].strip_prefix(b"#!")?;
-    let line = std::str::from_utf8(&line[..line.iter().position(|b| *b == b'\n')?]).ok()?;
+    let line = head.get(..n)?.strip_prefix(b"#!")?;
+    let line = std::str::from_utf8(line.split(|b| *b == b'\n').next()?).ok()?;
+    // A `#!` line longer than the read has no newline in it: not one this census reads.
+    if !head.get(..n)?.contains(&b'\n') {
+        return None;
+    }
     let mut words = line.split_whitespace();
     let program = words.next()?;
     if Path::new(program).file_name().is_some_and(|n| n == "env") {
@@ -210,12 +214,16 @@ fn from_launch(family: &str, launch: &crate::agent::Launch) -> Vec<Sidecar> {
     let Some(home) = env("HOME") else { return out };
     let cwd = &launch.cwd;
     if family == "claude" {
-        for pair in launch.args.windows(2).filter(|w| w[0] == "--mcp-config") {
-            match serde_json::from_str::<Value>(&pair[1]) {
+        for pair in launch.args.windows(2) {
+            let [flag, value] = pair else { continue };
+            if flag != "--mcp-config" {
+                continue;
+            }
+            match serde_json::from_str::<Value>(value) {
                 Ok(inline) if inline.is_object() => out.extend(from_json(inline.get("mcpServers"))),
                 // A file, relative to the harness's folder.
                 _ => {
-                    let file = read_json(&cwd.join(&pair[1]));
+                    let file = read_json(&cwd.join(value));
                     out.extend(from_json(file.as_ref().and_then(|j| j.get("mcpServers"))));
                 }
             }
@@ -377,7 +385,7 @@ fn runs(who: &crate::agent_host::tree::Identity, s: &Sidecar) -> bool {
         [first, second, ..] if runs_script(first, second) => 2,
         _ => return false,
     };
-    who.argv[at..] == s.args[..]
+    who.argv.get(at..) == Some(s.args.as_slice())
 }
 
 /// `Busy` with the first process that is neither a server (a child of `leader` whose identity,

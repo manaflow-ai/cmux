@@ -33,6 +33,50 @@ PATH containing acpmux and the installed harness. `host doctor` checks
 `target/release` is not enough for that check. For SSH peering, harness login
 and remote project access, follow [Remote agents and cmux Cloud](../../../docs/remote-agents-and-cloud.md).
 
+## Labs: static userspace WireGuard
+
+`transport.wireguard` defaults to false. When enabled, acpmux carries its peer
+WebSocket streams over one userspace WireGuard UDP socket, using boringtun and
+smoltcp. It needs no root access, TUN device or system routes. The existing
+listener token, peer token, and permission rules still apply; a WireGuard key
+alone does not grant access to sessions or app-only operations.
+
+Configure each side in its private `config.json`, with different node keys and
+virtual addresses. The endpoint is the other machine's UDP address; `address`
+is its virtual service address, used only inside acpmux:
+
+```json
+{
+  "transport": {
+    "wireguard": true,
+    "wireguardStatic": {"listen": "0.0.0.0:51820", "address": "10.77.0.1:4100"}
+  },
+  "peers": {
+    "workstation": {
+      "url": "ssh://workstation",
+      "token": "<existing remote listener token>",
+      "peerToken": "<existing remote peer token>",
+      "wireguard": {
+        "publicKey": "<remote standard padded base64 public key>",
+        "endpoint": "203.0.113.2:51820",
+        "address": "10.77.0.2:4100"
+      }
+    }
+  }
+}
+```
+
+The key helper owns `~/.acpmux/node.wg.key`; status reports only `node.wgPublicKey`.
+Provision application credentials through the existing authorized path. The peer
+token changes when its daemon starts. Direct WireGuard is tried before the saved
+peer URL when a listener credential is configured; that URL remains the fallback.
+
+This first Labs version reads the Labs flag, interface and peer routes at daemon
+startup. Changes, including disabling the transport or removing an allowed key,
+require a daemon restart. Its WebSocket listener must bind loopback or a
+wildcard address, and each endpoint must resolve to the UDP listener's address
+family. Discovery, hole punching and relays are separate components.
+
 ## Quick start
 
 ```sh
@@ -158,7 +202,7 @@ Five everyday commands, three groups for the rest:
 | --- | --- |
 | `acpmux` | Open the TUI. Starts the daemon if needed. |
 | `new [-m harness[/model]] [-n name] [--cwd dir] [--policy p] [prompt]` | Create a session. Opens the TUI unless `-d`. |
-| `send NAME "text" [--steer\|--no-steer] [--no-wait] [-q]` | Prompt and stream the reply. With `--no-wait` it hands the message to this daemon and returns at once with a delivery id, for a session here or on a peer ([the outbox](#messages-to-other-sessions-the-outbox)); it steers into a running turn by default (read at the agent's next tool boundary, never stopping it) and queues when the agent does not steer. An agent's send steers by default even when it waits for the reply, and then prints the reply of the turn it went into; the person's waiting send queues unless given `--steer`, and `--no-steer` queues any send. `--supersede KEY` replaces the sender's own prompt still queued under KEY (never one whose turn started); with `--no-wait` it prints `replaced N queued` once delivered (`?` from a daemon that predates it) and `--json` adds `replaced` and `replacedPromptIds`. The sender is the agent (`--from`, or the session `send` runs in) or, for anything else, the person. `--attach FILE` (repeatable) sends files with it, to a peer's session too: an image (its type read from its bytes) reaches the agent and the transcript as an image, any other file as a link to its copy, saved owner-only under the session's `uploads` on the host that runs it. Any size and number: small files ride in the message, and the rest are uploaded to the session first, in chunks, and named by reference (an image too large to show inline reaches the agent by its path). |
+| `send NAME "text" [--steer\|--no-steer] [--no-wait] [-q]` | Prompt and stream the reply. With `--no-wait` it hands the message to this daemon and returns at once with a delivery id, for a session here or on a peer ([the outbox](#messages-to-other-sessions-the-outbox)); it steers into a running turn by default (read at the agent's next tool boundary, never stopping it) and queues when the agent does not steer. An agent's send steers by default even when it waits for the reply, and then prints the reply of the turn it went into; the person's waiting send queues unless given `--steer`, and `--no-steer` queues any send. `--supersede KEY` replaces the sender's own prompt still queued under KEY (never one whose turn started); with `--no-wait` it prints `replaced N queued` once delivered (`?` from a daemon that predates it) and `--json` adds `replaced` and `replacedPromptIds`. `--class block\|question\|result\|fyi` says what an agent's message asks of the receiver (a block: you cannot go on until it acts; a question: you wait for its answer; a result: work you finished, the default; an FYI): it is kept on the queued message and shown in its queue row as `class`. The sender is the agent (`--from`, or the session `send` runs in) or, for anything else, the person. `--attach FILE` (repeatable) sends files with it, to a peer's session too: an image (its type read from its bytes) reaches the agent and the transcript as an image, any other file as a link to its copy, saved owner-only under the session's `uploads` on the host that runs it. Any size and number: small files ride in the message, and the rest are uploaded to the session first, in chunks, and named by reference (an image too large to show inline reaches the agent by its path). |
 | `send --status ID` | A `--no-wait` delivery's state: `queued`, `delivering` (attempt n), `delivered` (the target's turn, steered or queued), `held` (a paused agent pair holds it until the person resumes the pair) or `failed` (the last error). |
 | `ls` | Sessions on every host, as `host/name` for remote ones. |
 | `attach [NAME] [--plain]` | TUI on one session, or a plain text stream. |
@@ -175,6 +219,47 @@ The older flat spellings (`acpmux kill NAME`, `acpmux peer add …`, `acpmux sta
 work but are hidden from help.
 
 `--json` on any command prints the raw response.
+
+Session controls work across configured peers without a shell on the target host:
+
+```sh
+acpmux new --host worker -m codex -n review -d
+acpmux resolve worker/review
+acpmux session resume worker/review  # release held queued prompts
+acpmux retry worker/review           # retry its failed last turn
+acpmux session cancel worker/review  # cancel its running turn
+acpmux session stop worker/review    # stop its agent; keep the session
+```
+
+Use the stable `sessionId` from `resolve`, a unique name or prefix, or `HOST/NAME`.
+Resume, retry, cancel and stop refuse ambiguous matches, including a local and remote
+session with the same name, and list qualified IDs to select from. Once resolved, a control
+keeps the owning peer and session ID even if another host has a copy of that session.
+The target daemon decides which start policy and controls the caller may use; a peer link
+does not grant app-only permissions.
+
+With the mesh relay configured, lifecycle commands can reach hosts without a peer link:
+
+```sh
+acpmux session start review --host worker -m codex --policy ask --cwd /workspace
+acpmux session resume worker/review --mesh
+acpmux session stop SESSION_ID --mesh --id
+acpmux session receipt MESSAGE_ID
+```
+
+These commands print a queued receipt; only a `delivered` receipt means the target finished
+the operation. `receipt` reads once. Reuse the printed `--idempotency-key` after an uncertain
+enqueue. Mesh names must match uniquely; UUIDs are treated as stable session IDs, and `--id`
+selects any other exact ID. Stop preserves the stored session; resume releases held prompts.
+The local daemon sends through its configured relay client and keeps its token out of the CLI.
+Remote connections cannot borrow this daemon's identity to enqueue controls.
+
+Control reception is off unless the target machine's owner adds a hub-stamped sender daemon
+ID to `meshRelay.controlFrom` in its own `config.json`, for example
+`[{"daemonId":"inst_example","ops":["start","resume","stop"]}]`. Omitting `ops` allows those
+three operations; an empty list allows none. Claimed names, hosts and session IDs confer no
+authority. An allowed sender still follows the target daemon's existing peer and start-policy
+rules, including app-only permission checks.
 
 ## Orchestrating agents from scripts
 
@@ -218,6 +303,8 @@ acpmux session rules NAME '{"autoDeny": ["rm -rf"], "ask": ["execute"], "default
 acpmux session limits NAME [--max N | --clear]                 # sub-sessions running at once (more wait), running and queued now
 acpmux session tag NAME task=review --ttl 3600; acpmux ls --tag task=review
 acpmux ls --status running | --pending                        # filters; --json for the full records
+acpmux ls --limit 20 --fields name,harness,model,status,cwd   # newest sessions, selected fields
+acpmux ls --since 24h --limit 100 --json                     # sessions changed in the last day
 acpmux session tail NAME --since <sessionId>:<seq> --follow   # raw events as JSON lines; a cursor past the log is exit 2
 acpmux compare -m claude -m codex/gpt-5.5 "prompt"                    # one temporary session per harness, run one after another
 acpmux guide                                                  # the agent guide (also --guide, --skill); acpmux daemon schema prints the RPC surface
@@ -955,15 +1042,27 @@ everywhere. Peers are saved in `config.json` under `peers`.
 
 ### GitHub on an added machine
 
-A machine can use the Mac's `gh` login without one of its own (`src/github_broker.rs`). An agent
-session there asks its daemon over the unix socket for `_acpmux/github_action` (read a repository
-or a pull request, open an issue, comment on one, open a draft pull request); the daemon sends it
-up the link the Mac opened to it, and the Mac runs one fixed `gh` command and answers with its
-output. No token reaches the machine. The Mac serves only a peer whose saved config has
-`githubBroker: true` (`peer_add` takes it, over the unix socket only); `"githubBroker": false` in
-`config.json` with `acpmux daemon reload` takes it back at once. Each decision is a
-`github_broker_action` event on the agent's session (action, repository, branch, number and
-outcome; never a title, body or output) and a log line on the Mac.
+A machine added with Add Machine needs no `gh auth login`: it uses the Mac's `gh` login
+(`src/github_broker.rs`). An agent there runs `acpmux gh` (`src/cli/gh_shim.rs`) with one of
+`repo view`, `pr view N`, `pr create --draft`, `issue create` and `issue comment N`, each with only
+its own flags (`--repo` defaults to the folder's `origin`); anything else is refused. Its daemon
+asks for `_acpmux/github_action` over the unix socket and sends it up the link the Mac opened to
+it, and the Mac runs one fixed `gh` command and answers with its output. No token reaches the
+machine. The Mac serves only a peer whose saved config has `githubBroker: true`: Add Machine
+(`acpmux host enroll`) adds the person's machine with it, and turns it on for a machine added
+before at its next enroll; `host doctor --fix`, a plain `peer add` without `githubBroker`, a pairing
+and a Cloud lease never do. `"githubBroker": false` in `config.json` with `acpmux daemon reload`
+takes it back at once, and only a new enroll turns it on again. Each decision is a
+`github_broker_action` event on the agent's session (action, repository, branch, number,
+outcome and `source`; never a title, body, output or token) and a log line on the Mac.
+
+When the Mac's `gh` has no keyring login, the Mac uses the cmux GitHub App the person connected
+in Settings instead (`src/github_app_token.rs`). The app lends the daemon its cmux sign-in
+(`_acpmux/github_app_lease`: the app's own unix-socket connection, which proved the person; memory only; sent only to cmux Cloud's API; each call's `seq` only grows, and an older one is refused, so a late lend never undoes a sign-out). For each action the daemon gets a
+token for that one repository from cmux Cloud, runs that one `gh` with it (any `ghs_` token in its output is cut out), and drops it. The keyring check and a keyring action run with no GitHub token from the daemon's env.
+`source` says which login ran (`keyring` or `app`). With neither, the action fails with
+`github.not_connected`: "GitHub is not connected on this Mac: connect GitHub in cmux Settings
+(or sign in with `gh auth login`)".
 
 `acpmux host status` (also the hidden `peer status` alias, with `--json`) is the check to run before remote work
 and after a peer request fails. It asks every connected peer `_acpmux/host_health` at once,
