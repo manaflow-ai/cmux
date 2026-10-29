@@ -88,8 +88,9 @@ struct AttachmentSourceTests {
     @Test func withNoDropOrPasteTheAskAnswersNoSources() async {
         let model = AgentPaneModel(host: NoHost())
         let answer = await model.attachSource(.paste, names: ["image.png", "notes.txt"], apps: Self.apps)
-        #expect((answer["sources"] as? [Any])?.allSatisfy { $0 is NSNull } == true)
-        #expect((answer["sources"] as? [Any])?.count == 2)
+        let sources = (answer["value"] as? [String: Any])?["sources"] as? [Any]
+        #expect(sources?.allSatisfy { $0 is NSNull } == true)
+        #expect(sources?.count == 2)
     }
 
     // MARK: Files

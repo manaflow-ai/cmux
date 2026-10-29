@@ -19,6 +19,8 @@ nonisolated extension AttachmentSource {
     /// Records on `pasteboard`, which cmux just wrote, that cmux wrote it (`org.nspasteboard.source`).
     @MainActor public static func claim(_ pasteboard: NSPasteboard, bundleId: String? = Bundle.main.bundleIdentifier) {
         guard let bundleId, isBundleId(bundleId) else { return }
+        // Declared on the item cmux just wrote first: a type that was never declared is not set.
+        pasteboard.addTypes([pasteboardSourceType], owner: nil)
         pasteboard.setString(bundleId, forType: pasteboardSourceType)
     }
 
