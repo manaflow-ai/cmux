@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "build": "4096000797001",
+  "notes": "notes/4096000797001.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 27572,
+      "title": "fix(agent-chat): Retry's model menu keeps a model's detail inside its row",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
