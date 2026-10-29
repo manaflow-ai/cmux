@@ -702,6 +702,28 @@ struct WindowKeyDownReplayGuardTests {
         )
     }
 
+    @Test(arguments: [false, true])
+    func terminalKeyDownSendsLineEditorUndoOnlyOnMainScreen(alternateScreen: Bool) async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let terminal = try ScrollbackTestTerminal()
+            defer { terminal.close() }
+            try await terminal.launch()
+            if alternateScreen {
+                try terminal.output("\u{1b}[?1049h")
+            }
+            for isRepeat in [false, true] {
+                let event = try #require(makeCommandKeyDownEvent(
+                    charactersIgnoringModifiers: "z", keyCode: UInt16(kVK_ANSI_Z),
+                    isARepeat: isRepeat
+                ))
+                terminal.view.keyDown(with: event)
+            }
+            let bytes = try await terminal.inputBytesBeforeBarrier(orderedManualInput: true)
+            #expect(bytes == (alternateScreen ? Data() : Data([0x1f, 0x1f])),
+                    "Real keyDown must deliver Ctrl+_ exactly once per press/repeat only on the main screen")
+        }
+    }
+
     private func makeCommandKeyDownEvent(
         charactersIgnoringModifiers: String,
         keyCode: UInt16,
