@@ -184,10 +184,11 @@ redrew only after the animation and the daemon echo.
 - M6 (PL-burst): a window's full screen transition holds only its own terminals' grids
   (`Motion.isFullScreenTransitioning(_:)`); `ResizeCoordinator.shared` is removed, `AppServices`
   makes and injects the one coordinator.
-- A3 (PL-script): a hidden or parked terminal's layout changes record the size only; showing it
-  applies the last size once (no `ghostty_surface_set_size` and no PTY resize per hidden change). A
-  terminal that is not shown reports no grid at all, its first forced report included; it reports
-  when shown.
+- A3 (PL-script): a hidden or parked terminal's layout changes do no size work at all (no
+  `ghostty_surface_set_size` and no PTY resize per hidden change), and nothing is queued for later.
+  Its edge to shown reconciles its scale and size from its current window and bounds once
+  (`TerminalSurfaceView.reconcileShown`, felt 1e; principled-audit R2); a new owner is a fact
+  (`TerminalGridPolicy.ownerNeedsReport`), so the view reports at that sizing.
 - A terminal that joins a pane already on a spring (a split's new pane gets its terminal from the
   daemon's echo about 75 ms in) asks the placement for its rest size change
   (`RestingPlacement.restContentSizeChange`) when it is shown and sends that final grid, once

@@ -111,6 +111,9 @@ struct PaneSurfaceStatus {
                 "in_host": .bool(terminal.surfaceInHost),
                 "in_window": .bool(terminal.inWindow),
                 "hidden": .bool(terminal.hidden),
+                // Counts as shown (sizes itself to its bounds), and its visibility nodes up to the root.
+                "shown": .bool(terminal.shown),
+                "node_chain": .array(terminal.nodeChain.map(JSONValue.string)),
                 "view_size": .string("\(Int(terminal.viewSize.width))x\(Int(terminal.viewSize.height))"),
                 "layer_size": .string("\(Int(terminal.layerSize.width))x\(Int(terminal.layerSize.height))"),
                 // The last unpause and the layer's first frame after it (Debug and bench builds; record only).
