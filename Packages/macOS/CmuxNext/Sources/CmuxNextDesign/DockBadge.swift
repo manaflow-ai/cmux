@@ -40,11 +40,16 @@ public final class DockBadge {
     /// The activation policy of `app` each time it changes (`NSRunningApplication` is KVO-observable,
     /// its only change signal), until the stream's consumer stops.
     public static func activationPolicies(of app: NSRunningApplication = .current) -> AsyncStream<NSApplication.ActivationPolicy> {
+        activationPolicies(of: app, keyPath: \.activationPolicy)
+    }
+
+    /// The same KVO bridge accepts a test-owned observable, without changing the process's Dock policy.
+    static func activationPolicies<Object: NSObject>(of app: Object, keyPath: KeyPath<Object, NSApplication.ActivationPolicy>) -> AsyncStream<NSApplication.ActivationPolicy> {
         // Only the newest policy matters: a burst of flips settles on the last.
         AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
             // crash-allow: the token is never mutated; it is only invalidated (thread-safe), once, when the stream ends.
-            nonisolated(unsafe) let token = app.observe(\.activationPolicy, options: [.new]) { app, _ in
-                continuation.yield(app.activationPolicy)
+            nonisolated(unsafe) let token = app.observe(keyPath, options: [.new]) { _, change in
+                if let policy = change.newValue { continuation.yield(policy) }
             }
             continuation.onTermination = { _ in token.invalidate() }
         }
