@@ -1,10 +1,29 @@
 // Common event schema every adapter normalizes into. The UI only knows this.
 export type AgentEvent =
   | { kind: "meta"; model?: string; providerSessionId?: string }
+  /** Stable request lineage. Kept as an event so reconnects and handoffs can
+   * explain which conversation/request was routed without relying on logs. */
+  | {
+      kind: "routing";
+      phase: "started" | "rerouted" | "handoff" | "completed";
+      conversationId: string;
+      requestId: string;
+      attempt: number;
+      parentSessionId?: string;
+      parentConversationId?: string;
+      provider?: string;
+      model?: string;
+      reason?: string;
+      handoffMode?: "native_fork" | "compact_replay";
+      retryAfterMs?: number;
+    }
   | { kind: "options"; options: SessionOption[]; actions?: SessionActions }
   | { kind: "commands"; trigger: CommandTrigger; commands: CommandEntry[] }
   | { kind: "user"; text: string }
+  /** A cmux agent message the agent received (`cmux agent message`). */
+  | { kind: "agent-message"; id: string; from: string; body: string }
   | { kind: "status"; text: string }
+  | { kind: "plan"; entries: AgentPlanEntry[] }
   | { kind: "delta"; text: string } // streaming assistant text
   | { kind: "assistant"; text: string } // full assistant message (non-streaming providers)
   | { kind: "thinking"; text: string } // streaming reasoning text
@@ -12,7 +31,8 @@ export type AgentEvent =
   | { kind: "tool-end"; toolId: string; name?: string; detail?: string; ok?: boolean }
   | { kind: "done"; stats?: string }
   | { kind: "files-changed"; files: ChangedFile[] }
-  | { kind: "error"; message: string };
+  // `prompt`: the prompt a failed send carried, which never reached the agent.
+  | { kind: "error"; message: string; prompt?: string };
 
 export type SessionStatus = "idle" | "running" | "exited" | "error";
 export type OptionKind = "select" | "toggle";
@@ -25,6 +45,8 @@ export interface OptionChoice {
   description?: string;
   disabled?: boolean;
   disabledReason?: string;
+  efforts?: OptionChoice[];
+  defaultEffort?: string;
 }
 
 export interface SessionOption {
@@ -51,6 +73,8 @@ export interface ProviderCapabilities {
 
 export interface SessionActions {
   fork?: boolean;
+  /** User-facing continuation that creates a linked child task. */
+  handoff?: boolean;
 }
 
 export interface ChangedFile {
@@ -60,11 +84,24 @@ export interface ChangedFile {
   status: string;
 }
 
+export type AgentPlanStatus = "pending" | "in_progress" | "completed" | "unknown";
+
+export interface AgentPlanEntry {
+  text: string;
+  status: AgentPlanStatus;
+  priority?: string;
+}
+
 export interface SessionCtx {
   id: string;
   provider: string;
   cwd: string;
   title: string;
+  /** Stable across reconnects; a fork receives a new id and parent metadata. */
+  conversationId?: string;
+  parentSessionId?: string;
+  parentConversationId?: string;
+  startRequestId?: string;
   autoApprove: boolean;
   startOptions: Record<string, OptionValue>;
   seedOptions?: SessionOption[];
@@ -73,6 +110,8 @@ export interface SessionCtx {
   // Adapter-private state (child proc, provider session/thread ids, rpc counters).
   internal: Record<string, unknown>;
   emit(evt: AgentEvent): void;
+  /** Replace replayed transcript history when its source file resets. */
+  resetHistory?(): void;
   setStatus(status: SessionStatus): void;
 }
 

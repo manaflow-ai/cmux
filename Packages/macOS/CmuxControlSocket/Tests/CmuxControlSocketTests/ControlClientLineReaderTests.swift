@@ -1,5 +1,6 @@
-import CmuxControlSocket
+@testable import CmuxControlSocket
 import Darwin
+import Dispatch
 import Foundation
 import os
 import Testing
@@ -7,7 +8,7 @@ import Testing
 /// A connected `socketpair(2)`; the reader consumes `readEnd`. Close-once
 /// tracking matters: tests run in parallel, so double-closing a recycled
 /// descriptor number would corrupt another test's fixture.
-private final class SocketPairFixture {
+private final class SocketPairFixture: @unchecked Sendable {
     let readEnd: Int32
     private var writeEnd: Int32
 
@@ -18,11 +19,28 @@ private final class SocketPairFixture {
         }
         readEnd = fds[0]
         writeEnd = fds[1]
+        // Large enough for every fixture payload (the biggest is ~8.1 KB), so
+        // a test can queue a whole frame and EOF before the reader starts and
+        // never needs a second thread to feed the socket.
+        var bufferSize: Int32 = 64 * 1024
+        let size = socklen_t(MemoryLayout<Int32>.size)
+        _ = setsockopt(writeEnd, SOL_SOCKET, SO_SNDBUF, &bufferSize, size)
+        _ = setsockopt(readEnd, SOL_SOCKET, SO_RCVBUF, &bufferSize, size)
     }
 
     func write(_ bytes: [UInt8]) {
-        bytes.withUnsafeBufferPointer { buffer in
-            _ = Darwin.write(writeEnd, buffer.baseAddress, buffer.count)
+        var offset = 0
+        while offset < bytes.count {
+            let written = bytes.withUnsafeBufferPointer { buffer in
+                Darwin.write(
+                    writeEnd,
+                    buffer.baseAddress?.advanced(by: offset),
+                    buffer.count - offset
+                )
+            }
+            if written < 0, errno == EINTR { continue }
+            precondition(written > 0, "fixture payload must fit the socket buffer")
+            offset += written
         }
     }
 
@@ -34,6 +52,14 @@ private final class SocketPairFixture {
         guard writeEnd >= 0 else { return }
         close(writeEnd)
         writeEnd = -1
+    }
+
+    /// Queues the whole payload and EOF synchronously. Synchronous tests run
+    /// on the fixed-width cooperative pool; blocking one in an untimed
+    /// `poll(2)` on work handed to another thread pool can deadlock the run.
+    func writeAllAndClose(_ text: String) {
+        write(text)
+        closeWriteEnd()
     }
 
     deinit {
@@ -66,6 +92,17 @@ struct ControlClientLineReaderTests {
         #expect(reader.nextLine(shouldContinueReading: { true }) == nil)
     }
 
+    @Test func assemblesMultiByteScalarAcrossPartialReads() throws {
+        let pair = try SocketPairFixture()
+        pair.write([0xE3, 0x81, 0x82, 0x0A]) // "あ" (U+3042) and newline.
+        pair.closeWriteEnd()
+
+        // The reader accepts at most `bufferSize - 1` bytes per read, forcing
+        // the scalar to straddle two read(2) calls.
+        let reader = ControlClientLineReader(socket: pair.readEnd, bufferSize: 3)
+        #expect(reader.nextLine(shouldContinueReading: { true }) == "あ")
+    }
+
     @Test func crlfIsNotALineTerminator() throws {
         let pair = try SocketPairFixture()
         // Legacy quirk, preserved: Swift strings treat "\r\n" as a single
@@ -91,10 +128,20 @@ struct ControlClientLineReaderTests {
         #expect(reader.nextLine(shouldContinueReading: { true }) == "ok")
     }
 
-    @Test func dropsChunkThatIsNotValidUTF8() throws {
+    @Test func dropsLineThatIsNotValidUTF8() throws {
         let pair = try SocketPairFixture()
-        // The legacy loop coalesced an undecodable chunk to "", losing the
-        // whole chunk including its newline.
+        // Malformed input is discarded rather than surfaced as an empty
+        // command, without discarding a valid line that follows it.
+        pair.write([0xFF, 0xFE, 0x0A] + Array("ok\n".utf8))
+        pair.closeWriteEnd()
+
+        let reader = ControlClientLineReader(socket: pair.readEnd)
+        #expect(reader.nextLine(shouldContinueReading: { true }) == "ok")
+        #expect(reader.nextLine(shouldContinueReading: { true }) == nil)
+    }
+
+    @Test func dropsMalformedOnlyLineAtEOF() throws {
+        let pair = try SocketPairFixture()
         pair.write([0xFF, 0xFE, 0x0A])
         pair.closeWriteEnd()
 
@@ -127,6 +174,67 @@ struct ControlClientLineReaderTests {
         // proves the poll is consulted before the blocking read.
         let reader = ControlClientLineReader(socket: pair.readEnd)
         #expect(reader.nextLine(shouldContinueReading: { false }) == nil)
+    }
+
+    @Test func authorizationRevocationStopsIdleReaderWithoutPeerTraffic() throws {
+        let pair = try SocketPairFixture()
+        let revocationSignal = SocketAuthorizationRevocationSignal()
+        let enteredBlockingRead = DispatchSemaphore(value: 0)
+        let finished = DispatchSemaphore(value: 0)
+        let readEnd = pair.readEnd
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            let reader = ControlClientLineReader(
+                socket: readEnd,
+                authorizationRevocationSignal: revocationSignal
+            )
+            _ = reader.nextLine {
+                enteredBlockingRead.signal()
+                return true
+            }
+            finished.signal()
+        }
+
+        #expect(enteredBlockingRead.wait(timeout: .now() + 1.0) == .success)
+        revocationSignal.revoke()
+
+        let stoppedAfterRevocation = finished.wait(timeout: .now() + 1.0)
+        if stoppedAfterRevocation != .success {
+            pair.closeWriteEnd()
+            _ = finished.wait(timeout: .now() + 1.0)
+        }
+        #expect(stoppedAfterRevocation == .success)
+    }
+
+    @Test func configuredReceiveTimeoutStillStopsIdleReader() throws {
+        let pair = try SocketPairFixture()
+        var timeout = timeval(tv_sec: 0, tv_usec: 50_000)
+        let configured = withUnsafePointer(to: &timeout) { pointer in
+            setsockopt(
+                pair.readEnd,
+                SOL_SOCKET,
+                SO_RCVTIMEO,
+                pointer,
+                socklen_t(MemoryLayout<timeval>.size)
+            )
+        }
+        #expect(configured == 0)
+        guard configured == 0 else { return }
+
+        let finished = DispatchSemaphore(value: 0)
+        let readEnd = pair.readEnd
+        DispatchQueue.global(qos: .userInitiated).async {
+            let reader = ControlClientLineReader(socket: readEnd)
+            _ = reader.nextLine(shouldContinueReading: { true })
+            finished.signal()
+        }
+
+        let stoppedAfterTimeout = finished.wait(timeout: .now() + 1.0)
+        if stoppedAfterTimeout != .success {
+            pair.closeWriteEnd()
+            _ = finished.wait(timeout: .now() + 1.0)
+        }
+        #expect(stoppedAfterTimeout == .success)
     }
 
     @Test func discardsTrailingBytesWithoutNewlineAtEOF() throws {
@@ -240,5 +348,367 @@ struct ControlClientLineReaderTests {
         #expect(reader.nextLine(shouldContinueReading: { true }) == "auth")
         reader.clearLimits()
         #expect(reader.nextLine(shouldContinueReading: { true }) == "subsequent-command")
+    }
+
+    @Test func codeRouterHandshakeRejectsOversizedUnterminatedLine() throws {
+        let pair = try SocketPairFixture()
+        pair.writeAllAndClose(
+            #"{"id":1,"method":"coderouter.handoff","params":{"protocolVersion":2},"padding":""#
+                + String(repeating: "x", count: 5_000)
+        )
+
+        let reader = ControlClientLineReader(
+            socket: pair.readEnd,
+            bufferSize: 128,
+            codeRouterHandshakeMaximumBytes: 4_096
+        )
+        #expect(reader.nextLine(shouldContinueReading: { true }) == nil)
+    }
+
+    @Test func defaultReadBufferCannotOvershootCodeRouterCap() throws {
+        let pair = try SocketPairFixture()
+        pair.writeAllAndClose(
+            #"{"id":"coderouter-handoff","method":"coderouter.handoff","params":{"protocolVersion":2},"padding":""#
+                + String(repeating: "x", count: 8_000)
+        )
+        let reader = ControlClientLineReader(
+            socket: pair.readEnd,
+            codeRouterHandshakeMaximumBytes: 4_096
+        )
+        #expect(reader.nextLine(shouldContinueReading: { true }) == nil)
+    }
+
+    @Test func codeRouterRawCapCountsTheNewline() throws {
+        let prefix = #"{"method":"coderouter.handoff","padding":""#
+        let suffix = #""}"#
+
+        let allowedPair = try SocketPairFixture()
+        let allowed = prefix
+            + String(repeating: "x", count: 4_095 - prefix.utf8.count - suffix.utf8.count)
+            + suffix
+        #expect(allowed.utf8.count == 4_095)
+        allowedPair.write(allowed + "\n")
+        let allowedReader = ControlClientLineReader(
+            socket: allowedPair.readEnd,
+            codeRouterHandshakeMaximumBytes: 4_096
+        )
+        #expect(allowedReader.nextLine(shouldContinueReading: { true })
+            == allowed)
+
+        let rejectedPair = try SocketPairFixture()
+        let rejected = allowed + "x"
+        #expect(rejected.utf8.count == 4_096)
+        rejectedPair.write(rejected + "\n")
+        let rejectedReader = ControlClientLineReader(
+            socket: rejectedPair.readEnd,
+            codeRouterHandshakeMaximumBytes: 4_096
+        )
+        #expect(rejectedReader.nextLine(shouldContinueReading: { true }) == nil)
+    }
+
+    @Test func delayedTrailingByteCannotCrossTheRawCap() throws {
+        let prefix = #"{"method":"coderouter.handoff.begin","padding":""#
+        let suffix = #""}"#
+        let line = prefix
+            + String(
+                repeating: "x",
+                count: 4_095 - prefix.utf8.count - suffix.utf8.count
+            )
+            + suffix
+        #expect(line.utf8.count == 4_095)
+
+        let allowedPair = try SocketPairFixture()
+        // The reader's 4095-byte read and the cap clamp split the trailing
+        // byte into its own read even when it is already queued.
+        allowedPair.writeAllAndClose(line + "\n")
+        let allowedReader = ControlClientLineReader(
+            socket: allowedPair.readEnd,
+            codeRouterHandshakeMaximumBytes: 4_096
+        )
+        #expect(allowedReader.nextLine(shouldContinueReading: { true }) == line)
+
+        let rejectedPair = try SocketPairFixture()
+        rejectedPair.writeAllAndClose(line + "x\n")
+        let rejectedReader = ControlClientLineReader(
+            socket: rejectedPair.readEnd,
+            codeRouterHandshakeMaximumBytes: 4_096
+        )
+        #expect(rejectedReader.nextLine(shouldContinueReading: { true }) == nil)
+    }
+
+    @Test func codeRouterHandshakeIsOneShotEvenWhenSecondLineIsBuffered() throws {
+        let pair = try SocketPairFixture()
+        let handoff = #"{"id":1,"method":"coderouter.handoff","params":{"protocolVersion":2}}"#
+        pair.write(handoff + "\nsystem.ping\n")
+        pair.closeWriteEnd()
+
+        let reader = ControlClientLineReader(
+            socket: pair.readEnd,
+            codeRouterHandshakeMaximumBytes: 4_096
+        )
+        #expect(reader.nextLine(shouldContinueReading: { true }) == handoff)
+        #expect(reader.nextLine(shouldContinueReading: { true }) == nil)
+    }
+
+    @Test func codeRouterBeginAllowsOneBoundedCompletionFrame() throws {
+        let pair = try SocketPairFixture()
+        let begin = #"{"id":"coderouter-handoff-begin","method":"coderouter.handoff.begin","params":{"protocolVersion":2}}"#
+        let complete = #"{"id":"coderouter-handoff-complete","method":"coderouter.handoff.complete","params":{"protocolVersion":2,"challenge":"IiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiI"}}"#
+        pair.write(begin + "\n" + complete + "\nsystem.ping\n")
+        pair.closeWriteEnd()
+
+        let reader = ControlClientLineReader(
+            socket: pair.readEnd,
+            codeRouterHandshakeMaximumBytes: 4_096
+        )
+        #expect(reader.nextLine(shouldContinueReading: { true }) == begin)
+        reader.allowCodeRouterHandoffCompletion(timeoutMilliseconds: 2_000)
+        #expect(reader.nextLine(shouldContinueReading: { true }) == complete)
+        #expect(reader.nextLine(shouldContinueReading: { true }) == nil)
+    }
+
+    @Test func guessedCompletionCannotFallThroughToASecondFrame() throws {
+        let pair = try SocketPairFixture()
+        let begin = #"{"id":"coderouter-handoff-begin","method":"coderouter.handoff.begin","params":{"protocolVersion":2}}"#
+        let wrong = #"{"id":"coderouter-handoff-complete","method":"coderouter.handoff.complete","params":{"protocolVersion":2,"challenge":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}}"#
+        let valid = #"{"id":"coderouter-handoff-complete","method":"coderouter.handoff.complete","params":{"protocolVersion":2,"challenge":"IiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiI"}}"#
+        pair.write(begin + "\n" + wrong + "\n" + valid + "\n")
+        pair.closeWriteEnd()
+
+        let reader = ControlClientLineReader(
+            socket: pair.readEnd,
+            codeRouterHandshakeMaximumBytes: 4_096
+        )
+        #expect(reader.nextLine(shouldContinueReading: { true }) == begin)
+        reader.allowCodeRouterHandoffCompletion(timeoutMilliseconds: 2_000)
+        #expect(reader.nextLine(shouldContinueReading: { true }) == wrong)
+        #expect(reader.nextLine(shouldContinueReading: { true }) == nil)
+    }
+
+    @Test func codeRouterCompletionFrameUsesTheRawCap() throws {
+        let pair = try SocketPairFixture()
+        let begin = #"{"id":"coderouter-handoff-begin","method":"coderouter.handoff.begin","params":{"protocolVersion":2}}"#
+        let oversizedComplete = #"{"id":"coderouter-handoff-complete","method":"coderouter.handoff.complete","params":{"protocolVersion":2,"challenge":"IiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiI"},"padding":""#
+            + String(repeating: "x", count: 5_000)
+        pair.writeAllAndClose(begin + "\n" + oversizedComplete)
+
+        let reader = ControlClientLineReader(
+            socket: pair.readEnd,
+            bufferSize: 128,
+            codeRouterHandshakeMaximumBytes: 4_096
+        )
+        #expect(reader.nextLine(shouldContinueReading: { true }) == begin)
+        reader.allowCodeRouterHandoffCompletion(timeoutMilliseconds: 2_000)
+        #expect(reader.nextLine(shouldContinueReading: { true }) == nil)
+    }
+
+    @Test func codeRouterCompletionUsesOneAbsoluteDeadline() throws {
+        let pair = try SocketPairFixture()
+        let begin = #"{"id":"coderouter-handoff-begin","method":"coderouter.handoff.begin","params":{"protocolVersion":2}}"#
+        let complete = #"{"id":"coderouter-handoff-complete","method":"coderouter.handoff.complete","params":{"protocolVersion":2,"challenge":"IiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiI"}}"#
+        pair.write(begin + "\n" + complete + "\n")
+        let now = OSAllocatedUnfairLock(initialState: UInt64(1_000_000))
+
+        let reader = ControlClientLineReader(
+            socket: pair.readEnd,
+            monotonicNowNanoseconds: { now.withLock { $0 } },
+            codeRouterHandshakeMaximumBytes: 4_096
+        )
+        #expect(reader.nextLine(shouldContinueReading: { true }) == begin)
+        reader.allowCodeRouterHandoffCompletion(timeoutMilliseconds: 2_000)
+        now.withLock { $0 = 2_001_000_000 }
+        #expect(reader.nextLine(shouldContinueReading: { true }) == nil)
+    }
+
+    @Test func codeRouterCapAppliesAfterPasswordLoginLine() throws {
+        let pair = try SocketPairFixture()
+        let login = #"{"id":"login","method":"auth.login","params":{"password":"p"}}"#
+        let oversizedArm = #"{"id":"coderouter-handoff-arm","method":"coderouter.handoff.arm","params":{"protocolVersion":2},"padding":""#
+            + String(repeating: "x", count: 5_000)
+        pair.writeAllAndClose(login + "\n" + oversizedArm)
+
+        let reader = ControlClientLineReader(
+            socket: pair.readEnd,
+            bufferSize: 128,
+            codeRouterHandshakeMaximumBytes: 4_096
+        )
+        #expect(reader.nextLine(shouldContinueReading: { true }) == login)
+        #expect(reader.nextLine(shouldContinueReading: { true }) == nil)
+    }
+
+    @Test func routeRecognizerDoesNotShrinkOrdinaryV2PayloadLimit() throws {
+        let pair = try SocketPairFixture()
+        let ordinary = #"{"id":1,"method":"feed.push","params":{"body":""#
+            + String(repeating: "x", count: 5_000) + #""}}"#
+        pair.write(ordinary + "\n")
+        pair.closeWriteEnd()
+
+        let reader = ControlClientLineReader(
+            socket: pair.readEnd,
+            codeRouterHandshakeMaximumBytes: 4_096
+        )
+        #expect(reader.nextLine(shouldContinueReading: { true }) == ordinary)
+    }
+
+    @Test func methodTextInsideAValueCannotDisableCodeRouterCap() throws {
+        let pair = try SocketPairFixture()
+        let handoff = #"{"id":"coderouter-handoff","padding":"\"method\":\"feed.push\"","method":"coderouter.handoff","params":{"protocolVersion":2},"tail":""#
+            + String(repeating: "x", count: 5_000)
+        pair.writeAllAndClose(handoff)
+
+        let reader = ControlClientLineReader(
+            socket: pair.readEnd,
+            bufferSize: 128,
+            codeRouterHandshakeMaximumBytes: 4_096
+        )
+        #expect(reader.nextLine(shouldContinueReading: { true }) == nil)
+    }
+
+    @Test func bufferedLaterHandoffDoesNotChangeCurrentLineClassification() throws {
+        let pair = try SocketPairFixture()
+        let ordinary = #"{"id":1,"method":"feed.push","params":{}}"#
+        let oversizedHandoff = #"{"id":"coderouter-handoff","method":"coderouter.handoff","params":{"protocolVersion":2},"padding":""#
+            + String(repeating: "x", count: 5_000)
+        pair.writeAllAndClose(ordinary + "\n" + oversizedHandoff)
+
+        let reader = ControlClientLineReader(
+            socket: pair.readEnd,
+            bufferSize: 8_192,
+            codeRouterHandshakeMaximumBytes: 4_096
+        )
+        #expect(reader.nextLine(shouldContinueReading: { true }) == ordinary)
+        #expect(reader.nextLine(shouldContinueReading: { true }) == nil)
+    }
+
+    @Test func escapedMethodKeyFailsClosedAtCodeRouterCap() throws {
+        let pair = try SocketPairFixture()
+        let handoff = #"{"id":"coderouter-handoff","meth\u006fd":"coderouter.handoff","params":{"protocolVersion":2},"padding":""#
+            + String(repeating: "x", count: 5_000)
+        pair.writeAllAndClose(handoff)
+
+        let reader = ControlClientLineReader(
+            socket: pair.readEnd,
+            bufferSize: 128,
+            codeRouterHandshakeMaximumBytes: 4_096
+        )
+        #expect(reader.nextLine(shouldContinueReading: { true }) == nil)
+    }
+
+    @Test func duplicateMethodWithCodeRouterRouteStaysCapped() throws {
+        let pair = try SocketPairFixture()
+        let ambiguous = #"{"id":"coderouter-handoff","method":"feed.push","method":"coderouter.handoff","params":{"protocolVersion":2},"padding":""#
+            + String(repeating: "x", count: 5_000)
+        pair.writeAllAndClose(ambiguous)
+
+        let reader = ControlClientLineReader(
+            socket: pair.readEnd,
+            bufferSize: 128,
+            codeRouterHandshakeMaximumBytes: 4_096
+        )
+        #expect(reader.nextLine(shouldContinueReading: { true }) == nil)
+    }
+
+    @Test func duplicateCodeRouterMethodAfterTheCapIsRejectedBeforeAppend() throws {
+        let pair = try SocketPairFixture()
+        let ambiguous = #"{"id":1,"method":"feed.push","params":{"body":""#
+            + String(repeating: "x", count: 4_200)
+            + #""},"method":"coderouter.handoff"}"#
+        #expect(ambiguous.range(of: "coderouter.handoff")?.lowerBound
+            .utf16Offset(in: ambiguous) ?? 0 > 4_096)
+        pair.writeAllAndClose(ambiguous)
+
+        let reader = ControlClientLineReader(
+            socket: pair.readEnd,
+            codeRouterHandshakeMaximumBytes: 4_096
+        )
+        #expect(reader.nextLine(shouldContinueReading: { true }) == nil)
+    }
+
+    @Test func escapedDuplicateMethodAfterTheCapIsRejectedBeforeAppend() throws {
+        let pair = try SocketPairFixture()
+        let ambiguous = #"{"id":1,"method":"feed.push","params":{"body":""#
+            + String(repeating: "x", count: 4_200)
+            + #""},"method":"coderouter\u002ehandoff.complete"}"#
+        pair.writeAllAndClose(ambiguous)
+
+        let reader = ControlClientLineReader(
+            socket: pair.readEnd,
+            codeRouterHandshakeMaximumBytes: 4_096
+        )
+        #expect(reader.nextLine(shouldContinueReading: { true }) == nil)
+    }
+
+    @Test func methodTextInsideLargeOrdinaryValueRemainsAllowed() throws {
+        let pair = try SocketPairFixture()
+        let ordinary = #"{"id":1,"method":"feed.push","params":{"body":""#
+            + String(repeating: "x", count: 4_200)
+            + #"\"method\":\"coderouter.handoff.complete\""}}"#
+        pair.writeAllAndClose(ordinary + "\n")
+
+        let reader = ControlClientLineReader(
+            socket: pair.readEnd,
+            codeRouterHandshakeMaximumBytes: 4_096
+        )
+        #expect(reader.nextLine(shouldContinueReading: { true }) == ordinary)
+    }
+
+    @Test func trimmedCodeRouterMethodStaysCappedBeforeStrictRejection() throws {
+        let pair = try SocketPairFixture()
+        let ambiguous = #"{"id":"coderouter-handoff","method":" coderouter.handoff ","params":{"protocolVersion":2},"padding":""#
+            + String(repeating: "x", count: 5_000)
+        pair.writeAllAndClose(ambiguous)
+
+        let reader = ControlClientLineReader(
+            socket: pair.readEnd,
+            bufferSize: 128,
+            codeRouterHandshakeMaximumBytes: 4_096
+        )
+        #expect(reader.nextLine(shouldContinueReading: { true }) == nil)
+    }
+
+    @Test(arguments: ["\u{00A0}", "\u{2003}"])
+    func unicodeWhitespacePrefixedCodeRouterRouteStaysCapped(
+        prefix: String
+    ) throws {
+        let pair = try SocketPairFixture()
+        let handoff = prefix
+            + #"{"id":"coderouter-handoff","method":"coderouter.handoff","params":{"protocolVersion":2},"padding":""#
+            + String(repeating: "x", count: 5_000)
+        pair.writeAllAndClose(handoff)
+
+        let reader = ControlClientLineReader(
+            socket: pair.readEnd,
+            bufferSize: 128,
+            codeRouterHandshakeMaximumBytes: 4_096
+        )
+        #expect(reader.nextLine(shouldContinueReading: { true }) == nil)
+    }
+
+    @Test func capabilityWrappedCodeRouterRouteStaysCapped() throws {
+        let pair = try SocketPairFixture()
+        let wrapped = #"  _cmux_capability_v1 opaque-token {"id":"coderouter-handoff","method":"coderouter.handoff","params":{"protocolVersion":2},"padding":""#
+            + String(repeating: "x", count: 5_000)
+        pair.writeAllAndClose(wrapped)
+
+        let reader = ControlClientLineReader(
+            socket: pair.readEnd,
+            bufferSize: 128,
+            codeRouterHandshakeMaximumBytes: 4_096
+        )
+        #expect(reader.nextLine(shouldContinueReading: { true }) == nil)
+    }
+
+    @Test func capabilityWrappedOrdinaryRouteKeepsItsPayloadLimit() throws {
+        let pair = try SocketPairFixture()
+        let wrapped = #"_cmux_capability_v1 opaque-token {"id":1,"method":"feed.push","params":{"body":""#
+            + String(repeating: "x", count: 5_000) + #""}}"#
+        pair.write(wrapped + "\n")
+        pair.closeWriteEnd()
+
+        let reader = ControlClientLineReader(
+            socket: pair.readEnd,
+            codeRouterHandshakeMaximumBytes: 4_096
+        )
+        #expect(reader.nextLine(shouldContinueReading: { true }) == wrapped)
     }
 }

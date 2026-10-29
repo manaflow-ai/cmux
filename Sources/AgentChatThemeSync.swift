@@ -9,7 +9,7 @@ private nonisolated let agentChatThemeSyncLogger = Logger(
     category: "AgentChatThemeSync"
 )
 
-nonisolated struct AgentChatThemePayload: Codable, Equatable {
+struct AgentChatThemePayload: Codable, Equatable {
     let background: String
     let foreground: String
     let palette: [String]
@@ -36,9 +36,9 @@ nonisolated struct AgentChatThemePayload: Codable, Equatable {
         case source
     }
 
-    init(config: GhosttyConfig) {
+    init(config: GhosttyConfig, accent: CmuxAccentColor = CmuxAccentColor()) {
         let terminalTheme = TerminalTheme(ghosttyConfig: config)
-        let webTheme = AgentSessionWebTheme.resolve(appearance: .fromConfig(config))
+        let webTheme = AgentSessionWebTheme.resolve(appearance: .fromConfig(config), accent: accent)
         let trimmedFontFamily = config.fontFamily.trimmingCharacters(in: .whitespacesAndNewlines)
         let fontSize = Double(config.fontSize)
         background = terminalTheme.background
@@ -70,7 +70,7 @@ nonisolated struct AgentChatThemePayload: Codable, Equatable {
     }
 }
 
-private nonisolated struct AgentChatThemeSyncState {
+private struct AgentChatThemeSyncState {
     var observersInstalled = false
     var debouncedTask: Task<Void, Never>?
 }
@@ -166,11 +166,11 @@ enum AgentChatThemeSync {
         var config = WorkspaceContentView.resolveGhosttyAppearanceConfig(
             reason: "agentChatThemeSync",
             loadConfig: {
-                GhosttyConfig.load(globalFontMagnificationPercent: GlobalFontMagnification.storedPercent)
+                GhosttyConfig.loadForCmux(globalFontMagnificationPercent: GlobalFontMagnification.storedPercent)
             }
         )
         config.backgroundBlur = GhosttyApp.shared.defaultBackgroundBlur
-        return AgentChatThemePayload(config: config)
+        return AgentChatThemePayload(config: config, accent: AppDelegate.shared?.accentColor ?? CmuxAccentColor())
     }
 
     static func themeURL(for baseURL: URL) -> URL {

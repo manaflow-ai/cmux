@@ -35,7 +35,7 @@ public func terminalKeyboardCopyModeVisibleViewportRows(
 /// Resolves the initial copy-mode cursor row from Ghostty's IME point.
 ///
 /// Ghostty exposes the live cursor as an IME rectangle rather than as viewport
-/// cell coordinates. This helper converts that top-origin Y coordinate into the
+/// cell coordinates. This helper converts the rectangle's bottom edge into the
 /// row used by ``TerminalKeyboardCopyModeCursor`` when keyboard copy mode starts.
 ///
 /// ```swift
@@ -48,7 +48,7 @@ public func terminalKeyboardCopyModeVisibleViewportRows(
 ///
 /// - Parameters:
 ///   - rows: The current terminal viewport row count.
-///   - imePointY: Ghostty's top-origin IME Y coordinate.
+///   - imePointY: Ghostty's top-origin IME rectangle bottom edge.
 ///   - imeCellHeight: The current terminal cell height.
 ///   - topPadding: Vertical inset before the terminal grid begins.
 /// - Returns: A zero-based row clamped into the viewport.
@@ -59,9 +59,18 @@ public func terminalKeyboardCopyModeInitialViewportRow(
     topPadding: Double = 0
 ) -> Int {
     let clampedRows = max(rows, 1)
-    guard imeCellHeight > 0 else { return clampedRows - 1 }
+    guard imePointY.isFinite,
+          imeCellHeight.isFinite,
+          imeCellHeight > 0,
+          topPadding.isFinite else {
+        return clampedRows - 1
+    }
 
-    let estimatedRow = Int(floor(((imePointY - topPadding) / imeCellHeight) - 1))
+    let estimatedBoundary = ((imePointY - topPadding) / imeCellHeight).rounded()
+    guard estimatedBoundary.isFinite else { return clampedRows - 1 }
+    if estimatedBoundary <= 1 { return 0 }
+    if estimatedBoundary >= Double(clampedRows) { return clampedRows - 1 }
+    let estimatedRow = Int(estimatedBoundary) - 1
     return max(0, min(clampedRows - 1, estimatedRow))
 }
 
@@ -93,53 +102,17 @@ public func terminalKeyboardCopyModeInitialViewportColumn(
     leftPadding: Double = 0
 ) -> Int {
     let clampedColumns = max(columns, 1)
-    guard imeCellWidth > 0 else { return 0 }
+    guard imePointX.isFinite,
+          imeCellWidth.isFinite,
+          imeCellWidth > 0,
+          leftPadding.isFinite else {
+        return 0
+    }
 
-    let estimatedColumn = Int(floor((imePointX - leftPadding) / imeCellWidth))
+    let estimatedColumnValue = floor((imePointX - leftPadding) / imeCellWidth)
+    guard estimatedColumnValue.isFinite else { return 0 }
+    if estimatedColumnValue <= 0 { return 0 }
+    if estimatedColumnValue >= Double(clampedColumns) { return clampedColumns - 1 }
+    let estimatedColumn = Int(estimatedColumnValue)
     return max(0, min(clampedColumns - 1, estimatedColumn))
-}
-
-/// Chooses a nonzero horizontal drag range within a visible cursor cell.
-///
-/// The terminal host uses this range when it has to synthesize a drag inside the
-/// current copy-mode cursor cell. The returned range is clamped to the view
-/// bounds and keeps `startX < endX` so callers can issue a normal left-to-right
-/// drag even when the cell is partially clipped.
-///
-/// ```swift
-/// let range = terminalKeyboardCopyModeCursorSelectionXRange(
-///     rectMinX: 20,
-///     rectMaxX: 30,
-///     boundsWidth: 100
-/// )
-/// ```
-///
-/// - Parameters:
-///   - rectMinX: The cell's left edge in view coordinates.
-///   - rectMaxX: The cell's right edge in view coordinates.
-///   - boundsWidth: The containing view width.
-/// - Returns: A start/end X pair for synthetic selection, or `nil` when the view is too narrow.
-public func terminalKeyboardCopyModeCursorSelectionXRange(
-    rectMinX: Double,
-    rectMaxX: Double,
-    boundsWidth: Double
-) -> (startX: Double, endX: Double)? {
-    let maxX = boundsWidth - 1
-    guard maxX > 0 else { return nil }
-
-    let visibleMinX = min(max(rectMinX, 0), maxX)
-    let visibleMaxX = min(max(rectMaxX, 0), maxX)
-    let startX = min(max(visibleMinX + 0.5, 0), maxX)
-    let endX = min(max(visibleMaxX - 0.5, 0), maxX)
-    if endX > startX {
-        return (startX, endX)
-    }
-
-    let midpointX = min(max((visibleMinX + visibleMaxX) / 2, 0), maxX)
-    if midpointX < maxX {
-        return (midpointX, min(midpointX + 1, maxX))
-    }
-    let fallbackEndX = max(midpointX - 1, 0)
-    guard fallbackEndX < midpointX else { return nil }
-    return (fallbackEndX, midpointX)
 }

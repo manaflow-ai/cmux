@@ -17,6 +17,16 @@ extension SocketControlServer {
         source.setCancelHandler { @Sendable [weak self] in
             close(listenerSocket)
             guard let self else { return }
+            let snapshot = self.listenerStateSnapshot()
+            if snapshot.pendingRearmGeneration == generation {
+                self.events.breadcrumb(
+                    "socket.listener.rearm.socket_closed",
+                    self.socketListenerEventData(
+                        stage: "accept_rearm_socket_closed",
+                        extra: ["generation": generation]
+                    )
+                )
+            }
             Task { @MainActor in
                 self.finishAcceptSourceCancel(listenerSocket: listenerSocket, generation: generation)
             }
@@ -108,16 +118,66 @@ extension SocketControlServer {
                 continue
             }
 
-            // Capture peer PID immediately, before short-lived clients can disconnect.
+            // Capture peer identity immediately, before short-lived clients
+            // can disconnect. The audit-token bytes bind later dynamic-code
+            // validation to this exact process generation, not only its PID.
             let peerPid = transport.peerProcessID(of: clientSocket)
+            let peerIdentity: (
+                token: SocketPeerAuditToken,
+                startTime: SocketPeerProcessStartTime
+            )? = if let peerPid,
+                    let candidateToken = transport.peerAuditToken(
+                        of: clientSocket
+                    ),
+                    candidateToken.processID == peerPid,
+                    let startTime = transport.processStartTime(of: peerPid) {
+                (candidateToken, startTime)
+            } else {
+                nil
+            }
+            // Treat the audit token and process start time as one identity.
+            // A failed or mismatched kernel query must not publish a partial
+            // identity that a handoff route could later accept.
+            let peerAuditToken = peerIdentity?.token
+            let peerProcessStartTime = peerIdentity?.startTime
+            let snapshot = listenerStateSnapshot()
+            guard snapshot.isRunning,
+                  snapshot.serverSocket == listenerSocket,
+                  snapshot.activeGeneration == generation else {
+                close(clientSocket)
+                return
+            }
+            let authorization = acceptedConnectionAuthorization()
             let yielded = connectionsContinuation.yield(
-                ControlConnection(socket: clientSocket, peerProcessID: peerPid)
+                ControlConnection(
+                    socket: clientSocket,
+                    peerProcessID: peerPid,
+                    peerAuditToken: peerAuditToken,
+                    peerProcessStartTime: peerProcessStartTime,
+                    authorizationGeneration: authorization.generation,
+                    authorizationRevocationSignal: authorization.revocationSignal
+                )
             )
             switch yielded {
             case .enqueued:
                 break
             case let .dropped(connection):
-                close(connection.socket)
+                // The stream consumer fell behind its bounded buffer. Record
+                // it so a saturated consumer is visible in Release telemetry,
+                // then hand the descriptor to the host so the client gets a
+                // real error instead of EPIPE (#13369).
+                events.breadcrumb(
+                    "socket.listener.connection.dropped",
+                    socketListenerEventData(
+                        stage: "accept_buffer_full",
+                        extra: ["generation": generation]
+                    )
+                )
+                if let connectionDropped = events.connectionDropped {
+                    connectionDropped(connection.socket, generation)
+                } else {
+                    close(connection.socket)
+                }
             case .terminated:
                 close(clientSocket)
             @unknown default:
@@ -139,7 +199,13 @@ extension SocketControlServer {
     /// re-fire on a hot errno; those re-fires return here without counting
     /// or emitting, matching the legacy cadence where the source was already
     /// suspended by this point.
-    private nonisolated func handleAcceptFailure(
+    // SPI for the package's deterministic state-machine coverage. The test
+    // drives this same recovery decision after binding a real listener; it
+    // does not bypass path ownership or connection authentication. Keeping
+    // this out of the ordinary public API prevents production clients from
+    // manufacturing an accept failure transition.
+    @_spi(CmuxControlSocketTesting)
+    public nonisolated func handleAcceptFailure(
         listenerSocket: Int32,
         generation: UInt64,
         errnoCode: Int32
@@ -250,6 +316,20 @@ extension SocketControlServer {
             }
             cleanup.sourceToCancel?.cancel()
 
+            events.breadcrumb(
+                "socket.listener.rearm.started",
+                socketListenerEventData(
+                    stage: "accept_rearm",
+                    errnoCode: errnoCode,
+                    extra: [
+                        "generation": generation,
+                        "consecutiveFailures": consecutiveFailures,
+                        "rearmDelayMs": delayMs,
+                        "rearmBounded": 1,
+                    ]
+                )
+            )
+
             events.rearmRequested(generation, errnoCode, consecutiveFailures, delayMs)
         }
     }
@@ -356,6 +436,18 @@ extension SocketControlServer {
             "socket.listener.rearm.requested",
             socketListenerEventData(
                 stage: "accept_rearm",
+                errnoCode: errnoCode,
+                extra: [
+                    "generation": generation,
+                    "consecutiveFailures": consecutiveFailures,
+                    "rearmDelayMs": delayMs,
+                ]
+            )
+        )
+        events.breadcrumb(
+            "socket.listener.rearm.ready",
+            socketListenerEventData(
+                stage: "accept_rearm_ready",
                 errnoCode: errnoCode,
                 extra: [
                     "generation": generation,

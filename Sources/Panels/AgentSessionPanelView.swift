@@ -1,6 +1,13 @@
+import CmuxFoundation
 import SwiftUI
+import CmuxSettings
 
 struct AgentSessionPanelView: View {
+    @Environment(\.cmuxAccentColor) private var cmuxAccent
+    @AppStorage(SessionContentWidthSettings.maxWidthKey)
+    private var storedSessionContentMaximumWidth = SessionContentWidthSettings.noMaximumWidth
+    @AppStorage(SessionContentWidthSettings.alignmentKey)
+    private var storedSessionContentAlignment = SessionContentAlignment.center.rawValue
     let panel: AgentSessionPanel
     let isFocused: Bool
     let isVisibleInUI: Bool
@@ -15,7 +22,8 @@ struct AgentSessionPanelView: View {
                     panel: panel,
                     isFocused: isFocused,
                     backgroundColor: appearance.contentBackgroundColor,
-                    theme: AgentSessionWebTheme.resolve(appearance: appearance),
+                    theme: AgentSessionWebTheme.resolve(appearance: appearance, accent: cmuxAccent),
+                    sessionContentWidthPresentation: sessionContentWidthPresentation,
                     onRequestPanelFocus: onRequestPanelFocus
                 )
                 .id(panel.id)
@@ -25,7 +33,13 @@ struct AgentSessionPanelView: View {
                 Color.clear
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color.clear)
+        .background(Color(nsColor: appearance.contentBackgroundColor))
+    }
+
+    private var sessionContentWidthPresentation: SessionContentWidthPresentation {
+        SessionContentWidthPresentation(
+            storedMaximumWidth: storedSessionContentMaximumWidth,
+            storedAlignment: storedSessionContentAlignment
+        )
     }
 }

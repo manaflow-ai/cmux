@@ -12,6 +12,12 @@ Three entrypoints, all landing on the same server:
 
 One page = one session: `/` is the composer, `/s/<id>` a chat. When `CMUX_AGENT_CHAT_TOKEN` or `--token` is configured, every HTTP route, static asset, API route, and WebSocket upgrade except `/healthz` must be under `/<token>/...`; missing or wrong tokens return 404. There is deliberately no in-page session list or header; each chat is its own cmux workspace tab (page title = first prompt), so cmux's sidebar is the session list.
 
+## Terminal chat view
+
+`/terminal/<surface-id>` shows a Claude Code or Codex session that is already running in a cmux terminal as a chat, without starting another agent. The sidecar looks the surface up in the hook session stores (`~/.cmuxterm/claude-hook-sessions.json`, `~/.cmuxterm/codex-hook-sessions.json`), tails the agent's own transcript (Claude `projects/<slug>/<session>.jsonl`, Codex `sessions/YYYY/MM/DD/rollout-*-<session>.jsonl`), and normalizes it into `AgentEvent`s with `adapters/transcript.ts`, so the regular chat renderer draws it. The page lives at `/s/t-<agent session id>`, which re-resolves after a sidecar restart; a view with no open page stops tailing after five minutes.
+
+The terminal stays the source of truth. The composer types the prompt into the terminal's agent with `mobile.chat.send` (bracketed paste and submit, the delivery the iOS chat uses), and Stop or Esc sends `mobile.chat.interrupt`; both go over the cmux control socket through `cmux rpc` (`cmux-rpc.ts`, using the `CMUX_BUNDLED_CLI_PATH` and `CMUX_SOCKET_PATH` the app passes to the sidecar). The prompt shows immediately and is replaced by the transcript's own copy when it lands. Permission prompts, questions, and pickers stay in the terminal: when the hook store says the agent needs input, the view shows the request with an "Answer in terminal" button that focuses the terminal pane. Open the view with "Open terminal as chat" in the command palette (Agent Chat UI flag) or `cmux-chat --terminal --surface <surface-id>` from a shell.
+
 ## Model catalog
 
 The sidecar fetches the model catalog from `https://cmux.dev/api/agent-models` (`CMUX_AGENT_MODELS_URL` overrides it for development), revalidates it with ETags after a one-hour TTL, and caches the last-good response at `~/.cache/cmux-agent-chat/models.json` for offline startup. Refreshes happen in the background; changed catalogs are pushed to open pages so model pickers update without reloading.
@@ -75,8 +81,10 @@ The UI only knows `AgentEvent` (types.ts): `user`, `delta`, `assistant`, `thinki
 
 Two adapter families are enough, and family 2 is a single implementation:
 
-1. **Native stream-JSON/JSON-RPC CLIs.** Claude Code (`--output-format stream-json`), Codex (`app-server`, the JSON-RPC server its IDE extension uses), pi (`--mode rpc`), cursor-agent and amp have the same shape. Each needs a ~100-line adapter because event names differ, but they all reduce to the same event set: text deltas, tool start/end, turn done. Use a native adapter when the native protocol carries things ACP doesn't yet (Claude permission modes/hooks, Codex thread/turn model and approvals).
-2. **ACP (Agent Client Protocol, agentclientprotocol.com).** One generic client (`adapters/acp.ts`) speaks initialize → session/new → session/prompt, renders `session/update` notifications, and answers reverse requests (`session/request_permission`). That single file already runs opencode (`opencode acp`) and gemini (`gemini --acp`), and gets claude (`@zed-industries/claude-code-acp`), goose, marimo, and future agents for free. ACP is the long-term contract: it's the protocol Zed drove, adapters keep appearing, and it standardizes exactly the hard parts (permissions, fs proxying, tool call lifecycle, plans).
+1. **Native stream-JSON/JSON-RPC CLIs.** Claude Code (`--output-format stream-json`), Codex (`app-server`, the JSON-RPC server its IDE extension uses), pi (`--mode rpc`), and Amp ([`-x`/`--execute`, `--stream-json`, and `--stream-json-input`](https://ampcode.com/docs/cli/streaming-json)) have the same shape. Each needs a ~100-line adapter because event names differ, but they all reduce to the same event set: text deltas, tool start/end, turn done. Use a native adapter when the native protocol carries things ACP doesn't yet (Claude permission modes/hooks, Codex thread/turn model and approvals).
+2. **ACP (Agent Client Protocol, agentclientprotocol.com).** One generic client (`adapters/acp.ts`) speaks initialize → session/new → session/prompt, renders `session/update` notifications, and answers reverse requests (`session/request_permission`). That single file already runs opencode (`opencode acp`), gemini (`gemini --experimental-acp`), goose (`goose acp`), and Cursor Agent (`cursor-agent acp`), and gets claude (`@zed-industries/claude-code-acp`), marimo, and future agents for free. ACP is the long-term contract: it's the protocol Zed drove, adapters keep appearing, and it standardizes exactly the hard parts (permissions, fs proxying, tool call lifecycle, plans).
+
+Amp has no first-party ACP subcommand, only third-party bridges such as [amp-acp](https://github.com/tao12345666333/amp-acp).
 
 Capability differences are absorbed by the schema, not the UI:
 
@@ -85,8 +93,12 @@ Capability differences are absorbed by the schema, not the UI:
 | claude    | persistent stdio     | deltas    | yes           | persistent proc            | permission mode |
 | codex     | app-server JSON-RPC  | deltas    | yes           | thread per session         | approvals + sandbox options |
 | opencode  | ACP persistent stdio | deltas    | yes           | ACP session                | auto-approve toggle for request_permission |
+| goose     | ACP persistent stdio | deltas    | yes           | ACP session                | auto-approve toggle for request_permission |
 | gemini    | ACP persistent stdio | deltas    | yes           | ACP session                | auto-approve toggle (`--yolo` at start) |
+| cursor-agent | ACP persistent stdio | deltas    | yes           | ACP session                | auto-approve toggle for request_permission |
 | pi        | persistent stdio     | deltas    | yes           | persistent proc            | none (always executes) |
+
+Cursor Agent has two ACP capability gaps: it advertises blocking `cursor/ask_question` and `cursor/create_plan` requests, which this adapter answers with JSON-RPC `-32601` instead of prompting; it also advertises `cursor_login`, but the adapter does not call `authenticate`, so an unauthenticated `session/new` failure has no login hint.
 
 Runtime options are declared by adapters as `SessionOption[]` and replayed as
 `options` events. React renders the schema generically; provider-specific logic

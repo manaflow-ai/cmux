@@ -13,4 +13,5 @@ struct ShortcutListRowSnapshot: Equatable {
     let isUnbound: Bool
     let canRestore: Bool
     let validationMessage: String?
+    let recorderAccessibilityIdentifier: String
 }

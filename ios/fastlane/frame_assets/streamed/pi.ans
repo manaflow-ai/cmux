@@ -1,0 +1,47 @@
+ [1m[38;2;196;178;138m3 suggested improvements[0m
+
+ [1m[38;2;196;178;138m### 1. Add an app entry point[0m
+
+ If this is meant to be a standalone SwiftUI app, add an [38;2;142;164;162m@main[39m app struct:
+
+ [38;2;115;124;115m```swift[39m
+   [38;2;137;146;167m@main[39m
+   [38;2;137;146;167mstruct[38;2;142;164;162m [38;2;139;164;176mMyApp[38;2;142;164;162m: [38;2;139;164;176mApp[38;2;142;164;162m [39m{
+       [38;2;137;146;167mvar[39m body: [38;2;137;146;167msome[39m [38;2;142;164;162mScene[39m {
+           [38;2;142;164;162mWindowGroup[39m {
+               [38;2;142;164;162mContentView[39m()
+           }
+       }
+   }
+ [38;2;115;124;115m```[39m
+
+ [1m[38;2;196;178;138m### 2. Improve layout and styling[0m
+
+ Make the UI less bare by adding padding and font styling:
+
+ [38;2;115;124;115m```swift[39m
+   [38;2;137;146;167mstruct[38;2;142;164;162m [38;2;139;164;176mContentView[38;2;142;164;162m: [38;2;139;164;176mView[38;2;142;164;162m [39m{
+       [38;2;137;146;167mvar[39m body: [38;2;137;146;167msome[39m [38;2;142;164;162mView[39m {
+           [38;2;142;164;162mText[39m([38;2;135;169;135m"Hello"[39m)
+               .font(.largeTitle)
+               .fontWeight(.semibold)
+               .padding()
+       }
+   }
+ [38;2;115;124;115m```[39m
+
+ [1m[38;2;196;178;138m### 3. Add a preview for development[0m
+
+ SwiftUI previews make it easier to iterate in Xcode:
+
+ [38;2;115;124;115m```swift[39m
+   #[38;2;142;164;162mPreview[39m {
+       [38;2;142;164;162mContentView[39m()
+   }
+ [38;2;115;124;115m```[39m
+
+[38;2;142;164;162m────────────────────────────────────────────────────────────────────────────
+[7m[39m [0m
+[38;2;142;164;162m────────────────────────────────────────────────────────────────────────────
+[38;2;115;124;115m/private/tmp/cmux-rec/app (main)[39m
+[38;2;115;124;115m↑3.0k ↓368 $0.026 (sub) 0.7%/272k (auto)     (openai-codex) gpt-5.5 • medium

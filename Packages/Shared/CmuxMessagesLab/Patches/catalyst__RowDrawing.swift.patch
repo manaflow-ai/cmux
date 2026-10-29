@@ -1,0 +1,35 @@
+--- a/Sources/MessagesLabHome/Vendor/catalyst/RowDrawing.swift
++++ b/Sources/MessagesLabHome/Vendor/catalyst/RowDrawing.swift
+@@ -196,9 +196,11 @@
+             }
+         case let .notice(s):
+             // As the unsent notice below (ask 9, HostHooks.swift).
+-            let f = HomeFonts.system(ofSize: 11) // HomeFonts (cx-qpqs)
+-            let w = TextDraw.width(s, font: f)
+-            TextDraw.line(s, font: f, color: Fixture.secondaryText, x: m.centerX + 0.1 - w / 2, baseline: top + 12, in: ctx)
++            // cmux-classic: Home's status line ("Waiting for you") in its own font and ink (HomeStatusLine), at the
++            // incoming bubbles' left edge under the approval card it speaks for, its capitals 6 pt under the card
++            // (Layout's 4 pt gap plus 2 pt).
++            let f = HomeStatusLine.font
++            TextDraw.line(s, font: f, color: HomeStatusLine.ink, x: Fixture.labelLeft, baseline: top + 2 + ceil(f.capHeight), in: ctx)
+         case let .unsent(outgoing):
+             let s = outgoing ? Strings.unsentMine : Strings.unsentTheirs
+             let f = HomeFonts.system(ofSize: 11) // HomeFonts (cx-qpqs)
+@@ -433,7 +435,7 @@
+             if !p.failed { drawSaveButton(ctx, body: body, outgoing: p.outgoing) }
+         case "voiceMemo":
+             fillBubble(ctx, shape, outgoing: p.outgoing, windowY: windowY)
+-            let fg: UIColor = p.outgoing ? .white : Fixture.incomingText
++            let fg: UIColor = p.outgoing ? Fixture.outgoingText : Fixture.incomingText  // cmux: themed (white by default)
+             fg.setFill()
+             UIBezierPath(ovalIn: CGRect(x: body.minX + 8, y: body.midY - 11, width: 22, height: 22)).fill()
+             let tri = UIBezierPath()
+@@ -455,7 +457,7 @@
+                           baseline: body.midY + 4, in: ctx)
+         default:
+             fillBubble(ctx, shape, outgoing: p.outgoing, windowY: windowY)
+-            let fg: UIColor = p.outgoing ? .white : Fixture.incomingText
++            let fg: UIColor = p.outgoing ? Fixture.outgoingText : Fixture.incomingText  // cmux: themed (white by default)
+             let icon = CGRect(x: body.minX + 10, y: body.minY + 10, width: 28, height: 36)
+             if a.kind == "contact" {
+                 UIColor(white: 0.55, alpha: 1).setFill()

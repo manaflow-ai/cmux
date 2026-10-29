@@ -1,5 +1,6 @@
 import AppKit
 import CmuxControlSocket
+import CmuxTerminal
 import Foundation
 import Testing
 
@@ -22,7 +23,7 @@ struct RemoteTmuxMirrorLifecycleTests {
         func windowShouldClose(_ sender: NSWindow) -> Bool { false }
     }
 
-    private let ignoreInput: @Sendable (Data) -> Void = { _ in }
+    private let ignoreInput: @Sendable (TerminalManualInput) -> Void = { _ in }
 
     private func mirror(
         controller: RemoteTmuxController,
@@ -100,7 +101,13 @@ struct RemoteTmuxMirrorLifecycleTests {
         )
         window.isReleasedWhenClosed = false
         window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowId.uuidString)")
-        manager.window = window
+        appDelegate.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState()
+        )
         let veto = CloseVetoDelegate()
         window.delegate = veto
         var didClose = false
@@ -150,7 +157,13 @@ struct RemoteTmuxMirrorLifecycleTests {
         )
         window.isReleasedWhenClosed = false
         window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowId.uuidString)")
-        manager.window = window
+        appDelegate.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState()
+        )
         var didClose = false
         let closeObserver = NotificationCenter.default.addObserver(
             forName: NSWindow.willCloseNotification,
@@ -178,7 +191,8 @@ struct RemoteTmuxMirrorLifecycleTests {
                 surfaceID: nil,
                 paneID: nil
             ),
-            workspaceID: mirrorWorkspace.id
+            workspaceID: mirrorWorkspace.id,
+            force: false
         )
 
         #expect(resolution == .resolved(windowID: windowId))
@@ -237,6 +251,33 @@ struct RemoteTmuxMirrorLifecycleTests {
         #expect(workspace.bonsplitController.selectedTab(inPane: pane)?.id == selectedBefore)
     }
 
+    @Test func detachingMirrorReplacesRetiredContainerWithUsableTerminal() throws {
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+
+        workspace.isRemoteTmuxMirror = true
+        let initialPanelID = try #require(workspace.focusedPanelId)
+        let retiredContainer = try #require(workspace.addRemoteTmuxDisplayPane(
+            remotePaneId: 1,
+            title: "remote",
+            focus: false,
+            onInput: ignoreInput
+        ))
+        // Window mirrors retire the outer container after their real pane surface
+        // is mounted. If the mirror is then detached while this workspace is kept
+        // open, that closed container must not become the user's next local tab.
+        retiredContainer.close()
+        #expect(workspace.closePanel(initialPanelID, force: true))
+
+        #expect(workspace.detachRemoteTmuxMirrorKeptOpenLocallyIfNeeded())
+        #expect(!workspace.isRemoteTmuxMirror)
+        #expect(!workspace.panels.keys.contains(retiredContainer.id))
+        #expect(workspace.panels.values.allSatisfy { panel in
+            guard let terminal = panel as? TerminalPanel else { return false }
+            return terminal.surface.runtimeUnavailableReason != .closing
+        })
+    }
+
     @Test func hiddenMirrorWindowStaysHiddenAndNonKeyAcrossBackgroundClose() async throws {
         _ = NSApplication.shared
         let manager = TabManager()
@@ -292,7 +333,7 @@ struct RemoteTmuxMirrorLifecycleTests {
         #expect(!window.isKeyWindow)
     }
 
-    @Test func discoveryPurgesDeadMirrorAndRecreatesItsSession() throws {
+    @Test func discoveryPurgesDeadMirrorAndRecreatesItsSession() async throws {
         let controller = RemoteTmuxController()
         let host = RemoteTmuxHost(destination: "user@host")
         var deadManager: TabManager? = TabManager()
@@ -308,7 +349,12 @@ struct RemoteTmuxMirrorLifecycleTests {
         // weak workspace deallocates but the map entry stays. That stale key
         // makes mirrorSessions skip recreation while the dead workspace fails
         // the manager filter, so every re-attach mirrors nothing.
+        deadManager?.tabs.forEach { $0.teardownAllPanels() }
         deadManager = nil
+        let released = await AppKitTestEventPump().waitUntil(timeout: .seconds(5)) {
+            controller.sessionMirrors.values.allSatisfy { $0.mirroredWorkspaceId == nil }
+        }
+        try #require(released, "The retired mirror workspace must be released before discovery")
 
         let target = TabManager()
         controller.cacheConnection(
@@ -329,6 +375,26 @@ struct RemoteTmuxMirrorLifecycleTests {
         #expect(target.tabs.contains { $0.isRemoteTmuxMirror })
         let entry = try #require(controller.sessionMirrors.values.first)
         #expect(entry.mirroredWorkspaceId == workspaceIds.first)
+    }
+
+    @Test func hostDestinationGenerationChangesWhenMirrorsChange() throws {
+        let controller = RemoteTmuxController()
+        let manager = TabManager()
+        let host = RemoteTmuxHost(destination: "user@host")
+        let beforeAttach = controller.hostDestinationsGeneration
+        _ = try mirror(
+            controller: controller,
+            manager: manager,
+            host: host,
+            sessionName: "dev"
+        )
+        let afterAttach = controller.hostDestinationsGeneration
+        #expect(afterAttach != beforeAttach)
+
+        for key in Array(controller.sessionMirrors.keys) {
+            _ = controller.removeSessionMirror(forKey: key)
+        }
+        #expect(controller.hostDestinationsGeneration != afterAttach)
     }
 
     @Test func failedMirrorAttachKeepsTransportSharedWithLiveMirror() throws {

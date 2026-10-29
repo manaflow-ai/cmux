@@ -10,10 +10,39 @@ public struct RemoteSessionStrings: Sendable, Equatable {
     /// Format for the suspended-auto-reconnect state detail
     /// (`remote.state.suspended.detail`); `%@` is the display target.
     public let suspendedDetailFormat: String
+    /// Retry detail when the reverse SSH relay is unavailable.
+    public let reverseRelayUnavailableRetrying: String
+    /// Retry detail when a live owner prevents relay-port recovery.
+    public let reverseRelayPortUnavailableRetrying: String
+    /// Detail when another cmux process temporarily owns the SSH master.
+    public let controlMasterOwnershipUnavailable: String
+    /// Safe product-facing detail for a non-retryable proxy failure.
+    public let remoteProxyUnavailable: String
 
-    /// Creates the strings bundle with both formats app-resolved.
-    public init(connectedVMNoProxyFormat: String, suspendedDetailFormat: String) {
+    /// Creates the app-resolved strings bundle.
+    ///
+    /// - Parameters:
+    ///   - connectedVMNoProxyFormat: Connected-without-proxy detail format.
+    ///   - suspendedDetailFormat: Suspended reconnect detail format.
+    ///   - reverseRelayUnavailableRetrying: Generic relay retry detail.
+    ///   - reverseRelayPortUnavailableRetrying: Port-conflict retry detail.
+    ///   - controlMasterOwnershipUnavailable: Cross-process ownership detail.
+    public init(
+        connectedVMNoProxyFormat: String,
+        suspendedDetailFormat: String,
+        reverseRelayUnavailableRetrying: String,
+        reverseRelayPortUnavailableRetrying: String,
+        controlMasterOwnershipUnavailable: String,
+        remoteProxyUnavailable: String = "Remote proxy unavailable"
+    ) {
         self.connectedVMNoProxyFormat = connectedVMNoProxyFormat
         self.suspendedDetailFormat = suspendedDetailFormat
+        self.reverseRelayUnavailableRetrying =
+            reverseRelayUnavailableRetrying
+        self.reverseRelayPortUnavailableRetrying =
+            reverseRelayPortUnavailableRetrying
+        self.controlMasterOwnershipUnavailable =
+            controlMasterOwnershipUnavailable
+        self.remoteProxyUnavailable = remoteProxyUnavailable
     }
 }

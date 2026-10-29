@@ -3,9 +3,18 @@ import Foundation
 
 enum WorkspaceSurfaceIdentifierClipboardText {
     @MainActor
-    static func copy(_ text: String, to pasteboard: NSPasteboard = .general) {
-        pasteboard.clearContents()
-        pasteboard.setString(text, forType: .string)
+    static func copy(_ text: String, to pasteboard: NSPasteboard? = nil) {
+        guard let pasteboard else {
+            GhosttyApp.terminalPasteboard.writeString(
+                text,
+                to: GHOSTTY_CLIPBOARD_STANDARD
+            )
+            return
+        }
+        _ = GhosttyApp.terminalPasteboard.writeString(
+            text,
+            to: pasteboard
+        )
     }
 
     @MainActor
@@ -73,11 +82,31 @@ enum WorkspaceSurfaceIdentifierClipboardText {
         CmuxNavigationURLRequest.surfaceLink(workspaceId: workspaceId, surfaceId: surfaceId)
     }
 
+    static func makeSurfaceLink(
+        workspaceId: UUID,
+        surfaceId: UUID,
+        stableWorkspaceId: UUID?,
+        stableSurfaceId: UUID?
+    ) -> String {
+        CmuxNavigationURLRequest.surfaceLink(
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            stableWorkspaceId: stableWorkspaceId,
+            stableSurfaceId: stableSurfaceId
+        )
+    }
+
     @MainActor
     static func makeSurfaceLink(workspace: Workspace, panelId: UUID) -> String? {
-        guard let panel = workspace.panels[panelId],
-              workspace.surfaceIdFromPanelId(panelId) != nil else { return nil }
-        return makeSurfaceLink(workspaceId: workspace.stableId, surfaceId: panel.stableSurfaceId)
+        guard let target = workspace.surfaceOwnershipTarget(for: panelId) else { return nil }
+        let stableSurfaceId = workspace.panels[target.containerPanelID]?.stableSurfaceId
+            ?? target.panel.stableSurfaceId
+        return makeSurfaceLink(
+            workspaceId: workspace.id,
+            surfaceId: target.surfaceID,
+            stableWorkspaceId: workspace.stableId,
+            stableSurfaceId: stableSurfaceId
+        )
     }
 
     @MainActor

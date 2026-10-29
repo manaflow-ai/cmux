@@ -17,10 +17,21 @@ public struct ControlSurfaceCreateInputs: Sendable, Equatable {
     public let rendererRaw: String?
     /// The raw `url` string, or `nil`.
     public let urlRaw: String?
+    /// The trimmed browser profile selector from `profile`, `profile_id`, or
+    /// `profile_name`, if present.
+    public let profileRaw: String?
+    /// Whether any non-null browser profile selector had a non-string or empty
+    /// value and must be rejected instead of treated as an omitted selector.
+    public let hasInvalidProfileParam: Bool
+    /// Whether more than one non-null browser profile selector alias was
+    /// supplied.
+    public let hasMultipleProfileParams: Bool
     /// The trimmed-non-empty `working_directory`, or `nil`.
     public let workingDirectory: String?
     /// The trimmed-non-empty `initial_command`, or `nil`.
     public let initialCommand: String?
+    /// The nonblank raw `initial_input`, preserving surrounding whitespace.
+    public let initialInput: String?
     /// The trimmed-non-empty `tmux_start_command`, or `nil`.
     public let tmuxStartCommand: String?
     /// The trimmed-non-empty `remote_pty_session_id`, or `nil`.
@@ -44,8 +55,12 @@ public struct ControlSurfaceCreateInputs: Sendable, Equatable {
         providerRaw: String?,
         rendererRaw: String?,
         urlRaw: String?,
+        profileRaw: String? = nil,
+        hasInvalidProfileParam: Bool = false,
+        hasMultipleProfileParams: Bool = false,
         workingDirectory: String?,
         initialCommand: String?,
+        initialInput: String? = nil,
         tmuxStartCommand: String?,
         remotePTYSessionID: String?,
         remoteContextRaw: String?,
@@ -58,8 +73,12 @@ public struct ControlSurfaceCreateInputs: Sendable, Equatable {
         self.providerRaw = providerRaw
         self.rendererRaw = rendererRaw
         self.urlRaw = urlRaw
+        self.profileRaw = profileRaw
+        self.hasInvalidProfileParam = hasInvalidProfileParam
+        self.hasMultipleProfileParams = hasMultipleProfileParams
         self.workingDirectory = workingDirectory
         self.initialCommand = initialCommand
+        self.initialInput = initialInput
         self.tmuxStartCommand = tmuxStartCommand
         self.remotePTYSessionID = remotePTYSessionID
         self.remoteContextRaw = remoteContextRaw

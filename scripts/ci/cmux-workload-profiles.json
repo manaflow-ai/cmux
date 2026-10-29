@@ -1,0 +1,170 @@
+{
+  "schema_version": 1,
+  "repository": "manaflow-ai/cmux",
+  "result_contract": "cmux-workload-result/v1",
+  "profiles": [
+    {
+      "id": "cmux.macos.compile-admission",
+      "generation": 1,
+      "entrypoint": "scripts/ci/workloads/macos-compile-admission.sh",
+      "semantic_scope": "Compile the canonical macOS app-host test products for an exact CMUX tree and validate the compile warning budget.",
+      "platform": {
+        "os": "macos",
+        "architectures": [
+          "arm64"
+        ],
+        "requirements": [
+          "xcode:.xcode-version",
+          "macos-sdk-major:26"
+        ]
+      },
+      "expected_result_class": "cmux.app-host-test-product/v1",
+      "semantic_validator": "cmux.compile-admission/v1",
+      "timeout": {
+        "class": "macos-long",
+        "seconds": 4500
+      },
+      "resource_class": "cmux-macos-compile-large",
+      "network_class": "dependency-fetch",
+      "benchmark_state_classes": [
+        "cold",
+        "dependency-warm",
+        "compiler-warm"
+      ],
+      "parameters": {},
+      "runtime_inputs": [],
+      "artifacts": [
+        {
+          "class": "cmux.app-host-xctestrun/v1",
+          "glob": "{state_root}/derived-data/Build/Products/**/*.xctestrun",
+          "required": true
+        },
+        {
+          "class": "cmux.debug-cli/v1",
+          "glob": "{state_root}/derived-data/Build/Products/Debug/cmux",
+          "required": true
+        }
+      ],
+      "environment_class": "isolated-build"
+    },
+    {
+      "id": "cmux.macos.dev-check",
+      "generation": 1,
+      "entrypoint": "scripts/ci/workloads/macos-dev-check.sh",
+      "semantic_scope": "Run CMUX's canonical tagged developer build without launch, using isolated persistent DerivedData and no global CLI links.",
+      "platform": {
+        "os": "macos",
+        "architectures": [
+          "arm64"
+        ],
+        "requirements": [
+          "xcode:.xcode-version"
+        ]
+      },
+      "expected_result_class": "cmux.debug-app/v1",
+      "semantic_validator": "cmux.dev-check/v1",
+      "timeout": {
+        "class": "macos-long",
+        "seconds": 4500
+      },
+      "resource_class": "cmux-macos-native-build-large",
+      "network_class": "dependency-fetch",
+      "benchmark_state_classes": [
+        "cold",
+        "dependency-warm",
+        "compiler-warm"
+      ],
+      "parameters": {},
+      "runtime_inputs": [],
+      "artifacts": [
+        {
+          "class": "cmux.debug-app-executable/v1",
+          "glob": "{state_root}/derived-data/Build/Products/Debug/cmux DEV*.app/Contents/MacOS/cmux DEV*",
+          "required": true
+        }
+      ],
+      "environment_class": "isolated-build"
+    },
+    {
+      "id": "cmux.macos.app-host-test-shard",
+      "generation": 1,
+      "entrypoint": "scripts/ci/workloads/macos-app-host-test-shard.sh",
+      "semantic_scope": "Execute one physical CMUX app-host unit-test shard as two deterministic logical batches against an exact compile-admission xctestrun product.",
+      "platform": {
+        "os": "macos",
+        "architectures": [
+          "arm64"
+        ],
+        "requirements": [
+          "console-session",
+          "xcode:.xcode-version",
+          "macos-sdk-major:26"
+        ]
+      },
+      "expected_result_class": "cmux.app-host-test-shard-result/v1",
+      "semantic_validator": "cmux.app-host-test-shard/v1",
+      "timeout": {
+        "class": "macos-long",
+        "seconds": 4500
+      },
+      "resource_class": "cmux-macos-app-host-test",
+      "network_class": "repository-test",
+      "benchmark_state_classes": [
+        "exact-product-reuse",
+        "resident-hot"
+      ],
+      "parameters": {
+        "shard": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 6,
+          "required": true
+        }
+      },
+      "runtime_inputs": [
+        {
+          "name": "app_host_xctestrun",
+          "env": "CMUX_APP_HOST_XCTESTRUN",
+          "class": "cmux.app-host-product-tree/v1",
+          "identity": "parent-tree-sha256",
+          "required": true
+        }
+      ],
+      "artifacts": [],
+      "environment_class": "isolated-console-test"
+    },
+    {
+      "id": "cmux.ci.guard",
+      "generation": 1,
+      "entrypoint": "scripts/ci/workloads/ci-guard.sh",
+      "semantic_scope": "Validate the portable CMUX CI routing, runner-policy, required-check, shard-definition, and test-wiring guards used to decide whether CI topology is admissible.",
+      "platform": {
+        "os": "linux",
+        "architectures": [
+          "x86_64",
+          "arm64"
+        ],
+        "requirements": [
+          "bash",
+          "python3",
+          "git"
+        ]
+      },
+      "expected_result_class": "cmux.ci-guard-result/v1",
+      "semantic_validator": "cmux.ci-guard/v1",
+      "timeout": {
+        "class": "portable-short",
+        "seconds": 600
+      },
+      "resource_class": "cmux-linux-ci-small",
+      "network_class": "none",
+      "benchmark_state_classes": [
+        "cold"
+      ],
+      "parameters": {},
+      "runtime_inputs": [],
+      "artifacts": [],
+      "environment_class": "isolated-portable"
+    }
+  ]
+}

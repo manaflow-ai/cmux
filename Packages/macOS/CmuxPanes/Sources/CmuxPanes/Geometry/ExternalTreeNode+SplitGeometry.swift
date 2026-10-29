@@ -1,6 +1,6 @@
 public import Bonsplit
 import CoreGraphics
-import Foundation
+public import Foundation
 
 /// Pure split-tree geometry over Bonsplit's external snapshot: equalize and
 /// resize planning, lifted one-for-one from the app-side `SplitEqualizer`
@@ -26,6 +26,111 @@ extension ExternalTreeNode {
             foundSplit: foundSplit,
             hadInvalidSplitIds: hadInvalidSplitIds
         )
+    }
+
+    /// Plans an equalize pass over the run of same-orientation splits that
+    /// directly contains `paneId`: the pane's parent split plus every
+    /// ancestor reached without crossing a split of another orientation,
+    /// and the same-orientation splits nested inside that run. Splits
+    /// elsewhere in the tree, including same-orientation splits behind a
+    /// cross-orientation subtree, are left alone. Returns an empty plan when
+    /// `paneId` is absent or has no parent split.
+    public func equalizeDividerPlan(forSplitRunContainingPaneId paneId: String) -> SplitEqualizePlan {
+        equalizeDividerPlan(forSplitPath: splitPath(toPaneId: paneId))
+    }
+
+    private func equalizeDividerPlan(forSplitPath path: [ExternalSplitNode]?) -> SplitEqualizePlan {
+        guard let path, let parent = path.last else {
+            return SplitEqualizePlan(adjustments: [], foundSplit: false, hadInvalidSplitIds: false)
+        }
+        var runRoot = parent
+        for ancestor in path.dropLast().reversed() {
+            guard ancestor.orientation == parent.orientation else { break }
+            runRoot = ancestor
+        }
+        var adjustments: [SplitDividerAdjustment] = []
+        var foundSplit = false
+        var hadInvalidSplitIds = false
+        ExternalTreeNode.split(runRoot).appendRunEqualizeAdjustments(
+            orientation: parent.orientation,
+            adjustments: &adjustments,
+            foundSplit: &foundSplit,
+            hadInvalidSplitIds: &hadInvalidSplitIds
+        )
+        return SplitEqualizePlan(
+            adjustments: adjustments,
+            foundSplit: foundSplit,
+            hadInvalidSplitIds: hadInvalidSplitIds
+        )
+    }
+
+    /// Plans the same-axis run containing a divider identified by its split UUID.
+    ///
+    /// - Parameter splitId: The divider's split UUID in this snapshot.
+    /// - Returns: An empty plan for a stale ID, otherwise the containing row or
+    ///   column's divider adjustments, stopping at cross-axis boundaries.
+    public func equalizeDividerPlan(forSplitRunContainingSplitId splitId: UUID) -> SplitEqualizePlan {
+        equalizeDividerPlan(forSplitPath: splitPath(toSplitId: splitId))
+    }
+
+    private func splitPath(toSplitId splitId: UUID) -> [ExternalSplitNode]? {
+        var path: [ExternalSplitNode] = []
+        return appendSplitPath(toSplitId: splitId, path: &path) ? path : nil
+    }
+
+    private func appendSplitPath(toSplitId splitId: UUID, path: inout [ExternalSplitNode]) -> Bool {
+        guard case .split(let node) = self else { return false }
+        path.append(node)
+        if UUID(uuidString: node.id) == splitId { return true }
+        if node.first.appendSplitPath(toSplitId: splitId, path: &path)
+            || node.second.appendSplitPath(toSplitId: splitId, path: &path) { return true }
+        path.removeLast()
+        return false
+    }
+
+    /// The splits from this node down to `paneId`'s parent, or `nil` when
+    /// the pane is not in this subtree.
+    private func splitPath(toPaneId paneId: String) -> [ExternalSplitNode]? {
+        switch self {
+        case .pane(let pane):
+            return pane.id == paneId ? [] : nil
+        case .split(let splitNode):
+            guard let rest = splitNode.first.splitPath(toPaneId: paneId)
+                ?? splitNode.second.splitPath(toPaneId: paneId) else { return nil }
+            return [splitNode] + rest
+        }
+    }
+
+    /// Post-order equalize over a same-orientation run: recurses only into
+    /// children that continue the run.
+    private func appendRunEqualizeAdjustments(
+        orientation: String,
+        adjustments: inout [SplitDividerAdjustment],
+        foundSplit: inout Bool,
+        hadInvalidSplitIds: inout Bool
+    ) {
+        guard case .split(let splitNode) = self, splitNode.orientation == orientation else { return }
+        splitNode.first.appendRunEqualizeAdjustments(
+            orientation: orientation,
+            adjustments: &adjustments,
+            foundSplit: &foundSplit,
+            hadInvalidSplitIds: &hadInvalidSplitIds
+        )
+        splitNode.second.appendRunEqualizeAdjustments(
+            orientation: orientation,
+            adjustments: &adjustments,
+            foundSplit: &foundSplit,
+            hadInvalidSplitIds: &hadInvalidSplitIds
+        )
+        foundSplit = true
+        guard let splitId = UUID(uuidString: splitNode.id) else {
+            hadInvalidSplitIds = true
+            return
+        }
+        let firstSpanCount = splitNode.first.spanCount(along: orientation)
+        let secondSpanCount = splitNode.second.spanCount(along: orientation)
+        let position = CGFloat(firstSpanCount) / CGFloat(firstSpanCount + secondSpanCount)
+        adjustments.append(SplitDividerAdjustment(splitId: splitId, position: position))
     }
 
     private func appendEqualizeAdjustments(

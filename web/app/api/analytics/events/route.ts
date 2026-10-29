@@ -14,22 +14,24 @@ import { checkRateLimit as checkVercelRateLimit } from "@vercel/firewall";
 import { createHash } from "node:crypto";
 import { verifyRequest } from "../../../../services/vms/auth";
 import { readBoundedJsonObject } from "../../../../services/apns/routePolicy";
+import { reportMissingRateLimitRule } from "../../../../services/rateLimitObservability";
 import { cloudDb } from "../../../../db/client";
 import {
   hasBlockingAccountDeletionIdentity,
   withAccountDeletionAnalyticsForwardLease,
 } from "../../../../services/account/deletionLock";
 import {
+  ANONYMOUS_SAFE_PROPERTIES,
   MAX_ANALYTICS_BATCH_EVENTS,
   MAX_ANALYTICS_EVENT_PROPERTIES,
+  MAX_ANALYTICS_LIST_PROPERTY_ITEMS,
   MAX_ANALYTICS_REQUEST_BYTES,
   POSTHOG_HOST,
   POSTHOG_PROJECT_KEY,
+  iosAnalyticsChannel,
   isAllowedAnalyticsEvent,
 } from "../../../../services/analytics/iosEventPolicy";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 const POSTHOG_CAPTURE_TIMEOUT_MS = 10_000;
 
@@ -61,18 +63,33 @@ export const POST = makeAnalyticsEventsHandler();
 
 export function makeAnalyticsEventsHandler(dependencies: AnalyticsEventsDependencies = defaultDependencies) {
   return async function POST(request: Request): Promise<Response> {
-    if (process.env.VERCEL === "1") {
-      const rateLimitId = process.env.CMUX_ANALYTICS_RATE_LIMIT_ID?.trim();
-      if (!rateLimitId) {
-        console.error("analytics.events.rate_limit_not_configured");
-        return jsonResponse({ error: "analytics_unavailable" }, 503);
-      }
-      const { error, rateLimited } = await dependencies.checkRateLimit(rateLimitId, { request });
-      if (rateLimited || error === "blocked") {
-        return jsonResponse({ error: "rate_limited" }, 429);
-      }
-      if (error) {
-        console.error("analytics.events.rate_limit_error", error);
+    // An unset rule id means no rate limiting; a deleted rule (not-found)
+    // fails open. Only genuine check failures reject the event.
+    const rateLimitId = process.env.CMUX_ANALYTICS_RATE_LIMIT_ID?.trim();
+    if (process.env.VERCEL === "1" && !rateLimitId) {
+      void reportMissingRateLimitRule({ route: "/api/analytics/events", reason: "unset" });
+    }
+    if (process.env.VERCEL === "1" && rateLimitId) {
+      try {
+        const { error, rateLimited } = await dependencies.checkRateLimit(rateLimitId, { request });
+        if (rateLimited || error === "blocked") {
+          return jsonResponse(
+            { error: "rate_limited" },
+            429,
+            { "retry-after": "60" },
+          );
+        }
+        if (error === "not-found") {
+          void reportMissingRateLimitRule({ route: "/api/analytics/events", reason: "not-found" });
+        } else if (error) {
+          console.error("analytics.events.rate_limit_error", { failure: "check_error" });
+          return jsonResponse({ error: "analytics_unavailable" }, 503);
+        }
+      } catch {
+        // Do not let a firewall transport failure become a platform 500. The
+        // mobile uploader retries 5xx responses, so return an explicit
+        // backpressure response instead of multiplying the failed check.
+        console.error("analytics.events.rate_limit_error", { failure: "check_failed" });
         return jsonResponse({ error: "analytics_unavailable" }, 503);
       }
     }
@@ -85,9 +102,18 @@ export function makeAnalyticsEventsHandler(dependencies: AnalyticsEventsDependen
     // gate, not auth. The PostHog key is already public (the web client posts to
     // r.cmux.com directly), so an anonymous proxy is no weaker than today.
     //
-    const user = await dependencies.verifyRequest(request, {
-      allowCookie: false,
-    });
+    let user: { readonly id: string } | null = null;
+    try {
+      user = await dependencies.verifyRequest(request, {
+        allowCookie: false,
+      });
+    } catch {
+      // Analytics deliberately accepts anonymous events. If Stack Auth is
+      // degraded, preserve that contract and forward with the namespaced
+      // anonymous identity rather than turning telemetry into an auth retry
+      // storm or an HTTP 500.
+      console.warn("analytics.events.auth_unavailable; continuing anonymously");
+    }
 
     const body = await readBoundedJsonObject(request, MAX_ANALYTICS_REQUEST_BYTES);
     if (!body.ok) {
@@ -167,13 +193,15 @@ function sanitizeEvent(candidate: unknown): IncomingEvent | null {
       : {};
 
   // Cap property fan-out so a malformed client can't push an unbounded property
-  // bag through the proxy.
+  // bag through the proxy. Values are scalars or short scalar lists
+  // (`product_ids`); nested objects are dropped.
   const properties: Record<string, unknown> = {};
   let count = 0;
   for (const [key, value] of Object.entries(rawProperties)) {
     if (count >= MAX_ANALYTICS_EVENT_PROPERTIES) break;
-    if (isScalar(value)) {
-      properties[key] = value;
+    const forwarded = forwardablePropertyValue(value);
+    if (forwarded !== undefined) {
+      properties[key] = forwarded;
       count += 1;
     }
   }
@@ -186,8 +214,34 @@ function sanitizeEvent(candidate: unknown): IncomingEvent | null {
   };
 }
 
-function isScalar(value: unknown): boolean {
+function isScalar(value: unknown): value is string | number | boolean {
   return typeof value === "string" || typeof value === "number" || typeof value === "boolean";
+}
+
+function forwardablePropertyValue(value: unknown): unknown {
+  if (isScalar(value)) return value;
+  if (!Array.isArray(value)) return undefined;
+  return value.filter(isScalar).slice(0, MAX_ANALYTICS_LIST_PROPERTY_ITEMS);
+}
+
+/**
+ * The properties an event keeps on its way to PostHog. Authenticated events
+ * keep everything the sanitizer accepted. An unauthenticated event may be a
+ * stale queued event from a deleted account, so it keeps only the build and
+ * store facts in ANONYMOUS_SAFE_PROPERTIES, never account fields. Every event
+ * gets `channel` from its bundle id so production, beta, dev and third-party
+ * builds can be separated; nothing is dropped for its channel.
+ */
+function forwardedProperties(event: IncomingEvent, authenticated: boolean): Record<string, unknown> {
+  const properties: Record<string, unknown> = authenticated ? { ...event.properties } : {};
+  if (!authenticated) {
+    for (const key of ANONYMOUS_SAFE_PROPERTIES) {
+      const value = event.properties[key];
+      if (isScalar(value)) properties[key] = value;
+    }
+  }
+  properties.channel = iosAnalyticsChannel(event.properties.bundle_identifier);
+  return properties;
 }
 
 async function forwardToPostHog(
@@ -206,8 +260,9 @@ async function forwardToPostHog(
   const batch = events.map((event) => {
     // An unauthenticated queued event may contain stale account fields from a
     // session that was deleted after the tombstone preflight. Preserve only its
-    // event name and namespaced anonymous id so it cannot recreate account data.
-    const properties = userId ? { ...event.properties } : {};
+    // event name, namespaced anonymous id and build facts so it cannot
+    // recreate account data.
+    const properties = forwardedProperties(event, userId !== null);
     const anonymousAlias = properties.$anon_distinct_id;
     if (typeof anonymousAlias === "string") {
       properties.$anon_distinct_id = anonymousPostHogDistinctID(anonymousAlias);

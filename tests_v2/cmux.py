@@ -28,6 +28,9 @@ import time
 import uuid
 from typing import Any, Dict, List, Optional, Tuple, Union
 
+# Outer harness allowance above BrowserScreenshotTimingBudget's 41.5-second client deadline.
+BROWSER_SCREENSHOT_RESPONSE_TIMEOUT_S = 45.0
+
 
 class cmuxError(Exception):
     """Exception raised for cmux errors."""
@@ -1077,6 +1080,10 @@ class cmux:
         if label:
             params["label"] = label
         return dict(self._call("debug.window.screenshot", params) or {})
+
+    def global_search_query(self, query: str) -> dict:
+        """Refresh Global Search's live index like opening the palette, then search."""
+        return dict(self._call("debug.global_search.query", {"query": query}, timeout_s=70.0) or {})
 
 
 def main() -> None:

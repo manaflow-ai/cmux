@@ -1,0 +1,13 @@
+{
+  "v": 1,
+  "type": "hello_ack",
+  "payload": {
+    "sessionId": "b2a7",
+    "resumedFromRev": 41,
+    "serverCapabilities": ["cmux.ctl.listv2", "cmux.ctl.ack", "cmux.ctl.revocation"],
+    "minimumSupportedVersion": {
+      "mac": "0.30.0",
+      "ios": "1.4.0"
+    }
+  }
+}

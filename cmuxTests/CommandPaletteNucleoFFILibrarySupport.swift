@@ -109,7 +109,7 @@ final class NucleoLibrary {
             )
         }
 
-        let sourceRoot = URL(fileURLWithPath: #filePath)
+        let sourceRoot = SwiftTestingAssertions.sourceURL()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
         let crateTarget = sourceRoot.appendingPathComponent("Native/CommandPaletteNucleoFFI/target")

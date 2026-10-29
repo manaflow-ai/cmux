@@ -1,0 +1,52 @@
+name: CI fast guards
+
+# The workflow, scripts/ci and repository-variable guard tests (ci-guards.yml's
+# `ci` group), reported as their own check within about a minute of a push to
+# main. Pull requests run this same group as the first-class `CI fast guards`
+# job in ci.yml, so they do not pay for a second copy of the suite.
+#
+# On pull requests, ci.yml runs this same group as its first-class
+# `CI fast guards` job beside routing and static checks. Its result feeds the
+# admission and required-status jobs directly, so a red guard remains visible
+# even when the routed matrix is skipped.
+#
+# The main-push route remains independent because merge-main uses its verdict
+# to select a known-green base commit.
+#
+# scripts/ci/guards-local.sh is the same command a dev machine runs; a clean
+# local pass stamps the head for the agent merge guard in cmuxterm-hq.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # A PR's newer push supersedes its older run; every main commit keeps its own.
+  group: ci-fast-guards-${{ github.event.pull_request.number || github.sha }}-${{ github.event_name }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  fast-guards:
+    name: CI fast guards
+    # This read-only guard runs the same untrusted-source checks as the
+    # standard CI route and needs no secrets or write token. Let the shared
+    # Linux runner expression absorb overflow instead of consuming hosted
+    # capacity.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Run the fast guard tests
+        env:
+          CMUX_GUARDS_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before || '' }}
+        run: scripts/ci/guards-local.sh --no-stamp --jobs 8

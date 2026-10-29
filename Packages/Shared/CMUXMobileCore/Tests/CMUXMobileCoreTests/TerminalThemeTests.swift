@@ -94,6 +94,26 @@ import Testing
         #expect(theme.ghosttyColorDirectives.contains("cursor-text = #8d8e82"))
     }
 
+    @Test func ghosttyDirectivesPreserveExtendedPaletteAndCellRelativeColors() {
+        var theme = TerminalTheme.monokai
+        theme.palette = (0..<TerminalTheme.extendedPaletteCount).map {
+            String(format: "#%06x", $0)
+        }
+        theme.cursorColorSemantic = .foreground
+        theme.cursorTextSemantic = .background
+        theme.selectionBackgroundSemantic = .foreground
+        theme.selectionForegroundSemantic = .background
+
+        let directives = theme.ghosttyColorDirectives
+
+        #expect(theme.isValid)
+        #expect(directives.contains("palette = 255=#0000ff"))
+        #expect(directives.contains("cursor-color = cell-foreground"))
+        #expect(directives.contains("cursor-text = cell-background"))
+        #expect(directives.contains("selection-background = cell-foreground"))
+        #expect(directives.contains("selection-foreground = cell-background"))
+    }
+
     @Test func ghosttyDirectivesNormalizeBareHexToCanonical() {
         // A bare `rrggbb` (no `#`) still parses via rgbComponents, but the
         // emitted directive must be canonical `#rrggbb` for the theme contract.
@@ -113,23 +133,30 @@ import Testing
         #expect(!directives.contains("background = ff8000"))
     }
 
-    @MainActor
-    @Test func themeStoreSetAndFallback() {
-        defer { TerminalThemeStore.set(.monokai) }
-
-        let custom = TerminalTheme(
-            background: "#101010",
-            foreground: "#e0e0e0",
-            cursor: "#e0e0e0",
-            selectionBackground: "#303030",
-            selectionForeground: "#e0e0e0",
-            palette: Array(repeating: "#202020", count: TerminalTheme.paletteCount)
+    @Test func decodedThemeCarriesCustomBoldColorIntoGhosttyConfig() throws {
+        let object = try #require(
+            JSONSerialization.jsonObject(with: JSONEncoder().encode(TerminalTheme.monokai)) as? [String: Any]
         )
-        TerminalThemeStore.set(custom)
-        #expect(TerminalThemeStore.current == custom)
+        var themeObject = object
+        themeObject["boldColor"] = "#4e2a84"
+        let data = try JSONSerialization.data(withJSONObject: themeObject)
 
-        // nil and invalid both reset to Monokai.
-        TerminalThemeStore.set(nil)
-        #expect(TerminalThemeStore.current == .monokai)
+        let theme = try JSONDecoder().decode(TerminalTheme.self, from: data)
+
+        #expect(theme.ghosttyColorDirectives.contains("bold-color = #4e2a84"))
     }
+
+    @Test func decodedThemeCarriesBrightBoldColorIntoGhosttyConfig() throws {
+        let object = try #require(
+            JSONSerialization.jsonObject(with: JSONEncoder().encode(TerminalTheme.monokai)) as? [String: Any]
+        )
+        var themeObject = object
+        themeObject["boldColor"] = "bright"
+        let data = try JSONSerialization.data(withJSONObject: themeObject)
+
+        let theme = try JSONDecoder().decode(TerminalTheme.self, from: data)
+
+        #expect(theme.ghosttyColorDirectives.contains("bold-color = bright"))
+    }
+
 }

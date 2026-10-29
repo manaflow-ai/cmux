@@ -1,7 +1,7 @@
 import { useTranslations } from "next-intl";
 import { auditedDocsMetadata } from "../audited-docs-metadata";
 import { DocsSchema } from "../docs-schema";
-import { Link } from "@/i18n/navigation";
+import { DocsLink as Link } from "@/app/[locale]/components/docs-link";
 import { Callout } from "@/app/[locale]/components/callout";
 import { CodeBlock } from "@/app/[locale]/components/code-block";
 import { KeyboardShortcuts } from "@/app/[locale]/keyboard-shortcuts";
@@ -29,6 +29,7 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
   });
 }
 
+/** Documents the default bindings and the syntax for customizing shortcuts. */
 export default function KeyboardShortcutsPage() {
   const t = useTranslations("docs.keyboardShortcuts");
 
@@ -37,6 +38,7 @@ export default function KeyboardShortcutsPage() {
       <DocsSchema namespace="docs.keyboardShortcuts" path="/docs/keyboard-shortcuts" />
       <DocsHeading level={1} id="title">{t("title")}</DocsHeading>
       <p>{t("description")}</p>
+      <p>{t("paneResizeDescription")}</p>
 
       <DocsHeading level={2} id="shortcut-chords" className="scroll-mt-24">{t("chordsTitle")}</DocsHeading>
       <p>

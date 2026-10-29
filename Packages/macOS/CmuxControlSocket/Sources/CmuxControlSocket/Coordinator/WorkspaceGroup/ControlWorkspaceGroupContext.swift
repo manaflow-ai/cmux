@@ -20,9 +20,8 @@ public import Foundation
 @MainActor
 public protocol ControlWorkspaceGroupContext: AnyObject {
     /// The localized workspace-group error messages, resolved against the app
-    /// bundle so the coordinator can shape the two localized error envelopes
-    /// (`allChildrenAreAnchors`, `workspaceIsOtherGroupAnchor`) without binding
-    /// `String(localized:)` to the package bundle.
+    /// bundle so the coordinator can shape localized error envelopes without
+    /// binding `String(localized:)` to the package bundle.
     func controlWorkspaceGroupStrings() -> ControlWorkspaceGroupStrings
 
     /// Snapshots every workspace group for `workspace.group.list`, with the
@@ -37,29 +36,23 @@ public protocol ControlWorkspaceGroupContext: AnyObject {
 
     /// Creates a workspace group for `workspace.group.create`.
     ///
-    /// The coordinator has already parsed `name` / `cwd`, resolved the child
-    /// handles to UUIDs, and surfaced the param-shape `invalid_params` failures;
-    /// this runs the live-state remainder (fallback child selection, the
-    /// target-window existence check, the all-children-are-anchors guard, and
-    /// the create call).
+    /// The coordinator has already parsed `name` / `cwd`, resolved the explicit
+    /// child handles to UUIDs, and surfaced param-shape failures. Missing child
+    /// input is represented as an empty array rather than ambient app state.
     ///
     /// - Parameters:
-    ///   - routing: The routing selectors used for TabManager resolution and the
-    ///     caller-workspace fallback.
+    ///   - routing: The routing selectors used for TabManager resolution.
     ///   - name: The group name (already defaulted to "" when absent).
     ///   - cwd: The anchor working directory, if provided.
-    ///   - childWorkspaceIDs: The resolved child workspace ids, in request order
-    ///     (empty when none provided/resolved).
-    ///   - childrenExplicit: Whether the caller explicitly listed
-    ///     `child_workspace_ids` (drives the eligibility guard and disables the
-    ///     fallback selection).
+    ///   - childWorkspaceIDs: The resolved child workspace ids, in request order.
+    ///   - externalID: The caller-owned idempotency identity, if provided.
     /// - Returns: The create resolution.
     func controlCreateWorkspaceGroup(
         routing: ControlRoutingSelectors,
         name: String,
         cwd: String?,
         childWorkspaceIDs: [UUID],
-        childrenExplicit: Bool
+        externalID: String?
     ) -> ControlWorkspaceGroupCreateResolution
 
     /// Ungroups the group for `workspace.group.ungroup`.
@@ -67,12 +60,15 @@ public protocol ControlWorkspaceGroupContext: AnyObject {
     /// - Parameters:
     ///   - routing: The routing selectors used for TabManager resolution.
     ///   - groupID: The group to ungroup.
-    /// - Returns: `true` if the group existed and was ungrouped, `nil` if no
-    ///   TabManager resolved.
+    ///   - removeGeneratedAnchor: Whether an anchor-only cmux-generated anchor
+    ///     may be removed as part of the dissolve.
+    /// - Returns: The ungroup resolution, including the protected pinned-empty
+    ///     outcome and guarded generated-anchor cleanup outcomes.
     func controlUngroupWorkspaceGroup(
         routing: ControlRoutingSelectors,
-        groupID: UUID
-    ) -> Bool?
+        groupID: UUID,
+        removeGeneratedAnchor: Bool
+    ) -> ControlWorkspaceGroupUngroupResolution
 
     /// Deletes the group for `workspace.group.delete`.
     ///

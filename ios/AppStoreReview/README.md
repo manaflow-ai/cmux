@@ -25,7 +25,7 @@ Defaults:
 - Marketing version: `CMUX_IOS_APPSTORE_MARKETING_VERSION` in `ios/Config/Shared.xcconfig`
 - Display name: `cmux`
 - Provisioning profile: `cmux App Store Distribution`
-- Entitlements: `Config/cmux-release.entitlements`
+- Entitlements: `Config/cmux-appstore-release.entitlements` (VPN-free App Store build; beta keeps `Config/cmux-release.entitlements`)
 - Review submission: not automatic
 
 The beta lane remains:
@@ -83,8 +83,12 @@ ios/scripts/validate-app-store-release.sh \
 
 ## Files
 
-- `review-notes.md` contains the notes to paste into App Store Connect Review Information.
-- `reviewer-setup.md` contains the prepared Mac and manual-pairing setup needed so App Review can test without owning a Mac.
+- `reviewer-setup.md` contains the prepared Mac, automatic review-Mac route, and
+  manual fallback setup needed so App Review can test without owning a Mac. Its
+  pasteable notes block is the single canonical App Store Connect notes
+  template.
+- `review-notes.md` is reference-only background on the review flow and
+  permissions. Do not paste it into App Store Connect.
 - `metadata-screenshots-checklist.md` lists the metadata, screenshots, privacy, and payment gates that must be complete before submission.
 
 Do not commit demo account passwords. Add them only in App Store Connect Review

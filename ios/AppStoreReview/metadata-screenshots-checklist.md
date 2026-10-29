@@ -10,12 +10,22 @@ complete in App Store Connect or in the submitted binary.
 - [ ] `CMUX_IOS_APPSTORE_MARKETING_VERSION` in `ios/Config/Shared.xcconfig` matches the App Store version.
 - [ ] `CURRENT_PROJECT_VERSION` is higher than every prior ASC build for the app.
 - [ ] `ITSAppUsesNonExemptEncryption` remains `false` only if the build uses no non-exempt encryption beyond standard TLS.
+- [ ] The build attached to the version has no `CloudVPN.appex` and no
+      `com.apple.developer.networking.networkextension` or
+      `com.apple.developer.networking.vpn.api` entitlement. Check the processed
+      build with `asc build-bundles list --build-id BUILD_ID --output json`.
 
 ## Review Information
 
 - [ ] App Review contact name, email, and phone are filled in ASC.
 - [ ] Demo account credentials are entered only in ASC Review Information, never in git.
-- [ ] `review-notes.md` is pasted into ASC notes and edited with the exact review Mac or manual pairing code for this build.
+- [ ] ASC notes explain the Mailinator one-time-code flow when a Mailinator demo
+      account is used. The exact demo email and public inbox URL live only in
+      ASC.
+- [ ] The canonical pasteable notes block in `reviewer-setup.md` is pasted into
+      ASC notes with every placeholder replaced, keeping the manual pairing
+      fallback section whenever automatic discovery can fail. `review-notes.md`
+      is reference-only and is not pasted into ASC.
 - [ ] Backend services needed by the demo account are live before submission.
 - [ ] Account deletion is available in app or the submission is blocked until the account lifecycle satisfies App Review Guideline 5.1.1(v).
 
@@ -25,9 +35,15 @@ complete in App Store Connect or in the submitted binary.
 - [ ] Subtitle, description, keywords, support URL, marketing URL, and privacy policy URL are complete for every ASC localization.
 - [ ] Description accurately says cmux is an iOS companion for the cmux macOS terminal.
 - [ ] Metadata does not describe TestFlight, beta access, dev builds, unfinished features, or unsupported platforms.
+- [ ] Public metadata has no App Review instructions (demo account, review Mac,
+      pairing steps). Those go only in the Review Information notes.
+      `ios/tests/test_appstore_review_package.py` guards the repo copy.
 - [ ] Category and age rating are complete and match the app's terminal, remote-control, notifications, and account features.
 - [ ] Content rights declaration is complete.
 - [ ] App Privacy answers match collected data: account identifiers, device token when push is enabled, analytics if enabled, and pairing/device metadata.
+- [ ] `ios/cmux/PrivacyInfo.xcprivacy` lists the same data types as App Privacy,
+      including crash, performance, and diagnostic data while the crash reporter
+      is linked.
 
 ## Screenshots
 
@@ -44,7 +60,10 @@ complete in App Store Connect or in the submitted binary.
 - [ ] `/app-pricing?cmux_app=1&cmux_distribution=appstore` renders without `/api/billing/checkout`, `/api/billing/portal`, or enterprise sales CTAs.
 - [ ] `/api/billing/checkout?cmux_distribution=appstore` redirects before creating Stack or Stripe checkout state.
 - [ ] `/api/billing/portal?cmux_distribution=appstore` redirects before resolving Stack users or creating Stripe portal state.
-- [ ] Existing paid entitlement state is read-only in iOS. If an iOS purchase flow is added later, it must use StoreKit and restore purchases.
+- [ ] iOS purchases use StoreKit only (Go, Pro, Max in "cmux Plans") and the plans screen has Restore Purchases, Manage Subscription, auto-renewal terms, and working Terms of Use (`https://cmux.com/terms-of-service`) and Privacy Policy (`https://cmux.com/privacy-policy`) links.
+- [ ] The App Store description names the subscriptions and links the Terms of Use and Privacy Policy (Guideline 3.1.2).
+- [ ] Each subscription the app offers has an App Review screenshot of the plans screen and is attached to the version submission. Submit Go only while the production Go flag shows it in the app; a product the reviewer cannot find is a rejection.
+- [ ] The demo account has no Stripe or team billing, so the plans screen offers purchases to the reviewer.
 
 ## Permissions and Privacy
 
@@ -57,7 +76,10 @@ complete in App Store Connect or in the submitted binary.
 - [x] iPhone and iPad analytics collection is disabled until the user consents, and Settings exposes a control that withdraws consent for the same telemetry gate used by analytics and crash reporting.
 - [x] In-app Delete Account deletes the account-linked PostHog person and requests deletion of its events and recordings before deleting the Stack user.
 - [ ] Production web env has `POSTHOG_PERSONAL_API_KEY` with `person:write` scope and an explicit `POSTHOG_ENVIRONMENT_ID` (or `POSTHOG_PROJECT_ID`) for that key. Destructive deletion has no default project fallback.
-- [ ] Every `reviewer-setup.md` placeholder is replaced only in ASC with working demo credentials, concrete Tailscale access, concrete host, port, and monitored contact. These live values stay out of git.
+- [ ] Every `reviewer-setup.md` placeholder is replaced only in ASC with working
+      demo credentials, concrete Mailinator inbox, automatic review-Mac status,
+      concrete Tailscale fallback when needed, and monitored contact. These live
+      values stay out of git.
 
 ## ASC Validation Commands
 
@@ -79,6 +101,6 @@ asc metadata validate --dir ios/AppStoreReview/metadata --output table
 ```
 
 ```bash
-asc screenshots validate --path ios/AppStoreReview/screenshots --device-type IPHONE_69 --output table
-asc screenshots validate --path ios/AppStoreReview/screenshots --device-type IPAD_PRO_3GEN_129 --output table
+asc screenshots validate --path ios/AppStoreReview/screenshots/en-US/iphone --device-type IPHONE_69 --output table
+asc screenshots validate --path ios/AppStoreReview/screenshots/en-US/ipad --device-type IPAD_PRO_3GEN_129 --output table
 ```

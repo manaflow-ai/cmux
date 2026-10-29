@@ -12,6 +12,9 @@ enum RemoteTmuxError: Error, Sendable, Equatable {
     /// The remote host is not reachable / the SSH master could not be opened.
     case unreachable(String)
 
+    /// cmux could not create the local window requested for a dedicated mirror.
+    case windowCreationFailed
+
     /// The remote tmux is older than ``RemoteTmuxVersion/minimumSupported``, so the
     /// control-mode mirror would attach into a broken/degraded state (no live pane
     /// subscriptions, or no `%begin`/`%end` framing). Carries the detected version
@@ -20,6 +23,11 @@ enum RemoteTmuxError: Error, Sendable, Equatable {
 
     /// The remote host has no tmux binary anywhere cmux's resolver probes.
     case tmuxNotFound(destination: String)
+
+    /// The connection is waiting for credentials cmux cannot supply. Distinct from
+    /// ``unreachable`` on purpose: the host answered, and telling the user to check the network
+    /// sends them to the wrong place. Carries the destination for the message.
+    case authenticationRequired(String)
 }
 
 extension RemoteTmuxError {
@@ -65,6 +73,11 @@ extension RemoteTmuxError {
                 defaultValue: "host unreachable: %@"
             )
             return String(format: format, Self.sanitizedDetail(detail))
+        case .windowCreationFailed:
+            return String(
+                localized: "remoteTmux.error.windowCreationFailed",
+                defaultValue: "cmux could not create a new window"
+            )
         case let .unsupportedTmux(detected):
             let format = String(
                 localized: "remoteTmux.error.unsupportedVersion",
@@ -75,6 +88,12 @@ extension RemoteTmuxError {
                 Self.sanitizedDetail(detected),
                 RemoteTmuxVersion.minimumSupported.displayString
             )
+        case let .authenticationRequired(detail):
+            let format = String(
+                localized: "remoteTmux.error.authenticationRequired",
+                defaultValue: "%@ asked for credentials and cmux has nowhere to type them. Log in to the host, then try again."
+            )
+            return String(format: format, Self.sanitizedDetail(detail))
         case let .tmuxNotFound(destination):
             let format = String(
                 localized: "remoteTmux.error.tmuxNotFound",

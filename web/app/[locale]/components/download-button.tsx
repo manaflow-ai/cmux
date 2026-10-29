@@ -6,9 +6,12 @@ import posthog from "posthog-js";
 import { useState } from "react";
 import { Link, usePathname } from "../../../i18n/navigation";
 import {
+  BROWSER_NIGHTLY_PAGE,
   DOWNLOAD_CONFIRMATION_HREF,
   DOWNLOAD_CONFIRMATION_PATH,
+  DOWNLOAD_PLATFORMS,
   DOWNLOAD_URL,
+  PLATFORM_DOWNLOADS,
   WAITLIST_PLATFORMS,
   type WaitlistPlatform,
 } from "../../lib/download";
@@ -37,6 +40,8 @@ export function DownloadButton({
 }) {
   const t = useTranslations("common");
   const tp = useTranslations("platforms");
+  const tb = useTranslations("browserDownloads");
+  const tf = useTranslations("footer");
   const tw = useTranslations("waitlist");
   const pathname = usePathname();
   const isSmall = size === "sm";
@@ -183,7 +188,12 @@ export function DownloadButton({
               <Menu.Popup className="z-[1000] min-w-52 origin-[var(--transform-origin)] rounded-lg border border-border bg-background p-1.5 text-foreground shadow-xl shadow-black/10 outline-none transition duration-150 ease-out data-[ending-style]:scale-[0.96] data-[ending-style]:opacity-0 data-[starting-style]:scale-[0.96] data-[starting-style]:opacity-0">
                 <Menu.Item
                   render={
-                    onConfirmationPage ? <a href={macHref} /> : <Link href={macHref} />
+                    onConfirmationPage ? (
+                      // biome-ignore lint/a11y/useAnchorContent: Base UI injects the Menu.Item children into this anchor.
+                      <a href={macHref} />
+                    ) : (
+                      <Link href={macHref} />
+                    )
                   }
                   onClick={captureMac}
                   className={menuItemClass}
@@ -205,6 +215,36 @@ export function DownloadButton({
                   <span className="flex-1 text-left">{tp("ios")}</span>
                   <ExternalLinkIcon />
                 </Menu.Item>
+                <Menu.Item
+                  render={<Link href={BROWSER_NIGHTLY_PAGE} />}
+                  onClick={() =>
+                    posthog.capture("cmux_browser_nightly_page_clicked", {
+                      location,
+                    })
+                  }
+                  className={menuItemClass}
+                >
+                  <BrowserIcon />
+                  <span className="flex-1 text-left">
+                    {tb("eyebrow")} {tf("nightly")}
+                  </span>
+                </Menu.Item>
+                {DOWNLOAD_PLATFORMS.map((platform) => (
+                  <Menu.Item
+                    key={platform}
+                    render={<Link href={PLATFORM_DOWNLOADS[platform].page} />}
+                    onClick={() =>
+                      posthog.capture("cmux_browser_platform_page_clicked", {
+                        location,
+                        platform,
+                      })
+                    }
+                    className={menuItemClass}
+                  >
+                    <PlatformIcon name={platform} />
+                    <span className="flex-1 text-left">{tp(platform)}</span>
+                  </Menu.Item>
+                ))}
                 <Menu.Separator className="mx-1 my-1.5 h-px bg-border" />
                 <Menu.Group>
                   <Menu.GroupLabel className="px-2.5 pb-1 pt-1 text-xs text-muted">
@@ -265,6 +305,26 @@ function ExternalLinkIcon() {
       <path d="M6 3.5H3.5v9h9V10" />
       <path d="M9.5 3.5h3v3" />
       <path d="m12.5 3.5-5 5" />
+    </svg>
+  );
+}
+
+function BrowserIcon() {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <path d="M3 9h18" />
+      <path d="M7 6.5h.01M10 6.5h.01" />
     </svg>
   );
 }

@@ -126,6 +126,106 @@ struct SplitGeometryTests {
         #expect(plan.adjustments.isEmpty)
     }
 
+    @Test(arguments: ["horizontal", "vertical"])
+    func splitIdRunPlanStopsAtCrossAxisBoundaries(orientation: String) throws {
+        let cross = orientation == "horizontal" ? "vertical" : "horizontal"
+        let outer = UUID(), run = UUID(), nested = UUID(), stacked = UUID(), other = UUID()
+        let tree = split(outer, orientation: cross, dividerPosition: 0.7,
+            first: split(run, orientation: orientation, dividerPosition: 0.2,
+                first: pane("a"),
+                second: split(nested, orientation: orientation, dividerPosition: 0.8,
+                    first: pane("b"),
+                    second: split(stacked, orientation: cross, dividerPosition: 0.3,
+                        first: pane("c"), second: pane("d")))),
+            second: split(other, orientation: orientation, dividerPosition: 0.25,
+                first: pane("e"), second: pane("f")))
+
+        for clicked in [run, nested] {
+            let plan = tree.equalizeDividerPlan(forSplitRunContainingSplitId: clicked)
+            #expect(plan.foundSplit)
+            #expect(!plan.hadInvalidSplitIds)
+            #expect(plan.adjustments.map(\.splitId) == [nested, run])
+            #expect(plan.adjustments.first?.position == 0.5)
+            let parent = try #require(plan.adjustments.last)
+            #expect(abs(parent.position - 1.0 / 3.0) < 0.0001)
+        }
+        let stackedPlan = tree.equalizeDividerPlan(forSplitRunContainingSplitId: stacked)
+        #expect(stackedPlan.adjustments.map(\.splitId) == [stacked])
+        #expect(stackedPlan.adjustments.first?.position == 0.5)
+        #expect(!tree.equalizeDividerPlan(forSplitRunContainingSplitId: UUID()).foundSplit)
+        #expect(pane("solo").equalizeDividerPlan(forSplitRunContainingSplitId: UUID()).adjustments.isEmpty)
+    }
+
+    @Test(arguments: ["horizontal", "vertical"])
+    func splitIdRunPlanFindsDeepTargetAfterBacktracking(orientation: String) {
+        let cross = orientation == "horizontal" ? "vertical" : "horizontal"
+        let target = UUID()
+        var targetBranch = split(target, orientation: orientation, dividerPosition: 0.2,
+            first: pane("target-a"), second: pane("target-b"))
+        var rejectedBranch = pane("rejected-leaf")
+        // Two 256-pane branches exercise a 512-pane workspace with a deep
+        // failed search before the target path. Alternate axes to isolate
+        // the target run from its ancestors.
+        for index in 0..<254 {
+            targetBranch = split(UUID(), orientation: index.isMultiple(of: 2) ? cross : orientation,
+                first: pane("target-\(index)"), second: targetBranch)
+        }
+        for index in 0..<255 {
+            rejectedBranch = split(UUID(), orientation: cross,
+                first: rejectedBranch, second: pane("rejected-\(index)"))
+        }
+        let tree = split(UUID(), orientation: cross, first: rejectedBranch, second: targetBranch)
+        let plan = tree.equalizeDividerPlan(forSplitRunContainingSplitId: target)
+        #expect(plan.foundSplit)
+        #expect(!plan.hadInvalidSplitIds)
+        #expect(plan.adjustments == [SplitDividerAdjustment(splitId: target, position: 0.5)])
+        let missing = tree.equalizeDividerPlan(forSplitRunContainingSplitId: UUID())
+        #expect(!missing.foundSplit)
+        #expect(missing.adjustments.isEmpty)
+    }
+
+    @Test func splitRunPlanRebalancesTheNewPanesRow() {
+        let outerId = UUID()
+        let innerId = UUID()
+        let tree = split(
+            outerId,
+            orientation: "horizontal",
+            first: pane("a"),
+            second: split(innerId, orientation: "horizontal", first: pane("b"), second: pane("c"))
+        )
+
+        let plan = tree.equalizeDividerPlan(forSplitRunContainingPaneId: "c")
+
+        #expect(plan.foundSplit)
+        #expect(plan.adjustments.map(\.splitId) == [innerId, outerId])
+        #expect(plan.adjustments[0].position == 0.5)
+        #expect(abs(plan.adjustments[1].position - (1.0 / 3.0)) < 0.0001)
+    }
+
+    @Test func splitRunPlanLeavesOtherRowsAndOrientationsAlone() {
+        let rootId = UUID()
+        let topRowId = UUID()
+        let bottomRowId = UUID()
+        let tree = split(
+            rootId,
+            orientation: "vertical",
+            dividerPosition: 0.3,
+            first: split(topRowId, orientation: "horizontal", dividerPosition: 0.2, first: pane("a"), second: pane("b")),
+            second: split(bottomRowId, orientation: "horizontal", dividerPosition: 0.5, first: pane("c"), second: pane("d"))
+        )
+
+        let plan = tree.equalizeDividerPlan(forSplitRunContainingPaneId: "d")
+
+        #expect(plan.adjustments.map(\.splitId) == [bottomRowId])
+        #expect(plan.adjustments[0].position == 0.5)
+    }
+
+    @Test func splitRunPlanIsEmptyWithoutAParentSplit() {
+        #expect(!pane("solo").equalizeDividerPlan(forSplitRunContainingPaneId: "solo").foundSplit)
+        let tree = split(UUID(), orientation: "horizontal", first: pane("a"), second: pane("b"))
+        #expect(tree.equalizeDividerPlan(forSplitRunContainingPaneId: "missing").adjustments.isEmpty)
+    }
+
     // MARK: Resize planning
 
     @Test func resizeMovesControllingDividerByPixelDelta() {

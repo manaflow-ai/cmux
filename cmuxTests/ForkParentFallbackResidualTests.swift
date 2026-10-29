@@ -1,3 +1,5 @@
+import CmuxFoundation
+import CMUXAgentLaunch
 import Darwin
 import Foundation
 import SQLite3
@@ -11,7 +13,7 @@ import Testing
 
 @Suite
 struct ForkParentFallbackResidualTests {
-    @Test func customClaudeBinaryForkFallbackPassesCachedForkValidation() throws {
+    @Test func customClaudeBinaryForkParentArgumentDoesNotPassCachedValidation() throws {
         let fixture = try Fixture.make()
         defer { fixture.cleanup() }
 
@@ -39,7 +41,8 @@ struct ForkParentFallbackResidualTests {
         )
 
         let result = loader.loadResultSynchronously()
-        #expect(result.forkValidatedPanels.contains(fixture.panelKey))
+        #expect(!result.forkValidatedPanels.contains(fixture.panelKey))
+        #expect(result.index.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.panelId) == nil)
     }
 
     @Test func customClaudeValidatorRejectsDifferentLiveExecutableThanLaunchExecutable() {
@@ -86,7 +89,7 @@ struct ForkParentFallbackResidualTests {
             registration: nil
         )
         let claudeTeamsProcess = CmuxTopProcessArguments(
-            arguments: ["/usr/local/bin/claude", "--resume", claudeTeamsSnapshot.sessionId, "--fork-session"],
+            arguments: ["/usr/local/bin/claude", "--resume", claudeTeamsSnapshot.sessionId],
             environment: [
                 "CMUX_AGENT_LAUNCH_KIND": "claudeTeams",
                 "CMUX_AGENT_LAUNCH_EXECUTABLE": "/usr/local/bin/cmux",
@@ -111,14 +114,14 @@ struct ForkParentFallbackResidualTests {
         )
         #expect(CachedAgentProcessIdentityValidator().currentProcess(
             CmuxTopProcessArguments(
-                arguments: ["/usr/local/bin/cmux", "codex-teams", "fork", codexTeamsSnapshot.sessionId],
+                arguments: ["/usr/local/bin/cmux", "codex-teams", "resume", codexTeamsSnapshot.sessionId],
                 environment: ["CMUX_AGENT_LAUNCH_KIND": "codexTeams"]
             ),
             matches: codexTeamsSnapshot
         ))
         #expect(CachedAgentProcessIdentityValidator().currentProcess(
             CmuxTopProcessArguments(
-                arguments: ["/usr/local/bin/cmux", "codex-teams", "fork", claudeTeamsSnapshot.sessionId],
+                arguments: ["/usr/local/bin/cmux", "codex-teams", "resume", claudeTeamsSnapshot.sessionId],
                 environment: ["CMUX_AGENT_LAUNCH_KIND": "codexTeams"]
             ),
             matches: claudeTeamsSnapshot
@@ -157,7 +160,12 @@ struct ForkParentFallbackResidualTests {
                 .snapshot(workspaceId: fixture.workspaceId, panelId: fixture.panelId)
         )
         #expect(snapshot.workingDirectory == fixture.cwd.path)
-        #expect(snapshot.resumeStartupInput()?.contains("cd -- '\(fixture.cwd.path)'") == true)
+        let resumeInput = try #require(snapshot.resumeStartupInput())
+        #expect(
+            resumeInput
+                == " \(AgentRestoreLaunch.cliStartupExecutableToken) restore codex \(sessionId)\n"
+        )
+        #expect(snapshot.resumeCommand?.contains("cd -- '\(fixture.cwd.path)'") == true)
         #expect(snapshot.forkStartupInput()?.contains("cd -- '\(fixture.cwd.path)'") == true)
 
         let cwdless = SessionRestorableAgentSnapshot(
@@ -253,7 +261,7 @@ struct ForkParentFallbackResidualTests {
         #expect(index.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.panelId)?.sessionId == childSessionId)
     }
 
-    @Test func claudeTeamsPersistentClaudeProcessForkFallbackRoundTripsAndValidates() throws {
+    @Test func claudeTeamsForkParentArgumentDoesNotBecomeSurfaceIdentity() throws {
         let fixture = try Fixture.make()
         defer { fixture.cleanup() }
 
@@ -306,10 +314,8 @@ struct ForkParentFallbackResidualTests {
             }
         )
         let result = loader.loadResultSynchronously()
-        let snapshot = try #require(result.index.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.panelId))
-        #expect(snapshot.kind == .claude)
-        #expect(result.forkValidatedPanels.contains(fixture.panelKey))
-        #expect(snapshot.forkCommand?.contains("'claude-teams' '--resume' '\(parentSessionId)' '--fork-session' '--model' 'sonnet'") == true)
+        #expect(result.index.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.panelId) == nil)
+        #expect(!result.forkValidatedPanels.contains(fixture.panelKey))
     }
 
     private struct Fixture {
@@ -415,6 +421,19 @@ struct ForkParentFallbackResidualTests {
     }
 
     private func writeStore(root: URL, filename: String, sessions: [String: [String: Any]]) throws {
+        if filename == "codex-hook-sessions.json" {
+            for (sessionId, record) in sessions {
+                let launch = record["launchCommand"] as? [String: Any]
+                let environment = launch?["environment"] as? [String: String]
+                let codexHome = environment?["CODEX_HOME"].map {
+                    URL(fileURLWithPath: $0, isDirectory: true)
+                } ?? root.appendingPathComponent(".codex", isDirectory: true)
+                let cwd = record["cwd"] as? String
+                    ?? launch?["workingDirectory"] as? String
+                    ?? root.appendingPathComponent("repo", isDirectory: true).path
+                try writeCodexStateDB(codexHome: codexHome, sessionId: sessionId, cwd: cwd)
+            }
+        }
         let stateDir = root.appendingPathComponent(".cmuxterm", isDirectory: true)
         try FileManager.default.createDirectory(at: stateDir, withIntermediateDirectories: true)
         let data = try JSONSerialization.data(withJSONObject: ["version": 1, "sessions": sessions], options: [.prettyPrinted])
@@ -422,16 +441,25 @@ struct ForkParentFallbackResidualTests {
     }
 
     private func writeCodexStateDB(codexHome: URL, sessionId: String, cwd: String) throws {
+        let rollout = codexHome.appendingPathComponent("sessions/rollout-\(sessionId).jsonl")
+        try FileManager.default.createDirectory(at: rollout.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let metadata: [String: Any] = [
+            "type": "session_meta",
+            "payload": ["id": sessionId, "cwd": cwd, "source": "cli", "originator": "codex_cli_rs"],
+        ]
+        var data = try JSONSerialization.data(withJSONObject: metadata, options: [.sortedKeys])
+        data.append(0x0a)
+        try data.write(to: rollout, options: .atomic)
         let dbPath = codexHome.appendingPathComponent("state_5.sqlite", isDirectory: false).path
         var db: OpaquePointer?
         guard sqlite3_open(dbPath, &db) == SQLITE_OK, let db else {
             throw testFailure()
         }
         defer { sqlite3_close(db) }
-        guard sqlite3_exec(db, "CREATE TABLE threads (id TEXT PRIMARY KEY, cwd TEXT, archived INTEGER)", nil, nil, nil) == SQLITE_OK else {
+        guard sqlite3_exec(db, "CREATE TABLE IF NOT EXISTS threads (id TEXT PRIMARY KEY, cwd TEXT, archived INTEGER, rollout_path TEXT, source TEXT)", nil, nil, nil) == SQLITE_OK else {
             throw testFailure()
         }
-        let sql = "INSERT INTO threads (id, cwd, archived) VALUES (?, ?, 0)"
+        let sql = "INSERT OR REPLACE INTO threads (id, cwd, archived, rollout_path, source) VALUES (?, ?, 0, ?, 'cli')"
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else {
             throw testFailure()
@@ -440,6 +468,7 @@ struct ForkParentFallbackResidualTests {
         let SQLITE_TRANSIENT_FN = unsafeBitCast(OpaquePointer(bitPattern: -1), to: sqlite3_destructor_type.self)
         sqlite3_bind_text(stmt, 1, sessionId, -1, SQLITE_TRANSIENT_FN)
         sqlite3_bind_text(stmt, 2, cwd, -1, SQLITE_TRANSIENT_FN)
+        sqlite3_bind_text(stmt, 3, rollout.path, -1, SQLITE_TRANSIENT_FN)
         guard sqlite3_step(stmt) == SQLITE_DONE else {
             throw testFailure()
         }

@@ -1,0 +1,52 @@
+name: cmux NEXT perf cron dispatcher
+
+# The perf measurement left every push, pull request and nightly path of feat-cmux-next (Lawrence
+# 2026-10-23: no perf gate that slows pushes or nightlies; a cron instead, opportunistic and at the
+# lowest priority, behind every nightly and dev build). Scheduled workflows run only from the default
+# branch, hence this file on main. Every 20 minutes it starts one tick of feat-cmux-next's
+# cmux-next-perf-budgets.yml ("cmux-next perf cron"), unless a tick is already queued or running.
+# A tick is cheap when there is nothing to do (one Linux job of seconds); it measures only on idle
+# bench-host time and yields to nightly and dev builds (scripts/cmux-next/perf-cron.py on
+# feat-cmux-next). Nothing reads its result and it never fails a check.
+on:
+  schedule:
+    - cron: "4,24,44 * * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: cmux-next-perf-cron-dispatch
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    if: github.repository == 'manaflow-ai/cmux'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    permissions:
+      actions: write
+      contents: read
+    timeout-minutes: 5
+    steps:
+      - name: Start one perf cron tick on feat-cmux-next unless one is pending
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const source = 'feat-cmux-next';
+            const workflow = 'cmux-next-perf-budgets.yml';
+            for (const status of ['queued', 'in_progress']) {
+              const { data } = await github.rest.actions.listWorkflowRuns({
+                owner, repo, workflow_id: workflow, branch: source, status, per_page: 5,
+              });
+              if (data.total_count > 0) {
+                core.notice(`A perf cron tick is already ${status} (run ${data.workflow_runs[0].id}); nothing to start`);
+                return;
+              }
+            }
+            await github.rest.actions.createWorkflowDispatch({
+              owner, repo, workflow_id: workflow,
+              // Fully qualified: a tag named feat-cmux-next must never be picked.
+              ref: `refs/heads/${source}`,
+            });
+            core.notice(`Started a perf cron tick on ${source}`);

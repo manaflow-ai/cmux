@@ -6,7 +6,10 @@ public import Foundation
 /// An authority is immutable and contains no session registry. Tokens issued
 /// from the same secret and audience remain valid across listener and app
 /// restarts, while a different app variant derives an independent signing key.
-public struct SocketClientCapabilityAuthority: Sendable {
+// CryptoKit only declared `SymmetricKey` as `Sendable` in newer SDKs. The key
+// is an immutable value and this authority never exposes or mutates it, so the
+// same concurrency contract is safe when compiling with Xcode 16.2.
+public struct SocketClientCapabilityAuthority: @unchecked Sendable {
     /// Required byte count for master secrets and per-token nonces.
     public static let secureByteCount = 32
 
@@ -45,7 +48,7 @@ public struct SocketClientCapabilityAuthority: Sendable {
     ///
     /// - Parameter nonce: Unique 32-byte nonce.
     /// - Returns: An opaque URL-safe token, or an empty string for invalid input.
-    func issueCapability(nonce: Data) -> String {
+    public func issueCapability(nonce: Data) -> String {
         guard nonce.count == Self.secureByteCount else { return "" }
         let signature = HMAC<SHA256>.authenticationCode(
             for: authenticationMessage(nonce: nonce),

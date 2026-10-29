@@ -69,7 +69,7 @@
 <tr>
 <td width="40%" valign="middle">
 <h3>SSH</h3>
-<code>cmux ssh user@remote</code> បង្កើត workspace សម្រាប់ម៉ាស៊ីនពីចម្ងាយ។ ផ្ទាំងកម្មវិធីរុករកធ្វើដំណើរឆ្លងកាត់បណ្តាញពីចម្ងាយ ដូច្នេះ localhost ដំណើរការបានយ៉ាងស្រួល។ អូសរូបភាពចូលទៅក្នុង session ពីចម្ងាយ ដើម្បីផ្ទុកឡើងតាមរយៈ scp។
+<code>cmux ssh user@remote</code> បង្កើត workspace សម្រាប់ម៉ាស៊ីនពីចម្ងាយ។ បញ្ជូន <code>--command 'omp "investigate auth"'</code> ដើម្បីដំណើរការពាក្យបញ្ជាដំបូងម្តង នៅក្នុងស្ថានីយពីចម្ងាយដំបូងរបស់វា។ ផ្ទាំងកម្មវិធីរុករកធ្វើដំណើរឆ្លងកាត់បណ្តាញពីចម្ងាយ ដូច្នេះ localhost ដំណើរការបានយ៉ាងស្រួល។ អូសរូបភាពចូលទៅក្នុង session ពីចម្ងាយ ដើម្បីផ្ទុកឡើងតាមរយៈ scp។
 </td>
 <td width="60%">
 <img src="./docs/assets/ssh.png" alt="cmux SSH" width="100%" />
@@ -120,6 +120,25 @@ brew upgrade --cask cmux
 
 នៅពេលបើកលើកដំបូង macOS អាចសុំឱ្យអ្នកបញ្ជាក់ការបើកកម្មវិធីពីអ្នកអភិវឌ្ឍន៍ដែលបានកំណត់អត្តសញ្ញាណ។ ចុច **Open** ដើម្បីបន្ត។
 
+### ការបំពេញស្វ័យប្រវត្តិក្នុង Shell
+
+Homebrew cask ដំឡើងការបំពេញស្វ័យប្រវត្តិសម្រាប់ zsh, bash និង fish។ សូមចាប់ផ្តើម shell ថ្មីបន្ទាប់ពីដំឡើង។ ប្រសិនបើវាមិនផ្ទុក សូមពិនិត្យថាថតការបំពេញរបស់ Homebrew ត្រូវបានភ្ជាប់ជាមួយ shell របស់អ្នក (មើល [ឯកសារបំពេញស្វ័យប្រវត្តិ Shell របស់ Homebrew](https://docs.brew.sh/Shell-Completion))។
+
+ប្រសិនបើអ្នកបានដំឡើង cmux តាមវិធីផ្សេង សូមបន្ថែមបន្ទាត់ដែលត្រូវគ្នាទៅក្នុងឯកសារចាប់ផ្តើម shell របស់អ្នក រួចចាប់ផ្តើម shell ថ្មី៖
+
+```zsh
+autoload -Uz compinit && compinit
+eval "$(cmux completion zsh)"
+```
+
+```bash
+eval "$(cmux completion bash)"
+```
+
+```fish
+cmux completion fish | source
+```
+
 ## ហេតុអ្វីបានជា cmux?
 
 ខ្ញុំដំណើរការ Claude Code និង Codex ច្រើនវគ្គស្របគ្នា។ ខ្ញុំធ្លាប់ប្រើ Ghostty ជាមួយផ្ទាំងបំបែកជាច្រើន ហើយពឹងផ្អែកលើការជូនដំណឹងដើមនៃ macOS ដើម្បីដឹងពេលណាដែលភ្នាក់ងារត្រូវការខ្ញុំ។ ប៉ុន្តែខ្លឹមសារនៃការជូនដំណឹងរបស់ Claude Code តែងតែគ្រាន់តែជា "Claude is waiting for your input" ដោយគ្មានបរិបទ ហើយជាមួយផ្ទាំងបើកច្រើនគ្រប់គ្រាន់ ខ្ញុំមិនអាចសូម្បីតែអានចំណងជើងបានទៀតទេ។
@@ -152,7 +171,9 @@ cmux គឺជា primitive មិនមែនជាដំណោះស្រា�
 
 | Shortcut | Action |
 |----------|--------|
-| ⌘ N | Workspace ថ្មី |
+| ⌘ N | កន្លែងធ្វើការក្នុងម៉ាស៊ីនថ្មី |
+| ⌘ Y | កន្លែងធ្វើការ Cloud ថ្មីក្នុងបរិបទ Cloud ចុងក្រោយដែលអាចប្រើបាន; បើគ្មាន នឹងបើក New Cloud Machine |
+| ⌘ ⇧ Y | ម៉ាស៊ីន Cloud ថ្មី |
 | ⌘ 1–8 | លោតទៅ workspace 1–8 |
 | ⌘ 9 | លោតទៅ workspace ចុងក្រោយ |
 | ⌃ ⌘ ] | Workspace បន្ទាប់ |
@@ -367,7 +388,7 @@ cmux ឥត​គិត​ថ្លៃ​និង open source ហើយ​ន�
 
 ### ខ្ញុំ​មាន​សំណើ​មុខងារ ឬ​រក​ឃើញ​កំហុស?
 
-យើង​ចង់​ស្ដាប់​វា។ បើក [issue](https://github.com/manaflow-ai/cmux/issues) ឬ [pull request](https://github.com/manaflow-ai/cmux/pulls) នៅ​លើ GitHub ឬ [អ៊ីមែល​មក​យើង](mailto:founders@manaflow.com?subject=cmux%20feature%20request)។
+យើង​ចង់​ស្ដាប់​វា។ បើក [issue](https://github.com/manaflow-ai/cmux/issues) ឬ [pull request](https://github.com/manaflow-ai/cmux/pulls) នៅ​លើ GitHub ឬ [អ៊ីមែល​មក​យើង](mailto:founders@cmux.com?subject=cmux%20feature%20request)។
 
 ## ប្រវត្តិ Star
 
@@ -418,6 +439,6 @@ cmux គឺឥតគិតថ្លៃ បើកប្រភពកូដ និ�
 
 ## អាជ្ញាបណ្ណ
 
-cmux គឺបើកប្រភពកូដក្រោម [GPL-3.0-or-later](LICENSE)។
+cmux គឺបើកប្រភពកូដក្រោម [GPL-3.0-or-later](LICENSE)។ កម្មវិធីម៉ាស៊ីនមេ cmux (`web/`, Cloudflare workers និងសេវាកម្ម relay ដែលមានក្នុង [LICENSE](LICENSE)) ប្រើ [Business Source License 1.1](web/LICENSE) ជំនួសវិញ៖ អ្នកអាចអាន កែប្រែ និងដំណើរការវាសម្រាប់ការប្រើប្រាស់មិនមែនផលិតកម្ម ហើយការប្រើប្រាស់ផលិតកម្ម ឬការបង្ហោះដោយខ្លួនឯង តម្រូវឱ្យមានអាជ្ញាបណ្ណពាណិជ្ជកម្ម។
 
-ប្រសិនបើស្ថាប័នរបស់អ្នកមិនអាចអនុលោមតាម GPL បាន អាជ្ញាបណ្ណពាណិជ្ជកម្មមានផ្តល់ជូន។ សូមទាក់ទង [founders@manaflow.com](mailto:founders@manaflow.com) សម្រាប់ព័ត៌មានលម្អិត។
+ប្រសិនបើស្ថាប័នរបស់អ្នកមិនអាចអនុលោមតាម GPL បាន អាជ្ញាបណ្ណពាណិជ្ជកម្មមានផ្តល់ជូន។ សូមទាក់ទង [founders@cmux.com](mailto:founders@cmux.com) សម្រាប់ព័ត៌មានលម្អិត។

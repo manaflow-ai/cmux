@@ -15,6 +15,7 @@ extension TerminalController {
         orientation: SplitOrientation,
         insertFirst: Bool,
         initialDividerPosition: CGFloat?,
+        preferredProfileID: UUID?,
         inputs: ControlPaneCreateInputs
     ) -> ControlPaneCreateResolution {
         if let invalid = validateDockPaneCreateRouting(routing: routing, tabManager: tabManager, panelType: panelType) {
@@ -32,9 +33,11 @@ extension TerminalController {
             return .noSourceSurface
         }
         let focus = v2FocusAllowed(requested: inputs.requestedFocus)
-        let kind: DockSurfaceKind = (panelType == .browser) ? .browser : .terminal
+        let kind: DockSurfaceKind = panelType == .browser ? .browser : (panelType == .chief ? .chief : .terminal)
         if focus {
-            focusAndRevealWindowDock(for: dock, fallback: tabManager)
+            // Creation is authoritative; revealing its secondary focus request
+            // is best-effort when the Dock host is still mounting.
+            _ = focusAndRevealWindowDock(for: dock, fallback: tabManager)
         }
         let newPanelId = dock.newSplit(
             kind: kind,
@@ -46,11 +49,18 @@ extension TerminalController {
             workingDirectory: kind == .terminal ? inputs.workingDirectory : nil,
             environment: inputs.startupEnvironment,
             tmuxStartCommand: kind == .terminal ? inputs.tmuxStartCommand : nil,
+            initialInput: kind == .terminal ? inputs.initialInput : nil,
             initialDividerPosition: initialDividerPosition,
-            focus: focus
+            preferredProfileID: preferredProfileID,
+            preloadInitialNavigationInBackground: kind == .browser,
+            focus: false,
+            conversationID: nil
         )
         guard let newPanelId else {
             return .createFailed
+        }
+        if focus {
+            dock.focusPanelFromDockInteraction(newPanelId, window: nil)
         }
         let paneUUID = dock.paneId(forPanelId: newPanelId)?.id
         return .createdDock(
