@@ -47,7 +47,8 @@ pub(crate) fn command(
     if remote {
         return Command::new(program);
     }
-    match session.and_then(|id| prefix(id, env)) {
+    let limits = daemon_limits();
+    match session.and_then(|id| prefix(id, env, limits)) {
         Some(prefix) => {
             let mut cmd = Command::new(&prefix[0]);
             cmd.args(&prefix[1..]).arg(program);
@@ -58,14 +59,23 @@ pub(crate) fn command(
 }
 
 #[cfg(not(target_os = "linux"))]
-fn prefix(_session: &str, _env: &BTreeMap<String, String>) -> Option<Vec<String>> {
+fn prefix(
+    _session: &str,
+    _env: &BTreeMap<String, String>,
+    _limits: SessionLimits,
+) -> Option<Vec<String>> {
     None
 }
 
 /// `systemd-run … --` for the session's scope, when it can make one.
 #[cfg(target_os = "linux")]
-fn prefix(session: &str, env: &BTreeMap<String, String>) -> Option<Vec<String>> {
-    let properties = properties_with_swap(&knob_reader(env), physical_memory(), swap_memory());
+fn prefix(
+    session: &str,
+    env: &BTreeMap<String, String>,
+    limits: SessionLimits,
+) -> Option<Vec<String>> {
+    let properties =
+        properties_with_swap(&knob_reader(env, limits), physical_memory(), swap_memory());
     if properties.is_empty() {
         return None;
     }
@@ -94,7 +104,11 @@ pub(crate) const SESSIONS_SLICE: &str = "acpmuxsessions.slice";
 /// harness scope.
 #[cfg(target_os = "linux")]
 pub(crate) fn scope_runner() -> Option<std::path::PathBuf> {
-    runner(&BTreeMap::new())
+    ["/usr/bin/systemd-run", "/bin/systemd-run"]
+        .into_iter()
+        .map(std::path::PathBuf::from)
+        .find(|path| path.is_file())
+        .or_else(|| runner(&BTreeMap::new()))
 }
 
 /// Whether a user manager can create an unscoped transient scope. This probe
@@ -125,9 +139,38 @@ fn scope_argv(
     argv
 }
 
-/// A knob's value: the profile's env, then the daemon's.
-fn knob_reader(env: &BTreeMap<String, String>) -> impl Fn(&str) -> Option<String> + '_ {
-    |key| env.get(key).cloned().or_else(|| std::env::var(key).ok())
+/// Host-wide values loaded from the daemon config.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct SessionLimits {
+    pub memory_mb: Option<u64>,
+    pub swap_mb: Option<u64>,
+}
+
+fn daemon_limits() -> SessionLimits {
+    crate::config::Config::load()
+        .ok()
+        .map(|config| SessionLimits {
+            memory_mb: config.session.memory_mb,
+            swap_mb: config.session.swap_mb,
+        })
+        .unwrap_or_default()
+}
+
+/// A knob's value: the profile's env, then daemon config, then daemon env.
+fn knob_reader(
+    env: &BTreeMap<String, String>,
+    limits: SessionLimits,
+) -> impl Fn(&str) -> Option<String> + '_ {
+    |key| {
+        env.get(key)
+            .cloned()
+            .or_else(|| match key {
+                "ACPMUX_SESSION_MEMORY_MB" => limits.memory_mb.map(|n| n.to_string()),
+                "ACPMUX_SESSION_SWAP_MB" => limits.swap_mb.map(|n| n.to_string()),
+                _ => None,
+            })
+            .or_else(|| std::env::var(key).ok())
+    }
 }
 
 /// The default `TasksMax` of a session scope: processes and threads
@@ -310,10 +353,21 @@ fn can_scope(
 ) -> bool {
     use std::sync::{Mutex, OnceLock};
     use std::time::Instant;
-    type Answers = Mutex<BTreeMap<(std::path::PathBuf, Vec<String>), (bool, Instant)>>;
+    type Answers = Mutex<
+        BTreeMap<(std::path::PathBuf, Vec<String>, Vec<(String, Option<String>)>), (bool, Instant)>,
+    >;
     static ANSWERS: OnceLock<Answers> = OnceLock::new();
     let answers = ANSWERS.get_or_init(Default::default);
-    let key = (runner.to_path_buf(), properties.to_vec());
+    let slice_key = [
+        "ACPMUX_SESSIONS_MEMORY_MAX",
+        "ACPMUX_SESSIONS_MEMORY_HIGH",
+        "ACPMUX_SESSIONS_TASKS_MAX",
+        "ACPMUX_SESSIONS_SWAP_MAX",
+    ]
+    .into_iter()
+    .map(|name| (name.to_owned(), env.get(name).cloned().or_else(|| std::env::var(name).ok())))
+    .collect();
+    let key = (runner.to_path_buf(), properties.to_vec(), slice_key);
     if let Some((known, at)) = answers.lock().unwrap_or_else(|e| e.into_inner()).get(&key)
         && at.elapsed() < ANSWER_TTL
     {
@@ -590,6 +644,17 @@ mod tests {
         );
         let off = from(&[("ACPMUX_SESSION_SWAP_MB", "0")]);
         assert!(!joined(&properties_with_swap(&off, 0, 4 * GIB)).contains("MemorySwapMax"));
+    }
+
+    #[test]
+    fn profile_env_wins_over_daemon_config_then_daemon_env() {
+        let config = SessionLimits { memory_mb: Some(6144), swap_mb: Some(2048) };
+        let profile =
+            BTreeMap::from([(String::from("ACPMUX_SESSION_MEMORY_MB"), String::from("4096"))]);
+        let get = knob_reader(&profile, config);
+        let props = properties_with_swap(&get, 32 * GIB, 8 * GIB);
+        assert!(joined(&props).contains("MemoryMax=4294967296"));
+        assert!(joined(&props).contains("MemorySwapMax=2147483648"));
     }
 
     #[test]

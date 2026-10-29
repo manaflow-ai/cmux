@@ -1,5 +1,16 @@
 use super::*;
 
+#[test]
+fn cli_session_resource_settings_are_config_values() {
+    let mut config = Config::default();
+    config.set_session_resource("session.memory_mb", "6144").unwrap();
+    config.set_session_resource("session.swap_mb", "2048").unwrap();
+    assert_eq!(config.session.memory_mb, Some(6144));
+    assert_eq!(config.session.swap_mb, Some(2048));
+    config.set_session_resource("session.memory_mb", "default").unwrap();
+    assert_eq!(config.session.memory_mb, None);
+}
+
 fn prof(kind: HarnessKind, argv: &[&str]) -> HarnessProfile {
     HarnessProfile {
         kind,

@@ -1203,16 +1203,32 @@ const UNIT_STARTED_LINE: &str = "{\"unitStarted\":true}";
 
 #[cfg(target_os = "linux")]
 async fn start_from_user_unit() -> Option<String> {
-    if !daemon_started_in_session_scope() || !uses_shared_home() {
+    if !daemon_started_in_session_scope()
+        || !uses_shared_home()
+        || std::env::var_os("ACPMUX_SOCKET").is_some()
+    {
         return None;
     }
-    let status = tokio::process::Command::new("systemctl")
+    let runner = crate::session_scope::scope_runner()?;
+    let systemctl = runner.with_file_name("systemctl");
+    if !systemctl.is_file() {
+        return None;
+    }
+    let cat = tokio::process::Command::new(&systemctl)
+        .args(["--user", "cat", "acpmux.service"])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
+    let cat = tokio::time::timeout(START_BUDGET, cat).await.ok()?.ok()?;
+    if !cat.success() {
+        return None;
+    }
+    let status = tokio::process::Command::new(&systemctl)
         .args(["--user", "start", "acpmux.service"])
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
-        .status()
-        .await
-        .ok()?;
+        .status();
+    let status = tokio::time::timeout(START_BUDGET, status).await.ok()?.ok()?;
     status.success().then(|| UNIT_STARTED_LINE.to_owned())
 }
 
