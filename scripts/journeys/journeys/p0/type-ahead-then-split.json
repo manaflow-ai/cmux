@@ -1,0 +1,27 @@
+{
+  "id": "type-ahead-then-split",
+  "priority": "P0",
+  "title": "Ctrl-` then typing at once, then Cmd-D before the new tab is ready: the text reaches the new tab's shell, in order; the split's shell and the old tab get none of it",
+  "why": "Lead 2026-10-29 (lagFirstKey, felt items 3-4): a held key goes to the target it was typed for when that target is ready, even after the person's next command moved the focus (Chrome: input queued for a renderer goes to that renderer). Dropping it lost text in the common fast case \"ls, Cmd-D\". The held key then goes straight to the new tab's terminal view, which does not have the keyboard: only the real app on a real daemon proves those bytes reach its PTY.",
+  "source": "cp/fix-held-keys-followup a08c7f828c1 (held keys go to their own target), 7b8988c03a9",
+  "budget_seconds": 90,
+  "steps": [
+    {"do": "new_terminal", "name": "jr-ahead-old", "via": "key", "as": "old"},
+    {"do": "neutral_prompt"},
+    {"do": "name_pane", "as": "first"},
+    {"do": "key", "title": "Ctrl-` (New Terminal Tab in this pane); the next keys follow at once", "key": "`", "modifiers": ["control"], "mark": "new-tab"},
+    {"do": "type", "text": "echo ahead-${nonce}-$((6*7))", "enter": true, "mark": "typed"},
+    {"do": "key", "title": "Cmd-D right after the text, before the new tab may be ready", "key": "d", "modifiers": ["cmd"], "mark": "split"},
+    {"do": "rpc", "title": "evidence: the held keys and their replays (late_keys)", "method": "debug.input", "params": {}},
+    {"do": "rpc", "title": "evidence: where the keyboard is", "method": "debug.focus", "params": {}},
+    {"do": "adopt_pane", "as": "split", "title": "the split's pane has the focus and a shell", "window": "same"},
+    {"do": "expect", "title": "the split's shell got none of the text typed for the new tab", "since": "split", "timeout": 10, "settle": 1.5,
+     "all": [{"daemon_prompt": true}, {"daemon_lacks": "ahead-"}, {"app_pane": {"focused": true}}]},
+    {"do": "retarget_pane", "as": "first", "title": "the first pane's selected tab is the new tab"},
+    {"do": "expect", "title": "the new tab's shell ran the text typed for it, in order, though the focus is in the split", "since": "typed", "timeout": 10,
+     "all": [{"daemon_line": "ahead-${nonce}-42"}, {"daemon_contains": "echo ahead-${nonce}-$((6*7))"}, {"pane_frame_text": "ahead-${nonce}-42"}]},
+    {"do": "use", "name": "old"},
+    {"do": "expect", "title": "the old tab's shell got none of it", "timeout": 5,
+     "all": [{"daemon_lacks": "ahead-"}]}
+  ]
+}
