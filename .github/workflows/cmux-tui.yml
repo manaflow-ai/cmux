@@ -408,8 +408,20 @@ jobs:
         if: ${{ !cancelled() }}
         working-directory: cmux-tui
         run: |
-          cargo clippy --workspace --lib --bins --locked --message-format=json -- $(python3 ../scripts/cmux-next/rust_panic_ratchet.py --flags) > "$RUNNER_TEMP/panic-clippy.jsonl"
+          read -r -a panic_flags <<<"$(python3 ../scripts/cmux-next/rust_panic_ratchet.py --flags)"
+          cargo clippy --workspace --lib --bins --locked --message-format=json -- "${panic_flags[@]}" > "$RUNNER_TEMP/panic-clippy.jsonl"
           python3 ../scripts/cmux-next/rust_panic_ratchet.py --clippy-json "$RUNNER_TEMP/panic-clippy.jsonl"
+
+      # The red log lists at most 20 hits per crate; the full clippy JSON lets a
+      # fixer (or --update-baseline, which needs a Linux run) work from the laptop.
+      - name: Upload panic ratchet clippy JSON
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: panic-clippy-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/panic-clippy.jsonl
+          if-no-files-found: ignore
+          retention-days: 14
 
       # cmux-rd-ffi is its own Cargo workspace (outside --workspace), so the
       # cmux-tui lint/test steps never build it. Its tests pin the C header
@@ -698,6 +710,15 @@ jobs:
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust
 
+      # cmux-tailnet's build script compiles libtailscale with `go build`. The
+      # owned Mac minis have no Go, so clippy died there before any test ran.
+      # go-version matches the pinned libtailscale go.mod (see its build.rs).
+      - name: Set up pinned Go (libtailscale)
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version-file: cmux-tui/crates/cmux-tailnet/go-version
+          cache-dependency-path: cmux-tui/crates/cmux-tailnet/build.rs
+
       - name: Cache cargo build
         id: cargo-cache
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
@@ -855,7 +876,7 @@ jobs:
           name: optchat-chief-lock-${{ inputs.commit }}
           path: Native/OptChat/optchat-chief/Cargo.lock
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 3
 
       - name: Require committed Chief lockfile
         run: git diff --exit-code -- Native/OptChat/optchat-chief/Cargo.lock

@@ -48,7 +48,7 @@ import Testing
 
     @Test func anAgentLinkOpensTheTerminalItRunsIn() {
         #expect(resolve("cmux://agent/claude/e8f63fd9") == .workspace(id: "w1", tabID: "s2"))
-        #expect(resolve("https://cmux.com/deeplink/agent?harness=claude&session=e8f63fd9&host=big-red") == .workspace(id: "w1", tabID: "s2"))
+        #expect(resolve("https://cmux.com/deeplink/agent?harness=claude&session=e8f63fd9&host=a-mac") == .workspace(id: "w1", tabID: "s2"))
     }
 
     @Test func anAgentLinkNeverOpensAnotherHarnessesTerminal() {

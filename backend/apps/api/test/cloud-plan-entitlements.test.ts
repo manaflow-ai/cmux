@@ -1,5 +1,6 @@
 import { env } from "cloudflare:workers"
 import { describe, expect, it } from "vitest"
+import { storeVmPlan } from "../src/cloud-vm-plan.ts"
 import { storePlan } from "../src/inference/plan.ts"
 import { inDO, post, testEnv, token } from "./setup/inference-person.ts"
 import { call, mirroredTeam, teamStub } from "./team-stack-support.ts"
@@ -19,7 +20,10 @@ const person = async (subject: string, plan: string | null, entitlements = true)
   const t = await token(subject)
   const ensured = await post("/v1/ops", t, { op: "user.ensure", params: {}, idempotency_key: crypto.randomUUID(), origin: "cli" })
   const team = ensured.value.personal_team as string
-  await inDO(testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(team)), async (i) => storePlan(i.ctx.storage.sql, plan, Date.now()))
+  await inDO(testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(team)), async (i) => {
+    storePlan(i.ctx.storage.sql, plan, Date.now())
+    storeVmPlan(i.ctx.storage.sql, null, Date.now())
+  })
   await cloudStub(team).fakeControl({ entitlements: entitlements ? "on" : "off" })
   return { t, team }
 }
@@ -127,6 +131,7 @@ describe("Cloud plan entitlements", { timeout: 60_000 }, () => {
     // The member's personal plan does not reach the shared team.
     const ensured = (await call(t.token, "/v1/ops", { op: "user.ensure", params: {}, idempotency_key: crypto.randomUUID(), origin: "cli" })).body
     await inDO(testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(ensured.value.personal_team)), async (i) => storePlan(i.ctx.storage.sql, "max", Date.now()))
+    await inDO(teamStub(t.team), async (i) => storeVmPlan(i.ctx.storage.sql, null, Date.now()))
     expect((await teamPlanGet()).value).toMatchObject({ plan_id: "none" })
     await inDO(teamStub(t.team), async (i) => storePlan(i.ctx.storage.sql, "team", Date.now()))
     await cloudStub(t.team).fakeControl({ advance_ms: 61_000 })

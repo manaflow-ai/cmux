@@ -10,11 +10,12 @@
 //! `bearer.<token>` subprotocol is retired: a 401 on the upgrade is final.
 
 use std::sync::Arc;
-use std::time::Duration;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::time::{Duration, Instant};
 
 use cmux_tui_core::Mux;
 use cmux_tui_core::cloud_conversations::{
-    CloudBackend, CloudWire, ConnectError, HttpReply, RangeReply, TransportError, WireRecv,
+    CloudBackend, CloudWire, ConnectError, HttpReply, PutBody, RangeReply, TransportError, WireRecv,
 };
 use futures_util::{SinkExt, StreamExt};
 use serde_json::Value;
@@ -31,8 +32,19 @@ const SEND_TIMEOUT: Duration = Duration::from_secs(10);
 /// A Home read returns at most 200 messages of at most 64 KiB text each.
 const MAX_BODY_BYTES: usize = 32 * 1024 * 1024;
 const CLIENT_VERSION_HEADER: &str = "x-cmux-client-version";
-/// An attachment upload (up to 100 MB) may take longer than a JSON call.
+/// A derived image upload (at most 2 MB) may take longer than a JSON call.
 const UPLOAD_TIMEOUT: Duration = Duration::from_secs(10 * 60);
+/// A streamed attachment file has no total deadline (it may be any size);
+/// it fails when its body has not moved this long. Hyper asks for the next
+/// read once the last one is in its send buffer, so at a few KB/s reads still
+/// come well inside the window.
+const UPLOAD_STALL: Duration = Duration::from_secs(2 * 60);
+/// How long the reply to a streamed upload may take after its last byte (the
+/// slot commits the object first).
+const UPLOAD_REPLY: Duration = Duration::from_secs(10 * 60);
+/// One read of a streamed attachment file: small, so a slow uplink still
+/// shows progress often (64 KiB at 1 KB/s is about a minute).
+const UPLOAD_CHUNK_BYTES: usize = 64 * 1024;
 /// One ranged attachment read (at most 4 MiB).
 const RANGE_TIMEOUT: Duration = Duration::from_secs(60);
 pub(crate) struct RemoteCloudBackend {
@@ -64,6 +76,87 @@ impl RemoteCloudBackend {
             .user_agent(concat!("cmux-tui/", env!("CARGO_PKG_VERSION")))
             .build()?;
         Ok(Self { runtime, http, files })
+    }
+}
+
+/// How far a streamed upload got: when its body last moved (milliseconds
+/// since the upload started) and whether all of it went.
+#[derive(Default)]
+struct UploadProgress {
+    moved: AtomicU64,
+    sent: AtomicBool,
+}
+
+/// A staged attachment file as a streamed body, read a chunk at a time as
+/// the connection takes it. Each read stores when it happened in `progress`
+/// (hyper polls the body only when it can send more). Its last `len` byte, or
+/// its end, marks it sent: with a Content-Length hyper may never ask past it.
+fn file_body(
+    file: std::fs::File,
+    len: u64,
+    started: Instant,
+    progress: Arc<UploadProgress>,
+) -> reqwest::Body {
+    reqwest::Body::wrap_stream(file_chunks(file, len, started, progress))
+}
+
+/// [`file_body`]'s chunks: `len` bytes of the file from where it stands, a chunk at a time.
+fn file_chunks(
+    file: std::fs::File,
+    len: u64,
+    started: Instant,
+    progress: Arc<UploadProgress>,
+) -> impl futures_util::Stream<Item = std::io::Result<Vec<u8>>> + Send + 'static {
+    use tokio::io::AsyncReadExt;
+    // Exactly the declared length: the Content-Length counts that many, from where the file stands.
+    let file = tokio::fs::File::from_std(file).take(len);
+    futures_util::stream::try_unfold((file, 0u64), move |(mut file, read_so_far)| {
+        let progress = progress.clone();
+        async move {
+            let mut chunk = vec![0; UPLOAD_CHUNK_BYTES];
+            let read = file.read(&mut chunk).await?;
+            progress.moved.store(elapsed_ms(started), Ordering::Relaxed);
+            let read_so_far = read_so_far + read as u64;
+            if read == 0 || read_so_far >= len {
+                progress.sent.store(true, Ordering::Relaxed);
+            }
+            if read == 0 {
+                return Ok::<_, std::io::Error>(None);
+            }
+            chunk.truncate(read);
+            Ok(Some((chunk, (file, read_so_far))))
+        }
+    })
+}
+
+fn elapsed_ms(started: Instant) -> u64 {
+    u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX)
+}
+
+/// How much longer the upload may go without progress before it is given
+/// up: zero once it stalled. `idle` is the time since the body last moved;
+/// `sent` says the whole body went (the upload waits for its reply).
+fn stall_left(idle: Duration, sent: bool) -> Duration {
+    (if sent { UPLOAD_REPLY } else { UPLOAD_STALL }).saturating_sub(idle)
+}
+
+/// How long the slot's reply body may take to arrive once its head came. A
+/// slot answers after it stored the bytes, a streamed file or a derived image
+/// alike.
+fn reply_body_window() -> Duration {
+    UPLOAD_REPLY
+}
+
+/// Resolves once [`stall_left`] says the upload stalled. It ends with its
+/// `select!`, when the upload answers first.
+async fn stalled(started: Instant, progress: Arc<UploadProgress>) {
+    loop {
+        let idle = elapsed_ms(started).saturating_sub(progress.moved.load(Ordering::Relaxed));
+        let left = stall_left(Duration::from_millis(idle), progress.sent.load(Ordering::Relaxed));
+        if left.is_zero() {
+            return;
+        }
+        tokio::time::sleep(left).await;
     }
 }
 
@@ -129,16 +222,46 @@ impl CloudBackend for RemoteCloudBackend {
         &self,
         url: &str,
         headers: &[(String, String)],
-        body: Vec<u8>,
+        body: PutBody,
     ) -> Result<HttpReply, TransportError> {
-        let mut request = self.files.put(url).timeout(UPLOAD_TIMEOUT).body(body);
+        let headers_have_length =
+            headers.iter().any(|(name, _)| name.eq_ignore_ascii_case("content-length"));
+        let mut request = self.files.put(url);
         for (name, value) in headers {
             request = request.header(name.as_str(), value.as_str());
         }
         self.runtime.block_on(async move {
-            let response = request.send().await.map_err(|error| transport(&error))?;
+            let response = match body {
+                PutBody::Bytes(bytes) => request.timeout(UPLOAD_TIMEOUT).body(bytes).send().await,
+                PutBody::File { file, len } => {
+                    let started = Instant::now();
+                    let progress = Arc::new(UploadProgress::default());
+                    // A presigned object PUT needs a length, not a chunked body.
+                    let request = if headers_have_length {
+                        request
+                    } else {
+                        request.header(reqwest::header::CONTENT_LENGTH, len)
+                    };
+                    let request = request.body(file_body(file, len, started, progress.clone()));
+                    tokio::select! {
+                        response = request.send() => response,
+                        () = stalled(started, progress.clone()) => {
+                            let waited = if progress.sent.load(Ordering::Relaxed) {
+                                format!("no reply came {} s after the upload's last byte", UPLOAD_REPLY.as_secs())
+                            } else {
+                                format!("the upload made no progress for {} s", UPLOAD_STALL.as_secs())
+                            };
+                            return Err(TransportError(waited));
+                        }
+                    }
+                }
+            };
+            let response = response.map_err(|error| transport(&error))?;
             let status = response.status().as_u16();
-            let bytes = response.bytes().await.map_err(|error| transport(&error))?;
+            let bytes = tokio::time::timeout(reply_body_window(), response.bytes())
+                .await
+                .map_err(|_| TransportError("the upload reply did not finish".into()))?
+                .map_err(|error| transport(&error))?;
             if bytes.len() > MAX_BODY_BYTES {
                 return Err(TransportError(format!(
                     "reply of {} bytes exceeds the limit",
@@ -341,6 +464,56 @@ mod tests {
     use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 
     use super::*;
+
+    /// Review of #26498: a slow uplink or a slow final answer is not a stall.
+    /// One read of the body is small enough that hyper asks for the next one
+    /// within the window at a few KB/s, and the wait for the reply after the
+    /// last byte has its own, longer window.
+    #[test]
+    fn a_slow_upload_or_a_slow_reply_is_not_a_stall() {
+        // 64 KiB at 1 KB/s is about 64 s between reads: inside the window.
+        const { assert!(UPLOAD_CHUNK_BYTES <= 64 * 1024, "one read is at most 64 KiB") };
+        let read_gap = Duration::from_secs((UPLOAD_CHUNK_BYTES / 1024) as u64);
+        assert!(!stall_left(read_gap, false).is_zero());
+        // The whole body went three minutes ago and the slot is still committing it.
+        assert!(!stall_left(Duration::from_secs(3 * 60), true).is_zero());
+        // A body that stopped moving, or a reply that never comes, still ends.
+        assert!(stall_left(UPLOAD_STALL, false).is_zero());
+        assert!(stall_left(UPLOAD_REPLY, true).is_zero());
+    }
+
+    /// Review of #26498 at 2eba8e2f: a staged file's body was read to its end,
+    /// not its declared length, so a file positioned past its start (or longer
+    /// than `len`) sent bytes the Content-Length did not count.
+    #[tokio::test]
+    async fn a_file_body_sends_exactly_len_bytes_from_where_the_file_stands() {
+        use std::io::{Seek, SeekFrom, Write as _};
+        let mut file = tempfile::tempfile().unwrap();
+        file.write_all(b"0123456789abcdefghij").unwrap();
+        file.seek(SeekFrom::Start(7)).unwrap();
+        let progress = Arc::new(UploadProgress::default());
+        let chunks: Vec<Vec<u8>> = file_chunks(file, 4, Instant::now(), progress.clone())
+            .map(|chunk| chunk.unwrap())
+            .collect()
+            .await;
+        assert_eq!(chunks.concat(), b"789a");
+        assert!(progress.sent.load(Ordering::Relaxed), "its last byte marks it sent");
+    }
+
+    /// Review of #26498 at 6a89561a: the reply body of a streamed upload was
+    /// read within the stall window, not the reply window.
+    #[test]
+    fn a_streamed_uploads_reply_body_has_the_reply_window() {
+        assert_eq!(reply_body_window(), UPLOAD_REPLY);
+    }
+
+    /// Review of #26498 at d79ff855: a derived image's (bytes) reply body was
+    /// read within the stall window, not the reply window, though its whole
+    /// request has UPLOAD_TIMEOUT (10 min).
+    #[test]
+    fn a_byte_uploads_reply_body_has_the_reply_window_too() {
+        assert_eq!(reply_body_window(), UPLOAD_REPLY);
+    }
 
     /// Serves one raw HTTP/1.1 exchange and hands back the request head.
     fn one_http_exchange(reply: &'static str) -> (String, mpsc::Receiver<(String, String)>) {

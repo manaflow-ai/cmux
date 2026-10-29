@@ -1,9 +1,9 @@
-import type { EventFrame, OwnerFrame, Principal } from "@cmux/ownership"
+import type { EventFrame, OpFrame, OwnerFrame, Principal } from "@cmux/ownership"
 import type { ServerNetworkReservation } from "@cmux/protocol"
 import { teamEventVisible, teamSubscriberView } from "./domains/team-visibility.ts"
 import { aiLimitViewOf, codeRunLimit, teamDomain, type TeamState } from "./domains/team.ts"
 import type { Env } from "./env.ts"
-import { OwnerDO, type ReadResult } from "./owner-do.ts"
+import { OwnerDO, type ReadResult, type SubmitResult } from "./owner-do.ts"
 import { teamRead, teamVmAccountsFence, withAiSpend } from "./team-reads.ts"
 import { can, firstOwner, homeCoMembersOf, hostOf, memberOf, roleOf, TABLE_MEMBER, TEAM_PRIVATE_TABLES } from "./domains/team-members.ts"
 import { integrationSyncPending, releasePending, sliceHash, type IntegrationFields } from "./domains/team-integration-sync.ts"
@@ -15,7 +15,7 @@ import { domainExternal, recheckDomains as recheckDue, type DomainReply, type Ht
 import { nextRecheckAt } from "./domains/team-domains.ts"
 import { ssoExternal } from "./team-sso-external.ts"
 import { ssoCallback, ssoMaxAgeMs, ssoSessionConnection, ssoRedeem, ssoStart, type LoginDeps } from "./team-sso-login.ts"
-import { stackReadPace, stackServer, type StackServer } from "./stack-server.ts"
+import { stackLowReadPace, stackReadPace, stackServer, type StackServer } from "./stack-server.ts"
 import { connectionForDomain } from "./domains/team-sso.ts"
 import { mayEnrollServer, serverPlacementActive, type ServerEnrollRefused } from "./domains/team-servers.ts"
 import { revokeInstallCerts, sshExternal, type SshCaDeps } from "./team-ssh-ca.ts"
@@ -599,7 +599,7 @@ export class TeamDO extends OwnerDO<TeamState> {
   }
 
   /** Stack server access for SSO sign-in, and the shared pace of its webhook reads; tests replace them. */
-  stack: StackServer | undefined = undefined; stackPace: (() => Promise<boolean>) | undefined = undefined
+  stack: StackServer | undefined = undefined; stackPace: (() => Promise<boolean>) | undefined = undefined; stackLowPace: (() => Promise<boolean>) | undefined = undefined
 
   private loginDeps(entity: string): LoginDeps {
     const engine = this.bind(entity)
@@ -642,14 +642,38 @@ export class TeamDO extends OwnerDO<TeamState> {
   }
   async memberRole(entity: string, user: string): Promise<string | null> { return (await this.membership(entity, user))?.role ?? null } // team selection (x-cmux-team)
   async noOwner(entity: string): Promise<boolean> { return this.isBound(entity) && noOwnerOf(this.bind(entity).currentState) } // RPC from TeamVmDO's team_vm.status (review P2-3)
+  async cloudVmPlan(entity: string, stackUser?: string) { return (await import("./cloud-vm-plan.ts")).cloudVmPlanOf(this.ctx.storage.sql, this.isBound(entity) ? this.bind(entity).currentState : null, entity, this.stack ?? stackServer(this.env), stackUser, Date.now()) } // RPC from CloudDO: the operator Cloud grant (cloud-entitlements.ts)
   async inferencePlan(entity: string, user: string, stackUser?: string) { return (await import("./inference/plan.ts")).inferencePlanOf(this.ctx.storage.sql, this.isBound(entity) ? this.bind(entity).currentState : null, entity, this.stack ?? stackServer(this.env), stackUser, user) } // RPC from the model router: the paid-plan gate (inference/plan.ts)
   /** RPC from the Stack webhook route (stack-webhook.ts): one delivery reconciled with Stack, one at a time per team. */
   async stackWebhook(entity: string, event: StackEvent): Promise<StackSyncReply> {
     this.bind(entity)
-    return this.stackSync.deliver(event).finally(() => this.scheduleAlarm())
+    const reply = await this.stackSync.deliver(event).finally(() => this.scheduleAlarm())
+    await this.indexesDelivered()
+    return reply
   }
 
-  private readonly stackSync = new StackTeamSync(() => ({ team: this.boundEntity() ?? "", stackProjectId: this.env.STACK_PROJECT_ID, stack: this.stack ?? stackServer(this.env), sql: this.ctx.storage.sql, state: () => this.boundEngine!.currentState, rows: () => this.rows, submitSystem: (op, params, key) => this.submitSystem(op, params, key), revokeStuck: (user) => [revokeMemberCertsNow({ sql: this.ctx.storage.sql, now: () => Date.now(), submitSystem: (op, params, key) => this.submitSystem(op, params, key) }, user), this.closeSockets((p) => p.user === user, "left the team")], pace: () => this.stackPace?.() ?? stackReadPace(this.env) }))
+  /** An op (an invite accepted, a member added or removed) answers once the members' team indexes follow it, as a Stack delivery does. */
+  override async submit(entity: string, principal: Principal, frame: OpFrame): Promise<SubmitResult> {
+    const r = await super.submit(entity, principal, frame)
+    await this.indexesDelivered()
+    return r
+  }
+
+  /**
+   * Waits for the commit-time delivery of the members' team index items (bounded; the alarm retries the rest),
+   * so the reach rule and user.teams.list see a join at once (prod 2026-10-29: not_reachable for 6.5 s), and
+   * no delivery outlives the call that started it.
+   */
+  private indexesDelivered(): Promise<void> {
+    return this.promptDrained()
+  }
+
+  /** A member's team index item (UserDO) is a prompt channel: a person waits on it to reach a new teammate. */
+  protected override promptChannel(channel: string): boolean {
+    return super.promptChannel(channel) || channel.startsWith("UserDO:")
+  }
+
+  private readonly stackSync = new StackTeamSync(() => ({ team: this.boundEntity() ?? "", stackProjectId: this.env.STACK_PROJECT_ID, stack: this.stack ?? stackServer(this.env), sql: this.ctx.storage.sql, state: () => this.boundEngine!.currentState, rows: () => this.rows, submitSystem: (op, params, key) => this.submitSystem(op, params, key), revokeStuck: (user) => [revokeMemberCertsNow({ sql: this.ctx.storage.sql, now: () => Date.now(), submitSystem: (op, params, key) => this.submitSystem(op, params, key) }, user), this.closeSockets((p) => p.user === user, "left the team")], pace: () => this.stackPace?.() ?? stackReadPace(this.env), lowPace: () => this.stackLowPace?.() ?? stackLowReadPace(this.env) }))
 
   protected maySubscribe(state: TeamState, principal: Principal): boolean { return can(state, this.rows, principal.user, "team.resources") }
 }

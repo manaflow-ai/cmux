@@ -14,6 +14,7 @@ export type InspectorSectionId =
   | "context"
   | "connectors"
   | "changes"
+  | "sources"
   | "servers"
   | "subagents"
   | "tasks"
@@ -30,6 +31,7 @@ export const DEFAULT_SECTIONS: InspectorSections = {
   context: false,
   connectors: false,
   changes: true,
+  sources: true,
   servers: true,
   subagents: true,
   tasks: true,
@@ -51,9 +53,14 @@ export const INSPECTOR_INDEX_KEY = "cmux.agentPane.inspector.index";
 export const PANES_KEPT = 200;
 const PANE_DAYS = 30;
 
-export type InspectorState = { readonly open: boolean; readonly width: number; readonly sections: InspectorSections };
+export type InspectorState = {
+  readonly open: boolean;
+  readonly width: number;
+  readonly sections: InspectorSections;
+  readonly sourcesAll: boolean;
+};
 type State = InspectorState;
-type Stored = { open?: unknown; width?: unknown; sections?: unknown; at?: unknown };
+type Stored = { open?: unknown; width?: unknown; sections?: unknown; sourcesAll?: unknown; at?: unknown };
 
 const clampWidth = (width: number) => Math.round(Math.min(INSPECTOR_WIDTH.max, Math.max(INSPECTOR_WIDTH.min, width)));
 const widthOf = (value: unknown) =>
@@ -80,7 +87,12 @@ function parse(raw: string | null): unknown {
 function storedState(raw: string | null): State | undefined {
   const stored = parse(raw) as Stored | undefined;
   if (!stored || typeof stored !== "object" || typeof stored.open !== "boolean") return undefined;
-  return { open: stored.open, width: widthOf(stored.width), sections: sectionsOf(stored.sections) };
+  return {
+    open: stored.open,
+    width: widthOf(stored.width),
+    sections: sectionsOf(stored.sections),
+    sourcesAll: stored.sourcesAll === true,
+  };
 }
 
 /// One pane's Inspector state: what it shows, and the chat it is saved under while that chat has a
@@ -120,6 +132,7 @@ export function createInspectorStore(storage: () => Storage | undefined = () => 
     open: read(OPEN_KEY) !== "0",
     width: widthOf(Number(read(WIDTH_KEY))),
     sections: sectionsOf(parse(read(SECTIONS_KEY))),
+    sourcesAll: false,
   });
   const indexOf = (): [string, number][] => {
     const value = parse(read(INSPECTOR_INDEX_KEY));
@@ -234,6 +247,9 @@ export function createInspectorStore(storage: () => Storage | undefined = () => 
       write(SECTIONS_KEY, JSON.stringify(sections));
       update({ ...current(), sections }, true);
     },
+    setSourcesAll(all: boolean) {
+      update({ ...current(), sourcesAll: all }, true);
+    },
     /// Forgets every choice, every chat's too (the gallery and tests; it scans the storage).
     reset() {
       for (const key of [OPEN_KEY, WIDTH_KEY, SECTIONS_KEY, INSPECTOR_INDEX_KEY, ...paneKeys()]) write(key, null);
@@ -265,5 +281,6 @@ export const bindInspectorPane = page.bind;
 export const setInspectorOpen = page.setOpen;
 export const setInspectorWidth = page.setWidth;
 export const setInspectorSection = page.setSection;
+export const setInspectorSourcesAll = page.setSourcesAll;
 /// Forgets every choice: the gallery and the tests start each case on a clean slate.
 export const resetInspectorState = page.reset;
