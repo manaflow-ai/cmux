@@ -307,6 +307,10 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
 
     @MainActor var awaitsEcho: Bool { !driver.machine.echoesDue.isEmpty }
 
+    /// The grid the stream last announced on the live link, read from the same machine as ``awaitsEcho``
+    /// (G2: the owner's side of a resting terminal, `InputInvariantMonitor.terminalGrids`).
+    @MainActor var announcedGrid: CellSize? { driver.machine.announcedSize }
+
     /// A visible live view holds geometry until another client's grid is
     /// announced, and a resize it reports claims it back
     /// (`TerminalAttachMachine`), so the daemon applies and announces it.

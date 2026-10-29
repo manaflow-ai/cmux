@@ -37,32 +37,38 @@ public nonisolated struct TerminalGridPolicy: Sendable {
     public var gridToRender: TerminalGridSize? { announced }
 
     /// The view now fits `grid`. Returns the grid to report, if any: each
-    /// distinct grid once, or again when `force` is set (a new owner).
+    /// grid the owner does not have yet, once (``ownerNeedsReport()``: a new owner has none).
     ///
     /// `holding`: the view is on a layout spring (a Cmd-Shift-Enter zoom, a split, a close), so
     /// its size changes on every display frame. The grid is not reported then: each report is a
     /// PTY resize, a shell redraw and a reflow at the owner, and announcements arriving frames
     /// behind the view made the zoom stutter and its text jump. ``releaseHeld()`` reports the
     /// last held grid once, when the spring lands.
-    public mutating func viewSized(_ grid: TerminalGridSize, force: Bool = false, holding: Bool = false) -> TerminalGridSize? {
+    public mutating func viewSized(_ grid: TerminalGridSize, holding: Bool = false) -> TerminalGridSize? {
         desired = grid
-        guard ownsGeometry, force || heldForce || grid != reported else {
+        guard ownsGeometry, grid != reported else {
             held = false
             return nil
         }
         guard !holding else {
             held = true
-            heldForce = heldForce || force
             return nil
         }
-        (held, heldForce) = (false, false)
+        held = false
         reported = grid
         return grid
     }
 
+    /// The PTY owner has no grid from this view (a new session or owner, or the view took over
+    /// geometry): the next ``viewSized(_:holding:)`` or ``finalSized(_:)`` reports, whatever was
+    /// reported before. A fact about the owner, not a queued request: a view that is not shown
+    /// reports when it next sizes itself.
+    public mutating func ownerNeedsReport() {
+        reported = nil
+    }
+
     /// Whether a grid waits for ``releaseHeld()``.
     public private(set) var held = false
-    private var heldForce = false
 
     /// The grid the view's layout spring will land at, reported at its start (``finalSized(_:)``);
     /// nil at rest.
@@ -75,8 +81,7 @@ public nonisolated struct TerminalGridPolicy: Sendable {
     public mutating func finalSized(_ grid: TerminalGridSize) -> TerminalGridSize? {
         guard ownsGeometry else { return nil }
         final = grid
-        guard heldForce || grid != reported else { return nil }
-        heldForce = false
+        guard grid != reported else { return nil }
         reported = grid
         return grid
     }

@@ -540,12 +540,15 @@ final class TabContentCache {
         return true
     }
 
-    /// Stand-in tab `key`'s visibility node becomes `real`'s, unless `real` has one: the content moving with it keeps it.
+    /// Stand-in tab `key`'s visibility node becomes `real`'s: the content moving with it hangs under that node. One rule
+    /// in either order (felt 1e): a node made for `real` before the move holds no content (a pane selects its tab before
+    /// it asks for the tab's content, `PaneController.setStripSelection`), so it is replaced, and the pane selects the
+    /// moved node when it presents the content (`PaneController.showSelectionNow`). Keeping the earlier node left the
+    /// adopted terminal under the stand-in's node, which the pane hid as its old selection: on screen, never sized.
     func moveNode(_ key: String, to real: String) {
-        if let node = tabNodes.removeValue(forKey: key)?.node, tabNodes[real]?.node == nil {
-            tabNodes[real] = WeakTabNode(node: node)
-            daemon.trackVisibility(ofTab: real, node: node)  // the daemon holds a hidden tab's field events, by its real id
-        }
+        guard let node = tabNodes.removeValue(forKey: key)?.node else { return }
+        tabNodes[real] = WeakTabNode(node: node)
+        daemon.trackVisibility(ofTab: real, node: node) // the daemon reports the node's visibility for `real` now
     }
 
     /// Swaps `tab`'s page for `page` (an adopted popup that arrived after the tab's placeholder page was created).

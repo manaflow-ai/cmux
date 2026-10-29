@@ -64,6 +64,8 @@ final class PaneController: SurfacePresenter, PresentablePane {
     /// The selected tab's node, own-visible under ``visibilityNode`` (`selectTabNode`). Held here, so
     /// the cache keeps it while this pane selects the tab (`TabContentCache.node(for:)`).
     private var selectedTabNode: VisibilityNode?
+    /// The node this pane shows its selected tab under (``selectTabNode(_:)``): the G3 check reads it.
+    var selectedNode: VisibilityNode? { selectedTabNode }
     #if DEBUG
     private(set) var debugSnapshotRuns = 0 // this pane's strip maps (`structure()`), read by tests
     #endif
@@ -473,6 +475,10 @@ final class PaneController: SurfacePresenter, PresentablePane {
         DebugTabSwitch.mark(self, "withdraw")
         // May replace a stale surface, displacing the view shown here.
         let content = BenchSpans.measure("switch.content") { key.flatMap(content(for:)) }
+        // The content may have brought its tab's node with it (an adopted stand-in, `TabContentCache.moveNode`): the pane
+        // selects the node the cache has for the key now, so what it shows hangs under the node it shows (a no-op when
+        // that node is already the selected one).
+        if let key, key == stripModel.selectedID?.rawValue { selectTabNode(key) }
         if buildsAtLaunch, content != nil { services.launchPanes.noteBuilt() }
         DebugTabSwitch.mark(self, "content")
         if let content, let key { DebugTabSwitch.content(self, content, key: key) }
