@@ -27,7 +27,8 @@ public enum ActionTrackedWork {
             let answer = await withTaskCancellationHandler {
                 if let failure = await authorize?() { return Answer.failure(failure) }
                 guard !Task.isCancelled else { return Answer.failure(cancellationFailure) }
-                return await run(registry: registry, scope: scope, cancellationFailure: cancellationFailure, start: start)
+                return await run(registry: registry, scope: scope, capturedByCaller: capturedByCaller,
+                                 cancellationFailure: cancellationFailure, start: start)
             } onCancel: {
                 // task-owner: one-shot cancellation invalidates the reserved sign-in generation.
                 Task { @MainActor in cancelAuthorization() }
@@ -39,7 +40,8 @@ public enum ActionTrackedWork {
         }
     }
 
-    private static func run(registry: ActionRegistry, scope: ActionRunScope?, cancellationFailure: ActionWorkFailure,
+    private static func run(registry: ActionRegistry, scope: ActionRunScope?, capturedByCaller: Bool,
+                            cancellationFailure: ActionWorkFailure,
                             start: @MainActor () -> ActionWorkFailure?) async -> Answer {
         var captured: (work: [ActionWork], results: [ActionResultWork]) = ([], [])
         var startFailure: ActionWorkFailure?
