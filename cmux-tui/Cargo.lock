@@ -22,9 +22,9 @@ dependencies = [
  "cmux-lock-rank",
  "cmux-memory",
  "cmux-panic-log",
- "cmux-tailnet",
  "cmux-sdk",
  "cmux-server-core",
+ "cmux-tailnet",
  "cmux-threads",
  "cmux-trace",
  "cmux-tui-platform",
@@ -1645,6 +1645,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-tailnet"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "cmux-threads",
+ "libc",
+ "reqwest",
+ "rustls",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-tasks"
 version = "0.1.0"
 dependencies = [
@@ -1735,19 +1748,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "cmux-tailnet"
-version = "0.1.0"
-dependencies = [
- "base64 0.22.1",
- "cmux-threads",
- "libc",
- "reqwest",
- "rustls",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "cmux-tui"
 version = "1.0.0"
 dependencies = [
@@ -1757,6 +1757,7 @@ dependencies = [
  "base64",
  "bytes",
  "cmux-agent-pane-policy",
+ "cmux-api-compat",
  "cmux-blocking",
  "cmux-build-identity",
  "cmux-config",
