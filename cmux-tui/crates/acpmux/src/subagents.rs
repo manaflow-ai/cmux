@@ -120,8 +120,11 @@ impl SubagentTree {
                 }
                 Some("usage_update") => {
                     // Claude's `used` is context-window occupancy, not token usage.
-                    // Only `totalTokens` is a cumulative token total suitable for display.
-                    preview.tokens = update.get("totalTokens").and_then(Value::as_u64);
+                    // Only a supplied `totalTokens` is a cumulative token total; an update
+                    // without it must not erase a previously reported real total.
+                    if let Some(total) = update.get("totalTokens").and_then(Value::as_u64) {
+                        preview.tokens = Some(total);
+                    }
                 }
                 Some("agent_thought_chunk" | "config_option_update" | "session_info_update") => {}
                 _ => preview.streaming = false,
@@ -633,6 +636,34 @@ mod codex_tests {
             completed[0].get("tokens").is_none(),
             "context occupancy leaked as tokens: {completed:?}"
         );
+    }
+
+    #[test]
+    fn Claude_context_updates_do_not_erase_a_real_token_total() {
+        let mut tree = SubagentTree::default();
+        subagents(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_spawned", "subagentSessionId": "claude-child"}),
+        );
+        let mut total = json!({
+            "sessionId": "claude-child",
+            "update": {"sessionUpdate": "usage_update", "totalTokens": 42}
+        });
+        tree.annotate(&mut total);
+        let mut context = json!({
+            "sessionId": "claude-child",
+            "update": {"sessionUpdate": "usage_update", "used": 100, "size": 200000}
+        });
+        tree.annotate(&mut context);
+        let completed = subagents(
+            &mut tree,
+            json!({
+                "sessionUpdate": "subagent_state_update",
+                "subagentSessionId": "claude-child",
+                "state": "completed"
+            }),
+        );
+        assert_eq!(completed[0]["tokens"], 42);
     }
 
     #[test]
