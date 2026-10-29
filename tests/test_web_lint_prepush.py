@@ -508,6 +508,64 @@ class WebLintPrePushTests(unittest.TestCase):
         self.assertRegex(calls[0], r"^vp lint nice=\d+ GOMAXPROCS=\d+$")
         self.assertGreaterEqual(int(calls[0].split("nice=")[1].split()[0]), 10, calls[0])
 
+    def fake_tools(self, **scripts):
+        """Stand-in executables first on PATH, each logging its call to TOOL_LOG; returns (env, the log)."""
+        tools = self.root / "fake-bin"
+        tools.mkdir(exist_ok=True)
+        for name, body in scripts.items():
+            (tools / name).write_text(f'#!/bin/sh\necho "{name} $*" >> "$TOOL_LOG"\n{body}\n')
+            (tools / name).chmod(0o755)
+        log = self.root / "tools.log"
+        env = {key: value for key, value in self.env.items() if key != "GITHUB_ACTIONS"}
+        env.update(PATH=f"{tools}{os.pathsep}{env['PATH']}", TOOL_LOG=str(log))
+        return env, log
+
+    def test_new_only_reruns_a_heavy_piece_on_the_base_niced_and_capped(self):
+        # Both the head and the base fail `vp lint` with the same finding: the base rerun is a second type check,
+        # so it gets the same nice and caps as the first.
+        self.write("webviews/package.json", WEBVIEWS_PACKAGE.replace(
+            '"sh check-lanes.sh && sh check-format.sh"', '"vp lint"'))
+        self.commit("a heavy check")
+        vp = self.repo / "webviews/node_modules/.bin/vp"
+        vp.parent.mkdir(parents=True)
+        vp.write_text('#!/bin/sh\necho "vp nice=$(nice) GOMAXPROCS=$GOMAXPROCS" >> "$VP_LOG"\n'
+                      'echo "src/app.ts:1:1: error same-finding"; exit 1\n')
+        vp.chmod(0o755)
+        self.write("webviews/src/app.ts", "export const app = 8;\n")
+        self.commit("a change on a red base")
+        log = self.root / "vp.log"
+        env = {key: value for key, value in self.env.items() if key != "GITHUB_ACTIONS"}
+        head = self.git("rev-parse", "HEAD").stdout.strip()
+
+        result = subprocess.run([sys.executable, "scripts/web_lint_prepush.py", "--base", "HEAD~1", "--head", head,
+                                 "--new-only"], cwd=self.repo, env={**env, "VP_LOG": str(log)}, text=True,
+                                capture_output=True)
+
+        calls = log.read_text().splitlines()
+        self.assertEqual(len(calls), 2, (calls, result.stderr))
+        for call in calls:
+            self.assertRegex(call, r"^vp nice=\d+ GOMAXPROCS=\d+$")
+            self.assertGreaterEqual(int(call.split("nice=")[1].split()[0]), 10, call)
+
+    def test_new_only_installs_nothing_on_a_host_that_runs_no_heavy_checks(self):
+        # The base's package.json differs, so its lint tree cannot share the checkout's node_modules: with heavy
+        # checks off there is no install to compare with, and the red stays the change's.
+        self.write("webviews/package.json", WEBVIEWS_PACKAGE.replace('"webviews-fixture"', '"webviews-base"'))
+        self.commit("base manifest")
+        (self.repo / "webviews/node_modules").mkdir(parents=True)
+        self.write("webviews/package.json", WEBVIEWS_PACKAGE)
+        self.write("webviews/src/app.ts", "export const app = BAD_LANE;\n")
+        self.commit("a red change")
+        env, log = self.fake_tools(bun="exit 0", npm="exit 0")
+        head = self.git("rev-parse", "HEAD").stdout.strip()
+
+        result = subprocess.run([sys.executable, "scripts/web_lint_prepush.py", "--base", "HEAD~1", "--head", head,
+                                 "--new-only"], cwd=self.repo, env={**env, "CMUX_LOCAL_HEAVY_CHECKS": "0"},
+                                text=True, capture_output=True)
+
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertFalse(log.exists() and log.read_text().strip(), log.read_text() if log.exists() else "")
+
     def test_heavy_pieces_are_the_type_checking_ones(self):
         lint = load_lint(self.repo)
         for piece in ("vp lint", "vp check --no-fmt --no-lint", "tsc -p .", "tsgo --noEmit"):
@@ -651,6 +709,46 @@ class TuiBindingsTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual([c for c in calls if not c.endswith("@ webviews")], ["fmt web"])
         self.assertIn("cmux-tui/bindings/typescript: not built here", result.stderr)
+
+    def test_the_bindings_build_runs_niced_and_capped_outside_ci(self):
+        self.add_tui_packages()
+        tools = Path(self.env["PATH"].split(os.pathsep)[0])
+        npm = tools / "npm"
+        npm.write_text(FAKE_NPM.replace('echo "npm $* @ $(basename "$PWD")" >> "$TOOL_LOG"',
+                                        'echo "npm $* @ $(basename "$PWD") nice=$(nice) GOMAXPROCS=$GOMAXPROCS" '
+                                        '>> "$TOOL_LOG"'))
+
+        result, calls = self.lint_all()
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        built = [c for c in calls if c.startswith("npm")]
+        self.assertEqual(len(built), 2, calls)
+        for call in built:
+            self.assertRegex(call, r"nice=\d+ GOMAXPROCS=\d+$")
+            self.assertGreaterEqual(int(call.split("nice=")[1].split()[0]), 10, call)
+
+    def test_a_lint_tree_on_a_host_that_runs_no_heavy_checks_shares_the_frontend_node_modules(self):
+        # --head of a commit other than the checkout's runs in a lint tree; with nothing built there, the frontend
+        # shares the checkout's node_modules and its light piece still runs.
+        self.add_tui_packages()
+        self.write("cmux-tui/frontends/web/package.json", TUI_FRONTEND_PACKAGE.replace(
+            '"check": "sh check.sh"', '"check": "sh fmt.sh && vp check --no-fmt --no-lint"'))
+        self.write("cmux-tui/frontends/web/fmt.sh", 'echo "fmt $(basename "$PWD")" >> "$TOOL_LOG"\n')
+        self.commit("a heavy frontend check")
+        (self.repo / "cmux-tui/frontends/web/node_modules").mkdir()
+        self.write("cmux-tui/frontends/web/src/main.ts", "export const main = 2;\n")
+        self.commit("frontend change")
+        head = self.git("rev-parse", "HEAD").stdout.strip()
+        self.git("checkout", "--quiet", "HEAD~1")
+        self.tool_log.write_text("")
+
+        result = subprocess.run([sys.executable, "scripts/web_lint_prepush.py", "--base", "HEAD", "--head", head],
+                                cwd=self.repo, env={**self.env, "CMUX_LOCAL_HEAVY_CHECKS": "0"}, text=True,
+                                capture_output=True)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("fmt web", self.tool_log.read_text().splitlines())
+        self.assertNotIn("not linted here", result.stderr)
 
     def test_a_current_bindings_build_is_not_rebuilt_and_a_source_change_rebuilds_it(self):
         self.add_tui_packages()

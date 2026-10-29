@@ -317,6 +317,12 @@ def heavy_env(env: dict[str, str]) -> dict[str, str]:
     return env
 
 
+def heavy_argv(argv: list[str]) -> list[str]:
+    """ARGV under `nice`, when nice is there."""
+    nice = shutil.which("nice")
+    return [nice, "-n", str(HEAVY_NICE), *argv] if nice else argv
+
+
 def heavy_command(piece: str) -> str:
     """PIECE under `nice` (a plain command: every heavy piece starts with its tool), when nice is there."""
     return f"nice -n {HEAVY_NICE} {piece}" if shutil.which("nice") else piece
@@ -399,10 +405,14 @@ def ensure_build(repo: Path, build: LocalBuild, dependents: list[str]) -> tuple[
     stamp.unlink(missing_ok=True)
     started = time.monotonic()
     env = package_env(repo, build.directory)
+    if not in_ci():  # the build is tsc: as heavy as the type check, so niced and capped the same way
+        env = heavy_env(env)
+        steps = [heavy_argv(step) for step in steps]
     for step in steps:
         result = run_leaving_no_lockfile(step, root, env)
         if result.returncode != 0:
-            shown = " ".join([Path(step[0]).name, *(c for c in step[1:] if c != "--silent")])
+            tool = step[3:] if Path(step[0]).name == "nice" else step  # name the tool, not its nice wrapper
+            shown = " ".join([Path(tool[0]).name, *(c for c in tool[1:] if c != "--silent")])
             return None, Result(build.directory, f"{shown} (the {build.name} bindings)", result.returncode,
                                  f"{result.stdout}{result.stderr}\n{held}", time.monotonic() - started)
     stamp.parent.mkdir(parents=True, exist_ok=True)
@@ -604,9 +614,10 @@ def load_compare():
     return module
 
 
-def charge_new_only(repo: Path, base: str, plan: Plan, tree: Path, results: list[Result]) -> None:
-    """--new-only: each failed package check runs again on BASE. A red whose every finding BASE has too passes
-    with a warning; otherwise the result keeps only the findings it adds."""
+def charge_new_only(repo: Path, base: str, plan: Plan, tree: Path, results: list[Result], heavy: bool = True) -> None:
+    """--new-only: each failed package check runs again on BASE (niced and capped like the first run, and on a host
+    that runs no heavy checks never installing: a base tree with no node_modules has nothing to compare). A red
+    whose every finding BASE has too passes with a warning; otherwise the result keeps only the findings it adds."""
     packages = {p.directory: p for p in plan.script_packages}
     failed = [r for r in results if r.returncode != 0 and r.label in packages]
     if not failed:
@@ -614,10 +625,12 @@ def charge_new_only(repo: Path, base: str, plan: Plan, tree: Path, results: list
     compare = load_compare()
     with tree_of(repo, base, sorted({r.label for r in failed})) as base_tree:
         for result in failed:
-            if ensure_deps(base_tree, result.label):
+            if not heavy and not (base_tree / result.label / "node_modules").is_dir():
+                continue  # no install here, so no base to compare with: the red stays this change's
+            if heavy and ensure_deps(base_tree, result.label):
                 continue  # no base to compare with: the red stays this change's
             compare.generate_strings(base_tree / result.label)
-            again = run(result.label, result.command, base_tree / result.label, package_env(base_tree, result.label))
+            again = run(*piece_job(packages[result.label], result.command, base_tree))
             if again.returncode == 0:
                 continue
             new, old = compare.compare(result.output, again.output, str(tree), str(base_tree))
@@ -741,11 +754,12 @@ def main(argv: list[str] | None = None) -> int:
             continue
         # A package that imports a local build gets its own install in a lint tree: bun copies the build
         # into node_modules, so the checkout's copy holds the checkout's build, not this commit's.
-        directories = [p.directory for p in plan.script_packages if not p.builds] + list(plan.eslint_files)
+        # A host that runs no heavy checks builds nothing, so every package may share the checkout's node_modules.
+        directories = [p.directory for p in plan.script_packages if not p.builds or not heavy] + list(plan.eslint_files)
         with tree_of(repo, head, directories) as tree:
             found = run_plan(tree, plan, args.fix, cache=tree == repo, heavy=heavy, mode=mode)
             if args.new_only:
-                charge_new_only(repo, args.base, plan, tree, found)
+                charge_new_only(repo, args.base, plan, tree, found, heavy)
             results += found
     if not results:
         return 0
