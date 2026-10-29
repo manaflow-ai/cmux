@@ -33,6 +33,7 @@ final class DeclarativePopupHost {
         scroll.drawsBackground = false
         scroll.hasVerticalScroller = true
         SystemScrollers.follow(scroll)
+        content.autoresizingMask = [.width]
         scroll.documentView = content
         surface = Glass.makeOverlayPanel(content: scroll, cornerRadius: PopupStyle.standard.cornerRadius)
         surface.samplesBehindWindow = true
@@ -91,6 +92,9 @@ final class DeclarativePopupHost {
         guard let placed = popup.show(size: NSSize(width: next.width * scale, height: content.contentHeight),
                                       anchor: anchor, in: window, preferred: next.side == .top ? .above : .below,
                                       trailing: next.align == .end, makeKey: opening, entrance: false) else { model = nil; return ["shown": false] }
+        content.setFrameSize(NSSize(width: content.superview?.bounds.width ?? placed.frame.width,
+                                   height: content.contentHeight))
+        content.layoutSubtreeIfNeeded()
         if opening { content.focusInitial() }
         return ["shown": true, "popupId": next.id, "revision": next.revision,
                 "frame": [placed.frame.minX, placed.frame.minY, placed.frame.width, placed.frame.height]]
@@ -99,7 +103,7 @@ final class DeclarativePopupHost {
     func update(_ next: NativePopupModel) {
         guard let current = model, current.id == next.id, next.revision > current.revision, popup.isShown else { return }
         _ = show(next, screenAnchor: parent == nil ? nil : shownAnchor, in: shownParent)
-        if let child, let childRowID, let row = Self.flatten(next.rows).first(where: { $0.id == childRowID }), let rows = row.children {
+        if let child, let childRowID, let row = Self.enabledRows((next.rail ?? []) + next.rows + (next.footer ?? [])).first(where: { $0.id == childRowID && $0.kind == .submenu }), let rows = row.children, !rows.isEmpty {
             var submenu = next
             submenu.rows = rows
             submenu.rail = nil
@@ -140,14 +144,18 @@ final class DeclarativePopupHost {
 
     func dismiss(reason: String) {
         guard let model else { return }
+        // Children share the root's action identity, but closing one is a local navigation
+        // operation. Only the root may dismiss the consumer's React popup state.
+        if parent != nil { hide(); return }
         let event = NativePopupEvent(type: .dismiss, popupId: model.id, revision: model.revision, reason: reason)
         deliver(event)
         hide()
     }
 
     private func event(_ type: NativePopupEventType, id: String?, value: String?) {
-        guard let model, popup.isShown, let id else { return }
-        let rows = Self.flatten((model.rail ?? []) + model.rows + (model.footer ?? []))
+        guard let model, popup.isShown, let id,
+              let current = root.model, current.id == model.id, current.revision == model.revision else { return }
+        let rows = Self.enabledRows((current.rail ?? []) + current.rows + (current.footer ?? []))
         let row = rows.first { $0.id == id }
         let actionParent = rows.first { $0.actions?.contains(where: { $0.id == id }) == true }
         let action = actionParent?.actions?.first { $0.id == id }
@@ -175,7 +183,10 @@ final class DeclarativePopupHost {
     }
 
     private func open(_ row: NativePopupRow, from view: NSView) {
-        guard let model, let rows = row.children, !rows.isEmpty, let webView else { return }
+        guard let model, let webView,
+              let row = Self.enabledRows((model.rail ?? []) + model.rows + (model.footer ?? []))
+                .first(where: { $0.id == row.id && $0.kind == .submenu }),
+              let rows = row.children, !rows.isEmpty else { return }
         child?.hide()
         let submenu = DeclarativePopupHost(webView: webView, zoom: zoom, send: send, isAppActive: isAppActive)
         submenu.parent = self
@@ -195,7 +206,9 @@ final class DeclarativePopupHost {
         _ = submenu.show(next, screenAnchor: anchor, in: panel)
     }
 
-    private static func flatten(_ rows: [NativePopupRow]) -> [NativePopupRow] {
-        rows.flatMap { [$0] + flatten($0.children ?? []) }
+    private static func enabledRows(_ rows: [NativePopupRow]) -> [NativePopupRow] {
+        rows.filter { $0.disabled != true }.flatMap { row in
+            [row] + (row.kind == .submenu ? enabledRows(row.children ?? []) : [])
+        }
     }
 }

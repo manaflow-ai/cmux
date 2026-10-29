@@ -147,6 +147,9 @@ public final class NativePopupHost {
         // Escape in the popup closes it (a text field in it would otherwise take it as cancel).
         let escape = NSEvent.addLocalMonitorForEvents(matching: [.keyDown]) { [weak self] event in
             guard let self, event.window === self.panel, event.keyCode == 53, self.isShown else { return event }
+            // The input method owns Escape while cancelling marked text. Closing the popup
+            // here would discard the composition before the editor sees the key.
+            if let editor = self.panel.firstResponder as? NSTextView, editor.hasMarkedText() { return event }
             self.dismiss()
             return nil
         }

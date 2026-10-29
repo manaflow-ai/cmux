@@ -1,5 +1,6 @@
 import { useId, useLayoutEffect, useRef } from "react";
 import { usePopupHost } from "./UiProvider";
+import type { AnchorBox } from "./popupHost";
 import type { NativePopupEvent, NativePopupModel } from "./generated/popupProtocol";
 
 export type { NativePopupEvent, NativePopupModel, NativePopupRow } from "./generated/popupProtocol";
@@ -17,7 +18,7 @@ export type NativePopupDescription = Omit<NativePopupModel, "schemaVersion" | "i
 export interface NativePopupOptions {
   open: boolean;
   model: NativePopupDescription;
-  anchor: () => HTMLElement | null;
+  anchor: () => AnchorBox | null;
   onEvent(event: NativePopupEvent): void;
   onDismiss(): void;
 }

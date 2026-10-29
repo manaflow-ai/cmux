@@ -81,7 +81,10 @@ export function createPopupHost(
   let current: object | null = null;
   return {
     native: {
-      show: (model) => quiet("show", { ...model }),
+      show: (model) => {
+        current = null;
+        return quiet("show", { ...model });
+      },
       update: (model) => void quiet("update", { ...model }),
       hide: (id, revision) => void quiet("hide", { schemaVersion: 1, id, revision }),
       listen: (listener) =>
@@ -103,7 +106,10 @@ export function createPopupHost(
       void quiet("hide");
     },
     owner: () => current,
-    listen,
+    listen: (listener) =>
+      listen((event) => {
+        if (!("popupId" in event)) listener(event);
+      }),
   };
 }
 

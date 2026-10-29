@@ -208,7 +208,13 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
         if let view = rowViews.first(where: { $0.0.id == selected })?.1 { scrollToVisible(view.frame) }
     }
 
-    override func layout() { super.layout(); layoutRows() }
+    override func layout() {
+        super.layout()
+        if let viewport = superview, frame.width != viewport.bounds.width {
+            setFrameSize(NSSize(width: viewport.bounds.width, height: frame.height))
+        }
+        layoutRows()
+    }
 
     private func layoutRows() {
         let inset = PopupStyle.standard.padding
@@ -288,6 +294,7 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
     }
 
     func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+        if textView.hasMarkedText() { return false }
         switch commandSelector {
         case #selector(NSResponder.moveDown(_:)): return handleKey(125)
         case #selector(NSResponder.moveUp(_:)): return handleKey(126)
