@@ -139,6 +139,42 @@ struct TerminalThemeGalleryModelTests {
         #expect(try file.managedThemeValue() == "light:Builtin Light,dark:Nord")
     }
 
+    @Test("A single theme written elsewhere between picks makes the next pick set both sides")
+    func externalSingleThemeResetsPairDecision() throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (model, file, _) = try makeModel(
+            existingConfig: nil,
+            currentThemeValue: "light:Builtin Light,dark:Builtin Dark",
+            prefersDark: true
+        )
+        model.select("Builtin Light")
+
+        // `cmux themes set Nord` from a terminal while Settings is open.
+        try file.write(rawThemeValue: "light:Nord,dark:Nord")
+        model.select("Dracula")
+
+        #expect(model.selection == CmuxTerminalThemePair(light: "Dracula", dark: "Dracula"))
+        #expect(try file.managedThemeValue() == "light:Dracula,dark:Dracula")
+    }
+
+    @Test("A pair written elsewhere between picks makes the next pick keep the other side")
+    func externalPairResetsSingleThemeDecision() throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (model, file, _) = try makeModel(
+            existingConfig: nil,
+            currentThemeValue: "light:Nord,dark:Nord",
+            prefersDark: false
+        )
+        model.select("Dracula")
+
+        // `cmux themes set --light "Catppuccin Latte" --dark "Catppuccin Mocha"` meanwhile.
+        try file.write(rawThemeValue: "light:Catppuccin Latte,dark:Catppuccin Mocha")
+        model.select("Nord Light")
+
+        #expect(model.selection == CmuxTerminalThemePair(light: "Nord Light", dark: "Catppuccin Mocha"))
+        #expect(try file.managedThemeValue() == "light:Nord Light,dark:Catppuccin Mocha")
+    }
+
     @Test("Picking the theme on screen from a pair writes nothing")
     func pickingThemeInUseFromPairIsNoOp() throws {
         defer { try? FileManager.default.removeItem(at: root) }
