@@ -2436,7 +2436,7 @@ pub use listen::{
 mod restoring;
 #[cfg(test)]
 use listen::{prepare_runtime_socket_directory, socket_start_lock_retry_delay};
-pub use restoring::RestoringServer;
+pub use restoring::{RESTORING_REFUSED_CODE, RestoringServer};
 
 #[cfg(test)]
 use websocket_listener::handle_websocket_connection;

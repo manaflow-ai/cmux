@@ -503,7 +503,8 @@ struct StopWait<'a> {
 }
 
 /// How long one read waits before the stop checks its bound and its
-/// progress report again.
+/// progress report again. It paces the wait only: what the stop does next
+/// comes from the owner's answer (`read_owner_phase`).
 const STOP_WAIT_SLICE: Duration = Duration::from_secs(1);
 
 /// The pause before a stop asks an owner that said `lifecycle_ready: false`
@@ -523,9 +524,9 @@ impl StopWait<'_> {
         'connect: loop {
             connects += 1;
             if connects > 1 {
-                // A connection closed under the wait: past the bound, or for
-                // an owner that keeps closing, the lifecycle exchange reports
-                // what the socket does now.
+                // The owner said it restores and dropped the connection: past
+                // the bound, the lifecycle exchange reports what the socket
+                // does now.
                 if Instant::now() >= deadline {
                     return Ok(());
                 }
@@ -539,43 +540,55 @@ impl StopWait<'_> {
             };
             let mut connection = BufReader::new(stream);
             let mut id = 0_u64;
-            // A restoring owner parks a connection unread, so its reads time
-            // out until the restore ends; it drops a parked connection only
-            // at its park cap (`server/restoring.rs`). A connection closed
-            // before any of its reads timed out was read by a serving owner
-            // that ended it without an answer (its request thread died): the
-            // lifecycle exchange reports that at once, and the stop does not
-            // reconnect for its whole bound.
-            let mut parked = false;
+            // The owner's own answer decides, never how long a read waited:
+            // `lifecycle_ready` (ready, or starting), or the `refused` line
+            // a restoring owner writes before it drops a parked connection
+            // (`server.restoring`, its park cap, `server/restoring.rs`): ask
+            // again. A read slice that times out only paces the progress
+            // report; the stop keeps waiting on the same connection, as a
+            // restoring owner holds it unread until its restore ends. A
+            // close with no answer is an owner that ended the connection
+            // without one (its request thread died, or it exited): the
+            // lifecycle exchange reports that at once.
             loop {
                 id += 1;
                 let request = IdentifyRequest::default().line(format!("stop-wait-{id}"));
                 let sent = writeln!(connection.get_mut(), "{request}")
                     .and_then(|()| connection.get_mut().flush());
                 if sent.is_err() {
-                    // A parked connection the owner dropped (its park cap)
-                    // or an owner that exited: ask again on a new one.
-                    continue 'connect;
+                    // The owner closed the connection. What it said before
+                    // the close decides: a restoring owner's line asks
+                    // again, anything else goes to the lifecycle exchange.
+                    let read_until = deadline.min(Instant::now() + STOP_WAIT_SLICE);
+                    let said = read_owner_phase(&mut connection, request.field("id"), read_until);
+                    if matches!(said, Ok(OwnerAnswer::Restoring)) {
+                        continue 'connect;
+                    }
+                    return Ok(());
                 }
                 let phase = loop {
                     let slice = deadline.max(Instant::now() + STOP_POLL_INTERVAL);
                     let slice = slice.min(Instant::now() + STOP_WAIT_SLICE);
-                    match read_reply(&mut connection, request.field("id"), slice) {
-                        Ok(identity) => match identity.get("lifecycle_ready") {
-                            Some(Value::Bool(false)) => {
-                                break RestorePhase::Starting(
-                                    identity.get("pid").and_then(Value::as_u64),
-                                );
+                    match read_owner_phase(&mut connection, request.field("id"), slice) {
+                        Ok(OwnerAnswer::Identity(identity)) => {
+                            match identity.get("lifecycle_ready") {
+                                Some(Value::Bool(false)) => {
+                                    break RestorePhase::Starting(
+                                        identity.get("pid").and_then(Value::as_u64),
+                                    );
+                                }
+                                _ => return Ok(()),
                             }
-                            _ => return Ok(()),
-                        },
-                        Err(ExchangeError::Timeout) => parked = true,
-                        Err(ExchangeError::Closed | ExchangeError::Transport) if parked => {
+                        }
+                        Ok(OwnerAnswer::Restoring) => {
+                            self.report(RestorePhase::Restoring, started, &mut reported);
                             continue 'connect;
                         }
-                        Err(ExchangeError::Closed | ExchangeError::Transport) => return Ok(()),
-                        // A refused or malformed identify: the lifecycle
-                        // exchange reports it with its own codes.
+                        // No answer yet: the owner holds the connection.
+                        Err(ExchangeError::Timeout) => {}
+                        // A close with no answer, a refused or a malformed
+                        // identify: the lifecycle exchange reports it with
+                        // its own codes.
                         Err(_) => return Ok(()),
                     }
                     self.report(RestorePhase::Restoring, started, &mut reported);
@@ -674,20 +687,34 @@ impl StopWait<'_> {
 
 /// The reply to the request `id` on `connection`, skipping events and
 /// other replies, before `deadline`.
-fn read_reply(
+/// What an owner answered a stop's `identify` while the stop waits for it.
+enum OwnerAnswer {
+    /// Its identity (`lifecycle_ready` says whether it is ready).
+    Identity(Value),
+    /// It restores its session and dropped this connection (the `refused`
+    /// line of `server/restoring.rs`, code `server.restoring`): ask again.
+    Restoring,
+}
+
+fn read_owner_phase(
     connection: &mut BufReader<Box<dyn transport::Stream>>,
     id: &Value,
     deadline: Instant,
-) -> Result<Value, ExchangeError> {
+) -> Result<OwnerAnswer, ExchangeError> {
     loop {
         let Some(response) = read_response(connection, deadline)? else {
             return Err(ExchangeError::Closed);
         };
+        if response.field("type") == "refused"
+            && response.field("code") == cmux_tui_core::server::RESTORING_REFUSED_CODE
+        {
+            return Ok(OwnerAnswer::Restoring);
+        }
         if response.get("event").is_some() || response.field("id") != id {
             continue;
         }
         if response.field("ok") == true {
-            return Ok(response.get("data").cloned().unwrap_or(Value::Null));
+            return Ok(OwnerAnswer::Identity(response.get("data").cloned().unwrap_or(Value::Null)));
         }
         let error =
             response.get("error").and_then(Value::as_str).unwrap_or("request rejected").to_string();

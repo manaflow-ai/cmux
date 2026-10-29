@@ -49,17 +49,26 @@ impl SessionSlot {
         &self,
         stream: Box<dyn transport::Stream>,
     ) -> Option<(ServedSession, Box<dyn transport::Stream>)> {
-        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-        match &mut *state {
-            SlotState::Served(session) => Some((session.clone(), stream)),
-            SlotState::Restoring(parked) => {
-                if parked.len() >= MAX_PARKED_CONNECTIONS {
-                    drop(parked.pop_front());
+        let dropped = {
+            let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+            match &mut *state {
+                SlotState::Served(session) => return Some((session.clone(), stream)),
+                SlotState::Restoring(parked) => {
+                    let dropped = if parked.len() >= MAX_PARKED_CONNECTIONS {
+                        parked.pop_front()
+                    } else {
+                        None
+                    };
+                    parked.push_back(stream);
+                    dropped
                 }
-                parked.push_back(stream);
-                None
             }
+        };
+        // Outside the slot lock: the owner says why it drops the connection.
+        if let Some(dropped) = dropped {
+            refuse_restoring(dropped);
         }
+        None
     }
 
     /// Attach the session and serve every parked connection.
@@ -75,6 +84,32 @@ impl SessionSlot {
             session.serve(stream);
         }
     }
+}
+
+/// The code of the one line a restoring owner writes to a parked connection
+/// it drops at its park cap ([`refuse_restoring`]): the owner lives and
+/// restores, so a client that waits for it (`server stop`) asks again.
+pub const RESTORING_REFUSED_CODE: &str = "server.restoring";
+
+/// Tells a parked connection the owner drops at its park cap why, then
+/// closes it: one `refused` line with the owner's phase and pid, the shape
+/// of the connection limit's refusal (`listen::REFUSED_BUSY_LINE`). A
+/// client decides from this answer, never from how long its reads waited.
+/// Best effort: a short write timeout keeps the accept loop from waiting on
+/// a client that does not read.
+fn refuse_restoring(mut stream: Box<dyn transport::Stream>) {
+    use std::io::Write as _;
+    let line = serde_json::json!({
+        "protocol": "cmux.protocol/2",
+        "type": "refused",
+        "code": RESTORING_REFUSED_CODE,
+        "phase": "restoring",
+        "pid": std::process::id(),
+        "message": "the session's owner is restoring it; ask again",
+    });
+    let _ = stream.set_write_timeout(Some(std::time::Duration::from_millis(50)));
+    let _ = writeln!(stream, "{line}");
+    let _ = stream.flush();
 }
 
 /// A bound session socket served before the session exists. Dropping it
