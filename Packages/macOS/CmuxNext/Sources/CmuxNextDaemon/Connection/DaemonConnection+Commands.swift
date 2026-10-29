@@ -171,9 +171,18 @@ extension DaemonConnection {
     /// reach the daemon only with `terminal-placement-env-v1`.
     @discardableResult
     public func newColumn(rightOf pane: PaneID, width: Double? = nil, options: SpawnOptions = SpawnOptions()) async throws -> SurfaceCreated {
-        guard supportsPlacementEnv else { return try await request(NewColumnRequest(pane: pane, width: width, options: served(options))) }
+        try await newColumn(beside: pane, left: false, width: width, options: options)
+    }
+
+    /// New scrolling column beside `pane`'s: before it when `left` (`column-left-v1`, New
+    /// Column Left), else after it.
+    @discardableResult
+    public func newColumn(beside pane: PaneID, left: Bool, width: Double? = nil, options: SpawnOptions = SpawnOptions()) async throws -> SurfaceCreated {
+        guard supportsPlacementEnv else {
+            return try await request(NewColumnRequest(pane: pane, width: width, left: left, options: served(options)))
+        }
         let options = await placed(options)
-        return Self.created(try await request(NewColumnRequest(pane: pane, width: width, options: options)), options: options)
+        return Self.created(try await request(NewColumnRequest(pane: pane, width: width, left: left, options: options)), options: options)
     }
 
     @discardableResult
