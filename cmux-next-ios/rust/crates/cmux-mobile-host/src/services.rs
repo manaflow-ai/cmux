@@ -341,11 +341,12 @@ async fn splice(
     let cache = terminal_folders.clone().map(crate::workspace_cache::WorkspaceCache::start);
     let (side_tx, mut side_rx) = mpsc::channel::<(Vec<u8>, Verdict)>(256);
     let (ready_tx, mut side_ready) = mpsc::channel::<Verdict>(256);
+    let side_cache = cache.clone();
     // JoinSet also aborts this worker if the service future is cancelled.
     let mut side_workers = tokio::task::JoinSet::new();
     side_workers.spawn(async move {
         while let Some((line, verdict)) = side_rx.recv().await {
-            let Some(cache) = &cache else { return };
+            let Some(cache) = &side_cache else { return };
             if let Some((tree, personal, layout)) = side_requirements(&line) {
                 cache.wait_for(tree, personal, layout).await;
             }
