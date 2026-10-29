@@ -904,8 +904,10 @@ the workspace may move focus. Add
 `--name demo --reuse` when rerunning should reuse the same
 session and row; an unnamed launch creates a new session each time. The
 invoking Mac needs `cmux` on PATH and the app must use the daemon that mirrors
-HOST. A failed sidebar open warns without stopping the agent; retry the
-printed `cmux agent open` command. Wrappers executing acpmux on HOST should
+HOST. A failed sidebar open returns a nonzero error after creating the session and
+preserving its first prompt; the error prints the exact `cmux agent open`
+command to retry. If the app's bundled CLI is stale or not executable, acpmux
+falls back to `cmux` on PATH. Wrappers executing acpmux on HOST should
 omit `--group` remotely and open the returned ID on the controller Mac after
 creation. See [remote agents](../../../docs/remote-agents-and-cloud.md) for
 native tab commands and connection diagnostics.

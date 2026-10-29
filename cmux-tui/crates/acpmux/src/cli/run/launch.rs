@@ -305,14 +305,8 @@ pub(super) fn show_in_group(
     args.extend(["--key", &key, "--group", group]);
     // Prefer the app's bundled CLI when the daemon was started by the app.
     // A plain shell can otherwise resolve an older standalone `cmux` first.
-    let cli = daemon_cli_path
-        .map(std::path::Path::to_path_buf)
-        .or_else(|| {
-            std::env::var_os(crate::login_env::BUNDLED_CLI_ENV)
-                .filter(|path| !path.is_empty())
-                .map(std::path::PathBuf::from)
-        })
-        .unwrap_or_else(|| "cmux".into());
+    let cli =
+        select_cli(daemon_cli_path, std::env::var_os(crate::login_env::BUNDLED_CLI_ENV).as_deref());
     let command = std::iter::once(cli.to_string_lossy().as_ref())
         .chain(args.iter().copied())
         .map(crate::harness_health::channel::quote)
@@ -334,6 +328,30 @@ pub(super) fn show_in_group(
     Ok(())
 }
 
+fn select_cli(daemon_cli_path: Option<&Path>, env_cli_path: Option<&std::ffi::OsStr>) -> PathBuf {
+    for path in [daemon_cli_path.map(Path::to_path_buf), env_cli_path.map(PathBuf::from)]
+        .into_iter()
+        .flatten()
+    {
+        if is_executable_file(&path) {
+            return path;
+        }
+    }
+    PathBuf::from("cmux")
+}
+
+#[cfg(unix)]
+fn is_executable_file(path: &Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::metadata(path)
+        .is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
+}
+
+#[cfg(not(unix))]
+fn is_executable_file(path: &Path) -> bool {
+    path.is_file()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -352,6 +370,12 @@ mod tests {
         argv.extend(words.iter().map(|w| w.replace("BRIEF", &brief.to_string_lossy())));
         let new = <New as clap::Parser>::try_parse_from(argv).unwrap();
         Launch::prepare(&new.args).unwrap()
+    }
+
+    #[test]
+    fn stale_bundled_cli_falls_back_to_path_name() {
+        let stale = std::env::temp_dir().join(format!("acpmux-stale-cli-{}", std::process::id()));
+        assert_eq!(select_cli(Some(&stale), None), Path::new("cmux"));
     }
 
     #[test]

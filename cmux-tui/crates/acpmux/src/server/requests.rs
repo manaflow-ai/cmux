@@ -654,6 +654,18 @@ pub(super) async fn handle_request(
     reply
 }
 
+#[cfg(unix)]
+fn bundled_cli_is_executable(path: &std::path::Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::metadata(path)
+        .is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
+}
+
+#[cfg(not(unix))]
+fn bundled_cli_is_executable(path: &std::path::Path) -> bool {
+    path.is_file()
+}
+
 async fn dispatch_request(
     hub: &Arc<Hub>,
     conn: &Arc<Conn>,
@@ -727,6 +739,7 @@ async fn dispatch_request(
             if conn.origin == Origin::Local
                 && let Ok(path) = std::env::var(crate::login_env::BUNDLED_CLI_ENV)
                 && std::path::Path::new(&path).is_absolute()
+                && bundled_cli_is_executable(std::path::Path::new(&path))
             {
                 reply["_meta"]["acpmux"]["cliPath"] = json!(path);
             }
