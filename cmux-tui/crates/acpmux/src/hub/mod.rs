@@ -9,6 +9,7 @@ pub(crate) mod admission;
 mod adopted_fences;
 mod adoption;
 mod agent_pairs;
+mod message_events;
 pub use agent_pairs::PairGuard;
 mod aside;
 pub(crate) mod auto_resume;
@@ -296,6 +297,9 @@ pub struct TurnInfo {
 pub struct PromptOptions {
     /// Client-chosen id (`_meta.acpmux.promptId`); generated when absent.
     pub prompt_id: Option<String>,
+    /// The delivery id for a message sent through `_acpmux/send_queue`; direct prompts use the
+    /// prompt id when no separate delivery id exists.
+    pub message_id: Option<String>,
     /// Called once, as soon as the prompt is recorded (queued or started),
     /// with `{sessionId, promptId, turnId, queued, position?, steer?}`, or
     /// `{sessionId, promptId, duplicate: true}` for a prompt id seen before.
@@ -330,6 +334,9 @@ pub struct PromptOptions {
     pub interrupt_turn: Option<String>,
     /// Who sent the prompt, when not the person (`prompt_provenance.rs`).
     pub provenance: Option<Value>,
+    /// Sender identity carried across a peer link. Provenance is intentionally removed at that
+    /// boundary, but the additive message event still needs the sender's stable identity.
+    pub message_sender: Option<Value>,
     /// Another agent's name when it sent the prompt with no provenance: the session a
     /// connection proved it runs in, or `_meta.acpmux.fromAgent` (`digest.rs`).
     pub agent: Option<String>,
@@ -380,6 +387,11 @@ pub struct Hub {
     /// The forum log (`forum.rs`, `hub/forum.rs`).
     pub(super) forum: std::sync::OnceLock<crate::forum::Forum>,
     pub(super) sessions: StdMutex<HashMap<String, Arc<Session>>>,
+    /// Projection-only message repairs in flight, keyed by destination and delivery id. These
+    /// retries never resend a prompt and are bounded in `message_events.rs`.
+    pub(super) message_repairs: StdMutex<std::collections::HashSet<(String, String)>>,
+    #[cfg(test)]
+    pub(super) message_projection_failures: StdMutex<std::collections::HashSet<String>>,
     /// Where adopt looks for harness sessions.
     pub(super) harness_homes: StdMutex<crate::adopt::HarnessHomes>,
     /// Every change watchers hear of, counted for the session list guard (`list_guard.rs`).
@@ -611,6 +623,9 @@ impl Hub {
             mailbox,
             forum: std::sync::OnceLock::new(),
             sessions: StdMutex::new(HashMap::new()),
+            message_repairs: StdMutex::new(std::collections::HashSet::new()),
+            #[cfg(test)]
+            message_projection_failures: StdMutex::new(std::collections::HashSet::new()),
             harness_homes: StdMutex::new(crate::adopt::HarnessHomes::from_env()),
             events,
             list_guard: Default::default(),
@@ -944,6 +959,7 @@ impl Hub {
             harness_use: RwLock::new(()),
             idle_refusal_logged: AtomicU64::new(0),
             append_lock: StdMutex::new(()),
+            message_ids: StdMutex::new(None),
             loading: AtomicBool::new(false),
             replaying: StdMutex::new(Vec::new()),
             caught_up: AtomicBool::new(true),
@@ -1072,6 +1088,118 @@ impl Hub {
         self.append_with_host_seq(session, dir, kind, msg, None)
     }
 
+    /// Persist one session-to-session message projection. The journal containing the copy is
+    /// named by `session`; the payload keeps that id too so clients can route a replayed event.
+    #[cfg(test)]
+    pub(super) fn append_message_event(
+        &self,
+        session: &Session,
+        sender: Value,
+        text: String,
+        message_id: String,
+        at: u64,
+    ) -> bool {
+        self.append_message_event_scoped(session, sender, text, message_id, at, None)
+    }
+
+    pub(super) fn append_message_event_scoped(
+        &self,
+        session: &Session,
+        sender: Value,
+        text: String,
+        message_id: String,
+        at: u64,
+        target_scope: Option<&str>,
+    ) -> bool {
+        #[cfg(test)]
+        if self
+            .message_projection_failures
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&session.id)
+        {
+            return false;
+        }
+        let mut msg = json!({
+            "sessionId": session.id.clone(),
+            "sender": sender,
+            "text": text,
+            "at": at,
+            "messageId": message_id,
+        });
+        if let Some(target) = target_scope {
+            msg["_acpmuxTarget"] = json!(target);
+        }
+        tool_paths::add_canonical_paths(session, "_acpmux/message", &mut msg);
+        let _order = session.append_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        self.catch_up_locked(session);
+        // A forwarded delivery can be accepted more than once while a caller retries
+        // the same id.  Keep one projection per delivery id in the durable journal,
+        // including after a daemon restart. Load the id index once, not once per
+        // message or recovered record. The append lock serializes check and append.
+        let mut index = session.message_ids.lock().unwrap_or_else(|e| e.into_inner());
+        if index.is_none() {
+            let mut ids = std::collections::HashSet::new();
+            if let Err(error) =
+                self.store.scan_kinds(&session.id, &["_acpmux/message"], &mut |record| {
+                    if let Some(id) = record.msg.get("messageId").and_then(Value::as_str) {
+                        let key = record
+                            .msg
+                            .get("_acpmuxTarget")
+                            .and_then(Value::as_str)
+                            .map_or_else(|| id.to_owned(), |target| format!("{target}\0{id}"));
+                        ids.insert(key);
+                    }
+                    true
+                })
+            {
+                tracing::warn!(session = %session.id, %error, "cannot read message projection ids");
+                return false;
+            }
+            *index = Some(ids);
+        }
+        let Some(ids) = index.as_mut() else { return false };
+        let key = target_scope
+            .map_or_else(|| message_id.clone(), |target| format!("{target}\0{message_id}"));
+        if ids.contains(&key) {
+            return true;
+        }
+        // The payload retains the acceptance time; the journal records when this
+        // copy was appended, so recovering an old message cannot regress activity.
+        if self.append_at_locked(session, "mux", "_acpmux/message", msg, None, None).1 {
+            ids.insert(key);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Record the sender-side copy when a prompt is accepted by a remote daemon.
+    pub(super) fn append_sender_message_event(
+        &self,
+        sender_session: &str,
+        sender: Value,
+        text: String,
+        message_id: String,
+        at: u64,
+        target_session: &str,
+    ) -> bool {
+        if let Ok(session) = self.resolve(sender_session)
+            && session.id == sender_session
+        {
+            self.append_message_event_scoped(
+                &session,
+                sender,
+                text,
+                message_id,
+                at,
+                Some(target_session),
+            )
+        } else {
+            false
+        }
+    }
+
     /// Append one record; `host_seq` names the agent host entry it logs.
     pub(super) fn append_with_host_seq(
         &self,
@@ -1113,6 +1241,18 @@ impl Hub {
         tool_paths::add_canonical_paths(session, kind, &mut msg);
         let _order = session.append_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         self.catch_up_locked(session);
+        self.append_at_locked(session, dir, kind, msg, host_seq, at)
+    }
+
+    fn append_at_locked(
+        &self,
+        session: &Session,
+        dir: &str,
+        kind: &str,
+        msg: Value,
+        host_seq: Option<u64>,
+        at: Option<u64>,
+    ) -> (EventRecord, bool) {
         let seq = session.seq.fetch_add(1, Ordering::SeqCst) + 1;
         let at = at.unwrap_or_else(now_ms);
         let record = EventRecord { seq, at, dir: dir.into(), kind: kind.into(), msg, host_seq };

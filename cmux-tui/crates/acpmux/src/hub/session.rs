@@ -28,6 +28,10 @@ pub struct Session {
     /// Held from sequence allocation until the record is stored and sent,
     /// so the log and fan-out always see sequences in order.
     pub(super) append_lock: StdMutex<()>,
+    /// Message projection ids, loaded once from the journal on first use; only
+    /// message acceptance/recovery touches this, never streamed tokens.
+    /// Dedupe key is message id plus the target session for sender copies.
+    pub(super) message_ids: StdMutex<Option<std::collections::HashSet<String>>>,
     pub(super) loading: AtomicBool,
     /// The generations of the agents whose `session/load` (or Claude fork prime) replays
     /// history: from the load's start until the inbound loop reaches that agent's

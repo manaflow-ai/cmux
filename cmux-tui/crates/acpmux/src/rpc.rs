@@ -529,6 +529,9 @@ pub mod method {
     pub const MUX_PAIR_REDEEM: &str = "_acpmux/pair_redeem";
     // Notifications from acpmux to attached clients.
     pub const MUX_EVENT: &str = "_acpmux/event";
+    /// A persisted session-to-session message, projected separately so chat clients can render
+    /// incoming and outgoing bubbles without decoding the generic event stream.
+    pub const MUX_MESSAGE: &str = "_acpmux/message";
     pub const MUX_SESSION_CHANGED: &str = "_acpmux/session_changed";
     pub const MUX_PERMISSION_PENDING: &str = "_acpmux/permission_pending";
     /// To watchers when a harness profile source changed and the catalog

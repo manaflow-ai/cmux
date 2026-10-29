@@ -4,6 +4,10 @@ use super::exit_reason::explains_exit;
 use super::*;
 use std::sync::atomic::Ordering;
 
+use super::message_events::{
+    embed_message_context, ensure_message_provenance, message_context, record_message_context,
+};
+
 /// What the agent of `session` is sent for `blocks`: model-sized copies of its large images
 /// (`model_copies.rs`), then [`acp_prompt_blocks`]. No copy is made, or kept, for a turn a remote
 /// device controls: it is read from this machine's disk as the prompt's sender, who was local.
@@ -139,6 +143,26 @@ impl Hub {
         self.session_log(session).await;
         self.pair_logs(opts.provenance.as_ref()).await;
         let Some(prompt_id) = opts.prompt_id.clone() else {
+            // `session/prompt` accepts prompts without a client id.  They still need a
+            // durable message id when they came from another session, so wrap the
+            // acceptance callback with a generated id without adding a prompt ledger
+            // entry (the ledger is only for client-supplied idempotency keys).
+            let generated_id = uuid::Uuid::now_v7().to_string();
+            opts.prompt_id = Some(generated_id.clone());
+            ensure_message_provenance(&mut opts, &session.id);
+            let message = message_context(self, session, &blocks, &opts, &generated_id);
+            embed_message_context(&mut opts, message.as_ref());
+            let target_id = session.id.clone();
+            let hub = self.clone();
+            let prior = opts.on_accepted.take();
+            opts.on_accepted = Some(Box::new(move |v| {
+                if let Some(message) = message.as_ref() {
+                    record_message_context(&hub, &target_id, message);
+                }
+                if let Some(prior) = prior {
+                    prior(v);
+                }
+            }));
             return self.prompt_unless_held(session, blocks, client, steer, opts).await;
         };
         let duplicate = |v: Value| json!({"sessionId": session.id, "promptId": prompt_id, "duplicate": true, "queued": false, "turnId": v.pointer("/_meta/acpmux/turnId")});
@@ -182,18 +206,37 @@ impl Hub {
             prompt_ledger::prune(&mut ledger);
             return Ok(logged);
         }
+        // Message events are acknowledged at the same point as the prompt. This covers direct
+        // sends and automatic lane reports, both of which can call `prompt_with` without passing
+        // through the RPC request handler. A duplicate or a refused prompt never records a new
+        // event.
+        ensure_message_provenance(&mut opts, &session.id);
+        let message = message_context(self, session, &blocks, &opts, &prompt_id);
+        embed_message_context(&mut opts, message.as_ref());
         // Remember the outcome only for a prompt that reached the session:
         // one refused before that (no agent, a bad session) may be sent again.
         let accepted = Arc::new(AtomicBool::new(false));
         if let Some(f) = opts.on_accepted.take() {
             let accepted = accepted.clone();
+            let hub = self.clone();
+            let target_id = session.id.clone();
             opts.on_accepted = Some(Box::new(move |v| {
                 accepted.store(true, Ordering::SeqCst);
+                if let Some(message) = message.as_ref() {
+                    record_message_context(&hub, &target_id, message);
+                }
                 f(v);
             }));
         } else {
             let accepted = accepted.clone();
-            opts.on_accepted = Some(Box::new(move |_| accepted.store(true, Ordering::SeqCst)));
+            let hub = self.clone();
+            let target_id = session.id.clone();
+            opts.on_accepted = Some(Box::new(move |_| {
+                accepted.store(true, Ordering::SeqCst);
+                if let Some(message) = message.as_ref() {
+                    record_message_context(&hub, &target_id, message);
+                }
+            }));
         }
         let result = self.prompt_unless_held(session, blocks, client, steer, opts).await;
         let mut ledger = session.prompts.lock().unwrap();

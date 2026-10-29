@@ -84,13 +84,28 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
 /// report as the person's (claude-sr2, 2026-10-24: every remote lane's report a plain bubble), and
 /// a keyed prompt could replace another sender's (`hub/supersede.rs`). The person names no one.
 fn name_sender(hub: &Arc<Hub>, conn: &Arc<Conn>, p: &mut Value) {
+    // This field is daemon-authored, even when a caller already supplied fromAgent.
+    if let Some(meta) = p.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut) {
+        meta.remove("messageSender");
+    }
     if conn.is_person() {
         return;
     }
     let Some(caller) = conn.caller() else { return };
+    let mut meta = json!({
+        "messageSender": {
+            "name": hub.session_name(caller),
+            "sessionId": caller,
+            "host": crate::hub::host_label(),
+        },
+    });
     if p.pointer("/_meta/acpmux/fromAgent").is_none_or(Value::is_null) {
-        crate::hub::merge_mux_meta(p, json!({"fromAgent": hub.session_name(caller)}));
+        meta["fromAgent"] = json!(hub.session_name(caller));
     }
+    // Always replace a client-provided sender identity with the session proven by
+    // this connection.  `fromAgent` remains caller-declared for display, but it
+    // cannot alter the durable message sender.
+    crate::hub::merge_mux_meta(p, meta);
 }
 
 /// `e` with `data.peer` = `peer`, this daemon's own name for the peer that
@@ -274,22 +289,96 @@ async fn forward_inner(
                 }
             }
         }
+        // A prompt without a client id still needs an acceptance key so the sender-side
+        // journal copy can be recorded when the peer accepts it.  The generated id is
+        // internal to this forwarded request and is not exposed as a client id.
+        if m == method::SESSION_PROMPT
+            && p.pointer("/_meta/acpmux/promptId")
+                .and_then(Value::as_str)
+                .filter(|id| !id.is_empty())
+                .is_none()
+        {
+            crate::hub::merge_mux_meta(
+                &mut p,
+                json!({"promptId": uuid::Uuid::now_v7().to_string()}),
+            );
+        }
         // The peer answers a prompt when its turn (or a steer's step) ends; the client hears
         // the peer's acceptance as soon as it comes (`hub/outbox.rs` `PeerAccepts`).
         let accept = (m == method::SESSION_PROMPT)
             .then(|| p.pointer("/_meta/acpmux/promptId").and_then(Value::as_str))
             .flatten()
             .map(str::to_owned);
+        let sender_message = if m == method::SESSION_PROMPT && !conn.is_person() {
+            conn.caller().map(|sender_session| {
+                let sender =
+                    p.pointer("/_meta/acpmux/messageSender").cloned().unwrap_or_else(|| {
+                        json!({
+                            "name": hub.session_name(sender_session),
+                            "sessionId": sender_session,
+                            "host": crate::hub::host_label(),
+                        })
+                    });
+                let text = p
+                    .get("prompt")
+                    .and_then(Value::as_array)
+                    .map(|blocks| crate::hub::prompt_text(blocks))
+                    .or_else(|| p.get("text").and_then(Value::as_str).map(str::to_owned))
+                    .unwrap_or_default();
+                let message_id = p
+                    .pointer("/_meta/acpmux/messageId")
+                    .and_then(Value::as_str)
+                    .or_else(|| p.pointer("/_meta/acpmux/promptId").and_then(Value::as_str))
+                    .unwrap_or_default()
+                    .to_owned();
+                (sender_session.to_owned(), sender, text, message_id)
+            })
+        } else {
+            None
+        };
+        let forward_intent = if let Some((sender_session, ..)) = &sender_message {
+            Some(super::outbox::remember_forward(hub, &peer.name, &id, sender_session, &p).await?)
+        } else {
+            None
+        };
         let token = accept.as_ref().map(|prompt_id| {
             let (conn, peer_name) = (conn.clone(), peer.name.clone());
+            let callback_hub = hub.clone();
+            let sender_message = sender_message.clone();
+            let forward_intent = forward_intent.clone();
+            let target_id = id.clone();
+            let (provisional_conn, provisional_peer) = (conn.clone(), peer_name.clone());
             hub.peer_accepts.wait(
                 &peer.name,
+                &id,
                 prompt_id,
                 Box::new(move |mut v| {
+                    let stored =
+                        if let Some((sender_session, sender, text, message_id)) = sender_message {
+                            callback_hub.append_sender_message_event(
+                                &sender_session,
+                                sender,
+                                text,
+                                message_id,
+                                crate::store::now_ms(),
+                                &target_id,
+                            )
+                        } else {
+                            false
+                        };
+                    if let Some(intent) = forward_intent {
+                        super::outbox::forward_accepted(&callback_hub, &intent, v.clone(), stored);
+                    }
                     if let Some(obj) = v.as_object_mut() {
                         obj.insert("peer".into(), Value::String(peer_name));
                     }
                     conn.send(&Message::notification(method::MUX_PROMPT_ACCEPTED, v));
+                }),
+                Arc::new(move |mut v| {
+                    if let Some(obj) = v.as_object_mut() {
+                        obj.insert("peer".into(), Value::String(provisional_peer.clone()));
+                    }
+                    provisional_conn.send(&Message::notification(method::MUX_PROMPT_ACCEPTED, v));
                 }),
             )
         });
@@ -317,8 +406,31 @@ async fn forward_inner(
         } else {
             peer.request_on(m, p, on).await
         };
+        // Older peers can answer without a separate acceptance notification.
+        // Reconcile that successful result too, before the intent is settled.
+        if let Some(intent) = forward_intent.as_deref() {
+            match &result {
+                Ok(accepted) => {
+                    let stored =
+                        if let Some((sender_session, sender, text, message_id)) = sender_message {
+                            hub.append_sender_message_event(
+                                &sender_session,
+                                sender,
+                                text,
+                                message_id,
+                                crate::store::now_ms(),
+                                &id,
+                            )
+                        } else {
+                            false
+                        };
+                    super::outbox::forward_accepted(hub, intent, accepted.clone(), stored);
+                }
+                Err(error) => super::outbox::forward_refused(hub, intent, error),
+            }
+        }
         if let (Some(prompt_id), Some(token)) = (&accept, token) {
-            hub.peer_accepts.forget(&peer.name, prompt_id, token);
+            hub.peer_accepts.forget(&peer.name, &id, prompt_id, token);
         }
         // `Peer::request` already took the peer's display lines out of the result and the error.
         let mut result = result.map_err(|e| {

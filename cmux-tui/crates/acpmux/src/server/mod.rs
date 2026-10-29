@@ -293,8 +293,24 @@ impl Conn {
         if msg.method() == Some(method::MUX_SESSION_CHANGED) {
             self.notices.fetch_add(1, Ordering::SeqCst);
         }
-        let masked = (!self.raw_text).then(|| peer_text::masked(msg)).flatten();
-        let msg = masked.as_ref().unwrap_or(msg);
+        let redacted = if self.origin == Origin::Peer {
+            let mut copy = msg.clone();
+            let changed = match &mut copy {
+                Message::Notification { params: Some(params), .. } => {
+                    crate::server::pending::redact_message_hosts(params)
+                }
+                Message::Response { result: Some(result), .. } => {
+                    crate::server::pending::redact_message_hosts(result)
+                }
+                _ => false,
+            };
+            changed.then_some(copy)
+        } else {
+            None
+        };
+        let base = redacted.as_ref().unwrap_or(msg);
+        let masked = (!self.raw_text).then(|| peer_text::masked(base)).flatten();
+        let msg = masked.as_ref().unwrap_or(base);
         // No message larger than one frame (`rpc::MAX_MESSAGE_BYTES`): a reply goes as its error,
         // a notification is left out and the client reads again from its last record.
         match msg.bounded_line() {
@@ -1540,6 +1556,9 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
                     routed(event_value(&ev.session_id, rec)),
                 ));
             }
+        }
+        if rec.dir == "mux" && rec.kind == "_acpmux/message" {
+            conn.send(&Message::notification(method::MUX_MESSAGE, rec.msg.clone()));
         }
         if rec.dir == "mux" && is_permission_ask(&rec.kind) {
             conn.send(&Message::notification(

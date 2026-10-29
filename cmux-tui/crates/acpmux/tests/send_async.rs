@@ -16,7 +16,9 @@ use acpmux::config::{Config, HarnessProfile, PermissionPolicy, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::rpc::{Message, method};
 use acpmux::server::peer_auth::PeerAuth;
-use acpmux::server::{WsAuth, bind_ws, serve_connection, serve_ws_with};
+use acpmux::server::{
+    Origin, WsAuth, bind_ws, serve_connection, serve_connection_with, serve_ws_with,
+};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -67,9 +69,13 @@ struct C {
 
 impl C {
     async fn new(h: Arc<Hub>) -> Self {
+        Self::with_origin(h, Origin::Local).await
+    }
+
+    async fn with_origin(h: Arc<Hub>, origin: Origin) -> Self {
         let (in_tx, in_rx) = mpsc::channel(64);
         let (out_tx, out_rx) = mpsc::channel(4096);
-        tokio::spawn(serve_connection(h, in_rx, out_tx));
+        tokio::spawn(serve_connection_with(h, in_rx, out_tx, origin));
         let mut c = C { tx: in_tx, rx: out_rx, next: 0 };
         c.call(method::INITIALIZE, json!({"protocolVersion": 1, "clientInfo": {"name": "t"}}))
             .await
@@ -116,6 +122,20 @@ impl C {
                 };
             }
         }
+    }
+
+    async fn message_events(&mut self, session: &str) -> Vec<Value> {
+        let page = self
+            .call(method::MUX_EVENTS, json!({"sessionId": session, "limit": 5000}))
+            .await
+            .unwrap();
+        page["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|event| event["kind"] == "_acpmux/message")
+            .map(|event| event["msg"].clone())
+            .collect()
     }
 
     /// The notification `m` that `pred` takes, within `within`.
@@ -213,7 +233,19 @@ async fn a_busy_peer_session_acks_a_forwarded_prompt_within_a_second() {
 #[tokio::test]
 async fn send_queue_acks_at_once_and_status_reports_the_delivery() {
     let (a, b, id) = busy_peer("queue", "lane").await;
-    let mut ca = C::new(a).await;
+    let mut person = C::new(a.clone()).await;
+    let sender = person
+        .call(
+            method::SESSION_NEW,
+            json!({"cwd": std::env::temp_dir(), "mcpServers": [],
+                   "_meta": {"acpmux": {"name": "sender"}}}),
+        )
+        .await
+        .unwrap()["sessionId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let mut ca = C::as_session(a, &sender).await;
     let started = Instant::now();
     let queued = ca
         .call(SEND_QUEUE, json!({"request": prompt("b/lane", "hello", "p-queue")}))
@@ -235,6 +267,152 @@ async fn send_queue_acks_at_once_and_status_reports_the_delivery() {
     let mut cb = C::new(b).await;
     let info = cb.call(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
     assert_eq!(info["queued"], 1, "{info}");
+    let incoming = cb.message_events(&id).await;
+    let outgoing = ca.message_events(&sender).await;
+    assert_eq!(incoming.len(), 1, "{incoming:#?}");
+    assert_eq!(outgoing.len(), 1, "{outgoing:#?}");
+    assert_eq!(incoming[0]["sessionId"], id);
+    assert_eq!(outgoing[0]["sessionId"], sender);
+    for event in [&incoming[0], &outgoing[0]] {
+        assert_eq!(event["sender"]["sessionId"], sender);
+        assert_eq!(event["sender"]["name"], "sender");
+        assert_eq!(event["text"], "hello");
+        assert_eq!(event["messageId"], delivery);
+        assert!(event["at"].as_u64().is_some_and(|at| at > 0));
+    }
+}
+
+/// Sender copies keep distinct target scopes when clients reuse one prompt id.
+#[tokio::test]
+async fn same_prompt_id_to_two_peer_targets_keeps_both_sender_copies() {
+    let (a, b, lane) = busy_peer("scoped-dedupe", "lane").await;
+    let mut person = C::new(a.clone()).await;
+    let sender = person
+        .call(
+            method::SESSION_NEW,
+            json!({"cwd": std::env::temp_dir(), "mcpServers": [],
+            "_meta": {"acpmux": {"name": "scoped-sender"}}}),
+        )
+        .await
+        .unwrap()["sessionId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let mut b_client = C::new(b).await;
+    let other = b_client
+        .call(
+            method::SESSION_NEW,
+            json!({"cwd": std::env::temp_dir(), "mcpServers": [],
+            "_meta": {"acpmux": {"name": "other-target"}}}),
+        )
+        .await
+        .unwrap()["sessionId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let mut from = C::as_session(a, &sender).await;
+    for target in [format!("b/{lane}"), format!("b/{other}")] {
+        from.send(method::SESSION_PROMPT, prompt(&target, "same id", "same-prompt")).await;
+        from.notified(method::MUX_PROMPT_ACCEPTED, Duration::from_secs(20), |p| {
+            p["promptId"] == "same-prompt"
+        })
+        .await
+        .expect("target accepted");
+    }
+    let copies = person.message_events(&sender).await;
+    assert_eq!(copies.len(), 2, "{copies:#?}");
+    assert!(copies.iter().all(|event| event["messageId"] == "same-prompt"));
+}
+
+/// Two connections retrying one message share a receiver acceptance but each hears it.
+/// That fan-out must still leave exactly one outgoing and one incoming journal copy.
+#[tokio::test]
+async fn concurrent_peer_prompt_retries_record_each_journal_copy_once() {
+    let (a, b, target) = busy_peer("message-retry", "lane").await;
+    let mut person = C::new(a.clone()).await;
+    let sender = person
+        .call(
+            method::SESSION_NEW,
+            json!({"cwd": std::env::temp_dir(), "mcpServers": [],
+                   "_meta": {"acpmux": {"name": "retry-sender"}}}),
+        )
+        .await
+        .unwrap()["sessionId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let mut first = C::as_session(a.clone(), &sender).await;
+    let mut retry = C::as_session(a, &sender).await;
+    let request = prompt("b/lane", "one logical message", "p-concurrent-message");
+    tokio::join!(
+        first.send(method::SESSION_PROMPT, request.clone()),
+        retry.send(method::SESSION_PROMPT, request),
+    );
+    let accepted = |p: &Value| p["promptId"] == "p-concurrent-message";
+    let (first_ack, retry_ack) = tokio::join!(
+        first.notified(method::MUX_PROMPT_ACCEPTED, Duration::from_secs(20), accepted),
+        retry.notified(method::MUX_PROMPT_ACCEPTED, Duration::from_secs(20), accepted),
+    );
+    assert!(first_ack.is_some() && retry_ack.is_some(), "{first_ack:?}, {retry_ack:?}");
+    let outgoing = person.message_events(&sender).await;
+    let mut receiver = C::new(b).await;
+    let incoming = receiver.message_events(&target).await;
+    for events in [&outgoing, &incoming] {
+        assert_eq!(events.len(), 1, "{events:#?}");
+        assert_eq!(events[0]["messageId"], "p-concurrent-message");
+        assert_eq!(events[0]["sender"]["sessionId"], sender);
+        assert_eq!(events[0]["text"], "one logical message");
+    }
+}
+
+/// A browser's metadata stays untrusted when the prompt crosses a daemon link.
+#[tokio::test]
+async fn web_to_peer_prompt_cannot_forge_message_sender_or_local_journal() {
+    let (a, b, id) = busy_peer("web-sender", "lane").await;
+    b.config.write().await.web_asking_modes.insert("fake".into(), vec!["normal".into()]);
+    b.set_policy(&b.resolve(&id).unwrap(), PermissionPolicy::Ask).await;
+    let mut local = C::new(b.clone()).await;
+    let victim = local
+        .call(
+            method::SESSION_NEW,
+            json!({"cwd": std::env::temp_dir(), "mcpServers": [],
+                   "_meta": {"acpmux": {"name": "not-the-sender"}}}),
+        )
+        .await
+        .unwrap()["sessionId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let mut web = C::with_origin(a, Origin::Web).await;
+    let mut request = prompt("b/lane", "browser message", "p-forged-sender");
+    request["_meta"]["acpmux"]["messageSender"] =
+        json!({"name": "forged", "sessionId": victim, "host": "forged-host"});
+    web.send(method::SESSION_PROMPT, request).await;
+    web.notified(method::MUX_PROMPT_ACCEPTED, Duration::from_secs(20), |p| {
+        p["promptId"] == "p-forged-sender"
+    })
+    .await
+    .expect("the browser prompt was accepted, so the test reaches message recording");
+    assert!(local.message_events(&id).await.is_empty());
+    assert!(local.message_events(&victim).await.is_empty());
+
+    // Even a proven peer owns no local sender journal. Its claimed id may collide
+    // with one here, but the only copy it can create is in the actual target.
+    let mut peer = C::with_origin(b, Origin::Peer).await;
+    let mut request = prompt(&id, "peer message", "p-peer-sender");
+    request["_meta"]["acpmux"]["messageSender"] =
+        json!({"name": "remote-sender", "sessionId": victim, "host": "peer-host"});
+    peer.send(method::SESSION_PROMPT, request).await;
+    peer.notified(method::MUX_PROMPT_ACCEPTED, Duration::from_secs(20), |p| {
+        p["promptId"] == "p-peer-sender"
+    })
+    .await
+    .expect("the peer prompt was accepted");
+    let incoming = local.message_events(&id).await;
+    assert_eq!(incoming.len(), 1, "{incoming:#?}");
+    assert_eq!(incoming[0]["sender"]["name"], "remote-sender");
+    assert_eq!(incoming[0]["sender"]["sessionId"], victim);
+    assert!(local.message_events(&victim).await.is_empty());
 }
 
 /// A peer that is down: the message is queued at once and tried again, never refused.

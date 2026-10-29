@@ -161,6 +161,10 @@ impl Hub {
         // A subagent retry the restart dropped, hosted or not (`subagent_retry.rs`).
         self.settle_subagent_retries(session);
         self.restore_queue(session);
+        // A crash may leave a durable prompt/queue record before its acceptance
+        // callback writes `_acpmux/message`; reconstruct those projections before
+        // clients can attach or the restored queue resumes.
+        super::message_events::recover_message_events(self, session);
         // A cut turn goes on before what waited behind it (`restart_resume.rs`).
         if let Some(prompt_id) = continued {
             let _ = self.move_queued(session, &prompt_id, 0, None);
