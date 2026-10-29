@@ -2370,10 +2370,29 @@ export function pauseVm(input: {
 /**
  * The one pause path: the Pause Machine action and API (`pauseVm`, reason
  * `user`) and the idle auto-pause cron (services/vms/idlePauseJob.ts, reason
- * `idle`, after its own access-free row read). `reason` is recorded on the row
+ * `idle`, through `pauseIdleVmRow`). `reason` is recorded on the row
  * (`pauseReason`) and in the usage event.
  */
 export function pauseVmRow(vm: CloudVmRow, requestedProviderVmId: string, reason: VmPauseReason) {
+  return pauseRow(vm, requestedProviderVmId, reason, undefined).pipe(
+    Effect.flatMap((result) => result ? Effect.succeed(result) : Effect.fail(new VmNotFoundError({ vmId: requestedProviderVmId }))),
+  );
+}
+
+/**
+ * The idle cron's pause: the same path, but the row records the pause only if
+ * it is still running at `idleEpoch`, the fence the cron claimed
+ * (VmRepository.claimIdlePause). Null when a write moved the fence while the
+ * provider paused (a person's exec, files or attach call, a setting change, a
+ * person's pause or a resume): the machine may now be paused at the provider
+ * with a row that says otherwise, and the caller decides what that write
+ * meant (`resumeAfterLostIdlePause`).
+ */
+export function pauseIdleVmRow(vm: CloudVmRow, providerVmId: string, idleEpoch: number) {
+  return pauseRow(vm, providerVmId, "idle", idleEpoch);
+}
+
+function pauseRow(vm: CloudVmRow, requestedProviderVmId: string, reason: VmPauseReason, expectIdleEpoch: number | undefined) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
@@ -2443,10 +2462,9 @@ export function pauseVmRow(vm: CloudVmRow, requestedProviderVmId: string, reason
       status: "paused",
       // A machine the provider had already stopped was not paused by us, so it records no reason.
       ...(observed === "stopped" ? {} : { pauseReason: reason }),
+      expectIdleEpoch,
     });
-    if (!recorded) {
-      return yield* Effect.fail(new VmNotFoundError({ vmId: input.providerVmId }));
-    }
+    if (!recorded) return null;
     yield* repo.recordUsageEvent({
       userId: vm.userId,
       billingTeamId: vm.billingTeamId,
@@ -3875,7 +3893,7 @@ function boundedVmStatusReconcileLimit(limit: number | undefined): number {
 const RESUME_STATUS_PROBE_TIMEOUT = "5 seconds";
 const RESUME_SETTLE_ATTEMPTS = 10;
 const RESUME_SETTLE_INTERVAL = "1 second";
-type VmResumeSource = "exec" | "attach" | "ssh" | "scp" | "fork" | "open_port" | "resize" | "user";
+type VmResumeSource = "exec" | "attach" | "ssh" | "scp" | "fork" | "open_port" | "resize" | "user" | "idle_pause_lost";
 
 type ResumePreflightOptions = {
   /** Resolved billing-scope allowance; null is unlimited, undefined uses the plan default. */
@@ -4101,6 +4119,21 @@ function recordResumeUsageEvent(
 // status cron pauses those again (settleUnexpectedWakes) and records a
 // machine it cannot pause as running, and beginCreate re-counts
 // provider-running VMs before allocating another active slot.
+/**
+ * Undo an idle pause that lost its fence (pauseIdleVmRow answered null) on a
+ * row that still says running: a person used the machine or switched
+ * auto-pause off while the provider paused it, so it is resumed through the
+ * same resume path an open takes. A provider that never got as far as pausing
+ * reads running and nothing happens.
+ */
+export function resumeAfterLostIdlePause(vm: CloudVmRow, providerVmId: string) {
+  return Effect.gen(function* () {
+    const repo = yield* VmRepository;
+    const providers = yield* VmProviderGateway;
+    return yield* preflightResumeIfSuspended(repo, providers, vm, providerVmId, "idle_pause_lost", { forceProviderProbe: true });
+  });
+}
+
 function preflightResumeIfSuspended(
   repo: VmRepositoryShape,
   providers: VmProviderGatewayShape,

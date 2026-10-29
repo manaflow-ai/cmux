@@ -15,7 +15,7 @@ import {
 } from "./idlePause";
 import { VmProviderGateway } from "./providerGateway";
 import { VmRepository, type CloudVmRow } from "./repository";
-import { pauseVmRow } from "./workflows";
+import { pauseIdleVmRow, resumeAfterLostIdlePause } from "./workflows";
 
 /** Machines one run probes; the rest wait for the next run (least recently checked first). */
 export const VM_IDLE_PAUSE_BATCH_LIMIT = 500;
@@ -32,10 +32,12 @@ export type VmIdlePauseSummary = {
   readonly active: number;
   readonly unknown: number;
   readonly off: number;
+  /** Paused at the provider, but a write landed meanwhile and won (see undoLostPause). */
+  readonly aborted: number;
   readonly errors: number;
 };
 
-type Outcome = "paused" | "idle" | "active" | "unknown" | "off" | "error";
+type Outcome = "paused" | "idle" | "active" | "unknown" | "off" | "aborted" | "error";
 
 /**
  * The `vm-idle-pause` cron body (services/vms/idlePause.ts): probe each running
@@ -73,6 +75,7 @@ export function enforceVmIdlePause(input: { readonly now?: () => number; readonl
       active: tally("active"),
       unknown: tally("unknown"),
       off: tally("off"),
+      aborted: tally("aborted"),
       errors: tally("error"),
     } satisfies VmIdlePauseSummary;
   });
@@ -108,7 +111,8 @@ function checkMachine(vm: CloudVmRow, now: () => number) {
     });
     const claimed = decision.pause ? yield* claimPause(vm, providerVmId) : null;
     if (claimed) {
-      yield* pauseVmRow(claimed.row, providerVmId, "idle");
+      const paused = yield* pauseIdleVmRow(claimed.row, providerVmId, claimed.epoch);
+      if (!paused) return yield* undoLostPause(vm, providerVmId);
       console.info("[VM] idle pause", JSON.stringify({ vmId: vm.id, minutes, reason: decision.reason, idleSince: decision.observation?.idleSince }));
       return "paused" as const;
     }
@@ -138,6 +142,34 @@ function claimPause(vm: CloudVmRow, providerVmId: string) {
     if (vmIdleEpochFromRow(current) !== vmIdleEpochFromRow(vm)) return null;
     const epoch = yield* repo.claimIdlePause!({ id: vm.id, providerVmId, epoch: vmIdleEpochFromRow(vm) });
     return epoch === null ? null : { row: current, epoch };
+  });
+}
+
+/**
+ * The provider paused, but the pause record lost its fence: something landed
+ * while the provider paused. Re-read the row to see what. Still running (a
+ * person's exec, files or attach call, or a switch to Off): resume it, since
+ * the person meant it to keep running. Paused (a person's own pause won),
+ * replaced or gone: leave it as that write left it. Either way, logged with
+ * what the cron found.
+ */
+function undoLostPause(vm: CloudVmRow, providerVmId: string) {
+  return Effect.gen(function* () {
+    const repo = yield* VmRepository;
+    const current = yield* repo.findUserVm({ userId: vm.userId, billingTeamId: vm.ownerTeamId, providerVmId, provider: vm.provider });
+    const running = current?.id === vm.id && current.status === "running" && current.providerVmId === providerVmId;
+    if (!current || !running) {
+      console.info("[VM] idle pause lost; kept the newer write", JSON.stringify({ vmId: vm.id, status: current?.status ?? "gone" }));
+      return "aborted" as const;
+    }
+    const resumed = yield* resumeAfterLostIdlePause(current, providerVmId).pipe(Effect.either);
+    if (resumed._tag === "Left") {
+      // The row says running; the next open probes the provider and resumes it (forceProviderProbe).
+      console.error("[VM] idle pause lost; resume failed", { vmId: vm.id, error: resumed.left });
+      return "error" as const;
+    }
+    console.info("[VM] idle pause lost to activity or Off; resumed", JSON.stringify({ vmId: vm.id, resumed: resumed.right }));
+    return "aborted" as const;
   });
 }
 
