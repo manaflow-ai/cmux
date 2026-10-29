@@ -61,9 +61,9 @@ pub(super) fn claude_transcript_through_checked(
             prompts += 1;
             answered = false;
         } else if record.get("type").and_then(Value::as_str) == Some("assistant") {
-            answered = record.pointer("/message/content").and_then(Value::as_array).is_some_and(
-                |blocks| !blocks.is_empty() && !blocks.iter().any(|b| b["type"] == "tool_use"),
-            );
+            // Use the replay contract: thinking, sidechains and nonterminal text do
+            // not prove the retained main conversation reached its completed answer.
+            answered |= crate::adopt_replay::ends_turn("claude", &record);
         }
         if record.get("sessionId").is_some_and(Value::is_string) {
             record["sessionId"] = Value::String(id.clone());
