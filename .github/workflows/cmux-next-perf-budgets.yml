@@ -77,7 +77,7 @@ on:
       runner_class:
         description: "Blacksmith macOS runner class; rows are compared only within this class"
         required: false
-        default: "blacksmith-6vcpu-macos-26"
+        default: blacksmith-6vcpu-macos-26
       yield_mode:
         description: "queued: yield while a nightly or dev build waits for a runner (default); running: also while one runs"
         required: false
@@ -103,7 +103,7 @@ jobs:
   blacksmith-mac:
     name: manual GUI perf (${{ inputs.tip_sha && inputs.tip_sha || 'none' }})
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.tip_sha != '' && inputs.parts != '' && github.repository == 'manaflow-ai/cmux' }}
-    runs-on: ${{ inputs.runner_class == 'blacksmith-6vcpu-macos-26' && 'blacksmith-6vcpu-macos-26' || inputs.runner_class == 'blacksmith-12vcpu-macos-26' && 'blacksmith-12vcpu-macos-26' || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || inputs.runner_class == 'blacksmith-6vcpu-macos-26' && 'blacksmith-6vcpu-macos-26' || inputs.runner_class == 'blacksmith-12vcpu-macos-26' && 'blacksmith-12vcpu-macos-26' || 'blacksmith-6vcpu-macos-26' }}
     permissions:
       contents: read
     timeout-minutes: 180
@@ -114,6 +114,10 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
           submodules: false
+
+      # split-spring.sh and pane-overflow-fade.sh build the app: pin the pool's Xcode.
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
 
       - name: Set up Bun for the native fade proof
         if: inputs.parts == 'pane-overflow-fade'
@@ -126,7 +130,7 @@ jobs:
           TIP_SHA: ${{ inputs.tip_sha }}
           PARTS: ${{ inputs.parts }}
           PRODUCT_SHA: ${{ inputs.product_sha }}
-          RUNNER_CLASS: ${{ inputs.runner_class == 'blacksmith-6vcpu-macos-26' && 'blacksmith-6vcpu-macos-26' || inputs.runner_class == 'blacksmith-12vcpu-macos-26' && 'blacksmith-12vcpu-macos-26' || 'blacksmith-6vcpu-macos-26' }}
+          RUNNER_CLASS: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || inputs.runner_class == 'blacksmith-6vcpu-macos-26' && 'blacksmith-6vcpu-macos-26' || inputs.runner_class == 'blacksmith-12vcpu-macos-26' && 'blacksmith-12vcpu-macos-26' || 'blacksmith-6vcpu-macos-26' }}
           CI_SHARED_CACHE_DIR: ${{ runner.temp }}/tipguard-cache
         run: |
           set -euo pipefail
