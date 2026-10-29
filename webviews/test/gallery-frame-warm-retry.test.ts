@@ -8,41 +8,65 @@
 // import with no optimizer reload (a missing module) must still fail at once.
 import { expect, test } from "bun:test";
 import type { ViteDevServer } from "vite";
-import { dynamicImportFailed, outdatedOptimizeDep, stalled, warmGalleryFrame } from "./support/galleryFrame";
+import {
+  dynamicImportFailed,
+  NAVIGATION_ATTEMPT_MS,
+  outdatedOptimizeDep,
+  stalled,
+  warmGalleryFrame,
+} from "./support/galleryFrame";
 
-/** One page's load: a goto that fails, or the stage's ready flag and text; `reload` sends a full reload. */
-type Step = { goto?: Error; ready?: string; text?: string; reload?: boolean };
+/** One page's load: a goto that fails, or the stage's ready flag and text; `bundle` starts an optimizer run. */
+type Step = { goto?: Error; ready?: string; text?: string; bundle?: boolean };
 
-/** A dev server with only what warmGalleryFrame reads: its port, hot channel and optimizer. */
-function fakeServer() {
+/**
+ * A dev server with only what warmGalleryFrame reads: its port, hot channel and optimizer. `bundle()`
+ * starts an optimizer run as a page's load would: the dependency it discovers is processing until
+ * the next macrotask, and only then does the optimizer send its full reload (late, as Vite does),
+ * so a warm-up that did not wait for the optimizer would miss the reload. `idle` replaces the
+ * request-idle wait (a promise that never settles models a stuck optimizer).
+ */
+function fakeServer({ idle }: { idle?: () => Promise<void> } = {}) {
+  const discovered: Record<string, { processing?: Promise<void> }> = {};
   const client = {
     hot: { send(_payload: unknown) {} },
-    async waitForRequestsIdle() {},
-    depsOptimizer: { metadata: { discovered: {} } },
+    waitForRequestsIdle: idle ?? (async () => {}),
+    depsOptimizer: { metadata: { discovered } },
   };
   const server = { httpServer: { address: () => ({ port: 1 }) }, environments: { client } };
-  // The optimizer's reload goes through the hot channel, which warmGalleryFrame counts.
-  const reload = () => server.environments.client.hot.send({ type: "full-reload" });
-  return { server: server as unknown as ViteDevServer, reload };
+  let runs = 0;
+  const bundle = () => {
+    const dep = { processing: undefined as Promise<void> | undefined };
+    dep.processing = new Promise<void>((resolve) =>
+      setTimeout(() => {
+        dep.processing = undefined;
+        // The hot channel warmGalleryFrame counts (it wraps send on its first look).
+        server.environments.client.hot.send({ type: "full-reload" });
+        resolve();
+      }, 0),
+    );
+    discovered[`dep${runs++}`] = dep;
+  };
+  return { server: server as unknown as ViteDevServer, bundle };
 }
 
-/** A browser whose Nth page plays steps[N] (then `rest`). */
-function fakeBrowser(steps: Step[], rest: Step = { ready: "1" }, reload: () => void = () => {}) {
-  const pages: { closed: boolean; gotos: string[] }[] = [];
+/** A browser whose Nth page plays steps[N] (then `rest`); `bundle` starts an optimizer run. */
+function fakeBrowser(steps: Step[], rest: Step = { ready: "1" }, bundle: () => void = () => {}) {
+  const pages: { closed: boolean; gotos: { url: string; timeout: number | undefined }[] }[] = [];
   const browser = {
     async newPage() {
       const step = steps[pages.length] ?? rest;
-      const record = { closed: false, gotos: [] as string[] };
+      const record = { closed: false, gotos: [] as { url: string; timeout: number | undefined }[] };
       pages.push(record);
       return {
         on() {},
-        async goto(url: string) {
-          record.gotos.push(url);
+        async goto(url: string, options?: { timeout?: number }) {
+          record.gotos.push({ url, timeout: options?.timeout });
+          if (step.bundle) bundle();
           if (step.goto) throw step.goto;
         },
         async waitForFunction() {},
         async evaluate() {
-          if (step.reload) reload();
           return [step.ready ?? "1", step.text ?? ""];
         },
         async close() {
@@ -69,27 +93,47 @@ const MISSING_MODULE =
 const OUTDATED =
   'agent-pane.chat-width#default failed to mount:\nError: 504 (Outdated Optimize Dep) for "/gallery/node_modules/.vite/deps/react.js"';
 
-test("an import that failed while the optimizer reloaded, then a stuck goto, each load again on a fresh page", async () => {
-  const { server, reload } = fakeServer();
+test("an import that failed while the optimizer re-bundled loads again once its late reload is counted", async () => {
+  const { server, bundle } = fakeServer();
   const { browser, pages } = fakeBrowser(
-    [{ ready: "error", text: STALE_IMPORT, reload: true }, { goto: timeout(30_000) }, { ready: "1" }],
+    [{ ready: "error", text: STALE_IMPORT, bundle: true }, { goto: timeout(30_000) }, { ready: "1" }],
     { ready: "1" },
-    reload,
+    bundle,
   );
   await warmGalleryFrame(server, "agent-pane.chat-width", { browser });
+  // The first page's reload arrives only after the optimizer settled; then a stuck goto; then a load.
   expect(pages.length).toBe(3);
   expect(pages.every((page) => page.closed)).toBe(true);
   expect(pages.every((page) => page.gotos.length === 1)).toBe(true);
 });
 
-test("a missing module fails on the first load, with no optimizer reload, whatever the server", async () => {
-  const { server, reload } = fakeServer();
+test("a missing module fails on the first load: the optimizer settles and sends no reload", async () => {
+  const { server, bundle } = fakeServer();
   for (const target of [server, "http://127.0.0.1:1"] as const) {
-    const { browser, pages } = fakeBrowser([{ ready: "error", text: MISSING_MODULE }], { ready: "1" }, reload);
+    const { browser, pages } = fakeBrowser([{ ready: "error", text: MISSING_MODULE }], { ready: "1" }, bundle);
     await expect(warmGalleryFrame(target, "agent-pane.chat-width", { browser })).rejects.toThrow("Gone.tsx");
     expect(pages.length).toBe(1);
     expect(pages[0]!.closed).toBe(true);
   }
+});
+
+test("each goto gets at most NAVIGATION_ATTEMPT_MS of the budget, and less when less is left", async () => {
+  const roomy = fakeBrowser([{ ready: "1" }]);
+  await warmGalleryFrame("http://127.0.0.1:1", "agent-pane.chat-width", { browser: roomy.browser });
+  expect(roomy.pages[0]!.gotos[0]!.timeout).toBe(NAVIGATION_ATTEMPT_MS);
+  const tight = fakeBrowser([{ ready: "1" }]);
+  await warmGalleryFrame("http://127.0.0.1:1", "agent-pane.chat-width", { browser: tight.browser, timeoutMs: 5_000 });
+  expect(tight.pages[0]!.gotos[0]!.timeout).toBeLessThanOrEqual(5_000);
+});
+
+test("an optimizer whose requests never go idle fails at the deadline and closes the page", async () => {
+  const { server } = fakeServer({ idle: () => new Promise<void>(() => {}) });
+  const { browser, pages } = fakeBrowser([{ ready: "1" }]);
+  await expect(warmGalleryFrame(server, "agent-pane.chat-width", { browser, timeoutMs: 50 })).rejects.toThrow(
+    "requests did not go idle",
+  );
+  expect(pages.length).toBe(1);
+  expect(pages[0]!.closed).toBe(true);
 });
 
 test("a stage that fails to mount for its own reason fails the warm-up at once", async () => {

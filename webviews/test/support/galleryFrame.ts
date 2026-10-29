@@ -111,22 +111,29 @@ function reloadsSent(server: ViteDevServer | string): number {
 async function optimizerSettled(server: ViteDevServer, left: () => number): Promise<void> {
   const client = server.environments.client;
   for (;;) {
-    await client.waitForRequestsIdle();
+    // Both waits share the warm-up's deadline: an optimizer that never goes idle fails it, with
+    // the page closed by the caller, instead of hanging past timeoutMs.
+    await withinDeadline(client.waitForRequestsIdle(), left, "the dev server's requests did not go idle");
     const pending = Object.values(client.depsOptimizer?.metadata.discovered ?? {})
       .map((dep) => dep.processing)
       .filter((processing): processing is Promise<void> => processing !== undefined);
     if (pending.length === 0) break;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const timedOut = new Promise<never>((_, reject) => {
-      timer = setTimeout(() => reject(new Error("the dependency optimizer did not settle")), left());
-    });
-    try {
-      await Promise.race([Promise.all(pending), timedOut]);
-    } finally {
-      clearTimeout(timer);
-    }
+    await withinDeadline(Promise.all(pending), left, "the dependency optimizer did not settle");
   }
   await new Promise((resolve) => setImmediate(resolve));
+}
+
+/** `work`, or a rejection naming `what` once `left()` milliseconds pass first. */
+async function withinDeadline<T>(work: Promise<T>, left: () => number, what: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timedOut = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(what)), left());
+  });
+  try {
+    return await Promise.race([work, timedOut]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /**
