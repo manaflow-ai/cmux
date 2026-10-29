@@ -34,6 +34,8 @@ Workspace tab disclosures sit immediately after the visible workspace name, with
 the name and caret, and stay in place when hover controls appear. User request, 2026-10-28:
 "too mcuh space between the directory name and the expansion caret". This changes the trailing
 disclosure placement from the Oct 27 tab-group controls; close, menu and status keep their slots.
+Long names reserve the caret inside the title's available span, preserving the space for time,
+audio and other persistent trailing marks even when hover actions are hidden.
 
 | Part | Target | Source |
 | --- | --- | --- |

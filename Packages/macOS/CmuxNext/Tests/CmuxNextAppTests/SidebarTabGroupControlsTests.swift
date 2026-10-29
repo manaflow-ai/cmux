@@ -115,7 +115,7 @@ struct SidebarTabGroupControlsTests {
         list.inlineRename.end(commit: false)
     }
 
-    /// The default ✕ spot: on hover, ⋮ ⌄ ✕ with the ✕ on the trailing column, where the status mark gives way;
+    /// The default ✕ spot: the title's caret precedes ⋮ ✕ with the ✕ on the trailing column, where the status mark gives way;
     /// off hover the mark is back.
     @Test func theCloseEndsTheHoveredRow() throws {
         try Self.withCloseSpot(.end) {
@@ -142,7 +142,7 @@ struct SidebarTabGroupControlsTests {
         }
     }
 
-    /// The old spot stays a choice: ⋮ ✕ ⌄, the status mark back on the column once the hover ends (Leo 2026-10-28:
+    /// The middle close spot stays a choice after the title's caret; the status mark returns once hover ends (Leo 2026-10-28:
     /// "just don't show the spinner" while hovering, under every spot).
     @Test func theMiddleSpotHidesTheMarkOnHover() throws {
         try Self.withCloseSpot(.middle) {
@@ -174,10 +174,14 @@ struct SidebarTabGroupControlsTests {
             row.layoutSubtreeIfNeeded()
             let column = SidebarStyle.trailingColumnCenterX(rowWidth: row.bounds.width)
             #expect(abs(row.closeButton.frame.midX - column) < 0.5)
+            let closeX = row.closeButton.frame.minX
+            let caretX = row.disclosureButton.frame.minX
             try Self.withCloseSpot(.middle) {
                 SidebarTunablesWatch.shared.changed()
                 row.layoutSubtreeIfNeeded()
-                #expect(row.closeButton.frame.maxX <= row.disclosureButton.frame.minX + 0.5, "the close stayed at the end")
+                #expect(row.closeButton.frame.minX < closeX, "the close stayed at the end")
+                #expect(row.disclosureButton.frame.maxX <= row.closeButton.frame.minX + 0.5)
+                #expect(abs(row.disclosureButton.frame.minX - caretX) < 0.5, "the close spot moved the title's caret")
             }
             SidebarTunablesWatch.shared.changed()
         }
