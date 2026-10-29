@@ -78,6 +78,12 @@ def quiet_main(argv):
         return feed.main(argv)
 
 
+def quiet_main_with_cancellation(argv, cancelled):
+    """Capture cancellation diagnostics just like ordinary CLI diagnostics."""
+    with contextlib.redirect_stdout(io.StringIO()):
+        return feed.main(argv, cancelled=cancelled)
+
+
 def check(server, attempts=1):
     return feed.check_feed(FEED_URL, attempts, get=server.get, content_length=server.head)
 
@@ -190,6 +196,55 @@ class VerifyStableFeedTests(unittest.TestCase):
         server = Server()
         check(server, attempts=3)
         self.assertEqual(server.calls, [("GET", FEED_URL)])
+
+    def test_cancelled_retry_window_starts_no_request(self):
+        cancelled = threading.Event()
+        cancelled.set()
+        window = feed.RetryWindow(10, cancelled=cancelled)
+        server = Server()
+        with self.assertRaises(feed.RetryCancelled):
+            feed.with_retries(3, server.get, FEED_URL, retry=window)
+        self.assertEqual(server.calls, [])
+
+    def test_cancellation_during_backoff_starts_no_more_requests(self):
+        cancelled = threading.Event()
+        window = feed.RetryWindow(10, cancelled=cancelled)
+        server = Server(failures={FEED_URL: ["HTTP 502"]})
+
+        def cancel(_seconds):
+            cancelled.set()
+            return True
+
+        with patch.object(cancelled, "wait", side_effect=cancel), \
+                self.assertRaises(feed.RetryCancelled):
+            feed.with_retries(3, server.get, FEED_URL, retry=window)
+        self.assertEqual(server.calls, [("GET", FEED_URL)])
+
+    def test_request_retry_does_not_start_at_its_deadline(self):
+        clock = Clock()
+        cancelled = threading.Event()
+        server = Server(failures={FEED_URL: ["HTTP 502"]})
+        with patch.object(feed.time, "monotonic", clock.monotonic), \
+                patch.object(cancelled, "wait", side_effect=clock.sleep):
+            window = feed.RetryWindow(1, cancelled=cancelled)
+            with self.assertRaisesRegex(feed.FetchError, "HTTP 502"):
+                feed.with_retries(3, server.get, FEED_URL, retry=window)
+        self.assertEqual(server.calls, [("GET", FEED_URL)])
+        self.assertEqual(clock.now, 1)
+
+    def test_settle_cancellation_stops_feed_rounds(self):
+        cancelled = threading.Event()
+
+        def cancel(_seconds):
+            cancelled.set()
+            return True
+
+        with patch.object(feed, "check_feed", return_value=["HTTP 404"]) as check_url, \
+                patch.object(cancelled, "wait", side_effect=cancel):
+            self.assertEqual(quiet_main_with_cancellation([
+                "--feed", FEED_URL, "--settle-seconds", "60",
+            ], cancelled), 130)
+        self.assertEqual(check_url.call_count, 1)
 
     def test_main_exits_nonzero_on_any_problem(self):
         original = feed.check_feed
