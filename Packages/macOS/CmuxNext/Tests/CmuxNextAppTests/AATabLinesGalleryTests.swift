@@ -104,8 +104,10 @@ import Testing
                 row.performWithTheme { title.textColor = Palette.textPrimary }
             }
             if hierarchy == .typographyOnly {
+                // Rewind the complete production indent so this variant isolates typography.
+                let indentDelta = SidebarStyle.tabChildIndent + SidebarStyle.labelCellPadding - Metrics.space3
                 for view in row.subviews where view is ChromeLabel || view is DecorativeImageView {
-                    view.frame.origin.x -= Metrics.space1
+                    view.frame.origin.x -= indentDelta
                 }
             }
         }

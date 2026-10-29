@@ -531,3 +531,4 @@ existing colors, glass, row geometry and drag behavior.
 - 2026-10-29: the hierarchy gallery redraws production rows before applying each fixture-only variant, then redraws only the affected tab labels so the indentation-only primary-ink comparison remains faithful.
 
 - 2026-10-29: disclosed tab titles use `Metrics.space6` (16 pt) from the workspace title column so the hierarchy is visible at a glance.
+- 2026-10-29: disclosed tab positions resolve the rendered parent workspace title column, including custom icon or mark offsets; the typography-only gallery rewinds the full production indent.

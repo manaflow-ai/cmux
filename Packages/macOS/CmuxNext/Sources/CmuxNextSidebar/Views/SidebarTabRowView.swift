@@ -142,9 +142,20 @@ final class SidebarTabRowView: SidebarRowView {
         let b = layoutBounds
         // A grouped tab row keeps an ungrouped one's left edge (SidebarListView.frame(for:)).
         let iconSide = SidebarStyle.tabIconSize
-        // The title column, rather than the favicon well, carries the hierarchy. Keep the label
-        // cell's internal padding in the well so a no-icon tab still lands exactly at the child inset.
-        let iconX = SidebarStyle.titleLeading + SidebarStyle.tabChildIndent + SidebarStyle.labelCellPadding
+        // The title column, rather than the favicon well, carries the hierarchy. Resolve the
+        // parent workspace's rendered title column so custom icons and marks keep their children
+        // under the workspace label instead of pulling them back to the shared leading inset.
+        let parentTitleX: CGFloat = {
+            guard case let .tab(workspaceID, _) = key,
+                  let list = sequence(first: superview, next: { $0?.superview }).compactMap({ $0 as? SidebarListView }).first,
+                  let parent = list.rowViews[.workspace(workspaceID)] as? WorkspaceRowView else {
+                return SidebarStyle.titleLeading
+            }
+            return convert(parent.titleFrame, from: parent).minX
+        }()
+        // Keep the label cell's internal padding in the well so a no-icon tab still lands exactly
+        // at the child inset.
+        let iconX = parentTitleX + SidebarStyle.tabChildIndent + SidebarStyle.labelCellPadding
         icon.frame = NSRect(x: iconX, y: (b.height - iconSide) / 2, width: iconSide, height: iconSide)
         // Without a favicon the title takes the icon's place (Lawrence 2026-10-23: "as left as possible").
         let textX = icon.isHidden ? iconX - SidebarStyle.labelCellPadding : icon.frame.maxX + Metrics.space2

@@ -49,7 +49,8 @@ struct SidebarWorkspaceTabHierarchyTests {
                                      favicon: SidebarFavicon(try Self.favicon()))
         let nestedTab = SidebarTab(id: TabID("nested-tab"), title: "agent", kind: .agentChat, brand: "claude")
         let looseWorkspace = workspace(loose, "Loose workspace", tabs: [looseTab], focused: looseTab.id)
-        let groupedWorkspace = workspace(grouped, "Grouped workspace", tabs: [groupedTab])
+        var groupedWorkspace = workspace(grouped, "Grouped workspace", tabs: [groupedTab])
+        groupedWorkspace.icon = .symbol("star.fill", tint: .blue)
         let nestedWorkspace = workspace(nested, "Nested workspace", tabs: [nestedTab])
         var child = SidebarGroup(id: subgroup, name: "Child", color: .yellow, workspaces: [nestedWorkspace])
         child.parent = group
