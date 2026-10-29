@@ -86,7 +86,7 @@ public final class DisplayBackdropBinding {
         teardown()
     }
 
-    private func teardown() {
+    fileprivate func teardown() {
         guard !stopped else { return }
         stopped = true
         generation += 1
