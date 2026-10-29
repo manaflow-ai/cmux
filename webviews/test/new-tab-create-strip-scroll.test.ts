@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
+import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
@@ -73,9 +74,9 @@ await requireBrowserLane("new-tab-create-strip-scroll.test.ts", async () => {
             };
           });
           console.log("create-strip-scroll", key, index, JSON.stringify(geometry));
-          if (index === 0 && key === "ArrowDown" && process.env.CMUX_CAPTURE_STRIP) {
-            const capture = await page.screenshot({ type: "jpeg", quality: 55 });
-            console.log(`STRIP_CAPTURE_BASE64=${capture.toString("base64")}`);
+          if (index === 0 && key === "ArrowDown" && process.env.CMUX_CAPTURE_STRIP_DIR) {
+            mkdirSync(process.env.CMUX_CAPTURE_STRIP_DIR, { recursive: true });
+            await page.screenshot({ path: path.join(process.env.CMUX_CAPTURE_STRIP_DIR, "new-tab-strip.png") });
           }
           expect(geometry.focused).toBe(true);
           expect(geometry.pageScroll).toBe(initial.pageScroll);
