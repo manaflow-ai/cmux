@@ -240,7 +240,20 @@ fn cli_daemon_restart_reattaches_an_active_turn() {
 fn cli_wait_reconnects_during_restart_and_keeps_one_prompt() {
     let dir = scratch("wait-reconnect");
     let _shutdown = Shutdown(&dir);
-    let made = cli(&dir, &["new", "-d", "-n", "lane", "-m", "fake", "ticking:30:100"]);
+    let made = cli(
+        &dir,
+        &[
+            "new",
+            "-d",
+            "-n",
+            "lane",
+            "-m",
+            "fake",
+            "--prompt-id",
+            "wait-reconnect-prompt",
+            "ticking:30:100",
+        ],
+    );
     assert!(made.status.success(), "start: {}", text(&made));
 
     let mut waiting = cli_command(&dir, &["wait", "lane", "--timeout", "30"])
@@ -265,11 +278,7 @@ fn cli_wait_reconnects_during_restart_and_keeps_one_prompt() {
         })
         .collect();
     assert_eq!(prompts.len(), 1, "the prompt was recorded more than once: {}", text(&tail));
-    assert!(
-        prompts[0]["msg"]["promptId"].as_str().is_some_and(|id| !id.is_empty()),
-        "the prompt ledger lost its id: {}",
-        text(&tail)
-    );
+    assert_eq!(prompts[0]["msg"]["promptId"], "wait-reconnect-prompt", "the retry changed its id");
 }
 
 #[test]
