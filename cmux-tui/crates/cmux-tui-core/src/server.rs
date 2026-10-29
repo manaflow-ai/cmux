@@ -2914,6 +2914,9 @@ mod pinned_columns_tests;
 mod rows_tests;
 
 #[cfg(test)]
+#[path = "server/column_left_tests.rs"]
+mod column_left_tests;
+#[cfg(test)]
 #[path = "server/column_move_tests.rs"]
 mod column_move_tests;
 

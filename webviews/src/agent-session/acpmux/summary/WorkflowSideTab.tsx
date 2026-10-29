@@ -4,6 +4,7 @@ import { formatDuration } from "../conversation/turns";
 import { Spinner } from "../conversation/icons";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
+import { rowIconSize } from "../icons/iconSize";
 import { phaseAgents, tally } from "./foldWorkflows";
 import type { WorkflowAgent, WorkflowPhase, WorkflowSummary } from "./workflow";
 import { useNow } from "../subagents/SubagentGroup";
@@ -21,6 +22,7 @@ type Props = {
 };
 
 const running = (workflow: WorkflowSummary) => workflow.state === "running";
+const ROW_ICON = rowIconSize(12);
 
 function stateLabel(t: ReturnType<typeof useT>, state: WorkflowAgent["state"]): string {
   switch (state) {
@@ -73,7 +75,7 @@ function Timeline({ workflow, now }: { workflow: WorkflowSummary; now: number })
           <li key={phase.id} className="acpmux-workflow-side-tab__phase" data-state={phase.state}>
             <div className="acpmux-workflow-side-tab__phase-marker" aria-hidden="true">
               {phase.state === "running" ? (
-                <Spinner size={10} loading />
+                <Spinner size={ROW_ICON} loading />
               ) : (
                 <Icon
                   name={
@@ -83,7 +85,7 @@ function Timeline({ workflow, now }: { workflow: WorkflowSummary; now: number })
                         ? "status.error"
                         : "agent.session"
                   }
-                  size={11}
+                  size={ROW_ICON}
                   row
                 />
               )}
@@ -160,7 +162,7 @@ export function WorkflowSideTab({ workflow, onClose, onStop, layout = "timeline"
     <aside className="acpmux-workflow-side-tab" data-layout={layout} aria-label={workflow.title}>
       <header className="acpmux-workflow-side-tab__head">
         <div className="acpmux-workflow-side-tab__title">
-          <Icon name="agent.session" size={13} row />
+          <Icon name="agent.session" size={ROW_ICON} row />
           <span>{t("workflow.kind")}</span>
           <strong title={workflow.title}>{workflow.title}</strong>
         </div>
@@ -178,9 +180,9 @@ export function WorkflowSideTab({ workflow, onClose, onStop, layout = "timeline"
         <div className="acpmux-workflow-side-tab__summary">
           <span className="acpmux-workflow-side-tab__state" data-state={workflow.state}>
             {workflow.state === "running" ? (
-              <Spinner size={11} loading />
+              <Spinner size={ROW_ICON} loading />
             ) : (
-              <Icon name={workflow.state === "completed" ? "status.complete" : "status.error"} size={11} row />
+              <Icon name={workflow.state === "completed" ? "status.complete" : "status.error"} size={ROW_ICON} row />
             )}
             {stateLabel(t, workflow.state)}
           </span>

@@ -128,10 +128,10 @@ test("a PR remains linked after merging, with no stale state label or removable 
   setHeaderState({ pullRequest: null });
 });
 
-test("the compact count follows Changes for touched PRs and verified mentions arriving in replies", async () => {
+test("the compact count follows Changes for touched PRs and read-only reply mentions remain Sources", async () => {
   const { createRoot } = await import("react-dom/client");
   const { setHeaderState } = await import("../src/agent-session/acpmux/header/headerState");
-  const rows = [{ kind: "activity", id: "touch", version: 1, items: [tool("read", "gh pr view 61 -R acme/uploader")] }];
+  const rows = [{ kind: "activity", id: "touch", version: 1, items: [tool("edit", "gh pr edit 61 -R acme/uploader")] }];
   const root = createRoot(container());
   const render = (text: string) =>
     root.render(
@@ -147,12 +147,51 @@ test("the compact count follows Changes for touched PRs and verified mentions ar
   const count = () => dom.window.document.querySelector("[data-pr-count]")?.textContent;
   expect(count()).toBe("1 PR");
   await act(async () => render("See #62 for details"));
-  expect(count()).toBe("2 PRs");
+  expect(count()).toBe("1 PR");
   await act(async () => render("See #62 for details. Still working."));
-  expect(count()).toBe("2 PRs");
+  expect(count()).toBe("1 PR");
   await act(async () => setHeaderState({ pullRequest: null }));
   expect(count()).toBe("1 PR");
   act(() => root.unmount());
+});
+
+test("the dock count equals Changes for created, pushed, merged and referenced PRs", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { headerStatus, visibleChanges } = await import("../src/agent-session/acpmux/inspector/ChangesSection");
+  const { transcriptPullRequests } = await import("../src/agent-session/acpmux/summary/transcriptPullRequests");
+  delete dom.window.document.documentElement.dataset.prDock;
+  const rows = [
+    {
+      kind: "activity",
+      id: "membership",
+      version: 1,
+      items: [
+        tool("create", 'gh pr create --title "Created"', "https://github.com/acme/app/pull/10"),
+        tool("edit", 'gh pr edit 11 -R acme/app --title "Pushed"'),
+        tool("read-merged", "gh pr view 12 -R acme/app --json title", '{"title":"Merged"}'),
+        tool("merge", "gh pr merge 12 -R acme/app"),
+        tool("reference", "gh pr view 13 -R acme/app --json title", '{"title":"Reference only"}'),
+      ],
+    },
+  ];
+  const parsed = transcriptPullRequests(rows as never, { folder: "acme/app", replies: true });
+  const expected = visibleChanges(parsed, headerStatus(undefined)).length;
+  expect(parsed.map((pr) => [pr.number, pr.opened, pr.changed])).toEqual([
+    [10, true, true],
+    [11, false, true],
+    [12, false, true],
+    [13, false, undefined],
+  ]);
+  expect(expected).toBe(3);
+  const root = createRoot(container());
+  await act(async () =>
+    root.render(
+      <TestDock rows={rows as never} repository="acme/app" sessionId="membership" onOpenChanges={() => undefined} />,
+    ),
+  );
+  expect(dom.window.document.querySelector("[data-pr-count]")?.textContent).toBe(`${expected} PRs`);
+  act(() => root.unmount());
+  delete dom.window.document.documentElement.dataset.prDock;
 });
 
 test.each(["reply", "thought"])(
@@ -205,14 +244,18 @@ test.each(["reply", "thought"])(
       }
       expect(parse).toHaveBeenCalledTimes(1);
       expect(dom.window.document.querySelector("[data-pr-count]")?.textContent).toBe("1 PR");
-      // A new verified mention must invalidate; caching cannot make the count stale.
+      // A read-only reply mention belongs in Sources and does not change the Changes count.
       reply = { ...reply, version: reply.version + 1, text: `${reply.text} See #72` };
       rows.set(reply.id, reply);
       await act(async () => render());
-      expect(parse).toHaveBeenCalledTimes(2);
-      expect(dom.window.document.querySelector("[data-pr-count]")?.textContent).toBe("2 PRs");
+      expect(parse).toHaveBeenCalledTimes(1);
+      expect(dom.window.document.querySelector("[data-pr-count]")?.textContent).toBe("1 PR");
+      rows.set(reply.id, { ...reply, streaming: false });
+      await act(async () => render());
+      expect(parse).toHaveBeenCalledTimes(1);
+      expect(dom.window.document.querySelector("[data-pr-count]")?.textContent).toBe("1 PR");
       await act(async () => render("acme/other"));
-      expect(parse).toHaveBeenCalledTimes(3);
+      expect(parse).toHaveBeenCalledTimes(2);
       expect(dom.window.document.querySelector("[data-pr-count]")?.textContent).toBe("1 PR");
     } finally {
       act(() => root.unmount());

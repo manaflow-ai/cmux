@@ -15,7 +15,7 @@ import { AlertCircle, Check, DoubleCheck, Pin, Retry, Speaker, Spinner, TurnFork
 import { canReadAloud, readAloud, useReadingAloud } from "./readAloud";
 import { exactTime, relativeTime } from "./relativeTime";
 import { CopyButton } from "./CopyButton";
-import { hasMessageMenuHost, openMessageMenu } from "./messageMenu";
+import { hasMessageMenuHost, openMessageMenu, openForkMenu } from "./messageMenu";
 import { RetryModelMenu } from "./RetryModelMenu";
 import { TurnActionsContext } from "./turnActions";
 
@@ -39,6 +39,12 @@ export function MessageTime({ at, className }: { at: number; className: string }
       {relativeTime(at, now, language)}
     </time>
   );
+}
+
+/// Shared footer rail for sent, received and answer rows. Timestamp text and every action stay on
+/// one centered 24px line with equal control slots, including the retry model chevron.
+export function MessageFooterRow({ children, className }: { children: ReactNode; className?: string }) {
+  return <span className={["cv-message-footer-row", className].filter(Boolean).join(" ")}>{children}</span>;
 }
 
 /// The dot between a prompt's age and its buttons (Leo's spec for the row under a prompt).
@@ -75,7 +81,7 @@ export function forkWithFeedback(throughSeq: number, fallback: () => unknown): u
 /// Fork from here, with Claude's tooltip: the title, then that this chat stays as it is. The host
 /// operation can take long enough to look inert, so press feedback starts before the promise is
 /// dispatched and a ref closes the same-frame duplicate-click window.
-export function ForkButton({ onFork }: { onFork(): unknown }) {
+export function ForkButton({ onFork, throughSeq }: { onFork(): unknown; throughSeq?: number }) {
   const t = useT();
   const inFlight = useRef(false);
   const [state, setState] = useState<"idle" | "pending" | "done" | "failed">("idle");
@@ -125,7 +131,10 @@ export function ForkButton({ onFork }: { onFork(): unknown }) {
       data-fork-state={state}
       disabled={state === "pending"}
       data-tooltip-detail={t("turn.forkDetail")}
-      onClick={fork}
+      onClick={(event) => {
+        if (event.altKey && throughSeq !== undefined && openForkMenu(throughSeq, event.currentTarget)) return;
+        fork();
+      }}
     >
       {state === "pending" ? (
         <Spinner size={ROW_ICON} loading />
@@ -273,11 +282,11 @@ export function PromptActions({
   pending?: (actions: ReactNode) => ReactNode;
 }) {
   const actions = (
-    <>
+    <MessageFooterRow>
       <MessageTime at={row.at} className="cv-user__time" />
       <MessageCopy text={text} />
       <PromptRetry rowId={row.id} prompt={row.resend ?? row.text ?? ""} />
-    </>
+    </MessageFooterRow>
   );
   return <div className="cv-user__actions">{pending ? pending(actions) : actions}</div>;
 }
@@ -287,7 +296,9 @@ export function PromptActions({
 export function SentActions({ text }: { text: string }) {
   return (
     <span className="cv-sent-actions">
-      <MessageCopy text={text} />
+      <MessageFooterRow>
+        <MessageCopy text={text} />
+      </MessageFooterRow>
     </span>
   );
 }
@@ -298,12 +309,33 @@ export function ReceivedActions({ row, text }: { row: AcpmuxRow; text: string })
   return (
     <>
       <span className="cv-received-actions">
-        <MessageTime at={row.at} className="cv-user__time" />
-        <MessageCopy text={text} />
-        <PromptRetry rowId={row.id} prompt={row.resend ?? row.text ?? ""} />
-        <PinButton rowId={row.id} />
+        <MessageFooterRow>
+          <MessageTime at={row.at} className="cv-user__time" />
+          <MessageCopy text={text} />
+          <PromptRetry rowId={row.id} prompt={row.resend ?? row.text ?? ""} />
+          <PinButton rowId={row.id} />
+        </MessageFooterRow>
       </span>
       <PullRequestDock />
     </>
+  );
+}
+
+/// The row under a reply that its turn's footer does not serve (model.ts `hasReplyActions`: a
+/// steer, another agent's message, a sent message or a tool row follows it): the footer's look and
+/// buttons for this reply, Copy, Pin, Read aloud and More, then its age, as Claude desktop draws
+/// under every reply. Its line is reserved; it shows on hover or keyboard focus (conversation.css).
+export function ReplyActions({ row }: { row: AcpmuxRow }) {
+  const text = row.text ?? "";
+  return (
+    <div className="cv-turn-actions cv-reply-actions">
+      <span className="cv-turn-action-group">
+        <MessageCopy text={text} />
+        <PinButton rowId={row.id} />
+        <ReadAloudButton id={row.id} text={text} />
+        <MessageMore rowId={row.id} />
+      </span>
+      <MessageTime at={row.at} className="cv-turn-time" />
+    </div>
   );
 }

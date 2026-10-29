@@ -17,14 +17,15 @@ export const RowPullRequests = createContext<readonly SummaryPullRequest[] | und
 
 export function useTranscriptPullRequests(rows: readonly AcpmuxRow[], repository?: string) {
   const { pullRequest: live } = useHeaderState();
+  // The dock counts the same session-owned Changes as Session Info. Read-only reply mentions are
+  // Sources, so the cache fingerprints command findings only and skips per-token prose work.
   const parsed = useRef<{ key: string | symbol; repository?: string; prs: SummaryPullRequest[] }>(undefined);
-  const key = transcriptPullRequestKey(rows, true);
-  if (parsed.current?.key !== key || parsed.current?.repository !== repository)
-    parsed.current = {
-      key,
-      repository,
-      prs: transcriptPullRequests(rows, { folder: repository, replies: true }),
-    };
+  // Use the producer revision even though the dock parses commands only: the revision is O(1)
+  // for live snapshots and advances only when a tool finding changes.
+  const key = transcriptPullRequestKey(rows, false);
+  if (parsed.current?.key !== key || parsed.current?.repository !== repository) {
+    parsed.current = { key, repository, prs: transcriptPullRequests(rows, { folder: repository, replies: false }) };
+  }
   const all = parsed.current.prs;
   return useMemo(() => visibleChanges(all, headerStatus(live)).reverse(), [all, live]);
 }
