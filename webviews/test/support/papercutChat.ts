@@ -107,6 +107,8 @@ export async function papercutPane(
     extra?: PapercutStep[];
     session?: Record<string, unknown>;
     ready?: string;
+    /// Additional chats reuse these fixture events with their own identity and folder.
+    otherSessions?: Array<{ sessionId: string; cwd: string }>;
     /// Test-only Vite plugins, kept optional so existing papercut lanes stay unchanged.
     vitePlugins?: PluginOption[];
   },
@@ -116,14 +118,22 @@ export async function papercutPane(
   const { events, session } = papercutEvents(options);
   const methods: string[] = [];
   const sockets = new Set<{ close(code?: number, reason?: string): void }>();
-  const answer = (method: string): unknown => {
+  const sessions = [session, ...(options.otherSessions ?? []).map((other) => ({ ...session, ...other }))];
+  const answer = (method: string, params?: Record<string, any>): unknown => {
     switch (method) {
       case "initialize":
         return { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } };
       case "_acpmux/watch":
-        return { sessions: [session] };
-      case "_acpmux/attach":
-        return { session, lastSeq: events.length, events, hasMore: false };
+        return { sessions };
+      case "_acpmux/attach": {
+        const selected = sessions.find((one) => one.sessionId === params?.sessionId) ?? session;
+        return {
+          session: selected,
+          lastSeq: events.length,
+          events: events.map((event) => ({ ...event, sessionId: selected.sessionId })),
+          hasMore: false,
+        };
+      }
       case "_acpmux/events":
         return { events: [], hasMore: false, lastSeq: events.length };
       default:
@@ -173,7 +183,7 @@ export async function papercutPane(
         socket = ws;
         if (message.method === "session/prompt") prompts.push(message.params ?? {});
         if (message.id !== undefined)
-          ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method) }));
+          ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method, message.params) }));
       },
     },
   });

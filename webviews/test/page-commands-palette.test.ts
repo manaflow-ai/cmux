@@ -14,7 +14,11 @@ await requireBrowserLane("page-commands-palette.test.ts", async () => {
   let pane: Awaited<ReturnType<typeof papercutPane>>;
   beforeAll(async () => {
     browser = await chromium.launch({ headless: true });
-    pane = await papercutPane(() => browser, { turns: 2, running: false });
+    pane = await papercutPane(() => browser, {
+      turns: 2,
+      running: false,
+      otherSessions: [{ sessionId: "replacement-chat", cwd: "/home/dev/replacement" }],
+    });
   });
   afterAll(async () => {
     await browser?.close();
@@ -116,6 +120,43 @@ await requireBrowserLane("page-commands-palette.test.ts", async () => {
       await made(page, "pane.action", 1);
       expect((await calls(page, "pane.action")).map((call) => call.params)).toEqual([
         { id: "files", cwd: "/home/dev/cmux", mode: "toggle" },
+      ]);
+    } finally {
+      await page.close();
+    }
+  });
+
+  test("a new chat's command waits for callbacks owned by its render", async () => {
+    const page = await pane.open({ width: 1200, height: 760 }, record);
+    try {
+      await made(page, "pane.commandAvailability", 1);
+      await page.evaluate(async () => {
+        const path = "/direct.ts";
+        const { AcpmuxDirectClient } = await import(/* @vite-ignore */ path);
+        const prototype = AcpmuxDirectClient.prototype;
+        const original = prototype.emitNow;
+        prototype.emitNow = function (this: { selectedSession?: string; snapshotHold?: unknown }, connection: string) {
+          original.call(this, connection);
+          // The real client has emitted B (snapshotRef now holds B), but React has not rendered
+          // B's callbacks yet. Deliver B's command in this exact same stack before yielding.
+          if (this.selectedSession === "replacement-chat" && !this.snapshotHold) {
+            prototype.emitNow = original;
+            (window as unknown as { transitionCommandDelivered: boolean }).transitionCommandDelivered = true;
+            window.cmuxAcpmuxBridge!.command!("header:toggleFiles|replacement-chat");
+          }
+        };
+        window.cmuxAcpmuxDebug!.selectSession("replacement-chat");
+      });
+      await page.waitForFunction(
+        () =>
+          (window as unknown as { transitionCommandDelivered?: boolean }).transitionCommandDelivered &&
+          window.cmuxAcpmuxDebug!.chatState().sessionId === "replacement-chat",
+      );
+      expect(await calls(page, "pane.action")).toEqual([]);
+      await page.evaluate(() => window.cmuxAcpmuxBridge!.command!("header:toggleFiles|replacement-chat"));
+      await made(page, "pane.action", 1);
+      expect((await calls(page, "pane.action")).map((call) => call.params)).toEqual([
+        { id: "files", cwd: "/home/dev/replacement", mode: "toggle" },
       ]);
     } finally {
       await page.close();

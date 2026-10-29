@@ -6340,7 +6340,10 @@ function AcpmuxPane() {
     toggleSessionInfo.current = inspector.toggle;
   }, [inspector.toggle]);
   // The native palette's page commands that apply now (paletteCommands below), by command name.
-  const paletteCommands = useRef<Record<string, () => void>>({});
+  const paletteCommands = useRef<{ sessionId: string; commands: Record<string, () => void> }>({
+    sessionId: "",
+    commands: {},
+  });
   const revealInspector = inspector.reveal;
   useEffect(() => {
     const openCard = revealInspector
@@ -7036,8 +7039,9 @@ function AcpmuxPane() {
           const target = name.slice(separator + 1);
           // Both the live client and rendered callbacks must still belong to the captured chat.
           if ((directClient.current?.selectedSession ?? "") !== target) return;
-          if ((snapshotRef.current?.sessionId ?? "") !== target) return;
-          paletteCommands.current[name.slice("header:".length, separator)]?.();
+          const rendered = paletteCommands.current;
+          if (rendered.sessionId !== target) return;
+          rendered.commands[name.slice("header:".length, separator)]?.();
           return;
         }
         // Native palette rows carry the session id that was focused when the action was queued.
@@ -8379,7 +8383,7 @@ function AcpmuxPane() {
   if (!quick && localCwd) commands.toggleFiles = () => runSplitAction(HEADER_ACTIONS.files, localCwd, "toggle");
   if (!quick && (previewUrl || litSplits.includes(HEADER_ACTIONS.preview)))
     commands.togglePreview = () => togglePreview(previewUrl);
-  paletteCommands.current = commands;
+  paletteCommands.current = { sessionId: snapshot.sessionId ?? "", commands };
   const commandNames = Object.keys(commands).sort().join(" ");
   // Again for every client: the host's handshake (a reconnect's too) forgets the list, and a new
   // client follows its handshake (connectHost).
