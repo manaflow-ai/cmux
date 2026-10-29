@@ -23,8 +23,13 @@ struct AgentChatPlacement {
                 guard let workspace = daemon.store.workspace(id: id), workspace.key != nil else { continue }
                 let panes = workspace.screens.flatMap(\.panes)
                 let remembered = state.focus.rememberedPanes()[id]
-                let focused = state.workspaceID == id ? state.focus.state.pane ?? remembered : remembered
-                if let pane = panes.first(where: { $0.id == focused }) ?? panes.max(by: { $0.focusedAt < $1.focusedAt }) {
+                // The window's workspace changes before its focus topology. Never let the
+                // previous workspace's pane mask this destination's remembered focus.
+                let focused = state.workspaceID == id && state.focus.state.topology.workspace == id ? state.focus.state.pane : nil
+                let preferred = [focused, remembered].compactMap { candidate in
+                    candidate.flatMap { id in panes.first { $0.id == id } }
+                }.first
+                if let pane = preferred ?? panes.max(by: { $0.focusedAt < $1.focusedAt }) {
                     return AgentChatPlacement(pane: pane, workspace: workspace, daemon: daemon)
                 }
             }
