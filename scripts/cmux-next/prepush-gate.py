@@ -1225,8 +1225,10 @@ def main(argv: list[str] | None = None) -> int:
             print(f"::error title=Sidebar look owner::{len(fresh)} commit(s) change the sidebar's drawing code without "
                   "a Sidebar-Look: trailer or an entry in plans/cmux-next/sidebar-owner.md")
         for sha, finding in inherited:
-            print(f"::warning title=Sidebar look owner (base commit)::{finding.splitlines()[0][:200]} This commit is "
-                  f"on the base, not in this pull request: the owner logs {sha[:11]} in {SIDEBAR_NOTE}.")
+            # The whole finding (one line); % escaped, as a workflow command reads %0A as a new line.
+            text = (f"{finding} This commit is on the base, not in this pull request: the owner logs {sha[:11]} in "
+                    f"{SIDEBAR_NOTE}.").replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+            print(f"::warning title=Sidebar look owner (base commit)::{text}")
         print(f"prepush-gate: sidebar sweep {base[:11]}..{tip[:11]}, {len(fresh)} finding(s)"
               + (f", {len(inherited)} on base commits (warnings)" if inherited else "")
               + f" ({time.monotonic() - started:.1f}s)")

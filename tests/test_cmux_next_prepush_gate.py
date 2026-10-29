@@ -673,6 +673,7 @@ class PrePushGateTests(unittest.TestCase):
         self.assertIn("::warning title=Sidebar look owner (base commit)::", output)
         self.assertIn(on_base[:11], output)
         self.assertIn("plans/cmux-next/sidebar-owner.md", output)
+        self.assertIn("no `Sidebar-Look:` trailer. Add", output, "the warning carries the whole finding")
 
         # The branch's push sweep (no --own-range) still fails on the same base commit.
         push_run = sweep()

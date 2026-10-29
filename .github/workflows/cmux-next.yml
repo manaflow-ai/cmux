@@ -2052,7 +2052,8 @@ jobs:
           # A pull request is judged on its own commits (HEAD^1..HEAD of the merge): a base commit without the
           # owner's record is a warning naming it here, and stays an error on every push sweep of the branch.
           own=()
-          [[ "$EVENT_NAME" != push ]] && own=(--own-range HEAD^1..HEAD)
+          # pull_request only: there HEAD is GitHub's merge of the PR into its base; a dispatch runs on a branch tip.
+          [[ "$EVENT_NAME" == pull_request ]] && own=(--own-range HEAD^1..HEAD)
           if git merge-base --is-ancestor "$sidebar_from" HEAD 2>/dev/null; then
             python3 -I scripts/cmux-next/prepush-gate.py --only sidebar --commits "$sidebar_from..HEAD" "${own[@]}" \
               | tee -a "$GITHUB_STEP_SUMMARY" || sweep=$?
